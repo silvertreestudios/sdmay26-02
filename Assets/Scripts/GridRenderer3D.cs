@@ -5,6 +5,7 @@ public class GridRenderer3D : MonoBehaviour
 {
     // ---------- Public, serialized settings ----------
 
+
     [Header("Grid (XZ plane)")]
     // Number of columns.
     [Min(1)] public int width = 20;
@@ -18,6 +19,8 @@ public class GridRenderer3D : MonoBehaviour
     public float gridY = 0f;
     // explicit camera (falls back to Camera.main).
     public Camera targetCamera;
+    // refrence to tile prefab
+    [SerializeField] private GameObject groundTile;
 
     [Header("Appearance")]
     // Color of the “gaps” between cells (big backdrop).
@@ -70,19 +73,22 @@ public class GridRenderer3D : MonoBehaviour
     Transform _gridRoot, _wallRoot, _overlayRoot;
 
     // ---------- Sprite references ----------
-
-    // Single big backdrop (shows the “gaps”).
-    SpriteRenderer _backdrop;
     // One SR per cell.
-    readonly List<SpriteRenderer> _cells = new();
+    // readonly List<SpriteRenderer> _cells = new();
+    //trying to use plane meshes instead of sprites so we dont have to deal with the camera. this will also makes textures easier. pysics will also be easier
+    readonly List<MeshRenderer> _cells = new();
     // 0–2 SRs for axes (X and/or Z) depending on crossing.
+
     readonly List<SpriteRenderer> _axes = new();
+
     // One SR per wall segment.
     readonly List<SpriteRenderer> _wallSRs = new();
     // Hover fill quad.
     SpriteRenderer _hoverFill;
     // Four SRs for the hover outline edges (L,R,B,T).
     readonly SpriteRenderer[] _hoverEdges = new SpriteRenderer[4];
+
+
 
     // ---------- Small helpers to remove repetition ----------
 
@@ -220,7 +226,7 @@ public class GridRenderer3D : MonoBehaviour
         if (_wallsDirty) { _wallsDirty = false; RebuildWallCache(); RebuildWalls(); }
 
         // Keep all visuals pixel-consistent as the camera moves/zooms.
-        UpdateGrid(cam);
+        UpdateGrid();
         UpdateAxes(cam);
         UpdateWalls(cam);
         UpdateHover(cam);
@@ -281,67 +287,55 @@ public class GridRenderer3D : MonoBehaviour
         RebuildAxes();
         RebuildWallCache();
         RebuildWalls();
-        var cam = Cam(); if (cam) { UpdateGrid(cam); UpdateAxes(cam); UpdateWalls(cam); UpdateHover(cam); }
+        var cam = Cam(); if (cam) { UpdateGrid(); UpdateAxes(cam); UpdateWalls(cam); UpdateHover(cam); }
     }
 
     /// <summary>
-    /// Remove old grid SRs, create backdrop + per-cell SRs.
+    /// Remove old grid SRs, create per-cell SRs.
     /// </summary>
     void RebuildGrid()
     {
-        // Clear all previous grid children and empty the cell list; reset backdrop reference.
-        ClearChildren(_gridRoot, _cells); _backdrop = null;
+        // Clear all previous grid children and empty the cell list.
+        ClearChildrenPlane(_gridRoot, _cells);
         // Compute world-space grid width (gw) and height (gh).
         float gw = width * cellSize, gh = height * cellSize;
         // origin cache
         float x0 = origin.x, z0 = origin.y;
-
-        // Create a SpriteRenderer for the large backdrop quad.
-        _backdrop = NewSR(_gridRoot, "Backdrop", 0, lineColor);
-        // Place backdrop at the grid center and scale it to cover the whole grid.
-        SetTRS(_backdrop.transform, x0 + gw * 0.5f, z0 + gh * 0.5f, gw, gh);
-        // Ensure backdrop tint matches inspector.
-        _backdrop.color = lineColor;
 
         // Loop over each row (z index) in the grid.
         for (int z = 0; z < height; z++)
             // Loop over each column (x index) in the grid.
             for (int x = 0; x < width; x++)
             {
-                // Create a SpriteRenderer for this cell.
-                var sr = NewSR(_gridRoot, $"C{x}_{z}", 1, cellFillColor);
-                // Position the cell at its center and give it initial full cell size.
-                SetTRS(sr.transform, x0 + (x + 0.5f) * cellSize, z0 + (z + 0.5f) * cellSize, cellSize, cellSize);
-                // Track the cell so we can resize/recolor later.
-                _cells.Add(sr);
+                // Instantiate the tile prefab.
+                var tile = Instantiate(groundTile, _gridRoot.transform);
+                tile.name = $"C{x}_{z}";
+
+                // Position the tile at its center.
+                var tileTransform = tile.transform;
+                tileTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY, z0 + (z + 0.5f) * cellSize);
+                // tileTransform.localScale = new Vector3(cellSize, 1f, cellSize);
+
+                // Track the tile's MeshRenderer for later updates.
+                var meshRenderer = tile.GetComponent<MeshRenderer>();
+                if (meshRenderer != null)
+                {
+                    _cells.Add(meshRenderer);
+                }
             }
     }
 
     /// <summary>
-    /// Shrink cells so the backdrop peeks through as pixel-accurate gaps.
+    /// Use to update all cells rendered on screen.
     /// </summary>
-    /// <param name="cam"></param>
-    void UpdateGrid(Camera cam)
+    void UpdateGrid()
     {
-        // Convert desired gap thickness in pixels to world units at the grid plane.
-        float gap = PxToWorld(cam, lineThicknessPixels);
-        // Compute current world-space grid width/height for backdrop maintenance.
-        float gw = width * cellSize, gh = height * cellSize;
-
-        // Keep the backdrop scaled to grid size and colored correctly.
-        if (_backdrop) { _backdrop.transform.localScale = new Vector3(gw, gh, 1f); _backdrop.color = lineColor; }
-
-        // Compute the shrunken cell side length so gaps show on all four sides.
-        float s = Mathf.Max(0f, cellSize - 2f * gap);
         // Iterate all cell renderers to apply scale and color.
         for (int i = 0; i < _cells.Count; i++)
         {
-            // Fetch the i-th cell renderer.
-            var sr = _cells[i]; if (!sr) continue;
-            // Apply the shrunken square size uniformly in local X/Y.
-            sr.transform.localScale = new Vector3(s, s, 1f);
-            // Sync the cell tint from inspector.
-            sr.color = cellFillColor;
+            var meshRenderer = _cells[i];
+            if (!meshRenderer) continue;
+            meshRenderer.material.color = cellFillColor;
         }
     }
 
@@ -606,6 +600,11 @@ public class GridRenderer3D : MonoBehaviour
     /// <param name="parent"></param>
     /// <param name="list"></param>
     void ClearChildren(Transform parent, List<SpriteRenderer> list)
+    {
+        if (parent) for (int i = parent.childCount - 1; i >= 0; i--) SafeDestroy(parent.GetChild(i).gameObject);
+        list?.Clear();
+    }
+    void ClearChildrenPlane(Transform parent, List<MeshRenderer> list)
     {
         if (parent) for (int i = parent.childCount - 1; i >= 0; i--) SafeDestroy(parent.GetChild(i).gameObject);
         list?.Clear();
