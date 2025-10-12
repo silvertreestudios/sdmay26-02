@@ -1,656 +1,613 @@
-﻿using System.Collections.Generic;              // List<T> etc.
-using UnityEngine;                              // Unity engine APIs
-
-[ExecuteAlways]                                // Run in Edit + Play mode
-[DisallowMultipleComponent]                    // Only one per GameObject
+﻿using System.Collections.Generic;
+using UnityEngine;
+[ExecuteAlways, DisallowMultipleComponent]
 public class GridRenderer : MonoBehaviour
 {
-    [Header("Grid (XZ plane)")]
-    // Columns (>=1)
-    [Min(1)] public int width = 20;
-    // Rows (>=1)
-    [Min(1)] public int height = 12;
-    // World size of one cell
-    [Min(0.01f)] public float cellSize = 1f;
-    // Bottom-left world XZ of grid
-    public Vector2 origin = Vector2.zero;   
-    // Y height where grid lies
-    public float gridY = 0f;       
-    public Camera targetCamera;                
+    // ---------- Public, serialized settings ----------
 
-    // GRID APPEARANCE //
+    [Header("Grid (XZ plane)")]
+    // Number of columns.
+    [Min(1)] public int width = 20;
+    // Number of rows.
+    [Min(1)] public int height = 12;
+    // World size of one square cell.
+    [Min(0.01f)] public float cellSize = 1f;
+    // Bottom-left corner of the grid in world XZ.
+    public Vector2 origin = Vector2.zero;
+    // Fixed Y height where the grid is drawn.
+    public float gridY = 0f;
+    // explicit camera (falls back to Camera.main).
+    public Camera targetCamera;
+
     [Header("Appearance")]
-    // Grid line color
+    // Color of the “gaps” between cells (big backdrop).
     public Color lineColor = new(1, 1, 1, 0.85f);
-    // Axis color
+    // Color of each cell quad.
+    public Color cellFillColor = new(0.07f, 0.1f, 0.16f, 0.8f);
+    // Color of world axes (if drawn).
     public Color axisColor = new(1, 0.55f, 0.1f, 0.95f);
-    // Grid thickness in screen px
-    public float lineThicknessPixels = 2f;
-    // Toggle axes
-    public bool drawAxes = true;               
+    // Desired gap/axis thickness measured in pixels on screen.
+    public float lineThicknessPixels = 1f;
+    // Toggle drawing axes.
+    public bool drawAxes = true;
 
     [Header("Walls")]
-    // Wall color
+    // Wall tint.
     public Color wallColor = new(0.2f, 0.45f, 1f, 1f);
-    // Wall px thickness
+    // Wall thickness in pixels.
     [Min(1)] public float wallThicknessPixels = 10f;
-    [System.Serializable] public struct WallSegment { public Vector2Int start, end; } // Grid-edge segment
-    public List<WallSegment> walls = new() { new() { start = new(1, 3), end = new(10, 3) } }; // Example wall
+    // Minimal wall segment representation in grid coords (inclusive endpoints).
+    [System.Serializable] public struct WallSegment { public Vector2Int start, end; }
+    // Example data so the system shows something by default.
+    public List<WallSegment> walls = new() { new() { start = new(1, 3), end = new(10, 3) } };
 
     [Header("Hover/Click")]
-    // Show hovered cell
+    // Whether to draw hover visual.
     public bool drawHoverCell = true;
-    // Hover fill color
+    // Hover fill color (semi-transparent).
     public Color hoverFill = new(0.3f, 0.6f, 1f, 0.18f);
-    // Hover outline color
+    // Hover outline color.
     public Color hoverOutline = new(0.7f, 0.9f, 1f, 0.95f);
-    // Click flash color
-    public Color clickFlashColor = new(1f, 0.92f, 0.2f, 0.35f);
-    // Flash duration (s)
-    public float clickFlashDuration = 0.4f;
 
-    // --- State ---
-    public bool HasHover { get; private set; } // True if mouse is currently inside the grid bounds
-    public Vector2Int HoverCell { get; private set; } // Current hovered cell
-    struct Flash { public Vector2Int cell; public float until; public Color color; } // Flash entry
+    // True when mouse ray hits grid and cell is inside bounds.
+    public bool HasHover { get; private set; }
+    // Current hovered cell (grid indices), defaults to invalid.
+    public Vector2Int HoverCell { get; private set; } = new(-1, -1);
 
-    // Collection of active flashes to render and expire over time.
-    readonly List<Flash> _flashes = new();
+    // ---------- Wall cache state ----------
 
-    // Edge caches + dirty flag
+    // Horizontal/vertical blocked edges caches; rebuild gate.
     bool[] _h, _v; bool _wallsDirty = true;
 
-    // 1x1 white sprite
-    Sprite _white;
-    // Hierarchy parents
-    Transform _gridRoot, _wallRoot, _overlayRoot; 
-    // Grid SRs
-    readonly List<SpriteRenderer> _gridSRs = new();
-    // Axis SRs
-    readonly List<SpriteRenderer> _axisSRs = new();
-    // Wall SRs
+    // Shared 1×1 white sprite for every quad; static so all instances reuse it.
+    static Sprite _white;
+
+    // ---------- Scene graph (parents) ----------
+
+    // Parent rotated so children (2D sprites) lie on XZ plane.
+    Transform _plane;
+    // Buckets for grid, walls, overlay/hover.
+    Transform _gridRoot, _wallRoot, _overlayRoot;
+
+    // ---------- Sprite references ----------
+
+    // Single big backdrop (shows the “gaps”).
+    SpriteRenderer _backdrop;
+    // One SR per cell.
+    readonly List<SpriteRenderer> _cells = new();
+    // 0–2 SRs for axes (X and/or Z) depending on crossing.
+    readonly List<SpriteRenderer> _axes = new();
+    // One SR per wall segment.
     readonly List<SpriteRenderer> _wallSRs = new();
-    // Hover fill SR
-    SpriteRenderer _hoverFillSR;
-    // Hover edges
-    readonly List<SpriteRenderer> _hoverEdgeSRs = new(4);
-    // Flash quads
-    readonly List<SpriteRenderer> _flashSRs = new(); 
+    // Hover fill quad.
+    SpriteRenderer _hoverFill;
+    // Four SRs for the hover outline edges (L,R,B,T).
+    readonly SpriteRenderer[] _hoverEdges = new SpriteRenderer[4];
 
-    Camera Cam => targetCamera ? targetCamera : (targetCamera = Camera.main); // Lazy camera
-    float _lastPxWorldGrid, _lastPxWorldWall; // Cached px→world scales
-    Vector3 _lastCamPos; Quaternion _lastCamRot; float _lastCamSizeOrFov; // Cached camera
-    int _lastW, _lastH; float _lastCell; Vector2 _lastOrigin; float _lastY; // Cached layout
+    // ---------- Small helpers to remove repetition ----------
 
-    static readonly Quaternion XZ_ROT = Quaternion.Euler(90f, 0f, 0f); // XY→XZ
+    // Get a camera (cache into targetCamera if null).
+    Camera Cam() => targetCamera ? targetCamera : (targetCamera = Camera.main);
 
-    // ---------- Unity ----------
-
-    // Ensures internal objects (roots and 1×1 sprite) exist, marks wall cache dirty, and optionally applies the default camera pose.
-    void Awake()
+    /// <summary>
+    /// Compute the distance from the camera to the horizontal plane at Y = gridY.
+    /// </summary>
+    /// <param name="cam"></param>
+    /// <returns></returns>
+    float PlaneDepth(Camera cam)
     {
-        // Create/find child roots
-        EnsureRoots();
-
-        // Create 1x1 sprite if needed
-        EnsureWhite();
-
-        // Force wall-cache rebuild
-        MarkWallsDirty();                       
-    }
-
-    // Re-creates infra, optionally sets the camera, disables hover state/visuals so nothing is highlighted on start, then does a full rebuild.
-    void OnEnable()
-    {
-        EnsureRoots(); EnsureWhite();
-
-        // Start with hover visuals disabled until first click
-        HasHover = false;
-        HoverCell = new Vector2Int(-1, -1);
-
-        FullRebuild();
-
-        // Ensure any existing hover sprites are hidden at start
-        if (_hoverFillSR) _hoverFillSR.enabled = false;
-        foreach (var e in _hoverEdgeSRs) if (e) e.enabled = false;
-    }
-
-    // Runs in the editor when values change; rebuilds infra, marks walls dirty, and fully rebuilds visuals so the Scene view updates.
-    void OnValidate()
-    {
-        // Keep infra valid in edit
-        EnsureRoots(); EnsureWhite();
-
-        // Walls may depend on sizes
-        MarkWallsDirty();
-
-        // Rebuild visuals
-        FullRebuild();                          
-    }
-
-    /// Marks the wall cache dirty so it refreshes next frame.
-    public void MarkWallsDirty() { _wallsDirty = true; }
-
-    // Cleans up overlay children (hover + flash quads) and clears hover sprite references
-    void OnDisable()
-    {
-        // Clean overlay (hover/flash)
-        if (_overlayRoot)                       
-            for (int i = _overlayRoot.childCount - 1; i >= 0; i--)
-                SafeDestroy(_overlayRoot.GetChild(i).gameObject);
-        // Drop hover refs
-        _hoverFillSR = null;                    
-        _hoverEdgeSRs.Clear();
-    }
-
-    // ---------- Update Loop ----------
-    // Main loop: computes mouse hover on the XZ plane, updates/flushes flashes,
-    // rebuilds walls if dirty, and reacts to layout/camera changes by rebuilding or rescaling visuals
-    void Update()
-    {
-        var cam = Cam; if (!cam) return;
-
-        // --- Hover detection ---
-        // Mouse screen pos
-        Vector3 mp = InputCompat.MousePositionScreen();
-        // Project to plane
-        if (ScreenToXZPlane(cam, mp, gridY, out Vector3 hit))
-        {
-            // World→cell
-            Vector2Int cell = WorldToCellXZ(hit);
-            // Bounds check
-            bool inside = (uint)cell.x < (uint)width && (uint)cell.y < (uint)height; 
-            // Store hover state
-            HasHover = inside;                   
-            // Update visuals on change
-            if (inside && cell != HoverCell) { HoverCell = cell; UpdateHoverVisual(); }
-            // Click → flash cell
-            if (inside && InputCompat.LeftClickDown())
-                FlashCell(HoverCell, clickFlashDuration, clickFlashColor);
-        }
-        // Not over grid plane
-        else HasHover = false;
-
-        // --- Flash expiration ---
-        // If any active flashes
-        if (_flashes.Count > 0)                  
-        {
-            // Clock
-            float now = Application.isPlaying ? Time.time : Time.realtimeSinceStartup;
-            // Compact “alive” flashes
-            int wIdx = 0;                        
-            for (int r = 0; r < _flashes.Count; r++)
-                if (now < _flashes[r].until) _flashes[wIdx++] = _flashes[r];
-            // Trim and rebuild visuals
-            if (wIdx < _flashes.Count)           
-            {
-                _flashes.RemoveRange(wIdx, _flashes.Count - wIdx);
-                RebuildFlashes();
-            }
-        }
-
-        // --- Walls: refresh if dirty ---
-
-        // Cache needs rebuild?
-        if (_wallsDirty)                         
-        {
-            _wallsDirty = false;
-            // Recompute edge blocks
-            RebuildWallCache();
-
-            // Rebuild wall sprites
-            RebuildWalls();                      
-        }
-
-        // --- Change detection ---
-
-        // Grid dimensions/origin changed?
-        if (LayoutChanged())                     
-        {
-            // Full visuals
-            RebuildGrid(); RebuildAxes(); RebuildWalls();
-            // Overlays
-            UpdateHoverVisual(); RebuildFlashes();
-            // Save snapshot
-            CacheState(cam);                    
-        }
-        else if (CamChanged(cam))               // Camera/px scale changed?
-        {
-            UpdateGrid(); UpdateAxes(); UpdateWalls();    // Rescale only
-            UpdateHoverVisual(); RebuildFlashes();        // Overlays
-            CacheState(cam);                    // Save snapshot
-        }
-    }
-
-    // ---------- Hover ----------
-
-    // creates the hover fill quad and four edge line sprites if they don’t exist.
-    void EnsureHoverSprites()
-    {
-        // Already created
-        if (_hoverFillSR) return;               
-        // Fill quad
-        _hoverFillSR = NewSR(_overlayRoot, "HoverFill", 10, hoverFill); 
-        // Make 4 edge lines
-        _hoverEdgeSRs.Clear();                   
-        for (int i = 0; i < 4; i++)
-            _hoverEdgeSRs.Add(NewSR(_overlayRoot, "HoverEdge" + i, 11, hoverOutline));
-    }
-
-    // Shows/hides the hover sprites and positions/scales them to outline the current HoverCell at the correct pixel thickness.
-    void UpdateHoverVisual()
-    {
-        // Ensure SRs exist
-        EnsureHoverSprites();                    // Ensure SRs exist
-        bool show = HasHover && drawHoverCell;   // Visibility flag
-        _hoverFillSR.enabled = show;             // Toggle fill
-        foreach (var e in _hoverEdgeSRs) e.enabled = show; // Toggle edges
-        if (!show) return;                       // Nothing to place
-
-        float thick = PixelsToWorld(Cam, lineThicknessPixels); // px→world
-        float xa = origin.x + HoverCell.x * cellSize;          // Cell bounds
-        float za = origin.y + HoverCell.y * cellSize;
-        float xb = xa + cellSize, zb = za + cellSize;
-
-        _hoverFillSR.transform.SetPositionAndRotation( // Centered fill
-            P((xa + xb) * 0.5f, (za + zb) * 0.5f), XZ_ROT);
-        _hoverFillSR.transform.localScale = new Vector3(cellSize, cellSize, 1f);
-        _hoverFillSR.color = hoverFill;
-
-        var L = _hoverEdgeSRs[0]; var R = _hoverEdgeSRs[1];   // Edge SRs
-        var B = _hoverEdgeSRs[2]; var T = _hoverEdgeSRs[3];
-
-        L.transform.SetPositionAndRotation(P(xa, (za + zb) * 0.5f), XZ_ROT); // Left
-        L.transform.localScale = new Vector3(thick, cellSize, 1f);
-
-        R.transform.SetPositionAndRotation(P(xb, (za + zb) * 0.5f), XZ_ROT); // Right
-        R.transform.localScale = new Vector3(thick, cellSize, 1f);
-
-        B.transform.SetPositionAndRotation(P((xa + xb) * 0.5f, za), XZ_ROT); // Bottom
-        B.transform.localScale = new Vector3(cellSize, thick, 1f);
-
-        T.transform.SetPositionAndRotation(P((xa + xb) * 0.5f, zb), XZ_ROT); // Top
-        T.transform.localScale = new Vector3(cellSize, thick, 1f);
-
-        foreach (var e in _hoverEdgeSRs) e.color = hoverOutline; // Edge color
-    }
-
-    // ---------- Grid + Walls + Flash ----------
-
-    // Complete refresh: rebuilds grid, axes, wall cache & walls, updates hover and flash overlays, and caches current state.
-    void FullRebuild()
-    {
-        RebuildGrid(); RebuildAxes(); RebuildWallCache(); RebuildWalls(); // Core
-        UpdateHoverVisual(); RebuildFlashes();                            // Overlay
-        CacheState(Cam);                                                  // Snapshot
-    }
-
-    // Destroys old grid line sprites and recreates new vertical and horizontal line sprites in the right positions, then calls UpdateGrid.
-    void RebuildGrid()
-    {
-        ClearChildren(_gridRoot, _gridSRs);   // Remove old grid SRs
-        float x0 = origin.x, z0 = origin.y;   // Origin
-        float gw = width * cellSize, gh = height * cellSize; // Extents
-
-        for (int x = 0; x <= width; x++)      // Vertical lines
-        {
-            var sr = NewSR(_gridRoot, $"V{x}", 0, lineColor);
-            sr.transform.SetPositionAndRotation(P(x0 + x * cellSize, z0 + gh * 0.5f), XZ_ROT);
-            _gridSRs.Add(sr);
-        }
-        for (int z = 0; z <= height; z++)     // Horizontal lines
-        {
-            var sr = NewSR(_gridRoot, $"H{z}", 0, lineColor);
-            sr.transform.SetPositionAndRotation(P(x0 + gw * 0.5f, z0 + z * cellSize), XZ_ROT);
-            _gridSRs.Add(sr);
-        }
-        UpdateGrid();                         // Apply thickness scaling
-    }
-
-    /// <summary>Rescales grid lines to match pixel thickness in world units.</summary>
-    void UpdateGrid()
-    {
-        var cam = Cam; if (!cam) return;      // Camera guard
-        float thick = PixelsToWorld(cam, lineThicknessPixels); // px→world
-        float gw = width * cellSize, gh = height * cellSize;   // Extents
-        int idx = 0;                           // Iterate SR list
-
-        for (int x = 0; x <= width; x++)       // Vertical scales
-            _gridSRs[idx++].transform.localScale = new Vector3(thick, gh, 1f);
-
-        for (int z = 0; z <= height; z++)      // Horizontal scales
-            _gridSRs[idx++].transform.localScale = new Vector3(gw, thick, 1f);
-    }
-
-    /// <summary>Creates axis sprites if they cross the grid; then calls <see cref="UpdateAxes"/>.</summary>
-    void RebuildAxes()
-    {
-        ClearChildren(null, _axisSRs);        // Clear axis SRs
-        if (!drawAxes) return;                // Skip if off
-
-        float x0 = origin.x, z0 = origin.y;   // Origin
-        float gw = width * cellSize, gh = height * cellSize; // Extents
-        if (z0 <= 0 && 0 <= z0 + gh)          // If Z=0 crosses grid
-            _axisSRs.Add(NewSR(_gridRoot, "AxisX", 1, axisColor));
-        if (x0 <= 0 && 0 <= x0 + gw)          // If X=0 crosses grid
-            _axisSRs.Add(NewSR(_gridRoot, "AxisZ", 1, axisColor));
-        UpdateAxes();                         // Size/rotate axes
-    }
-
-    /// <summary>Rescales axis sprites to match pixel thickness and grid span.</summary>
-    void UpdateAxes()
-    {
-        var cam = Cam; if (!cam) return;      // Camera guard
-        float thick = PixelsToWorld(cam, lineThicknessPixels); // px→world
-        float gw = width * cellSize, gh = height * cellSize;   // Extents
-        foreach (var sr in _axisSRs)
-        {
-            if (!sr) continue;
-            bool isXaxis = sr.name == "AxisX";                  // Which axis?
-            sr.transform.localScale = isXaxis ? new Vector3(gw, thick, 1f)
-                                              : new Vector3(thick, gh, 1f); // Length + thickness
-            sr.transform.rotation = XZ_ROT;                      // XY→XZ
-            sr.color = axisColor;                               // Color
-        }
-    }
-
-    /// <summary>Creates wall sprites from <see cref="walls"/> and positions them; then calls <see cref="UpdateWalls"/>.</summary>
-    void RebuildWalls()
-    {
-        ClearChildren(_wallRoot, _wallSRs);  // Remove old wall SRs
-        if (walls == null || walls.Count == 0) return; // Nothing to draw
-
-        float x0 = origin.x, z0 = origin.y;  // Origin
-        foreach (var s in walls)             // Each segment
-        {
-            var sr = NewSR(_wallRoot, "Wall", 2, wallColor);
-            if (s.start.y == s.end.y)        // Horizontal wall
-            {
-                float z = z0 + s.start.y * cellSize;
-                float xa = x0 + Mathf.Min(s.start.x, s.end.x) * cellSize;
-                float xb = x0 + Mathf.Max(s.start.x, s.end.x) * cellSize;
-                sr.transform.SetPositionAndRotation(P((xa + xb) * 0.5f, z), XZ_ROT);
-            }
-            else                              // Vertical wall
-            {
-                float x = x0 + s.start.x * cellSize;
-                float za = z0 + Mathf.Min(s.start.y, s.end.y) * cellSize;
-                float zb = z0 + Mathf.Max(s.start.y, s.end.y) * cellSize;
-                sr.transform.SetPositionAndRotation(P(x, (za + zb) * 0.5f), XZ_ROT);
-            }
-            _wallSRs.Add(sr);                 // Track SR
-        }
-        UpdateWalls();                        // Apply thickness scaling
-    }
-
-    /// <summary>Rescales wall sprites to match pixel thickness and segment length.</summary>
-    void UpdateWalls()
-    {
-        var cam = Cam; if (!cam) return;     // Camera guard
-        float thick = PixelsToWorld(cam, wallThicknessPixels); // px→world
-        float x0 = origin.x, z0 = origin.y; // Origin
-
-        int i = 0;                           // Iterate parallel to walls list
-        foreach (var s in walls)
-        {
-            var sr = _wallSRs[i++]; if (!sr) continue; sr.color = wallColor; // Ensure color
-            if (s.start.y == s.end.y)        // Horizontal: scale X by length
-            {
-                float xa = x0 + Mathf.Min(s.start.x, s.end.x) * cellSize;
-                float xb = x0 + Mathf.Max(s.start.x, s.end.x) * cellSize;
-                sr.transform.localScale = new Vector3(Mathf.Max(0, xb - xa), thick, 1f);
-            }
-            else                              // Vertical: scale Z by length
-            {
-                float za = z0 + Mathf.Min(s.start.y, s.end.y) * cellSize;
-                float zb = z0 + Mathf.Max(s.start.y, s.end.y) * cellSize;
-                sr.transform.localScale = new Vector3(thick, Mathf.Max(0, zb - za), 1f);
-            }
-        }
-    }
-
-    /// <summary>Ensures enough flash sprites exist and positions/scales them for active flashes.</summary>
-    void RebuildFlashes()
-    {
-        while (_flashSRs.Count < _flashes.Count) // Ensure enough SRs
-            _flashSRs.Add(NewSR(_overlayRoot, "Flash", 12, clickFlashColor));
-        for (int i = 0; i < _flashSRs.Count; i++) // Enable only used ones
-            _flashSRs[i].enabled = i < _flashes.Count;
-
-        var cam = Cam; if (!cam) return;     // Camera guard
-        for (int i = 0; i < _flashes.Count; i++) // Place/size per flash
-        {
-            var f = _flashes[i]; var sr = _flashSRs[i];
-            float xa = origin.x + f.cell.x * cellSize;
-            float za = origin.y + f.cell.y * cellSize;
-            sr.transform.SetPositionAndRotation(P(xa + cellSize * 0.5f, za + cellSize * 0.5f), XZ_ROT);
-            sr.transform.localScale = new Vector3(cellSize, cellSize, 1f);
-            sr.color = f.color;
-        }
-    }
-
-    // ---------- Utility ----------
-    static void SafeDestroy(Object o)        // Destroy right way for mode
-    {
-        if (!o) return;
-        if (Application.isPlaying) Object.Destroy(o);
-        else Object.DestroyImmediate(o);
-    }
-
-    void ClearChildren(Transform parent, List<SpriteRenderer> list) // Wipe children + list
-    {
-        if (parent)
-            for (int i = parent.childCount - 1; i >= 0; i--)
-                SafeDestroy(parent.GetChild(i).gameObject);
-        list?.Clear();
-    }
-
-    Vector3 P(float x, float z) => new Vector3(x, gridY, z); // World pos on plane
-
-    float PixelsToWorld(Camera cam, float pixels)           // px→world at plane depth
-    {
-        pixels = Mathf.Max(1f, pixels);                     // Avoid zero
-        if (cam.orthographic)                               // Ortho scale
-            return (cam.orthographicSize * 2f / Screen.height) * pixels;
-
-        float depth = DepthToXZPlane(cam);                  // Perspective: measure
-        Vector3 a = cam.ScreenToWorldPoint(new Vector3(0f, 0f, depth));
-        Vector3 b = cam.ScreenToWorldPoint(new Vector3(0f, pixels, depth));
-        return (b - a).magnitude;
-    }
-
-    float DepthToXZPlane(Camera cam)                        // Distance to Y=gridY plane
-    {
+        // Define a plane parallel to the XZ plane with an upward normal (Y+), located at y = gridY.
         var plane = new Plane(Vector3.up, new Vector3(0f, gridY, 0f));
+        // Cast a ray starting at the camera position and pointing along the camera's forward direction.
         var ray = new Ray(cam.transform.position, cam.transform.forward);
+        // If the ray intersects the plane, return the hit distance; otherwise fall back to vertical distance to the plane.
         return plane.Raycast(ray, out float t) ? t : Mathf.Abs(gridY - cam.transform.position.y);
     }
 
-    bool ScreenToXZPlane(Camera cam, Vector2 screenPos, float planeY, out Vector3 hit) // Screen→plane
+    /// <summary>
+    /// Converts a given number of screen pixels into the equivalent
+    /// world-space distance at the grid’s depth so on-screen line thickness stays consistent
+    /// </summary>
+    /// <param name="cam"></param>
+    /// <param name="px"></param>
+    /// <returns></returns>
+    float PxToWorld(Camera cam, float px)
     {
-        if (cam.orthographic)                               // Ortho projection
-        {
-            var wp = cam.ScreenToWorldPoint(new Vector3(screenPos.x, screenPos.y, Mathf.Abs(planeY - cam.transform.position.y)));
-            hit = new Vector3(wp.x, planeY, wp.z);
-            return true;
-        }
-        var ray = cam.ScreenPointToRay(screenPos);          // Perspective ray
-        var plane = new Plane(Vector3.up, new Vector3(0f, planeY, 0f));
-        if (plane.Raycast(ray, out float t)) { hit = ray.GetPoint(t); return true; }
-        hit = default; return false;                        // Missed
+        // never < 1 px
+        px = Mathf.Max(1f, px);
+        // ortho: direct scale
+        if (cam.orthographic)
+            return (cam.orthographicSize * 2f / Screen.height) * px;
+        // perspective: measure at depth
+        float d = PlaneDepth(cam);
+
+        Vector3 a = cam.ScreenToWorldPoint(new Vector3(0, 0, d));
+        Vector3 b = cam.ScreenToWorldPoint(new Vector3(0, px, d));
+        return (b - a).magnitude;
     }
 
-    // ---------- Change Detection ----------
-    bool CamChanged(Camera cam)                             // Camera or px→world changed?
+    /// <summary>
+    /// Position/scale a sprite on the XZ plane (inherits 90° rotation).
+    /// </summary>
+    /// <param name="t"></param>
+    /// <param name="x"></param>
+    /// <param name="z"></param>
+    /// <param name="sx"></param>
+    /// <param name="sz"></param>
+    void SetTRS(Transform t, float x, float z, float sx, float sz)
     {
-        if (!cam) return false;
-        return _lastCamPos != cam.transform.position ||
-               _lastCamRot != cam.transform.rotation ||
-               (_lastCamSizeOrFov != (cam.orthographic ? cam.orthographicSize : cam.fieldOfView)) ||
-               !Mathf.Approximately(_lastPxWorldGrid, PixelsToWorld(cam, lineThicknessPixels)) ||
-               !Mathf.Approximately(_lastPxWorldWall, PixelsToWorld(cam, wallThicknessPixels));
+        // world position on plane
+        t.position = new Vector3(x, gridY, z);
+        // keep local upright
+        t.localRotation = Quaternion.identity;
+        // scale in local XY
+        t.localScale = new Vector3(sx, sz, 1f);
     }
 
-    bool LayoutChanged()                                    // Grid settings changed?
+    /// <summary>
+    /// Create a SpriteRenderer child with shared white sprite and basic flags.
+    /// </summary>
+    /// <param name="parent"></param>
+    /// <param name="name"></param>
+    /// <param name="order"></param>
+    /// <param name="col"></color>
+    /// <returns></returns>
+    SpriteRenderer NewSR(Transform parent, string name, int order, Color col)
     {
-        return _lastW != width ||
-               _lastH != height ||
-               !Mathf.Approximately(_lastCell, cellSize) ||
-               _lastOrigin != origin ||
-               !Mathf.Approximately(_lastY, gridY);
-    }
-
-    void CacheState(Camera cam)                             // Save snapshot for comparisons
-    {
-        _lastW = width; _lastH = height; _lastCell = cellSize; _lastOrigin = origin; _lastY = gridY;
-        if (cam)
-        {
-            _lastCamPos = cam.transform.position;
-            _lastCamRot = cam.transform.rotation;
-            _lastCamSizeOrFov = cam.orthographic ? cam.orthographicSize : cam.fieldOfView;
-            _lastPxWorldGrid = PixelsToWorld(cam, lineThicknessPixels);
-            _lastPxWorldWall = PixelsToWorld(cam, wallThicknessPixels);
-        }
-    }
-
-    // ---------- Internals ----------
-    Vector2Int WorldToCellXZ(Vector3 w)                     // World→cell (floored)
-    {
-        int cx = Mathf.FloorToInt((w.x - origin.x) / cellSize);
-        int cz = Mathf.FloorToInt((w.z - origin.y) / cellSize);
-        return new Vector2Int(cx, cz);
-    }
-
-    public bool TryWorldToCellXZ(Vector3 world, out Vector2Int cell) // World→cell if in-bounds
-    {
-        cell = WorldToCellXZ(world);
-        return (uint)cell.x < (uint)width && (uint)cell.y < (uint)height;
-    }
-
-    public Vector3 CellCenterWorldXZ(int x, int z, float yOffset = 0f) // Cell center world pos
-    {
-        float wx = origin.x + (x + 0.5f) * cellSize;
-        float wz = origin.y + (z + 0.5f) * cellSize;
-        return new Vector3(wx, gridY + yOffset, wz);
-    }
-
-    // Add flash
-    public void FlashCell(Vector2Int cell, float duration = 0.4f, Color? color = null)
-    {
-        if ((uint)cell.x >= (uint)width || (uint)cell.y >= (uint)height) return;
-        // Clock
-        float now = Application.isPlaying ? Time.time : Time.realtimeSinceStartup;
-        _flashes.Add(new Flash
-        {
-            cell = cell,
-            until = now + (duration > 0 ? duration : clickFlashDuration),
-            color = color ?? clickFlashColor
-        });
-        RebuildFlashes();                                   // Update visuals
-    }
-
-    // ---------- Roots & Sprites ----------
-    void EnsureRoots()                                      // Create/find Grid/Walls/Overlay
-    {
-        Transform Get(string n)
-        {
-            var t = transform.Find(n);
-            if (!t) { var go = new GameObject(n); t = go.transform; t.SetParent(transform, false); }
-            return t;
-        }
-        _gridRoot = Get("Grid");
-        _wallRoot = Get("Walls");
-        _overlayRoot = Get("Overlay");
-    }
-
-    void EnsureWhite()                                      // Make 1x1 white sprite
-    {
-        if (_white) return;
-        var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false, true) { name = "GridWhite" };
-        tex.SetPixel(0, 0, Color.white); tex.Apply(false, true);
-        _white = Sprite.Create(tex, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f);
-        _white.name = "GridWhiteSprite";
-    }
-
-    SpriteRenderer NewSR(Transform parent, string name, int order, Color col) // New SR helper
-    {
-        var go = new GameObject(name);
-        go.transform.SetParent(parent, false);
+        var go = new GameObject(name); go.transform.SetParent(parent, false);
         var sr = go.AddComponent<SpriteRenderer>();
-        sr.sprite = _white; sr.color = col; sr.sortingOrder = order;
-        sr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; // 2D look
+        sr.sprite = _white; sr.sortingOrder = order; sr.color = col;
+        sr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         sr.receiveShadows = false;
         sr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
         sr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
         return sr;
     }
 
-    // ---------- Wall Cache ----------
-    void EnsureEdgeArrays()                                 // Allocate/clear H/V arrays
+    // ---------- Unity lifecycle ----------
+
+    // First-time setup; build everything once.
+    void Awake() { Init(); FullRebuild(); }
+
+    // Ensure ready when enabled; hide hover initially.
+    void OnEnable() { Init(); FullRebuild(); SetHoverEnabled(false); }
+
+    // Rebuild when inspector values change in edit mode.
+    void OnValidate() { Init(); FullRebuild(); }
+
+    /// <summary>
+    /// Clean overlay children when disabled/destroyed to avoid leaks.
+    /// </summary>
+    void OnDisable()
     {
-        int hSize = width * (height + 1);
-        int vSize = (width + 1) * height;
-        if (_h == null || _h.Length != hSize) _h = new bool[hSize];
-        if (_v == null || _v.Length != vSize) _v = new bool[vSize];
+        if (_overlayRoot)
+            for (int i = _overlayRoot.childCount - 1; i >= 0; i--)
+                SafeDestroy(_overlayRoot.GetChild(i).gameObject);
+        _hoverFill = null; for (int i = 0; i < 4; i++) _hoverEdges[i] = null;
+    }
+
+    /// <summary>
+    /// input → hover; keep pixel-accurate sizes.
+    /// </summary>
+    void Update()
+    {
+        // need a camera
+        var cam = Cam(); if (!cam) return;
+
+        // Keep plane at Y=gridY and rotated onto XZ each frame.
+        if (_plane) { _plane.position = new Vector3(0, gridY, 0); _plane.localEulerAngles = new Vector3(90, 0, 0); }
+
+        // Build a ray from the mouse to find the hit on the grid plane.
+        var ray = cam.ScreenPointToRay(InputCompat.MousePositionScreen());
+        var plane = new Plane(Vector3.up, new Vector3(0f, gridY, 0f));
+        if (plane.Raycast(ray, out float t))
+        {
+            // World hit.
+            var hit = ray.GetPoint(t);
+            // Convert world XZ to integer cell indices.
+            var cell = new Vector2Int(
+                Mathf.FloorToInt((hit.x - origin.x) / cellSize),
+                Mathf.FloorToInt((hit.z - origin.y) / cellSize));
+            // Inside bounds?
+            bool inside = (uint)cell.x < (uint)width && (uint)cell.y < (uint)height;
+            // If changed and valid: update hover, else clear.
+            if (inside && cell != HoverCell) { HoverCell = cell; HasHover = true; UpdateHover(cam); }
+            else if (!inside) HasHover = false;
+        }
+        else HasHover = false;
+
+        // Rebuild wall visuals if the cache got invalidated.
+        if (_wallsDirty) { _wallsDirty = false; RebuildWallCache(); RebuildWalls(); }
+
+        // Keep all visuals pixel-consistent as the camera moves/zooms.
+        UpdateGrid(cam);
+        UpdateAxes(cam);
+        UpdateWalls(cam);
+        UpdateHover(cam);
+    }
+
+    // ---------- One-time init ----------
+
+    /// <summary>
+    /// Create shared sprite and scene graph parents.
+    /// </summary>
+    void Init()
+    {
+        // Create shared 1×1 white sprite once.
+        if (!_white)
+        {
+            var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false, true) { name = "GridWhite" };
+            tex.SetPixel(0, 0, Color.white); tex.Apply(false, true);
+            _white = Sprite.Create(tex, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f);
+            _white.name = "GridWhiteSprite";
+        }
+
+        // Find or create the plane root and its children.
+        if (!_plane)
+        {
+            _plane = transform.Find("PlaneXZ");
+            if (!_plane) { _plane = new GameObject("PlaneXZ").transform; _plane.SetParent(transform, false); }
+            _gridRoot = GetOrMake(_plane, "Grid");
+            _wallRoot = GetOrMake(_plane, "Walls");
+            _overlayRoot = GetOrMake(_plane, "Overlay");
+        }
+
+        // Ensure the plane is posed (XZ at Y=gridY).
+        _plane.position = new Vector3(0, gridY, 0);
+        _plane.localEulerAngles = new Vector3(90, 0, 0);
+    }
+
+    /// <summary>
+    /// Find a child or create it.
+    /// </summary>
+    /// <param name="parent"></param>
+    /// <param name="name"></param>
+    /// <returns></returns>
+    Transform GetOrMake(Transform parent, string name)
+    {
+        var t = parent.Find(name);
+        if (!t) { t = new GameObject(name).transform; t.SetParent(parent, false); }
+        return t;
+    }
+
+    // ---------- Build & update visuals ----------
+
+    /// <summary>
+    /// rebuild everything and do an initial pixel-size pass.
+    /// </summary>
+    void FullRebuild()
+    {
+        RebuildGrid();
+        RebuildAxes();
+        RebuildWallCache();
+        RebuildWalls();
+        var cam = Cam(); if (cam) { UpdateGrid(cam); UpdateAxes(cam); UpdateWalls(cam); UpdateHover(cam); }
+    }
+
+    /// <summary>
+    /// Remove old grid SRs, create backdrop + per-cell SRs.
+    /// </summary>
+    void RebuildGrid()
+    {
+        // Clear all previous grid children and empty the cell list; reset backdrop reference.
+        ClearChildren(_gridRoot, _cells); _backdrop = null;
+        // Compute world-space grid width (gw) and height (gh).
+        float gw = width * cellSize, gh = height * cellSize;
+        // origin cache
+        float x0 = origin.x, z0 = origin.y;
+
+        // Create a SpriteRenderer for the large backdrop quad.
+        _backdrop = NewSR(_gridRoot, "Backdrop", 0, lineColor);
+        // Place backdrop at the grid center and scale it to cover the whole grid.
+        SetTRS(_backdrop.transform, x0 + gw * 0.5f, z0 + gh * 0.5f, gw, gh);
+        // Ensure backdrop tint matches inspector.
+        _backdrop.color = lineColor;
+
+        // Loop over each row (z index) in the grid.
+        for (int z = 0; z < height; z++)
+            // Loop over each column (x index) in the grid.
+            for (int x = 0; x < width; x++)
+            {
+                // Create a SpriteRenderer for this cell.
+                var sr = NewSR(_gridRoot, $"C{x}_{z}", 1, cellFillColor);
+                // Position the cell at its center and give it initial full cell size.
+                SetTRS(sr.transform, x0 + (x + 0.5f) * cellSize, z0 + (z + 0.5f) * cellSize, cellSize, cellSize);
+                // Track the cell so we can resize/recolor later.
+                _cells.Add(sr);
+            }
+    }
+
+    /// <summary>
+    /// Shrink cells so the backdrop peeks through as pixel-accurate gaps.
+    /// </summary>
+    /// <param name="cam"></param>
+    void UpdateGrid(Camera cam)
+    {
+        // Convert desired gap thickness in pixels to world units at the grid plane.
+        float gap = PxToWorld(cam, lineThicknessPixels);
+        // Compute current world-space grid width/height for backdrop maintenance.
+        float gw = width * cellSize, gh = height * cellSize;
+
+        // Keep the backdrop scaled to grid size and colored correctly.
+        if (_backdrop) { _backdrop.transform.localScale = new Vector3(gw, gh, 1f); _backdrop.color = lineColor; }
+
+        // Compute the shrunken cell side length so gaps show on all four sides.
+        float s = Mathf.Max(0f, cellSize - 2f * gap);
+        // Iterate all cell renderers to apply scale and color.
+        for (int i = 0; i < _cells.Count; i++)
+        {
+            // Fetch the i-th cell renderer.
+            var sr = _cells[i]; if (!sr) continue;
+            // Apply the shrunken square size uniformly in local X/Y.
+            sr.transform.localScale = new Vector3(s, s, 1f);
+            // Sync the cell tint from inspector.
+            sr.color = cellFillColor;
+        }
+    }
+
+    /// <summary>
+    /// Destroy old axis SRs; create only if axes cross the grid.
+    /// </summary>
+    void RebuildAxes()
+    {
+        ClearChildren(null, _axes);
+        if (!drawAxes) return;
+
+        float x0 = origin.x, z0 = origin.y, gw = width * cellSize, gh = height * cellSize;
+        if (z0 <= 0 && 0 <= z0 + gh) _axes.Add(NewSR(_gridRoot, "AxisX", 2, axisColor)); // Z=0 crosses → X axis
+        if (x0 <= 0 && 0 <= x0 + gw) _axes.Add(NewSR(_gridRoot, "AxisZ", 2, axisColor)); // X=0 crosses → Z axis
+
+        var cam = Cam(); if (cam) UpdateAxes(cam);
+    }
+
+    /// <summary>
+    /// Size axes to grid span; thickness is pixel-accurate.
+    /// </summary>
+    /// <param name="cam"></param>
+    void UpdateAxes(Camera cam)
+    {
+        // Convert the axis thickness (in pixels) to world units at the plane.
+        float thick = PxToWorld(cam, lineThicknessPixels);
+        // Cache origin and world grid size for span and placement.
+        float x0 = origin.x, z0 = origin.y, gw = width * cellSize, gh = height * cellSize;
+
+        // Iterate any existing axis sprites (X and/or Z).
+        foreach (var sr in _axes)
+        {
+            // Skip missing/destroyed references.
+            if (!sr) continue;
+            // Determine if this sprite is the X-axis (horizontal across X).
+            bool isX = sr.name == "AxisX";
+            // Keep axis tint synced with inspector.
+            sr.color = axisColor;
+            // Scale to full span along the major axis and to pixel-accurate thickness on the minor axis.
+            sr.transform.localScale = isX ? new Vector3(gw, thick, 1f) : new Vector3(thick, gh, 1f);
+            // Clamp the crossing point (0) to the grid bounds along each dimension.
+            float px = Mathf.Clamp(0f, x0, x0 + gw), pz = Mathf.Clamp(0f, z0, z0 + gh);
+            // Place the axis at the clamped crossing point, flat on the grid plane.
+            sr.transform.SetPositionAndRotation(new Vector3(px, gridY, pz), Quaternion.identity);
+        }
+    }
+
+    /// <summary>
+    /// Destroy old walls; create one SR per segment at its center (length set later).
+    /// </summary>
+    void RebuildWalls()
+    {
+        // Remove previously built wall sprites and clear the list.
+        ClearChildren(_wallRoot, _wallSRs);
+        // If there are no segments, nothing to build.
+        if (walls == null || walls.Count == 0) return;
+
+        // Cache origin for quick conversion to world.
+        float x0 = origin.x, z0 = origin.y;
+        // For each wall segment specified in grid coordinates…
+        foreach (var s in walls)
+        {
+            // Create a renderer for that wall.
+            var sr = NewSR(_wallRoot, "Wall", 3, wallColor);
+            // Horizontal segment when both endpoints share the same row (y index).
+            if (s.start.y == s.end.y)
+            {
+                // World Z coordinate for that grid row.
+                float z = z0 + s.start.y * cellSize;
+                // World X endpoints along that row.
+                float xa = x0 + Mathf.Min(s.start.x, s.end.x) * cellSize;
+                float xb = x0 + Mathf.Max(s.start.x, s.end.x) * cellSize;
+                // Center the wall between endpoints; store its X length (Y thickness is added later).
+                SetTRS(sr.transform, (xa + xb) * 0.5f, z, xb - xa, 1f);
+            }
+            // Otherwise, treat as a vertical segment (shared column).
+            else
+            {
+                // World X for that column.
+                float x = x0 + s.start.x * cellSize;
+                // World Z endpoints along that column.
+                float za = z0 + Mathf.Min(s.start.y, s.end.y) * cellSize;
+                float zb = z0 + Mathf.Max(s.start.y, s.end.y) * cellSize;
+                // Center the wall between endpoints; store its Y length (X thickness is added later).
+                SetTRS(sr.transform, x, (za + zb) * 0.5f, 1f, zb - za);
+            }
+            // Track the wall SR for thickness/color updates.
+            _wallSRs.Add(sr);
+        }
+        // If a camera is available, immediately size thickness to pixel-accurate value.
+        var cam = Cam(); if (cam) UpdateWalls(cam);
+    }
+
+    /// <summary>
+    /// Make walls have pixel-accurate thickness (and keep color live).
+    /// </summary>
+    /// <param name="cam"></param>
+    void UpdateWalls(Camera cam)
+    {
+        float thick = PxToWorld(cam, wallThicknessPixels);
+        for (int i = 0; i < _wallSRs.Count; i++)
+        {
+            var sr = _wallSRs[i]; if (!sr) continue; sr.color = wallColor;
+            var sc = sr.transform.localScale;                    // current length stored in one axis
+            bool horiz = sc.x >= sc.y;                           // simple heuristic to decide orientation
+            sr.transform.localScale = horiz ? new Vector3(Mathf.Max(0, sc.x), thick, 1f)
+                                            : new Vector3(thick, Mathf.Max(0, sc.y), 1f);
+        }
+    }
+
+    /// <summary>
+    /// Create hover SRs if needed; show/hide/size/position every frame.
+    /// </summary>
+    /// <param name="cam"></param>
+    void UpdateHover(Camera cam)
+    {
+        bool show = HasHover && drawHoverCell;                   // should we display hover?
+        if (!_hoverFill) EnsureHoverSprites();                   // create sprites once
+        SetHoverEnabled(show); if (!show) return;                // early-out when hidden
+
+        // Compute hovered cell bounds and center.
+        float xa = origin.x + HoverCell.x * cellSize, xb = xa + cellSize;
+        float za = origin.y + HoverCell.y * cellSize, zb = za + cellSize;
+        float mx = (xa + xb) * 0.5f, mz = (za + zb) * 0.5f;
+
+        // Fill quad in the middle of the cell.
+        SetTRS(_hoverFill.transform, mx, mz, cellSize, cellSize);
+        _hoverFill.color = hoverFill;
+
+        // Outline segments sized to pixel thickness.
+        float thick = PxToWorld(cam, lineThicknessPixels);
+        SetTRS(_hoverEdges[0].transform, xa, mz, thick, cellSize); // left
+        SetTRS(_hoverEdges[1].transform, xb, mz, thick, cellSize); // right
+        SetTRS(_hoverEdges[2].transform, mx, za, cellSize, thick); // bottom
+        SetTRS(_hoverEdges[3].transform, mx, zb, cellSize, thick); // top
+        for (int i = 0; i < 4; i++) _hoverEdges[i].color = hoverOutline;
+    }
+
+    /// <summary>
+    /// Actually create the hover SRs once.
+    /// </summary>
+    void EnsureHoverSprites()
+    {
+        if (_hoverFill) return;
+        _hoverFill = NewSR(_overlayRoot, "HoverFill", 10, hoverFill);
+        for (int i = 0; i < 4; i++) _hoverEdges[i] = NewSR(_overlayRoot, "HoverEdge" + i, 11, hoverOutline);
+    }
+
+    /// <summary>
+    /// Enable/disable the hover SRs (fill + edges).
+    /// </summary>
+    /// <param name="v"></param>
+    void SetHoverEnabled(bool v)
+    {
+        if (_hoverFill) _hoverFill.enabled = v;
+        for (int i = 0; i < 4; i++) if (_hoverEdges[i]) _hoverEdges[i].enabled = v;
+    }
+
+    // ---------- Walls cache & queries ----------
+
+    /// <summary>
+    /// External signal to recompute walls.
+    /// </summary>
+    public void MarkWallsDirty() => _wallsDirty = true;
+
+    /// <summary>
+    /// Ensure (re)allocated caches and clear them.
+    /// </summary>
+    void EnsureEdgeArrays()
+    {
+        int hN = width * (height + 1), vN = (width + 1) * height;
+        if (_h == null || _h.Length != hN) _h = new bool[hN];
+        if (_v == null || _v.Length != vN) _v = new bool[vN];
         System.Array.Clear(_h, 0, _h.Length);
         System.Array.Clear(_v, 0, _v.Length);
     }
+    // Indexing helpers for caches.
+    int H(int xCell, int gridlineZ) => gridlineZ * width + xCell;
+    int V(int gridlineX, int zCell) => zCell * (width + 1) + gridlineX;
 
-    int HIndex(int xCell, int gridlineZ) => gridlineZ * width + xCell;          // H edge id
-    int VIndex(int gridlineX, int zCell) => zCell * (width + 1) + gridlineX;    // V edge id
-
-    void RebuildWallCache()                                   // Convert segments→blocked edges
+    /// <summary>
+    /// Convert segments → blocked edge arrays.
+    /// </summary>
+    void RebuildWallCache()
     {
-        if (walls == null) { _h = _v = null; return; }        // No walls
-        EnsureEdgeArrays();                                   // Ensure arrays
-        for (int i = 0; i < walls.Count; i++)                 // Each segment
+        if (walls == null) { _h = _v = null; return; }
+        EnsureEdgeArrays();
+        for (int i = 0; i < walls.Count; i++)
         {
             var s = walls[i];
-            if (s.start.y == s.end.y)                         // Horizontal
+            if (s.start.y == s.end.y)                            // horizontal segment
             {
-                int z = s.start.y;
-                int a = Mathf.Min(s.start.x, s.end.x);
-                int b = Mathf.Max(s.start.x, s.end.x);
-                for (int x = a; x < b; x++)                   // Mark edges
-                    if ((uint)x < (uint)width && (uint)z <= (uint)height) _h[HIndex(x, z)] = true;
+                int z = s.start.y, a = Mathf.Min(s.start.x, s.end.x), b = Mathf.Max(s.start.x, s.end.x);
+                for (int x = a; x < b; x++)
+                    if ((uint)x < (uint)width && (uint)z <= (uint)height) _h[H(x, z)] = true;
             }
-            else if (s.start.x == s.end.x)                    // Vertical
+            else if (s.start.x == s.end.x)                       // vertical segment
             {
-                int x = s.start.x;
-                int a = Mathf.Min(s.start.y, s.end.y);
-                int b = Mathf.Max(s.start.y, s.end.y);
-                for (int z = a; z < b; z++)                   // Mark edges
-                    if ((uint)z < (uint)height && (uint)x <= (uint)width) _v[VIndex(x, z)] = true;
+                int x = s.start.x, a = Mathf.Min(s.start.y, s.end.y), b = Mathf.Max(s.start.y, s.end.y);
+                for (int z = a; z < b; z++)
+                    if ((uint)z < (uint)height && (uint)x <= (uint)width) _v[V(x, z)] = true;
             }
         }
     }
 
-    public bool IsEdgeBlocked(Vector2Int a, Vector2Int b)     // Cardinal neighbor blocked?
+    /// <summary>
+    /// Returns whether moving from a→b (4-neighbor only) is blocked by a wall.
+    /// </summary>
+    /// <param name="a"></param>
+    /// <param name="b"></param>
+    /// <returns></returns>
+    public bool IsEdgeBlocked(Vector2Int a, Vector2Int b)
     {
         int dx = b.x - a.x, dz = b.y - a.y;
-        if (Mathf.Abs(dx) + Mathf.Abs(dz) != 1) return true;  // Not 4-neighbor → treat blocked
-        if (dx == 1) return IsVerticalWallBetween(a.x + 1, a.y);
-        if (dx == -1) return IsVerticalWallBetween(a.x, a.y);
-        if (dz == 1) return IsHorizontalWallBetween(a.x, a.y + 1);
-        if (dz == -1) return IsHorizontalWallBetween(a.x, a.y);
+        // non-cardinal moves are disallowed
+        if (Mathf.Abs(dx) + Mathf.Abs(dz) != 1) return true;
+        // cross vertical at x+1
+        if (dx == 1) return IsV(a.x + 1, a.y);
+        // cross vertical at x
+        if (dx == -1) return IsV(a.x, a.y);
+        // cross horizontal at z+1
+        if (dz == 1) return IsH(a.x, a.y + 1);
+        // cross horizontal at z
+        if (dz == -1) return IsH(a.x, a.y);
         return true;
     }
 
-    bool IsVerticalWallBetween(int gridlineX, int zCell)      // Check V edge cache
+    /// <summary>
+    /// Read vertical edge cache build if null).
+    /// </summary>
+    /// <param name="gridlineX"></param>
+    /// <param name="zCell"></param>
+    /// <returns></returns>
+    bool IsV(int gridlineX, int zCell)
     {
         if (_v == null) RebuildWallCache();
-        return _v != null &&
-               (uint)zCell < (uint)height &&
-               (uint)gridlineX <= (uint)width &&
-               _v[VIndex(gridlineX, zCell)];
+        return _v != null && (uint)zCell < (uint)height && (uint)gridlineX <= (uint)width && _v[V(gridlineX, zCell)];
     }
-
-    bool IsHorizontalWallBetween(int xCell, int gridlineZ)    // Check H edge cache
+    /// <summary>
+    /// Read horizontal edge cache (build if null).
+    /// </summary>
+    /// <param name="xCell"></param>
+    /// <param name="gridlineZ"></param>
+    /// <returns></returns>
+    bool IsH(int xCell, int gridlineZ)
     {
         if (_h == null) RebuildWallCache();
-        return _h != null &&
-               (uint)xCell < (uint)width &&
-               (uint)gridlineZ <= (uint)height &&
-               _h[HIndex(xCell, gridlineZ)];
+        return _h != null && (uint)xCell < (uint)width && (uint)gridlineZ <= (uint)height && _h[H(xCell, gridlineZ)];
+    }
+
+    // ---------- Utility ----------
+
+    /// <summary>
+    /// Destroy safely in play or edit mode.
+    /// </summary>
+    /// <param name="o"></param>
+    static void SafeDestroy(Object o) { if (!o) return; if (Application.isPlaying) Destroy(o); else DestroyImmediate(o); }
+
+    /// <summary>
+    /// Delete children (optionally clear an SR list).
+    /// </summary>
+    /// <param name="parent"></param>
+    /// <param name="list"></param>
+    void ClearChildren(Transform parent, List<SpriteRenderer> list)
+    {
+        if (parent) for (int i = parent.childCount - 1; i >= 0; i--) SafeDestroy(parent.GetChild(i).gameObject);
+        list?.Clear();
     }
 }
