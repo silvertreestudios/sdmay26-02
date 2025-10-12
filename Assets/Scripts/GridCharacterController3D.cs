@@ -1,11 +1,11 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
 [DisallowMultipleComponent]
-public class GridCharacterController : MonoBehaviour
+public class GridCharacterController3D : MonoBehaviour
 {
     [Header("References")]
     // Grid to move on (XZ plane, cell math, walls, etc.)
-    public GridRenderer grid;
+    public GridRenderer3D grid;
     // Optional prefab to visualize the character (else a circle sprite is generated)
     public GameObject prefab;
     // Try to find a GridRenderer automatically if none is assigned
@@ -44,7 +44,7 @@ public class GridCharacterController : MonoBehaviour
     void OnEnable()
     {
         // If requested and missing, look up the first GridRenderer in the scene
-        if (autoFindGrid && !grid) grid = FindObjectOfType<GridRenderer>();
+        if (autoFindGrid && !grid) grid = FindObjectOfType<GridRenderer3D>();
     }
 
     // Called on the first frame the component is active
@@ -100,7 +100,7 @@ public class GridCharacterController : MonoBehaviour
         // Ensure we have a grid reference (try auto-find once per frame until found)
         if (!grid)
         {
-            if (autoFindGrid) grid = FindObjectOfType<GridRenderer>();
+            if (autoFindGrid) grid = FindObjectOfType<GridRenderer3D>();
             if (!grid) return;
         }
 

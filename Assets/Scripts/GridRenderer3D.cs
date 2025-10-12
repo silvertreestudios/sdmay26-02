@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
 [ExecuteAlways, DisallowMultipleComponent]
-public class GridRenderer : MonoBehaviour
+public class GridRenderer3D : MonoBehaviour
 {
     // ---------- Public, serialized settings ----------
 
