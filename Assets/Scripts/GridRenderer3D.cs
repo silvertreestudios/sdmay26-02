@@ -85,16 +85,21 @@ public class GridRenderer : MonoBehaviour
     // Wall SRs
     readonly List<SpriteRenderer> _wallSRs = new();
     // Hover fill SR
-    SpriteRenderer _hoverFillSR;                     
-    readonly List<SpriteRenderer> _hoverEdgeSRs = new(4); // Hover edges
-    readonly List<SpriteRenderer> _flashSRs = new();      // Flash quads
+    SpriteRenderer _hoverFillSR;
+    // Hover edges
+    readonly List<SpriteRenderer> _hoverEdgeSRs = new(4);
+    // Flash quads
+    readonly List<SpriteRenderer> _flashSRs = new();
 
-    Camera Cam => targetCamera ? targetCamera : (targetCamera = Camera.main); // Lazy camera
-    float _lastPxWorldGrid, _lastPxWorldWall; // Cached px→world scales
+    // Lazy camera
+    Camera Cam => targetCamera ? targetCamera : (targetCamera = Camera.main);
+    // Cached px→world scales
+    float _lastPxWorldGrid, _lastPxWorldWall; 
     Vector3 _lastCamPos; Quaternion _lastCamRot; float _lastCamSizeOrFov; // Cached camera
-    int _lastW, _lastH; float _lastCell; Vector2 _lastOrigin; float _lastY; // Cached layout
-
-    static readonly Quaternion XZ_ROT = Quaternion.Euler(90f, 0f, 0f); // XY→XZ
+    // Cached layout
+    int _lastW, _lastH; float _lastCell; Vector2 _lastOrigin; float _lastY;
+    // XY→XZ
+    static readonly Quaternion XZ_ROT = Quaternion.Euler(90f, 0f, 0f);
 
     // ---------- Unity ----------
 
@@ -591,7 +596,8 @@ public class GridRenderer : MonoBehaviour
         _overlayRoot = Get("Overlay");
     }
 
-    void EnsureWhite()                                      // Make 1x1 white sprite
+    // Make 1x1 white sprite
+    void EnsureWhite()                                      
     {
         if (_white) return;
         var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false, true) { name = "GridWhite" };
@@ -600,13 +606,15 @@ public class GridRenderer : MonoBehaviour
         _white.name = "GridWhiteSprite";
     }
 
-    SpriteRenderer NewSR(Transform parent, string name, int order, Color col) // New SR helper
+    // New SR helper
+    SpriteRenderer NewSR(Transform parent, string name, int order, Color col) 
     {
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
         var sr = go.AddComponent<SpriteRenderer>();
         sr.sprite = _white; sr.color = col; sr.sortingOrder = order;
-        sr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; // 2D look
+        // 2D look
+        sr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         sr.receiveShadows = false;
         sr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
         sr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
@@ -614,7 +622,9 @@ public class GridRenderer : MonoBehaviour
     }
 
     // ---------- Wall Cache ----------
-    void EnsureEdgeArrays()                                 // Allocate/clear H/V arrays
+
+    // Allocate/clear Height/Vertical arrays
+    void EnsureEdgeArrays()                                 
     {
         int hSize = width * (height + 1);
         int vSize = (width + 1) * height;
@@ -624,39 +634,52 @@ public class GridRenderer : MonoBehaviour
         System.Array.Clear(_v, 0, _v.Length);
     }
 
-    int HIndex(int xCell, int gridlineZ) => gridlineZ * width + xCell;          // H edge id
-    int VIndex(int gridlineX, int zCell) => zCell * (width + 1) + gridlineX;    // V edge id
+    // Height edge id
+    int HIndex(int xCell, int gridlineZ) => gridlineZ * width + xCell;
 
-    void RebuildWallCache()                                   // Convert segments→blocked edges
+    // Vertical edge id
+    int VIndex(int gridlineX, int zCell) => zCell * (width + 1) + gridlineX;
+
+    // Convert segments→blocked edges
+    void RebuildWallCache()                                   
     {
-        if (walls == null) { _h = _v = null; return; }        // No walls
-        EnsureEdgeArrays();                                   // Ensure arrays
-        for (int i = 0; i < walls.Count; i++)                 // Each segment
+        // No walls
+        if (walls == null) { _h = _v = null; return; }
+        // Ensure arrays
+        EnsureEdgeArrays();                                   
+        for (int i = 0; i < walls.Count; i++)                 
         {
+            // Each segment
             var s = walls[i];
-            if (s.start.y == s.end.y)                         // Horizontal
+            // Horizontal
+            if (s.start.y == s.end.y)                        
             {
                 int z = s.start.y;
                 int a = Mathf.Min(s.start.x, s.end.x);
                 int b = Mathf.Max(s.start.x, s.end.x);
-                for (int x = a; x < b; x++)                   // Mark edges
+                // Mark edges
+                for (int x = a; x < b; x++)                   
                     if ((uint)x < (uint)width && (uint)z <= (uint)height) _h[HIndex(x, z)] = true;
             }
-            else if (s.start.x == s.end.x)                    // Vertical
+            // Vertical
+            else if (s.start.x == s.end.x)                    
             {
                 int x = s.start.x;
                 int a = Mathf.Min(s.start.y, s.end.y);
                 int b = Mathf.Max(s.start.y, s.end.y);
-                for (int z = a; z < b; z++)                   // Mark edges
+                // Mark edges
+                for (int z = a; z < b; z++)                   
                     if ((uint)z < (uint)height && (uint)x <= (uint)width) _v[VIndex(x, z)] = true;
             }
         }
     }
 
-    public bool IsEdgeBlocked(Vector2Int a, Vector2Int b)     // Cardinal neighbor blocked?
+    // Cardinal neighbor blocked?
+    public bool IsEdgeBlocked(Vector2Int a, Vector2Int b)     
     {
         int dx = b.x - a.x, dz = b.y - a.y;
-        if (Mathf.Abs(dx) + Mathf.Abs(dz) != 1) return true;  // Not 4-neighbor → treat blocked
+        // Not 4-neighbor → treat blocked
+        if (Mathf.Abs(dx) + Mathf.Abs(dz) != 1) return true; 
         if (dx == 1) return IsVerticalWallBetween(a.x + 1, a.y);
         if (dx == -1) return IsVerticalWallBetween(a.x, a.y);
         if (dz == 1) return IsHorizontalWallBetween(a.x, a.y + 1);
@@ -664,7 +687,8 @@ public class GridRenderer : MonoBehaviour
         return true;
     }
 
-    bool IsVerticalWallBetween(int gridlineX, int zCell)      // Check V edge cache
+    // Check Vertical edge cache
+    bool IsVerticalWallBetween(int gridlineX, int zCell)      
     {
         if (_v == null) RebuildWallCache();
         return _v != null &&
@@ -673,7 +697,8 @@ public class GridRenderer : MonoBehaviour
                _v[VIndex(gridlineX, zCell)];
     }
 
-    bool IsHorizontalWallBetween(int xCell, int gridlineZ)    // Check H edge cache
+    // Check Height edge cache
+    bool IsHorizontalWallBetween(int xCell, int gridlineZ) 
     {
         if (_h == null) RebuildWallCache();
         return _h != null &&
