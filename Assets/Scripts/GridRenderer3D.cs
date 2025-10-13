@@ -47,15 +47,12 @@ public class GridRenderer3D : MonoBehaviour
     [Header("Hover/Click")]
     // Whether to draw hover visual.
     public bool drawHoverCell = true;
-    // Hover fill color (semi-transparent).
-    public Color hoverFill = new(0.3f, 0.6f, 1f, 0.18f);
-    // Hover outline color.
-    public Color hoverOutline = new(0.7f, 0.9f, 1f, 0.95f);
 
     // True when mouse ray hits grid and cell is inside bounds.
     public bool HasHover { get; private set; }
     // Current hovered cell (grid indices), defaults to invalid.
     public Vector2Int HoverCell { get; private set; } = new(-1, -1);
+    [SerializeField] private GameObject selectTile;
 
     // ---------- Wall cache state ----------
 
@@ -83,10 +80,8 @@ public class GridRenderer3D : MonoBehaviour
 
     // One SR per wall segment.
     readonly List<SpriteRenderer> _wallSRs = new();
-    // Hover fill quad.
-    SpriteRenderer _hoverFill;
-    // Four SRs for the hover outline edges (L,R,B,T).
-    readonly SpriteRenderer[] _hoverEdges = new SpriteRenderer[4];
+    // Instance of the select tile prefab for selection visual.
+    private GameObject _selectTileInstance;
 
 
 
@@ -176,7 +171,7 @@ public class GridRenderer3D : MonoBehaviour
     void Awake() { Init(); FullRebuild(); }
 
     // Ensure ready when enabled; hide hover initially.
-    void OnEnable() { Init(); FullRebuild(); SetHoverEnabled(false); }
+    void OnEnable() { Init(); FullRebuild(); HasHover = false;}
 
     // Rebuild when inspector values change in edit mode.
     void OnValidate() { Init(); FullRebuild(); }
@@ -189,7 +184,11 @@ public class GridRenderer3D : MonoBehaviour
         if (_overlayRoot)
             for (int i = _overlayRoot.childCount - 1; i >= 0; i--)
                 SafeDestroy(_overlayRoot.GetChild(i).gameObject);
-        _hoverFill = null; for (int i = 0; i < 4; i++) _hoverEdges[i] = null;
+        if (_selectTileInstance)
+        {
+            SafeDestroy(_selectTileInstance);
+            _selectTileInstance = null;
+        }
     }
 
     /// <summary>
@@ -217,7 +216,7 @@ public class GridRenderer3D : MonoBehaviour
             // Inside bounds?
             bool inside = (uint)cell.x < (uint)width && (uint)cell.y < (uint)height;
             // If changed and valid: update hover, else clear.
-            if (inside && cell != HoverCell) { HoverCell = cell; HasHover = true; UpdateHover(cam); }
+            if (inside && cell != HoverCell) { HoverCell = cell; HasHover = true; UpdateHover(); }
             else if (!inside) HasHover = false;
         }
         else HasHover = false;
@@ -229,7 +228,7 @@ public class GridRenderer3D : MonoBehaviour
         UpdateGrid();
         UpdateAxes(cam);
         UpdateWalls(cam);
-        UpdateHover(cam);
+        UpdateHover();
     }
 
     // ---------- One-time init ----------
@@ -287,7 +286,7 @@ public class GridRenderer3D : MonoBehaviour
         RebuildAxes();
         RebuildWallCache();
         RebuildWalls();
-        var cam = Cam(); if (cam) { UpdateGrid(); UpdateAxes(cam); UpdateWalls(cam); UpdateHover(cam); }
+        var cam = Cam(); if (cam) { UpdateGrid(); UpdateAxes(cam); UpdateWalls(cam); UpdateHover(); }
     }
 
     /// <summary>
@@ -297,6 +296,9 @@ public class GridRenderer3D : MonoBehaviour
     {
         // Clear all previous grid children and empty the cell list.
         ClearChildrenPlane(_gridRoot, _cells);
+        // Destroy all select tile instances under _overlayRoot
+        if (_overlayRoot){ClearOverlayChildren();}
+        _selectTileInstance = null;
         // Compute world-space grid width (gw) and height (gh).
         float gw = width * cellSize, gh = height * cellSize;
         // origin cache
@@ -314,7 +316,7 @@ public class GridRenderer3D : MonoBehaviour
                 // Position the tile at its center.
                 var tileTransform = tile.transform;
                 tileTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY, z0 + (z + 0.5f) * cellSize);
-                // tileTransform.localScale = new Vector3(cellSize, 1f, cellSize);
+                tileTransform.localScale = new Vector3(cellSize * 0.1f, 1f, cellSize * 0.1f);
 
                 // Track the tile's MeshRenderer for later updates.
                 var meshRenderer = tile.GetComponent<MeshRenderer>();
@@ -447,52 +449,38 @@ public class GridRenderer3D : MonoBehaviour
     }
 
     /// <summary>
-    /// Create hover SRs if needed; show/hide/size/position every frame.
+    /// update the position of the hover tile. If hovering over invalid location or if drawHoverCell is false, hide the tile.
     /// </summary>
-    /// <param name="cam"></param>
-    void UpdateHover(Camera cam)
+    void UpdateHover()
     {
-        bool show = HasHover && drawHoverCell;                   // should we display hover?
-        if (!_hoverFill) EnsureHoverSprites();                   // create sprites once
-        SetHoverEnabled(show); if (!show) return;                // early-out when hidden
+        bool show = HasHover && drawHoverCell;
+        if (show)
+        {
+            // Compute hovered cell center.
+            float mx = origin.x + (HoverCell.x + 0.5f) * cellSize;
+            float mz = origin.y + (HoverCell.y + 0.5f) * cellSize;
 
-        // Compute hovered cell bounds and center.
-        float xa = origin.x + HoverCell.x * cellSize, xb = xa + cellSize;
-        float za = origin.y + HoverCell.y * cellSize, zb = za + cellSize;
-        float mx = (xa + xb) * 0.5f, mz = (za + zb) * 0.5f;
-
-        // Fill quad in the middle of the cell.
-        SetTRS(_hoverFill.transform, mx, mz, cellSize, cellSize);
-        _hoverFill.color = hoverFill;
-
-        // Outline segments sized to pixel thickness.
-        float thick = PxToWorld(cam, lineThicknessPixels);
-        SetTRS(_hoverEdges[0].transform, xa, mz, thick, cellSize); // left
-        SetTRS(_hoverEdges[1].transform, xb, mz, thick, cellSize); // right
-        SetTRS(_hoverEdges[2].transform, mx, za, cellSize, thick); // bottom
-        SetTRS(_hoverEdges[3].transform, mx, zb, cellSize, thick); // top
-        for (int i = 0; i < 4; i++) _hoverEdges[i].color = hoverOutline;
+            if (_selectTileInstance == null)
+            {
+                _selectTileInstance = Instantiate(selectTile, _overlayRoot);
+                _selectTileInstance.name = "SelectTileInstance";
+            }
+            // Position and scale the select tile to match the cell.
+            var t = _selectTileInstance.transform;
+            t.position = new Vector3(mx, gridY + 0.1f, mz);
+            t.localScale = new Vector3(cellSize * 0.1f, 1f, cellSize * 0.1f);
+            _selectTileInstance.SetActive(true);
+        }
+        else
+        {
+            if (_selectTileInstance)
+            {
+                _selectTileInstance.SetActive(false);
+            }
+        }
     }
 
-    /// <summary>
-    /// Actually create the hover SRs once.
-    /// </summary>
-    void EnsureHoverSprites()
-    {
-        if (_hoverFill) return;
-        _hoverFill = NewSR(_overlayRoot, "HoverFill", 10, hoverFill);
-        for (int i = 0; i < 4; i++) _hoverEdges[i] = NewSR(_overlayRoot, "HoverEdge" + i, 11, hoverOutline);
-    }
-
-    /// <summary>
-    /// Enable/disable the hover SRs (fill + edges).
-    /// </summary>
-    /// <param name="v"></param>
-    void SetHoverEnabled(bool v)
-    {
-        if (_hoverFill) _hoverFill.enabled = v;
-        for (int i = 0; i < 4; i++) if (_hoverEdges[i]) _hoverEdges[i].enabled = v;
-    }
+    
 
     // ---------- Walls cache & queries ----------
 
@@ -608,5 +596,16 @@ public class GridRenderer3D : MonoBehaviour
     {
         if (parent) for (int i = parent.childCount - 1; i >= 0; i--) SafeDestroy(parent.GetChild(i).gameObject);
         list?.Clear();
+    }
+    void ClearOverlayChildren()
+    {
+        for (int i = _overlayRoot.childCount - 1; i >= 0; i--)
+            {
+                var child = _overlayRoot.GetChild(i).gameObject;
+                if (child.name == "SelectTileInstance" || (selectTile && child.name == selectTile.name + "(Clone)"))
+                {
+                    SafeDestroy(child);
+                }
+            }
     }
 }
