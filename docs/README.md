@@ -22,6 +22,12 @@ This directory contains comprehensive design documentation for the creature repr
 - **[relationships-and-dependencies.md](relationships-and-dependencies.md)** - Component relationships and dependencies
 - **[examples.md](examples.md)** - Concrete examples of creature representations
 
+### Additional Documents (Planned)
+- **classes-and-progression.md** - Class system and level advancement
+- **feats-and-features.md** - Feat system and class features
+- **equipment-and-items.md** - Equipment, weapons, armor, and magical items
+- **spells-and-magic.md** - Spellcasting system implementation
+
 ## Design Principles
 
 The creature representation system is designed with the following principles:
