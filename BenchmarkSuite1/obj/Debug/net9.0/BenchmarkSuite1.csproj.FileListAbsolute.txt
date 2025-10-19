@@ -1,0 +1,6 @@
+C:\Users\Ethan\OneDrive - Iowa State University\Desktop\senior_design\sdmay26-02\BenchmarkSuite1\obj\Debug\net9.0\BenchmarkSuite1.csproj.AssemblyReference.cache
+C:\Users\Ethan\OneDrive - Iowa State University\Desktop\senior_design\sdmay26-02\BenchmarkSuite1\obj\Debug\net9.0\BenchmarkSuite1.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Ethan\OneDrive - Iowa State University\Desktop\senior_design\sdmay26-02\BenchmarkSuite1\obj\Debug\net9.0\BenchmarkSuite1.AssemblyInfoInputs.cache
+C:\Users\Ethan\OneDrive - Iowa State University\Desktop\senior_design\sdmay26-02\BenchmarkSuite1\obj\Debug\net9.0\BenchmarkSuite1.AssemblyInfo.cs
+C:\Users\Ethan\OneDrive - Iowa State University\Desktop\senior_design\sdmay26-02\BenchmarkSuite1\obj\Debug\net9.0\BenchmarkSuite1.csproj.CoreCompileInputs.cache
+C:\Users\Ethan\OneDrive - Iowa State University\Desktop\senior_design\sdmay26-02\BenchmarkSuite1\obj\Debug\net9.0\BenchmarkSuite1.sourcelink.json

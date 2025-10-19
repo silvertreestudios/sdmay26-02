@@ -118,10 +118,16 @@ public class GridCharacterController3D : MonoBehaviour
             // Convert that world hit to a target grid cell (fail if outside grid)
             if (!TryGridWorldToCell(hit, out Vector2Int targetCell)) return;
 
+            // reject clicks on non-walkable cells
+            if (!grid.IsCellWalkable(targetCell.x, targetCell.y)) return;
+
             // Determine the current cell based on character position
             Vector2Int startCell;
             if (!TryGridWorldToCell(_character.transform.position, out startCell))
                 startCell = ClampToGridXZ(_character.transform.position);
+
+            // if start isn't walkable, don't path (or you could snap first)
+            if (!grid.IsCellWalkable(startCell.x, startCell.y)) return;
 
             // Run Dijkstra (with wall checks) to find a path
             var result = Dijkstra(startCell, targetCell);
@@ -185,15 +191,9 @@ public class GridCharacterController3D : MonoBehaviour
         {
             var ray = cam.ScreenPointToRay(screenPos);
             var plane = new Plane(Vector3.up, new Vector3(0f, planeY, 0f));
-            if (plane.Raycast(ray, out float t))
-            {
-                hit = ray.GetPoint(t);
-                return true;
-            }
+            if (plane.Raycast(ray, out float t)) { hit = ray.GetPoint(t); return true; }
         }
-        // If we got here, no hit
-        hit = default;
-        return false;
+        hit = default; return false;
     }
 
     // Convert a world position to a grid cell (returns false if outside grid bounds)
@@ -226,6 +226,23 @@ public class GridCharacterController3D : MonoBehaviour
         // Try to read the current cell; clamp if out of bounds
         if (!TryGridWorldToCell(_character.transform.position, out var cell))
             cell = ClampToGridXZ(_character.transform.position);
+
+        // if current cell isn't walkable, search a small neighborhood for one
+        if (!grid.IsCellWalkable(cell.x, cell.y))
+        {
+            bool found = false;
+            for (int r = 0; r <= 3 && !found; r++)
+            {
+                for (int dz = -r; dz <= r && !found; dz++)
+                    for (int dx = -r; dx <= r && !found; dx++)
+                    {
+                        int nx = Mathf.Clamp(cell.x + dx, 0, grid.width - 1);
+                        int nz = Mathf.Clamp(cell.y + dz, 0, grid.height - 1);
+                        if (grid.IsCellWalkable(nx, nz)) { cell = new Vector2Int(nx, nz); found = true; }
+                    }
+            }
+            if (!grid.IsCellWalkable(cell.x, cell.y)) return; // nothing found; keep position as-is
+        }
 
         // Place the character precisely at that cell center
         _character.transform.position = GridCellCenterWorld(cell.x, cell.y, yDrawOffset);
@@ -330,6 +347,9 @@ public class GridCharacterController3D : MonoBehaviour
                 var v = u + dirs[i];
                 // Skip if out of grid bounds
                 if ((uint)v.x >= (uint)w || (uint)v.y >= (uint)h) continue;
+
+                // cannot step onto a non-walkable destination
+                if (!grid.IsCellWalkable(v.x, v.y)) continue;
 
                 // Skip if a wall blocks this move (including diagonal corner cutting)
                 if (IsMoveBlocked(u, v)) continue;

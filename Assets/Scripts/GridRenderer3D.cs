@@ -55,6 +55,18 @@ public class GridRenderer3D : MonoBehaviour
     public Vector2Int HoverCell { get; private set; } = new(-1, -1);
     [SerializeField] private GameObject selectTile;
 
+    // ---------- Walkability from ImageToGrid ----------
+    // true = cell exists (image == 1), false = empty/null
+    public bool[,] walkable;
+
+    public bool IsCellWalkable(int x, int z)
+    {
+        return walkable != null
+            && (uint)x < (uint)width
+            && (uint)z < (uint)height
+            && walkable[x, z];
+    }
+
     // ---------- Wall cache state ----------
 
     // Horizontal/vertical blocked edges caches; rebuild gate.
@@ -83,6 +95,8 @@ public class GridRenderer3D : MonoBehaviour
     readonly List<SpriteRenderer> _wallSRs = new();
     // Instance of the select tile prefab for selection visual.
     private GameObject _selectTileInstance;
+
+
 
 
 
@@ -172,7 +186,7 @@ public class GridRenderer3D : MonoBehaviour
     void Awake() { Init(); FullRebuild(); }
 
     // Ensure ready when enabled; hide hover initially.
-    void OnEnable() { Init(); FullRebuild(); HasHover = false;}
+    void OnEnable() { Init(); FullRebuild(); HasHover = false; }
 
     // Rebuild when inspector values change in edit mode.
     void OnValidate() { Init(); FullRebuild(); }
@@ -216,9 +230,10 @@ public class GridRenderer3D : MonoBehaviour
                 Mathf.FloorToInt((hit.z - origin.y) / cellSize));
             // Inside bounds?
             bool inside = (uint)cell.x < (uint)width && (uint)cell.y < (uint)height;
-            // If changed and valid: update hover, else clear.
-            if (inside && cell != HoverCell) { HoverCell = cell; HasHover = true; UpdateHover(); }
-            else if (!inside) HasHover = false;
+            bool canHover = inside && IsCellWalkable(cell.x, cell.y);
+
+            if (canHover && cell != HoverCell) { HoverCell = cell; HasHover = true; UpdateHover(); }
+            else if (!canHover) HasHover = false;
         }
         else HasHover = false;
 
@@ -301,43 +316,55 @@ public class GridRenderer3D : MonoBehaviour
         // Clear all previous grid children and empty the cell list.
         ClearChildrenPlane(_gridRoot, _cells);
         // Destroy all select tile instances under _overlayRoot
-        if (_overlayRoot){ClearOverlayChildren();}
-            _selectTileInstance = null;
+        if (_overlayRoot) { ClearOverlayChildren(); }
+        _selectTileInstance = null;
         // Compute world-space grid width (gw) and height (gh).
         // origin cache
         float x0 = origin.x, z0 = origin.y;
         if (imageToGrid != null)
-            {
-                gridData = imageToGrid.GenerateGrid();
-                gw = imageToGrid.GetWidth();
-                gh = imageToGrid.GetHeight();
-                // Use gridData, gridWidth, gridHeight as needed...
-                imageToGrid.PrintGrid();
-            }
+        {
+            gridData = imageToGrid.GenerateGrid();
+            gw = imageToGrid.GetWidth();
+            gh = imageToGrid.GetHeight();
+            // Use gridData, gridWidth, gridHeight as needed...
+            imageToGrid.PrintGrid();
+        }
 
         if (gridData != null)
         {
+
+            width = gw;
+            height = gh;
+            walkable = new bool[gw, gh];
+
             for (int z = 0; z < gh; z++)
             {
                 for (int x = 0; x < gw; x++)
                 {
-                    if (gridData[z, x] == 1)
+                    // ImageToGrid writes grid[x, y]; read as [x, z]
+                    bool isOn = gridData[x, z] == 1;
+                    walkable[x, z] = isOn;
+
+                    if (!isOn) continue;
+
+                    var tile = Instantiate(groundTile, _gridRoot.transform);
+                    tile.name = $"C{x}_{z}";
+                    var tileTransform = tile.transform;
+                    tileTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY, z0 + (z + 0.5f) * cellSize);
+                    tileTransform.localScale = new Vector3(cellSize * 0.1f, 1f, cellSize * 0.1f);
+                    var meshRenderer = tile.GetComponent<MeshRenderer>();
+                    if (meshRenderer != null)
                     {
-                        var tile = Instantiate(groundTile, _gridRoot.transform);
-                        tile.name = $"C{x}_{z}";
-                        var tileTransform = tile.transform;
-                        tileTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY, z0 + (z + 0.5f) * cellSize);
-                        tileTransform.localScale = new Vector3(cellSize * 0.1f, 1f, cellSize * 0.1f);
-                        var meshRenderer = tile.GetComponent<MeshRenderer>();
-                        if (meshRenderer != null)
-                        {
-                            _cells.Add(meshRenderer);
-                        }
+                    _cells.Add(meshRenderer);
                     }
                 }
             }
         }
-        
+        else
+        {   // If no image, clear walkability
+            walkable = null;
+        }
+
     }
 
     /// <summary>
@@ -493,7 +520,7 @@ public class GridRenderer3D : MonoBehaviour
         }
     }
 
-    
+
 
     // ---------- Walls cache & queries ----------
 
@@ -613,12 +640,12 @@ public class GridRenderer3D : MonoBehaviour
     void ClearOverlayChildren()
     {
         for (int i = _overlayRoot.childCount - 1; i >= 0; i--)
+        {
+            var child = _overlayRoot.GetChild(i).gameObject;
+            if (child.name == "SelectTileInstance" || (selectTile && child.name == selectTile.name + "(Clone)"))
             {
-                var child = _overlayRoot.GetChild(i).gameObject;
-                if (child.name == "SelectTileInstance" || (selectTile && child.name == selectTile.name + "(Clone)"))
-                {
-                    SafeDestroy(child);
-                }
+                SafeDestroy(child);
             }
+        }
     }
 }
