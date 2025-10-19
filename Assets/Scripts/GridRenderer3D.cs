@@ -7,6 +7,7 @@ public class GridRenderer3D : MonoBehaviour
 
 
     [Header("Grid (XZ plane)")]
+    [SerializeField] private ImageToGrid imageToGrid;
     // Number of columns.
     [Min(1)] public int width = 20;
     // Number of rows.
@@ -294,37 +295,49 @@ public class GridRenderer3D : MonoBehaviour
     /// </summary>
     void RebuildGrid()
     {
+        int gw = 0;
+        int gh = 0;
+        int[,] gridData = null;
         // Clear all previous grid children and empty the cell list.
         ClearChildrenPlane(_gridRoot, _cells);
         // Destroy all select tile instances under _overlayRoot
         if (_overlayRoot){ClearOverlayChildren();}
-        _selectTileInstance = null;
+            _selectTileInstance = null;
         // Compute world-space grid width (gw) and height (gh).
-        float gw = width * cellSize, gh = height * cellSize;
         // origin cache
         float x0 = origin.x, z0 = origin.y;
-
-        // Loop over each row (z index) in the grid.
-        for (int z = 0; z < height; z++)
-            // Loop over each column (x index) in the grid.
-            for (int x = 0; x < width; x++)
+        if (imageToGrid != null)
             {
-                // Instantiate the tile prefab.
-                var tile = Instantiate(groundTile, _gridRoot.transform);
-                tile.name = $"C{x}_{z}";
+                gridData = imageToGrid.GenerateGrid();
+                gw = imageToGrid.GetWidth();
+                gh = imageToGrid.GetHeight();
+                // Use gridData, gridWidth, gridHeight as needed...
+                imageToGrid.PrintGrid();
+            }
 
-                // Position the tile at its center.
-                var tileTransform = tile.transform;
-                tileTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY, z0 + (z + 0.5f) * cellSize);
-                tileTransform.localScale = new Vector3(cellSize * 0.1f, 1f, cellSize * 0.1f);
-
-                // Track the tile's MeshRenderer for later updates.
-                var meshRenderer = tile.GetComponent<MeshRenderer>();
-                if (meshRenderer != null)
+        if (gridData != null)
+        {
+            for (int z = 0; z < gh; z++)
+            {
+                for (int x = 0; x < gw; x++)
                 {
-                    _cells.Add(meshRenderer);
+                    if (gridData[z, x] == 1)
+                    {
+                        var tile = Instantiate(groundTile, _gridRoot.transform);
+                        tile.name = $"C{x}_{z}";
+                        var tileTransform = tile.transform;
+                        tileTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY, z0 + (z + 0.5f) * cellSize);
+                        tileTransform.localScale = new Vector3(cellSize * 0.1f, 1f, cellSize * 0.1f);
+                        var meshRenderer = tile.GetComponent<MeshRenderer>();
+                        if (meshRenderer != null)
+                        {
+                            _cells.Add(meshRenderer);
+                        }
+                    }
                 }
             }
+        }
+        
     }
 
     /// <summary>

@@ -1,5 +1,5 @@
 using UnityEngine;
-
+//change to be non monoBehaviour, its not needed
 public class ImageToGrid : MonoBehaviour
 {
     [Header("Level Image")]
@@ -7,9 +7,9 @@ public class ImageToGrid : MonoBehaviour
 
     public int[,] grid;
 
-    public void GenerateGrid()
+    public int[,] GenerateGrid()
     {
-        if (img == null) return;
+        if (img == null) return null;
         grid = new int[img.width, img.height];
         for (int i = 0; i < img.width; i++)
         {
@@ -19,5 +19,35 @@ public class ImageToGrid : MonoBehaviour
                 grid[i, j] = (pixel == Color.black) ? 1 : 0;
             }
         }
+        return grid;
+    }
+
+    public int[,] GetGrid()
+    {
+        return grid;
+    }
+
+    public int GetWidth()
+    {
+        return img.width;
+    }
+    public int GetHeight()
+    {
+        return img.height;
+    }
+
+    public void PrintGrid()
+    {
+        if (grid == null) return;
+        string gridString = "";
+        for (int j = grid.GetLength(1) - 1; j >= 0; j--)
+        {
+            for (int i = 0; i < grid.GetLength(0); i++)
+            {
+                gridString += grid[i, j] + " ";
+            }
+            gridString += "\n";
+        }
+        Debug.Log(gridString);
     }
 }
