@@ -24,8 +24,6 @@ public class GridRenderer3D : MonoBehaviour
     [SerializeField] private GameObject groundTile;
 
     [Header("Appearance")]
-    // Color of the “gaps” between cells (big backdrop).
-    public Color lineColor = new(1, 1, 1, 0.85f);
     // Color of each cell quad.
     public Color cellFillColor = new(0.07f, 0.1f, 0.16f, 0.8f);
     // Color of world axes (if drawn).
@@ -56,15 +54,17 @@ public class GridRenderer3D : MonoBehaviour
     [SerializeField] private GameObject selectTile;
 
     // ---------- Walkability from ImageToGrid ----------
-    // true = cell exists (image == 1), false = empty/null
     public bool[,] walkable;
 
     public bool IsCellWalkable(int x, int z)
     {
-        return walkable != null
-            && (uint)x < (uint)width
-            && (uint)z < (uint)height
-            && walkable[x, z];
+        // if walkable array is null, treat all cells as non-walkable
+        if (walkable == null) return false;
+        // if x or z are out of bounds, return false
+        if (x < 0 || x >= width) return false;
+        if (z < 0 || z >= height) return false;
+        // return boolean value stored in walkable array at position (x, z)
+        return walkable[x, z];
     }
 
     // ---------- Wall cache state ----------
@@ -95,9 +95,6 @@ public class GridRenderer3D : MonoBehaviour
     readonly List<SpriteRenderer> _wallSRs = new();
     // Instance of the select tile prefab for selection visual.
     private GameObject _selectTileInstance;
-
-
-
 
 
     // ---------- Small helpers to remove repetition ----------
@@ -332,19 +329,21 @@ public class GridRenderer3D : MonoBehaviour
 
         if (gridData != null)
         {
-
+            // Set grid dimensions based on image
             width = gw;
             height = gh;
+            // Create new walkability map
             walkable = new bool[gw, gh];
 
             for (int z = 0; z < gh; z++)
             {
                 for (int x = 0; x < gw; x++)
                 {
-                    // ImageToGrid writes grid[x, y]; read as [x, z]
+                    // Check if cell is walkable (1 = walkable, 0 = blocked)
                     bool isOn = gridData[x, z] == 1;
                     walkable[x, z] = isOn;
 
+                    // Skip tile creation for non-walkable cells
                     if (!isOn) continue;
 
                     var tile = Instantiate(groundTile, _gridRoot.transform);
