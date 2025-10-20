@@ -354,7 +354,7 @@ public class GridRenderer3D : MonoBehaviour
                     var meshRenderer = tile.GetComponent<MeshRenderer>();
                     if (meshRenderer != null)
                     {
-                    _cells.Add(meshRenderer);
+                        _cells.Add(meshRenderer);
                     }
                 }
             }
