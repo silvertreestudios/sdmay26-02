@@ -10,6 +10,47 @@ All combatants in the game share a common base representation called a **Creatur
 
 ## Creature Types
 
+```mermaid
+classDiagram
+    class Creature {
+        <<abstract>>
+        +string id
+        +string name
+        +int level
+        +AbilityScores abilities
+        +CombatStatistics combatStats
+        +Actions[] actions
+        +calculateAC()
+        +rollAttack()
+        +takeDamage()
+    }
+    
+    class PlayerCharacter {
+        +Ancestry ancestry
+        +Background background
+        +CharacterClass class
+        +Feat[] feats
+        +levelUp()
+        +selectFeat()
+    }
+    
+    class NPC {
+        +bool useSimplifiedStats
+        +string role
+        +configureQuickStats()
+    }
+    
+    class Monster {
+        +string[] naturalWeapons
+        +SpecialAbility[] uniqueAbilities
+        +int challengeRating
+    }
+    
+    Creature <|-- PlayerCharacter
+    Creature <|-- NPC
+    Creature <|-- Monster
+```
+
 ### Player Characters (PCs)
 - Full character creation and customization
 - Class-based progression with level advancement
@@ -127,47 +168,62 @@ Each ability has:
 
 The creature system uses a hierarchical, component-based structure:
 
-```
-Creature (Base)
-├── Core Identity
-│   ├── Metadata (name, level, type, etc.)
-│   └── Traits
-├── Ability Scores
-│   ├── Base Values
-│   ├── Modifiers
-│   └── Temporary Adjustments
-├── Combat Statistics
-│   ├── Defenses (AC, HP, Saves)
-│   ├── Offenses (Attacks, Damage)
-│   └── Proficiencies
-├── Skills and Perception
-│   ├── Skill Proficiencies
-│   └── Perception Details
-├── Actions and Abilities
-│   ├── Strike Actions
-│   ├── Special Actions
-│   ├── Reactions
-│   └── Passive Abilities
-├── Character Progression (PCs/NPCs)
-│   ├── Ancestry and Heritage
-│   ├── Background
-│   ├── Class and Features
-│   └── Feats
-├── Spellcasting (Optional)
-│   ├── Spellcasting Tradition
-│   ├── Spell Slots and Focus Points
-│   └── Known/Prepared Spells
-├── Equipment
-│   ├── Worn Items
-│   ├── Weapons and Armor
-│   └── Consumables
-├── Active Effects
-│   ├── Conditions
-│   ├── Buffs/Debuffs
-│   └── Temporary Modifications
-└── Movement and Senses
-    ├── Movement Speeds
-    └── Special Senses
+```mermaid
+graph TD
+    A[Creature Base] --> B[Core Identity]
+    A --> C[Ability Scores]
+    A --> D[Combat Statistics]
+    A --> E[Skills and Perception]
+    A --> F[Actions and Abilities]
+    A --> G[Character Progression]
+    A --> H[Spellcasting]
+    A --> I[Equipment]
+    A --> J[Active Effects]
+    A --> K[Movement and Senses]
+    
+    B --> B1[Metadata]
+    B --> B2[Traits]
+    
+    C --> C1[Base Values]
+    C --> C2[Modifiers]
+    C --> C3[Temporary Adjustments]
+    
+    D --> D1[Defenses<br/>AC, HP, Saves]
+    D --> D2[Offenses<br/>Attacks, Damage]
+    D --> D3[Proficiencies]
+    
+    E --> E1[Skill Proficiencies]
+    E --> E2[Perception Details]
+    
+    F --> F1[Strike Actions]
+    F --> F2[Special Actions]
+    F --> F3[Reactions]
+    F --> F4[Passive Abilities]
+    
+    G --> G1[Ancestry and Heritage]
+    G --> G2[Background]
+    G --> G3[Class and Features]
+    G --> G4[Feats]
+    
+    H --> H1[Spellcasting Tradition]
+    H --> H2[Spell Slots]
+    H --> H3[Known/Prepared Spells]
+    
+    I --> I1[Worn Items]
+    I --> I2[Weapons and Armor]
+    I --> I3[Consumables]
+    
+    J --> J1[Conditions]
+    J --> J2[Buffs/Debuffs]
+    J --> J3[Temporary Modifications]
+    
+    K --> K1[Movement Speeds]
+    K --> K2[Special Senses]
+    
+    style A fill:#e1f5ff
+    style C fill:#ffe1e1
+    style D fill:#fff4e1
+    style F fill:#e1ffe1
 ```
 
 ## Data-Driven Design

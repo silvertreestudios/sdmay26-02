@@ -84,6 +84,72 @@ enum ActionType {
 
 ### Base Creature Structure
 
+```mermaid
+classDiagram
+    class Creature {
+        +string id
+        +string name
+        +CreatureType type
+        +int level
+        +Metadata metadata
+        +AbilityScores abilityScores
+        +CombatStatistics combatStats
+        +Skills skills
+        +Perception perception
+        +CreatureAbilities abilities
+        +Spellcasting? spellcasting
+        +Equipment? equipment
+        +string[] languages
+        +Senses senses
+        +Movement movement
+        +ActiveCondition[] conditions
+        +ActiveEffect[] effects
+        +Resources resources
+    }
+    
+    class Metadata {
+        +Rarity rarity
+        +Size size
+        +Alignment alignment
+        +string[] traits
+    }
+    
+    class AbilityScores {
+        +Ability strength
+        +Ability dexterity
+        +Ability constitution
+        +Ability intelligence
+        +Ability wisdom
+        +Ability charisma
+        +getModifier(ability)
+    }
+    
+    class CombatStatistics {
+        +ArmorClass ac
+        +HitPoints hp
+        +SavingThrows saves
+        +Resistance[] resistances
+        +Weakness[] weaknesses
+        +Immunity[] immunities
+        +Strike[] strikes
+        +Proficiencies proficiencies
+    }
+    
+    class CreatureAbilities {
+        +Strike[] strikes
+        +Action[] actions
+        +Reaction[] reactions
+        +PassiveAbility[] passiveAbilities
+        +Aura[] auras
+        +ActionState actionState
+    }
+    
+    Creature --> Metadata
+    Creature --> AbilityScores
+    Creature --> CombatStatistics
+    Creature --> CreatureAbilities
+```
+
 ```typescript
 interface Creature {
   // Identity

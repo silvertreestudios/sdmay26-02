@@ -6,37 +6,37 @@ This document illustrates how the different components of the creature represent
 
 ## Component Dependency Graph
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         CREATURE                                 │
-│                    (Base Entity)                                 │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-                ┌────────────────┴────────────────┐
-                │                                  │
-         ┌──────▼──────┐                   ┌──────▼──────┐
-         │   IDENTITY   │                   │  ABILITIES  │
-         │             │                   │   SCORES     │
-         └──────┬──────┘                   └──────┬──────┘
-                │                                  │
-                │              ┌───────────────────┴────────────────────┐
-                │              │                                         │
-         ┌──────▼──────┐  ┌───▼───────┐  ┌──────────┐  ┌─────────────┐
-         │  CHARACTER  │  │  COMBAT    │  │  SKILLS  │  │ PERCEPTION  │
-         │ PROGRESSION │  │STATISTICS  │  │          │  │             │
-         │             │  │            │  │          │  │             │
-         └──────┬──────┘  └─────┬──────┘  └────┬─────┘  └──────┬──────┘
-                │               │              │                │
-    ┌───────────┼───────────┐   │         ┌────┼────────────────┘
-    │           │           │   │         │    │
-┌───▼──┐  ┌────▼───┐  ┌───▼──▼──▼──┐  ┌──▼────▼───┐
-│Ancest│  │  Class │  │  Equipment │  │  Actions  │
-│ry    │  │        │  │            │  │Abilities  │
-└──────┘  └────┬───┘  └──────┬─────┘  └──────┬────┘
-               │              │               │
-          ┌────▼────┐    ┌────▼────┐    ┌────▼────┐
-          │  Feats  │    │  Items  │    │ Strikes │
-          └─────────┘    └─────────┘    └─────────┘
+```mermaid
+graph TB
+    Creature[CREATURE<br/>Base Entity]
+    
+    Creature --> Identity[IDENTITY]
+    Creature --> AbilityScores[ABILITY SCORES]
+    
+    Identity --> CharProgression[CHARACTER<br/>PROGRESSION]
+    
+    AbilityScores --> CombatStats[COMBAT<br/>STATISTICS]
+    AbilityScores --> Skills[SKILLS]
+    AbilityScores --> Perception[PERCEPTION]
+    
+    CharProgression --> Ancestry
+    CharProgression --> Class
+    CharProgression --> Background
+    
+    CombatStats --> Equipment
+    Skills --> Equipment
+    Perception --> Equipment
+    
+    Equipment --> Items
+    Class --> Feats
+    Equipment --> ActionsAbilities[ACTIONS<br/>ABILITIES]
+    
+    ActionsAbilities --> Strikes
+    
+    style Creature fill:#e1f5ff,stroke:#333,stroke-width:3px
+    style AbilityScores fill:#ffe1e1,stroke:#333,stroke-width:2px
+    style CombatStats fill:#fff4e1,stroke:#333,stroke-width:2px
+    style ActionsAbilities fill:#e1ffe1,stroke:#333,stroke-width:2px
 ```
 
 ## Core Dependencies
@@ -103,132 +103,116 @@ Level
 
 ### Attack Resolution Flow
 
-```
-Attacker Initiates Strike
-         │
-         ▼
-Calculate Attack Modifier
-    │
-    ├─ Base: 0
-    ├─ Ability Modifier (STR/DEX)
-    ├─ Proficiency Bonus
-    ├─ Item Bonus (weapon/runes)
-    ├─ Status Bonuses (spells)
-    ├─ Circumstance Bonuses (flanking)
-    └─ Penalties (MAP, conditions)
-         │
-         ▼
-Roll 1d20 + Attack Modifier
-         │
-         ├─ Natural 1: Auto Fail
-         ├─ Natural 20: Auto Success
-         └─ Otherwise: Compare to Target AC
-                 │
-                 ├─ Miss (< AC)
-                 │
-                 ├─ Hit (≥ AC)
-                 │      │
-                 │      ▼
-                 │  Roll Damage
-                 │      │
-                 │      ├─ Weapon Dice
-                 │      ├─ Ability Modifier (if any)
-                 │      ├─ Additional Damage
-                 │      └─ Apply Resistance/Weakness
-                 │            │
-                 │            ▼
-                 │        Update Target HP
-                 │
-                 └─ Critical Hit (≥ AC + 10 or Natural 20)
-                        │
-                        ▼
-                    Double Dice Damage
-                        │
-                        ▼
-                    Apply Critical Effects
-                        │
-                        ▼
-                    Update Target HP
+```mermaid
+sequenceDiagram
+    participant Attacker
+    participant CombatSystem
+    participant Target
+    
+    Attacker->>CombatSystem: Initiate Strike
+    CombatSystem->>CombatSystem: Calculate Attack Modifier<br/>(Base + Ability + Proficiency<br/>+ Item + Bonuses - Penalties)
+    CombatSystem->>CombatSystem: Roll 1d20 + Modifier
+    
+    alt Natural 1
+        CombatSystem->>Attacker: Critical Failure
+    else Natural 20
+        CombatSystem->>CombatSystem: Roll Double Damage
+        CombatSystem->>Target: Apply Critical Hit Damage
+        CombatSystem->>Target: Apply Critical Effects
+        Target->>Target: Update HP
+    else Result >= Target AC + 10
+        CombatSystem->>CombatSystem: Critical Hit!
+        CombatSystem->>CombatSystem: Roll Double Damage
+        CombatSystem->>Target: Apply Critical Hit Damage
+        Target->>Target: Update HP
+    else Result >= Target AC
+        CombatSystem->>CombatSystem: Hit!
+        CombatSystem->>CombatSystem: Roll Damage<br/>(Weapon Dice + Ability + Additional)
+        CombatSystem->>Target: Apply Damage (after Resistance/Weakness)
+        Target->>Target: Update HP
+    else Result < Target AC
+        CombatSystem->>Attacker: Miss
+    end
+    
+    CombatSystem->>Attacker: Update Multiple Attack Penalty
 ```
 
 ### Spell Casting Flow
 
-```
-Caster Selects Spell
-         │
-         ▼
-Check Spell Slot Available
-         │
-         ├─ No → Cannot Cast
-         │
-         └─ Yes
-              │
-              ▼
-         Expend Slot
-              │
-              ▼
-    Calculate Spell DC/Attack
-         │
-         ├─ For Attack Spells:
-         │   DC = 10 + Level + Rank + Ability
-         │
-         └─ For Save Spells:
-             Target makes save
-                  │
-                  ├─ Fortitude (CON)
-                  ├─ Reflex (DEX)
-                  └─ Will (WIS)
-                       │
-                       ▼
-                  Compare to Spell DC
-                       │
-                       ├─ Critical Success
-                       ├─ Success
-                       ├─ Failure
-                       └─ Critical Failure
-                            │
-                            ▼
-                       Apply Effects
-                            │
-                            ▼
-                       Update Game State
+```mermaid
+sequenceDiagram
+    participant Caster
+    participant SpellSystem
+    participant Target
+    
+    Caster->>SpellSystem: Select Spell
+    SpellSystem->>SpellSystem: Check Spell Slot Available
+    
+    alt No Slot Available
+        SpellSystem->>Caster: Cannot Cast
+    else Slot Available
+        SpellSystem->>Caster: Expend Spell Slot
+        SpellSystem->>SpellSystem: Calculate Spell DC<br/>(10 + Level + Rank + Ability)
+        
+        alt Attack Spell
+            SpellSystem->>SpellSystem: Roll Spell Attack
+            SpellSystem->>Target: Apply Damage/Effects
+        else Save Spell
+            SpellSystem->>Target: Request Save (Fort/Ref/Will)
+            Target->>Target: Roll Save vs DC
+            
+            alt Critical Success
+                Target->>SpellSystem: Critical Success
+                SpellSystem->>Target: Apply Minimal Effect
+            else Success
+                Target->>SpellSystem: Success
+                SpellSystem->>Target: Apply Reduced Effect
+            else Failure
+                Target->>SpellSystem: Failure
+                SpellSystem->>Target: Apply Full Effect
+            else Critical Failure
+                Target->>SpellSystem: Critical Failure
+                SpellSystem->>Target: Apply Maximum Effect
+            end
+        end
+        
+        SpellSystem->>SpellSystem: Update Game State
+    end
 ```
 
 ### Condition Application Flow
 
-```
-Condition Triggered
-         │
-         ▼
-Check Immunity
-         │
-         ├─ Immune → Condition Prevented
-         │
-         └─ Not Immune
-              │
-              ▼
-         Apply Condition
-              │
-              ├─ Track Source
-              ├─ Track Duration
-              ├─ Track Value (if applicable)
-              └─ Apply Effects
-                   │
-                   ▼
-              Update Statistics
-                   │
-                   ├─ Modify Ability Scores
-                   ├─ Modify AC
-                   ├─ Modify Attack Rolls
-                   ├─ Modify Saves
-                   ├─ Restrict Actions
-                   └─ Apply Other Effects
-                        │
-                        ▼
-                   Recalculate Derived Stats
-                        │
-                        ▼
-                   Update UI
+```mermaid
+stateDiagram-v2
+    [*] --> CheckImmunity: Condition Triggered
+    
+    CheckImmunity --> Prevented: Is Immune
+    CheckImmunity --> ApplyCondition: Not Immune
+    
+    Prevented --> [*]
+    
+    ApplyCondition --> TrackMetadata: Store Condition
+    TrackMetadata --> ApplyEffects: Metadata Stored
+    
+    state ApplyEffects {
+        [*] --> ModifyAbilityScores
+        ModifyAbilityScores --> ModifyAC
+        ModifyAC --> ModifyAttacks
+        ModifyAttacks --> ModifySaves
+        ModifySaves --> RestrictActions
+        RestrictActions --> [*]
+    }
+    
+    ApplyEffects --> RecalculateStats: Effects Applied
+    RecalculateStats --> UpdateUI: Stats Updated
+    UpdateUI --> [*]
+    
+    note right of TrackMetadata
+        Track:
+        - Source
+        - Duration
+        - Value
+    end note
 ```
 
 ## Calculation Order

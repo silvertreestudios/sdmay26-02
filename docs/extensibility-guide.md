@@ -6,6 +6,40 @@ The creature representation system is designed to be highly extensible, allowing
 
 ## Design Principles for Extensibility
 
+```mermaid
+graph TD
+    Content[Game Content]
+    
+    Content --> Data[Data-Driven Architecture]
+    Content --> Comp[Composition Over Inheritance]
+    Content --> Rules[Rule References]
+    Content --> Effects[Effect System]
+    
+    Data --> Abilities[Abilities as Data]
+    Data --> Classes[Classes as Data]
+    Data --> Items[Items as Data]
+    Data --> Spells[Spells as Data]
+    
+    Comp --> Lists[Component Lists]
+    Comp --> Modular[Modular Features]
+    Comp --> Multiple[Multiple Sources]
+    
+    Rules --> Independent[Independent Updates]
+    Rules --> Shared[Shared Mechanics]
+    Rules --> Variants[Rule Variants]
+    
+    Effects --> Unified[Unified System]
+    Effects --> Tracking[Source Tracking]
+    Effects --> Temporary[Temporary Effects]
+    Effects --> Stacking[Stacking Rules]
+    
+    style Content fill:#e1f5ff
+    style Data fill:#90ee90
+    style Comp fill:#ffeb99
+    style Rules fill:#ffb3b3
+    style Effects fill:#d1b3ff
+```
+
 ### 1. Data-Driven Architecture
 All game content is defined as data, not code:
 - **Abilities** are data entries with references to rule implementations
@@ -35,6 +69,48 @@ Changes to game state are handled through a unified effect system:
 ## Adding New Content
 
 ### Adding a New Class
+
+```mermaid
+classDiagram
+    class Class {
+        +string id
+        +string name
+        +string description
+        +AbilityScore[] keyAbility
+        +int hitPoints
+        +InitialProficiencies proficiencies
+        +Progression progression
+        +string[] classFeats
+        +validate()
+    }
+    
+    class InitialProficiencies {
+        +ProficiencyLevel perception
+        +SaveProficiencies saves
+        +WeaponProficiencies weapons
+        +ArmorProficiencies armor
+        +SkillProficiencies skills
+        +ProficiencyLevel classDC
+    }
+    
+    class Progression {
+        +LevelFeatures[] byLevel
+        +getFeatures(level)
+    }
+    
+    class LevelFeatures {
+        +int level
+        +string[] classFeatures
+        +int abilityBoosts
+        +int skillIncreases
+        +int feats
+        +ProficiencyIncrease[] proficiencyIncreases
+    }
+    
+    Class --> InitialProficiencies
+    Class --> Progression
+    Progression --> LevelFeatures
+```
 
 Classes are defined through structured data that includes:
 

@@ -4,6 +4,32 @@
 
 This document provides concrete examples of creature representations, demonstrating how different types of creatures are constructed using the system.
 
+```mermaid
+graph TD
+    Examples[Creature Examples]
+    
+    Examples --> PC[Player Character<br/>Level 1 Fighter]
+    Examples --> LowLevel[Low-Level Monster<br/>Goblin Warrior]
+    Examples --> HighLevel[High-Level Monster<br/>Ancient Dragon]
+    Examples --> Caster[Spellcaster<br/>Level 7 Wizard]
+    Examples --> Simple[Simple Enemy<br/>Skeleton Guard]
+    
+    PC --> PCFeatures[Full Progression<br/>Class Features<br/>Equipment<br/>Feats]
+    
+    LowLevel --> LowFeatures[Simple Stats<br/>Basic Abilities<br/>Level -1]
+    
+    HighLevel --> HighFeatures[Complex Abilities<br/>Spellcasting<br/>Legendary Powers<br/>Level 20]
+    
+    Caster --> CasterFeatures[Spell Slots<br/>Prepared Spells<br/>Focus Spells]
+    
+    Simple --> SimpleFeatures[Undead Traits<br/>Immunities<br/>Resistances]
+    
+    style Examples fill:#e1f5ff
+    style PC fill:#90ee90
+    style HighLevel fill:#ffb366
+    style Caster fill:#d1b3ff
+```
+
 ## Example 1: Level 1 Human Fighter (Player Character)
 
 A complete player character with full details.

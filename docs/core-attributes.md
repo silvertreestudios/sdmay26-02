@@ -6,6 +6,37 @@ In Pathfinder 2e, six ability scores define a creature's fundamental capabilitie
 
 ## The Six Abilities
 
+```mermaid
+graph TD
+    Abilities[Six Ability Scores]
+    
+    Abilities --> STR[Strength<br/>STR]
+    Abilities --> DEX[Dexterity<br/>DEX]
+    Abilities --> CON[Constitution<br/>CON]
+    Abilities --> INT[Intelligence<br/>INT]
+    Abilities --> WIS[Wisdom<br/>WIS]
+    Abilities --> CHA[Charisma<br/>CHA]
+    
+    STR --> STRUses[Melee Attacks<br/>Melee Damage<br/>Athletics<br/>Carrying Capacity]
+    
+    DEX --> DEXUses[AC<br/>Reflex Saves<br/>Ranged Attacks<br/>Initiative<br/>Acrobatics, Stealth]
+    
+    CON --> CONUses[Hit Points<br/>Fortitude Saves<br/>Stamina<br/>Disease/Poison Resistance]
+    
+    INT --> INTUses[Trained Skills<br/>Arcane Spells<br/>Recall Knowledge<br/>Arcana, Crafting]
+    
+    WIS --> WISUses[Perception<br/>Will Saves<br/>Divine/Primal Spells<br/>Medicine, Survival]
+    
+    CHA --> CHAUses[Social Skills<br/>Occult Spells<br/>Leadership<br/>Deception, Diplomacy]
+    
+    style STR fill:#ffcccc
+    style DEX fill:#ccffcc
+    style CON fill:#ffccff
+    style INT fill:#ccccff
+    style WIS fill:#ffffcc
+    style CHA fill:#ffcc99
+```
+
 ### Strength (STR)
 - **Measures**: Physical power and athletic prowess
 - **Used For**:
@@ -91,6 +122,25 @@ Modifier = (Score - 10) / 2 (rounded down)
 | 16    | +3       | 30    | +10      |
 
 ## Ability Score Structure
+
+```mermaid
+flowchart TD
+    Start[Base Score: 10] --> Ancestry[+ Ancestry Boosts]
+    Ancestry --> Background[+ Background Boosts]
+    Background --> Class[+ Class Boosts]
+    Class --> Free[+ Free Boosts at Level 1]
+    Free --> Level[+ Level Boosts<br/>every 5 levels]
+    Level --> Apex{Has Apex Item?}
+    Apex -->|Yes| ApexBonus[+ Apex Bonus +2]
+    Apex -->|No| TempMods[Check Temporary Modifiers]
+    ApexBonus --> TempMods
+    TempMods --> FinalScore[Final Score]
+    FinalScore --> CalcMod[Calculate Modifier<br/>Score - 10 / 2]
+    
+    style Start fill:#e1f5ff
+    style FinalScore fill:#90ee90
+    style CalcMod fill:#ffe1e1
+```
 
 ### Base Ability Score
 ```

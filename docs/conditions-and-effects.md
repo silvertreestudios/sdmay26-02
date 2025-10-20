@@ -17,6 +17,39 @@ Conditions are persistent effects that modify a creature's capabilities, while e
 
 Pathfinder 2e defines numerous standard conditions that can affect creatures.
 
+```mermaid
+graph TD
+    Conditions[Standard Conditions]
+    
+    Conditions --> ValueBased[Value-Based Conditions]
+    Conditions --> Boolean[Boolean Conditions]
+    
+    ValueBased --> Clumsy[Clumsy<br/>DEX penalty]
+    ValueBased --> Drained[Drained<br/>CON penalty, HP loss]
+    ValueBased --> Enfeebled[Enfeebled<br/>STR penalty]
+    ValueBased --> Frightened[Frightened<br/>All checks penalty<br/>Auto-decreases]
+    ValueBased --> Sickened[Sickened<br/>All checks penalty]
+    ValueBased --> Slowed[Slowed<br/>Lose actions]
+    ValueBased --> Stupefied[Stupefied<br/>Mental penalty]
+    ValueBased --> Wounded[Wounded<br/>Dying increase]
+    ValueBased --> Dying[Dying<br/>Near death]
+    
+    Boolean --> Blinded[Blinded<br/>Cannot see]
+    Boolean --> Confused[Confused<br/>Random attacks]
+    Boolean --> Fascinated[Fascinated<br/>Distracted]
+    Boolean --> FlatFooted[Flat-Footed<br/>-2 AC]
+    Boolean --> Grabbed[Grabbed<br/>Immobilized]
+    Boolean --> Invisible[Invisible<br/>Undetected]
+    Boolean --> Paralyzed[Paralyzed<br/>Cannot act]
+    Boolean --> Prone[Prone<br/>-2 attack, on ground]
+    Boolean --> Unconscious[Unconscious<br/>Cannot act or sense]
+    
+    style ValueBased fill:#ffe1e1
+    style Boolean fill:#e1f5ff
+    style Dying fill:#ff6666
+    style Unconscious fill:#ff6666
+```
+
 ### Value-Based Conditions
 
 These conditions have numeric values indicating severity:
@@ -299,6 +332,38 @@ interface PersistentDamage extends ActiveCondition {
 ## Death and Dying
 
 Special conditions related to dying:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Conscious: Healthy
+    Conscious --> Dying1: HP drops to 0
+    
+    Dying1 --> Dying2: Recovery Fail
+    Dying1 --> Conscious: Recovery Crit Success<br/>Gain Wounded
+    
+    Dying2 --> Dying3: Recovery Fail
+    Dying2 --> Dying1: Recovery Success
+    Dying2 --> Conscious: Recovery Crit Success<br/>Gain Wounded
+    
+    Dying3 --> Death: Recovery Fail
+    Dying3 --> Dying2: Recovery Success
+    Dying3 --> Dying1: Recovery Crit Success
+    
+    Dying1 --> Dying3: Recovery Crit Fail
+    Dying2 --> Death: Recovery Crit Fail
+    
+    Death --> [*]
+    
+    note right of Dying1
+        DC = 10 + Dying Value
+        Roll at start of turn
+    end note
+    
+    note right of Death
+        Dying 4 = Death
+        (minus Doomed value)
+    end note
+```
 
 ### Dying Condition
 

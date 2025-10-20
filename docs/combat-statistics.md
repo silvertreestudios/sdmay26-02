@@ -11,6 +11,23 @@ This document details the combat-related statistics that define a creature's def
 Armor Class represents how difficult a creature is to hit with attacks.
 
 #### AC Calculation
+
+```mermaid
+flowchart LR
+    A[Base: 10] --> Sum[Total AC]
+    B[DEX Modifier<br/>capped by armor] --> Sum
+    C[Proficiency Bonus<br/>Level + Rank] --> Sum
+    D[Item Bonus<br/>highest only] --> Sum
+    E[Status Bonus<br/>highest only] --> Sum
+    F[Circumstance Bonus<br/>highest only] --> Sum
+    G[Penalties<br/>all stack] --> Sum
+    H[Shield Bonus<br/>+2 if raised] --> Sum
+    
+    style A fill:#e1f5ff
+    style Sum fill:#ffe1e1
+    style G fill:#ffcccc
+```
+
 ```
 AC = 10 + DEX Modifier + Proficiency + Item Bonus + Other Bonuses/Penalties
 ```
@@ -503,6 +520,20 @@ Senses {
 ## Proficiency System
 
 Proficiency ranks represent training and expertise levels.
+
+```mermaid
+graph LR
+    A[Untrained<br/>+0] --> B[Trained<br/>+Level+2]
+    B --> C[Expert<br/>+Level+4]
+    C --> D[Master<br/>+Level+6]
+    D --> E[Legendary<br/>+Level+8]
+    
+    style A fill:#cccccc
+    style B fill:#90ee90
+    style C fill:#87ceeb
+    style D fill:#dda0dd
+    style E fill:#ffd700
+```
 
 ### Proficiency Ranks
 - **Untrained**: +0

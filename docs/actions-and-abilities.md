@@ -6,6 +6,36 @@ Pathfinder 2e uses a three-action economy where most creatures get 3 actions per
 
 ## Action Economy
 
+```mermaid
+graph TD
+    Turn[Your Turn Begins]
+    Turn --> Action1[Action 1<br/>◆]
+    Turn --> Action2[Action 2<br/>◆]
+    Turn --> Action3[Action 3<br/>◆]
+    Turn --> FreeActions[Free Actions<br/>⊙<br/>Unlimited]
+    
+    Round[During Round] --> Reaction[Reaction<br/>↻<br/>Once per round]
+    
+    Action1 --> Strike1[Strike]
+    Action1 --> Move1[Stride/Step]
+    Action1 --> Other1[Other Actions]
+    
+    Action2 --> Activity[Two-Action Activity<br/>◆◆]
+    Action2 --> Strike2[Strike]
+    Action2 --> Move2[Stride/Step]
+    
+    Action3 --> Strike3[Strike]
+    Action3 --> Move3[Stride/Step]
+    Action3 --> ThreeAction[Three-Action Activity<br/>◆◆◆]
+    
+    style Turn fill:#e1f5ff
+    style Action1 fill:#90ee90
+    style Action2 fill:#90ee90
+    style Action3 fill:#90ee90
+    style Reaction fill:#ffb366
+    style FreeActions fill:#ffff99
+```
+
 ### Actions Per Turn
 - **3 Actions**: Standard action allowance per turn
 - **1 Reaction**: Can be used once per round (resets at start of your turn)
@@ -94,6 +124,48 @@ Actions granted by specific classes, feats, or features.
 - **Sneak Attack** (Rogue): Deal extra damage to flat-footed targets
 
 ## Data Structure
+
+```mermaid
+classDiagram
+    class Action {
+        +string id
+        +string name
+        +string description
+        +ActionCost actionCost
+        +string category
+        +string[] traits
+        +Skill? skill
+        +Effect[] effects
+        +Outcomes? outcomes
+        +execute()
+    }
+    
+    class Reaction {
+        +string trigger
+        +Condition[] triggerConditions
+        +string requirements
+        +checkTrigger()
+    }
+    
+    class PassiveAbility {
+        +string category
+        +Effect[] constantEffects
+        +Condition[] activeWhen
+        +isActive()
+    }
+    
+    class StrikeAction {
+        +AttackData attack
+        +DamageRoll[] damageRolls
+        +int currentMAP
+        +rollAttack()
+        +rollDamage()
+    }
+    
+    Action <|-- Reaction
+    Action <|-- PassiveAbility
+    Action <|-- StrikeAction
+```
 
 ### Base Action Object
 ```

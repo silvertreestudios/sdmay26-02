@@ -6,6 +6,20 @@ Skills represent a creature's training in specific areas of expertise. The Pathf
 
 ## Proficiency System
 
+```mermaid
+graph LR
+    U[Untrained<br/>+0] -->|Skill Training| T[Trained<br/>+Level+2]
+    T -->|Level 3+| E[Expert<br/>+Level+4]
+    E -->|Level 7+| M[Master<br/>+Level+6]
+    M -->|Level 15+| L[Legendary<br/>+Level+8]
+    
+    style U fill:#d3d3d3
+    style T fill:#90ee90
+    style E fill:#87ceeb
+    style M fill:#dda0dd
+    style L fill:#ffd700
+```
+
 ### Proficiency Ranks
 
 All proficiencies in Pathfinder 2e use the same five-rank system:
@@ -99,6 +113,30 @@ None (Constitution primarily affects Hit Points and Fortitude saves)
 - Perform, Earn Income
 
 ## Skill Check Structure
+
+```mermaid
+flowchart LR
+    Roll[Roll 1d20] --> Add[Add Modifiers]
+    Prof[Proficiency Bonus<br/>Level + Rank] --> Add
+    Ability[Ability Modifier] --> Add
+    Item[Item Bonus<br/>highest only] --> Add
+    Status[Status Bonus<br/>highest only] --> Add
+    Circ[Circumstance Bonus<br/>highest only] --> Add
+    Pen[Penalties<br/>all stack] --> Add
+    Add --> Total[Total Result]
+    Total --> Compare{Compare to DC}
+    Compare -->|≥ DC + 10| CritSuccess[Critical Success]
+    Compare -->|≥ DC| Success[Success]
+    Compare -->|< DC| Failure[Failure]
+    Compare -->|≤ DC - 10| CritFail[Critical Failure]
+    
+    style Roll fill:#e1f5ff
+    style Total fill:#ffe1e1
+    style CritSuccess fill:#90ee90
+    style Success fill:#c8e6c9
+    style Failure fill:#ffcccc
+    style CritFail fill:#ff6666
+```
 
 ### Basic Skill Check
 ```
