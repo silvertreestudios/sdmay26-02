@@ -31,7 +31,7 @@ public class GridRenderer3D : MonoBehaviour
     // Desired gap/axis thickness measured in pixels on screen.
     public float lineThicknessPixels = 1f;
     // Toggle drawing axes.
-    public bool drawAxes = true;
+    public bool drawAxes = false;
 
     [Header("Walls")]
     // Wall tint.
@@ -239,7 +239,6 @@ public class GridRenderer3D : MonoBehaviour
 
         // Keep all visuals pixel-consistent as the camera moves/zooms.
         UpdateGrid();
-        UpdateAxes(cam);
         UpdateWalls(cam);
         UpdateHover();
     }
@@ -296,10 +295,9 @@ public class GridRenderer3D : MonoBehaviour
     void FullRebuild()
     {
         RebuildGrid();
-        RebuildAxes();
         RebuildWallCache();
         RebuildWalls();
-        var cam = Cam(); if (cam) { UpdateGrid(); UpdateAxes(cam); UpdateWalls(cam); UpdateHover(); }
+        var cam = Cam(); if (cam) { UpdateGrid(); UpdateWalls(cam); UpdateHover(); }
     }
 
     /// <summary>
@@ -380,49 +378,6 @@ public class GridRenderer3D : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Destroy old axis SRs; create only if axes cross the grid.
-    /// </summary>
-    void RebuildAxes()
-    {
-        ClearChildren(null, _axes);
-        if (!drawAxes) return;
-
-        float x0 = origin.x, z0 = origin.y, gw = width * cellSize, gh = height * cellSize;
-        if (z0 <= 0 && 0 <= z0 + gh) _axes.Add(NewSR(_gridRoot, "AxisX", 2, axisColor)); // Z=0 crosses → X axis
-        if (x0 <= 0 && 0 <= x0 + gw) _axes.Add(NewSR(_gridRoot, "AxisZ", 2, axisColor)); // X=0 crosses → Z axis
-
-        var cam = Cam(); if (cam) UpdateAxes(cam);
-    }
-
-    /// <summary>
-    /// Size axes to grid span; thickness is pixel-accurate.
-    /// </summary>
-    /// <param name="cam"></param>
-    void UpdateAxes(Camera cam)
-    {
-        // Convert the axis thickness (in pixels) to world units at the plane.
-        float thick = PxToWorld(cam, lineThicknessPixels);
-        // Cache origin and world grid size for span and placement.
-        float x0 = origin.x, z0 = origin.y, gw = width * cellSize, gh = height * cellSize;
-
-        // Iterate any existing axis sprites (X and/or Z).
-        foreach (var sr in _axes)
-        {
-            // Skip missing/destroyed references.
-            if (!sr) continue;
-            // Determine if this sprite is the X-axis (horizontal across X).
-            bool isX = sr.name == "AxisX";
-            // Keep axis tint synced with inspector.
-            sr.color = axisColor;
-            // Scale to full span along the major axis and to pixel-accurate thickness on the minor axis.
-            sr.transform.localScale = isX ? new Vector3(gw, thick, 1f) : new Vector3(thick, gh, 1f);
-            // Clamp the crossing point (0) to the grid bounds along each dimension.
-            float px = Mathf.Clamp(0f, x0, x0 + gw), pz = Mathf.Clamp(0f, z0, z0 + gh);
-            // Place the axis at the clamped crossing point, flat on the grid plane.
-            sr.transform.SetPositionAndRotation(new Vector3(px, gridY, pz), Quaternion.identity);
-        }
-    }
 
     /// <summary>
     /// Destroy old walls; create one SR per segment at its center (length set later).
