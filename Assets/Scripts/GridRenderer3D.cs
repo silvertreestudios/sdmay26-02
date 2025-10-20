@@ -26,12 +26,8 @@ public class GridRenderer3D : MonoBehaviour
     [Header("Appearance")]
     // Color of each cell quad.
     public Color cellFillColor = new(0.07f, 0.1f, 0.16f, 0.8f);
-    // Color of world axes (if drawn).
-    public Color axisColor = new(1, 0.55f, 0.1f, 0.95f);
     // Desired gap/axis thickness measured in pixels on screen.
     public float lineThicknessPixels = 1f;
-    // Toggle drawing axes.
-    public bool drawAxes = false;
 
     [Header("Walls")]
     // Wall tint.
@@ -87,9 +83,6 @@ public class GridRenderer3D : MonoBehaviour
     // readonly List<SpriteRenderer> _cells = new();
     //trying to use plane meshes instead of sprites so we dont have to deal with the camera. this will also makes textures easier. pysics will also be easier
     readonly List<MeshRenderer> _cells = new();
-    // 0–2 SRs for axes (X and/or Z) depending on crossing.
-
-    readonly List<SpriteRenderer> _axes = new();
 
     // One SR per wall segment.
     readonly List<SpriteRenderer> _wallSRs = new();
