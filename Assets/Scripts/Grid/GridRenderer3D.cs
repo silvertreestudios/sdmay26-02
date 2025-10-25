@@ -1,17 +1,39 @@
-﻿using System.Collections.Generic;
+﻿using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 [ExecuteAlways, DisallowMultipleComponent]
-public class GridRenderer3D : MonoBehaviour
+public class GridRenderer3D : GridInterface
 {
     // ---------- Public, serialized settings ----------
 
 
+    public enum TileType
+    {
+        Ground,
+        Wall,
+        Void
+    }
+
+    public enum TileStatus
+    {
+        Normal,
+        Fire
+    }
+
+    public struct TILE
+    {
+        public int x;
+        public int z;
+        public TileType type;
+        public bool isOccupied;
+        public TileStatus[] status;
+    }
+
     [Header("Grid (XZ plane)")]
     [SerializeField] private ImageToGrid imageToGrid;
-    // Number of columns.
-    [Min(1)] public int width = 20;
-    // Number of rows.
-    [Min(1)] public int height = 12;
+
+    public int width;
+    public int height;
     // World size of one square cell.
     [Min(0.01f)] public float cellSize = 1f;
     // Bottom-left corner of the grid in world XZ.
@@ -49,20 +71,47 @@ public class GridRenderer3D : MonoBehaviour
     public Vector2Int HoverCell { get; private set; } = new(-1, -1);
     [SerializeField] private GameObject selectTile;
 
-    // ---------- Walkability from ImageToGrid ----------
-    public bool[,] walkable;
+    // ---------- Grid Data ----------
+    public TILE[,] gridInfo;
 
+    public void SetStatus(int x, int z, TileStatus statusToSet)
+    {
+        if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return;
+        if (!System.Array.Exists(gridInfo[x, z].status, status => status == statusToSet))
+        {
+            var statuses = new List<TileStatus>(gridInfo[x, z].status);
+            statuses.Add(statusToSet);
+            gridInfo[x, z].status = statuses.ToArray();
+        }
+    }
+
+    public bool HasStatus(int x, int z, TileStatus statusToCheck)
+    {
+        if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return false;
+        return System.Array.Exists(gridInfo[x, z].status, status => status == statusToCheck);
+    }
+
+    public bool getIsOccupied(int x, int z)
+    {
+        if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return false;
+        return gridInfo[x, z].isOccupied;
+    }
+
+    public void setIsOccupied(int x, int z, bool occupied)
+    {
+        if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return;
+        gridInfo[x, z].isOccupied = occupied;
+    }
     public bool IsCellWalkable(int x, int z)
     {
-        // if walkable array is null, treat all cells as non-walkable
-        if (walkable == null) return false;
+        // if tiles array is null, treat all cells as non-walkable
+        if (gridInfo == null) return false;
         // if x or z are out of bounds, return false
         if (x < 0 || x >= width) return false;
         if (z < 0 || z >= height) return false;
-        // return boolean value stored in walkable array at position (x, z)
-        return walkable[x, z];
+        // Check if the tile type allows walking
+        return gridInfo[x, z].type == TileType.Ground && !gridInfo[x, z].isOccupied;
     }
-
     // ---------- Wall cache state ----------
 
     // Horizontal/vertical blocked edges caches; rebuild gate.
@@ -298,8 +347,8 @@ public class GridRenderer3D : MonoBehaviour
     /// </summary>
     void RebuildGrid()
     {
-        int gw = 0;
-        int gh = 0;
+        int width = 0;
+        int height = 0;
         int[,] gridData = null;
         // Clear all previous grid children and empty the cell list.
         ClearChildrenPlane(_gridRoot, _cells);
@@ -312,30 +361,33 @@ public class GridRenderer3D : MonoBehaviour
         if (imageToGrid != null)
         {
             gridData = imageToGrid.GenerateGrid();
-            gw = imageToGrid.GetWidth();
-            gh = imageToGrid.GetHeight();
+            width = imageToGrid.GetWidth();
+            height = imageToGrid.GetHeight();
             // Use gridData, gridWidth, gridHeight as needed...
             imageToGrid.PrintGrid();
         }
 
         if (gridData != null)
         {
-            // Set grid dimensions based on image
-            width = gw;
-            height = gh;
-            // Create new walkability map
-            walkable = new bool[gw, gh];
+            // Create new tile grid
+            gridInfo = new TILE[width, height];
 
-            for (int z = 0; z < gh; z++)
+            for (int z = 0; z < height; z++)
             {
-                for (int x = 0; x < gw; x++)
+                for (int x = 0; x < width; x++)
                 {
-                    // Check if cell is walkable (1 = walkable, 0 = blocked)
-                    bool isOn = gridData[x, z] == 1;
-                    walkable[x, z] = isOn;
+                    // Initialize tile with default values
+                    gridInfo[x, z] = new TILE
+                    {
+                        x = x,
+                        z = z,
+                        type = gridData[x, z] == 1 ? TileType.Ground : TileType.Void,
+                        isOccupied = false,
+                        status = new TileStatus[] { TileStatus.Normal }
+                    };
 
                     // Skip tile creation for non-walkable cells
-                    if (!isOn) continue;
+                    if (gridInfo[x, z].type == TileType.Void) continue;
 
                     var tile = Instantiate(groundTile, _gridRoot.transform);
                     tile.name = $"C{x}_{z}";
@@ -351,8 +403,8 @@ public class GridRenderer3D : MonoBehaviour
             }
         }
         else
-        {   // If no image, clear walkability
-            walkable = null;
+        {   // If no image, clear tiles
+            gridInfo = null;
         }
 
     }
@@ -594,5 +646,11 @@ public class GridRenderer3D : MonoBehaviour
                 SafeDestroy(child);
             }
         }
+    }
+
+    public override IEnumerator MoveCreature()
+    {
+        //beep boop
+        yield return null;
     }
 }

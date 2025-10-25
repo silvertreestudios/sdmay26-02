@@ -63,7 +63,15 @@ public class GridCharacterController3D : MonoBehaviour
             if (_sr) _sr.sortingOrder = sortingOrder;
         }
         // Place the character at grid Y level (plus tiny offset to avoid z-fighting)
-        _character.transform.position = new Vector3(0f, grid ? grid.gridY + yDrawOffset : 0.001f, 0f);
+        float yPos;
+
+        if (grid)
+            yPos = grid.gridY + yDrawOffset;
+        else
+            yPos = 0.001f;
+
+        _character.transform.position = new Vector3(0f, yPos, 0f);
+
     }
 
     // Per-frame update while playing
@@ -93,26 +101,43 @@ public class GridCharacterController3D : MonoBehaviour
             // Convert that world hit to a target grid cell (fail if outside grid)
             if (!TryGridWorldToCell(hit, out Vector2Int targetCell)) return;
 
+            // Set destination tile,
+
             // reject clicks on non-walkable cells
             if (!grid.IsCellWalkable(targetCell.x, targetCell.y)) return;
+            else
+            {
+                Debug.Log("Cell is occupied");
+            }
 
             // Determine the current cell based on character position
             Vector2Int startCell;
             if (!TryGridWorldToCell(_character.transform.position, out startCell))
                 startCell = ClampToGridXZ(_character.transform.position);
 
-            // if start isn't walkable, don't path (or you could snap first)
-            if (!grid.IsCellWalkable(startCell.x, startCell.y)) return;
-
+            
             // Run Dijkstra (with wall checks) to find a path
             var result = Dijkstra(startCell, targetCell);
+
+
             // If no route, clear any existing path
             if (!result.found) { _path = null; }
             else
             {
                 // Store the new path and start from the next node if first equals start
-                _path = result.path ?? new List<Vector2Int>();
-                _pathIndex = (_path.Count > 1 && _path[0] == startCell) ? 1 : 0;
+                if (result.path != null)
+                    _path = result.path;
+                else
+                    _path = new List<Vector2Int>();
+
+                if (_path.Count > 1 && _path[0] == startCell)
+                    _pathIndex = 1;
+                else
+                    _pathIndex = 0;
+
+                //// Mark start cell unoccupied and target cell occupied
+                //grid.setIsOccupied(startCell.x, startCell.y, false);
+                //grid.setIsOccupied(targetCell.x, targetCell.y, true);
 
                 // Snap character exactly to the start cell center (keep Y)
                 var startCenter = GridCellCenterWorld(startCell.x, startCell.y, yDrawOffset);
@@ -332,6 +357,8 @@ public class GridCharacterController3D : MonoBehaviour
         }
         // No path found
         return (false, -1f, null);
+
+
     }
 
     // Check whether moving from u to v is blocked by walls
