@@ -78,8 +78,6 @@ public class GridCharacterController3D : MonoBehaviour
             _character = new GameObject(instanceName);
             // Add a SpriteRenderer to display the circle
             _sr = _character.AddComponent<SpriteRenderer>();
-            // Generate a circle sprite with the configured size and color
-            _sr.sprite = CreateCircleSprite(runtimeTextureSize, runtimeColor);
             // Make sure it renders above the grid
             _sr.sortingOrder = sortingOrder;
             // Scale so the sprite’s width equals the desired diameter
@@ -384,30 +382,5 @@ public class GridCharacterController3D : MonoBehaviour
         }
         // Any other move (non-adjacent) is invalid/blocked
         return true;
-    }
-
-    // Create a simple anti-aliased circle sprite at runtime
-    Sprite CreateCircleSprite(int size, Color color)
-    {
-        // Allocate an ARGB32 texture without mipmaps
-        var tex = new Texture2D(size, size, TextureFormat.ARGB32, false)
-        { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
-        // Circle center and radius in pixels
-        int cx = size / 2, cy = size / 2; float r = (size - 1) * 0.5f; var clear = new Color(0, 0, 0, 0);
-        // For each pixel, blend between transparent and the circle color
-        for (int y = 0; y < size; y++)
-            for (int x = 0; x < size; x++)
-            {
-                // Distance from pixel center to circle center
-                float dx = x - cx + 0.5f, dy = y - cy + 0.5f, d = Mathf.Sqrt(dx * dx + dy * dy);
-                // Soft edge: 1.5px feather at the boundary
-                float t = Mathf.Clamp01((r - d) / 1.5f);
-                // Write blended color to the texture
-                tex.SetPixel(x, y, Color.Lerp(clear, color, t));
-            }
-        // Upload texture to GPU
-        tex.Apply();
-        // Create a sprite with pivot at center and PPU=size so 1 unit = sprite width
-        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), pixelsPerUnit: size);
     }
 }
