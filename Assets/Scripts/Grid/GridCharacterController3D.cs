@@ -93,6 +93,8 @@ public class GridCharacterController3D : MonoBehaviour
             // Convert that world hit to a target grid cell (fail if outside grid)
             if (!TryGridWorldToCell(hit, out Vector2Int targetCell)) return;
 
+            // Set destination tile,
+
             // reject clicks on non-walkable cells
             if (!grid.IsCellWalkable(targetCell.x, targetCell.y)) return;
 
@@ -106,6 +108,8 @@ public class GridCharacterController3D : MonoBehaviour
 
             // Run Dijkstra (with wall checks) to find a path
             var result = Dijkstra(startCell, targetCell);
+
+
             // If no route, clear any existing path
             if (!result.found) { _path = null; }
             else
@@ -113,6 +117,8 @@ public class GridCharacterController3D : MonoBehaviour
                 // Store the new path and start from the next node if first equals start
                 _path = result.path ?? new List<Vector2Int>();
                 _pathIndex = (_path.Count > 1 && _path[0] == startCell) ? 1 : 0;
+               
+
 
                 // Snap character exactly to the start cell center (keep Y)
                 var startCenter = GridCellCenterWorld(startCell.x, startCell.y, yDrawOffset);
@@ -332,6 +338,8 @@ public class GridCharacterController3D : MonoBehaviour
         }
         // No path found
         return (false, -1f, null);
+
+
     }
 
     // Check whether moving from u to v is blocked by walls
