@@ -574,7 +574,7 @@ public class GridRenderer3D : GridInterface
     /// <param name="a"></param>
     /// <param name="b"></param>
     /// <returns></returns>
-    public bool IsEdgeBlocked(Vector2Int a, Vector2Int b)
+    public bool IsEdgeBlocked(Vector3Int a, Vector3Int b)
     {
         int dx = b.x - a.x, dz = b.y - a.y;
         // non-cardinal moves are disallowed
