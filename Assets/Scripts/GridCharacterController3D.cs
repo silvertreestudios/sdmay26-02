@@ -4,28 +4,19 @@ using UnityEngine;
 public class GridCharacterController3D : MonoBehaviour
 {
     [Header("References")]
-    // Grid to move on (XZ plane, cell math, walls, etc.)
+    // Grid to move on
     public GridRenderer3D grid;
-    // Optional prefab to visualize the character (else a circle sprite is generated)
+    // prefab to visualize the player
     public GameObject prefab;
     // Try to find a GridRenderer automatically if none is assigned
     public bool autoFindGrid = true;
 
-    [Header("Spawn (if no prefab)")]
-    public string instanceName = "PlayerCircle";
-    // Color for the auto-generated circle
-    public Color runtimeColor = Color.black;
-    // Diameter (in world units) for the auto-generated circle
-    public float runtimeDiameter = 0.5f;
-    // Resolution of the generated circle texture
-    [Range(32, 1024)] public int runtimeTextureSize = 128;
+    [Header("Spawn")]
     // Sorting order so the character renders above the grid
     public int sortingOrder = 200;
 
     [Header("Movement (XZ only)")]
     public float moveSpeed = 2f;
-    // Distance threshold to consider a waypoint reached
-    public float arrivalThreshold = 0.01f;
     // Slight Y offset so the character draws on top of the grid
     public float yDrawOffset = 0.001f;
 
@@ -71,20 +62,6 @@ public class GridCharacterController3D : MonoBehaviour
             // Ensure it draws above the grid
             if (_sr) _sr.sortingOrder = sortingOrder;
         }
-        // Otherwise generate a simple circle sprite at runtime
-        else
-        {
-            // Create a new GameObject for the character visual
-            _character = new GameObject(instanceName);
-            // Add a SpriteRenderer to display the circle
-            _sr = _character.AddComponent<SpriteRenderer>();
-            // Make sure it renders above the grid
-            _sr.sortingOrder = sortingOrder;
-            // Scale so the sprite’s width equals the desired diameter
-            float s = runtimeDiameter / _sr.sprite.bounds.size.x;
-            _character.transform.localScale = Vector3.one * s;
-        }
-
         // Place the character at grid Y level (plus tiny offset to avoid z-fighting)
         _character.transform.position = new Vector3(0f, grid ? grid.gridY + yDrawOffset : 0.001f, 0f);
     }
@@ -148,6 +125,7 @@ public class GridCharacterController3D : MonoBehaviour
         {
             // Get the next cell to move to
             var cell = _path[_pathIndex];
+
             // Convert that cell to its world center position
             Vector3 target = GridCellCenterWorld(cell.x, cell.y, yDrawOffset);
 
@@ -162,13 +140,6 @@ public class GridCharacterController3D : MonoBehaviour
             newPos.y = grid.gridY + yDrawOffset;
             // Apply the new position
             _character.transform.position = newPos;
-
-            // If close enough, advance to the next waypoint (or finish)
-            if ((newPos - target).sqrMagnitude <= arrivalThreshold * arrivalThreshold)
-            {
-                _pathIndex++;
-                if (_pathIndex >= _path.Count) _path = null;
-            }
         }
     }
 
