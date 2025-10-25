@@ -105,6 +105,10 @@ public class GridCharacterController3D : MonoBehaviour
 
             // if start isn't walkable, don't path (or you could snap first)
             if (!grid.IsCellWalkable(startCell.x, startCell.y)) return;
+            else
+            {
+                Debug.Log("Cell is occupied");
+            }
 
             // Run Dijkstra (with wall checks) to find a path
             var result = Dijkstra(startCell, targetCell);
@@ -117,8 +121,10 @@ public class GridCharacterController3D : MonoBehaviour
                 // Store the new path and start from the next node if first equals start
                 _path = result.path ?? new List<Vector2Int>();
                 _pathIndex = (_path.Count > 1 && _path[0] == startCell) ? 1 : 0;
-               
 
+                // Mark start cell unoccupied and target cell occupied
+                grid.setIsOccupied(startCell.x, startCell.y, false);
+                grid.setIsOccupied(targetCell.x, targetCell.y, true);
 
                 // Snap character exactly to the start cell center (keep Y)
                 var startCenter = GridCellCenterWorld(startCell.x, startCell.y, yDrawOffset);
