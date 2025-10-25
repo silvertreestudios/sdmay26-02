@@ -74,12 +74,34 @@ public class GridRenderer3D : GridInterface
     // ---------- Grid Data ----------
     public TILE[,] gridInfo;
 
+    public void SetStatus(int x, int z, TileStatus statusToSet)
+    {
+        if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return;
+        if (!System.Array.Exists(gridInfo[x, z].status, status => status == statusToSet))
+        {
+            var statuses = new List<TileStatus>(gridInfo[x, z].status);
+            statuses.Add(statusToSet);
+            gridInfo[x, z].status = statuses.ToArray();
+        }
+    }
+
     public bool HasStatus(int x, int z, TileStatus statusToCheck)
     {
         if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return false;
         return System.Array.Exists(gridInfo[x, z].status, status => status == statusToCheck);
     }
 
+    public bool getIsOccupied(int x, int z)
+    {
+        if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return false;
+        return gridInfo[x, z].isOccupied;
+    }
+
+    public void setIsOccupied(int x, int z, bool occupied)
+    {
+        if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return;
+        gridInfo[x, z].isOccupied = occupied;
+    }
     public bool IsCellWalkable(int x, int z)
     {
         // if tiles array is null, treat all cells as non-walkable
