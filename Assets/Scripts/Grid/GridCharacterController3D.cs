@@ -104,10 +104,10 @@ public class GridCharacterController3D : MonoBehaviour
             // Set destination tile,
 
             // reject clicks on non-walkable cells
-            if (!grid.IsCellWalkable(targetCell.x, targetCell.y)) return;
-            else
+            if (!grid.IsCellWalkable(targetCell.x, targetCell.y))
             {
                 Debug.Log("Cell is occupied");
+                return;
             }
 
             // Determine the current cell based on character position
