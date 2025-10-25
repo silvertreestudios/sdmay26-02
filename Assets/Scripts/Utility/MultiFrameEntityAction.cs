@@ -7,8 +7,8 @@ public abstract class MultiFrameEntityAction : EntityAction
 
     public override void Invoke(GameObject target)
     {
-        CoroutineRunner.Run(MFEnact(target));
+        CoroutineRunner.Run(MFInvoke(target));
     }
 
-    protected abstract IEnumerator MFEnact(GameObject target);
+    protected abstract IEnumerator MFInvoke(GameObject target);
 }
