@@ -1,6 +1,7 @@
 using UnityEngine;
 //change to be non monoBehaviour, its not needed
-public class ImageToGrid : MonoBehaviour
+[System.Serializable]
+public class ImageToGrid
 {
     [Header("Level Image")]
     [SerializeField] private Texture2D img;
