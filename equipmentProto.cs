@@ -1,4 +1,5 @@
 using System;
+using Game.Damage;
 
 namespace Game.Equipment
 {
@@ -10,34 +11,12 @@ namespace Game.Equipment
         Shield
     }
 
-    // Struct for weapon damage
-    public struct DamageInfo
-    {
-        public int DiceCount;      // Number of dice to roll
-        public int DiceSides;      // Sides per die
-        public string DamageType;  // e.g., "Piercing", "Slashing"
-
-        public DamageInfo(int diceCount, int diceSides, string damageType)
-        {
-            DiceCount = diceCount;
-            DiceSides = diceSides;
-            DamageType = damageType;
-        }
-
-        public DamageInfo(int flatDamage, string damageType)
-        {
-            DiceCount = 1;
-            DiceSides = flatDamanage;
-            DamageType = damageType;
-        }
-    }
-
     // Define a simple Equipment class
     public class Equipment
     {
         public string Name { get; set; }
         public EquipmentType Type { get; set; }
-        public DamageInfo Damage { get; set; }
+        public DamageDice Damage { get; set; }
 
         // Static property for a Short Sword
         public static Equipment ShortSword =>
@@ -45,17 +24,17 @@ namespace Game.Equipment
             {
                 Name = "Short Sword",
                 Type = EquipmentType.Weapon,
-                Damage = new DamageInfo(1, 6, "Piercing")
+                Damage = new DamageDice(new Dice(1, 6), DamageType.Piercing)
             };
 
-        // Static property for chainsaw test weapon
+        // Static property for chainsaw test weapon for multiple damage dice
         // TODO : Remove after testing
         public static Equipment Chainsaw =>
             new Equipment
             {
                 Name = "Chainsaw",
                 Type = EquipmentType.Weapon,
-                Damage = new DamageInfo(8, 6, "Slashing")
+                Damage = new DamageDice(new Dice(8, 6), DamageType.Slashing)
             };
     }
 }
