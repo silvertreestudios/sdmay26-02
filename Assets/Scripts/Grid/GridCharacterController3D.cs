@@ -115,7 +115,7 @@ public class GridCharacterController3D : MonoBehaviour
             if (!TryGridWorldToCell(_character.transform.position, out startCell))
                 startCell = ClampToGridXZ(_character.transform.position);
 
-            
+
             // Run Dijkstra (with wall checks) to find a path
             var result = Dijkstra(startCell, targetCell);
 
@@ -138,6 +138,7 @@ public class GridCharacterController3D : MonoBehaviour
                 //// Mark start cell unoccupied and target cell occupied
                 //grid.setIsOccupied(startCell.x, startCell.z, false);
                 //grid.setIsOccupied(targetCell.x, targetCell.z, true);
+
 
                 // Snap character exactly to the start cell center (keep Y)
                 var startCenter = GridCellCenterWorld(startCell.x, startCell.z, yDrawOffset);
@@ -382,3 +383,4 @@ public class GridCharacterController3D : MonoBehaviour
         return true;
     }
 }
+
