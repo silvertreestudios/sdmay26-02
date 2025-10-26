@@ -9,14 +9,6 @@ public enum CreatureAction
     Strike
 }
 
-public enum AttackStatus
-{
-    Miss,
-    Hit,
-    CriticalMiss,
-    CriticalHit
-}
-
 // Update the interface to use the specific enum type for Actions
 public interface ICreature
 {
@@ -45,8 +37,8 @@ public class CreatureComponent : MonoBehaviour, ICreature
     public int AC { get; set; }
     public int Level { get; set; }
     public int Speed { get; set; }
-    public int attackBonus { get; set; }
-    public int damageBonus { get; set; }
+    public int attackBonus { get; set; } // Temporary
+    public int damageBonus { get; set; } // Temporary
     public List<CreatureAction> Actions { get; set; } = new List<CreatureAction>();
     public List<Equipment> Equipment { get; set; } = new List<Equipment>();
 
@@ -57,8 +49,8 @@ public class CreatureComponent : MonoBehaviour, ICreature
         HP = 10;
         AC = 12;
         Level = 1;
-        Speed = 30;
-        attackBonus = 4; // Temporary
+        Speed = 25;
+        attackBonus = 5; // Temporary
         damageBonus = 3; // Temporary
         Actions.Add(CreatureAction.Move);
         Actions.Add(CreatureAction.Strike);
@@ -70,12 +62,12 @@ public class CreatureComponent : MonoBehaviour, ICreature
         // Per-frame logic here
     }
 
-    public void TakeDamage(int damage, DamageType damageType)
+    public void TakeDamage(List<DamageValue> damageValues)
     {
-        Debug.Log($"{Name} takes {damage} damage of type {damageType?.ToString() ?? "Unknown"}.");
+        // TODO : call function to apply resistances, immunities, vulnerabilities against damageValues
+        int damage = DamageRoller.SumDamage(damageValues);
         HP -= damage;
         if (HP < 0) HP = 0;
-        Debug.Log($"{Name} now has {HP} HP remaining.");
     }
 
     public void Move()

@@ -42,9 +42,12 @@ namespace Game.Damage
     public class DamageRoller
     {
         // Roll damage for a single DamageDice
-        public static List<DamageValue> RollDamage(DamageDice damageDice)
-        {
+        public static List<DamageValue> RollDamage(DamageDice damageDice){
             return RollDamage(new List<DamageDice> { damageDice }, new List<DamageValue>());
+        }
+        // Roll damage for a single DamageDice with a single flat DamageValue
+        public static List<DamageValue> RollDamage(DamageDice damageDice, DamageValue damageFlat){
+            return RollDamage(new List<DamageDice> { damageDice }, new List<DamageValue> { damageFlat });
         }
 
 
@@ -64,6 +67,7 @@ namespace Game.Damage
                     damageInstances.Add(damageValue);
                 }
             }
+            // For each flat damage in damageFlats...
             foreach (DamageValue damageFlat in damageFlats){
                 // Group damage by type
                 if (damageInstances.Exists(di => di.DamageType == damageFlat.DamageType)){
@@ -84,6 +88,14 @@ namespace Game.Damage
                 totalDamage += dv.DamageAmount;
             }
             return totalDamage;
+        }
+
+        public static void EvaluateCriticalDamage(D20Status attackRoll, List<DamageValue> damageValues){
+            if (attackRoll.status == D20Status.CriticalSuccess){
+                foreach (DamageValue dv in damageValues){
+                    dv.DamageAmount *= 2;
+                }
+            }
         }
     }
 }
