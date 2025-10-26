@@ -24,8 +24,8 @@ public class GridCharacterController3D : MonoBehaviour
     GameObject _character;
     // SpriteRenderer used to display the character
     SpriteRenderer _sr;
-    // Current path as a list of grid cells to follow (x,z)
-    List<Vector2Int> _path = null;
+    // Current path as a list of grid cells to follow (x,y,z)
+    List<Vector3Int> _path = null;
     // Index of the next waypoint in the path
     int _pathIndex = 0;
     // Convenience: true while we still have waypoints to follow
@@ -35,7 +35,7 @@ public class GridCharacterController3D : MonoBehaviour
     void OnEnable()
     {
         // If requested and missing, look up the first GridRenderer in the scene
-        if (autoFindGrid && !grid) grid = FindObjectOfType<GridRenderer3D>();
+        if (autoFindGrid && !grid) grid = FindAnyObjectByType<GridRenderer3D>();
     }
 
     // Called on the first frame the component is active
@@ -83,7 +83,7 @@ public class GridCharacterController3D : MonoBehaviour
         // Ensure we have a grid reference (try auto-find once per frame until found)
         if (!grid)
         {
-            if (autoFindGrid) grid = FindObjectOfType<GridRenderer3D>();
+            if (autoFindGrid) grid = FindAnyObjectByType<GridRenderer3D>();
             if (!grid) return;
         }
 
@@ -99,19 +99,19 @@ public class GridCharacterController3D : MonoBehaviour
             if (!ScreenToXZPlane(cam, InputCompat.MousePositionScreen(), grid.gridY, out Vector3 hit)) return;
 
             // Convert that world hit to a target grid cell (fail if outside grid)
-            if (!TryGridWorldToCell(hit, out Vector2Int targetCell)) return;
+            if (!TryGridWorldToCell(hit, out Vector3Int targetCell)) return;
 
             // Set destination tile,
 
             // reject clicks on non-walkable cells
-            if (!grid.IsCellWalkable(targetCell.x, targetCell.y)) return;
-            else
+            if (!grid.IsCellWalkable(targetCell.x, targetCell.z))
             {
                 Debug.Log("Cell is occupied");
+                return;
             }
 
             // Determine the current cell based on character position
-            Vector2Int startCell;
+            Vector3Int startCell;
             if (!TryGridWorldToCell(_character.transform.position, out startCell))
                 startCell = ClampToGridXZ(_character.transform.position);
 
@@ -128,19 +128,19 @@ public class GridCharacterController3D : MonoBehaviour
                 if (result.path != null)
                     _path = result.path;
                 else
-                    _path = new List<Vector2Int>();
+                    _path = new List<Vector3Int>();
 
-                if (_path.Count > 1 && _path[0] == startCell)
+                if (_path.Count > 1 && _path[0].Equals(startCell))
                     _pathIndex = 1;
                 else
                     _pathIndex = 0;
 
                 //// Mark start cell unoccupied and target cell occupied
-                //grid.setIsOccupied(startCell.x, startCell.y, false);
-                //grid.setIsOccupied(targetCell.x, targetCell.y, true);
+                //grid.setIsOccupied(startCell.x, startCell.z, false);
+                //grid.setIsOccupied(targetCell.x, targetCell.z, true);
 
                 // Snap character exactly to the start cell center (keep Y)
-                var startCenter = GridCellCenterWorld(startCell.x, startCell.y, yDrawOffset);
+                var startCenter = GridCellCenterWorld(startCell.x, startCell.z, yDrawOffset);
                 _character.transform.position = startCenter;
             }
         }
@@ -152,7 +152,7 @@ public class GridCharacterController3D : MonoBehaviour
             var cell = _path[_pathIndex];
 
             // Convert that cell to its world center position
-            Vector3 target = GridCellCenterWorld(cell.x, cell.y, yDrawOffset);
+            Vector3 target = GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
 
             // Read current position and lock Y to grid level
             var p = _character.transform.position;
@@ -191,25 +191,25 @@ public class GridCharacterController3D : MonoBehaviour
     }
 
     // Convert a world position to a grid cell (returns false if outside grid bounds)
-    bool TryGridWorldToCell(Vector3 world, out Vector2Int cell)
+    bool TryGridWorldToCell(Vector3 world, out Vector3Int cell)
     {
         // Compute cell indices by subtracting origin and dividing by cell size
         int cx = Mathf.FloorToInt((world.x - grid.origin.x) / grid.cellSize);
-        int cz = Mathf.FloorToInt((world.z - grid.origin.y) / grid.cellSize);
-        // Package in a Vector2Int
-        cell = new Vector2Int(cx, cz);
+        int cz = Mathf.FloorToInt((world.z - grid.origin.z) / grid.cellSize);
+        // Package in a Vector3Int (y is 0 since we're working on XZ plane)
+        cell = new Vector3Int(cx, 0, cz);
         // Ensure indices are inside [0,width) and [0,height)
         return (uint)cx < (uint)grid.width && (uint)cz < (uint)grid.height;
     }
 
     // Clamp an arbitrary world position to the nearest valid cell indices
-    Vector2Int ClampToGridXZ(Vector3 pos)
+    Vector3Int ClampToGridXZ(Vector3 pos)
     {
         // Convert to grid space, floor to cell, then clamp to edges
         int gx = Mathf.Clamp(Mathf.FloorToInt((pos.x - grid.origin.x) / grid.cellSize), 0, grid.width - 1);
-        int gz = Mathf.Clamp(Mathf.FloorToInt((pos.z - grid.origin.y) / grid.cellSize), 0, grid.height - 1);
+        int gz = Mathf.Clamp(Mathf.FloorToInt((pos.z - grid.origin.z) / grid.cellSize), 0, grid.height - 1);
         // Return the clamped cell
-        return new Vector2Int(gx, gz);
+        return new Vector3Int(gx, 0, gz);
     }
 
     // Ensure the character’s current position is at a valid cell center
@@ -222,7 +222,7 @@ public class GridCharacterController3D : MonoBehaviour
             cell = ClampToGridXZ(_character.transform.position);
 
         // if current cell isn't walkable, search a small neighborhood for one
-        if (!grid.IsCellWalkable(cell.x, cell.y))
+        if (!grid.IsCellWalkable(cell.x, cell.z))
         {
             bool found = false;
             for (int r = 0; r <= 3 && !found; r++)
@@ -231,15 +231,15 @@ public class GridCharacterController3D : MonoBehaviour
                     for (int dx = -r; dx <= r && !found; dx++)
                     {
                         int nx = Mathf.Clamp(cell.x + dx, 0, grid.width - 1);
-                        int nz = Mathf.Clamp(cell.y + dz, 0, grid.height - 1);
-                        if (grid.IsCellWalkable(nx, nz)) { cell = new Vector2Int(nx, nz); found = true; }
+                        int nz = Mathf.Clamp(cell.z + dz, 0, grid.height - 1);
+                        if (grid.IsCellWalkable(nx, nz)) { cell = new Vector3Int(nx, 0, nz); found = true; }
                     }
             }
-            if (!grid.IsCellWalkable(cell.x, cell.y)) return; // nothing found; keep position as-is
+            if (!grid.IsCellWalkable(cell.x, cell.z)) return; // nothing found; keep position as-is
         }
 
         // Place the character precisely at that cell center
-        _character.transform.position = GridCellCenterWorld(cell.x, cell.y, yDrawOffset);
+        _character.transform.position = GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
     }
 
     // Get the world-space coordinates of the center of cell (x,z)
@@ -248,7 +248,7 @@ public class GridCharacterController3D : MonoBehaviour
         // Midpoint in world along X based on origin and cell size
         float wx = grid.origin.x + (x + 0.5f) * grid.cellSize;
         // Midpoint in world along Z based on origin and cell size
-        float wz = grid.origin.y + (z + 0.5f) * grid.cellSize;
+        float wz = grid.origin.z + (z + 0.5f) * grid.cellSize;
         // Return a Vector3 at grid Y plus optional offset
         return new Vector3(wx, grid.gridY + yOffset, wz);
     }
@@ -256,7 +256,7 @@ public class GridCharacterController3D : MonoBehaviour
     // ===== Dijkstra pathfinding on a 2D grid (with diagonals) =====
 
     // Node used in the priority queue (position + distance)
-    struct Node { public Vector2Int pos; public float dist; }
+    struct Node { public Vector3Int pos; public float dist; }
 
     // Minimal binary heap for the Dijkstra frontier
     class MinHeap
@@ -275,19 +275,19 @@ public class GridCharacterController3D : MonoBehaviour
         void SiftDown(int i) { for (; ; ) { int l = (i << 1) + 1, r = l + 1, s = i; if (l < _d.Count && _d[l].dist < _d[s].dist) s = l; if (r < _d.Count && _d[r].dist < _d[s].dist) s = r; if (s == i) break; (_d[i], _d[s]) = (_d[s], _d[i]); i = s; } }
     }
 
-    // Dijkstra’s algorithm from start to target; returns whether found, total distance, and the path
-    (bool found, float distance, List<Vector2Int> path) Dijkstra(Vector2Int start, Vector2Int target)
+    // Dijkstra's algorithm from start to target; returns whether found, total distance, and the path
+    (bool found, float distance, List<Vector3Int> path) Dijkstra(Vector3Int start, Vector3Int target)
     {
         // Grid width/height and total cells
         int w = grid.width, h = grid.height, total = w * h;
         // Convert (x,z) to linear array index
-        int Idx(Vector2Int p) => p.x + p.y * w;
+        int Idx(Vector3Int p) => p.x + p.z * w;
 
         // Distance array initialized to +∞
         var dist = new float[total];
         for (int i = 0; i < total; i++) dist[i] = float.PositiveInfinity;
         // Predecessor array for path reconstruction
-        var prev = new Vector2Int?[total];
+        var prev = new Vector3Int?[total];
         // Min-heap frontier
         var heap = new MinHeap();
 
@@ -296,9 +296,9 @@ public class GridCharacterController3D : MonoBehaviour
         heap.Push(new Node { pos = start, dist = 0f });
 
         // 8-neighborhood directions (4-cardinal + 4-diagonals)
-        var dirs = new Vector2Int[] {
-            new(1, 0), new(-1, 0), new(0, 1), new(0, -1),
-            new(1, 1), new(1, -1), new(-1, 1), new(-1, -1)
+        var dirs = new Vector3Int[] {
+            new(1, 0, 0), new(-1, 0, 0), new(0, 0, 1), new(0, 0, -1),
+            new(1, 0, 1), new(1, 0, -1), new(-1, 0, 1), new(-1, 0, -1)
         };
         // Costs for cardinal (1) and diagonal (~√2)
         var costs = new float[] {
@@ -320,12 +320,12 @@ public class GridCharacterController3D : MonoBehaviour
             if (u == target)
             {
                 // Rebuild the path by following predecessors
-                var path = new List<Vector2Int>();
+                var path = new List<Vector3Int>();
                 var cur = target;
                 while (true)
                 {
                     path.Add(cur);
-                    if (cur == start) break;
+                    if (cur.Equals(start)) break;
                     var p = prev[Idx(cur)]; if (!p.HasValue) break; cur = p.Value;
                 }
                 // Reverse so it goes start→target
@@ -340,10 +340,10 @@ public class GridCharacterController3D : MonoBehaviour
                 // Neighbor cell
                 var v = u + dirs[i];
                 // Skip if out of grid bounds
-                if ((uint)v.x >= (uint)w || (uint)v.y >= (uint)h) continue;
+                if ((uint)v.x >= (uint)w || (uint)v.z >= (uint)h) continue;
 
                 // cannot step onto a non-walkable destination
-                if (!grid.IsCellWalkable(v.x, v.y)) continue;
+                if (!grid.IsCellWalkable(v.x, v.z)) continue;
 
                 // Skip if a wall blocks this move (including diagonal corner cutting)
                 if (IsMoveBlocked(u, v)) continue;
@@ -362,10 +362,10 @@ public class GridCharacterController3D : MonoBehaviour
     }
 
     // Check whether moving from u to v is blocked by walls
-    bool IsMoveBlocked(Vector2Int u, Vector2Int v)
+    bool IsMoveBlocked(Vector3Int u, Vector3Int v)
     {
         // Compute delta components and Manhattan distance
-        int dx = v.x - u.x, dy = v.y - u.y;
+        int dx = v.x - u.x, dy = v.z - u.z;
         int manhattan = Mathf.Abs(dx) + Mathf.Abs(dy);
         // Cardinal move: ask grid if the edge is blocked
         if (manhattan == 1) return grid.IsEdgeBlocked(u, v);
@@ -373,10 +373,10 @@ public class GridCharacterController3D : MonoBehaviour
         if (manhattan == 2 && Mathf.Abs(dx) == 1 && Mathf.Abs(dy) == 1)
         {
             // The two orthogonal steps that compose the diagonal
-            var stepX = new Vector2Int(u.x + dx, u.y);
-            var stepY = new Vector2Int(u.x, u.y + dy);
+            var stepX = new Vector3Int(u.x + dx, 0, u.z);
+            var stepZ = new Vector3Int(u.x, 0, u.z + dy);
             // Block diagonal if either side is blocked
-            return grid.IsEdgeBlocked(u, stepX) || grid.IsEdgeBlocked(u, stepY);
+            return grid.IsEdgeBlocked(u, stepX) || grid.IsEdgeBlocked(u, stepZ);
         }
         // Any other move (non-adjacent) is invalid/blocked
         return true;

@@ -37,7 +37,7 @@ public class GridRenderer3D : GridInterface
     // World size of one square cell.
     [Min(0.01f)] public float cellSize = 1f;
     // Bottom-left corner of the grid in world XZ.
-    public Vector2 origin = Vector2.zero;
+    public Vector3 origin = Vector3.zero;
     // Fixed Y height where the grid is drawn.
     public float gridY = 0f;
     // explicit camera (falls back to Camera.main).
@@ -57,9 +57,9 @@ public class GridRenderer3D : GridInterface
     // Wall thickness in pixels.
     [Min(1)] public float wallThicknessPixels = 10f;
     // Minimal wall segment representation in grid coords (inclusive endpoints).
-    [System.Serializable] public struct WallSegment { public Vector2Int start, end; }
+    [System.Serializable] public struct WallSegment { public Vector3Int start, end; }
     // Example data so the system shows something by default.
-    public List<WallSegment> walls = new() { new() { start = new(1, 3), end = new(10, 3) } };
+    public List<WallSegment> walls = new() { new() { start = new(1, 0, 3), end = new(10, 0, 3) } };
 
     [Header("Hover/Click")]
     // Whether to draw hover visual.
@@ -68,7 +68,7 @@ public class GridRenderer3D : GridInterface
     // True when mouse ray hits grid and cell is inside bounds.
     public bool HasHover { get; private set; }
     // Current hovered cell (grid indices), defaults to invalid.
-    public Vector2Int HoverCell { get; private set; } = new(-1, -1);
+    public Vector3Int HoverCell { get; private set; } = new(-1, 0, -1);
     [SerializeField] private GameObject selectTile;
 
     // ---------- Grid Data ----------
@@ -264,14 +264,15 @@ public class GridRenderer3D : GridInterface
             // World hit.
             var hit = ray.GetPoint(t);
             // Convert world XZ to integer cell indices.
-            var cell = new Vector2Int(
+            var cell = new Vector3Int(
                 Mathf.FloorToInt((hit.x - origin.x) / cellSize),
+                0,
                 Mathf.FloorToInt((hit.z - origin.y) / cellSize));
             // Inside bounds?
-            bool inside = (uint)cell.x < (uint)width && (uint)cell.y < (uint)height;
-            bool canHover = inside && IsCellWalkable(cell.x, cell.y);
+            bool inside = (uint)cell.x < (uint)width && (uint)cell.z < (uint)height;
+            bool canHover = inside && IsCellWalkable(cell.x, cell.z);
 
-            if (canHover && cell != HoverCell) { HoverCell = cell; HasHover = true; UpdateHover(); }
+            if (canHover && !cell.Equals(HoverCell)) { HoverCell = cell; HasHover = true; UpdateHover(); }
             else if (!canHover) HasHover = false;
         }
         else HasHover = false;
@@ -441,11 +442,11 @@ public class GridRenderer3D : GridInterface
         {
             // Create a renderer for that wall.
             var sr = NewSR(_wallRoot, "Wall", 3, wallColor);
-            // Horizontal segment when both endpoints share the same row (y index).
-            if (s.start.y == s.end.y)
+            // Horizontal segment when both endpoints share the same row (z index).
+            if (s.start.z == s.end.z)
             {
                 // World Z coordinate for that grid row.
-                float z = z0 + s.start.y * cellSize;
+                float z = z0 + s.start.z * cellSize;
                 // World X endpoints along that row.
                 float xa = x0 + Mathf.Min(s.start.x, s.end.x) * cellSize;
                 float xb = x0 + Mathf.Max(s.start.x, s.end.x) * cellSize;
@@ -458,8 +459,8 @@ public class GridRenderer3D : GridInterface
                 // World X for that column.
                 float x = x0 + s.start.x * cellSize;
                 // World Z endpoints along that column.
-                float za = z0 + Mathf.Min(s.start.y, s.end.y) * cellSize;
-                float zb = z0 + Mathf.Max(s.start.y, s.end.y) * cellSize;
+                float za = z0 + Mathf.Min(s.start.z, s.end.z) * cellSize;
+                float zb = z0 + Mathf.Max(s.start.z, s.end.z) * cellSize;
                 // Center the wall between endpoints; store its Y length (X thickness is added later).
                 SetTRS(sr.transform, x, (za + zb) * 0.5f, 1f, zb - za);
             }
@@ -497,7 +498,7 @@ public class GridRenderer3D : GridInterface
         {
             // Compute hovered cell center.
             float mx = origin.x + (HoverCell.x + 0.5f) * cellSize;
-            float mz = origin.y + (HoverCell.y + 0.5f) * cellSize;
+            float mz = origin.y + (HoverCell.z + 0.5f) * cellSize;
 
             if (_selectTileInstance == null)
             {
@@ -553,15 +554,15 @@ public class GridRenderer3D : GridInterface
         for (int i = 0; i < walls.Count; i++)
         {
             var s = walls[i];
-            if (s.start.y == s.end.y)                            // horizontal segment
+            if (s.start.z == s.end.z)                            // horizontal segment
             {
-                int z = s.start.y, a = Mathf.Min(s.start.x, s.end.x), b = Mathf.Max(s.start.x, s.end.x);
+                int z = s.start.z, a = Mathf.Min(s.start.x, s.end.x), b = Mathf.Max(s.start.x, s.end.x);
                 for (int x = a; x < b; x++)
                     if ((uint)x < (uint)width && (uint)z <= (uint)height) _h[H(x, z)] = true;
             }
             else if (s.start.x == s.end.x)                       // vertical segment
             {
-                int x = s.start.x, a = Mathf.Min(s.start.y, s.end.y), b = Mathf.Max(s.start.y, s.end.y);
+                int x = s.start.x, a = Mathf.Min(s.start.z, s.end.z), b = Mathf.Max(s.start.z, s.end.z);
                 for (int z = a; z < b; z++)
                     if ((uint)z < (uint)height && (uint)x <= (uint)width) _v[V(x, z)] = true;
             }
@@ -574,19 +575,19 @@ public class GridRenderer3D : GridInterface
     /// <param name="a"></param>
     /// <param name="b"></param>
     /// <returns></returns>
-    public bool IsEdgeBlocked(Vector2Int a, Vector2Int b)
+    public bool IsEdgeBlocked(Vector3Int a, Vector3Int b)
     {
-        int dx = b.x - a.x, dz = b.y - a.y;
+        int dx = b.x - a.x, dz = b.z - a.z;
         // non-cardinal moves are disallowed
         if (Mathf.Abs(dx) + Mathf.Abs(dz) != 1) return true;
         // cross vertical at x+1
-        if (dx == 1) return IsV(a.x + 1, a.y);
+        if (dx == 1) return IsV(a.x + 1, a.z);
         // cross vertical at x
-        if (dx == -1) return IsV(a.x, a.y);
+        if (dx == -1) return IsV(a.x, a.z);
         // cross horizontal at z+1
-        if (dz == 1) return IsH(a.x, a.y + 1);
+        if (dz == 1) return IsH(a.x, a.z + 1);
         // cross horizontal at z
-        if (dz == -1) return IsH(a.x, a.y);
+        if (dz == -1) return IsH(a.x, a.z);
         return true;
     }
 
