@@ -88,7 +88,7 @@ public class tokenMovement
     }
 
     // Moves the piece along the given list of target positions, with each jump taking the specified time
-    public IEnumerator moveAlongPath(float time)
+    public void moveAlongPath(float time)
     {
         // If we're not currently jumping and there are more points to visit
         if (!isJumping && currentPathIndex < path_points.Count)
@@ -103,22 +103,22 @@ public class tokenMovement
         // If we've reached the end of the path, clear the path points to reset
         if (currentPathIndex >= path_points.Count)
         {
-            Debug.Log("Reached end of path points, clearing path points");
+            //Debug.Log("Reached end of path points, clearing path points");
             path_points.Clear();
             currentPathIndex = 0;
         }
-        yield return null;
     }
 
     // Initiates a jump to the specified target position
     private void StartJump(Vector3 target)
     {
-        targetJump = target;
+        targetJump = DisgustingFix(target);
         current_jump_point = objectTransform.position;
         direction = targetJump - objectTransform.position;
         direction = direction.normalized;
         currentTime = 0.0f;
         isJumping = true;
+        Debug.Log("Starting jump from " + current_jump_point.ToString() + " to " + targetJump.ToString());
     }
 
     // Moves the piece along a the animation curve to the target position
@@ -126,6 +126,9 @@ public class tokenMovement
     {
         Vector3 start = current_jump_point;
         Vector3 end = target;
+        //Vector3 end = DisgustingFix(target);
+
+        // Debug.Log("Moving piece from " + start.ToString() + " to " + end.ToString());
 
         // Update the current time
         currentTime += Time.deltaTime;
@@ -134,10 +137,25 @@ public class tokenMovement
         // Calculate the new position using the animation curves
         Vector3 position = Vector3.Lerp(start, end, ptLerp.Evaluate(time));
         position.y += stepHeight * yLerp.Evaluate(time);
-
+        // Debug.Log("At time " + time.ToString("F2") + ", position is " + position.ToString());
         // Apply the new position and rotation
         objectTransform.position = position;
-        objectTransform.rotation = Quaternion.Euler(maxRotation * yLerp.Evaluate(time) * direction.z, 0.0f, maxRotation * yLerp.Evaluate(time) * -direction.x);
+                // Replace the rotation code in movePieceSin with:
+        // Calculate tilt rotation (for jump animation)
+        Vector3 tiltEuler = new Vector3(
+            maxRotation * yLerp.Evaluate(time) * direction.z,
+            0.0f,
+            maxRotation * yLerp.Evaluate(time) * -direction.x
+        );
+        Quaternion tiltRotation = Quaternion.Euler(tiltEuler);
+
+        // Calculate look rotation (face movement direction)
+        Quaternion targetLookRotation = Quaternion.LookRotation(direction);
+
+        Quaternion totalRotation = tiltRotation * targetLookRotation;
+        // Combine both rotations: apply look rotation first, then tilt
+        objectTransform.rotation = Quaternion.Slerp(objectTransform.rotation, totalRotation, Time.deltaTime * 40f);
+
 
         // If the jump is complete
         if (time >= 1.0f)
@@ -152,7 +170,7 @@ public class tokenMovement
         }
     }
 
-    public IEnumerator lookAt(Vector3Int target)
+    public void lookAt(Vector3Int target)
     {
         Vector3 direction = target - objectTransform.position;
         direction.y = 0; // Keep only horizontal direction
@@ -161,6 +179,12 @@ public class tokenMovement
             Quaternion targetRotation = Quaternion.LookRotation(direction);
             objectTransform.rotation = Quaternion.Slerp(objectTransform.rotation, targetRotation, Time.deltaTime * 5f); // Smooth rotation
         }
-        yield return null;
+    }
+
+
+    //This belongs in the dumpster, fix and delete ASAP
+    private Vector3 DisgustingFix(Vector3 targetJumpPoint)
+    {
+        return new Vector3(targetJumpPoint.x + 0.5f, objectTransform.position.y, targetJumpPoint.z + 0.5f);
     }
 }

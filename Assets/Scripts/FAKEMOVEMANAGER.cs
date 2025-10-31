@@ -53,9 +53,9 @@ public class FAKEMOVEMANAGER : MonoBehaviour
         camera.transform.LookAt(new Vector3(transform.position.x, 0, transform.position.z));
 
         //Debug.Log("Starting Move Along Path Coroutine");
-        StartCoroutine(tokenMovement.moveAlongPath(0.5f));
+        //StartCoroutine(tokenMovement.moveAlongPath(0.5f));
         // StartCoroutine(tokenMovement.moveToPoint(0.5f));
         //Debug.Log("Starting Look At Coroutine");
-        StartCoroutine(tokenMovement.lookAt(enemy));
+        //StartCoroutine(tokenMovement.lookAt(enemy));
     }
 }

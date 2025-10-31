@@ -20,6 +20,16 @@ public class GridCharacterController3D : MonoBehaviour
     // Slight Y offset so the character draws on top of the grid
     public float yDrawOffset = 0.001f;
 
+    //Ryan's Animation Stuff
+    [Header("Animation")]
+    public float stepHeight;
+    public float maxRotation;
+    public AnimationCurve ptLerp;
+    public AnimationCurve yLerp;
+    public float JumpDuration = 0.5f;
+    private tokenMovement tokenMovement;
+    private List<Vector3Int> path_buffer = new List<Vector3Int>();
+
     // Instance of the visualized character (prefab or generated)
     GameObject _character;
     // SpriteRenderer used to display the character
@@ -45,6 +55,9 @@ public class GridCharacterController3D : MonoBehaviour
         SpawnCharacter();
         // Move the visual to a valid grid cell center if needed
         SnapToValidCellIfNeeded();
+        
+        //Ryan's Animation Stuff: intialize tokenMovement
+        tokenMovement = new tokenMovement(_character.transform, stepHeight, maxRotation, ptLerp, yLerp);
     }
 
     // Create the character GameObject and renderer (from prefab or generated circle)
@@ -140,33 +153,64 @@ public class GridCharacterController3D : MonoBehaviour
                 //grid.setIsOccupied(targetCell.x, targetCell.z, true);
 
 
-                // Snap character exactly to the start cell center (keep Y)
-                var startCenter = GridCellCenterWorld(startCell.x, startCell.z, yDrawOffset);
-                _character.transform.position = startCenter;
+                // // Snap character exactly to the start cell center (keep Y)
+                // var startCenter = GridCellCenterWorld(startCell.x, startCell.z, yDrawOffset);
+                // _character.transform.position = startCenter;
+
+
+                //Ryan's Animation Stuff: set up path buffer and call moveAlongPath
+                path_buffer.Clear();
+                    // foreach (Vector3Int cell in _path)
+                    // {
+                    //     path_buffer.Add(cell);
+                    // }
+                for (int i = 1; i < _path.Count; i++)
+                {
+                    path_buffer.Add(_path[i]);
+                }
+                tokenMovement.setPathPoints(path_buffer);
+
+                for (int i = 0; i < path_buffer.Count; i++)
+                {
+                    Debug.Log("Path Point " + i + ": " + path_buffer[i]);
+                    //GridCellCenterWorld(path_buffer[i].x, path_buffer[i].z, yDrawOffset);
+                    Debug.Log("World Position: " + GridCellCenterWorld(path_buffer[i].x, path_buffer[i].z, yDrawOffset));
+                }
             }
         }
 
-        // If we have a path, move towards the next waypoint
-        if (_isMoving)
-        {
-            // Get the next cell to move to
-            var cell = _path[_pathIndex];
 
-            // Convert that cell to its world center position
-            Vector3 target = GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
+        //StartCoroutine(tokenMovement.moveAlongPath(0.5f));
+        tokenMovement.moveAlongPath(JumpDuration);
+        tokenMovement.lookAt(new Vector3Int(5,0,5));
+        cam.transform.LookAt(new Vector3(_character.transform.position.x, 0, _character.transform.position.z));
 
-            // Read current position and lock Y to grid level
-            var p = _character.transform.position;
-            p.y = grid.gridY + yDrawOffset;
+        // // If we have a path, move towards the next waypoint
+        // if (_isMoving)
+        // {
+        //     // Get the next cell to move to
+        //     var cell = _path[_pathIndex];
 
-            // Move a step towards the target based on speed and deltaTime
-            float step = moveSpeed * Time.deltaTime;
-            var newPos = Vector3.MoveTowards(p, target, step);
-            // Keep Y locked after move
-            newPos.y = grid.gridY + yDrawOffset;
-            // Apply the new position
-            _character.transform.position = newPos;
-        }
+        //     // Convert that cell to its world center position
+        //     Vector3 target = GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
+
+        //     // Read current position and lock Y to grid level
+        //     var p = _character.transform.position;
+        //     p.y = grid.gridY + yDrawOffset;
+
+        //     //Ryan's Animation Stuff: set up path buffer and call moveAlongPath
+        //     tokenMovement.moveAlongPath(0.5f);
+
+
+
+        //     // // Move a step towards the target based on speed and deltaTime
+        //     // float step = moveSpeed * Time.deltaTime;
+        //     // var newPos = Vector3.MoveTowards(p, target, step);
+        //     // // Keep Y locked after move
+        //     // newPos.y = grid.gridY + yDrawOffset;
+        //     // // Apply the new position
+        //     // _character.transform.position = newPos;
+        // }
     }
 
     // ===== Helpers for XZ-plane picking and grid conversion =====
