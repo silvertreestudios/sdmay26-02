@@ -61,4 +61,4 @@ jobs:
         with:
           name: Unity Tests
           path: ${{ steps.tests.outputs.artifactsPath }}/**/*.xml
-          reporter: nunit
+          reporter: java-junit
