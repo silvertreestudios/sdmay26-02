@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
   test:
@@ -52,3 +53,12 @@ jobs:
         with:
           name: Test results
           path: ${{ steps.tests.outputs.artifactsPath }}
+      
+      # Publish test results for easy viewing
+      - name: Publish Test Results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Unity Tests
+          path: ${{ steps.tests.outputs.artifactsPath }}/**/*.xml
+          reporter: nunit
