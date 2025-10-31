@@ -5,7 +5,7 @@ This document describes the Unity test setup for this project.
 ## Overview
 
 The project now includes:
-- Unity Test Framework package (v2.0.1)
+- Unity Test Framework package (v1.3.11)
 - Sample EditMode tests in `Assets/Tests/`
 - GitHub Actions workflow for automated testing
 
