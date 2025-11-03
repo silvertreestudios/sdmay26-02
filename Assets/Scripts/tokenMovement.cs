@@ -10,7 +10,7 @@ using System.Collections;
 
 
 
-public class tokenMovement
+public class tokenMovement : ITokenMovement
 {
     // Jump points for the piece to move between
     public float stepHeight;
@@ -81,7 +81,12 @@ public class tokenMovement
         }
         else
         {
-            path_points = new List<Vector3Int>(points); // Create a new copy instead of reference
+            path_points.Clear();
+            // Skip the first point since it's the current position
+            for (int i = 1; i < points.Count; i++)
+            {
+                path_points.Add(points[i]);
+            }
             Debug.Log("successfully set path points");
             return 0;
         }

@@ -27,7 +27,7 @@ public class GridCharacterController3D : MonoBehaviour
     public AnimationCurve ptLerp;
     public AnimationCurve yLerp;
     public float JumpDuration = 0.5f;
-    private tokenMovement tokenMovement;
+    private ITokenMovement tokenMovement;
     private List<Vector3Int> path_buffer = new List<Vector3Int>();
 
     // Instance of the visualized character (prefab or generated)
@@ -158,24 +158,8 @@ public class GridCharacterController3D : MonoBehaviour
                 // _character.transform.position = startCenter;
 
 
-                //Ryan's Animation Stuff: set up path buffer and call moveAlongPath
-                path_buffer.Clear();
-                    // foreach (Vector3Int cell in _path)
-                    // {
-                    //     path_buffer.Add(cell);
-                    // }
-                for (int i = 1; i < _path.Count; i++)
-                {
-                    path_buffer.Add(_path[i]);
-                }
-                tokenMovement.setPathPoints(path_buffer);
-
-                for (int i = 0; i < path_buffer.Count; i++)
-                {
-                    Debug.Log("Path Point " + i + ": " + path_buffer[i]);
-                    //GridCellCenterWorld(path_buffer[i].x, path_buffer[i].z, yDrawOffset);
-                    Debug.Log("World Position: " + GridCellCenterWorld(path_buffer[i].x, path_buffer[i].z, yDrawOffset));
-                }
+                // Pass the path directly to token movement
+                tokenMovement.setPathPoints(_path);
             }
         }
 

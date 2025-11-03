@@ -42,7 +42,7 @@ public class FAKEMOVEMANAGER : MonoBehaviour
 
         tokenMovement = new tokenMovement(transform, stepHeight, maxRotation, ptLerp, yLerp);
 
-        tokenMovement.setPathPoints(path_buffer);
+        // tokenMovement.setPathPoints(path_buffer);
         tokenMovement.setMoveToPoint(path_buffer[0]);
         //StartCoroutine(tokenMovement.moveAlongPath(0.5f));
     }
