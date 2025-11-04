@@ -5,6 +5,7 @@ using UnityEngine;
 
 public interface ITokenMovement
 {
+    bool IsMoving { get; }
     int setPathPoints(List<Vector3Int> points);
     void moveAlongPath(float time);
     void lookAt(Vector3Int target);

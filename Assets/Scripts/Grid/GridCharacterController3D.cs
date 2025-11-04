@@ -29,6 +29,10 @@ public class GridCharacterController3D : MonoBehaviour
     public float JumpDuration = 0.5f;
     private ITokenMovement tokenMovement;
     private List<Vector3Int> path_buffer = new List<Vector3Int>();
+    //used for the one at a time movement
+    private bool isProcessingPath = false;
+    private Vector3Int startCell;
+    private Vector3Int nextCell;
 
     // Instance of the visualized character (prefab or generated)
     GameObject _character;
@@ -55,9 +59,11 @@ public class GridCharacterController3D : MonoBehaviour
         SpawnCharacter();
         // Move the visual to a valid grid cell center if needed
         SnapToValidCellIfNeeded();
-        
+
         //Ryan's Animation Stuff: intialize tokenMovement
         tokenMovement = new tokenMovement(_character.transform, stepHeight, maxRotation, ptLerp, yLerp);
+        
+        
     }
 
     // Create the character GameObject and renderer (from prefab or generated circle)
@@ -85,6 +91,9 @@ public class GridCharacterController3D : MonoBehaviour
 
         _character.transform.position = new Vector3(0f, yPos, 0f);
 
+        
+            
+
     }
 
     // Per-frame update while playing
@@ -105,6 +114,8 @@ public class GridCharacterController3D : MonoBehaviour
         // If no camera exists, we can’t pick cells from the mouse
         if (!cam) return;
 
+        
+
         // On left mouse click, compute a path to the clicked cell
         if (InputCompat.LeftClickDown())
         {
@@ -123,51 +134,82 @@ public class GridCharacterController3D : MonoBehaviour
                 return;
             }
 
-            // Determine the current cell based on character position
-            Vector3Int startCell;
-            if (!TryGridWorldToCell(_character.transform.position, out startCell))
-                startCell = ClampToGridXZ(_character.transform.position);
 
+            // Determine the current cell based on character position
+            if (!TryGridWorldToCell(_character.transform.position, out startCell))
+            startCell = ClampToGridXZ(_character.transform.position);
 
             // Run Dijkstra (with wall checks) to find a path
             var result = Dijkstra(startCell, targetCell);
 
 
             // If no route, clear any existing path
-            if (!result.found) { _path = null; }
-            else
+            if (result.found && result.path != null)
             {
-                // Store the new path and start from the next node if first equals start
-                if (result.path != null)
-                    _path = result.path;
-                else
-                    _path = new List<Vector3Int>();
-
-                if (_path.Count > 1 && _path[0].Equals(startCell))
-                    _pathIndex = 1;
-                else
+                // Initialize current position
+                if (!TryGridWorldToCell(_character.transform.position, out startCell))
+                    startCell = ClampToGridXZ(_character.transform.position);
+                
+                _path = result.path;
+                //find start index
+                 if (_path.Count > 1 && _path[0].Equals(startCell))
                     _pathIndex = 0;
+                else
+                    _pathIndex = 1;
+                
+                isProcessingPath = true;
 
-                //// Mark start cell unoccupied and target cell occupied
-                //grid.setIsOccupied(startCell.x, startCell.z, false);
-                //grid.setIsOccupied(targetCell.x, targetCell.z, true);
+                
 
-
-                // // Snap character exactly to the start cell center (keep Y)
-                // var startCenter = GridCellCenterWorld(startCell.x, startCell.z, yDrawOffset);
-                // _character.transform.position = startCenter;
-
-
-                // Pass the path directly to token movement
-                tokenMovement.setPathPoints(_path);
+                // Start moving to first point if path exists
+                if (_path.Count > _pathIndex)
+                {
+                    nextCell = _path[_pathIndex];
+                    tokenMovement.setMoveToPoint(nextCell);
+                }
+            } else
+            {
+                _path = null;
+                _pathIndex = 0;
+                isProcessingPath = false;
+                Debug.Log("No path found");
             }
         }
 
+        if (isProcessingPath)
+        {
+            if (!tokenMovement.IsMoving)
+            {
+                // Update current position
+                startCell = nextCell;
+                _pathIndex++;
+
+                // If there are more points in the path, move to the next one
+                if (_pathIndex < _path.Count)
+                {
+                    nextCell = _path[_pathIndex];
+                    tokenMovement.setMoveToPoint(nextCell);
+                    tokenMovement.lookAt(nextCell);
+                }
+                else
+                {
+                    // Path is complete
+                    isProcessingPath = false;
+                    _path = null;
+                    tokenMovement.lookAt(new Vector3Int(5, 0, 5));
+                }
+            }
+
+            // Call moveToPoint every frame while processing path
+            StartCoroutine(tokenMovement.moveToPoint(JumpDuration));
+        }
+        
+        cam.transform.LookAt(new Vector3(_character.transform.position.x, 0, _character.transform.position.z));
+
+
 
         //StartCoroutine(tokenMovement.moveAlongPath(0.5f));
-        tokenMovement.moveAlongPath(JumpDuration);
-        tokenMovement.lookAt(new Vector3Int(5,0,5));
-        cam.transform.LookAt(new Vector3(_character.transform.position.x, 0, _character.transform.position.z));
+        
 
         // // If we have a path, move towards the next waypoint
         // if (_isMoving)

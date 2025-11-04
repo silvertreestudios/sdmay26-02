@@ -22,12 +22,14 @@ public class tokenMovement : ITokenMovement
     private Transform objectTransform;
     List<Vector3Int> path_points = new List<Vector3Int>();
     private Vector3 current_jump_point;
-    private bool isJumping = false;
+    private bool isMoving = false;
+    //used just for interface
+    public bool IsMoving => isMoving;
     private Vector3 targetJump;
     private float currentTime;
     private Vector3 direction;
     private int currentPathIndex = 0;
-    private Vector3Int targetJumpPoint;
+    private Vector3 targetJumpPoint;
 
     public tokenMovement(Transform objectTransform, float stepHeight, float maxRotation, AnimationCurve ptLerp, AnimationCurve yLerp)
     {
@@ -51,20 +53,21 @@ public class tokenMovement : ITokenMovement
         }
         else
         {
-            targetJumpPoint = target;
+            targetJumpPoint = DisgustingFix(target);
             Debug.Log("successfully set move to point");
             return 0;
-        } 
+        }
     }
     public IEnumerator moveToPoint(float time)
-    {   
-        // If we're not currently jumping
-        if (!isJumping)
+    {
+        // Only start a new jump if we're not moving
+        if (!isMoving && targetJumpPoint != null)
         {
             StartJump(targetJumpPoint);
         }
-        // If we are jumping, continue the current jump
-        if (isJumping)
+
+        // Continue the current jump if we're moving
+        if (isMoving)
         {
             movePieceSin(targetJumpPoint, time);
         }
@@ -96,12 +99,12 @@ public class tokenMovement : ITokenMovement
     public void moveAlongPath(float time)
     {
         // If we're not currently jumping and there are more points to visit
-        if (!isJumping && currentPathIndex < path_points.Count)
+        if (!isMoving && currentPathIndex < path_points.Count)
         {
             StartJump(path_points[currentPathIndex]);
         }
         // If we are jumping, continue the current jump
-        if (isJumping)
+        if (isMoving)
         {
             movePieceSin(targetJump, time);
         }
@@ -117,12 +120,12 @@ public class tokenMovement : ITokenMovement
     // Initiates a jump to the specified target position
     private void StartJump(Vector3 target)
     {
-        targetJump = DisgustingFix(target);
+        targetJump = target;
         current_jump_point = objectTransform.position;
         direction = targetJump - objectTransform.position;
         direction = direction.normalized;
         currentTime = 0.0f;
-        isJumping = true;
+        isMoving = true;
         Debug.Log("Starting jump from " + current_jump_point.ToString() + " to " + targetJump.ToString());
     }
 
@@ -145,7 +148,7 @@ public class tokenMovement : ITokenMovement
         // Debug.Log("At time " + time.ToString("F2") + ", position is " + position.ToString());
         // Apply the new position and rotation
         objectTransform.position = position;
-                // Replace the rotation code in movePieceSin with:
+        // Replace the rotation code in movePieceSin with:
         // Calculate tilt rotation (for jump animation)
         Vector3 tiltEuler = new Vector3(
             maxRotation * yLerp.Evaluate(time) * direction.z,
@@ -168,7 +171,7 @@ public class tokenMovement : ITokenMovement
             //snap to final position
             objectTransform.position = end;
             current_jump_point = end;
-            isJumping = false;
+            isMoving = false;
             // Move to next point in path
             currentPathIndex++;
             Debug.Log("Completed jump to " + end.ToString());
@@ -192,4 +195,8 @@ public class tokenMovement : ITokenMovement
     {
         return new Vector3(targetJumpPoint.x + 0.5f, objectTransform.position.y, targetJumpPoint.z + 0.5f);
     }
+
+
+    
+
 }
