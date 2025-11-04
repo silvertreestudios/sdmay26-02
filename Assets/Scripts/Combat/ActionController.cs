@@ -4,9 +4,9 @@ using System.Collections.Generic;
 public class ActionController : MonoBehaviour
 {
     [SerializeField]
-    protected List<EntityActionEffect> Choices = new List<EntityActionEffect>();
+    protected List<EntityAction> Choices = new List<EntityAction>();
     [SerializeField]
-    protected List<EntityActionEffect> Movements = new List<EntityActionEffect>();
+    protected List<EntityAction> Movements = new List<EntityAction>();
     private bool IsTurn = false;
 
     protected void Start()
@@ -36,7 +36,7 @@ public class ActionController : MonoBehaviour
         }
     }
 
-    public void TakeAction(EntityActionEffect action)
+    public void TakeAction(EntityAction action)
     {
         if (IsTurn)
             action.Invoke(this.gameObject);

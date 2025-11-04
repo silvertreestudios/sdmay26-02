@@ -1,10 +1,10 @@
 using UnityEngine;
 
-public abstract class EntityActionEffect
+public abstract class EntityAction
 {
     protected uint ActionCost;
 
-    public EntityActionEffect(uint cost)
+    public EntityAction(uint cost)
     {
         this.ActionCost = cost;
     }
