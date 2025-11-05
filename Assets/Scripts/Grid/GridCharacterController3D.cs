@@ -41,6 +41,8 @@ public class GridCharacterController3D : MonoBehaviour
     // Convenience: true while we still have waypoints to follow
     bool _isMoving => _path != null && _pathIndex < _path.Count;
 
+    CameraManager cameraManager;
+
     // Called when component becomes active
     void OnEnable()
     {
@@ -55,9 +57,21 @@ public class GridCharacterController3D : MonoBehaviour
         SpawnCharacter();
         // Move the visual to a valid grid cell center if needed
         SnapToValidCellIfNeeded();
-        
+
         //Ryan's Animation Stuff: intialize tokenMovement
         tokenMovement = new tokenMovement(_character.transform, stepHeight, maxRotation, ptLerp, yLerp);
+
+        try
+        {
+            cameraManager = CameraManager.GetInstance();
+            cameraManager.addEntity("PlayerCharacter", _character);
+            cameraManager.setCamera(Camera.main);
+        } catch (System.Exception e)
+        {
+            Debug.LogError("CameraManager instance not found: " + e.Message);
+        }
+
+
     }
 
     // Create the character GameObject and renderer (from prefab or generated circle)
@@ -92,13 +106,15 @@ public class GridCharacterController3D : MonoBehaviour
     {
         // Ignore updates in edit mode
         if (!Application.isPlaying) return;
-
         // Ensure we have a grid reference (try auto-find once per frame until found)
         if (!grid)
         {
             if (autoFindGrid) grid = FindAnyObjectByType<GridRenderer3D>();
             if (!grid) return;
         }
+
+        cameraManager.DebugLogCameraManager();
+        cameraManager.focusCamera("PlayerCharacter");
 
         // Use the grid’s camera if set, otherwise the main camera
         var cam = grid.targetCamera ? grid.targetCamera : Camera.main;
@@ -183,7 +199,7 @@ public class GridCharacterController3D : MonoBehaviour
         //StartCoroutine(tokenMovement.moveAlongPath(0.5f));
         tokenMovement.moveAlongPath(JumpDuration);
         tokenMovement.lookAt(new Vector3Int(5,0,5));
-        cam.transform.LookAt(new Vector3(_character.transform.position.x, 0, _character.transform.position.z));
+        //cam.transform.LookAt(new Vector3(_character.transform.position.x, 0, _character.transform.position.z));
 
         // // If we have a path, move towards the next waypoint
         // if (_isMoving)

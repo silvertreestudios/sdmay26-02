@@ -40,37 +40,6 @@ public class tokenMovement
         currentTime = 0.0f;
     }
 
-
-    // Sets the SINGLE target point for the piece to move to
-    public int setMoveToPoint(Vector3Int target)
-    {
-        if (target == null)
-        {
-            Debug.Log("failed to set move to point, target is null");
-            return -1;
-        }
-        else
-        {
-            targetJumpPoint = target;
-            Debug.Log("successfully set move to point");
-            return 0;
-        } 
-    }
-    public IEnumerator moveToPoint(float time)
-    {   
-        // If we're not currently jumping
-        if (!isJumping)
-        {
-            StartJump(targetJumpPoint);
-        }
-        // If we are jumping, continue the current jump
-        if (isJumping)
-        {
-            movePieceSin(targetJumpPoint, time);
-        }
-        yield return null;
-    }
-
     // Sets the list of path points for the piece to move along
     public int setPathPoints(List<Vector3Int> points)
     {
@@ -86,6 +55,15 @@ public class tokenMovement
             return 0;
         }
     }
+
+
+    // public void move(float time)
+    // {
+    //     if (CameraSystem.isReady() && GridSystem.isReady())
+    //     {
+    //         moveAlongPath(time);
+    //     }
+    // }
 
     // Moves the piece along the given list of target positions, with each jump taking the specified time
     public void moveAlongPath(float time)
@@ -114,8 +92,7 @@ public class tokenMovement
     {
         targetJump = DisgustingFix(target);
         current_jump_point = objectTransform.position;
-        direction = targetJump - objectTransform.position;
-        direction = direction.normalized;
+        direction = (targetJump - objectTransform.position).normalized;
         currentTime = 0.0f;
         isJumping = true;
         Debug.Log("Starting jump from " + current_jump_point.ToString() + " to " + targetJump.ToString());
@@ -137,24 +114,30 @@ public class tokenMovement
         // Calculate the new position using the animation curves
         Vector3 position = Vector3.Lerp(start, end, ptLerp.Evaluate(time));
         position.y += stepHeight * yLerp.Evaluate(time);
-        // Debug.Log("At time " + time.ToString("F2") + ", position is " + position.ToString());
+
         // Apply the new position and rotation
         objectTransform.position = position;
-                // Replace the rotation code in movePieceSin with:
+
+        Debug.Log("Direction X: " + direction.x + " Direction Z: " + direction.z);
         // Calculate tilt rotation (for jump animation)
+
+        
+        
         Vector3 tiltEuler = new Vector3(
             maxRotation * yLerp.Evaluate(time) * direction.z,
             0.0f,
-            maxRotation * yLerp.Evaluate(time) * -direction.x
+            maxRotation * yLerp.Evaluate(time) * direction.x * -1
         );
+
+
+        //Quaternion.LookRotation(direction).eulerAngles.y
+
+        Debug.Log("Tilt Euler: " + tiltEuler.ToString());
+        
         Quaternion tiltRotation = Quaternion.Euler(tiltEuler);
 
-        // Calculate look rotation (face movement direction)
-        Quaternion targetLookRotation = Quaternion.LookRotation(direction);
-
-        Quaternion totalRotation = tiltRotation * targetLookRotation;
-        // Combine both rotations: apply look rotation first, then tilt
-        objectTransform.rotation = Quaternion.Slerp(objectTransform.rotation, totalRotation, Time.deltaTime * 40f);
+        
+        objectTransform.rotation = Quaternion.Slerp(objectTransform.rotation, tiltRotation, Time.deltaTime * 40f);
 
 
         // If the jump is complete
@@ -172,11 +155,11 @@ public class tokenMovement
 
     public void lookAt(Vector3Int target)
     {
-        Vector3 direction = target - objectTransform.position;
-        direction.y = 0; // Keep only horizontal direction
-        if (direction != Vector3.zero)
+        Vector3 lookDirection = DisgustingFix(target) - objectTransform.position;
+        lookDirection.y = 0; // Keep only horizontal direction
+        if (lookDirection != Vector3.zero)
         {
-            Quaternion targetRotation = Quaternion.LookRotation(direction);
+            Quaternion targetRotation = Quaternion.LookRotation(lookDirection);
             objectTransform.rotation = Quaternion.Slerp(objectTransform.rotation, targetRotation, Time.deltaTime * 5f); // Smooth rotation
         }
     }
