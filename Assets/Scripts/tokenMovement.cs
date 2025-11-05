@@ -10,7 +10,7 @@ using System.Collections;
 
 
 
-public class tokenMovement
+public class tokenMovement : ITokenMovement
 {
     // Jump points for the piece to move between
     public float stepHeight;
@@ -22,12 +22,14 @@ public class tokenMovement
     private Transform objectTransform;
     List<Vector3Int> path_points = new List<Vector3Int>();
     private Vector3 current_jump_point;
-    private bool isJumping = false;
+    private bool isMoving = false;
+    //used just for interface
+    public bool IsMoving => isMoving;
     private Vector3 targetJump;
     private float currentTime;
     private Vector3 direction;
     private int currentPathIndex = 0;
-    private Vector3Int targetJumpPoint;
+    private Vector3 targetJumpPoint;
 
     public tokenMovement(Transform objectTransform, float stepHeight, float maxRotation, AnimationCurve ptLerp, AnimationCurve yLerp)
     {
@@ -40,6 +42,38 @@ public class tokenMovement
         currentTime = 0.0f;
     }
 
+
+    // Sets the SINGLE target point for the piece to move to
+    public int setMoveToPoint(Vector3Int target)
+    {
+        if (target == null)
+        {
+            Debug.Log("failed to set move to point, target is null");
+            return -1;
+        }
+        else
+        {
+            targetJumpPoint = DisgustingFix(target);
+            Debug.Log("successfully set move to point");
+            return 0;
+        }
+    }
+    public IEnumerator moveToPoint(float time)
+    {
+        // Only start a new jump if we're not moving
+        if (!isMoving && targetJumpPoint != null)
+        {
+            StartJump(targetJumpPoint);
+        }
+
+        // Continue the current jump if we're moving
+        if (isMoving)
+        {
+            movePieceSin(targetJumpPoint, time);
+        }
+        yield return null;
+    }
+
     // Sets the list of path points for the piece to move along
     public int setPathPoints(List<Vector3Int> points)
     {
@@ -50,7 +84,12 @@ public class tokenMovement
         }
         else
         {
-            path_points = new List<Vector3Int>(points); // Create a new copy instead of reference
+            path_points.Clear();
+            // Skip the first point since it's the current position
+            for (int i = 1; i < points.Count; i++)
+            {
+                path_points.Add(points[i]);
+            }
             Debug.Log("successfully set path points");
             return 0;
         }
@@ -69,12 +108,12 @@ public class tokenMovement
     public void moveAlongPath(float time)
     {
         // If we're not currently jumping and there are more points to visit
-        if (!isJumping && currentPathIndex < path_points.Count)
+        if (!isMoving && currentPathIndex < path_points.Count)
         {
             StartJump(path_points[currentPathIndex]);
         }
         // If we are jumping, continue the current jump
-        if (isJumping)
+        if (isMoving)
         {
             movePieceSin(targetJump, time);
         }
@@ -90,11 +129,11 @@ public class tokenMovement
     // Initiates a jump to the specified target position
     private void StartJump(Vector3 target)
     {
-        targetJump = DisgustingFix(target);
+        targetJump = target;
         current_jump_point = objectTransform.position;
         direction = (targetJump - objectTransform.position).normalized;
         currentTime = 0.0f;
-        isJumping = true;
+        isMoving = true;
         Debug.Log("Starting jump from " + current_jump_point.ToString() + " to " + targetJump.ToString());
     }
 
@@ -146,7 +185,7 @@ public class tokenMovement
             //snap to final position
             objectTransform.position = end;
             current_jump_point = end;
-            isJumping = false;
+            isMoving = false;
             // Move to next point in path
             currentPathIndex++;
             Debug.Log("Completed jump to " + end.ToString());
@@ -170,4 +209,8 @@ public class tokenMovement
     {
         return new Vector3(targetJumpPoint.x + 0.5f, objectTransform.position.y, targetJumpPoint.z + 0.5f);
     }
+
+
+    
+
 }
