@@ -5,10 +5,11 @@ using UnityEngine;
 
 public interface ITokenMovement
 {
-    bool IsMoving { get; }
-    int setPathPoints(List<Vector3Int> points);
-    void moveAlongPath(float time);
-    void lookAt(Vector3Int target);
-    int setMoveToPoint(Vector3Int target);
-    IEnumerator moveToPoint(float time);
+    int setPath(List<Vector3Int> path);
+    int setPoint(Vector3 point);
+    int setLookAt(Vector3 target);
+    bool IsMoving();
+    void stop();
+    void start();
+    IEnumerator update();
 }

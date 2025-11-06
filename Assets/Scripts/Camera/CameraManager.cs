@@ -3,11 +3,43 @@ using System.Collections.Generic;
 using Unity.VisualScripting;
 using UnityEngine;
 
+
+public enum CameraType
+{
+    Movement,
+    Focus,
+    Target,
+    Pick,
+    Party,
+    Orbit
+}
+
+
 public class CameraManager : SingletonMonoBehaviour<CameraManager>
 {
 
     private List<(string, GameObject)> entities = new List<(string, GameObject)>();
     Camera camera = null;
+    private CameraType currentCameraMode;
+    private string currentActor;
+    private float currentTime = 0.0f;
+
+
+
+    [Header("Focus Camera Settings")]
+    public AnimationCurve focusLerp;
+    public float focusCameraSpeed = 10f;
+    private Transform startPosition;
+    [Range(5f, 15f)]
+    public float FocusZoom = 10f;
+
+    [Header("Target Camera Settings")]
+    public AnimationCurve targetLerp;
+    public float targetCameraSpeed = 10f;
+    public Transform camTargetTransform;
+    [Range(5f, 15f)]
+    public float TargetZoom = 9f;
+
 
     public void DebugLogCameraManager()
     {
@@ -19,27 +51,107 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         camera = cam;
     }
 
-    public void addEntity(string name, GameObject entity)
+    public void setMode(CameraType mode)
     {
-        entities.Add((name, entity));
+        switch (mode)
+        {
+            case CameraType.Movement:
+                currentCameraMode = CameraType.Movement;
+                Debug.Log("Camera mode set to Movement.");
+                // Set camera to movement mode
+                break;
+            case CameraType.Focus:
+                currentCameraMode = CameraType.Focus;
+                startPosition = camera.transform;
+                Debug.Log("Camera mode set to Focus.");
+                // Set camera to focus mode
+                break;
+            case CameraType.Target:
+                currentCameraMode = CameraType.Target;
+                startPosition = camera.transform;
+                Debug.Log("Camera mode set to Target.");
+                // Set camera to target mode
+                break;
+            case CameraType.Pick:
+                currentCameraMode = CameraType.Pick;
+                Debug.Log("Camera mode set to Pick.");
+                // Set camera to pick mode
+                break;
+            case CameraType.Party:
+                currentCameraMode = CameraType.Party;
+                Debug.Log("Camera mode set to Party.");
+                // Set camera to party mode
+                break;
+            case CameraType.Orbit:
+                currentCameraMode = CameraType.Orbit;
+                Debug.Log("Camera mode set to Orbit.");
+                // Set camera to orbit mode
+                break;
+            default:
+                Debug.LogWarning("Unknown camera mode.");
+                break;
+        }
+    }
+
+    public void addActor(string name, GameObject Actor)
+    {
+        entities.Add((name, Actor));
     }
 
     public void focusCamera(string name)
     {
         GameObject entity = entities.Find(e => e.Item1 == name).Item2;
+
         if (entity != null)
         {
-            // Logic to focus camera on entity
-            Debug.Log($"Focusing camera on {name}");
+            float jumpTime = focusCameraSpeed; // Duration of the jump
+            currentTime += Time.deltaTime;
+            float time = Mathf.Clamp01(currentTime / jumpTime);
+            Debug.Log("Focus Camera time: " + time);
+            Debug.Log("Lerp Value: " + focusLerp.Evaluate(time));
 
-            Vector3 targetPosition = new Vector3(entity.transform.position.x + 5, entity.transform.position.y + 5, entity.transform.position.z - 5);
-            camera.transform.position = Vector3.Lerp(camera.transform.position, targetPosition, 0.1f);
-            camera.transform.LookAt(new Vector3(entity.transform.position.x, 0, entity.transform.position.z));
+            Vector3 targetPosition = new Vector3(entity.transform.position.x + 5, FocusZoom, entity.transform.position.z - 5);
+            camera.transform.position = Vector3.Lerp(startPosition.position, targetPosition, focusLerp.Evaluate(time));
+
+            Quaternion lookRotation = Quaternion.LookRotation(new Vector3(entity.transform.position.x, 0, entity.transform.position.z) - camera.transform.position);
+            camera.transform.rotation = Quaternion.Lerp(startPosition.rotation, lookRotation, focusLerp.Evaluate(time));
         }
         else
         {
             Debug.LogWarning($"Entity with name {name} not found.");
         }
+    }
+
+    public void targetCamera(string name)
+    {
+        GameObject entity = entities.Find(e => e.Item1 == name).Item2;
+        if (entity != null)
+        {
+            float jumpTime = targetCameraSpeed; // Duration of the jump
+            currentTime += Time.deltaTime;
+            float time = Mathf.Clamp01(currentTime / jumpTime);
+            Debug.Log("Target Camera time: " + time);
+            Debug.Log("Lerp Value: " + focusLerp.Evaluate(time));
+
+            Vector3 targetPosition = new Vector3(entity.transform.position.x + 5, TargetZoom, (entity.transform.position.z - 5));
+            camera.transform.position = Vector3.Lerp(camera.transform.position, targetPosition, targetLerp.Evaluate(time));
+
+            
+            
+
+            Quaternion lookRotation = Quaternion.LookRotation(new Vector3(camTargetTransform.position.x, 0, camTargetTransform.position.z) - camera.transform.position);
+            camera.transform.rotation = Quaternion.Lerp(startPosition.rotation, lookRotation, targetLerp.Evaluate(time));
+        }
+        else
+        {
+            Debug.LogWarning($"Entity with name {name} not found.");
+        }
+    }
+
+   
+    public void setCurrentActor(string name)
+    {
+        currentActor = name;
     }
 
     public void movementCamera(string name, Vector3 destination)
@@ -48,16 +160,52 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
         if (entity != null)
         {
-            // Logic to move camera towards destination
-            Debug.Log($"Moving camera towards {name}");
+            float jumpTime = 10.0f; // Duration of the jump
+            currentTime += Time.deltaTime;
+            float time = Mathf.Clamp01(currentTime / jumpTime);
+            Debug.Log("Camera time: " + time);
+            Quaternion lookRotation = Quaternion.LookRotation(entity.transform.position);
 
-            camera.transform.position = Vector3.Lerp(camera.transform.position, destination, 0.1f);
-            camera.transform.LookAt(new Vector3(entity.transform.position.x, 0, entity.transform.position.z));
+            camera.transform.rotation = Quaternion.Lerp(camera.transform.rotation, lookRotation, focusLerp.Evaluate(time));
+            camera.transform.position = Vector3.Lerp(camera.transform.position, destination, focusLerp.Evaluate(time));
         }
         else
         {
             Debug.LogWarning($"Entity with name {name} not found.");
         }
+    }
+
+    public void ResetClock(){
+        currentTime = 0f;
+    }
+
+    public void update()
+    {
+        switch (currentCameraMode)
+        {
+            case CameraType.Movement:
+                movementCamera(currentActor, Vector3.zero);
+                // Update camera in movement mode
+                break;
+            case CameraType.Focus:
+                focusCamera(currentActor);
+                break;
+            case CameraType.Target:
+                targetCamera(currentActor);
+                break;
+            case CameraType.Pick:
+                // Update camera in pick mode
+                break;
+            case CameraType.Party:
+                // Update camera in party mode
+                break;
+            case CameraType.Orbit:
+                // Update camera in orbit mode
+                break;
+            default:
+                Debug.LogWarning("Unknown camera mode.");
+                break;
+        }   
     }
 
 
@@ -72,3 +220,10 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 /// - Focus Mode: subtle overhead downangle on a specific token or tile
 /// - Party Mode: Overhead view of the party's area
 /// - Orbit Mode: revolves around the party after a input delay 
+/// 
+/// 
+/// Dictionary
+/// name: string name of entity
+/// actor: something you may want to focus the camera on
+/// Clock: some sort of internal timer to manage lerping between positions
+/// 

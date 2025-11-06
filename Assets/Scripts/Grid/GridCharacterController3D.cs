@@ -1,5 +1,7 @@
 ﻿using System.Collections.Generic;
+using System.Drawing;
 using UnityEngine;
+using UnityEngine.InputSystem;
 [DisallowMultipleComponent]
 public class GridCharacterController3D : MonoBehaviour
 {
@@ -10,7 +12,7 @@ public class GridCharacterController3D : MonoBehaviour
     public GameObject prefab;
     // Try to find a GridRenderer automatically if none is assigned
     public bool autoFindGrid = true;
-
+    
     [Header("Spawn")]
     // Sorting order so the character renders above the grid
     public int sortingOrder = 200;
@@ -27,12 +29,16 @@ public class GridCharacterController3D : MonoBehaviour
     public AnimationCurve ptLerp;
     public AnimationCurve yLerp;
     public float JumpDuration = 0.5f;
+    public Transform dummyTarget;
+
+    //-----------Private variables-------------
     private ITokenMovement tokenMovement;
     private List<Vector3Int> path_buffer = new List<Vector3Int>();
     //used for the one at a time movement
     private bool isProcessingPath = false;
     private Vector3Int startCell;
     private Vector3Int nextCell;
+    private bool camLocked = false;
 
     // Instance of the visualized character (prefab or generated)
     GameObject _character;
@@ -45,7 +51,10 @@ public class GridCharacterController3D : MonoBehaviour
     // Convenience: true while we still have waypoints to follow
     bool _isMoving => _path != null && _pathIndex < _path.Count;
 
-    CameraManager cameraManager;
+    private CameraManager cameraManager;
+    
+    //idea is use this to interupt setting new points
+    private bool ableToContinue = true;
 
     // Called when component becomes active
     void OnEnable()
@@ -68,14 +77,14 @@ public class GridCharacterController3D : MonoBehaviour
         try
         {
             cameraManager = CameraManager.GetInstance();
-            cameraManager.addEntity("PlayerCharacter", _character);
+            cameraManager.addActor("PlayerCharacter", _character);
             cameraManager.setCamera(Camera.main);
+            cameraManager.setMode(CameraType.Focus);
+            cameraManager.setCurrentActor("PlayerCharacter");
         } catch (System.Exception e)
         {
             Debug.LogError("CameraManager instance not found: " + e.Message);
         }
-
-
     }
 
     // Create the character GameObject and renderer (from prefab or generated circle)
@@ -102,10 +111,6 @@ public class GridCharacterController3D : MonoBehaviour
             yPos = 0.001f;
 
         _character.transform.position = new Vector3(0f, yPos, 0f);
-
-        
-            
-
     }
 
     // Per-frame update while playing
@@ -120,15 +125,12 @@ public class GridCharacterController3D : MonoBehaviour
             if (!grid) return;
         }
 
-        cameraManager.DebugLogCameraManager();
-        cameraManager.focusCamera("PlayerCharacter");
-
         // Use the grid’s camera if set, otherwise the main camera
         var cam = grid.targetCamera ? grid.targetCamera : Camera.main;
         // If no camera exists, we can’t pick cells from the mouse
         if (!cam) return;
 
-        
+
 
         // On left mouse click, compute a path to the clicked cell
         if (InputCompat.LeftClickDown())
@@ -140,124 +142,80 @@ public class GridCharacterController3D : MonoBehaviour
             if (!TryGridWorldToCell(hit, out Vector3Int targetCell)) return;
 
             // Set destination tile,
-
             // reject clicks on non-walkable cells
-            if (!grid.IsCellWalkable(targetCell.x, targetCell.z))
-            {
-                Debug.Log("Cell is occupied");
-                return;
-            }
+            if (!grid.IsCellWalkable(targetCell.x, targetCell.z)) { Debug.Log("Cell is occupied"); return; }
 
 
             // Determine the current cell based on character position
             if (!TryGridWorldToCell(_character.transform.position, out startCell))
-            startCell = ClampToGridXZ(_character.transform.position);
+                startCell = ClampToGridXZ(_character.transform.position);
 
             // Run Dijkstra (with wall checks) to find a path
             var result = Dijkstra(startCell, targetCell);
 
 
-            // If no route, clear any existing path
+
             if (result.found && result.path != null)
             {
-                // Initialize current position
-                if (!TryGridWorldToCell(_character.transform.position, out startCell))
-                    startCell = ClampToGridXZ(_character.transform.position);
-                
                 _path = result.path;
-                //find start index
-                 if (_path.Count > 1 && _path[0].Equals(startCell))
-                    _pathIndex = 0;
-                else
-                    _pathIndex = 1;
-                
                 isProcessingPath = true;
-
-                
-
-                // Start moving to first point if path exists
-                if (_path.Count > _pathIndex)
+                tokenMovement.setPath(_path);
+                //Debug logic to just print out the whole path line by line
+                for (int i = 0; i < _path.Count; i++)
                 {
-                    nextCell = _path[_pathIndex];
-                    tokenMovement.setMoveToPoint(nextCell);
+                    Debug.Log("Path point " + i + ": " + _path[i].ToString());
                 }
-            } else
+                // cameraManager.setMode(CameraType.Target);
+                // cameraManager.setCurrentActor("PlayerCharacter");
+                cameraManager.ResetClock();
+                //end of debug logic
+            }
+            else// If no route, clear any existing path
             {
                 _path = null;
                 _pathIndex = 0;
                 isProcessingPath = false;
                 Debug.Log("No path found");
             }
+            
         }
 
-        if (isProcessingPath)
-        {
-            if (!tokenMovement.IsMoving)
-            {
-                // Update current position
-                startCell = nextCell;
-                _pathIndex++;
-
-                // If there are more points in the path, move to the next one
-                if (_pathIndex < _path.Count)
-                {
-                    nextCell = _path[_pathIndex];
-                    tokenMovement.setMoveToPoint(nextCell);
-                    tokenMovement.lookAt(nextCell);
-                }
-                else
-                {
-                    // Path is complete
-                    isProcessingPath = false;
-                    _path = null;
-                    tokenMovement.lookAt(new Vector3Int(5, 0, 5));
-                }
-            }
-
-            // Call moveToPoint every frame while processing path
-            StartCoroutine(tokenMovement.moveToPoint(JumpDuration));
-        }
         
-        cam.transform.LookAt(new Vector3(_character.transform.position.x, 0, _character.transform.position.z));
+        //Ryan's Animation Stuff:
+        if (tokenMovement.IsMoving() && camLocked == false)
+        {
+            cameraManager.setMode(CameraType.Focus);
+            camLocked = true;
+        } else if (!tokenMovement.IsMoving() && camLocked == true)
+        {
+            camLocked = false;
+            cameraManager.ResetClock();
+            tokenMovement.setLookAt(dummyTarget.position);
+            cameraManager.setMode(CameraType.Target);
+        }
 
-
-
-        //StartCoroutine(tokenMovement.moveAlongPath(0.5f));
-        tokenMovement.moveAlongPath(JumpDuration);
-        tokenMovement.lookAt(new Vector3Int(5,0,5));
-        //cam.transform.LookAt(new Vector3(_character.transform.position.x, 0, _character.transform.position.z));
-
-        // // If we have a path, move towards the next waypoint
-        // if (_isMoving)
-        // {
-        //     // Get the next cell to move to
-        //     var cell = _path[_pathIndex];
-
-        //     // Convert that cell to its world center position
-        //     Vector3 target = GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
-
-        //     // Read current position and lock Y to grid level
-        //     var p = _character.transform.position;
-        //     p.y = grid.gridY + yDrawOffset;
-
-        //     //Ryan's Animation Stuff: set up path buffer and call moveAlongPath
-        //     tokenMovement.moveAlongPath(0.5f);
-
-
-
-        //     // // Move a step towards the target based on speed and deltaTime
-        //     // float step = moveSpeed * Time.deltaTime;
-        //     // var newPos = Vector3.MoveTowards(p, target, step);
-        //     // // Keep Y locked after move
-        //     // newPos.y = grid.gridY + yDrawOffset;
-        //     // // Apply the new position
-        //     // _character.transform.position = newPos;
-        // }
+        //These need to be running every frame
+        //cameraManager.DebugLogCameraManager();
+        cameraManager.update();
+        StartCoroutine(tokenMovement.update());
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     // ===== Helpers for XZ-plane picking and grid conversion =====
 
-    // Convert a screen position to a world hit point on plane Y = planeY
     bool ScreenToXZPlane(Camera cam, Vector2 screenPos, float planeY, out Vector3 hit)
     {
         // Orthographic: direct ScreenToWorldPoint at the plane’s depth
