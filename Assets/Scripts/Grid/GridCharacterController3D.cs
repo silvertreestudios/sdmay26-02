@@ -174,6 +174,9 @@ public class GridCharacterController3D : MonoBehaviour
 
 
         //Ryan's Animation Stuff: Camera and movement interactivity
+        //////////////////////
+        ///WORK IN PROGRESS///
+        //////////////////////
         // Stop movement and look at target
         if (Input.GetKeyDown(KeyCode.Q))
         {

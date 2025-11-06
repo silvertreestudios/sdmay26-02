@@ -52,16 +52,47 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     [Range(5f, 15f)]
     public float PickZoom = 10f;
 
+
+    // Debug function
     public void DebugLogCameraManager()
     {
         Debug.Log("CameraManager is active.");
     }
 
+
+// Sets the main camera for the manager to control
     public void setCamera(Camera cam)
     {
         camera = cam;
     }
 
+       public void addActor(string name, GameObject Actor)
+    {
+        entities.Add((name, Actor));
+    }
+
+
+    // Resets the internal clock for camera transitions
+    public void ResetClock(){
+        currentTime = 0f;
+    }
+
+    
+    // Sets the current actor for the camera to focus on
+    public void setCurrentActor(string name)
+    {
+        currentActor = name;
+    }
+
+
+    // Removes an actor from the manager by name
+    public void removeActor(string name)
+    {
+        entities.RemoveAll(e => e.Item1 == name);
+    }
+
+
+    // Sets the camera mode
     public void setMode(CameraType mode)
     {
         switch (mode)
@@ -105,11 +136,8 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         }
     }
 
-    public void addActor(string name, GameObject Actor)
-    {
-        entities.Add((name, Actor));
-    }
 
+    // Focuses the camera on a specific actor by name
     public void focusCamera(string name)
     {
         GameObject entity = entities.Find(e => e.Item1 == name).Item2;
@@ -135,6 +163,8 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         }
     }
 
+
+    // Targets the camera on a specific actor by name
     public void targetCamera(string name)
     {
         GameObject entity = entities.Find(e => e.Item1 == name).Item2;
@@ -168,6 +198,8 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         }
     }
 
+
+    //Hovers the camera over a specific actor by name at offset specified by how it moved in relation to camera
     public void PickCamera(string name)
     {
         GameObject entity = entities.Find(e => e.Item1 == name).Item2;
@@ -200,20 +232,8 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         }
     }
 
-    public void ResetClock(){
-        currentTime = 0f;
-    }
 
-    public void setCurrentActor(string name)
-    {
-        currentActor = name;
-    }
-
-    public void removeActor(string name)
-    {
-        entities.RemoveAll(e => e.Item1 == name);
-    }
-
+    // Adjusts the camera rotation based on mouse position
     private Quaternion MouseOffset(Quaternion baseRotation)
     {
         
@@ -230,6 +250,8 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         return lookRotation;
     }
 
+
+    // Updates the camera based on the current mode
     public void update()
     {
         switch (currentCameraMode)
@@ -278,3 +300,14 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 /// actor: something you may want to focus the camera on
 /// Clock: some sort of internal timer to manage lerping between positions
 /// 
+/// Method Descriptions
+/// setCamera: assigns the main camera to be controlled
+/// addActor: adds an entity to the camera manager's list
+/// removeActor: removes an entity from the camera manager's list
+/// setCurrentActor: sets the current actor for the set camera to focus on
+/// setMode: sets the camera mode
+/// focusCamera: focuses the camera on a specific actor
+/// targetCamera: targets the camera on a specific target actor from an over-the-shoulder perspective of current actor
+/// PickCamera: hovers the camera over a specific actor at an offset
+/// MouseOffset: adjusts the camera rotation based on mouse position
+/// update: updates the camera based on the current mode    

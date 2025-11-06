@@ -84,6 +84,7 @@ public class tokenMovement : ITokenMovement
     }
 
 
+    //<TODO>: Make current Path Index Increment by function call to allowe better one jump at a time control
     // Moves the piece along the given list of target positions, with each jump taking the specified time
     public void move(float time)
     {
@@ -149,7 +150,7 @@ public class tokenMovement : ITokenMovement
         );
         //Look towards movement direction
         Quaternion lookRotation = Quaternion.LookRotation(direction);
-        //convert tilt euler to quaternion (please never ask me how this works, i dont really know quaternions)
+        //convert tilt euler to quaternion
         Quaternion tiltRotation = Quaternion.Euler(tiltEuler);
         //combine the two rotations
         Quaternion finalRotation = lookRotation * tiltRotation;
