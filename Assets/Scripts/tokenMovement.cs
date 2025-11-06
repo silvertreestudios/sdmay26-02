@@ -191,7 +191,7 @@ public class tokenMovement : ITokenMovement
         currentTimeRotation += Time.deltaTime;
         float time = Mathf.Clamp01(currentTimeRotation / turnTime);
         // Only rotate if not moving
-        if (lookDirection != Vector3.zero && isDone)
+        if (lookDirection != Vector3.zero && (isDone || !running))
         {
             Quaternion targetRotation = Quaternion.LookRotation(lookDirection);
             objectTransform.rotation = Quaternion.Slerp(objectTransform.rotation, targetRotation, time); // Smooth rotation

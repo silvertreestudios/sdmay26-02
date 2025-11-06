@@ -79,8 +79,8 @@ public class GridCharacterController3D : MonoBehaviour
             cameraManager = CameraManager.GetInstance();
             cameraManager.addActor("PlayerCharacter", _character);
             cameraManager.setCamera(Camera.main);
-            cameraManager.setMode(CameraType.Focus);
             cameraManager.setCurrentActor("PlayerCharacter");
+            cameraManager.setMode(CameraType.Pick);
         } catch (System.Exception e)
         {
             Debug.LogError("CameraManager instance not found: " + e.Message);
@@ -160,15 +160,7 @@ public class GridCharacterController3D : MonoBehaviour
                 _path = result.path;
                 isProcessingPath = true;
                 tokenMovement.setPath(_path);
-                //Debug logic to just print out the whole path line by line
-                for (int i = 0; i < _path.Count; i++)
-                {
-                    Debug.Log("Path point " + i + ": " + _path[i].ToString());
-                }
-                // cameraManager.setMode(CameraType.Target);
-                // cameraManager.setCurrentActor("PlayerCharacter");
                 cameraManager.ResetClock();
-                //end of debug logic
             }
             else// If no route, clear any existing path
             {
@@ -180,8 +172,24 @@ public class GridCharacterController3D : MonoBehaviour
             
         }
 
+
+        //Ryan's Animation Stuff: Camera and movement interactivity
+        // Stop movement and look at target
+        if (Input.GetKeyDown(KeyCode.Q))
+        {
+            tokenMovement.stop();
+            tokenMovement.setLookAt(dummyTarget.position);
+            cameraManager.ResetClock();
+            cameraManager.setMode(CameraType.Target);
+        }
+        if (Input.GetKeyDown(KeyCode.E))
+        {
+            cameraManager.ResetClock();
+            tokenMovement.start();
+            camLocked = false;
+        }
         
-        //Ryan's Animation Stuff:
+        // Camera follow logic based on movement state
         if (tokenMovement.IsMoving() && camLocked == false)
         {
             cameraManager.setMode(CameraType.Focus);
@@ -191,7 +199,8 @@ public class GridCharacterController3D : MonoBehaviour
             camLocked = false;
             cameraManager.ResetClock();
             tokenMovement.setLookAt(dummyTarget.position);
-            cameraManager.setMode(CameraType.Target);
+            // cameraManager.setMode(CameraType.Target);
+            cameraManager.setMode(CameraType.Pick);
         }
 
         //These need to be running every frame

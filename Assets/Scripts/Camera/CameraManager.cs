@@ -24,6 +24,9 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     private string currentActor;
     private float currentTime = 0.0f;
 
+    [Header("Mouse Settings")]
+    public float mouseScaleFactor = 5f;
+
 
 
     [Header("Focus Camera Settings")]
@@ -36,10 +39,18 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     [Header("Target Camera Settings")]
     public AnimationCurve targetLerp;
     public float targetCameraSpeed = 10f;
+    public float offsetDistance = 5f;
+    public float fromActorAngle = 140f;
     public Transform camTargetTransform;
-    [Range(5f, 15f)]
-    public float TargetZoom = 9f;
+    [Range(1f, 15f)]
+    public float TargetZoom = 10f;
 
+    [Header("Pick Camera Settings")]
+    public AnimationCurve pickLerp;
+    public float pickCameraSpeed = 10f;
+    //public Transform camPickTransform;
+    [Range(5f, 15f)]
+    public float PickZoom = 10f;
 
     public void DebugLogCameraManager()
     {
@@ -56,7 +67,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         switch (mode)
         {
             case CameraType.Movement:
-                currentCameraMode = CameraType.Movement;
+                //currentCameraMode = CameraType.Movement;
                 Debug.Log("Camera mode set to Movement.");
                 // Set camera to movement mode
                 break;
@@ -74,6 +85,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
                 break;
             case CameraType.Pick:
                 currentCameraMode = CameraType.Pick;
+                startPosition = camera.transform;
                 Debug.Log("Camera mode set to Pick.");
                 // Set camera to pick mode
                 break;
@@ -107,13 +119,14 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
             float jumpTime = focusCameraSpeed; // Duration of the jump
             currentTime += Time.deltaTime;
             float time = Mathf.Clamp01(currentTime / jumpTime);
-            Debug.Log("Focus Camera time: " + time);
-            Debug.Log("Lerp Value: " + focusLerp.Evaluate(time));
+            // Debug.Log("Focus Camera time: " + time);
+            // Debug.Log("Lerp Value: " + focusLerp.Evaluate(time));
 
-            Vector3 targetPosition = new Vector3(entity.transform.position.x + 5, FocusZoom, entity.transform.position.z - 5);
+            Vector3 targetPosition = new Vector3(startPosition.position.x, FocusZoom, startPosition.position.z);
             camera.transform.position = Vector3.Lerp(startPosition.position, targetPosition, focusLerp.Evaluate(time));
 
             Quaternion lookRotation = Quaternion.LookRotation(new Vector3(entity.transform.position.x, 0, entity.transform.position.z) - camera.transform.position);
+            lookRotation = MouseOffset(lookRotation);
             camera.transform.rotation = Quaternion.Lerp(startPosition.rotation, lookRotation, focusLerp.Evaluate(time));
         }
         else
@@ -130,16 +143,23 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
             float jumpTime = targetCameraSpeed; // Duration of the jump
             currentTime += Time.deltaTime;
             float time = Mathf.Clamp01(currentTime / jumpTime);
-            Debug.Log("Target Camera time: " + time);
-            Debug.Log("Lerp Value: " + focusLerp.Evaluate(time));
+            // Debug.Log("Target Camera time: " + time);
+            // Debug.Log("Lerp Value: " + focusLerp.Evaluate(time));
 
-            Vector3 targetPosition = new Vector3(entity.transform.position.x + 5, TargetZoom, (entity.transform.position.z - 5));
-            camera.transform.position = Vector3.Lerp(camera.transform.position, targetPosition, targetLerp.Evaluate(time));
+            Vector3 camTargetDirection = camTargetTransform.position - entity.transform.position;
+            camTargetDirection.Normalize();
+            Debug.Log("Cam Target Direction: " + camTargetDirection);
+            camTargetDirection = Quaternion.Euler(0, fromActorAngle, 0) * camTargetDirection;
+            Debug.Log("Cam Target Direction (Adjusted): " + camTargetDirection);
+            camTargetDirection *= offsetDistance; // Distance from target
+            camTargetDirection.y = TargetZoom;
+            camTargetDirection += entity.transform.position;
 
-            
-            
+            Vector3 targetPosition = new Vector3(entity.transform.position.x, TargetZoom, (entity.transform.position.z));
+            camera.transform.position = Vector3.Lerp(camera.transform.position, camTargetDirection, targetLerp.Evaluate(time));
 
             Quaternion lookRotation = Quaternion.LookRotation(new Vector3(camTargetTransform.position.x, 0, camTargetTransform.position.z) - camera.transform.position);
+            lookRotation = MouseOffset(lookRotation);
             camera.transform.rotation = Quaternion.Lerp(startPosition.rotation, lookRotation, targetLerp.Evaluate(time));
         }
         else
@@ -148,26 +168,31 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         }
     }
 
-   
-    public void setCurrentActor(string name)
-    {
-        currentActor = name;
-    }
-
-    public void movementCamera(string name, Vector3 destination)
+    public void PickCamera(string name)
     {
         GameObject entity = entities.Find(e => e.Item1 == name).Item2;
 
         if (entity != null)
         {
-            float jumpTime = 10.0f; // Duration of the jump
+            float jumpTime = focusCameraSpeed; // Duration of the jump
             currentTime += Time.deltaTime;
             float time = Mathf.Clamp01(currentTime / jumpTime);
-            Debug.Log("Camera time: " + time);
-            Quaternion lookRotation = Quaternion.LookRotation(entity.transform.position);
+            // Debug.Log("Pick Camera time: " + time);
+            // Debug.Log("Lerp Value: " + pickLerp.Evaluate(time));
+            float xDirection = Mathf.Sign(camera.transform.position.x - entity.transform.position.x);
+            float zDirection = Mathf.Sign(camera.transform.position.z - entity.transform.position.z);
 
-            camera.transform.rotation = Quaternion.Lerp(camera.transform.rotation, lookRotation, focusLerp.Evaluate(time));
-            camera.transform.position = Vector3.Lerp(camera.transform.position, destination, focusLerp.Evaluate(time));
+            Vector3 targetPosition = new Vector3(entity.transform.position.x + (xDirection * 3f), PickZoom, entity.transform.position.z + (zDirection * 3f));
+            
+            Debug.Log($"X Direction: {xDirection}");
+            Debug.Log($"Z Direction: {zDirection}");
+            camera.transform.position = Vector3.Lerp(startPosition.position, targetPosition, pickLerp.Evaluate(time));
+
+            Quaternion targetLookRotation = Quaternion.LookRotation(new Vector3(entity.transform.position.x, 0, entity.transform.position.z) - camera.transform.position);
+            Debug.Log("Target Look Rotation: " + targetLookRotation.eulerAngles);
+            Quaternion lookRotation = MouseOffset(targetLookRotation);
+            Debug.Log("Adjusted Look Rotation: " + lookRotation.eulerAngles);
+            camera.transform.rotation = Quaternion.Lerp(startPosition.rotation, lookRotation, pickLerp.Evaluate(time));
         }
         else
         {
@@ -179,12 +204,37 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         currentTime = 0f;
     }
 
+    public void setCurrentActor(string name)
+    {
+        currentActor = name;
+    }
+
+    public void removeActor(string name)
+    {
+        entities.RemoveAll(e => e.Item1 == name);
+    }
+
+    private Quaternion MouseOffset(Quaternion baseRotation)
+    {
+        
+        // Calculate rotation towards mouse position
+        mouseScaleFactor = mouseScaleFactor;
+        Vector3 mouseScreenPosition = Input.mousePosition;
+        mouseScreenPosition.x = (mouseScreenPosition.x / Screen.width) - 0.5f; // Normalize to -0.5 to 0.5
+        mouseScreenPosition.y = (mouseScreenPosition.y / Screen.height) - 0.5f; // Normalize to -0.5 to 0.5
+        //Debug.Log("Mouse Normalized Position: " + mouseScreenPosition);
+        Quaternion lookRotation = baseRotation;
+        //Debug.Log("Base Look Rotation: " + lookRotation.eulerAngles);
+        lookRotation *= Quaternion.Euler(mouseScreenPosition.y * mouseScaleFactor * -1, mouseScreenPosition.x * mouseScaleFactor, 0);
+        //Debug.Log("Adjusted Look Rotation: " + lookRotation.eulerAngles);
+        return lookRotation;
+    }
+
     public void update()
     {
         switch (currentCameraMode)
         {
             case CameraType.Movement:
-                movementCamera(currentActor, Vector3.zero);
                 // Update camera in movement mode
                 break;
             case CameraType.Focus:
@@ -194,6 +244,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
                 targetCamera(currentActor);
                 break;
             case CameraType.Pick:
+                PickCamera(currentActor);
                 // Update camera in pick mode
                 break;
             case CameraType.Party:
