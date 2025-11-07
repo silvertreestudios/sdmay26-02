@@ -1,0 +1,23 @@
+:root {
+}
+
+.unity-button {
+    width: 400px;
+    height: 75px;
+    font-size: 36px;
+    background-color: rgb(68, 24, 13);
+    color: rgb(233, 196, 140);
+    -unity-text-outline-color: rgb(57, 16, 19);
+    -unity-text-outline-width: 0;
+    -unity-font-definition: url("project://database/Assets/UIStuff/TitilliumWeb-Regular%20SDF%201.asset?fileID=11400000&guid=b612e1ec6ca91ca4c97599a8af0b2178&type=2#TitilliumWeb-Regular SDF 1");
+}
+
+.unity-label {
+    -unity-font-definition: url("project://database/Assets/UI%20Toolkit/UnityThemes/UnityDefaultRuntimeTheme.tss?fileID=2230732570650464555&guid=3e7a399873b15124e9f16ed3c884627b&type=3#NotInter-Regular");
+    font-size: 68px;
+}
+
+.unity-button:hover {
+    background-color: rgb(122, 62, 46);
+    transition-duration: 0.5s;
+}
