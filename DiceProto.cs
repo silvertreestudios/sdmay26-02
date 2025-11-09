@@ -5,7 +5,7 @@ using System.Collections.Generic;
 namespace Game.Dice
 {
     // Degrees of success/failure for d20 rolls
-    public enum D20Status{
+    public enum DegreeOfSuccess{
         CriticalFail,
         Fail,
         Success,
@@ -16,28 +16,28 @@ namespace Game.Dice
     public struct D20Result{
         public int roll;
         public int total;
-        public D20Status status;
+        public DegreeOfSuccess degree;
     }
 
     // Class for rolling d20 with modifiers against target value
-    public class Roll20{
-        public static D20Result RollD20(int modifier, int targetVal){
+    public class D20{
+        public static D20Result Roll(int modifier, int targetVal){
             int rollResult = Random.Range(1, 21);
             int totalResult = rollResult + modifier;
-            D20Status status;
+            DegreeOfSuccess degree;
             if (rollResult == 20 || totalResult >= targetVal + 10){
-                status = D20Status.CriticalSuccess;
+                degree = DegreeOfSuccess.CriticalSuccess;
             }
             else if (rollResult == 1 || totalResult <= targetVal - 10){
-                status = D20Status.CriticalFail;
+                degree = DegreeOfSuccess.CriticalFail;
             }
             else if (totalResult >= targetVal){
-                status = D20Status.Success;
+                degree = DegreeOfSuccess.Success;
             }
             else{
-                status = D20Status.Fail;
+                degree = DegreeOfSuccess.Fail;
             }
-            return new D20Result{ roll = rollResult, total = totalResult, status = status };
+            return new D20Result{ roll = rollResult, total = totalResult, degree = degree };
         }
     }
 
@@ -50,6 +50,15 @@ namespace Game.Dice
         public Dice(int num, int sides){
             numberOfDice = num;
             sidesPerDie = sides;
+        }
+
+        // Alt constructor to take string param 
+        public Dice(String dice){
+            var parts = diceString.ToLower().Split('d');
+            if (parts.Length != 2 || !int.TryParse(parts[0], out int num) || !int.TryParse(parts[1], out int sides))
+                throw new ArgumentException("Input must be in the format 'XdY', e.g., '1d6'.");
+            numberOfDice = num;
+            sidesPerDie = sides
         }
 
         // Roll and return total sum

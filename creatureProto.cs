@@ -1,6 +1,8 @@
 using UnityEngine;
 using System.Collections.Generic;
 using Game.Equipment;
+using Game.Dice;
+using Game.Damage;
 
 // Define an enum for actions
 public enum CreatureAction
@@ -13,48 +15,52 @@ public enum CreatureAction
 public interface ICreature
 {
     // Basic properties
-    string Name { get; set; }
-    int Level { get; set; }
+    string name { get; set; }
+    int level { get; set; }
 
     // Combat properties
-    int HP { get; set; }
-    int AC { get; set; }
-    int Speed { get; set; }
+    int hp { get; set; }
+    int ac { get; set; }
+    int speed { get; set; }
     int attackBonus { get; set; } // Temporary
     int damageBonus { get; set; } // Temporary
+    public List<DamageValues> weaknesses {get; set; }
+    public List<DamageValues> resistances {get; set; }
 
     // Actions and Equipment
-    List<CreatureAction> Actions { get; set; }
-    List<Equipment> Equipment { get; set; }
+    List<CreatureAction> actions { get; set; }
+    List<Equipment> equipment { get; set; }
 }
 
 // Extension as a Unity MonoBehaviour
 // TODO : Use [SerializeField] for properties to edit in Inspector
 public class CreatureComponent : MonoBehaviour, ICreature
 {
-    public string Name { get; set; }
-    public int HP { get; set; }
-    public int AC { get; set; }
-    public int Level { get; set; }
-    public int Speed { get; set; }
+    public string name { get; set; }
+    public int hp { get; set; }
+    public int ac { get; set; }
+    public int level { get; set; }
+    public int speed { get; set; }
     public int attackBonus { get; set; } // Temporary
     public int damageBonus { get; set; } // Temporary
-    public List<CreatureAction> Actions { get; set; } = new List<CreatureAction>();
-    public List<Equipment> Equipment { get; set; } = new List<Equipment>();
+    public List<DamageValues> weaknesses {get; set; } = new List<DamageValues>();
+    public List<DamageValues> resistances {get; set; } = new List<DamageValues>();
+    public List<CreatureAction> actions { get; set; } = new List<CreatureAction>();
+    public List<Equipment> equipment { get; set; } = new List<Equipment>();
 
     void Start()
     {
         // Example initialization
-        Name = "Test Dummy";
-        HP = 10;
-        AC = 12;
-        Level = 1;
-        Speed = 25;
+        name = "Test Dummy";
+        hp = 10;
+        ac = 12;
+        level = 1;
+        speed = 25;
         attackBonus = 5; // Temporary
         damageBonus = 3; // Temporary
-        Actions.Add(CreatureAction.Move);
-        Actions.Add(CreatureAction.Strike);
-        Equipment.Add(ShortSword);
+        actions.Add(CreatureAction.Move);
+        actions.Add(CreatureAction.Strike);
+        equipment.Add(ShortSword);
     }
 
     void Update()
@@ -62,9 +68,11 @@ public class CreatureComponent : MonoBehaviour, ICreature
         // Per-frame logic here
     }
 
-    public void TakeDamage(List<DamageValue> damageValues)
+    public void TakeDamage(List<DamageValue> damageValues, D20Result attackRoll)
     {
         // TODO : call function to apply resistances, immunities, vulnerabilities against damageValues
+        DamageRoller.EvaluateCriticalDamage(attackRoll.DegreeOfSuccess, damageValues);
+        ApplyWeaknessAndResitance(damageValues, weaknesses, resistances);
         int damage = DamageRoller.SumDamage(damageValues);
         HP -= damage;
         if (HP < 0) HP = 0;
