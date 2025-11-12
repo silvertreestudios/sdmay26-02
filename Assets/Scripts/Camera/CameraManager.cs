@@ -60,24 +60,25 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     }
 
 
-// Sets the main camera for the manager to control
+    // Sets the main camera for the manager to control
     public void setCamera(Camera cam)
     {
         camera = cam;
     }
 
-       public void addActor(string name, GameObject Actor)
+    public void addActor(string name, GameObject Actor)
     {
         entities.Add((name, Actor));
     }
 
 
     // Resets the internal clock for camera transitions
-    public void ResetClock(){
+    public void ResetClock()
+    {
         currentTime = 0f;
     }
 
-    
+
     // Sets the current actor for the camera to focus on
     public void setCurrentActor(string name)
     {
@@ -215,7 +216,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
             float zDirection = Mathf.Sign(camera.transform.position.z - entity.transform.position.z);
 
             Vector3 targetPosition = new Vector3(entity.transform.position.x + (xDirection * 3f), PickZoom, entity.transform.position.z + (zDirection * 3f));
-            
+
             Debug.Log($"X Direction: {xDirection}");
             Debug.Log($"Z Direction: {zDirection}");
             camera.transform.position = Vector3.Lerp(startPosition.position, targetPosition, pickLerp.Evaluate(time));
@@ -236,7 +237,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     // Adjusts the camera rotation based on mouse position
     private Quaternion MouseOffset(Quaternion baseRotation)
     {
-        
+
         // Calculate rotation towards mouse position
         mouseScaleFactor = mouseScaleFactor;
         Vector3 mouseScreenPosition = Input.mousePosition;
@@ -278,7 +279,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
             default:
                 Debug.LogWarning("Unknown camera mode.");
                 break;
-        }   
+        }
     }
 
 
