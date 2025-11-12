@@ -1,0 +1,30 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/UIStuff/CharacterCreation/CharacterCreation.uss?fileID=7433441132597879392&amp;guid=ab2c21ff1365a96489a5f75bb7e25c0f&amp;type=3#CharacterCreation" />
+    <ui:VisualElement name="Panel" class="panel" style="flex-grow: 1;">
+        <ui:TabView view-data-key="CharacterCreation" enabled="true" reorderable="false" style="align-items: stretch; align-self: flex-end; width: 500px; height: 500px; top: 50px;">
+            <ui:Tab label="Ancestry" name="AncestryTab" view-data-key="AncestryTab">
+                <ui:Label text="Ancestry is your race" name="AncestryContent" class="tab-content" />
+                <ui:TabView name="NestedAncestryChoices">
+                    <ui:Tab label="Heritage" name="HeritageTab" view-data-key="HeritageTab">
+                        <ui:Label text="This is Heritage stuff" name="HeritageContent" class="tab-content" />
+                    </ui:Tab>
+                    <ui:Tab label="Ancestry Feats" name="AncestryFeatsTab">
+                        <ui:Label text="Pick ur feat" name="AncestryFeatsContent" class="tab-content" />
+                    </ui:Tab>
+                </ui:TabView>
+            </ui:Tab>
+            <ui:Tab label="Background" name="BackgroundTab" view-data-key="BackgroundTab">
+                <ui:Label text="Background is your former occupation" name="BackgroundContent" class="tab-content" />
+            </ui:Tab>
+            <ui:Tab label="Class" name="ClassTab" view-data-key="ClassTab">
+                <ui:Label text="Class is your style" name="ClassContent" class="tab-content" />
+                <ui:TabView name="NestedClassChoices">
+                    <ui:Tab label="Class Feats" name="ClassFeats">
+                        <ui:Label text="These are the class feats" name="ClassFeatsContent" class="tab-content" />
+                    </ui:Tab>
+                </ui:TabView>
+            </ui:Tab>
+        </ui:TabView>
+        <ui:TextField label="Name" placeholder-text="Enter character&apos;s name" name="NameField" style="align-self: center; align-items: flex-start; justify-content: flex-start; align-content: stretch; flex-direction: row; top: -450px;" />
+    </ui:VisualElement>
+</ui:UXML>

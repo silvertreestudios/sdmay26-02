@@ -1,0 +1,25 @@
+:root {
+}
+
+.panel {
+    background-color: rgba(152, 251, 152, 0);
+}
+
+.unity-tab__header {
+    background-color: rgb(229, 223, 223);
+    -unity-font-style: bold;
+    font-size: 14px;
+}
+
+.unity-tab__header:checked {
+    background-color: rgb(173, 166, 166);
+}
+
+.tab-content {
+    background-color: rgb(255, 255, 255);
+    font-size: 20px;
+}
+
+.unity-tab__header-underline {
+    opacity: 0;
+}
