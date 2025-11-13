@@ -179,9 +179,9 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
             Vector3 camTargetDirection = camTargetTransform.position - entity.transform.position;
             camTargetDirection.Normalize();
-            Debug.Log("Cam Target Direction: " + camTargetDirection);
+            // Debug.Log("Cam Target Direction: " + camTargetDirection);
             camTargetDirection = Quaternion.Euler(0, fromActorAngle, 0) * camTargetDirection;
-            Debug.Log("Cam Target Direction (Adjusted): " + camTargetDirection);
+            // Debug.Log("Cam Target Direction (Adjusted): " + camTargetDirection);
             camTargetDirection *= offsetDistance; // Distance from target
             camTargetDirection.y = TargetZoom;
             camTargetDirection += entity.transform.position;
@@ -217,14 +217,14 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
             Vector3 targetPosition = new Vector3(entity.transform.position.x + (xDirection * 3f), PickZoom, entity.transform.position.z + (zDirection * 3f));
 
-            Debug.Log($"X Direction: {xDirection}");
-            Debug.Log($"Z Direction: {zDirection}");
+            // Debug.Log($"X Direction: {xDirection}");
+            // Debug.Log($"Z Direction: {zDirection}");
             camera.transform.position = Vector3.Lerp(startPosition.position, targetPosition, pickLerp.Evaluate(time));
 
             Quaternion targetLookRotation = Quaternion.LookRotation(new Vector3(entity.transform.position.x, 0, entity.transform.position.z) - camera.transform.position);
-            Debug.Log("Target Look Rotation: " + targetLookRotation.eulerAngles);
+            // Debug.Log("Target Look Rotation: " + targetLookRotation.eulerAngles);
             Quaternion lookRotation = MouseOffset(targetLookRotation);
-            Debug.Log("Adjusted Look Rotation: " + lookRotation.eulerAngles);
+            // Debug.Log("Adjusted Look Rotation: " + lookRotation.eulerAngles);
             camera.transform.rotation = Quaternion.Lerp(startPosition.rotation, lookRotation, pickLerp.Evaluate(time));
         }
         else
@@ -281,8 +281,6 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
                 break;
         }
     }
-
-
 }
 
 

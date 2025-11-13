@@ -1,28 +1,27 @@
-﻿using System.Collections.Generic;
-using System.Drawing;
+﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+
 [DisallowMultipleComponent]
 public class GridCharacterController3D : MonoBehaviour
 {
+    // references to grid and prefabs set in inspector
     [Header("References")]
-    // Grid to move on
     public GridRenderer3D grid;
-    // prefab to visualize the player
     public GameObject prefab;
-    // Try to find a GridRenderer automatically if none is assigned
+    public GameObject prefab2;
     public bool autoFindGrid = true;
-    
-    [Header("Spawn")]
-    // Sorting order so the character renders above the grid
-    public int sortingOrder = 200;
 
-    [Header("Movement (XZ only)")]
-    public float moveSpeed = 2f;
-    // Slight Y offset so the character draws on top of the grid
+    // how the player appears on grid
+    [Header("Spawn")]
     public float yDrawOffset = 0.001f;
 
-    //Ryan's Animation Stuff
+    // controls movement speed
+    [Header("Movement (XZ only)")]
+    public float moveSpeed = 2f;
+
+    // movement animation settings
     [Header("Animation")]
     public float stepHeight;
     public float maxRotation;
@@ -30,413 +29,406 @@ public class GridCharacterController3D : MonoBehaviour
     public AnimationCurve yLerp;
     public float JumpDuration = 0.5f;
     public Transform dummyTarget;
+    public bool allowDiagonalMovement = true;
+    public float diagonalCost = 1.414f;
 
-    //-----------Private variables-------------
-    private ITokenMovement tokenMovement;
-    private List<Vector3Int> path_buffer = new List<Vector3Int>();
-    //used for the one at a time movement
-    private bool isProcessingPath = false;
-    private Vector3Int startCell;
-    private Vector3Int nextCell;
-    private bool camLocked = false;
+    // store both player objects by name 
+    // using dictionary for easy access by name in turn manager and camera
+    private Dictionary<string, GameObject> characters = new Dictionary<string, GameObject>();
 
-    // Instance of the visualized character (prefab or generated)
-    GameObject _character;
-    // SpriteRenderer used to display the character
-    SpriteRenderer _sr;
-    // Current path as a list of grid cells to follow (x,y,z)
-    List<Vector3Int> _path = null;
-    // Index of the next waypoint in the path
-    int _pathIndex = 0;
-    // Convenience: true while we still have waypoints to follow
-    bool _isMoving => _path != null && _pathIndex < _path.Count;
+    // store each player's token movement controller
+    // using dictionary for easy access by name in update loop
+    private Dictionary<string, ITokenMovement> tokenMovements = new Dictionary<string, ITokenMovement>();
 
+    // reference to main camera manager
     private CameraManager cameraManager;
-    
-    //idea is use this to interupt setting new points
-    private bool ableToContinue = true;
+    // reference to turn manager 
+    private TurnManager turnManager;
+    // dedicated pathfinding service
+    private GridPathfinder pathfinder;
+    // flag to check if everything is ready
+    private bool isInitialized = false;
+    // flag to prevent multiple movements during turn transition
+    private bool isProcessingTurn = false;
 
-    // Called when component becomes active
+    // called when component is enabled
     void OnEnable()
     {
-        // If requested and missing, look up the first GridRenderer in the scene
-        if (autoFindGrid && !grid) grid = FindAnyObjectByType<GridRenderer3D>();
+        // try to find a grid in the scene automatically
+        if (autoFindGrid && !grid)
+            grid = FindAnyObjectByType<GridRenderer3D>();
     }
 
-    // Called on the first frame the component is active
+    // called once when game starts
     void Start()
     {
-        // Create or instantiate the character visual
-        SpawnCharacter();
-        // Move the visual to a valid grid cell center if needed
-        SnapToValidCellIfNeeded();
+        // initialize Dijkstra pathfinder with current grid settings
+        InitializePathfinder();
+        // spawn players on grid 
+        SpawnCharacters();
+        // initialize movement controllers for each player 
+        InitializeMovementControllers();
+        // initialize camera manager and set up cameras for each player
+        InitializeCameraManager();
+        // initialize turn manager and set up turn order
+        InitializeTurnManager();
+    }
 
-        //Ryan's Animation Stuff: intialize tokenMovement
-        tokenMovement = new tokenMovement(_character.transform, stepHeight, maxRotation, ptLerp, yLerp);
+    // initialize the pathfinding service
+    private void InitializePathfinder()
+    {
+        if (grid != null)
+        {
+            // create new pathfinder with current grid and settings 
+            pathfinder = new GridPathfinder(grid, allowDiagonalMovement, diagonalCost);
+        }
+        else
+        {
+            Debug.LogError("[GridCharacterController3D] Grid is null, cannot initialize pathfinder!");
+        }
+    }
 
+    // set up movement controllers for each character
+    private void InitializeMovementControllers()
+    {
+        foreach (var kvp in characters)
+        {
+            // create new tokenMovement for each character
+            // kvp = KeyValuePair<string, GameObject>
+            // kvp used to access dictionary entries
+            tokenMovements[kvp.Key] = new tokenMovement(
+                kvp.Value.transform, stepHeight, maxRotation, ptLerp, yLerp);
+        }
+    }
+
+    // set up camera manager and link characters
+    private void InitializeCameraManager()
+    {
         try
         {
             cameraManager = CameraManager.GetInstance();
-            cameraManager.addActor("PlayerCharacter", _character);
-            cameraManager.setCamera(Camera.main);
-            cameraManager.setCurrentActor("PlayerCharacter");
-            cameraManager.setMode(CameraType.Pick);
-        } catch (System.Exception e)
-        {
-            Debug.LogError("CameraManager instance not found: " + e.Message);
-        }
-    }
-
-    // Create the character GameObject and renderer (from prefab or generated circle)
-    void SpawnCharacter()
-    {
-        // If a prefab is provided, instantiate it
-        if (prefab)
-        {
-            // Instantiate with default rotation (no Quaternion ops)
-            _character = Instantiate(prefab);
-            // Match the prefab's name for clarity
-            _character.name = prefab.name;
-            // Cache the SpriteRenderer if present
-            _sr = _character.GetComponent<SpriteRenderer>();
-            // Ensure it draws above the grid
-            if (_sr) _sr.sortingOrder = sortingOrder;
-        }
-        // Place the character at grid Y level (plus tiny offset to avoid z-fighting)
-        float yPos;
-
-        if (grid)
-            yPos = grid.gridY + yDrawOffset;
-        else
-            yPos = 0.001f;
-
-        _character.transform.position = new Vector3(0f, yPos, 0f);
-    }
-
-    // Per-frame update while playing
-    void Update()
-    {
-        // Ignore updates in edit mode
-        if (!Application.isPlaying) return;
-        // Ensure we have a grid reference (try auto-find once per frame until found)
-        if (!grid)
-        {
-            if (autoFindGrid) grid = FindAnyObjectByType<GridRenderer3D>();
-            if (!grid) return;
-        }
-
-        // Use the grid’s camera if set, otherwise the main camera
-        var cam = grid.targetCamera ? grid.targetCamera : Camera.main;
-        // If no camera exists, we can’t pick cells from the mouse
-        if (!cam) return;
-
-
-
-        // On left mouse click, compute a path to the clicked cell
-        if (InputCompat.LeftClickDown())
-        {
-            // Convert mouse position to a world hit on the plane Y = gridY
-            if (!ScreenToXZPlane(cam, InputCompat.MousePositionScreen(), grid.gridY, out Vector3 hit)) return;
-
-            // Convert that world hit to a target grid cell (fail if outside grid)
-            if (!TryGridWorldToCell(hit, out Vector3Int targetCell)) return;
-
-            // Set destination tile,
-            // reject clicks on non-walkable cells
-            if (!grid.IsCellWalkable(targetCell.x, targetCell.z)) { Debug.Log("Cell is occupied"); return; }
-
-
-            // Determine the current cell based on character position
-            if (!TryGridWorldToCell(_character.transform.position, out startCell))
-                startCell = ClampToGridXZ(_character.transform.position);
-
-            // Run Dijkstra (with wall checks) to find a path
-            var result = Dijkstra(startCell, targetCell);
-
-
-
-            if (result.found && result.path != null)
+            if (cameraManager != null)
             {
-                _path = result.path;
-                isProcessingPath = true;
-                tokenMovement.setPath(_path);
-                cameraManager.ResetClock();
+                // set main camera
+                cameraManager.setCamera(Camera.main);
+                // for each kvp = KeyValuePair<string, GameObject> in characters dictionary
+                foreach (var kvp in characters)
+                {
+                    // add character to camera manager
+                    cameraManager.addActor(kvp.Key, kvp.Value);
+                }
+                SetCameraForCharacter("Player1", CameraType.Pick);
             }
-            else// If no route, clear any existing path
+
+            foreach (var character in characters.Values)
             {
-                _path = null;
-                _pathIndex = 0;
-                isProcessingPath = false;
-                Debug.Log("No path found");
+                SnapToValidCell(character);
             }
-            
         }
-
-
-        //Ryan's Animation Stuff: Camera and movement interactivity
-        //////////////////////
-        ///WORK IN PROGRESS///
-        //////////////////////
-        // Stop movement and look at target
-        if (Input.GetKeyDown(KeyCode.Q))
+        catch (Exception e)
         {
-            tokenMovement.stop();
-            tokenMovement.setLookAt(dummyTarget.position);
-            cameraManager.ResetClock();
-            cameraManager.setMode(CameraType.Target);
+            Debug.LogError("CameraManager error: " + e.Message);
         }
-        if (Input.GetKeyDown(KeyCode.E))
-        {
-            cameraManager.ResetClock();
-            tokenMovement.start();
-            camLocked = false;
-        }
-        
-        // Camera follow logic based on movement state
-        if (tokenMovement.IsMoving() && camLocked == false)
-        {
-            cameraManager.setMode(CameraType.Focus);
-            camLocked = true;
-        } else if (!tokenMovement.IsMoving() && camLocked == true)
-        {
-            camLocked = false;
-            cameraManager.ResetClock();
-            tokenMovement.setLookAt(dummyTarget.position);
-            // cameraManager.setMode(CameraType.Target);
-            cameraManager.setMode(CameraType.Pick);
-        }
-
-        //These need to be running every frame
-        //cameraManager.DebugLogCameraManager();
-        cameraManager.update();
-        StartCoroutine(tokenMovement.update());
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    // ===== Helpers for XZ-plane picking and grid conversion =====
-
-    bool ScreenToXZPlane(Camera cam, Vector2 screenPos, float planeY, out Vector3 hit)
+    // snap player to nearest valid walkable cell
+    void SnapToValidCell(GameObject obj)
     {
-        // Orthographic: direct ScreenToWorldPoint at the plane’s depth
-        if (cam.orthographic)
-        {
-            var wp = cam.ScreenToWorldPoint(new Vector3(screenPos.x, screenPos.y, Mathf.Abs(planeY - cam.transform.position.y)));
-            hit = new Vector3(wp.x, planeY, wp.z);
-            return true;
-        }
-        // Perspective: raycast the screen ray against the plane
-        else
-        {
-            var ray = cam.ScreenPointToRay(screenPos);
-            var plane = new Plane(Vector3.up, new Vector3(0f, planeY, 0f));
-            if (plane.Raycast(ray, out float t)) { hit = ray.GetPoint(t); return true; }
-        }
-        hit = default; return false;
-    }
-
-    // Convert a world position to a grid cell (returns false if outside grid bounds)
-    bool TryGridWorldToCell(Vector3 world, out Vector3Int cell)
-    {
-        // Compute cell indices by subtracting origin and dividing by cell size
-        int cx = Mathf.FloorToInt((world.x - grid.origin.x) / grid.cellSize);
-        int cz = Mathf.FloorToInt((world.z - grid.origin.z) / grid.cellSize);
-        // Package in a Vector3Int (y is 0 since we're working on XZ plane)
-        cell = new Vector3Int(cx, 0, cz);
-        // Ensure indices are inside [0,width) and [0,height)
-        return (uint)cx < (uint)grid.width && (uint)cz < (uint)grid.height;
-    }
-
-    // Clamp an arbitrary world position to the nearest valid cell indices
-    Vector3Int ClampToGridXZ(Vector3 pos)
-    {
-        // Convert to grid space, floor to cell, then clamp to edges
-        int gx = Mathf.Clamp(Mathf.FloorToInt((pos.x - grid.origin.x) / grid.cellSize), 0, grid.width - 1);
-        int gz = Mathf.Clamp(Mathf.FloorToInt((pos.z - grid.origin.z) / grid.cellSize), 0, grid.height - 1);
-        // Return the clamped cell
-        return new Vector3Int(gx, 0, gz);
-    }
-
-    // Ensure the character’s current position is at a valid cell center
-    void SnapToValidCellIfNeeded()
-    {
-        // If there’s no grid yet, nothing to do
         if (!grid) return;
-        // Try to read the current cell; clamp if out of bounds
-        if (!TryGridWorldToCell(_character.transform.position, out var cell))
-            cell = ClampToGridXZ(_character.transform.position);
 
-        // if current cell isn't walkable, search a small neighborhood for one
+        if (!TryGridWorldToCell(obj.transform.position, out var cell, clamp: true))
+            return;
+
         if (!grid.IsCellWalkable(cell.x, cell.z))
-        {
-            bool found = false;
-            for (int r = 0; r <= 3 && !found; r++)
-            {
-                for (int dz = -r; dz <= r && !found; dz++)
-                    for (int dx = -r; dx <= r && !found; dx++)
-                    {
-                        int nx = Mathf.Clamp(cell.x + dx, 0, grid.width - 1);
-                        int nz = Mathf.Clamp(cell.z + dz, 0, grid.height - 1);
-                        if (grid.IsCellWalkable(nx, nz)) { cell = new Vector3Int(nx, 0, nz); found = true; }
-                    }
-            }
-            if (!grid.IsCellWalkable(cell.x, cell.z)) return; // nothing found; keep position as-is
-        }
+            return;
 
-        // Place the character precisely at that cell center
-        _character.transform.position = GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
+        obj.transform.position = GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
     }
 
-    // Get the world-space coordinates of the center of cell (x,z)
+    // get center world position for given grid coordinates
     Vector3 GridCellCenterWorld(int x, int z, float yOffset = 0f)
     {
-        // Midpoint in world along X based on origin and cell size
         float wx = grid.origin.x + (x + 0.5f) * grid.cellSize;
-        // Midpoint in world along Z based on origin and cell size
         float wz = grid.origin.z + (z + 0.5f) * grid.cellSize;
-        // Return a Vector3 at grid Y plus optional offset
         return new Vector3(wx, grid.gridY + yOffset, wz);
     }
 
-    // ===== Dijkstra pathfinding on a 2D grid (with diagonals) =====
-
-    // Node used in the priority queue (position + distance)
-    struct Node { public Vector3Int pos; public float dist; }
-
-    // Minimal binary heap for the Dijkstra frontier
-    class MinHeap
+    // set up turn manager and define turn order
+    private void InitializeTurnManager()
     {
-        // Internal array list for heap storage
-        readonly List<Node> _d = new();
-        // Number of elements currently in the heap
-        public int Count => _d.Count;
-        // Insert a node and bubble it up
-        public void Push(Node n) { _d.Add(n); SiftUp(_d.Count - 1); }
-        // Remove and return the smallest node (distance)
-        public Node Pop() { var r = _d[0]; int last = _d.Count - 1; _d[0] = _d[last]; _d.RemoveAt(last); if (_d.Count > 0) SiftDown(0); return r; }
-        // Restore heap by moving node upward
-        void SiftUp(int i) { while (i > 0) { int p = (i - 1) >> 1; if (_d[i].dist >= _d[p].dist) break; (_d[i], _d[p]) = (_d[p], _d[i]); i = p; } }
-        // Restore heap by moving node downward
-        void SiftDown(int i) { for (; ; ) { int l = (i << 1) + 1, r = l + 1, s = i; if (l < _d.Count && _d[l].dist < _d[s].dist) s = l; if (r < _d.Count && _d[r].dist < _d[s].dist) s = r; if (s == i) break; (_d[i], _d[s]) = (_d[s], _d[i]); i = s; } }
-    }
-
-    // Dijkstra's algorithm from start to target; returns whether found, total distance, and the path
-    (bool found, float distance, List<Vector3Int> path) Dijkstra(Vector3Int start, Vector3Int target)
-    {
-        // Grid width/height and total cells
-        int w = grid.width, h = grid.height, total = w * h;
-        // Convert (x,z) to linear array index
-        int Idx(Vector3Int p) => p.x + p.z * w;
-
-        // Distance array initialized to +∞
-        var dist = new float[total];
-        for (int i = 0; i < total; i++) dist[i] = float.PositiveInfinity;
-        // Predecessor array for path reconstruction
-        var prev = new Vector3Int?[total];
-        // Min-heap frontier
-        var heap = new MinHeap();
-
-        // Start node distance is zero; push into heap
-        dist[Idx(start)] = 0f;
-        heap.Push(new Node { pos = start, dist = 0f });
-
-        // 8-neighborhood directions (4-cardinal + 4-diagonals)
-        var dirs = new Vector3Int[] {
-            new(1, 0, 0), new(-1, 0, 0), new(0, 0, 1), new(0, 0, -1),
-            new(1, 0, 1), new(1, 0, -1), new(-1, 0, 1), new(-1, 0, -1)
-        };
-        // Costs for cardinal (1) and diagonal (~√2)
-        var costs = new float[] {
-            1f, 1f, 1f, 1f,
-            1.41421356f, 1.41421356f, 1.41421356f, 1.41421356f
-        };
-
-        // Process until frontier is empty
-        while (heap.Count > 0)
+        // get turn manager instance
+        turnManager = TurnManager.GetInstance();
+        if (turnManager != null)
         {
-            // Pop the closest node so far
-            var node = heap.Pop();
-            // Current position and index
-            var u = node.pos; int uIdx = Idx(u);
-            // Skip outdated heap entries
-            if (node.dist != dist[uIdx]) continue;
-
-            // Early exit if we reached the target
-            if (u == target)
-            {
-                // Rebuild the path by following predecessors
-                var path = new List<Vector3Int>();
-                var cur = target;
-                while (true)
-                {
-                    path.Add(cur);
-                    if (cur.Equals(start)) break;
-                    var p = prev[Idx(cur)]; if (!p.HasValue) break; cur = p.Value;
-                }
-                // Reverse so it goes start→target
-                path.Reverse();
-                // Return success with final distance and path
-                return (true, dist[uIdx], path);
-            }
-
-            // Relax edges to neighbors
-            for (int i = 0; i < dirs.Length; i++)
-            {
-                // Neighbor cell
-                var v = u + dirs[i];
-                // Skip if out of grid bounds
-                if ((uint)v.x >= (uint)w || (uint)v.z >= (uint)h) continue;
-
-                // cannot step onto a non-walkable destination
-                if (!grid.IsCellWalkable(v.x, v.z)) continue;
-
-                // Skip if a wall blocks this move (including diagonal corner cutting)
-                if (IsMoveBlocked(u, v)) continue;
-
-                // Candidate distance via u
-                int vIdx = Idx(v);
-                float alt = dist[uIdx] + costs[i];
-                // If shorter, record and push to heap
-                if (alt < dist[vIdx]) { dist[vIdx] = alt; prev[vIdx] = u; heap.Push(new Node { pos = v, dist = alt }); }
-            }
+            // define turn order for two players
+            turnManager.InitializeTurnOrder("Player1", "Player2");
+            // subscribe to turn events
+            turnManager.OnTurnStarted += OnTurnStarted;
+            // subscibe to turn ended event
+            turnManager.OnTurnEnded += OnTurnEnded;
+            // mark as initialized
+            isInitialized = true;
         }
-        // No path found
-        return (false, -1f, null);
-
-
-    }
-
-    // Check whether moving from u to v is blocked by walls
-    bool IsMoveBlocked(Vector3Int u, Vector3Int v)
-    {
-        // Compute delta components and Manhattan distance
-        int dx = v.x - u.x, dy = v.z - u.z;
-        int manhattan = Mathf.Abs(dx) + Mathf.Abs(dy);
-        // Cardinal move: ask grid if the edge is blocked
-        if (manhattan == 1) return grid.IsEdgeBlocked(u, v);
-        // Diagonal move: disallow if either orthogonal step is blocked (no corner cutting)
-        if (manhattan == 2 && Mathf.Abs(dx) == 1 && Mathf.Abs(dy) == 1)
+        else
         {
-            // The two orthogonal steps that compose the diagonal
-            var stepX = new Vector3Int(u.x + dx, 0, u.z);
-            var stepZ = new Vector3Int(u.x, 0, u.z + dy);
-            // Block diagonal if either side is blocked
-            return grid.IsEdgeBlocked(u, stepX) || grid.IsEdgeBlocked(u, stepZ);
+            Debug.LogError("[GridCharacterController3D] TurnManager not found!");
         }
-        // Any other move (non-adjacent) is invalid/blocked
-        return true;
     }
+
+    // update is called once per frame 
+    void Update()
+    {
+        // update pathfinder settings if changed in inspector
+        if (pathfinder != null)
+        {
+            // update diagonal movement settings
+            pathfinder.SetDiagonalMovement(allowDiagonalMovement, diagonalCost);
+        }
+
+        // check if system is ready for update 
+        if (!IsReadyForUpdate(out var cam, out var currentCharacterName)) return;
+        // get current character data
+        if (!TryGetCurrentCharacterData(currentCharacterName, out var currentCharacter, out var currentMovement)) return;
+        // handle player input for movement
+        HandlePlayerInput(cam, currentCharacterName, currentCharacter, currentMovement);
+        // update camera manager
+        cameraManager?.update();
+    }
+
+    // check if system is ready for update
+    // private method created to keep Update() clean
+    private bool IsReadyForUpdate(out Camera cam, out string currentCharacterName)
+    {
+        cam = null;
+        currentCharacterName = null;
+
+        // check if application is playing and system is initialized correctly
+        if (!Application.isPlaying || !isInitialized || turnManager == null) return false;
+
+        // ensure grid and camera references are valid
+        if (!grid)
+        {
+            if (autoFindGrid) grid = FindAnyObjectByType<GridRenderer3D>();
+            if (!grid) return false;
+        }
+
+        // get camera reference from grid or main camera
+        cam = grid.targetCamera ? grid.targetCamera : Camera.main;
+        if (!cam) return false;
+
+        currentCharacterName = turnManager.GetCurrentCharacter();
+        return !string.IsNullOrEmpty(currentCharacterName);
+    }
+
+    // get current character GameObject and movement controller
+    // private method created to keep Update() clean and modular
+    private bool TryGetCurrentCharacterData(string characterName, out GameObject character, out ITokenMovement movement)
+    {
+        // default output values 
+        return characters.TryGetValue(characterName, out character) &
+               tokenMovements.TryGetValue(characterName, out movement);
+    }
+
+    // handle player input for movement
+    // prvate method created to keep Update() clean and modular
+    private void HandlePlayerInput(Camera cam, string characterName, GameObject character, ITokenMovement movement)
+    {
+        // check for left mouse click and if it's the character's turn
+        if (!InputCompat.LeftClickDown() ||
+            !turnManager.IsCharacterTurn(characterName) ||
+            isProcessingTurn)
+            return;
+
+        // get clicked cell on grid
+        if (!TryGetClickedCell(cam, out Vector3Int targetCell)) return;
+        // check if target cell is walkable
+        if (!grid.IsCellWalkable(targetCell.x, targetCell.z)) return;
+
+        // find path using pathfinder service
+        Vector3Int startCell = GetCharacterCell(character);
+        var result = pathfinder.FindPath(startCell, targetCell);
+
+        // if path found, start movement coroutine
+        if (result.found && result.path != null)
+        {
+            // mark as processing turn to prevent further input until movement ends
+            isProcessingTurn = true;
+            // lock input in turn manager during movement
+            turnManager.LockInput();
+            // start movement coroutine for the character
+            StartCoroutine(HandleTurn(character, movement, result.path));
+        }
+    }
+
+    // get grid cell from mouse click position
+    private bool TryGetClickedCell(Camera cam, out Vector3Int targetCell)
+    {
+        // default output value
+        targetCell = Vector3Int.zero;
+
+        // convert mouse position to world hit on grid plane 
+        if (!ScreenToXZPlane(cam, InputCompat.MousePositionScreen(), grid.gridY, out Vector3 hit))
+            return false;
+
+        // convert world hit to grid cell
+        return TryGridWorldToCell(hit, out targetCell);
+    }
+
+    // get current character's grid cell position 
+    private Vector3Int GetCharacterCell(GameObject character)
+    {
+        // convert character world position to grid cell
+        TryGridWorldToCell(character.transform.position, out Vector3Int cell, clamp: true);
+        return cell;
+    }
+
+    // coroutine that handles one player's full move
+    // defines the sequence of actions during a turn 
+    // using Collections primarily because of List<T> in path, which allows easy manipulation of grid cell positions
+    private System.Collections.IEnumerator HandleTurn(GameObject actor, ITokenMovement movement, List<Vector3Int> path)
+    {
+        // define path for movement controller
+        movement.setPath(path);
+
+        // small pause before move starts
+        yield return new WaitForSeconds(0.3f);
+
+        // start movement
+        movement.start();
+
+        // wait until movement completes
+        while (movement.IsMoving())
+        {
+            // Update the movement every frame
+            yield return movement.update();
+        }
+
+        // short pause when reaching destination
+        yield return new WaitForSeconds(1.2f);
+
+        // focus camera on character after move
+        SetCameraForCharacter(actor.name, CameraType.Focus);
+
+        // small pause for dramatic effect
+        yield return new WaitForSeconds(0.3f);
+
+        // tell turn manager to move to next turn
+        turnManager.EndTurn();
+
+        // set camera to pick mode for next character turn
+        string nextCharacter = turnManager.GetCurrentCharacter();
+
+        // set camera for next character
+        SetCameraForCharacter(nextCharacter, CameraType.Pick);
+
+        // reset flag to allow next player to move
+        isProcessingTurn = false;
+    }
+
+    // spawn both characters on the grid
+    void SpawnCharacters()
+    {
+        // calculate y position with offset for drawing above grid
+        float yPos = grid ? grid.gridY + yDrawOffset : 0.001f;
+        // spawn player 1 and player 2 at specified positions
+        SpawnCharacter("Player1", prefab, new Vector3(0f, yPos, 0f), Color.white);
+        SpawnCharacter("Player2", prefab2, new Vector3(18.5f, yPos, 1.5f), Color.red);
+    }
+
+    // spawn a single character on the grid
+    private void SpawnCharacter(string name, GameObject prefab, Vector3 position, Color color)
+    {
+        // instantiate player prefab
+        GameObject player = Instantiate(prefab);
+        player.name = name.Replace("Player", "Player "); // "Player1" -> "Player 1"
+        player.transform.position = position;
+        characters[name] = player;
+
+        // set player color if applicable
+        var renderer = player.GetComponent<MeshRenderer>();
+        if (renderer && color != Color.white)
+        {
+            renderer.material.color = color;
+        }
+    }
+
+    // convert mouse position to world hit on plane
+    bool ScreenToXZPlane(Camera cam, Vector2 screenPos, float planeY, out Vector3 hit)
+    {
+        var ray = cam.ScreenPointToRay(screenPos);
+        var plane = new Plane(Vector3.up, new Vector3(0f, planeY, 0f));
+        if (plane.Raycast(ray, out float t))
+        {
+            hit = ray.GetPoint(t);
+            return true;
+        }
+        hit = default;
+        return false;
+    }
+
+    // convert world position to grid cell index
+    bool TryGridWorldToCell(Vector3 world, out Vector3Int cell, bool clamp = false)
+    {
+        int cx = Mathf.FloorToInt((world.x - grid.origin.x) / grid.cellSize);
+        int cz = Mathf.FloorToInt((world.z - grid.origin.z) / grid.cellSize);
+
+        if (clamp)
+        {
+            cx = Mathf.Clamp(cx, 0, grid.width - 1);
+            cz = Mathf.Clamp(cz, 0, grid.height - 1);
+            cell = new Vector3Int(cx, 0, cz);
+            return true;
+        }
+
+        cell = new Vector3Int(cx, 0, cz);
+        return (uint)cx < (uint)grid.width && (uint)cz < (uint)grid.height;
+    }
+
+    // set camera to focus or pick mode for given character
+    private void SetCameraForCharacter(string characterName, CameraType mode)
+    {
+        if (cameraManager != null)
+        {
+            cameraManager.setCurrentActor(characterName);
+            cameraManager.setMode(mode);
+            cameraManager.ResetClock();
+        }
+    }
+
+    // event handler for turn started
+    private void OnTurnStarted(string characterName)
+    {
+        // set camera to pick mode for active character
+        SetCameraForCharacter(characterName, CameraType.Pick);
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[GridCharacterController3D] {characterName}'s turn started");
+        }
+    }
+
+    // event handler for turn ended 
+    private void OnTurnEnded(string characterName)
+    {
+        SetCameraForCharacter(characterName, CameraType.Focus);
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[GridCharacterController3D] {characterName}'s turn ended");
+        }
+    }
+
+    // cleanup on destroy of component
+    private void OnDestroy()
+    {
+        // Unsubscribe from events to prevent memory leaks
+        if (turnManager != null)
+        {
+            turnManager.OnTurnStarted -= OnTurnStarted;
+            turnManager.OnTurnEnded -= OnTurnEnded;
+        }
+    }
+
+    [Header("Debug")]
+    [SerializeField] private bool showDebugInfo = false;
 }
-

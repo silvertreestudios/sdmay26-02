@@ -14,7 +14,11 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BenchmarkSuite1")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2bd8692b6fd016b4476c2646a55f2266c7366ae9")]
+<<<<<<< Updated upstream
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+982fca32cce930cf98d7381558855aaf388c7c55")]
+=======
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a6292835dbeb9315e6b7a28403b9d59211b16406")]
+>>>>>>> Stashed changes
 [assembly: System.Reflection.AssemblyProductAttribute("BenchmarkSuite1")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BenchmarkSuite1")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
