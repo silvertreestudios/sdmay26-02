@@ -649,9 +649,22 @@ public class GridRenderer3D : GridInterface
         }
     }
 
-    public override IEnumerator MoveCreature()
+    public override IEnumerator MoveCreature(GameObject token)
     {
-        //beep boop
+        //range for movement, retreave from somewhere else
+        int range = 30;
+        //make highlighted radius of reachable cells
+        //yeild return, wait until call to select tile has been made
+        yield return new WaitUntil(() => selectTile != null);
+        //range would allow for all dijkstra calculations to be done at once and also calculate all occupied cells at once
+        //once you have cell you want to get to run dijkstra again to get path
+        //for each cell in path call character movement thing which then calls ryans animation thing, and before continuing to next cell run cell effect calculations
+
+    }
+
+    public override IEnumerator targetSelect(int range, CoroutineResult<GameObject> result)
+    {
+        //return a selected monster if valid
         yield return null;
     }
 }
