@@ -58,7 +58,7 @@ namespace Game.Dice
             if (parts.Length != 2 || !int.TryParse(parts[0], out int num) || !int.TryParse(parts[1], out int sides))
                 throw new ArgumentException("Input must be in the format 'XdY', e.g., '1d6'.");
             numberOfDice = num;
-            sidesPerDie = sides
+            sidesPerDie = sides;
         }
 
         // Roll and return total sum
