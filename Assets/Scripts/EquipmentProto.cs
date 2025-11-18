@@ -24,7 +24,7 @@ namespace Game.Equipment
             {
                 Name = "Short Sword",
                 Type = EquipmentType.Weapon,
-                Damage = new DamageDice(new Dice(1, 6), DamageType.Piercing)
+                Damage = new Dice(1, 6, DamageType.Piercing)
             };
 
         // Static property for chainsaw test weapon for multiple damage dice
@@ -34,7 +34,7 @@ namespace Game.Equipment
             {
                 Name = "Chainsaw",
                 Type = EquipmentType.Weapon,
-                Damage = new DamageDice(new Dice(8, 6), DamageType.Slashing)
+                Damage = new Dice(8, 6, DamageType.Slashing)
             };
     }
 }

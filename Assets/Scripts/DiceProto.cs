@@ -1,6 +1,7 @@
 
 using UnityEngine;
 using System.Collections.Generic;
+using Game.Damage;
 
 namespace Game.Dice
 {
@@ -45,20 +46,28 @@ namespace Game.Dice
     public class Dice{
         public int numberOfDice;
         public int sidesPerDie;
+        public DamageType damageType;
 
         // Constructor for Dice class
         public Dice(int num, int sides){
             numberOfDice = num;
             sidesPerDie = sides;
+            damageType = null;
+        }
+        public Dice(int num, int sides, DamageType dmgType){
+            numberOfDice = num;
+            sidesPerDie = sides;
+            damageType = dmgType;
         }
 
         // Alt constructor to take string param 
-        public Dice(String dice){
+        public Dice(string diceString){
             var parts = diceString.ToLower().Split('d');
             if (parts.Length != 2 || !int.TryParse(parts[0], out int num) || !int.TryParse(parts[1], out int sides))
                 throw new ArgumentException("Input must be in the format 'XdY', e.g., '1d6'.");
             numberOfDice = num;
             sidesPerDie = sides;
+            damageType = null;
         }
 
         // Roll and return total sum
