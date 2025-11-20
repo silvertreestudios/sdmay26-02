@@ -2,13 +2,11 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
 
-/*
-public class Strike : MultiFrameEntityActionEffect
+public class Strike : MultiFrameEntityAction
 {
-    List<int> Damage = new List<int>();
-    public Strike(int cost)
+    public Strike(uint cost) : base(cost)
     {
-        super
+        
     }
 
     protected override IEnumerator MFInvoke(GameObject target)
@@ -16,4 +14,3 @@ public class Strike : MultiFrameEntityActionEffect
         throw new System.NotImplementedException();
     }
 }
-*/
