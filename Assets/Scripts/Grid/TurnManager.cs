@@ -10,18 +10,14 @@ public class TurnManager : SingletonMonoBehaviour<TurnManager>
 {
     // trigger when new player turn begins/ends
     public event Action<string> OnTurnStarted;
-    
     public event Action<string> OnTurnEnded;
 
     // store characters in a circular order (i.e player -> enemy -> player -> enemy ...)
     private LinkedList<string> turnOrder = new LinkedList<string>();
-
-    // node representing current turn
     private LinkedListNode<string> currentTurnNode;
 
     // current state
     private string currentCharacter;
-
     // input lock state (locked during movement/animation)
     private bool isInputLocked = false;
 
@@ -92,9 +88,6 @@ public class TurnManager : SingletonMonoBehaviour<TurnManager>
         OnTurnStarted?.Invoke(currentCharacter);
     }
 
-    // ============================================================
-    // Animated Debug Panel
-    // ============================================================
     private void OnGUI()
     {
         if (!showDebugInfo) return;
