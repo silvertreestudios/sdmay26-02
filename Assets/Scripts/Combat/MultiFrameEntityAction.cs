@@ -1,9 +1,9 @@
 using System.Collections;
 using UnityEngine;
 
-public abstract class MultiFrameEntityActionEffect : EntityActionEffect
+public abstract class MultiFrameEntityAction : EntityAction
 {
-    public MultiFrameEntityActionEffect(uint cost) : base(cost) { }
+    public MultiFrameEntityAction(uint cost) : base(cost) { }
 
     public override void Invoke(GameObject target)
     {

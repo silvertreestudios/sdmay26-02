@@ -52,8 +52,9 @@ public class D20
 // Class for rolling dice of given number and sides
 public class Dice
 {
-    public int numberOfDice;
-    public int sidesPerDie;
+    public int numberOfDice = 0;
+    public int sidesPerDie = 0;
+    protected int flatAddition = 0;
 
     // Constructor for Dice class
     public Dice(int num, int sides)
@@ -61,9 +62,15 @@ public class Dice
         numberOfDice = num;
         sidesPerDie = sides;
     }
+    public Dice(int num, int sides, int flat)
+    {
+        numberOfDice = num;
+        sidesPerDie = sides;
+        flatAddition = flat;
+    }
 
     // Alt constructor to take string param 
-    public Dice(String dice)
+    public Dice(string dice)
     {
         var parts = dice.ToLower().Split('d');
         if (parts.Length != 2 || !int.TryParse(parts[0], out int num) || !int.TryParse(parts[1], out int sides))
@@ -75,7 +82,7 @@ public class Dice
     // Roll and return total sum
     public int Roll()
     {
-        int rollsum = 0;
+        int rollsum = flatAddition * numberOfDice;
         for (int i = 0; i < numberOfDice; i++)
         {
             rollsum += UnityEngine.Random.Range(1, sidesPerDie + 1);
@@ -89,7 +96,7 @@ public class Dice
         int[] rolls = new int[numberOfDice];
         for (int i = 0; i < numberOfDice; i++)
         {
-            rolls[i] = UnityEngine.Random.Range(1, sidesPerDie + 1);
+            rolls[i] = UnityEngine.Random.Range(1, sidesPerDie + 1) + flatAddition;
         }
         return rolls;
     }
