@@ -20,6 +20,8 @@ public class GridCharacterController3D : MonoBehaviour
     // controls movement speed
     [Header("Movement (XZ only)")]
     public float moveSpeed = 2f;
+    [Tooltip("Maximum distance (in grid cells) a character can move in one turn. Set to 0 for unlimited.")]
+    public int maxMovementDistance = 9;
 
     // movement animation settings
     [Header("Animation")]
@@ -35,6 +37,7 @@ public class GridCharacterController3D : MonoBehaviour
     // store both player objects by name 
     // using dictionary for easy access by name in camera
     private Dictionary<string, GameObject> characters = new Dictionary<string, GameObject>();
+    
     // store each player's token movement controller
     // using dictionary for easy access by name in update loop
     private Dictionary<string, ITokenMovement> tokenMovements = new Dictionary<string, ITokenMovement>();
@@ -54,6 +57,21 @@ public class GridCharacterController3D : MonoBehaviour
         // try to find a grid in the scene automatically
         if (autoFindGrid && !grid)
             grid = FindAnyObjectByType<GridRenderer3D>();
+
+        // Register the cell selectability check with the grid
+        if (grid != null)
+        {
+            grid.IsCellSelectable = IsCellSelectableForCurrentCharacter;
+        }
+    }
+
+    void OnDisable()
+    {
+        // Unregister the selectability check when disabled
+        if (grid != null)
+        {
+            grid.IsCellSelectable = null;
+        }
     }
 
     // called once when game starts
@@ -202,6 +220,24 @@ public class GridCharacterController3D : MonoBehaviour
                tokenMovements.TryGetValue(characterName, out movement);
     }
 
+    // Callback for grid to check if a cell is selectable based on movement range
+    private bool IsCellSelectableForCurrentCharacter(Vector3Int targetCell)
+    {
+        // Don't restrict selection during turn processing
+        if (isProcessingTurn)
+            return false;
+
+        // Get current character (using Player1 as default)
+        if (!TryGetCurrentCharacterData("Player1", out var currentCharacter, out _))
+            return true; // If no character data, allow selection
+
+        // Get character's current position
+        Vector3Int startCell = GetCharacterCell(currentCharacter);
+
+        // Check if within movement range
+        return IsWithinMovementRange(startCell, targetCell);
+    }
+
     // handle player input for movement
     // prvate method created to keep Update() clean and modular
     private void HandlePlayerInput(Camera cam, string characterName, GameObject character, ITokenMovement movement)
@@ -215,18 +251,67 @@ public class GridCharacterController3D : MonoBehaviour
         // check if target cell is walkable
         if (!grid.IsCellWalkable(targetCell.x, targetCell.z)) return;
 
-        // find path using pathfinder service
+        // get character's current position
         Vector3Int startCell = GetCharacterCell(character);
+
+        // check if target is within movement range
+        if (!IsWithinMovementRange(startCell, targetCell))
+        {
+            Debug.Log($"[GridCharacterController3D] Target cell ({targetCell.x}, {targetCell.z}) is beyond maximum movement range of {maxMovementDistance} cells.");
+            return;
+        }
+
+        // find path using pathfinder service
         var result = pathfinder.FindPath(startCell, targetCell);
 
-        // if path found, start movement coroutine
+        // if path found, verify path length is within movement distance
         if (result.found && result.path != null)
         {
+            // path length check (path includes start cell, so subtract 1 for actual move distance)
+            int pathLength = result.path.Count - 1;
+
+            if (maxMovementDistance > 0 && pathLength > maxMovementDistance)
+            {
+                Debug.Log($"[GridCharacterController3D] Path length ({pathLength}) exceeds maximum movement distance ({maxMovementDistance}).");
+                return;
+            }
+
             // mark as processing turn to prevent further input until movement ends
             isProcessingTurn = true;
             // start movement coroutine for the character
             StartCoroutine(HandleTurn(character, movement, result.path));
         }
+    }
+
+    // check if target cell is within movement range using Manhattan distance as initial filter
+    private bool IsWithinMovementRange(Vector3Int start, Vector3Int target)
+    {
+        // if maxMovementDistance is 0 or negative, allow unlimited movement
+        if (maxMovementDistance <= 0)
+            return true;
+
+        // calculate Manhattan distance as a quick filter
+        int manhattanDistance = Mathf.Abs(target.x - start.x) + Mathf.Abs(target.z - start.z);
+
+        // if Manhattan distance exceeds max range, definitely out of range
+        // (actual pathfinding distance will be equal or greater)
+        if (manhattanDistance > maxMovementDistance)
+            return false;
+
+        // if diagonal movement is disabled, Manhattan distance is exact
+        if (!allowDiagonalMovement)
+            return manhattanDistance <= maxMovementDistance;
+
+        // with diagonal movement, we need to check actual pathfinding distance
+        // for cells close to the limit
+        var result = pathfinder.FindPath(start, target);
+
+        if (!result.found || result.path == null)
+            return false;
+
+        // path includes start cell, so subtract 1 for actual distance
+        int actualDistance = result.path.Count - 1;
+        return actualDistance <= maxMovementDistance;
     }
 
     // get grid cell from mouse click position
