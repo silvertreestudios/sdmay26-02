@@ -1,4 +1,3 @@
-using Game.Damage;
 using System;
 /*
 // Define an enum for equipment types
