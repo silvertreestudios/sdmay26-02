@@ -1,6 +1,6 @@
 using UnityEngine;
 using System;
-using Game.Dice;
+using System.Collections.Generic;
 
 namespace Game.Damage
 {
@@ -15,18 +15,18 @@ namespace Game.Damage
     // Struct for damage dice and type
     public struct DamageDice
     {
-        public Dice DamageDice;        // Dice object for rolled damage
+        public Dice damageDice;        // Dice object for rolled damage
         public DamageType DamageType;  // e.g., "Piercing", "Slashing"
 
         public DamageDice(Dice damageDice, DamageType damageType)
         {
-            DamageDice = damageDice;
+            this.damageDice = damageDice;
             DamageType = damageType;
         }
     }
 
     // Tuple for damage type and amount
-    public struct DamageValue
+    public class DamageValue
     {
         public DamageType DamageType;
         public int DamageAmount;
@@ -56,7 +56,7 @@ namespace Game.Damage
 
             // For each damageDice in damageRolls...
             foreach (DamageDice damageDice in damageRolls){
-                DamageValue damageValue = new DamageValue(damageDice.DamageType, damageDice.DamageDice.Roll);
+                DamageValue damageValue = new DamageValue(damageDice.DamageType, damageDice.damageDice.Roll());
                 // Group damage by type
                 if (damageInstances.Exists(di => di.DamageType == damageValue.DamageType)){
                     DamageValue existingInstance = damageInstances.Find(di => di.DamageType == damageValue.DamageType);
@@ -97,7 +97,7 @@ namespace Game.Damage
             }
         }
 
-        public static void ApplyWeaknessAndResitance(List<DamagaValue> incoming, List<DamageValue> weaknesses, List<DamageValue> resistances){
+        public static void ApplyWeaknessAndResitance(List<DamageValue> incoming, List<DamageValue> weaknesses, List<DamageValue> resistances){
             // for each incoming damage type, apply suitable weaknesses, resistances, and set to 0 if net negative
             foreach (DamageValue inc in incoming){
                 if (weaknesses.Exists(di => di.DamageType == inc.DamageType)){

@@ -1,9 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
-using Game.Equipment;
-using Game.Dice;
-using Game.Damage;
-
+/*
 // Define an enum for actions
 public enum CreatureAction
 {
@@ -88,3 +85,4 @@ public class CreatureComponent : MonoBehaviour, ICreature
         CreatureActions.Strike(this, weapon, target);
     }
 }
+*/
