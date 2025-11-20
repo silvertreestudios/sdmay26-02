@@ -1,9 +1,9 @@
 
 using UnityEngine;
 using System.Collections.Generic;
-using Game.Damage;
+using Game.Creature;
 
-namespace Game.Dice
+namespace Game.Creature
 {
     // Degrees of success/failure for d20 rolls
     public enum DegreeOfSuccess{

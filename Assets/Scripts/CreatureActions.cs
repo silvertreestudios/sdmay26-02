@@ -1,7 +1,7 @@
 using UnityEngine;
-using Game.Equipment;
+using Game.Creature;
 
-namespace Game.Creatures
+namespace Game.Creature
 {
     public static class CreatureActions
     {

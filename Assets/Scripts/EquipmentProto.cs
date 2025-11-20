@@ -1,7 +1,7 @@
 using System;
-using Game.Damage;
+using Game.Creature;
 
-namespace Game.Equipment
+namespace Game.Creature
 {
     // Define an enum for equipment types
     public enum EquipmentType

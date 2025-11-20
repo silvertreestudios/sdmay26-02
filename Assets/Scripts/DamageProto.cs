@@ -1,8 +1,8 @@
 using UnityEngine;
 using System;
-using Game.Dice;
+using Game.Creature;
 
-namespace Game.Damage
+namespace Game.Creature
 {
     public enum DamageType
     {
