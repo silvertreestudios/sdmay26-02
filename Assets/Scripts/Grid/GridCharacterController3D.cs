@@ -41,7 +41,7 @@ public class GridCharacterController3D : MonoBehaviour
     private Dictionary<string, ITokenMovement> tokenMovements = new Dictionary<string, ITokenMovement>();
 
     // reference to main camera manager
-    private CameraManager cameraManager;
+    private CameraManager camMan;
     // reference to turn manager 
     private TurnManager turnManager;
     // dedicated pathfinding service
@@ -106,18 +106,18 @@ public class GridCharacterController3D : MonoBehaviour
     {
         try
         {
-            cameraManager = CameraManager.GetInstance();
-            if (cameraManager != null)
+            camMan = CameraManager.GetInstance();
+            if (camMan != null)
             {
                 // set main camera
-                cameraManager.setCamera(Camera.main);
+                camMan.setCamera(Camera.main);
                 // for each kvp = KeyValuePair<string, GameObject> in characters dictionary
                 foreach (var kvp in characters)
                 {
                     // add character to camera manager
-                    cameraManager.addActor(kvp.Key, kvp.Value);
+                    camMan.addActor(kvp.Key, kvp.Value);
                 }
-                SetCameraForCharacter("Player1", CameraType.Pick);
+                camMan.SetCameraForCharacter("Player1", CameraType.Pick);
             }
 
             foreach (var character in characters.Values)
@@ -192,7 +192,7 @@ public class GridCharacterController3D : MonoBehaviour
         // handle player input for movement
         HandlePlayerInput(cam, currentCharacterName, currentCharacter, currentMovement);
         // update camera manager
-        cameraManager?.update();
+        camMan?.update();
     }
 
     // check if system is ready for update
@@ -256,6 +256,7 @@ public class GridCharacterController3D : MonoBehaviour
             // lock input in turn manager during movement
             turnManager.LockInput();
             // start movement coroutine for the character
+            camMan.setTarget(character);
             StartCoroutine(HandleTurn(character, movement, result.path));
         }
     }
@@ -289,37 +290,22 @@ public class GridCharacterController3D : MonoBehaviour
     {
         // define path for movement controller
         movement.setPath(path);
-
-        // small pause before move starts
-        yield return new WaitForSeconds(0.3f);
-
         // start movement
         movement.start();
-
         // wait until movement completes
         while (movement.IsMoving())
         {
             // Update the movement every frame
             yield return movement.update();
         }
-
-        // short pause when reaching destination
-        yield return new WaitForSeconds(1.2f);
-
-        // focus camera on character after move
-        SetCameraForCharacter(actor.name, CameraType.Focus);
-
-        // small pause for dramatic effect
-        yield return new WaitForSeconds(0.3f);
-
-        // tell turn manager to move to next turn
+        // when done moving, end tunr
         turnManager.EndTurn();
 
         // set camera to pick mode for next character turn
         string nextCharacter = turnManager.GetCurrentCharacter();
 
         // set camera for next character
-        SetCameraForCharacter(nextCharacter, CameraType.Pick);
+        //camMan.SetCameraForCharacter(nextCharacter, CameraType.Pick);
 
         // reset flag to allow next player to move
         isProcessingTurn = false;
@@ -384,23 +370,12 @@ public class GridCharacterController3D : MonoBehaviour
         return (uint)cx < (uint)grid.width && (uint)cz < (uint)grid.height;
     }
 
-    // set camera to focus or pick mode for given character
-    private void SetCameraForCharacter(string characterName, CameraType mode)
-    {
-        if (cameraManager != null)
-        {
-            cameraManager.setCurrentActor(characterName);
-            cameraManager.setMode(mode);
-            cameraManager.ResetClock();
-        }
-    }
-
     // event handler for turn started
     private void OnTurnStarted(string characterName)
     {
         // set camera to pick mode for active character
-        SetCameraForCharacter(characterName, CameraType.Pick);
-
+        //camMan.SetCameraForCharacter(characterName, CameraType.Pick);
+        camMan.setTarget(characters[characterName]);
         if (showDebugInfo)
         {
             Debug.Log($"[GridCharacterController3D] {characterName}'s turn started");
@@ -410,8 +385,6 @@ public class GridCharacterController3D : MonoBehaviour
     // event handler for turn ended 
     private void OnTurnEnded(string characterName)
     {
-        SetCameraForCharacter(characterName, CameraType.Focus);
-
         if (showDebugInfo)
         {
             Debug.Log($"[GridCharacterController3D] {characterName}'s turn ended");
