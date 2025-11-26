@@ -1,6 +1,5 @@
 using UnityEngine;
 using System;
-using Game.Creature;
 
 namespace Game.Creature
 {

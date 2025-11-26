@@ -1,7 +1,5 @@
-
 using UnityEngine;
 using System.Collections.Generic;
-using Game.Creature;
 
 namespace Game.Creature
 {
