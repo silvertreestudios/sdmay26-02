@@ -44,7 +44,7 @@ namespace Game.Creature
     public class Dice{
         public int numberOfDice;
         public int sidesPerDie;
-        public DamageType damageType;
+        public string damageType;
 
         // Constructor for Dice class
         public Dice(int num, int sides){
@@ -52,12 +52,11 @@ namespace Game.Creature
             sidesPerDie = sides;
             damageType = null;
         }
-        public Dice(int num, int sides, DamageType dmgType){
+        public Dice(int num, int sides, string dmgType){
             numberOfDice = num;
             sidesPerDie = sides;
             damageType = dmgType;
         }
-
         // Alt constructor to take string param 
         public Dice(string diceString){
             var parts = diceString.ToLower().Split('d');

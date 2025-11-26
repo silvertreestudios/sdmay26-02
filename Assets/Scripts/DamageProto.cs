@@ -3,21 +3,14 @@ using System;
 
 namespace Game.Creature
 {
-    public enum DamageType
-    {
-        Bludgeoning,
-        Piercing,
-        Slashing,
-        Fire
-    }
 
     // Tuple for damage type and amount
     public struct DamageValue
     {
-        public DamageType DamageType;
+        public string DamageType;
         public int DamageAmount;
 
-        public DamageValue(DamageType damageType, int damageAmount)
+        public DamageValue(string damageType, int damageAmount)
         {
             DamageType = damageType;
             DamageAmount = damageAmount;
@@ -43,7 +36,7 @@ namespace Game.Creature
             // For each dice in damageRolls...
             foreach (Dice dice in damageRolls){
                 DamageValue damageValue = new DamageValue(dice.DamageType, dice.Roll);
-                // Group damage by type
+                // Group damage by type (string comparison)
                 if (damageInstances.Exists(di => di.DamageType == damageValue.DamageType)){
                     int idx = damageInstances.FindIndex(di => di.DamageType == damageValue.DamageType);
                     var existingInstance = damageInstances[idx];
@@ -56,7 +49,7 @@ namespace Game.Creature
             }
             // For each flat damage in damageFlats...
             foreach (DamageValue damageFlat in damageFlats){
-                // Group damage by type
+                // Group damage by type (string comparison)
                 if (damageInstances.Exists(di => di.DamageType == damageFlat.DamageType)){
                     int idx = damageInstances.FindIndex(di => di.DamageType == damageFlat.DamageType);
                     var existingInstance = damageInstances[idx];
@@ -91,7 +84,7 @@ namespace Game.Creature
         }
 
         // Called by creature receiving damage via TakeDamage
-        public static void ApplyWeaknessAndResitance(List<DamageValue> incoming, List<DamageValue> weaknesses, List<DamageValue> resistances){
+        public static void ApplyWeaknessAndResistance(List<DamageValue> incoming, List<DamageValue> weaknesses, List<DamageValue> resistances){
             // for each incoming damage type, apply suitable weaknesses, resistances, and set to 0 if net negative
             foreach (var inc in incoming){
                 if (weaknesses.Exists(di => di.DamageType == inc.DamageType)){
