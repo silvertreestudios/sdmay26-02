@@ -375,9 +375,19 @@ public class GridCharacterController3D : MonoBehaviour
     {
         // calculate y position with offset for drawing above grid
         float yPos = grid ? grid.gridY + yDrawOffset : 0.001f;
-        // spawn player 1 and player 2 at specified positions
+        
+        if (prefab == null)
+        {
+            Debug.LogError("[GridCharacterController3D] prefab is not assigned in the Inspector!");
+            return;
+        }
+        
+        // Use prefab for Player1
         SpawnCharacter("Player1", prefab, new Vector3(0f, yPos, 0f), Color.white);
-        SpawnCharacter("Player2", prefab2, new Vector3(18.5f, yPos, 1.5f), Color.red);
+        
+        // Use prefab2 if assigned, otherwise fall back to prefab for Player2
+        GameObject player2Prefab = prefab2 != null ? prefab2 : prefab;
+        SpawnCharacter("Player2", player2Prefab, new Vector3(18.5f, yPos, 1.5f), Color.red);
     }
 
     // spawn a single character on the grid
