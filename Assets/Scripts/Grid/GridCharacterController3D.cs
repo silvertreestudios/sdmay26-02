@@ -293,25 +293,38 @@ public class GridCharacterController3D : MonoBehaviour
         movement.setPath(path);
         // start movement
         movement.start();
+        // track last known cell for grid occupancy
+        Vector3Int lastCell = GetCharacterCell(actor);
+
         // wait until movement completes
         while (movement.IsMoving())
         {
-            // get start position
-            Vector3Int startCell = GetCharacterCell(actor);
-            // Update the movement every frame
+            // advance movement one frame
             yield return movement.update();
-            //get targeted position
-            Vector3Int targetCell = GetCharacterCell(actor);
-            // update grid
-            yield return grid.MoveCreaturePosition(actor, targetCell, startCell);
+
+            // check current cell
+            Vector3Int currentCell = GetCharacterCell(actor);
+
+            // only touch grid if the actor actually entered a new cell
+            if (currentCell != lastCell)
+            {
+                grid.MoveCreaturePosition(actor, currentCell, lastCell);
+                lastCell = currentCell;
+            }
         }
-        // when done moving, end tunr
+
+        // final safety update in case we ended exactly on a boundary
+        Vector3Int finalCell = GetCharacterCell(actor);
+        if (finalCell != lastCell)
+        {
+            grid.MoveCreaturePosition(actor, finalCell, lastCell);
+        }
+
+        // when done moving, end turn
         turnManager.EndTurn();
 
-        // set camera to pick mode for next character turn
+        // set camera to pick mode for next character turn (if desired)
         string nextCharacter = turnManager.GetCurrentCharacter();
-
-        // set camera for next character
         //camMan.SetCameraForCharacter(nextCharacter, CameraType.Pick);
 
         // reset flag to allow next player to move
@@ -324,12 +337,11 @@ public class GridCharacterController3D : MonoBehaviour
         // calculate y position with offset for drawing above grid
         float yPos = grid ? grid.gridY + yDrawOffset : 0.001f;
         // spawn player 1 and player 2 at specified positions
-        SpawnCharacter("Player1", prefab, new Vector3(0f, yPos, 0f), Color.white);
-        //TEMPORARY: WE NEED A BETTER WAY TO GET PLAYER POSITIONS
+        SpawnCharacter("Player1", prefab, new Vector3(.5f, yPos, .5f), Color.white);
         //ANOTHER TEMP FIX, grid IS PROBABLY NOT THE RIGHT WAY TO CALL THESE METHODS BUT IDK HOW ELSE TO DO IT
-        grid.SetCreaturePosition(characters["Player1"], new Vector3Int(0, 0, 0));
+        grid.SetCreaturePosition(characters["Player1"], GetCharacterCell(characters["Player1"]));
         SpawnCharacter("Player2", prefab2, new Vector3(18.5f, yPos, 1.5f), Color.red);
-        grid.SetCreaturePosition(characters["Player2"], new Vector3Int(18, 0, 1));
+        grid.SetCreaturePosition(characters["Player2"], GetCharacterCell(characters["Player2"]));
     }
 
     // spawn a single character on the grid

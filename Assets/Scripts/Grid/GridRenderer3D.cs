@@ -375,19 +375,19 @@ public class GridRenderer3D : GridInterface
         }
     }
 
-    public override IEnumerator MoveCreaturePosition(GameObject token, Vector3Int targetPosition, Vector3Int startPosition)
+    public override void MoveCreaturePosition(GameObject token, Vector3Int targetPosition, Vector3Int startPosition)
     {
         //make sure we are moving the right character
         if(token == null || gridInfo[startPosition.x, gridY, startPosition.z].occupant != token)
         {
-            yield break;
+            Debug.Log("Failed to move creature from " + startPosition.ToString() + " to " + targetPosition.ToString());
+            return;
         }
         gridInfo[startPosition.x, gridY, startPosition.z].isOccupied = false;
         gridInfo[startPosition.x, gridY, startPosition.z].occupant = null;
         gridInfo[targetPosition.x, gridY, targetPosition.z].isOccupied = true;
         gridInfo[targetPosition.x, gridY, targetPosition.z].occupant = token;
-        yield return null;
-
+        return; 
     }
 
     public override void SetCreaturePosition(GameObject token, Vector3Int spawnPosition)
@@ -395,6 +395,7 @@ public class GridRenderer3D : GridInterface
         //make sure we are placing a valid character and the tile is not already occupied
         if (token == null || gridInfo[spawnPosition.x, gridY, spawnPosition.z].isOccupied)
         {
+            Debug.Log("Failed to set creature position at " + spawnPosition.ToString());
             return;
         }
         gridInfo[spawnPosition.x, gridY, spawnPosition.z].isOccupied = true;
