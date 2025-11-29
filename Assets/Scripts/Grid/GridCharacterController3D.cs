@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.TextCore.Text;
 
 [DisallowMultipleComponent]
 public class GridCharacterController3D : MonoBehaviour
@@ -139,7 +140,7 @@ public class GridCharacterController3D : MonoBehaviour
         if (!TryGridWorldToCell(obj.transform.position, out var cell, clamp: true))
             return;
 
-        if (!grid.IsCellWalkable(cell.x, cell.z))
+        if (!grid.IsCellWalkable(cell))
             return;
 
         obj.transform.position = GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
@@ -242,7 +243,7 @@ public class GridCharacterController3D : MonoBehaviour
         // get clicked cell on grid
         if (!TryGetClickedCell(cam, out Vector3Int targetCell)) return;
         // check if target cell is walkable
-        if (!grid.IsCellWalkable(targetCell.x, targetCell.z)) return;
+        if (!grid.IsCellWalkable(targetCell)) return;
 
         // find path using pathfinder service
         Vector3Int startCell = GetCharacterCell(character);
@@ -295,8 +296,14 @@ public class GridCharacterController3D : MonoBehaviour
         // wait until movement completes
         while (movement.IsMoving())
         {
+            // get start position
+            Vector3Int startCell = GetCharacterCell(actor);
             // Update the movement every frame
             yield return movement.update();
+            //get targeted position
+            Vector3Int targetCell = GetCharacterCell(actor);
+            // update grid
+            yield return grid.MoveCreaturePosition(actor, targetCell, startCell);
         }
         // when done moving, end tunr
         turnManager.EndTurn();
@@ -318,7 +325,11 @@ public class GridCharacterController3D : MonoBehaviour
         float yPos = grid ? grid.gridY + yDrawOffset : 0.001f;
         // spawn player 1 and player 2 at specified positions
         SpawnCharacter("Player1", prefab, new Vector3(0f, yPos, 0f), Color.white);
+        //TEMPORARY: WE NEED A BETTER WAY TO GET PLAYER POSITIONS
+        //ANOTHER TEMP FIX, grid IS PROBABLY NOT THE RIGHT WAY TO CALL THESE METHODS BUT IDK HOW ELSE TO DO IT
+        grid.SetCreaturePosition(characters["Player1"], new Vector3Int(0, 0, 0));
         SpawnCharacter("Player2", prefab2, new Vector3(18.5f, yPos, 1.5f), Color.red);
+        grid.SetCreaturePosition(characters["Player2"], new Vector3Int(18, 0, 1));
     }
 
     // spawn a single character on the grid
