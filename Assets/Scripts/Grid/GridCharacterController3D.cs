@@ -12,6 +12,7 @@ public class GridCharacterController3D : MonoBehaviour
     public GameObject prefab;
     public GameObject prefab2;
     public bool autoFindGrid = true;
+    public GameObject rangeHighlightPrefab; // Red highlight prefab for reachable tiles
 
     // how the player appears on grid
     [Header("Spawn")]
@@ -34,10 +35,25 @@ public class GridCharacterController3D : MonoBehaviour
     public bool allowDiagonalMovement = true;
     public float diagonalCost = 1.414f;
 
+    // path preview settings
+    [Header("Path Preview")]
+    [Tooltip("Material for the path preview line")]
+    public Material pathPreviewMaterial;
+    [Tooltip("Width of the path preview line")]
+    public float pathPreviewWidth = 0.2f;
+    [Tooltip("Height offset for the path preview line above ground")]
+    public float pathPreviewHeight = 0.1f;
+    [Tooltip("Color for the default path preview")]
+    public Color defaultPreviewColor = new Color(1f, 1f, 0f, 0.7f); // Yellow
+    [Tooltip("Color for the confirmed path preview")]
+    public Color confirmedPreviewColor = new Color(1f, 0f, 0f, 0.7f); // Red
+    [Tooltip("Time window for double-click detection (in seconds)")]
+    public float doubleClickTime = 0.3f;
+
     // store both player objects by name 
     // using dictionary for easy access by name in camera
     private Dictionary<string, GameObject> characters = new Dictionary<string, GameObject>();
-    
+
     // store each player's token movement controller
     // using dictionary for easy access by name in update loop
     private Dictionary<string, ITokenMovement> tokenMovements = new Dictionary<string, ITokenMovement>();
@@ -50,6 +66,21 @@ public class GridCharacterController3D : MonoBehaviour
     private bool isInitialized = false;
     // flag to prevent multiple movements during turn transition
     private bool isProcessingTurn = false;
+
+    // Track current active player
+    private string currentPlayer = "Player1";
+
+    // Highlight tracking
+    private List<GameObject> rangeHighlightInstances = new List<GameObject>();
+    private HashSet<Vector3Int> currentReachableTiles = new HashSet<Vector3Int>();
+
+    // Path preview tracking
+    private GameObject pathPreviewObject;
+    private LineRenderer pathPreviewLine;
+    private List<Vector3Int> previewedPath;
+    private bool isPathPreviewed = false;
+    private float lastClickTime = 0f;
+    private Vector3Int lastClickedCell;
 
     // called when component is enabled
     void OnEnable()
@@ -72,6 +103,11 @@ public class GridCharacterController3D : MonoBehaviour
         {
             grid.IsCellSelectable = null;
         }
+
+        // Clean up highlights
+        ClearRangeHighlights();
+        // Clean up path preview
+        ClearPathPreview();
     }
 
     // called once when game starts
@@ -85,8 +121,13 @@ public class GridCharacterController3D : MonoBehaviour
         InitializeMovementControllers();
         // initialize camera manager and set up cameras for each player
         InitializeCameraManager();
+        // initialize path preview line renderer
+        InitializePathPreview();
         // mark as initialized
         isInitialized = true;
+
+        // Show initial reachable tiles for starting player
+        UpdateReachableTilesHighlight(currentPlayer);
     }
 
     // initialize the pathfinding service
@@ -129,10 +170,11 @@ public class GridCharacterController3D : MonoBehaviour
                 // for each kvp = KeyValuePair<string, GameObject> in characters dictionary
                 foreach (var kvp in characters)
                 {
-                    // add character to camera manager
-                    cameraManager.addActor(kvp.Key, kvp.Value);
+                    // add character to camera manager using the display name (with space)
+                    string displayName = kvp.Key.Replace("Player", "Player ");
+                    cameraManager.addActor(displayName, kvp.Value);
                 }
-                SetCameraForCharacter("Player1", CameraType.Pick);
+                SetCameraForCharacter(currentPlayer, CameraType.Pick);
             }
 
             foreach (var character in characters.Values)
@@ -144,6 +186,41 @@ public class GridCharacterController3D : MonoBehaviour
         {
             Debug.LogError("CameraManager error: " + e.Message);
         }
+    }
+
+    /// <summary>
+    /// Initialize the path preview LineRenderer
+    /// </summary>
+    private void InitializePathPreview()
+    {
+        // Create a GameObject to hold the LineRenderer
+        pathPreviewObject = new GameObject("PathPreview");
+        pathPreviewObject.transform.SetParent(transform);
+
+        // Add and configure LineRenderer
+        pathPreviewLine = pathPreviewObject.AddComponent<LineRenderer>();
+
+        // Set up material - create a default one if not assigned
+        if (pathPreviewMaterial != null)
+        {
+            pathPreviewLine.material = pathPreviewMaterial;
+        }
+        else
+        {
+            // Create a simple unlit material
+            pathPreviewLine.material = new Material(Shader.Find("Sprites/Default"));
+        }
+
+        // Configure line properties
+        pathPreviewLine.startWidth = pathPreviewWidth;
+        pathPreviewLine.endWidth = pathPreviewWidth;
+        pathPreviewLine.startColor = defaultPreviewColor;
+        pathPreviewLine.endColor = defaultPreviewColor;
+        pathPreviewLine.positionCount = 0;
+        pathPreviewLine.useWorldSpace = true;
+
+        // Start hidden
+        pathPreviewObject.SetActive(false);
     }
 
     // snap player to nearest valid walkable cell
@@ -180,10 +257,10 @@ public class GridCharacterController3D : MonoBehaviour
 
         // check if system is ready for update 
         if (!IsReadyForUpdate(out var cam)) return;
-        // get current character data (using Player1 as default)
-        if (!TryGetCurrentCharacterData("Player1", out var currentCharacter, out var currentMovement)) return;
+        // get current character data (using current player instead of hardcoded Player1)
+        if (!TryGetCurrentCharacterData(currentPlayer, out var currentCharacter, out var currentMovement)) return;
         // handle player input for movement
-        HandlePlayerInput(cam, "Player1", currentCharacter, currentMovement);
+        HandlePlayerInput(cam, currentPlayer, currentCharacter, currentMovement);
         // update camera manager
         cameraManager?.update();
     }
@@ -227,21 +304,25 @@ public class GridCharacterController3D : MonoBehaviour
         if (isProcessingTurn)
             return false;
 
-        // Get current character (using Player1 as default)
-        if (!TryGetCurrentCharacterData("Player1", out var currentCharacter, out _))
-            return true; // If no character data, allow selection
-
-        // Get character's current position
-        Vector3Int startCell = GetCharacterCell(currentCharacter);
-
-        // Check if within movement range
-        return IsWithinMovementRange(startCell, targetCell);
+        // Use cached reachable tiles for performance
+        return currentReachableTiles.Contains(targetCell);
     }
 
     // handle player input for movement
-    // prvate method created to keep Update() clean and modular
+    // private method created to keep Update() clean and modular
     private void HandlePlayerInput(Camera cam, string characterName, GameObject character, ITokenMovement movement)
     {
+        // Handle right-click to cancel preview
+        if (InputCompat.RightClickDown())
+        {
+            if (isPathPreviewed)
+            {
+                ClearPathPreview();
+                Debug.Log("[GridCharacterController3D] Path preview cancelled.");
+            }
+            return;
+        }
+
         // check for left mouse click
         if (!InputCompat.LeftClickDown() || isProcessingTurn)
             return;
@@ -254,10 +335,10 @@ public class GridCharacterController3D : MonoBehaviour
         // get character's current position
         Vector3Int startCell = GetCharacterCell(character);
 
-        // check if target is within movement range
-        if (!IsWithinMovementRange(startCell, targetCell))
+        // check if target is within movement range using cached tiles
+        if (!currentReachableTiles.Contains(targetCell))
         {
-            Debug.Log($"[GridCharacterController3D] Target cell ({targetCell.x}, {targetCell.z}) is beyond maximum movement range of {maxMovementDistance} cells.");
+            Debug.Log($"[GridCharacterController3D] Target cell ({targetCell.x}, {targetCell.z}) is not reachable.");
             return;
         }
 
@@ -276,11 +357,303 @@ public class GridCharacterController3D : MonoBehaviour
                 return;
             }
 
-            // mark as processing turn to prevent further input until movement ends
-            isProcessingTurn = true;
-            // start movement coroutine for the character
-            StartCoroutine(HandleTurn(character, movement, result.path));
+            // Check for double-click
+            float timeSinceLastClick = Time.time - lastClickTime;
+            bool isDoubleClick = isPathPreviewed &&
+                                 lastClickedCell == targetCell &&
+                                 timeSinceLastClick <= doubleClickTime;
+
+            if (isDoubleClick)
+            {
+                // Double-click detected - confirm movement
+                Debug.Log("[GridCharacterController3D] Double-click detected - confirming movement.");
+
+                // mark as processing turn to prevent further input until movement ends
+                isProcessingTurn = true;
+                // Clear highlights during movement
+                ClearRangeHighlights();
+                // Clear path preview
+                ClearPathPreview();
+                // start movement coroutine for the character
+                StartCoroutine(HandleTurn(character, movement, result.path));
+            }
+            else
+            {
+                // Single-click - show/update preview
+                Debug.Log("[GridCharacterController3D] Single-click detected - showing path preview.");
+                ShowPathPreview(result.path, false);
+
+                // Update click tracking
+                lastClickTime = Time.time;
+                lastClickedCell = targetCell;
+            }
         }
+    }
+
+    /// <summary>
+    /// Displays a path preview using the LineRenderer
+    /// </summary>
+    /// <param name="path">The path to preview</param>
+    /// <param name="isConfirmed">Whether this is a confirmed path (changes color)</param>
+    private void ShowPathPreview(List<Vector3Int> path, bool isConfirmed)
+    {
+        if (path == null || path.Count < 2)
+        {
+            ClearPathPreview();
+            return;
+        }
+
+        // Store the previewed path
+        previewedPath = new List<Vector3Int>(path);
+        isPathPreviewed = true;
+
+        // Set up the LineRenderer
+        pathPreviewLine.positionCount = path.Count;
+
+        // Convert grid cells to world positions
+        for (int i = 0; i < path.Count; i++)
+        {
+            Vector3 worldPos = GridCellCenterWorld(path[i].x, path[i].z, pathPreviewHeight);
+            pathPreviewLine.SetPosition(i, worldPos);
+        }
+
+        // Set color based on confirmation state
+        Color lineColor = isConfirmed ? confirmedPreviewColor : defaultPreviewColor;
+        pathPreviewLine.startColor = lineColor;
+        pathPreviewLine.endColor = lineColor;
+
+        // Show the preview
+        pathPreviewObject.SetActive(true);
+
+        Debug.Log($"[GridCharacterController3D] Path preview shown with {path.Count} waypoints.");
+    }
+
+    /// <summary>
+    /// Clears the path preview
+    /// </summary>
+    private void ClearPathPreview()
+    {
+        if (pathPreviewObject != null)
+        {
+            pathPreviewObject.SetActive(false);
+        }
+
+        if (pathPreviewLine != null)
+        {
+            pathPreviewLine.positionCount = 0;
+        }
+
+        previewedPath = null;
+        isPathPreviewed = false;
+    }
+
+    /// <summary>
+    /// Finds all reachable tiles within movement range using depth-first search.
+    /// </summary>
+    /// <param name="start">Starting cell position</param>
+    /// <param name="maxRange">Maximum movement range</param>
+    /// <returns>HashSet of all reachable tiles within range</returns>
+    private HashSet<Vector3Int> GetReachableTilesInRange(Vector3Int start, int maxRange)
+    {
+        // Return all tiles if unlimited range
+        if (maxRange <= 0)
+        {
+            HashSet<Vector3Int> allTiles = new HashSet<Vector3Int>();
+            for (int x = 0; x < grid.width; x++)
+            {
+                for (int z = 0; z < grid.height; z++)
+                {
+                    if (grid.IsCellWalkable(x, z))
+                        allTiles.Add(new Vector3Int(x, 0, z));
+                }
+            }
+            return allTiles;
+        }
+
+        HashSet<Vector3Int> reachable = new HashSet<Vector3Int>();
+        HashSet<Vector3Int> visited = new HashSet<Vector3Int>();
+        Stack<(Vector3Int cell, float cost)> stack = new Stack<(Vector3Int, float)>();
+
+        // Start DFS
+        stack.Push((start, 0f));
+
+        while (stack.Count > 0)
+        {
+            var (current, currentCost) = stack.Pop();
+
+            // Skip if already visited
+            if (visited.Contains(current))
+                continue;
+
+            visited.Add(current);
+
+            // Add to reachable if within range and walkable
+            if (currentCost <= maxRange && grid.IsCellWalkable(current.x, current.z))
+            {
+                reachable.Add(current);
+
+                // Explore neighbors
+                Vector3Int[] neighbors = GetNeighbors(current);
+                foreach (var neighbor in neighbors)
+                {
+                    // Check bounds and walkability
+                    if (neighbor.x < 0 || neighbor.x >= grid.width ||
+                        neighbor.z < 0 || neighbor.z >= grid.height)
+                        continue;
+
+                    if (!grid.IsCellWalkable(neighbor.x, neighbor.z))
+                        continue;
+
+                    if (visited.Contains(neighbor))
+                        continue;
+
+                    // Calculate movement cost
+                    float moveCost = GetMovementCost(current, neighbor);
+                    float newCost = currentCost + moveCost;
+
+                    // Only add if within range
+                    if (newCost <= maxRange)
+                    {
+                        stack.Push((neighbor, newCost));
+                    }
+                }
+            }
+        }
+
+        return reachable;
+    }
+
+    /// <summary>
+    /// Gets neighboring cells based on movement settings (cardinal and/or diagonal).
+    /// </summary>
+    private Vector3Int[] GetNeighbors(Vector3Int cell)
+    {
+        List<Vector3Int> neighbors = new List<Vector3Int>();
+
+        // Cardinal directions
+        Vector3Int[] cardinalDirections = new[]
+        {
+            new Vector3Int(1, 0, 0),   // East
+            new Vector3Int(-1, 0, 0),  // West
+            new Vector3Int(0, 0, 1),   // North
+            new Vector3Int(0, 0, -1)   // South
+        };
+
+        foreach (var dir in cardinalDirections)
+        {
+            neighbors.Add(cell + dir);
+        }
+
+        // Diagonal directions if allowed
+        if (allowDiagonalMovement)
+        {
+            Vector3Int[] diagonalDirections = new[]
+            {
+                new Vector3Int(1, 0, 1),   // Northeast
+                new Vector3Int(-1, 0, 1),  // Northwest
+                new Vector3Int(1, 0, -1),  // Southeast
+                new Vector3Int(-1, 0, -1)  // Southwest
+            };
+
+            foreach (var dir in diagonalDirections)
+            {
+                // Check if diagonal movement is valid (adjacent cells walkable)
+                Vector3Int adjacent1 = cell + new Vector3Int(dir.x, 0, 0);
+                Vector3Int adjacent2 = cell + new Vector3Int(0, 0, dir.z);
+
+                bool adjacent1Valid = adjacent1.x >= 0 && adjacent1.x < grid.width &&
+                                     adjacent1.z >= 0 && adjacent1.z < grid.height &&
+                                     grid.IsCellWalkable(adjacent1.x, adjacent1.z);
+
+                bool adjacent2Valid = adjacent2.x >= 0 && adjacent2.x < grid.width &&
+                                     adjacent2.z >= 0 && adjacent2.z < grid.height &&
+                                     grid.IsCellWalkable(adjacent2.x, adjacent2.z);
+
+                if (adjacent1Valid && adjacent2Valid)
+                {
+                    neighbors.Add(cell + dir);
+                }
+            }
+        }
+
+        return neighbors.ToArray();
+    }
+
+    /// <summary>
+    /// Calculates movement cost between two adjacent cells.
+    /// </summary>
+    private float GetMovementCost(Vector3Int from, Vector3Int to)
+    {
+        int dx = Mathf.Abs(to.x - from.x);
+        int dz = Mathf.Abs(to.z - from.z);
+
+        // Diagonal movement
+        if (dx == 1 && dz == 1)
+            return diagonalCost;
+
+        // Cardinal movement
+        return 1f;
+    }
+
+    /// <summary>
+    /// Updates and displays reachable tile highlights for a character.
+    /// </summary>
+    private void UpdateReachableTilesHighlight(string characterName)
+    {
+        // Clear existing highlights
+        ClearRangeHighlights();
+
+        // Get character
+        if (!characters.TryGetValue(characterName, out GameObject character))
+            return;
+
+        // Get character position
+        Vector3Int startCell = GetCharacterCell(character);
+
+        // Calculate reachable tiles
+        currentReachableTiles = GetReachableTilesInRange(startCell, maxMovementDistance);
+
+        // Create highlights if prefab is assigned
+        if (rangeHighlightPrefab != null)
+        {
+            foreach (var cell in currentReachableTiles)
+            {
+                // Skip the starting cell
+                if (cell.Equals(startCell))
+                    continue;
+
+                // Instantiate highlight
+                GameObject highlight = Instantiate(rangeHighlightPrefab);
+                highlight.name = $"RangeHighlight_{cell.x}_{cell.z}";
+
+                // Position and scale highlight
+                Vector3 worldPos = GridCellCenterWorld(cell.x, cell.z, 0.05f);
+                highlight.transform.position = worldPos;
+                highlight.transform.localScale = new Vector3(grid.cellSize * 0.1f, 1f, grid.cellSize * 0.1f);
+
+                // Set red color
+                var renderer = highlight.GetComponent<MeshRenderer>();
+                if (renderer != null)
+                {
+                    renderer.material.color = new Color(1f, 0f, 0f, 0.5f); // Red with transparency
+                }
+
+                rangeHighlightInstances.Add(highlight);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Clears all range highlight instances.
+    /// </summary>
+    private void ClearRangeHighlights()
+    {
+        foreach (var highlight in rangeHighlightInstances)
+        {
+            if (highlight != null)
+                Destroy(highlight);
+        }
+        rangeHighlightInstances.Clear();
     }
 
     // check if target cell is within movement range using Manhattan distance as initial filter
@@ -336,6 +709,23 @@ public class GridCharacterController3D : MonoBehaviour
         return cell;
     }
 
+    /// <summary>
+    /// Switches to the next player's turn
+    /// </summary>
+    private void SwitchToNextPlayer()
+    {
+        // Toggle between Player1 and Player2
+        currentPlayer = currentPlayer == "Player1" ? "Player2" : "Player1";
+
+        Debug.Log($"[GridCharacterController3D] Switching to {currentPlayer}'s turn");
+
+        // Update camera for new player
+        SetCameraForCharacter(currentPlayer, CameraType.Pick);
+
+        // Update reachable tiles for new player
+        UpdateReachableTilesHighlight(currentPlayer);
+    }
+
     // coroutine that handles one player's full move
     // defines the sequence of actions during a turn 
     // using Collections primarily because of List<T> in path, which allows easy manipulation of grid cell positions
@@ -350,21 +740,29 @@ public class GridCharacterController3D : MonoBehaviour
         // start movement
         movement.start();
 
+
         // wait until movement completes
         while (movement.IsMoving())
         {
             // Update the movement every frame
+            // old position
             yield return movement.update();
+            // new position 
+            // update character position
         }
 
         // short pause when reaching destination
         yield return new WaitForSeconds(1.2f);
 
-        // focus camera on character after move
-        SetCameraForCharacter(actor.name, CameraType.Focus);
+        // focus camera on character after move (use current player instead of hardcoded Player1)
+        string displayName = actor.name; // Already has space from SpawnCharacter
+        SetCameraForCharacter(currentPlayer, CameraType.Focus);
 
         // small pause for dramatic effect
         yield return new WaitForSeconds(0.3f);
+
+        // Switch to next player after current player completes their turn
+        SwitchToNextPlayer();
 
         // reset flag to allow next movement
         isProcessingTurn = false;
@@ -375,16 +773,16 @@ public class GridCharacterController3D : MonoBehaviour
     {
         // calculate y position with offset for drawing above grid
         float yPos = grid ? grid.gridY + yDrawOffset : 0.001f;
-        
+
         if (prefab == null)
         {
             Debug.LogError("[GridCharacterController3D] prefab is not assigned in the Inspector!");
             return;
         }
-        
+
         // Use prefab for Player1
         SpawnCharacter("Player1", prefab, new Vector3(0f, yPos, 0f), Color.white);
-        
+
         // Use prefab2 if assigned, otherwise fall back to prefab for Player2
         GameObject player2Prefab = prefab2 != null ? prefab2 : prefab;
         SpawnCharacter("Player2", player2Prefab, new Vector3(18.5f, yPos, 1.5f), Color.red);
@@ -395,8 +793,10 @@ public class GridCharacterController3D : MonoBehaviour
     {
         // instantiate player prefab
         GameObject player = Instantiate(prefab);
+        // Set display name with space for visual purposes
         player.name = name.Replace("Player", "Player "); // "Player1" -> "Player 1"
         player.transform.position = position;
+        // Store in dictionary with original name (without space) for consistent lookups
         characters[name] = player;
 
         // set player color if applicable
@@ -444,7 +844,9 @@ public class GridCharacterController3D : MonoBehaviour
     {
         if (cameraManager != null)
         {
-            cameraManager.setCurrentActor(characterName);
+            // Convert dictionary key to display name (with space) for CameraManager
+            string displayName = characterName.Replace("Player", "Player ");
+            cameraManager.setCurrentActor(displayName);
             cameraManager.setMode(mode);
             cameraManager.ResetClock();
         }
