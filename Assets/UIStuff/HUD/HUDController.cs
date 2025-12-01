@@ -1,16 +1,39 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UIElements;
 
 public class HUDController : MonoBehaviour
 {
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
-    {
-        
+
+    public VisualElement ui;
+    public Button strikeButton;
+    public Button moveButton;
+    public Button endTurnButton;
+
+    private void Awake() {
+        ui = GetComponent<UIDocument>().rootVisualElement;
     }
 
-    // Update is called once per frame
-    void Update()
-    {
-        
+    private void OnEnable() {
+        strikeButton = ui.Q<Button>("StrikeButton");
+        strikeButton.clicked += Strike;
+
+        moveButton = ui.Q<Button>("MoveButton");
+        moveButton.clicked += Move;
+
+        endTurnButton = ui.Q<Button>("EndTurnButton");
+        endTurnButton.clicked += EndTurn;
+    }
+
+    public void Strike() {
+        Debug.Log("Clicked Strike button");
+    }
+
+    public void Move() {
+        Debug.Log("Clicked Move button");
+    }
+
+    public void EndTurn() {
+        Debug.Log("Clicked End Turn button");
     }
 }
