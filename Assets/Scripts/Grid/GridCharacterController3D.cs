@@ -50,7 +50,7 @@ public class GridCharacterController3D : MonoBehaviour
     private Dictionary<string, ActionController> actionControllers = new Dictionary<string, ActionController>();
 
     // Subsystem references
-    private CameraManager cameraManager;
+    private CameraManager camMan;
     // logic for pathfinding and movement
     private GridPathfinder pathfinder;
     // logic for visual indicator
@@ -142,7 +142,7 @@ public class GridCharacterController3D : MonoBehaviour
         HandlePlayerInput(cam, currentPlayer, currentCharacter, currentMovement);
 
         // Update camera
-        cameraManager?.update();
+        camMan?.update();
     }
 
     /// <summary>
@@ -213,18 +213,18 @@ public class GridCharacterController3D : MonoBehaviour
     {
         try
         {
-            cameraManager = CameraManager.GetInstance();
-            if (cameraManager != null)
+            camMan = CameraManager.GetInstance();
+            if (camMan != null)
             {
-                cameraManager.setCamera(Camera.main);
-
+                // set main camera
+                camMan.setCamera(Camera.main);
+                // for each kvp = KeyValuePair<string, GameObject> in characters dictionary
                 foreach (var kvp in characters)
                 {
-                    string displayName = kvp.Key.Replace("Player", "Player ");
-                    cameraManager.addActor(displayName, kvp.Value);
+                    // add character to camera manager
+                    camMan.addActor(kvp.Key, kvp.Value);
                 }
-
-                SetCameraForCharacter(currentPlayer, CameraType.Pick);
+                camMan.SetCameraForCharacter("Player1", CameraType.Pick);
             }
 
             foreach (var character in characters.Values)
@@ -425,10 +425,6 @@ public class GridCharacterController3D : MonoBehaviour
 
         yield return new WaitForSeconds(0.5f);
 
-        SetCameraForCharacter(currentPlayer, CameraType.Focus);
-
-        yield return new WaitForSeconds(0.3f);
-
         // Automatically end turn
         string characterName = actor.name.Replace("Player ", "Player");
         if (actionControllers.TryGetValue(characterName, out ActionController actionController))
@@ -546,8 +542,6 @@ public class GridCharacterController3D : MonoBehaviour
         currentPlayer = characterName;
         Debug.Log($"[GridCharacterController3D] Active player set to {currentPlayer}");
 
-        SetCameraForCharacter(currentPlayer, CameraType.Pick);
-
         // Update highlights for new player
         if (characters.TryGetValue(currentPlayer, out GameObject character))
         {
@@ -599,7 +593,6 @@ public class GridCharacterController3D : MonoBehaviour
 
         yield return new WaitForSeconds(0.5f);
 
-        SetCameraForCharacter(characterName, CameraType.Focus);
         yield return new WaitForSeconds(0.3f);
 
         // Update highlights after movement
@@ -619,16 +612,6 @@ public class GridCharacterController3D : MonoBehaviour
         return coordinateConverter;
     }
 
-    private void SetCameraForCharacter(string characterName, CameraType mode)
-    {
-        if (cameraManager != null)
-        {
-            string displayName = characterName.Replace("Player", "Player ");
-            cameraManager.setCurrentActor(displayName);
-            cameraManager.setMode(mode);
-            cameraManager.ResetClock();
-        }
-    }
 
     #endregion
 
