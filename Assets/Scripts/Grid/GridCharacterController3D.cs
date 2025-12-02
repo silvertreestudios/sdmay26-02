@@ -466,6 +466,7 @@ public class GridCharacterController3D : MonoBehaviour
 
     private void SpawnCharacter(string name, GameObject prefab, Vector3 position, Color color)
     {
+        // Instantiate character GameObject
         GameObject player = Instantiate(prefab);
         player.name = name.Replace("Player", "Player ");
         player.transform.position = position;
@@ -478,6 +479,7 @@ public class GridCharacterController3D : MonoBehaviour
             renderer.material.color = color;
         }
 
+        // Add ActionController component if not present 
         ActionController actionController = player.GetComponent<ActionController>();
         if (actionController == null)
         {
