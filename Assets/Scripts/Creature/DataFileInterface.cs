@@ -10,7 +10,7 @@ namespace Game.Creature
     public class DataFileInterface : MonoBehaviour
     {
         //store gameObject reference
-        GameObject prefab;
+        [SerializeField] private GameObject prefab;
 
         void SpawnNew()
         {
@@ -38,8 +38,8 @@ namespace Game.Creature
                 ? Instantiate(prefab)
                 : new GameObject(dto?.name ?? "Creature");
 
-            // Attach CreatureComponent script
-            var creatureInfo = creatureGO.AddComponent<CreatureComponent>();
+            // Get existing CreatureComponent if the prefab has one, otherwise add it.
+            var creatureInfo = creatureGO.GetComponent<CreatureComponent>() ?? creatureGO.AddComponent<CreatureComponent>();
 
             // Assign basic values from DTO (use property access, not indexing)
             creatureInfo.name = dto?.name ?? "";
@@ -108,13 +108,31 @@ namespace Game.Creature
 
         public static GameObject GetCreature(string creatureName)
         {
-            string rootDirectory = "Assets/DataFiles";
+            // Build data root path under project Assets
+            string rootDirectory = Path.Combine(Application.dataPath, "DataFiles");
+            if (!Directory.Exists(rootDirectory))
+            {
+                Debug.LogWarning($"Data files folder not found: {rootDirectory}");
+                return null;
+            }
+
             var files = Directory.GetFiles(rootDirectory, "*.json", SearchOption.AllDirectories);
             var match = files.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).Equals(creatureName, StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                Debug.LogWarning($"Creature JSON not found for name '{creatureName}' under {rootDirectory}");
+                return null;
+            }
 
-            // NOTE: creating a MonoBehaviour via 'new' is not recommended at runtime.
-            // Consider resolving a scene object or using a factory instead.
-            return match != null ? new DataFileInterface().CreateCreatureFromJson(match) : null;
+            // Find a scene instance of DataFileInterface
+            var instance = UnityEngine.Object.FindObjectOfType<DataFileInterface>();
+            if (instance == null)
+            {
+                Debug.LogError("No DataFileInterface instance found in the scene. Add one to call GetCreature.");
+                return null;
+            }
+
+            return instance.CreateCreatureFromJson(match);
         }
     }
 }
