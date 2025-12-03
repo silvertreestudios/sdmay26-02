@@ -1,11 +1,11 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+
 [ExecuteAlways, DisallowMultipleComponent]
 public class GridRenderer3D : GridInterface
 {
     // ---------- Public, serialized settings ----------
-
 
     public enum TileType
     {
@@ -64,6 +64,9 @@ public class GridRenderer3D : GridInterface
     // ---------- Grid Data ----------
     public TILE[,] gridInfo;
 
+    // Delegate to check if a cell is selectable (used by GridCharacterController3D)
+    public System.Func<Vector3Int, bool> IsCellSelectable { get; set; }
+
     public void SetStatus(int x, int z, TileStatus statusToSet)
     {
         if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return;
@@ -92,6 +95,7 @@ public class GridRenderer3D : GridInterface
         if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return;
         gridInfo[x, z].isOccupied = occupied;
     }
+
     public bool IsCellWalkable(int x, int z)
     {
         // if tiles array is null, treat all cells as non-walkable
@@ -126,23 +130,23 @@ public class GridRenderer3D : GridInterface
     // ---------- Unity lifecycle ----------
 
     // First-time setup; build everything once.
-    void Awake() {  }
+    void Awake() { }
 
     // Ensure ready when enabled; hide hover initially.
-    void OnEnable() 
-    { 
-        Init(); 
-        FullRebuild(); 
-        HasHover = false; 
+    void OnEnable()
+    {
+        Init();
+        FullRebuild();
+        HasHover = false;
     }
 
     // Rebuild when inspector values change in edit mode.
-    void OnValidate() 
-    { 
+    void OnValidate()
+    {
         if (!Application.isPlaying) // Only rebuild in editor
         {
-            Init(); 
-            FullRebuild(); 
+            Init();
+            FullRebuild();
         }
     }
 
@@ -187,6 +191,12 @@ public class GridRenderer3D : GridInterface
             // Inside bounds?
             bool inside = (uint)cell.x < (uint)width && (uint)cell.z < (uint)height;
             bool canHover = inside && IsCellWalkable(cell.x, cell.z);
+
+            // Additional check: if a selectability delegate is registered, use it
+            if (canHover && IsCellSelectable != null)
+            {
+                canHover = IsCellSelectable(cell);
+            }
 
             if (canHover && !cell.Equals(HoverCell)) { HoverCell = cell; HasHover = true; UpdateHover(); }
             else if (!canHover) HasHover = false;
