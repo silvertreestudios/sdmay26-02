@@ -17,7 +17,8 @@ namespace Game.Creature
                 Debug.LogError($"Failed to load creature '{creatureName}'. Ensure a DataFileInterface exists in the scene and the JSON is present under Assets/DataFiles.");
                 return;
             }
-
+            // creature.addComponent<ITokenMovement>();  // TODO
+            // creature.addComponent<ActionController>(); // TODO
             creature.transform.position = Vector3.zero;
             Debug.Log("Loaded creature: " + creature.name);
         }
