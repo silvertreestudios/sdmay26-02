@@ -128,64 +128,68 @@ public class MovementRange
     /// Calculates all reachable tiles within movement range using depth-first search
     /// </summary>
     private HashSet<Vector3Int> CalculateReachableTiles(Vector3Int start, int maxRange)
+{
+    // Return all walkable tiles if unlimited range
+    if (maxRange <= 0)
     {
-        // Return all walkable tiles if unlimited range
-        if (maxRange <= 0)
+        return GetAllWalkableTiles();
+    }
+
+    HashSet<Vector3Int> reachable = new HashSet<Vector3Int>();
+    Dictionary<Vector3Int, float> bestCost = new Dictionary<Vector3Int, float>();
+    Stack<(Vector3Int cell, float cost)> stack = new Stack<(Vector3Int, float)>();
+
+    // Start DFS
+    stack.Push((start, 0f));
+    bestCost[start] = 0f;
+
+    while (stack.Count > 0)
+    {
+        var (current, currentCost) = stack.Pop();
+
+        // Skip if we've already found a better path to this cell
+        if (bestCost.TryGetValue(current, out float existingCost) && currentCost > existingCost)
+            continue;
+
+        // Only proceed if within range
+        if (currentCost > maxRange)
+            continue;
+
+        // Add to reachable if within range, walkable and not the start cell
+        if (grid.IsCellWalkable(current) && current != start)
         {
-            return GetAllWalkableTiles();
+            reachable.Add(current);
         }
 
-        HashSet<Vector3Int> reachable = new HashSet<Vector3Int>();
-        Dictionary<Vector3Int, float> bestCost = new Dictionary<Vector3Int, float>();
-        Stack<(Vector3Int cell, float cost)> stack = new Stack<(Vector3Int, float)>();
-
-        // Start DFS
-        stack.Push((start, 0f));
-        bestCost[start] = 0f;
-
-        while (stack.Count > 0)
+        // Explore neighbors (even if current is not walkable, as long as we are within range)
+        foreach (var neighbor in GetNeighbors(current))
         {
-            var (current, currentCost) = stack.Pop();
-
-            // Skip if we've already found a better path to this cell
-            if (bestCost.TryGetValue(current, out float existingCost) && currentCost > existingCost)
+            // Check bounds
+            if (!IsWithinBounds(neighbor))
                 continue;
 
-            // Add to reachable if within range and walkable
-            if (currentCost <= maxRange && grid.IsCellWalkable(current.x, current.z))
+            // Check walkability for neighbor; allow the start cell even if it's not walkable
+            if (!grid.IsCellWalkable(neighbor) && neighbor != start)
+                continue;
+
+            // Calculate movement cost
+            float moveCost = CalculateMovementCost(current, neighbor);
+            float newCost = currentCost + moveCost;
+
+            // Only add if within range and better than any previous path
+            if (newCost <= maxRange)
             {
-                reachable.Add(current);
-
-                // Explore neighbors
-                foreach (var neighbor in GetNeighbors(current))
+                if (!bestCost.TryGetValue(neighbor, out float neighborBestCost) || newCost < neighborBestCost)
                 {
-                    // Check bounds
-                    if (!IsWithinBounds(neighbor))
-                        continue;
-
-                    // Check walkability
-                    if (!grid.IsCellWalkable(neighbor.x, neighbor.z))
-                        continue;
-
-                    // Calculate movement cost
-                    float moveCost = CalculateMovementCost(current, neighbor);
-                    float newCost = currentCost + moveCost;
-
-                    // Only add if within range and better than any previous path
-                    if (newCost <= maxRange)
-                    {
-                        if (!bestCost.TryGetValue(neighbor, out float neighborBestCost) || newCost < neighborBestCost)
-                        {
-                            bestCost[neighbor] = newCost;
-                            stack.Push((neighbor, newCost));
-                        }
-                    }
+                    bestCost[neighbor] = newCost;
+                    stack.Push((neighbor, newCost));
                 }
             }
         }
-
-        return reachable;
     }
+
+    return reachable;
+}
 
     /// <summary>
     /// Gets all walkable tiles on the grid (for unlimited range)
@@ -197,7 +201,7 @@ public class MovementRange
         {
             for (int z = 0; z < grid.height; z++)
             {
-                if (grid.IsCellWalkable(x, z))
+                if (grid.IsCellWalkable(new Vector3Int(x, 0, z)))
                 {
                     allTiles.Add(new Vector3Int(x, 0, z));
                 }
@@ -226,8 +230,8 @@ public class MovementRange
                 Vector3Int adjacent1 = cell + new Vector3Int(dir.x, 0, 0);
                 Vector3Int adjacent2 = cell + new Vector3Int(0, 0, dir.z);
 
-                bool adjacent1Valid = IsWithinBounds(adjacent1) && grid.IsCellWalkable(adjacent1.x, adjacent1.z);
-                bool adjacent2Valid = IsWithinBounds(adjacent2) && grid.IsCellWalkable(adjacent2.x, adjacent2.z);
+                bool adjacent1Valid = IsWithinBounds(adjacent1) && grid.IsCellWalkable(adjacent1);
+                bool adjacent2Valid = IsWithinBounds(adjacent2) && grid.IsCellWalkable(adjacent2);
 
                 if (adjacent1Valid && adjacent2Valid)
                 {
