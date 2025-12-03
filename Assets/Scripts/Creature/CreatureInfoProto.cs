@@ -12,7 +12,7 @@ namespace Game.Creature
 {
 
     [System.Serializable]
-    public struct skillValue
+    public struct SkillValue
     {
         public string skillName;
         public int skillMod;
@@ -45,18 +45,22 @@ namespace Game.Creature
         int willSave { get; set; }
 
         // Skills & description (added to keep interface aligned with component)
-        List<skillValue> skills { get; set; }
+        List<SkillValue> skills { get; set; }
         string description { get; set; }
 
-        // Actions and Equipment (uncomment if needed)
+        // TODO ActionController actionController;
+
+        // Actions and Equipment, saved as string names only for the time being
         // List<CreatureAction> actions { get; set; }
         // List<Equipment> equipment { get; set; }
+        // short term: comment out equipment, weapon values hardcoded to strike action
+        // long term: equipment to separate script?
     }
 
     // Extension as a Unity MonoBehaviour
-    // TODO : Use [SerializeField] for properties to edit in Inspector
     public class CreatureComponent : MonoBehaviour, ICreature
     {
+        // TODO: derive equipment proficiencies?
         // Basic stats
         [SerializeField] private string _name;
         [SerializeField] private int _level;
@@ -86,11 +90,15 @@ namespace Game.Creature
         [SerializeField] private int _allSaves;
 
         // Serialized storage for skills and description so Unity can persist them
-        [SerializeField] private List<skillValue> _skills = new List<skillValue>();
+        [SerializeField] private List<SkillValue> _skills = new List<SkillValue>();
         [SerializeField] [TextArea] private string _description;
 
+        // Serialized actions & equipment (previously auto-properties; won't persist)
+        [SerializeField] private List<string> _actions = new List<string>();
+        [SerializeField] private List<string> _equipment = new List<string>();
+
         // Public properties for interface
-        public string name { get => _name; set => _name = value; }
+        public new string name { get => _name; set { _name = value; base.name = value; } }
         public int level { get => _level; set => _level = value; }
         public int initiative { get => _initiative; set => _initiative = value; }
         public int speed { get => _speed; set => _speed = value; }
@@ -116,14 +124,10 @@ namespace Game.Creature
         public int willSave { get => _willSave; set => _willSave = value; }
         public int allSaves { get => _allSaves; set => _allSaves = value; }
 
-        // public ActionController actionController;
-        // saved as string names only for the time being
-        public List<string> actions { get; set; } = new List<string>();
-        public List<string> equipment { get; set; } = new List<string>();
-        // public List<CreatureAction> actions { get; set; } = new List<CreatureAction>();
-        // public List<Equipment> equipment { get; set; } = new List<Equipment>();
-        // short term: comment out equipment, weapon values hardcoded to strike action
-        // long term: equipment to separate script?
+
+        // serialized backing fields exposed via properties
+        public List<string> actions { get => _actions; set => _actions = value ?? new List<string>(); }
+        public List<string> equipment { get => _equipment; set => _equipment = value ?? new List<string>(); }
 
         // TODO: properly implement        
         public List<string> traits { get; set; } = new List<string>();
@@ -132,7 +136,7 @@ namespace Game.Creature
         public List<string> senses { get; set; } = new List<string>();
 
         // expose serialized backing fields via properties used by code
-        public List<skillValue> skills { get => _skills; set => _skills = value ?? new List<skillValue>(); }
+        public List<SkillValue> skills { get => _skills; set => _skills = value ?? new List<SkillValue>(); }
         public string description { get => _description; set => _description = value; }
 
 
@@ -164,24 +168,24 @@ namespace Game.Creature
             DamageRoller.EvaluateCriticalDamage(attackRoll.degree, damageValues);
             DamageRoller.ApplyWeaknessAndResistance(damageValues, _weaknesses, _resistances);
             int damage = DamageRoller.SumDamage(damageValues);
-            _hp -= damage;
-            if (_hp < 0) _hp = 0;
+
+            // consume temp HP first
+            int remaining = damage;
+            if (_tempHp > 0)
+            {
+                int used = Mathf.Min(_tempHp, remaining);
+                _tempHp -= used;
+                remaining -= used;
+            }
+
+            _hp -= remaining;
+            _hp = Mathf.Max(0, _hp);
         }
 
         public void HealDamage(int healAmount)
         {
             _hp += healAmount;
-            if (_hp > _maxHp) _hp = _maxHp;
+            _hp = Mathf.Clamp(_hp, 0, _maxHp);
         }
-
-        // public void Move()
-        // {
-        //     CreatureActions.Move(this);
-        // }
-
-        // public void Strike(Equipment weapon, ICreature target)
-        // {
-        //     CreatureActions.Strike(this, weapon, target);
-        // }
     }
 }

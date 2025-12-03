@@ -149,7 +149,7 @@ namespace Game.Creature
             if (dto.system?.skills != null)
             {
                 foreach (var s in dto.system.skills)
-                    target.skills.Add(new skillValue { skillName = s.name, skillMod = s.@base });
+                    target.skills.Add(new SkillValue { skillName = s.name, skillMod = s.@base });
             }
 
             // publicNotes (plain/paragraphs) — importer can produce these; map into description
