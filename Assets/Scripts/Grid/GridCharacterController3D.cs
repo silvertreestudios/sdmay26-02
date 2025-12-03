@@ -75,7 +75,7 @@ public class GridCharacterController3D : MonoBehaviour
     {
         // Set up singleton
         if (instance != null && instance != this)
-        { 
+        {
             Destroy(this.gameObject);
             return;
         }
