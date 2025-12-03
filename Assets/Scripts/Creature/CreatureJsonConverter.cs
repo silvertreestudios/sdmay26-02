@@ -18,6 +18,14 @@ namespace Game.Creature
         public string Source;
     }
 
+    // Skill DTO for the array form produced by JsonImporter
+    [Serializable]
+    public class SkillDto
+    {
+        public string name;
+        public int @base; // matches "base" key in JSON; use @ to escape keyword
+    }
+
     [Serializable] public class SystemDto
     {
         public AbilitySetDto abilities;
@@ -27,8 +35,16 @@ namespace Game.Creature
         public SaveSetDto saves;
         public WeaknessDto[] weaknesses;
         public ResistanceDto[] resistances;
+        public SkillDto[] skills; // now a typed array (importer produces this)
     }
-    [Serializable] public class DetailsDto { public LevelDto level; }
+    [Serializable]
+    public class DetailsDto
+    {
+        public LevelDto level;
+        // fields normalized by JsonImporter
+        public string publicNotesPlain;
+        public string[] publicNotesParagraphs;
+    }
     [Serializable] public class LevelDto { public int value; }
 
     [Serializable] public class AttributesDto { public AcDto ac; public HpDto hp; public SpeedDto speed; }
@@ -64,6 +80,9 @@ namespace Game.Creature
 
             // Attributes
             target.hp = dto.system.attributes?.hp?.value ?? target.hp;
+            target.maxHp = dto.system.attributes?.hp?.max ?? target.maxHp;
+            target.tempHp = dto.system.attributes?.hp?.temp ?? target.tempHp;
+
             target.ac = dto.system.attributes?.ac?.value ?? target.ac;
             target.speed = dto.system.attributes?.speed?.value ?? target.speed;
 
@@ -123,6 +142,29 @@ namespace Game.Creature
                 foreach (var e in dto.equipment)
                     if (!string.IsNullOrEmpty(e?.name))
                         target.equipment.Add(e.name);
+            }
+
+            // Skills: dto.system.skills is now an array produced by JsonImporter
+            target.skills.Clear();
+            if (dto.system?.skills != null)
+            {
+                foreach (var s in dto.system.skills)
+                    target.skills.Add(new skillValue { skillName = s.name, skillMod = s.@base });
+            }
+
+            // publicNotes (plain/paragraphs) — importer can produce these; map into description
+            if (dto.system?.details != null)
+            {
+                var details = dto.system.details;
+                if (details.publicNotesParagraphs != null && details.publicNotesParagraphs.Length > 0)
+                {
+                    // join paragraphs into a single description string separated by blank lines
+                    target.description = string.Join("\n\n", details.publicNotesParagraphs);
+                }
+                else if (!string.IsNullOrEmpty(details.publicNotesPlain))
+                {
+                    target.description = details.publicNotesPlain;
+                }
             }
 
             // leave damageBonus and other fields untouched unless DTO provides them

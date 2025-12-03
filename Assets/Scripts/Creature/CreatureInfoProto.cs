@@ -11,6 +11,13 @@ using System.Collections.Generic;
 namespace Game.Creature
 {
 
+    [System.Serializable]
+    public struct skillValue
+    {
+        public string skillName;
+        public int skillMod;
+    }
+
     public interface ICreature
     {
         // Basic properties
@@ -37,6 +44,10 @@ namespace Game.Creature
         int reflexSave { get; set; }
         int willSave { get; set; }
 
+        // Skills & description (added to keep interface aligned with component)
+        List<skillValue> skills { get; set; }
+        string description { get; set; }
+
         // Actions and Equipment (uncomment if needed)
         // List<CreatureAction> actions { get; set; }
         // List<Equipment> equipment { get; set; }
@@ -51,8 +62,11 @@ namespace Game.Creature
         [SerializeField] private int _level;
         [SerializeField] private int _initiative;
         [SerializeField] private int _speed;
+        // TODO other movement type speeds
         // combat stats
         [SerializeField] private int _hp;
+        [SerializeField] private int _maxHp;
+        [SerializeField] private int _tempHp;
         [SerializeField] private int _ac;
         [SerializeField] private int _attackBonus;
         [SerializeField] private int _damageBonus;
@@ -69,6 +83,11 @@ namespace Game.Creature
         [SerializeField] private int _fortitudeSave;
         [SerializeField] private int _reflexSave;
         [SerializeField] private int _willSave;
+        [SerializeField] private int _allSaves;
+
+        // Serialized storage for skills and description so Unity can persist them
+        [SerializeField] private List<skillValue> _skills = new List<skillValue>();
+        [SerializeField] [TextArea] private string _description;
 
         // Public properties for interface
         public string name { get => _name; set => _name = value; }
@@ -77,6 +96,8 @@ namespace Game.Creature
         public int speed { get => _speed; set => _speed = value; }
 
         public int hp { get => _hp; set => _hp = value; }
+        public int maxHp { get => _maxHp; set => _maxHp = value; }
+        public int tempHp { get => _tempHp; set => _tempHp = value; }
         public int ac { get => _ac; set => _ac = value; }
         public int attackBonus { get => _attackBonus; set => _attackBonus = value; }
         public int damageBonus { get => _damageBonus; set => _damageBonus = value; }
@@ -93,6 +114,7 @@ namespace Game.Creature
         public int fortitudeSave { get => _fortitudeSave; set => _fortitudeSave = value; }
         public int reflexSave { get => _reflexSave; set => _reflexSave = value; }
         public int willSave { get => _willSave; set => _willSave = value; }
+        public int allSaves { get => _allSaves; set => _allSaves = value; }
 
         // public ActionController actionController;
         // saved as string names only for the time being
@@ -103,11 +125,16 @@ namespace Game.Creature
         // short term: comment out equipment, weapon values hardcoded to strike action
         // long term: equipment to separate script?
 
-        // TODO: 
-        // skills
-        // traits
-        // size 
-        // senses
+        // TODO: properly implement        
+        public List<string> traits { get; set; } = new List<string>();
+        public string size { get; set; }
+        public List<string> languages { get; set; } = new List<string>();
+        public List<string> senses { get; set; } = new List<string>();
+
+        // expose serialized backing fields via properties used by code
+        public List<skillValue> skills { get => _skills; set => _skills = value ?? new List<skillValue>(); }
+        public string description { get => _description; set => _description = value; }
+
 
         void Start()
         {
@@ -119,6 +146,18 @@ namespace Game.Creature
             // Per-frame logic here
         }
 
+        // helper: get skill mod by name (case-insensitive)
+        public int GetSkillMod(string skillName, int defaultValue = 0)
+        {
+            if (_skills == null) return defaultValue;
+            for (int i = 0; i < _skills.Count; i++)
+            {
+                if (string.Equals(_skills[i].skillName, skillName, System.StringComparison.OrdinalIgnoreCase))
+                    return _skills[i].skillMod;
+            }
+            return defaultValue;
+        }
+
         public void TakeDamage(List<DamageValue> damageValues, D20Result attackRoll)
         {
             // TODO : call function to apply resistances, immunities, vulnerabilities against damageValues
@@ -127,6 +166,12 @@ namespace Game.Creature
             int damage = DamageRoller.SumDamage(damageValues);
             _hp -= damage;
             if (_hp < 0) _hp = 0;
+        }
+
+        public void HealDamage(int healAmount)
+        {
+            _hp += healAmount;
+            if (_hp > _maxHp) _hp = _maxHp;
         }
 
         // public void Move()
