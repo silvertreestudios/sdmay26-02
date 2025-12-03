@@ -625,6 +625,25 @@ public class GridCharacterController3D : MonoBehaviour
         Debug.Log($"[GridCharacterController3D] Movement completed for {characterName}");
     }
 
+    //I want to use an interface to access this method in the future
+    //This method takes a player object and range as an input
+    //returns a list of gameobjects within that range
+    public List<GameObject> GetOccupantsInArea(GameObject token, int range)
+    {
+        if (!characters.ContainsValue(token))
+        {
+            Debug.LogError("[GridCharacterController3D] Token not recognized!");
+            return new List<GameObject>();
+        }
+
+        Vector3Int centerCell = coordinateConverter.GetCharacterCell(token);
+        rangeHighlighter.UpdateHighlights(centerCell, range);
+        HashSet<Vector3Int> areaCells = rangeHighlighter.CalculateEmination(centerCell, range);
+        //convert hashset to list
+        List<Vector3Int> areaCellsList = new List<Vector3Int>(areaCells);
+        return grid.GetOccupantsInArea(areaCellsList);
+    }
+
     /// <summary>
     /// Gets the coordinate converter instance
     /// </summary>
