@@ -363,7 +363,7 @@ public class GridCharacterController3D : MonoBehaviour
             return false;
 
         // Early exit: check if target is walkable and reachable (cheap checks first)
-        if (!grid.IsCellWalkable(targetCell.x, targetCell.z))
+        if (!grid.IsCellWalkable(targetCell))
             return false;
 
         if (!rangeHighlighter.IsCellReachable(targetCell))
@@ -416,7 +416,7 @@ public class GridCharacterController3D : MonoBehaviour
 
         movement.start();
         // track last known cell for grid occupancy
-        Vector3Int lastCell = GetCharacterCell(actor);
+        Vector3Int lastCell = coordinateConverter.GetCharacterCell(actor);
 
         // wait until movement completes
         while (movement.IsMoving())
@@ -425,7 +425,7 @@ public class GridCharacterController3D : MonoBehaviour
             yield return movement.update();
 
             // check current cell
-            Vector3Int currentCell = GetCharacterCell(actor);
+            Vector3Int currentCell = coordinateConverter.GetCharacterCell(actor);
 
             // only touch grid if the actor actually entered a new cell
             if (currentCell != lastCell)
@@ -436,14 +436,13 @@ public class GridCharacterController3D : MonoBehaviour
         }
 
         // final safety update in case we ended exactly on a boundary
-        Vector3Int finalCell = GetCharacterCell(actor);
+        Vector3Int finalCell = coordinateConverter.GetCharacterCell(actor);
         if (finalCell != lastCell)
         {
             grid.MoveCreaturePosition(actor, finalCell, lastCell);
         }
 
-        // when done moving, end turn
-        turnManager.EndTurn();
+        yield return new WaitForSeconds(0.5f);
 
         // Automatically end turn
         string characterName = actor.name.Replace("Player ", "Player");
@@ -477,10 +476,7 @@ public class GridCharacterController3D : MonoBehaviour
         SpawnCharacter("Player1", prefab, new Vector3(.5f, yPos, .5f), Color.white);
 
         GameObject player2Prefab = prefab2 != null ? prefab2 : prefab;
-        //ANOTHER TEMP FIX, grid IS PROBABLY NOT THE RIGHT WAY TO CALL THESE METHODS BUT IDK HOW ELSE TO DO IT
-        grid.SetCreaturePosition(characters["Player1"], GetCharacterCell(characters["Player1"]));
         SpawnCharacter("Player2", player2Prefab, new Vector3(18.5f, yPos, 1.5f), Color.red);
-        grid.SetCreaturePosition(characters["Player2"], GetCharacterCell(characters["Player2"]));
     }
 
     private void SpawnCharacter(string name, GameObject prefab, Vector3 position, Color color)
@@ -505,6 +501,8 @@ public class GridCharacterController3D : MonoBehaviour
             actionController = player.AddComponent<ActionController>();
         }
         actionControllers[name] = actionController;
+        //ANOTHER TEMP FIX, grid IS PROBABLY NOT THE RIGHT WAY TO CALL THESE METHODS BUT IDK HOW ELSE TO DO IT
+        grid.SetCreaturePosition(characters[name], coordinateConverter.GetCharacterCell(characters[name]));
     }
 
     void SnapToValidCell(GameObject obj)
@@ -514,7 +512,7 @@ public class GridCharacterController3D : MonoBehaviour
         if (!coordinateConverter.TryGridWorldToCell(obj.transform.position, out var cell, clamp: true))
             return;
 
-        if (!grid.IsCellWalkable(cell.x, cell.z))
+        if (!grid.IsCellWalkable(cell))
             return;
 
         obj.transform.position = coordinateConverter.GridCellCenterWorld(cell.x, cell.z, yDrawOffset);

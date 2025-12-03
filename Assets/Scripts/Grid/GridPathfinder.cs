@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
 
 /// <summary>
@@ -19,6 +20,9 @@ public class GridPathfinder
     private float[] distanceArray;
     private Vector3Int?[] previousArray;
     private readonly MinHeap heap = new MinHeap();
+
+    // store the current pathfinding start position
+    private Vector3Int startCell;
 
     // cardinal directions (up, down, left, right)
     private static readonly Vector3Int[] CardinalDirections = new[]
@@ -68,6 +72,9 @@ public class GridPathfinder
     /// <returns>Tuple containing (found, distance, path)</returns>
     public (bool found, float distance, List<Vector3Int> path) FindPath(Vector3Int start, Vector3Int target)
     {
+        // remember the start cell for this pathfinding run
+        startCell = start;
+
         // helper to convert 2D cell to 1D index
         int w = grid.width, h = grid.height, total = w * h;
 
@@ -154,7 +161,7 @@ public class GridPathfinder
                 continue;
 
             // check if neighbor cell is walkable
-            if (!grid.IsCellWalkable(v))
+            if (v != startCell && !grid.IsCellWalkable(v))
                 continue;
 
             // for diagonal movement, also check if both adjacent cardinal cells are walkable
