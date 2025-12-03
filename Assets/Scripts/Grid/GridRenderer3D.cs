@@ -2,11 +2,11 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+
 [ExecuteAlways, DisallowMultipleComponent]
 public class GridRenderer3D : GridInterface
 {
     // ---------- Public, serialized settings ----------
-
 
     public enum TileType
     {
@@ -68,6 +68,9 @@ public class GridRenderer3D : GridInterface
     // ---------- Grid Data ----------
     //3d array of tile info
     public TILE[,,] gridInfo;
+
+    // Delegate to check if a cell is selectable (used by GridCharacterController3D)
+    public System.Func<Vector3Int, bool> IsCellSelectable { get; set; }
 
     public void SetStatus(int x, int z, TileStatus statusToSet)
     {
@@ -131,23 +134,23 @@ public class GridRenderer3D : GridInterface
     // ---------- Unity lifecycle ----------
 
     // First-time setup; build everything once.
-    void Awake() {  }
+    void Awake() { }
 
     // Ensure ready when enabled; hide hover initially.
-    void OnEnable() 
-    { 
-        Init(); 
-        FullRebuild(); 
-        HasHover = false; 
+    void OnEnable()
+    {
+        Init();
+        FullRebuild();
+        HasHover = false;
     }
 
     // Rebuild when inspector values change in edit mode.
-    void OnValidate() 
-    { 
+    void OnValidate()
+    {
         if (!Application.isPlaying) // Only rebuild in editor
         {
-            Init(); 
-            FullRebuild(); 
+            Init();
+            FullRebuild();
         }
     }
 

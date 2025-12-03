@@ -29,7 +29,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     private Vector3 cameraOffset = new Vector3(0, 5, -5);
     public float orbitRadius = 5f; // Distance from target
     public float orbitSpeed = 90f; // Degrees per second
-    private float currentOrbitAngle = 0f; 
+    private float currentOrbitAngle = 0f;
     private bool NeedsToMovetoTarget = false;
     private Vector3 targetPosition;
 
@@ -115,8 +115,8 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         currentTime += Time.deltaTime;
         float time = Mathf.Clamp01(currentTime / jumpTime);
         //isTransitionDone flag control 
-        if (time >= 1f) {isTransitionDone = true;}
-        else {isTransitionDone = false;}
+        if (time >= 1f) { isTransitionDone = true; }
+        else { isTransitionDone = false; }
         return time;
     }
 
@@ -305,14 +305,16 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
                 NeedsToMovetoTarget = false;
                 ResetClock();
                 Debug.Log("Camera has reached the target position.");
-            } 
-        } else {
+            }
+        }
+        else
+        {
 
             // Get camera's forward direction on horizontal plane (ignore Y angle)
             Vector3 cameraForward = camera.transform.forward;
             cameraForward.y = 0;
             cameraForward.Normalize();
-            
+
             // Get camera's right direction on horizontal plane
             Vector3 cameraRight = camera.transform.right;
             cameraRight.y = 0;
@@ -322,7 +324,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
             {
                 Debug.Log("W key pressed");
                 totalTransform += cameraForward * 5.0f * Time.deltaTime;
-            } 
+            }
             if (Input.GetKey(KeyCode.A) && !Input.GetKey(KeyCode.LeftShift))
             {
                 Debug.Log("A key pressed");
@@ -376,7 +378,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
                 UpdateCameraOrbit();
                 Debug.Log("Left Arrow key pressed");
             }
-            if (Input.GetKey(KeyCode.RightArrow)|| Input.GetKey(KeyCode.E))
+            if (Input.GetKey(KeyCode.RightArrow) || Input.GetKey(KeyCode.E))
             {
                 // Clockwise rotation
                 currentOrbitAngle -= orbitSpeed * Time.deltaTime;
@@ -387,19 +389,21 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
             if (Input.GetKey(KeyCode.LeftShift))
             {
                 Debug.Log("Left Shift key pressed");
-                
+
                 // Normalize mouse position to -0.5 to 0.5 range (center = 0,0)
                 Vector2 normalizedMousePos;
                 normalizedMousePos.x = (Input.mousePosition.x / Screen.width) - 0.5f;
                 normalizedMousePos.y = (Input.mousePosition.y / Screen.height) - 0.5f;
-                
+
                 // Define deadzone threshold (0.2 = 20% from center)
                 float deadzone = 0.2f;
 
-                if (Mathf.Abs(normalizedMousePos.x) > deadzone){
+                if (Mathf.Abs(normalizedMousePos.x) > deadzone)
+                {
                     totalTransform += cameraRight * Mathf.Sign(normalizedMousePos.x) * 5.0f * Time.deltaTime;
                 }
-                if (Mathf.Abs(normalizedMousePos.y) > deadzone){
+                if (Mathf.Abs(normalizedMousePos.y) > deadzone)
+                {
                     totalTransform += cameraForward * Mathf.Sign(normalizedMousePos.y) * 5.0f * Time.deltaTime;
                 }
             }
@@ -415,29 +419,29 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         }
     }
 
-private void UpdateCameraOrbit()
-{
-    // Calculate current distance between camera and target
-    Vector3 cameraPosition = new Vector3(
-        cameraTarget.transform.position.x + cameraOffset.x,
-        cameraTarget.transform.position.y + cameraOffset.y,
-        cameraTarget.transform.position.z + cameraOffset.z
-    );
-    
-    // Get horizontal distance (ignoring Y for circular orbit)
-    Vector3 horizontalOffset = cameraPosition - cameraTarget.transform.position;
-    float currentRadius = new Vector2(horizontalOffset.x, horizontalOffset.z).magnitude;
-    
-    // Calculate new offset based on angle and current radius
-    float radians = currentOrbitAngle * Mathf.Deg2Rad;
-    float x = Mathf.Sin(radians) * currentRadius;
-    float z = -Mathf.Cos(radians) * currentRadius;
-    
-    // Keep the Y component from the current offset
-    cameraOffset = new Vector3(x, cameraOffset.y, z);
-}
+    private void UpdateCameraOrbit()
+    {
+        // Calculate current distance between camera and target
+        Vector3 cameraPosition = new Vector3(
+            cameraTarget.transform.position.x + cameraOffset.x,
+            cameraTarget.transform.position.y + cameraOffset.y,
+            cameraTarget.transform.position.z + cameraOffset.z
+        );
 
-public void setTarget(GameObject target)
+        // Get horizontal distance (ignoring Y for circular orbit)
+        Vector3 horizontalOffset = cameraPosition - cameraTarget.transform.position;
+        float currentRadius = new Vector2(horizontalOffset.x, horizontalOffset.z).magnitude;
+
+        // Calculate new offset based on angle and current radius
+        float radians = currentOrbitAngle * Mathf.Deg2Rad;
+        float x = Mathf.Sin(radians) * currentRadius;
+        float z = -Mathf.Cos(radians) * currentRadius;
+
+        // Keep the Y component from the current offset
+        cameraOffset = new Vector3(x, cameraOffset.y, z);
+    }
+
+    public void setTarget(GameObject target)
     {
         Debug.Log("Setting camera target to: " + target.name);
         // NeedsToMovetoTarget = true;

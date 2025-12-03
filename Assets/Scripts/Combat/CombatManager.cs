@@ -14,17 +14,7 @@ public class CombatManager : CombatManagerInterface
     public override void StartCombat()
     {
         Debug.Log("Start Combat.");
-        List<(uint, ActionController)> initiatives = new List<(uint, ActionController)>();
-        foreach (ActionController e in combatants)
-        {
-            initiatives.Add((e.GetInitiative(), e));
-        }
-        initiatives.Sort();
-        combatants.Clear();
-        foreach ((uint, ActionController) initiative in initiatives)
-        {
-            combatants.Enqueue(initiative.Item2);
-        }
+
         NextTurn();
     }
 
