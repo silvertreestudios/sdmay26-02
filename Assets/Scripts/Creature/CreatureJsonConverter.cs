@@ -60,10 +60,41 @@ namespace Game.Creature
     [Serializable] public class WeaknessDto { public string type; public int value; }
     [Serializable] public class ResistanceDto { public string type; public int value; }
 
+    // Item DTOs
     [Serializable] public class ItemDto { public string name; public string type; public ItemSystemDto system; }
-    [Serializable] public class ItemSystemDto { public BonusDto bonus; public DamageRollsDto damageRolls; }
+
+    // ItemSystemDto updated to match MonsterJsonProcessor output:
+    // - damageRolls is now an array
+    // - descriptionParagraphs promoted (optional)
+    // - range and traits promoted (optional)
+    [Serializable]
+    public class ItemSystemDto
+    {
+        public BonusDto bonus;
+        public DamageRollsDto[] damageRolls;
+        public string[] descriptionParagraphs;
+        public RangeDto range;
+        public TraitsDto traits;
+    }
+
     [Serializable] public class BonusDto { public int value; }
     [Serializable] public class DamageRollsDto { public string damage; public string damageType; }
+
+    [Serializable]
+    public class RangeDto
+    {
+        // JSON may have increment and max. JsonUtility maps missing numeric fields to 0.
+        public int increment;
+        public int max;
+    }
+
+    [Serializable]
+    public class TraitsDto
+    {
+        // Matches the promoted structure (example: { "rarity":"common", "value":[ "agile", ... ] })
+        public string rarity;
+        public string[] value;
+    }
 
     [Serializable] public class EquipmentDto { public string name; public string type; public int quantity; }
 
@@ -167,7 +198,9 @@ namespace Game.Creature
                 }
             }
 
-            // leave damageBonus and other fields untouched unless DTO provides them
+            // Note: item-level fields such as item.system.damageRolls (array), item.system.descriptionParagraphs,
+            // item.system.range, item.system.traits are now available in DTOs for future mapping if needed.
+            // Leave damageBonus and other fields untouched unless DTO provides them
         }
     }
 

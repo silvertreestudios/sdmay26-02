@@ -55,17 +55,17 @@
       },
       "privateNotes": "",
       "publicNotes": "<p>The frontline fighters of goblin tribes prefer to fight in large groups—especially when they can outnumber their foes at least three to one.</p>\n<hr />\n<p>These small humanoids typically have green or gray skin and large heads with wide ears. While some goblins are civilized and have worked hard to be considered upstanding members of humanoid communities, many are impetuous and vicious creatures who delight in wreaking havoc. These goblins think nothing of slaughtering livestock, stealing, or burning down a building purely for momentary delight. They revel in playing malicious tricks on taller humanoids, whom they call \"longshanks.\"</p>\n<p>Goblins are superstitious, with an intense awe of magic and a fascination with fire; goblins who master magic or fire earn great respect from their kin. Most other humanoids find it difficult to understand goblins' outlook: they hate canines but eagerly share their lairs with so-called \"goblin dogs,\" they fearlessly attack larger creatures but are terrified of horses, and they despise vegetables yet consider pickles a delicacy. To a goblin, of course, these are all perfectly sensible life choices.</p>",
-      "publication": {
-        "license": "ORC",
-        "remaster": true,
-        "title": "Pathfinder Monster Core"
-      },
-      "publicNotesPlain": "The frontline fighters of goblin tribes prefer to fight in large groups—especially when they can outnumber their foes at least three to one.\n\nThese small humanoids typically have green or gray skin and large heads with wide ears. While some goblins are civilized and have worked hard to be considered upstanding members of humanoid communities, many are impetuous and vicious creatures who delight in wreaking havoc. These goblins think nothing of slaughtering livestock, stealing, or burning down a building purely for momentary delight. They revel in playing malicious tricks on taller humanoids, whom they call \"longshanks.\"\nGoblins are superstitious, with an intense awe of magic and a fascination with fire; goblins who master magic or fire earn great respect from their kin. Most other humanoids find it difficult to understand goblins' outlook: they hate canines but eagerly share their lairs with so-called \"goblin dogs,\" they fearlessly attack larger creatures but are terrified of horses, and they despise vegetables yet consider pickles a delicacy. To a goblin, of course, these are all perfectly sensible life choices.",
+      "publicNotesPlain": null,
       "publicNotesParagraphs": [
         "The frontline fighters of goblin tribes prefer to fight in large groups—especially when they can outnumber their foes at least three to one.",
         "These small humanoids typically have green or gray skin and large heads with wide ears. While some goblins are civilized and have worked hard to be considered upstanding members of humanoid communities, many are impetuous and vicious creatures who delight in wreaking havoc. These goblins think nothing of slaughtering livestock, stealing, or burning down a building purely for momentary delight. They revel in playing malicious tricks on taller humanoids, whom they call \"longshanks.\"",
         "Goblins are superstitious, with an intense awe of magic and a fascination with fire; goblins who master magic or fire earn great respect from their kin. Most other humanoids find it difficult to understand goblins' outlook: they hate canines but eagerly share their lairs with so-called \"goblin dogs,\" they fearlessly attack larger creatures but are terrified of horses, and they despise vegetables yet consider pickles a delicacy. To a goblin, of course, these are all perfectly sensible life choices."
-      ]
+      ],
+      "publication": {
+        "license": "ORC",
+        "remaster": true,
+        "title": "Pathfinder Monster Core"
+      }
     },
     "initiative": {
       "statistic": "perception"
@@ -121,7 +121,9 @@
         "goblin",
         "humanoid"
       ]
-    }
+    },
+    "weaknesses": [],
+    "resistances": []
   },
   "equipment": [
     {
@@ -160,10 +162,12 @@
         "bonus": {
           "value": 7
         },
-        "damageRolls": {
-          "damage": "1d6",
-          "damageType": "slashing"
-        },
+        "damageRolls": [
+          {
+            "damage": "1d6",
+            "damageType": "slashing"
+          }
+        ],
         "description": {
           "value": ""
         },
@@ -194,10 +198,12 @@
         "bonus": {
           "value": 7
         },
-        "damageRolls": {
-          "damage": "1d6",
-          "damageType": "piercing"
-        },
+        "damageRolls": [
+          {
+            "damage": "1d6",
+            "damageType": "piercing"
+          }
+        ],
         "description": {
           "value": ""
         },
@@ -230,11 +236,10 @@
         "description": {
           "value": "<p><strong>Trigger</strong> A goblin ally ends a move action adjacent to the goblin.</p>\n<hr />\n<p><strong>Effect</strong> The goblin warrior @UUID[Compendium.pf2e.actionspf2e.Item.Step]{Steps}.</p>"
         },
-        "publication": {
-          "license": "ORC",
-          "remaster": true,
-          "title": ""
-        },
+        "descriptionParagraphs": [
+          "Trigger A goblin ally ends a move action adjacent to the goblin.",
+          "Effect The goblin warrior @UUID[Compendium.pf2e.actionspf2e.Item.Step]{Steps}."
+        ],
         "rules": [],
         "slug": "",
         "traits": {
