@@ -143,6 +143,24 @@ public class GridCharacterController3D : MonoBehaviour
 
         // Update camera
         camMan?.update();
+
+        //test for the emination code: when press G, run get occupants in area for current player with range 3
+        if (Input.GetKeyDown(KeyCode.G))
+        {
+            List<GameObject> occupants = GetOccupantsInArea(currentCharacter, 2);
+            Debug.Log($"[GridCharacterController3D] Occupants in area: {occupants.Count}");
+            foreach (var obj in occupants)
+            {
+                Debug.Log($" - {obj.name}");
+            }
+        }
+        //reset highlights hen press H
+        if (Input.GetKeyDown(KeyCode.H))
+        {
+            Vector3Int startCell = coordinateConverter.GetCharacterCell(currentCharacter);
+            rangeHighlighter.UpdateHighlights(startCell, maxMovementDistance);
+            Debug.Log("[GridCharacterController3D] Highlights reset.");
+        }
     }
 
     /// <summary>
@@ -637,8 +655,8 @@ public class GridCharacterController3D : MonoBehaviour
         }
 
         Vector3Int centerCell = coordinateConverter.GetCharacterCell(token);
-        rangeHighlighter.UpdateHighlights(centerCell, range);
         HashSet<Vector3Int> areaCells = rangeHighlighter.CalculateEmination(centerCell, range);
+        rangeHighlighter.UpdateAttackHighlights(centerCell, areaCells);
         //convert hashset to list
         List<Vector3Int> areaCellsList = new List<Vector3Int>(areaCells);
         return grid.GetOccupantsInArea(areaCellsList);
