@@ -20,4 +20,5 @@ public static class InputCompat
     /// <summary>Returns true if the right mouse button was pressed this frame.</summary>
     public static bool RightClickDown()
         => MouseDevice != null && MouseDevice.rightButton.wasPressedThisFrame;
+
 }

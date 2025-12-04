@@ -410,9 +410,22 @@ public class GridRenderer3D : GridInterface
     {
         return IsWalkable(position.x, position.z);
     }
-    public override IEnumerator targetSelect(int range, CoroutineResult<GameObject> result)
+    public override IEnumerator TargetSelect(int range, CoroutineResult<GameObject> result)
     {
         //return a selected monster if valid
         yield return null;
+    }
+    //this will return an array of game objects that are found in the given list of points
+    public override List<GameObject> GetOccupantsInArea(List<Vector3Int> area)
+    {
+        List<GameObject> occupants = new List<GameObject>();
+        foreach (Vector3Int point in area)
+        {
+            if (gridInfo[point.x, gridY, point.z].isOccupied && gridInfo[point.x, gridY, point.z].occupant != null)
+            {
+                occupants.Add(gridInfo[point.x, gridY, point.z].occupant);
+            }
+        }
+        return occupants;
     }
 }

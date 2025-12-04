@@ -143,6 +143,24 @@ public class GridCharacterController3D : MonoBehaviour
 
         // Update camera
         camMan?.update();
+
+        //test for the emination code: when press G, run get occupants in area for current player with range 3
+        if (Input.GetKeyDown(KeyCode.G))
+        {
+            List<GameObject> occupants = GetOccupantsInArea(currentCharacter, 2);
+            Debug.Log($"[GridCharacterController3D] Occupants in area: {occupants.Count}");
+            foreach (var obj in occupants)
+            {
+                Debug.Log($" - {obj.name}");
+            }
+        }
+        //reset highlights hen press H
+        if (Input.GetKeyDown(KeyCode.H))
+        {
+            Vector3Int startCell = coordinateConverter.GetCharacterCell(currentCharacter);
+            rangeHighlighter.UpdateHighlights(startCell, maxMovementDistance);
+            Debug.Log("[GridCharacterController3D] Highlights reset.");
+        }
     }
 
     /// <summary>
@@ -623,6 +641,25 @@ public class GridCharacterController3D : MonoBehaviour
         isProcessingTurn = false;
 
         Debug.Log($"[GridCharacterController3D] Movement completed for {characterName}");
+    }
+
+    //I want to use an interface to access this method in the future
+    //This method takes a player object and range as an input
+    //returns a list of gameobjects within that range
+    public List<GameObject> GetOccupantsInArea(GameObject token, int range)
+    {
+        if (!characters.ContainsValue(token))
+        {
+            Debug.LogError("[GridCharacterController3D] Token not recognized!");
+            return new List<GameObject>();
+        }
+
+        Vector3Int centerCell = coordinateConverter.GetCharacterCell(token);
+        HashSet<Vector3Int> areaCells = rangeHighlighter.CalculateEmination(centerCell, range);
+        rangeHighlighter.UpdateAttackHighlights(centerCell, areaCells);
+        //convert hashset to list
+        List<Vector3Int> areaCellsList = new List<Vector3Int>(areaCells);
+        return grid.GetOccupantsInArea(areaCellsList);
     }
 
     /// <summary>

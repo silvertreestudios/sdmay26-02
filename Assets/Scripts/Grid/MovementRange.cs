@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using NUnit.Framework;
 using UnityEngine;
 
 /// <summary>
@@ -22,6 +23,8 @@ public class MovementRange
     // Runtime state
     private readonly List<GameObject> activeHighlights = new List<GameObject>();
     private HashSet<Vector3Int> currentReachableTiles = new HashSet<Vector3Int>();
+    private HashSet<Vector3Int> attackedTiles = new HashSet<Vector3Int>();
+
 
     // Delegate for converting grid cells to world positions
     private readonly System.Func<int, int, float, Vector3> gridToWorld;
@@ -102,10 +105,24 @@ public class MovementRange
         // Create visual highlights if prefab is assigned
         if (highlightPrefab != null)
         {
-            CreateHighlightVisuals(startCell);
+            CreateHighlightVisuals(startCell, currentReachableTiles);
         }
 
         Debug.Log($"[MovementRangeHighlighter] Updated highlights: {currentReachableTiles.Count} tiles reachable.");
+    }
+    //similar to UpdateHighlights but for attacks
+    public void UpdateAttackHighlights(Vector3Int startCell, HashSet<Vector3Int> attackedTiles)
+    {
+        // Clear existing highlights
+        ClearHighlights();
+
+        // Create visual highlights if prefab is assigned
+        if (highlightPrefab != null)
+        {
+            CreateHighlightVisuals(startCell, attackedTiles);
+        }
+
+        Debug.Log($"[MovementRangeHighlighter] Updated attack highlights: {attackedTiles.Count} tiles reachable.");
     }
 
     /// <summary>
@@ -124,6 +141,7 @@ public class MovementRange
         currentReachableTiles.Clear();
     }
 
+    
     /// <summary>
     /// Calculates all reachable tiles within movement range using depth-first search
     /// </summary>
@@ -190,6 +208,57 @@ public class MovementRange
 
     return reachable;
 }
+
+    //this method calculates and returns all reachable tiles within a range that have line of sight to the start position
+    public HashSet<Vector3Int> CalculateEmination(Vector3Int start, int maxRange)
+    {
+        attackedTiles.Clear();
+        HashSet<Vector3Int> reachable = CalculateCircle(start, maxRange);
+       
+
+        foreach (var cell in reachable)
+        {
+            if (IsLineOfSightBlocked(start, cell) == false)
+            {
+                attackedTiles.Add(cell);
+            }
+        }
+
+        return attackedTiles;
+    }
+
+    //similar to CalculateReachableTiles but ignores walkability and movement cost, just calculates a circle of tiles within range
+    private HashSet<Vector3Int> CalculateCircle(Vector3Int start, int maxRange)
+    {
+        HashSet<Vector3Int> circleTiles = new HashSet<Vector3Int>();
+        float effectiveRange = maxRange + 0.5f;
+
+        for (int x = -maxRange; x <= maxRange; x++)
+        {
+            for (int z = -maxRange; z <= maxRange; z++)
+            {
+                Vector3Int candidate = new Vector3Int(start.x + x, start.y, start.z + z);
+                // round down to the nearest whole number to avoid missing edge tiles
+                float distance = Mathf.Sqrt(x * x + z * z);
+
+                if (distance <= effectiveRange && IsWithinBounds(candidate) && (x!= 0 || z != 0))
+                {
+                    circleTiles.Add(candidate);
+                }
+            }
+        }
+
+        return circleTiles;
+    }
+
+    //detects if an unwalkable tile is blocking line of sight between two tiles
+    private bool IsLineOfSightBlocked(Vector3Int start, Vector3Int end)
+    {
+        // Use Bresenham's line algorithm or similar to iterate through cells between start and end
+        // Check if any of those cells are unwalkable
+        // This is a placeholder implementation; actual implementation may vary
+        return false;
+    }
 
     /// <summary>
     /// Gets all walkable tiles on the grid (for unlimited range)
@@ -269,9 +338,9 @@ public class MovementRange
     /// <summary>
     /// Creates visual highlight GameObjects for reachable tiles
     /// </summary>
-    private void CreateHighlightVisuals(Vector3Int startCell)
+    private void CreateHighlightVisuals(Vector3Int startCell, HashSet<Vector3Int> tileSet)
     {
-        foreach (var cell in currentReachableTiles)
+        foreach (var cell in tileSet)
         {
             // Skip the starting cell
             if (cell.Equals(startCell))
