@@ -555,6 +555,7 @@ public class GridCharacterController3D : MonoBehaviour
     /// </summary>
     public void SetActivePlayer(string characterName)
     {
+        Debug.Log("Setting active Player");
         rangeHighlighter.ClearHighlights();
         visualIndicator.Clear();
 

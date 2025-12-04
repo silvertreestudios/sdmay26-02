@@ -66,9 +66,6 @@ public class HUDController : MonoBehaviour
             needToUpdateCards = false;
         }
         HighlightCurrentPlayerCard(currentPlayerIndex);
-
-        Debug.Log(healthBar.value);
-
         
         // End of Card Logic
 
