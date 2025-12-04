@@ -1,6 +1,6 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!1 &5841253357472878404
+--- !u!1 &6894993630465325587
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -8,10 +8,10 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 5262156420703753065}
-  - component: {fileID: 2536219409241968016}
-  - component: {fileID: 9102371912777717375}
-  - component: {fileID: 732342566029687927}
+  - component: {fileID: 6174995706976501903}
+  - component: {fileID: 2552202126626353107}
+  - component: {fileID: 4182675092943521504}
+  - component: {fileID: 8045147821009797249}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -19,13 +19,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!4 &5262156420703753065
+--- !u!4 &6174995706976501903
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5841253357472878404}
+  m_GameObject: {fileID: 6894993630465325587}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -34,37 +34,37 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &2536219409241968016
+--- !u!114 &2552202126626353107
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5841253357472878404}
+  m_GameObject: {fileID: 6894993630465325587}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 61cbf252d4692ab41a400099d504a766, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
---- !u!114 &9102371912777717375
+--- !u!114 &4182675092943521504
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5841253357472878404}
+  m_GameObject: {fileID: 6894993630465325587}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 918ac7ee7c6236e4db2c867389ac84d4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CoroutineRunner
---- !u!114 &732342566029687927
+--- !u!114 &8045147821009797249
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5841253357472878404}
+  m_GameObject: {fileID: 6894993630465325587}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c63e5f4589a3016449240eb64cd1ea17, type: 3}
