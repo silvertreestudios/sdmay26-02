@@ -43,9 +43,9 @@ namespace Game.Creature
         int fortitudeSave { get; set; }
         int reflexSave { get; set; }
         int willSave { get; set; }
-
-        // Skills & description (added to keep interface aligned with component)
+        // Skills
         List<SkillValue> skills { get; set; }
+        // Description text
         string description { get; set; }
 
         // TODO ActionController actionController;

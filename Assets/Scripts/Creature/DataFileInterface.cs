@@ -12,15 +12,6 @@ namespace Game.Creature
         //store gameObject reference
         [SerializeField] private GameObject prefab;
 
-        void SpawnNew()
-        {
-            //spawn object
-            GameObject g = new GameObject("NameInEditor");
-            //Add Components
-            Rigidbody rb = g.AddComponent<Rigidbody>();
-            MeshFilter mf = g.AddComponent<MeshFilter>();
-        }
-
         void SpawnFromPrefab()
         {
             // Define the prefab in the scene with scripts attach

@@ -5,16 +5,21 @@ using Game.Creature;
 using System.Collections.Generic;
 using UnityEngine;
 
+// Extension as a Unity MonoBehaviour
 public class CreatureComponent : MonoBehaviour, ICreature
 {
     // TODO: derive equipment proficiencies?
+
     // Basic stats
+    [Header("Basic Stats")]
     [SerializeField] private string _name;
     [SerializeField] private int _level;
     [SerializeField] private int _initiative;
     [SerializeField] private int _speed;
     // TODO other movement type speeds
-    // combat stats
+
+    // Combat stats
+    // [Header("Combat")]
     [SerializeField] private int _hp;
     [SerializeField] private int _maxHp;
     [SerializeField] private int _tempHp;
@@ -23,24 +28,30 @@ public class CreatureComponent : MonoBehaviour, ICreature
     [SerializeField] private int _damageBonus;
     [SerializeField] private List<DamageValue> _weaknesses = new List<DamageValue>();
     [SerializeField] private List<DamageValue> _resistances = new List<DamageValue>();
+
     // Example for ability modifiers
+    [Header("Ability Modifiers")]
     [SerializeField] private int _strMod;
     [SerializeField] private int _dexMod;
     [SerializeField] private int _conMod;
     [SerializeField] private int _intMod;
     [SerializeField] private int _wisMod;
     [SerializeField] private int _chaMod;
+
     // saves
+    [Header("Saves")]
     [SerializeField] private int _fortitudeSave;
     [SerializeField] private int _reflexSave;
     [SerializeField] private int _willSave;
     [SerializeField] private int _allSaves;
 
     // Serialized storage for skills and description so Unity can persist them
+    [Header("Skills & Description")]
     [SerializeField] private List<SkillValue> _skills = new List<SkillValue>();
     [SerializeField][TextArea] private string _description;
 
     // Serialized actions & equipment (previously auto-properties; won't persist)
+    [Header("Actions & Equipment")]
     [SerializeField] private List<string> _actions = new List<string>();
     [SerializeField] private List<string> _equipment = new List<string>();
 
@@ -71,8 +82,7 @@ public class CreatureComponent : MonoBehaviour, ICreature
     public int willSave { get => _willSave; set => _willSave = value; }
     public int allSaves { get => _allSaves; set => _allSaves = value; }
 
-
-    // serialized backing fields exposed via properties
+    // TODO: properly implement
     public List<string> actions { get => _actions; set => _actions = value ?? new List<string>(); }
     public List<string> equipment { get => _equipment; set => _equipment = value ?? new List<string>(); }
 
@@ -97,16 +107,64 @@ public class CreatureComponent : MonoBehaviour, ICreature
         // Per-frame logic here
     }
 
-    // helper: get skill mod by name (case-insensitive)
+    // helper: get skill mod by name (case-insensitive). If the skill is present in the serialized
+    // skills list we return that value. Otherwise we return the associated ability modifier.
     public int GetSkillMod(string skillName, int defaultValue = 0)
     {
-        if (_skills == null) return defaultValue;
-        for (int i = 0; i < _skills.Count; i++)
+        if (string.IsNullOrWhiteSpace(skillName)) return defaultValue;
+        string key = skillName.Trim();
+
+        // Check explicit skill entries first
+        if (_skills != null)
         {
-            if (string.Equals(_skills[i].skillName, skillName, System.StringComparison.OrdinalIgnoreCase))
-                return _skills[i].skillMod;
+            for (int i = 0; i < _skills.Count; i++)
+            {
+                if (string.Equals(_skills[i].skillName, key, System.StringComparison.OrdinalIgnoreCase))
+                    return _skills[i].skillMod;
+            }
         }
-        return defaultValue;
+
+        // Map skill names to ability modifiers.
+        switch (key.ToLowerInvariant())
+        {
+            // Strength
+            case "athletics":
+                return strMod;
+            // Dexterity
+            case "acrobatics":
+            case "stealth":
+            case "thievery":
+            case "sleight of hand":
+            case "sleight":
+            case "acro":
+                return dexMod;
+            // Constitution N/A
+            // Intelligence
+            case "arcana":
+            case "history":
+            case "investigation":
+            case "lore":
+            case "engineering":
+            case "society":
+                return intMod;
+            // Wisdom
+            case "perception":
+            case "insight":
+            case "survival":
+            case "medicine":
+            case "nature":
+                return wisMod;
+            // Charisma
+            case "deception":
+            case "intimidation":
+            case "performance":
+            case "persuasion":
+            case "diplomacy":
+                return chaMod;
+            // Unknown skill -> return default
+            default:
+                return defaultValue;
+        }
     }
 
     public void TakeDamage(List<DamageValue> damageValues, D20Result attackRoll)
@@ -141,7 +199,7 @@ public class CreatureComponent : MonoBehaviour, ICreature
         }
     }
 
-    public void HealDamage(int healAmount)
+    public void Heal(int healAmount)
     {
         _hp += healAmount;
         _hp = Mathf.Clamp(_hp, 0, _maxHp);
