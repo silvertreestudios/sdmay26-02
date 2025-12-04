@@ -11,10 +11,16 @@ public class Stride : MultiFrameEntityAction
 
     protected override IEnumerator MFInvoke(GameObject target)
     {
-        // Get the grid controller
+        // Notify GridCharacterController3D about active player
         GridCharacterController3D gridController = GridCharacterController3D.Instance;
-        
-        if (gridController == null)
+        if (gridController != null)
+        {
+            // Extract character name from GameObject name
+            string name = target.name.Replace("Player ", "Player");
+            //target.GetInstanceID();
+            gridController.SetActivePlayer(name);
+        }
+        else
         {
             Debug.LogError("[Stride] GridCharacterController3D instance not found!");
             yield break;
@@ -40,17 +46,6 @@ public class Stride : MultiFrameEntityAction
         // Execute the movement using the grid controller
         yield return gridController.ExecuteMovement(characterName, path);
         
-        Debug.Log("[Stride] Movement action completed. Automatically ending turn...");
-        
-        // Get the ActionController component and end the turn
-        ActionController actionController = target.GetComponent<ActionController>();
-        if (actionController != null)
-        {
-            actionController.EndTurn();
-        }
-        else
-        {
-            Debug.LogError("[Stride] ActionController not found on target!");
-        }
+        Debug.Log("[Stride] Movement action completed.");
     }
 }

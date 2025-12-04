@@ -1,46 +1,37 @@
 using UnityEngine;
 using System.Collections.Generic;
+using Game.Creature;
+using NUnit.Framework;
 
 public class ActionController : MonoBehaviour
 {
     [SerializeField]
-    protected List<EntityAction> Choices = new List<EntityAction>();
+    protected List<EntityAction> Actions = new List<EntityAction>();
     [SerializeField]
     protected List<EntityAction> Movements = new List<EntityAction>();
     private bool IsTurn = false;
-
-    // Temporary field to store Stride action for testing
-    [SerializeField]
-    private Stride strideAction;
+    private uint ActionPoints;
 
     protected void Start()
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);
         
-        strideAction = new Stride(1); // Cost of 1 action point
-        
-        if (Movements.Count == 0)
-        {
-            Movements.Add(strideAction);
-        }
-        else if (Movements[0] != strideAction)
-        {
-            Movements.Insert(0, strideAction);
-        }
+        Stride strideAction = new Stride(1); // Cost of 1 action point
+        Movements.Add(strideAction);
+
+        List<Dice> dices = new() { new Dice(1, 3, "Bludgening") };
+
+        Unarmed unarmed = new Unarmed(1, dices, new());
+        Actions.Add(unarmed);
     }
 
+    /// <summary>
+    /// Starts this creature's turn
+    /// </summary>
     public void StartTurn()
     {
         IsTurn = true;
-        
-        // Notify GridCharacterController3D about active player
-        GridCharacterController3D gridController = GridCharacterController3D.Instance;
-        if (gridController != null)
-        {
-            // Extract character name from GameObject name
-            string characterName = this.gameObject.name.Replace("Player ", "Player");
-            gridController.SetActivePlayer(characterName);
-        }
+        ActionPoints = 3;
         
         // Provide Options
         // Prompt user or AI for action
@@ -78,10 +69,10 @@ public class ActionController : MonoBehaviour
             return;
         }
 
-        if (strideAction != null)
+        if (Movements.Count > 0)
         {
             Debug.Log("Invoking Stride action...");
-            strideAction.Invoke(this.gameObject);
+            TakeAction(Movements[0]);
         }
         else
         {
@@ -89,10 +80,27 @@ public class ActionController : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Temporary function to invoke the strike action for testing.
+    /// Can be triggered from the Unity editor during runtime via right-click menu.
+    /// </summary>
+    [ContextMenu("Test Strike")]
+    private void TestStrike()
+    {
+        if (Actions.Count > 0)
+        {
+            Debug.Log("Invoking Strike action...");
+            TakeAction(Actions[0]);
+        }
+    }
+
     public void TakeAction(EntityAction action)
     {
-        if (IsTurn)
-            action.Invoke(this.gameObject);
+        uint cost = action.Cost();
+        if (!IsTurn || cost > ActionPoints)
+            return;
+        ActionPoints -= action.Cost();
+        action.Invoke(this.gameObject);
     }
 
     public uint GetInitiative()

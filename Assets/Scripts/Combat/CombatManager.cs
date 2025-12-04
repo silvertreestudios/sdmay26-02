@@ -24,4 +24,14 @@ public class CombatManager : CombatManagerInterface
         e.StartTurn();
         combatants.Enqueue(e);
     }
+
+    public override GameObject GetTarget(GameObject attacker)
+    {
+        foreach(var ac in combatants)
+        {
+            if (ac.GetInstanceID() != attacker.GetInstanceID())
+                return ac.gameObject;
+        }
+        return null;
+    }
 }

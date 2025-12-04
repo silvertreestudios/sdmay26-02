@@ -47,7 +47,6 @@ public class GridCharacterController3D : MonoBehaviour
     // Character storage
     private Dictionary<string, GameObject> characters = new Dictionary<string, GameObject>();
     private Dictionary<string, ITokenMovement> tokenMovements = new Dictionary<string, ITokenMovement>();
-    private Dictionary<string, ActionController> actionControllers = new Dictionary<string, ActionController>();
 
     // Subsystem references
     private CameraManager camMan;
@@ -462,18 +461,6 @@ public class GridCharacterController3D : MonoBehaviour
 
         yield return new WaitForSeconds(0.5f);
 
-        // Automatically end turn
-        string characterName = actor.name.Replace("Player ", "Player");
-        if (actionControllers.TryGetValue(characterName, out ActionController actionController))
-        {
-            Debug.Log($"[GridCharacterController3D] Automatically ending turn for {characterName}");
-            actionController.EndTurn();
-        }
-        else
-        {
-            Debug.LogError($"[GridCharacterController3D] Could not find ActionController for {characterName}");
-        }
-
         isProcessingTurn = false;
 
         Debug.Log("[GridCharacterController3D] Movement completed.");
@@ -512,13 +499,6 @@ public class GridCharacterController3D : MonoBehaviour
             renderer.material.color = color;
         }
 
-        // Add ActionController component if not present 
-        ActionController actionController = player.GetComponent<ActionController>();
-        if (actionController == null)
-        {
-            actionController = player.AddComponent<ActionController>();
-        }
-        actionControllers[name] = actionController;
         //ANOTHER TEMP FIX, grid IS PROBABLY NOT THE RIGHT WAY TO CALL THESE METHODS BUT IDK HOW ELSE TO DO IT
         grid.SetCreaturePosition(characters[name], coordinateConverter.GetCharacterCell(characters[name]));
     }
@@ -575,6 +555,7 @@ public class GridCharacterController3D : MonoBehaviour
     /// </summary>
     public void SetActivePlayer(string characterName)
     {
+        Debug.Log("Setting active Player");
         rangeHighlighter.ClearHighlights();
         visualIndicator.Clear();
 
