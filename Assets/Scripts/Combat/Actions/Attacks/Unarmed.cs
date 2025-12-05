@@ -1,9 +1,10 @@
 using Game.Creature;
 using System.Collections.Generic;
+using System.Collections;
 using UnityEngine;
 
 [System.Serializable]
-public class Unarmed : EntityAction
+public class Unarmed : MultiFrameEntityAction
 {
     private Strike Strike;
     public Unarmed(uint cost, List<Dice> damages, List<DamageValue> flatDamages) : base(cost)
@@ -11,11 +12,13 @@ public class Unarmed : EntityAction
         Strike = new Strike(damages, flatDamages);
     }
 
-    public override void Invoke(GameObject attacker)
+    protected override IEnumerator MFInvoke(GameObject attacker)
     {
         // Grid get target;
-        GameObject target = CombatManager.GetInstance().GetTarget(attacker);
+        CoroutineResult<GameObject> target = new();
+        yield return GridCharacterController3D.Instance.StrikeCoroutine(attacker, 2, target);
         Debug.Log(attacker + " Striking " + target);
-        Strike.Damage(attacker, target);
+        Strike.Damage(attacker, target.Value);
+        yield return null;
     }
 }

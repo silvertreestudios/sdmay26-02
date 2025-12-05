@@ -1,3 +1,160 @@
+' @startuml GridSubsystem
+
+' skinparam classAttributeIconSize 0
+' skinparam shadowing false
+' skinparam packageStyle rectangle
+
+' package "Grid" {
+
+'   class GridRenderer3D {
+'     +int width
+'     +int height
+'     +float cellSize
+'     +Vector3 origin
+'     +int gridY
+'     +Camera targetCamera
+'     +TILE[,,] gridInfo
+'     +bool HasHover
+'     +Vector3Int HoverCell
+'     +Func<Vector3Int, bool> IsCellSelectable
+'     +bool IsWalkable(int x, int z)
+'     +bool IsCellWalkable(Vector3Int cell)
+'     +bool getIsOccupied(int x, int z)
+'     +void setIsOccupied(int x, int z, bool occupied)
+'     +void SetCreaturePosition(GameObject token, Vector3Int spawnPosition)
+'     +void MoveCreaturePosition(GameObject token, Vector3Int targetPosition, Vector3Int startPosition)
+'     +List<GameObject> GetOccupantsInArea(List<Vector3Int> areaCells)
+'   }
+
+'   class GridCoordinateConverter {
+'     -GridRenderer3D grid
+'     -Dictionary<GameObject, Vector3Int> cachedCharacterCells
+'     -Dictionary<GameObject, Vector3> cachedCharacterPositions
+'     +GridCoordinateConverter(GridRenderer3D gridReference)
+'     +Vector3 GridCellCenterWorld(int x, int z, float yOffset = 0)
+'     +Vector3Int GetCharacterCell(GameObject character)
+'     +bool ScreenToXZPlane(Camera cam, Vector2 screenPos, float planeY, out Vector3 hit)
+'     +bool TryGridWorldToCell(Vector3 world, out Vector3Int cell, bool clamp = false)
+'     +void ClearCharacterCache(GameObject character)
+'     +void ClearAllCaches()
+'   }
+
+'   class GridPathfinder {
+'     -GridRenderer3D grid
+'     -bool allowDiagonalMovement
+'     -float diagonalCost
+'     +GridPathfinder(GridRenderer3D gridReference, bool allowDiagonal = true, float diagCost = 1.414)
+'     +void SetDiagonalMovement(bool allow, float cost = 1.414)
+'     +FindPath(start: Vector3Int, target: Vector3Int) : (bool found, float distance, List<Vector3Int> path)
+'   }
+
+'   class MovementRange {
+'     -GridRenderer3D grid
+'     -bool allowDiagonalMovement
+'     -float diagonalCost
+'     -GameObject highlightPrefab
+'     -Color highlightColor
+'     -float highlightHeightOffset
+'     -List<GameObject> activeHighlights
+'     -HashSet<Vector3Int> currentReachableTiles
+'     -HashSet<Vector3Int> attackedTiles
+'     +MovementRange(GridRenderer3D gridReference, GameObject prefab, Color color, float heightOffset,
+'             bool allowDiagonal, float diagCost,
+'             Func<int,int,float,Vector3> gridCellToWorld)
+'     +HashSet<Vector3Int> ReachableTiles
+'     +bool IsCellReachable(Vector3Int cell)
+'     +void UpdateHighlights(Vector3Int startCell, int maxRange)
+'     +void UpdateAttackHighlights(Vector3Int startCell, HashSet<Vector3Int> attackedTiles)
+'     +void ClearHighlights()
+'     +HashSet<Vector3Int> CalculateEmination(Vector3Int start, int maxRange)
+'     +void Dispose()
+'   }
+
+'   class VisualIndicator {
+'     -Material indicatorMaterial
+'     -float lineWidth
+'     -float heightOffset
+'     -Color defaultColor
+'     -Color confirmedColor
+'     -GameObject indicatorObject
+'     -LineRenderer lineRenderer
+'     -List<Vector3Int> currentPath
+'     -bool isActive
+'     +VisualIndicator(Transform parent, Material material, float width, float height,
+'             Color defaultPreviewColor, Color confirmedPreviewColor,
+'             Func<int,int,float,Vector3> gridCellToWorld)
+'     +bool IsActive
+'     +List<Vector3Int> CurrentPath
+'     +void ShowPath(List<Vector3Int> path, bool isConfirmed = false)
+'     +void UpdateColor(bool isConfirmed)
+'     +void Clear()
+'     +void Dispose()
+'   }
+
+'   class GridCharacterController3D {
+'     -static GridCharacterController3D instance
+'     +static GridCharacterController3D Instance
+'     +GridRenderer3D grid
+'     +GameObject prefab
+'     +GameObject prefab2
+'     +bool autoFindGrid
+'     +GameObject rangeHighlightPrefab
+'     +float yDrawOffset
+'     +float moveSpeed
+'     +int maxMovementDistance
+'     +float stepHeight
+'     +float maxRotation
+'     +AnimationCurve ptLerp
+'     +AnimationCurve yLerp
+'     +float JumpDuration
+'     +Transform dummyTarget
+'     +bool allowDiagonalMovement
+'     +float diagonalCost
+'     +Material indicatorMaterial
+'     +float indicatorWidth
+'     +float indicatorHeight
+'     +Color defaultIndicatorColor
+'     +Color confirmedIndicatorColor
+'     +float doubleClickTime
+'     +Color rangeHighlightColor
+'     +float rangeHighlightHeightOffset
+'     -Dictionary<string, GameObject> characters
+'     -Dictionary<string, ITokenMovement> tokenMovements
+'     -Dictionary<string, ActionController> actionControllers
+'     -CameraManager camMan
+'     -GridPathfinder pathfinder
+'     -VisualIndicator visualIndicator
+'     -MovementRange rangeHighlighter
+'     -GridCoordinateConverter coordinateConverter
+'     -bool isInitialized
+'     -bool isProcessingTurn
+'     -string currentPlayer
+'     +void SetActivePlayer(string characterName)
+'     +IEnumerator ExecuteMovement(string characterName, List<Vector3Int> path)
+'     +List<GameObject> GetOccupantsInArea(GameObject token, int range)
+'     +GridCoordinateConverter GetCoordinateConverter()
+'     +GameObject GetCharacter(string characterName)
+'     +ITokenMovement GetMovementController(string characterName)
+'     +List<Vector3Int> GetPreviewedPathForCharacter(string characterName)
+'   }
+' }
+
+' GridCharacterController3D --> GridRenderer3D : uses
+' GridCharacterController3D --> GridPathfinder : composes
+' GridCharacterController3D --> GridCoordinateConverter : composes
+' GridCharacterController3D --> MovementRange : composes
+' GridCharacterController3D --> VisualIndicator : composes
+' GridCharacterController3D --> ITokenMovement : uses
+' GridCharacterController3D --> ActionController : manages
+' GridCharacterController3D --> CameraManager : uses
+
+' GridCoordinateConverter --> GridRenderer3D : uses
+' GridPathfinder --> GridRenderer3D : queries walkability
+' MovementRange --> GridRenderer3D : queries walkability
+' VisualIndicator --> GridCoordinateConverter : via gridCellToWorld
+
+' @enduml
+
 @startuml Standard
 ' UML Notation Guide:
 ' --> (Solid line, arrow): Association/Dependency - One class uses or has a reference to another

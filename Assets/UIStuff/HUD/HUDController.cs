@@ -45,6 +45,7 @@ public class HUDController : MonoBehaviour
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
         g.GetComponent<ActionController>().EndTurn();
+        GridCharacterController3D.Instance.cancel = true;
         Debug.Log("Clicked End Turn button");
     }
 }
