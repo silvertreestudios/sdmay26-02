@@ -61,7 +61,7 @@ public class ActionController : MonoBehaviour
     /// Can be triggered from the Unity editor during runtime via right-click menu.
     /// </summary>
     [ContextMenu("Test Invoke Stride")]
-    private void TestInvokeStride()
+    public void TestStride()
     {
         if (!IsTurn)
         {
@@ -85,7 +85,7 @@ public class ActionController : MonoBehaviour
     /// Can be triggered from the Unity editor during runtime via right-click menu.
     /// </summary>
     [ContextMenu("Test Strike")]
-    private void TestStrike()
+    public void TestStrike()
     {
         if (Actions.Count > 0)
         {

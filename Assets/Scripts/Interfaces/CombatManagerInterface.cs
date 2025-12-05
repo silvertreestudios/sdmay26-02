@@ -17,7 +17,12 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// Starts the next Combatant's turn
     /// </summary>
     public abstract void AddCombatant(ActionController combatant);
-    
+
+    /// <summary>
+    /// Returns the GameObject Who's Turn it is
+    /// </summary>
+    public abstract GameObject WhosTurn();
+
     // Temporary function
     public abstract GameObject GetTarget(GameObject attacker);
 }

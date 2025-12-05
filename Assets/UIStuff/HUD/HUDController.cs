@@ -26,14 +26,25 @@ public class HUDController : MonoBehaviour
     }
 
     public void Strike() {
+        GameObject g = CombatManager.GetInstance().WhosTurn();
+        // TODO: Check if is player
+        g.GetComponent<ActionController>().TestStrike();
         Debug.Log("Clicked Strike button");
     }
 
-    public void Move() {
+    public void Move()
+    {
+        GameObject g = CombatManager.GetInstance().WhosTurn();
+        // TODO: Check if is player
+        g.GetComponent<ActionController>().TestStride();
         Debug.Log("Clicked Move button");
     }
 
-    public void EndTurn() {
+    public void EndTurn()
+    {
+        GameObject g = CombatManager.GetInstance().WhosTurn();
+        // TODO: Check if is player
+        g.GetComponent<ActionController>().EndTurn();
         Debug.Log("Clicked End Turn button");
     }
 }
