@@ -12,3 +12,7 @@
     background-color: rgb(122, 62, 46);
     transition-duration: 0.5s;
 }
+
+.unity-progress-bar__progress {
+    background-color: rgb(0, 255, 0);
+}
