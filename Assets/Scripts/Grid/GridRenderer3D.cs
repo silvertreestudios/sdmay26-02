@@ -72,6 +72,7 @@ public class GridRenderer3D : GridInterface
     // Delegate to check if a cell is selectable (used by GridCharacterController3D)
     public System.Func<Vector3Int, bool> IsCellSelectable { get; set; }
 
+   
     public void SetStatus(int x, int z, TileStatus statusToSet)
     {
         if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return;

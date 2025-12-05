@@ -132,6 +132,7 @@ public class GridCharacterController3D : MonoBehaviour
         {
             pathfinder.SetDiagonalMovement(allowDiagonalMovement, diagonalCost);
         }
+
         // Check if system is ready
         if (!IsReadyForUpdate(out var cam)) return;
         // Get current character data
