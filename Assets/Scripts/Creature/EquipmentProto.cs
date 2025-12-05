@@ -1,37 +1,25 @@
 using System;
-/*
-// Define an enum for equipment types
-public enum EquipmentType
+using Game.Creature;
+
+namespace Game.Creature
 {
-    Weapon,
-    Armor,
-    Shield
+    // Define a simple Equipment class
+    public class Equipment
+    {
+        public string Name { get; set; }
+        public string Type { get; set; }
+        public string category { get; set; }
+        public Dice Damage { get; set; }
+        // TODO: traits, usage, description
+
+        // Static property for a Short Sword
+        public static Equipment scimitar =>
+            new Equipment
+            {
+                Name = "Scimitar",
+                Type = "weapon",
+                category = "martial",
+                Damage = new Dice(1,"d6", "slashing")
+            };
+    }
 }
-
-// Define a simple Equipment class
-public class Equipment
-{
-    public string Name { get; set; }
-    public EquipmentType Type { get; set; }
-    public DamageDice Damage { get; set; }
-
-    // Static property for a Short Sword
-    public static Equipment ShortSword =>
-        new Equipment
-        {
-            Name = "Short Sword",
-            Type = EquipmentType.Weapon,
-            Damage = new DamageDice(new Dice(1, 6), DamageType.Piercing)
-        };
-
-    // Static property for chainsaw test weapon for multiple damage dice
-    // TODO : Remove after testing
-    public static Equipment Chainsaw =>
-        new Equipment
-        {
-            Name = "Chainsaw",
-            Type = EquipmentType.Weapon,
-            Damage = new DamageDice(new Dice(8, 6), DamageType.Slashing)
-        };
-}
-*/

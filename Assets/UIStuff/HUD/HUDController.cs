@@ -145,18 +145,27 @@ public class HUDController : MonoBehaviour
 
     public void Strike() {
         Debug.Log("Strike called");
+        GameObject g = CombatManager.GetInstance().WhosTurn();
+        // TODO: Check if is player
+        g.GetComponent<ActionController>().TestStrike();
         Debug.Log("Clicked Strike button");
         //for testing, have strike do damage to next player
         players[(currentPlayerIndex + 1) % players.Length].TakeDamage(10);
     }
 
-    public void Move() {
-        Debug.Log("Move called");
+    public void Move()
+    {
+        GameObject g = CombatManager.GetInstance().WhosTurn();
+        // TODO: Check if is player
+        g.GetComponent<ActionController>().TestStride();
         Debug.Log("Clicked Move button");
     }
 
-    public void EndTurn() {
-        Debug.Log("EndTurn called");
+    public void EndTurn()
+    {
+        GameObject g = CombatManager.GetInstance().WhosTurn();
+        // TODO: Check if is player
+        g.GetComponent<ActionController>().EndTurn();
         Debug.Log("Clicked End Turn button");
         //for testing, advance to next player
         NextPlayerTurn();

@@ -9,5 +9,10 @@ public abstract class EntityAction
         this.ActionCost = cost;
     }
 
+    public uint Cost()
+    {
+        return ActionCost;
+    }
+
     public abstract void Invoke(GameObject target);
 }
