@@ -1,0 +1,5 @@
+<ui:UXML xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" noNamespaceSchemaLocation="../../../UIElementsSchema/UIElements.xsd" editor-extension-mode="False">
+    <ui:VisualElement name="Card" style="flex-grow: 1; justify-content: center; opacity: 1; background-color: rgba(166, 49, 49, 0.65); width: auto; height: auto;">
+        <ui:Label text="Label" name="Card_Name" style="justify-content: center; align-items: center; font-size: 36px;" />
+    </ui:VisualElement>
+</ui:UXML>
