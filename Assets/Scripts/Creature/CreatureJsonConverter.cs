@@ -6,6 +6,7 @@ using System.Collections.Generic;
 
 namespace Game.Creature
 {
+
     // --- DTOs (JsonUtility requires [Serializable] classes with public fields) ---
     [Serializable]
     public class CreatureDto
@@ -120,10 +121,13 @@ namespace Game.Creature
             // Initiative: use perception.mod if present
             target.initiative = dto.system.perception?.mod ?? target.initiative;
 
-            // Attack bonus from first item if present
+            // Attack bonus from first item if present // Temporary
             target.attackBonus = dto.items != null && dto.items.Length > 0
                 ? dto.items[0]?.system?.bonus?.value ?? target.attackBonus
                 : target.attackBonus;
+
+            // Damage bonus directly from str mod // Temporary
+            target.damageBonus = dto.system.abilities?.str?.mod ?? target.strMod;
 
             // Ability modifiers
             target.strMod = dto.system.abilities?.str?.mod ?? target.strMod;

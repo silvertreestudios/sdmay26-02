@@ -3,6 +3,7 @@ using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
+using Game.Creature;
 
 public class HUDController : MonoBehaviour
 {
@@ -73,7 +74,7 @@ public class HUDController : MonoBehaviour
         targetHealthBar = targetCard.Q<ProgressBar>("HealthBar");
 
         //####Test Player Cards Setup####
-        players = new TESTPlayerCard[4];
+        players = new TESTPlayerCard[2];
         BuildTestCards();
 
         //####Player Queue Card Setup####
@@ -83,8 +84,8 @@ public class HUDController : MonoBehaviour
 
     void Update()
     {
-        Debug.Log("Update called");
-        Debug.Log("HUD Update called");
+        // Debug.Log("Update called");
+        // Debug.Log("HUD Update called");
         // Update current player card (placeholder logic)
         updateCurrentPlayerCard();
 
@@ -127,7 +128,7 @@ public class HUDController : MonoBehaviour
     }
 
     private void HighlightCurrentPlayerCard(int playerIndex) {
-        Debug.Log("HighlightCurrentPlayerCard called");
+        // Debug.Log("HighlightCurrentPlayerCard called");
         // Logic to highlight the current player's card
         // This is a placeholder implementation
         for (int i = 0; i < cardHolder.childCount; i++) {
@@ -150,7 +151,7 @@ public class HUDController : MonoBehaviour
         g.GetComponent<ActionController>().TestStrike();
         Debug.Log("Clicked Strike button");
         //for testing, have strike do damage to next player
-        players[(currentPlayerIndex + 1) % players.Length].TakeDamage(10);
+        // players[(currentPlayerIndex + 1) % players.Length].TakeDamage(10);
     }
 
     public void Move()
@@ -187,24 +188,27 @@ public class HUDController : MonoBehaviour
     }
 
     public bool isActionRunning(){
-        Debug.Log("isActionRunning called");
+        // Debug.Log("isActionRunning called");
         // Disable buttons if action is running
         // Placeholder logic, always return false for now
         return false;
     }
 
     private void updateCurrentPlayerCard() {
-        Debug.Log("updateCurrentPlayerCard called");
-        currentPlayerHealthBar.title = players[currentPlayerIndex].playerName;
-        currentPlayerHealthBar.value = players[currentPlayerIndex].getHealth();
-        currentPlayerHealthBar.highValue = players[currentPlayerIndex].getMaxHealth();
+        // Debug.Log("updateCurrentPlayerCard called");
+        CreatureComponent p1 = CombatManagerInterface.GetInstance().WhosTurn().GetComponent<CreatureComponent>();
+        currentPlayerHealthBar.title = p1.name;
+        currentPlayerHealthBar.value = p1.hp;
+        currentPlayerHealthBar.highValue = p1.maxHp;
     }
 
     private void updateTargetCard(TESTPlayerCard targetPlayer) {
-        Debug.Log("updateTargetCard called");
-        targetHealthBar.title = targetPlayer.playerName;
-        targetHealthBar.value = targetPlayer.getHealth();
-        targetHealthBar.highValue = targetPlayer.getMaxHealth();
+        // Debug.Log("updateTargetCard called");
+        GameObject p1 = CombatManagerInterface.GetInstance().WhosTurn();
+        CreatureComponent p2 = CombatManagerInterface.GetInstance().GetTarget(p1).GetComponent<CreatureComponent>();
+        targetHealthBar.title = p2.name;
+        targetHealthBar.value = p2.hp;
+        targetHealthBar.highValue = p2.maxHp;
     }
 
     private void NextPlayerTurn() {
@@ -254,12 +258,12 @@ public class TESTPlayerCard {
     }
 
     public int getMaxHealth() {
-        Debug.Log("getMaxHealth called");
+        // Debug.Log("getMaxHealth called");
         return maxHealth;
     }
     
     public int getHealth() {
-        Debug.Log("getHealth called");
+        // Debug.Log("getHealth called");
         return health;
     }
 }
