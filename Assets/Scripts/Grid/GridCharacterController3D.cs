@@ -345,41 +345,62 @@ public class GridCharacterController3D : MonoBehaviour
     public IEnumerator StrikeCoroutine(GameObject character, int range, CoroutineResult<GameObject> result)
     {
         SetActivePlayer(character);
-        GetOccupantsInArea(character, range);
+        List<GameObject> occupants = GetOccupantsInArea(character, range);
+        result.Value = null;     
         // wait for leftclick to be true
-        while (!cancel){
-        yield return new WaitUntil(() => leftClick || cancel);
-        if  (TryGetClickedCell(currentCamera, out Vector3Int targetCell))
+        while (!cancel)
         {
-            result.Value = grid.GetOccupantsInArea(new List<Vector3Int> { targetCell })[0];
-            
-            if (result.Value != null)
-                continue;
-            // Check for double-click
-            if (isDoubleClick)
+            yield return new WaitUntil(() => leftClick || rightClick || cancel);
+            if (cancel) break;
+            if (rightClick)
             {
-                // Double-click detected - confirm selection
-                Debug.Log(""+result.Value);
-                
+                Debug.Log("Strike cancelled");
                 break;
             }
-            else
+            Debug.Log("StrikeCoroutine started.");
+            if  (TryGetClickedCell(currentCamera, out Vector3Int targetCell))
             {
-                // Single-click
-                Debug.Log("TODO: display character information");
+                Debug.Log("test1");
+                List<GameObject> occupantsInCell = grid.GetOccupantsInArea(new List<Vector3Int> { targetCell });
+                if (occupantsInCell.Count == 0)
+                {
+                    Debug.Log("No occupants in the selected cell.");
+                    leftClick = false;
+                    continue;
+                } else {
+                    result.Value = grid.GetOccupantsInArea(new List<Vector3Int> { targetCell })[0];
+                }
                 
-            }
+                if (result.Value == null)
+                    continue;
+                // Check for double-click
+                if (isDoubleClick)
+                {
+                    // Double-click detected - confirm selection
+                    if(occupants.Contains(result.Value))
+                    {
+                        Debug.Log(""+result.Value.name);
+                        break;
+                    }
+                    else
+                    {
+                        Debug.Log("Selected an invalid target.");
+                        leftClick = false;
+                        continue;
+                    }
+                }
+                else
+                {
+                    // Single-click
+                    Debug.Log("TODO: display character information");
+                    
+                }
 
-        }
+            }
         }
         cancel = false;   
-        result.Value = null;     
-        if (visualIndicator.IsActive)
-        {
-            visualIndicator.Clear();
-            rangeHighlighter.ClearHighlights();
-            Debug.Log("[GridCharacterController3D] Visual indicator cancelled.");
-        }
+        rangeHighlighter.ClearHighlights();
+        Debug.Log("strike finished");
     }
 
     // stride coroutine
@@ -390,8 +411,10 @@ public class GridCharacterController3D : MonoBehaviour
         Vector3Int startCell = coordinateConverter.GetCharacterCell(currentPlayer);
         rangeHighlighter.UpdateHighlights(startCell, maxMovementDistance);
         // wait for leftclick to be true
-        while (!cancel){
+        while (!cancel)
+        {
         yield return new WaitUntil(() => leftClick || rightClick || cancel);
+        if (cancel) break;
         if (rightClick)
         {
             if (visualIndicator.IsActive)
@@ -436,9 +459,9 @@ public class GridCharacterController3D : MonoBehaviour
         if (visualIndicator.IsActive)
         {
             visualIndicator.Clear();
-            rangeHighlighter.ClearHighlights();
             Debug.Log("[GridCharacterController3D] Visual indicator cancelled.");
         }
+        rangeHighlighter.ClearHighlights();
 
         
     }
