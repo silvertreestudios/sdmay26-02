@@ -21,6 +21,7 @@ public class Strike
         CreatureComponent from = from_go.GetComponent<CreatureComponent>();
         CreatureComponent to = to_go.GetComponent<CreatureComponent>();
         int attackBonus = from.attackBonus;
+        int damageBonus = from.damageBonus;
 
         // Hit Check
         D20Result attackRoll = D20.Roll(attackBonus, to.ac);
@@ -31,8 +32,10 @@ public class Strike
             log += "\nDamages: ";
             foreach (var d in Damages)
             {
-                log += "\n  " + d.damageType + ": " + d.numberOfDice + ", " + d.sidesPerDie;
+                log += "\n  " + d.damageType + ": " + d.numberOfDice + ", " + d.sidesPerDie +", +" +damageBonus;
             }
+            // Adds a new flat damage for the damage bonus, type matching the first damage type
+            FlatDamages.Add(new DamageValue(Damages[0].damageType, damageBonus));
             List<DamageValue> damageValues = DamageRoller.RollDamage(Damages, FlatDamages);
             DamageRoller.EvaluateCriticalDamage(attackRoll.degree, damageValues);
             DamageRoller.ApplyWeaknessAndResistance(damageValues, to.weaknesses, to.resistances);
