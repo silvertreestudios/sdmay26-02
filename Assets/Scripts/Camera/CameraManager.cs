@@ -19,7 +19,7 @@ public enum CameraType
 public class CameraManager : SingletonMonoBehaviour<CameraManager>
 {
 
-    private List<(string, GameObject)> entities = new List<(string, GameObject)>();
+    private List<GameObject> entities = new();
     Camera camera = null;
     private CameraType currentCameraMode;
     private string currentActor;
@@ -78,9 +78,9 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         camera = cam;
     }
 
-    public void addActor(string name, GameObject Actor)
+    public void addActor(GameObject Actor)
     {
-        entities.Add((name, Actor));
+        entities.Add(Actor);
     }
 
 
@@ -129,9 +129,9 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
 
     // Removes an actor from the manager by name
-    public void removeActor(string name)
+    public void removeActor(GameObject g)
     {
-        entities.RemoveAll(e => e.Item1 == name);
+        entities.RemoveAll(go => go == g);
     }
 
 
@@ -181,9 +181,9 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
 
     // Focuses the camera on a specific actor by name
-    public void focusCamera(string name)
+    public void focusCamera(GameObject g)
     {
-        GameObject entity = entities.Find(e => e.Item1 == name).Item2;
+        GameObject entity = entities.Find(go => go == g);
 
         if (entity != null)
         {
@@ -196,15 +196,15 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         }
         else
         {
-            Debug.LogWarning($"Entity with name {name} not found.");
+            Debug.LogWarning($"Entity with name {g} not found.");
         }
     }
 
 
     // Targets the camera on a specific actor by name
-    public void targetCamera(string name)
+    public void targetCamera(GameObject g)
     {
-        GameObject entity = entities.Find(e => e.Item1 == name).Item2;
+        GameObject entity = entities.Find(go => go == g);
         if (entity != null)
         {
             Vector3 camTargetDirection = camTargetTransform.position - entity.transform.position;
@@ -229,9 +229,9 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
 
     //Hovers the camera over a specific actor by name at offset specified by how it moved in relation to camera
-    public void PickCamera(string name)
+    public void PickCamera(GameObject g)
     {
-        GameObject entity = entities.Find(e => e.Item1 == name).Item2;
+        GameObject entity = entities.Find(go => go == g);
 
         if (entity != null)
         {

@@ -15,10 +15,10 @@ public class Stride : MultiFrameEntityAction
         GridCharacterController3D gridController = GridCharacterController3D.Instance;
         if (gridController != null)
         {
-            // Extract character name from GameObject name
-            string name = target.name.Replace("Player ", "Player");
+            Debug.Log("Test");
             //target.GetInstanceID();
-            gridController.SetActivePlayer(name);
+            gridController.SetActivePlayer(target);
+            Debug.Log("Test2");
         }
         else
         {
@@ -28,12 +28,12 @@ public class Stride : MultiFrameEntityAction
 
         // Determine character name from target GameObject
         // "Player 1" -> "Player1" (remove space for dictionary lookup)
-        string characterName = target.name.Replace("Player ", "Player");
+       
         
-        Debug.Log($"[Stride] Attempting to move {characterName}");
+        Debug.Log($"[Stride] Attempting to move {target}");
         
         // Get the previewed path (player must have selected a path first)
-        List<Vector3Int> path = gridController.GetPreviewedPathForCharacter(characterName);
+        List<Vector3Int> path = gridController.GetPreviewedPathForCharacter(target);
         
         if (path == null || path.Count < 2)
         {
@@ -41,10 +41,10 @@ public class Stride : MultiFrameEntityAction
             yield break;
         }
 
-        Debug.Log($"[Stride] Executing movement for {characterName} along path with {path.Count} waypoints");
+        Debug.Log($"[Stride] Executing movement for {target} along path with {path.Count} waypoints");
         
         // Execute the movement using the grid controller
-        yield return gridController.ExecuteMovement(characterName, path);
+        yield return gridController.ExecuteMovement(target, path);
         
         Debug.Log("[Stride] Movement action completed.");
     }

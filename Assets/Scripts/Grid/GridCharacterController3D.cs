@@ -45,8 +45,8 @@ public class GridCharacterController3D : MonoBehaviour
     public float rangeHighlightHeightOffset = 0.05f;
 
     // Character storage
-    private Dictionary<string, GameObject> characters = new Dictionary<string, GameObject>();
-    private Dictionary<string, ITokenMovement> tokenMovements = new Dictionary<string, ITokenMovement>();
+    private Dictionary<GameObject, GameObject> characters = new Dictionary<GameObject, GameObject>();
+    private Dictionary<GameObject, ITokenMovement> tokenMovements = new Dictionary<GameObject, ITokenMovement>();
 
     // Subsystem references
     private CameraManager camMan;
@@ -63,7 +63,7 @@ public class GridCharacterController3D : MonoBehaviour
     private bool isInitialized = false;
     // Whether a turn is being processed
     private bool isProcessingTurn = false;
-    private string currentPlayer = "Player1";
+    private GameObject currentPlayer = null;
 
     // Input tracking
     private float lastClickTime = 0f;
@@ -136,10 +136,10 @@ public class GridCharacterController3D : MonoBehaviour
         // Check if system is ready
         if (!IsReadyForUpdate(out var cam)) return;
         // Get current character data
-        if (!TryGetCurrentCharacterData(currentPlayer, out var currentCharacter, out var currentMovement))
+        if (!TryGetCurrentCharacterData(currentPlayer, out var currentMovement))
             return;
         // Handle player input
-        HandlePlayerInput(cam, currentPlayer, currentCharacter, currentMovement);
+        HandlePlayerInput(cam, currentPlayer, currentMovement);
 
         // Update camera
         camMan?.update();
@@ -147,7 +147,7 @@ public class GridCharacterController3D : MonoBehaviour
         //test for the emination code: when press G, run get occupants in area for current player with range 3
         if (Input.GetKeyDown(KeyCode.G))
         {
-            List<GameObject> occupants = GetOccupantsInArea(currentCharacter, 2);
+            List<GameObject> occupants = GetOccupantsInArea(currentPlayer, 2);
             Debug.Log($"[GridCharacterController3D] Occupants in area: {occupants.Count}");
             foreach (var obj in occupants)
             {
@@ -157,7 +157,7 @@ public class GridCharacterController3D : MonoBehaviour
         //reset highlights hen press H
         if (Input.GetKeyDown(KeyCode.H))
         {
-            Vector3Int startCell = coordinateConverter.GetCharacterCell(currentCharacter);
+            Vector3Int startCell = coordinateConverter.GetCharacterCell(currentPlayer);
             rangeHighlighter.UpdateHighlights(startCell, maxMovementDistance);
             Debug.Log("[GridCharacterController3D] Highlights reset.");
         }
@@ -240,7 +240,7 @@ public class GridCharacterController3D : MonoBehaviour
                 foreach (var kvp in characters)
                 {
                     // add character to camera manager
-                    camMan.addActor(kvp.Key, kvp.Value);
+                    camMan.addActor(kvp.Key);
                 }
                 camMan.SetCameraForCharacter("Player1", CameraType.Pick);
             }
@@ -293,7 +293,7 @@ public class GridCharacterController3D : MonoBehaviour
     private bool IsReadyForUpdate(out Camera cam)
     {
         cam = null;
-
+        // 
         if (!Application.isPlaying || !isInitialized) return false;
 
         if (!grid)
@@ -308,9 +308,10 @@ public class GridCharacterController3D : MonoBehaviour
         return true;
     }
 
-    private bool TryGetCurrentCharacterData(string characterName, out GameObject character, out ITokenMovement movement)
+    private bool TryGetCurrentCharacterData(GameObject characterName, out ITokenMovement movement)
     {
-        return characters.TryGetValue(characterName, out character) &
+        movement = null;
+        return characters.ContainsKey(characterName) && 
                tokenMovements.TryGetValue(characterName, out movement);
     }
 
@@ -322,7 +323,7 @@ public class GridCharacterController3D : MonoBehaviour
         return rangeHighlighter.IsCellReachable(targetCell);
     }
 
-    private void HandlePlayerInput(Camera cam, string characterName, GameObject character, ITokenMovement movement)
+    private void HandlePlayerInput(Camera cam, GameObject character, ITokenMovement movement)
     {
         // Handle right-click to cancel indicator
         if (InputCompat.RightClickDown())
@@ -479,19 +480,20 @@ public class GridCharacterController3D : MonoBehaviour
             return;
         }
 
-        SpawnCharacter("Player1", prefab, new Vector3(.5f, yPos, .5f), Color.white);
+        SpawnCharacter(prefab, new Vector3(.5f, yPos, .5f), Color.white);
 
         GameObject player2Prefab = prefab2 != null ? prefab2 : prefab;
-        SpawnCharacter("Player2", player2Prefab, new Vector3(18.5f, yPos, 1.5f), Color.red);
+        SpawnCharacter(player2Prefab, new Vector3(18.5f, yPos, 1.5f), Color.red);
     }
 
-    private void SpawnCharacter(string name, GameObject prefab, Vector3 position, Color color)
+    private void SpawnCharacter(GameObject prefab, Vector3 position, Color color)
     {
         // Instantiate character GameObject
         GameObject player = Instantiate(prefab);
         player.name = name.Replace("Player", "Player ");
         player.transform.position = position;
-        characters[name] = player;
+        characters[player] = player;
+        currentPlayer = currentPlayer ?? player;
 
         var renderer = player.GetComponent<MeshRenderer>();
         // Apply color if not white
@@ -501,7 +503,7 @@ public class GridCharacterController3D : MonoBehaviour
         }
 
         //ANOTHER TEMP FIX, grid IS PROBABLY NOT THE RIGHT WAY TO CALL THESE METHODS BUT IDK HOW ELSE TO DO IT
-        grid.SetCreaturePosition(characters[name], coordinateConverter.GetCharacterCell(characters[name]));
+        grid.SetCreaturePosition(player, coordinateConverter.GetCharacterCell(player));
     }
 
     void SnapToValidCell(GameObject obj)
@@ -524,7 +526,7 @@ public class GridCharacterController3D : MonoBehaviour
     /// <summary>
     /// Gets the currently previewed path for a character
     /// </summary>
-    public List<Vector3Int> GetPreviewedPathForCharacter(string characterName)
+    public List<Vector3Int> GetPreviewedPathForCharacter(GameObject characterName)
     {
         if (characterName == currentPlayer && visualIndicator.IsActive)
         {
@@ -536,16 +538,16 @@ public class GridCharacterController3D : MonoBehaviour
     /// <summary>
     /// Gets the character GameObject by name
     /// </summary>
-    public GameObject GetCharacter(string characterName)
-    {
-        characters.TryGetValue(characterName, out GameObject character);
-        return character;
-    }
+    //public GameObject GetCharacter(string characterName)
+    //{
+    //    characters.TryGetValue(characterName, out GameObject character);
+    //    return character;
+    //}
 
     /// <summary>
     /// Gets the movement controller for a character
     /// </summary>
-    public ITokenMovement GetMovementController(string characterName)
+    public ITokenMovement GetMovementController(GameObject characterName)
     {
         tokenMovements.TryGetValue(characterName, out ITokenMovement movement);
         return movement;
@@ -554,13 +556,13 @@ public class GridCharacterController3D : MonoBehaviour
     /// <summary>
     /// Sets the active player and updates highlights
     /// </summary>
-    public void SetActivePlayer(string characterName)
+    public void SetActivePlayer(GameObject characterName)
     {
         Debug.Log("Setting active Player");
         rangeHighlighter.ClearHighlights();
         visualIndicator.Clear();
 
-        currentPlayer = characterName;
+        GameObject currentPlayer = characterName;
         Debug.Log($"[GridCharacterController3D] Active player set to {currentPlayer}");
 
         // Update highlights for new player
@@ -572,11 +574,10 @@ public class GridCharacterController3D : MonoBehaviour
 
         isProcessingTurn = false;
     }
-
     /// <summary>
     /// Executes movement for a character along a given path
     /// </summary>
-    public IEnumerator ExecuteMovement(string characterName, List<Vector3Int> path)
+    public IEnumerator ExecuteMovement(GameObject characterName, List<Vector3Int> path)
     {
         if (!characters.TryGetValue(characterName, out GameObject character))
         {
