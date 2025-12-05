@@ -19,7 +19,7 @@ namespace Game.Creature
 
         // Basic stats
         [Header("Basic Stats")]
-        [SerializeField] private string _name;
+        [SerializeField] private string _name; // {get set}
         [SerializeField] private int _level;
         [SerializeField] private int _initiative;
         [SerializeField] private int _speed;
