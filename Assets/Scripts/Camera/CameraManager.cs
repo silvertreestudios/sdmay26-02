@@ -322,22 +322,18 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
             if (Input.GetKey(KeyCode.W) && !Input.GetKey(KeyCode.LeftShift))
             {
-                Debug.Log("W key pressed");
                 totalTransform += cameraForward * 5.0f * Time.deltaTime;
             }
             if (Input.GetKey(KeyCode.A) && !Input.GetKey(KeyCode.LeftShift))
             {
-                Debug.Log("A key pressed");
                 totalTransform += -cameraRight * 5.0f * Time.deltaTime;
             }
             if (Input.GetKey(KeyCode.S) && !Input.GetKey(KeyCode.LeftShift))
             {
-                Debug.Log("S key pressed");
                 totalTransform += -cameraForward * 5.0f * Time.deltaTime;
             }
             if (Input.GetKey(KeyCode.D) && !Input.GetKey(KeyCode.LeftShift))
             {
-                Debug.Log("D key pressed");
                 totalTransform += cameraRight * 5.0f * Time.deltaTime;
             }
 
@@ -347,11 +343,9 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
                 //camera.transform.position += camera.transform.forward * 5.0f * Time.deltaTime;
                 // cameraOffset += camera.transform.forward * 5.0f * Time.deltaTime;
                 cameraOffset += new Vector3(0, 5.0f * Time.deltaTime, 0);
-                Debug.Log("Mouse Scroll Up");
             }
             if (Input.mouseScrollDelta.y < 0)
             {
-                Debug.Log("Mouse Scroll Down");
                 //camera.transform.position -= camera.transform.forward * 5.0f * Time.deltaTime;
                 // cameraOffset -= camera.transform.forward * 5.0f * Time.deltaTime;
                 cameraOffset += new Vector3(0, -5.0f * Time.deltaTime, 0);
@@ -362,11 +356,9 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
                 //camera.transform.position += camera.transform.forward * 5.0f * Time.deltaTime;
                 // cameraOffset += camera.transform.forward * 5.0f * Time.deltaTime;
                 cameraOffset += new Vector3(0, 5.0f * Time.deltaTime, 0);
-                Debug.Log("Up Arrow key pressed");
             }
             if (Input.GetKey(KeyCode.DownArrow))
             {
-                Debug.Log("Down Arrow key pressed");
                 //camera.transform.position -= camera.transform.forward * 5.0f * Time.deltaTime;
                 // cameraOffset -= camera.transform.forward * 5.0f * Time.deltaTime;
                 cameraOffset += new Vector3(0, -5.0f * Time.deltaTime, 0);
@@ -376,20 +368,16 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
                 // Counter-clockwise rotation
                 currentOrbitAngle += orbitSpeed * Time.deltaTime;
                 UpdateCameraOrbit();
-                Debug.Log("Left Arrow key pressed");
             }
             if (Input.GetKey(KeyCode.RightArrow) || Input.GetKey(KeyCode.E))
             {
                 // Clockwise rotation
                 currentOrbitAngle -= orbitSpeed * Time.deltaTime;
                 UpdateCameraOrbit();
-                Debug.Log("Right Arrow key pressed");
             }
 
             if (Input.GetKey(KeyCode.LeftShift))
             {
-                Debug.Log("Left Shift key pressed");
-
                 // Normalize mouse position to -0.5 to 0.5 range (center = 0,0)
                 Vector2 normalizedMousePos;
                 normalizedMousePos.x = (Input.mousePosition.x / Screen.width) - 0.5f;
@@ -410,7 +398,6 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
             if (Input.GetKeyDown(KeyCode.Space))
             {
-                Debug.Log("Space key pressed");
             }
 
             cameraTarget.transform.position = totalTransform;
