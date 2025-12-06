@@ -148,11 +148,18 @@ public class GridRenderer3D : GridInterface
     // Rebuild when inspector values change in edit mode.
     void OnValidate()
     {
-        if (!Application.isPlaying) // Only rebuild in editor
+#if UNITY_EDITOR
+        // Defer the rebuild to avoid "DestroyImmediate is not permitted during OnValidate"
+        UnityEditor.EditorApplication.delayCall += () =>
         {
-            Init();
-            FullRebuild();
-        }
+            if (this == null) return;
+            if (!Application.isPlaying)
+            {
+                Init();
+                FullRebuild();
+            }
+        };
+#endif
     }
 
     /// <summary>
