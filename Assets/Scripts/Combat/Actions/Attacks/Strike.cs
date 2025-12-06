@@ -21,29 +21,35 @@ public class Strike
         CreatureComponent from = from_go.GetComponent<CreatureComponent>();
         CreatureComponent to = to_go.GetComponent<CreatureComponent>();
         int attackBonus = from.attackBonus;
+        int damageBonus = from.damageBonus;
 
         // Hit Check
         D20Result attackRoll = D20.Roll(attackBonus, to.ac);
 
-        string log = "Attack:\nAC: " + to.ac + "\nAttack Roll: " + attackRoll.total;
+        string log = "Attack:\n  AC: " + to.ac + "\n  Attack Roll: " + attackRoll.total +" (" +attackRoll.roll +" + " +attackBonus +")" 
+            +"\n  Result: "+attackRoll.degree ;
         if (attackRoll.degree == DegreeOfSuccess.Success || attackRoll.degree == DegreeOfSuccess.CriticalSuccess)
         {
-            log += "\nDamages: ";
+            log += "\n  Damage: ";
             foreach (var d in Damages)
             {
-                log += "\n  " + d.damageType + ": " + d.numberOfDice + ", " + d.sidesPerDie;
+                log += " " + d.numberOfDice + "d" + d.sidesPerDie +"+" +damageBonus + " " + d.damageType+", ";
             }
+            // Adds a new flat damage for the damage bonus, type matching the first damage type
+            FlatDamages.Add(new DamageValue(Damages[0].damageType, damageBonus));
             List<DamageValue> damageValues = DamageRoller.RollDamage(Damages, FlatDamages);
             DamageRoller.EvaluateCriticalDamage(attackRoll.degree, damageValues);
             DamageRoller.ApplyWeaknessAndResistance(damageValues, to.weaknesses, to.resistances);
             uint damage = (uint)DamageRoller.SumDamage(damageValues);
             to.TakeDamage(damage);
-            log += "\nEvaluated Damages: " + damage;
+            log += "\nDamage Rolls: ";
             foreach (var d in damageValues)
             {
                 log += "\n  " + d.DamageType + ": " + d.DamageAmount;
             }
+            log += "\n  Total: " + damage;
         }
+        log+= "\n";
         Debug.Log(log);
     }
 }
