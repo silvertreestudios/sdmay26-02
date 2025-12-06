@@ -344,19 +344,24 @@ public class GridCharacterController3D : MonoBehaviour
     // strike coroutine
     public IEnumerator StrikeCoroutine(GameObject character, int range, CoroutineResult<GameObject> result)
     {
+        cancel = true;
+        yield return null;
+        cancel = false;
         SetActivePlayer(character);
         List<GameObject> occupants = GetOccupantsInArea(character, range);
         result.Value = null;     
         // wait for leftclick to be true
-        while (!cancel)
+        while (true)
         {
             yield return new WaitUntil(() => leftClick || rightClick || cancel);
             if (cancel) break;
             if (rightClick)
             {
                 Debug.Log("Strike cancelled");
+                rightClick = false;
                 break;
             }
+            leftClick = false;
             Debug.Log("StrikeCoroutine started.");
             if  (TryGetClickedCell(currentCamera, out Vector3Int targetCell))
             {
@@ -365,7 +370,6 @@ public class GridCharacterController3D : MonoBehaviour
                 if (occupantsInCell.Count == 0)
                 {
                     Debug.Log("No occupants in the selected cell.");
-                    leftClick = false;
                     continue;
                 } else {
                     result.Value = grid.GetOccupantsInArea(new List<Vector3Int> { targetCell })[0];
@@ -385,7 +389,6 @@ public class GridCharacterController3D : MonoBehaviour
                     else
                     {
                         Debug.Log("Selected an invalid target.");
-                        leftClick = false;
                         continue;
                     }
                 }
@@ -399,71 +402,80 @@ public class GridCharacterController3D : MonoBehaviour
             }
         }
         cancel = false;   
+        leftClick = false;
+        rightClick = false;
         rangeHighlighter.ClearHighlights();
         Debug.Log("strike finished");
+        // terminate coroutine
+        yield return null;
     }
 
     // stride coroutine
     public IEnumerator StrideCoroutine(GameObject character)
     {
+        cancel = true;
+        yield return null;
+        cancel = false;
         SetActivePlayer(character);
         // Update highlights for new player
         Vector3Int startCell = coordinateConverter.GetCharacterCell(currentPlayer);
         rangeHighlighter.UpdateHighlights(startCell, maxMovementDistance);
         // wait for leftclick to be true
-        while (!cancel)
+        while (true)
         {
-        yield return new WaitUntil(() => leftClick || rightClick || cancel);
-        if (cancel) break;
-        if (rightClick)
-        {
-            if (visualIndicator.IsActive)
+            yield return new WaitUntil(() => leftClick || rightClick || cancel);
+            if (cancel) break;
+            if (rightClick)
             {
-                visualIndicator.Clear();
-                Debug.Log("[GridCharacterController3D] Visual indicator cancelled.");
-            }
-            rightClick = false;
-            continue;
-        }
-        if (TryValidateAndGetPath(currentCamera, character, out List<Vector3Int> path))
-        {
-            // Check for double-click
-
-            if (isDoubleClick)
-            {
-                // Double-click detected - confirm movement
-                Debug.Log("[GridCharacterController3D] Double-click detected - confirming movement.");
-                if(visualIndicator.IsActive && lastClickedCell == path[path.Count - 1])
-                {                    
-                    isProcessingTurn = true;
-                    rangeHighlighter.ClearHighlights();
+                if (visualIndicator.IsActive)
+                {
                     visualIndicator.Clear();
+                    Debug.Log("[GridCharacterController3D] Visual indicator cancelled.");
+                }
+                rightClick = false;
+                continue;
+            }
+            leftClick = false;
+            if (TryValidateAndGetPath(currentCamera, character, out List<Vector3Int> path))
+            {
+                // Check for double-click
 
-                    StartCoroutine(HandleTurn(character, currentMovement, path));
-                    break;
+                if (isDoubleClick)
+                {
+                    // Double-click detected - confirm movement
+                    Debug.Log("[GridCharacterController3D] Double-click detected - confirming movement.");
+                    if(visualIndicator.IsActive && lastClickedCell == path[path.Count - 1])
+                    {                    
+                        isProcessingTurn = true;
+                        rangeHighlighter.ClearHighlights();
+                        visualIndicator.Clear();
+                        StartCoroutine(HandleTurn(character, currentMovement, path));
+                        break;
+                    }
+                }
+                else
+                {
+                    // Single-click - show/update indicator
+                    Debug.Log("[GridCharacterController3D] Single-click detected - showing visual indicator.");
+                    visualIndicator.ShowPath(path, false);
+
+                    // Update click tracking
+                    lastClickedCell = path[path.Count - 1];
                 }
             }
-            else
-            {
-                // Single-click - show/update indicator
-                Debug.Log("[GridCharacterController3D] Single-click detected - showing visual indicator.");
-                visualIndicator.ShowPath(path, false);
-
-                // Update click tracking
-                lastClickedCell = path[path.Count - 1];
-            }
-
         }
-        }
-        cancel = false;        
+        cancel = false;
+        leftClick = false;
+        rightClick = false;       
         if (visualIndicator.IsActive)
         {
             visualIndicator.Clear();
             Debug.Log("[GridCharacterController3D] Visual indicator cancelled.");
         }
         rangeHighlighter.ClearHighlights();
-
-        
+        Debug.Log("stride finished");
+        // terminate coroutine
+        yield return null;
     }
     
 
