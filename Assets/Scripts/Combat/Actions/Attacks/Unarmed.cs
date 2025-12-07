@@ -14,6 +14,7 @@ public class Unarmed : MultiFrameEntityAction
 
     protected override IEnumerator MFInvoke(GameObject attacker)
     {
+        ActionController ac = attacker.GetComponent<ActionController>();
         // Grid get target;
         CoroutineResult<GameObject> target = new();
         yield return GridCharacterController3D.Instance.StrikeCoroutine(attacker, 2, target);
@@ -21,11 +22,10 @@ public class Unarmed : MultiFrameEntityAction
         {
             Debug.Log(attacker + " Striking " + target.Value);
             Strike.Damage(attacker, target.Value);
-            if(attacker.TryGetComponent<ActionController>(out var ac))
-            {
+            if(ac)
                 PayCost(ac);
-                ac.IsTakingAction = false;
-            }
         }
+        if(ac)
+            ac.IsTakingAction = false;
     }
 }

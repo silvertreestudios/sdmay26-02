@@ -12,15 +12,15 @@ public class Stride : MultiFrameEntityAction
 
     protected override IEnumerator MFInvoke(GameObject target)
     {
+        ActionController ac = target.GetComponent<ActionController>();
         CoroutineResult<bool> canceled = new();
         yield return GridCharacterController3D.Instance.StrideCoroutine(target, canceled);
         if (!canceled.Value)
         {
-            if (target.TryGetComponent<ActionController>(out var ac))
-            {
+            if (ac)
                 PayCost(ac);
-                ac.IsTakingAction = false;
-            }
         }
+        if (ac)
+            ac.IsTakingAction = false;
     }
 }

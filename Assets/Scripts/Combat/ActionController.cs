@@ -14,7 +14,7 @@ public class ActionController : MonoBehaviour
     [field: SerializeField]
     public uint ActionPoints { get; set; }
 
-    protected void Start()
+    protected void Awake()
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);
         
@@ -94,10 +94,10 @@ public class ActionController : MonoBehaviour
 
     public void TakeAction(EntityAction action)
     {
-        IsTakingAction = true;
         uint cost = action.ActionCost;
         if (!IsTurn || cost > ActionPoints)
             return;
+        IsTakingAction = true;
         action.Invoke(this.gameObject);
     }
 

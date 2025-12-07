@@ -118,7 +118,7 @@ public class GridCharacterController3D : MonoBehaviour
     /// <summary>
     /// Initializes the character controller and subsystems
     /// </summary>
-    void Start()
+    public void Setup()
     {
         InitializeCoordinateConverter();
         InitializePathfinder();
@@ -129,8 +129,6 @@ public class GridCharacterController3D : MonoBehaviour
         // Mark as initialized
         isInitialized = true;
 
-        // Start combat after initialization
-        StartCoroutine(StartCombatAfterDelay());
         // Update pathfinder settings if changed in inspector
         if (pathfinder != null)
         {
@@ -180,25 +178,6 @@ public class GridCharacterController3D : MonoBehaviour
 
 
         
-    }
-
-    /// <summary>
-    /// Starts combat after a short delay to ensure all components are initialized
-    /// </summary>
-    private IEnumerator StartCombatAfterDelay()
-    {
-        yield return null;
-
-        CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
-        if (combatManager != null)
-        {
-            Debug.Log("[GridCharacterController3D] Starting combat...");
-            combatManager.StartCombat();
-        }
-        else
-        {
-            Debug.LogError("[GridCharacterController3D] CombatManager not found!");
-        }
     }
 
     /// <summary>

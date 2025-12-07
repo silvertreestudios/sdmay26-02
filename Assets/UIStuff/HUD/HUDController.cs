@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using Game.Creature;
+using System.Collections.Generic;
 
 public class HUDController : MonoBehaviour
 {
@@ -18,9 +19,6 @@ public class HUDController : MonoBehaviour
     private VisualElement cardHolder; 
     private VisualTreeAsset playerCardTemplate;
     private bool needToUpdateCards = true;
-    //These are just placeholder names for testing, I imagine we'd pull the roster at runtime from turnManager or something
-    private TESTPlayerCard[] players;
-    private int currentPlayerIndex = 0;
 
     //####Cancel Action Button####
     private Button cancelActionButton;
@@ -32,6 +30,9 @@ public class HUDController : MonoBehaviour
     //####Target Variables####
     private VisualElement targetCard;
     private ProgressBar targetHealthBar;
+
+    private static List<GameObject> Players;
+    private static bool IsActive = false;
     
 
     private void Awake() {
@@ -73,24 +74,28 @@ public class HUDController : MonoBehaviour
         targetCard = ui.Q<VisualElement>("TargetInfo");
         targetHealthBar = targetCard.Q<ProgressBar>("HealthBar");
 
-        //####Test Player Cards Setup####
-        players = new TESTPlayerCard[2];
-        BuildTestCards();
-
         //####Player Queue Card Setup####
         cardHolder = ui.Q<VisualElement>("CardHolder");
         // fillPlayerCards(); // Fix: Let Update() handle the initial fill to avoid double execution
     }
 
+    public static void Setup()
+    {
+        Players = CombatManagerInterface.GetInstance().GetCombatants();
+        IsActive = true;
+    }
+
     void Update()
     {
+        if (!IsActive)
+            return;
         // Debug.Log("Update called");
         // Debug.Log("HUD Update called");
         // Update current player card (placeholder logic)
         updateCurrentPlayerCard();
 
         // Update target card (placeholder logic)
-        updateTargetCard(players[(currentPlayerIndex + 1) % players.Length]);
+        updateTargetCard();
 
         // Update player queue cards if needed
         if (needToUpdateCards) {
@@ -110,7 +115,7 @@ public class HUDController : MonoBehaviour
         }
 
         // Highlight the current player's card
-        HighlightCurrentPlayerCard(currentPlayerIndex);
+        HighlightCurrentPlayerCard();
     }
 
 
@@ -119,18 +124,19 @@ public class HUDController : MonoBehaviour
     private void fillPlayerCards() {
         Debug.Log("fillPlayerCards called");
         cardHolder.Clear(); // Fix: Clear existing cards before adding new ones
-        for (int i = 0; i < players.Length; i++) {
+        for (int i = 0; i < Players.Count; i++) {
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
-            cardInstance.Q<Label>("Card_Name").text = players[i].playerName;
-            Debug.Log("Added card for " + players[i].playerName);
+            cardInstance.Q<Label>("Card_Name").text = Players[i].name;
+            Debug.Log("Added card for " + Players[i].name);
         }
     }
 
-    private void HighlightCurrentPlayerCard(int playerIndex) {
+    private void HighlightCurrentPlayerCard() {
         // Debug.Log("HighlightCurrentPlayerCard called");
         // Logic to highlight the current player's card
         // This is a placeholder implementation
+        int playerIndex = CombatManagerInterface.GetInstance().WhosTurn() == Players[0]? 1: 0;
         for (int i = 0; i < cardHolder.childCount; i++) {
             var card = cardHolder.ElementAt(i);
             if (i == playerIndex) {
@@ -168,8 +174,6 @@ public class HUDController : MonoBehaviour
         // TODO: Check if is player
         g.GetComponent<ActionController>().EndTurn();
         Debug.Log("Clicked End Turn button");
-        //for testing, advance to next player
-        NextPlayerTurn();
     }
 
     public void CancelAction() {
@@ -180,7 +184,7 @@ public class HUDController : MonoBehaviour
 
     public void focusOnPlayer(int playerIndex) {
         Debug.Log("focusOnPlayer called");
-        Debug.Log("Focus on player: " + players[playerIndex]);
+        Debug.Log("Focus on player: " + Players[playerIndex]);
     }
 
     public void getQueuePoisition() {
@@ -203,68 +207,12 @@ public class HUDController : MonoBehaviour
         currentPlayerHealthBar.highValue = p1.maxHp;
     }
 
-    private void updateTargetCard(TESTPlayerCard targetPlayer) {
+    private void updateTargetCard() {
         // Debug.Log("updateTargetCard called");
         GameObject p1 = CombatManagerInterface.GetInstance().WhosTurn();
         CreatureComponent p2 = CombatManagerInterface.GetInstance().GetTarget(p1).GetComponent<CreatureComponent>();
         targetHealthBar.title = p2.name;
         targetHealthBar.value = p2.hp;
         targetHealthBar.highValue = p2.maxHp;
-    }
-
-    private void NextPlayerTurn() {
-        Debug.Log("NextPlayerTurn called");
-        currentPlayerIndex = (currentPlayerIndex + 1) % players.Length;
-        needToUpdateCards = true;
-    }
-
-    private void PreviousPlayerTurn() {
-        Debug.Log("PreviousPlayerTurn called");
-        currentPlayerIndex = (currentPlayerIndex - 1 + players.Length) % players.Length;
-        needToUpdateCards = true;
-    }
-
-    private void BuildTestCards() {
-        Debug.Log("BuildTestCards called");
-        for (int i = 0; i < players.Length; i++) {
-            players[i] = new TESTPlayerCard("Player " + (i + 1), 100);
-        }
-        for (int i = 0; i < players.Length; i++) {
-            Debug.Log("Created test card for " + players[i].playerName);
-        }
-    }
-}
-
-public class TESTPlayerCard {
-    public string playerName;
-    public int health;
-    public int maxHealth;
-
-    public TESTPlayerCard(string name, int maxHp) {
-        Debug.Log("TESTPlayerCard constructor called");
-        playerName = name;
-        maxHealth = maxHp;
-        health = maxHp;
-    }
-
-    public void TakeDamage(int damage) {
-        Debug.Log("TakeDamage called");
-        health -= damage;
-        if (health < 0) health = 0;
-    }
-
-    public string getName() {
-        Debug.Log("getName called");
-        return playerName;
-    }
-
-    public int getMaxHealth() {
-        // Debug.Log("getMaxHealth called");
-        return maxHealth;
-    }
-    
-    public int getHealth() {
-        // Debug.Log("getHealth called");
-        return health;
     }
 }

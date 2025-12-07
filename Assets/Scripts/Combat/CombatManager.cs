@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 public class CombatManager : CombatManagerInterface
 {
-    protected Queue<ActionController> combatants = new Queue<ActionController>();
+    protected Queue<ActionController> combatants = new();
     protected ActionController TurnTaker = null;
 
     public override void AddCombatant(ActionController combatant)
@@ -14,6 +14,14 @@ public class CombatManager : CombatManagerInterface
     public override GameObject WhosTurn()
     {
         return TurnTaker.gameObject;
+    }
+
+    public override List<GameObject> GetCombatants()
+    {
+        List<GameObject> list = new();
+        foreach(var c in combatants)
+            list.Add(c.gameObject);
+        return list;
     }
 
     [ContextMenu("StartCombat")]
