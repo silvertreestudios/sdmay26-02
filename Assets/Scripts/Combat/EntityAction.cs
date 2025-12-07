@@ -2,16 +2,17 @@ using UnityEngine;
 
 public abstract class EntityAction
 {
-    protected uint ActionCost;
+    public uint ActionCost { get; }
 
     public EntityAction(uint cost)
     {
         this.ActionCost = cost;
     }
 
-    public uint Cost()
+    protected void PayCost(ActionController ac)
     {
-        return ActionCost;
+        if (ac != null) 
+            ac.ActionPoints -= ActionCost;
     }
 
     public abstract void Invoke(GameObject target);

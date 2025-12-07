@@ -17,8 +17,15 @@ public class Unarmed : MultiFrameEntityAction
         // Grid get target;
         CoroutineResult<GameObject> target = new();
         yield return GridCharacterController3D.Instance.StrikeCoroutine(attacker, 2, target);
-        Debug.Log(attacker + " Striking " + target);
-        Strike.Damage(attacker, target.Value);
-        yield return null;
+        if(target.Value)
+        {
+            Debug.Log(attacker + " Striking " + target.Value);
+            Strike.Damage(attacker, target.Value);
+            if(attacker.TryGetComponent<ActionController>(out var ac))
+            {
+                PayCost(ac);
+                ac.IsTakingAction = false;
+            }
+        }
     }
 }

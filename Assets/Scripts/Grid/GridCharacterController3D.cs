@@ -411,7 +411,7 @@ public class GridCharacterController3D : MonoBehaviour
     }
 
     // stride coroutine
-    public IEnumerator StrideCoroutine(GameObject character)
+    public IEnumerator StrideCoroutine(GameObject character, CoroutineResult<bool> canceled)
     {
         cancel = true;
         yield return null;
@@ -464,6 +464,7 @@ public class GridCharacterController3D : MonoBehaviour
                 }
             }
         }
+        canceled.Value = cancel;
         cancel = false;
         leftClick = false;
         rightClick = false;       
@@ -474,8 +475,6 @@ public class GridCharacterController3D : MonoBehaviour
         }
         rangeHighlighter.ClearHighlights();
         Debug.Log("stride finished");
-        // terminate coroutine
-        yield return null;
     }
     
 

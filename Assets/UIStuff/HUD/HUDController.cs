@@ -167,7 +167,6 @@ public class HUDController : MonoBehaviour
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
         g.GetComponent<ActionController>().EndTurn();
-        GridCharacterController3D.Instance.cancel = true;
         Debug.Log("Clicked End Turn button");
         //for testing, advance to next player
         NextPlayerTurn();
@@ -176,6 +175,7 @@ public class HUDController : MonoBehaviour
     public void CancelAction() {
         Debug.Log("CancelAction called");
         Debug.Log("Clicked Cancel Action button");
+        GridCharacterController3D.Instance.cancel = true;
     }
 
     public void focusOnPlayer(int playerIndex) {

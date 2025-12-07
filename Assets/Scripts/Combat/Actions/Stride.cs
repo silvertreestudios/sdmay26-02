@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
+using UnityEditor.Experimental.GraphView;
 
 public class Stride : MultiFrameEntityAction
 {
@@ -11,6 +12,15 @@ public class Stride : MultiFrameEntityAction
 
     protected override IEnumerator MFInvoke(GameObject target)
     {
-        yield return GridCharacterController3D.Instance.StrideCoroutine(target);
+        CoroutineResult<bool> canceled = new();
+        yield return GridCharacterController3D.Instance.StrideCoroutine(target, canceled);
+        if (!canceled.Value)
+        {
+            if (target.TryGetComponent<ActionController>(out var ac))
+            {
+                PayCost(ac);
+                ac.IsTakingAction = false;
+            }
+        }
     }
 }
