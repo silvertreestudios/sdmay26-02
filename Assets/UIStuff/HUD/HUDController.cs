@@ -201,18 +201,17 @@ public class HUDController : MonoBehaviour
 
     private void updateCurrentPlayerCard() {
         // Debug.Log("updateCurrentPlayerCard called");
-        CreatureComponent p1 = CombatManagerInterface.GetInstance().WhosTurn().GetComponent<CreatureComponent>();
-        currentPlayerHealthBar.title = p1.name;
-        currentPlayerHealthBar.value = p1.hp;
-        currentPlayerHealthBar.highValue = p1.maxHp;
+        CreatureComponent p = Players[1].GetComponent<CreatureComponent>();
+        currentPlayerHealthBar.title = p.name;
+        currentPlayerHealthBar.value = p.hp;
+        currentPlayerHealthBar.highValue = p.maxHp;
     }
 
     private void updateTargetCard() {
         // Debug.Log("updateTargetCard called");
-        GameObject p1 = CombatManagerInterface.GetInstance().WhosTurn();
-        CreatureComponent p2 = CombatManagerInterface.GetInstance().GetTarget(p1).GetComponent<CreatureComponent>();
-        targetHealthBar.title = p2.name;
-        targetHealthBar.value = p2.hp;
-        targetHealthBar.highValue = p2.maxHp;
+        CreatureComponent p = Players[0].GetComponent<CreatureComponent>();
+        targetHealthBar.title = p.name;
+        targetHealthBar.value = p.hp;
+        targetHealthBar.highValue = p.maxHp;
     }
 }

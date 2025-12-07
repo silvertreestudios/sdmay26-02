@@ -204,6 +204,10 @@ namespace Game.Creature
                 _tempHp = 0;
                 _hp = Mathf.Max(0, _hp);
             }
+            if(_hp == 0)
+            {
+                this.gameObject.SetActive(false);
+            }
         }
 
         public void Heal(int healAmount)
