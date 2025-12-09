@@ -62,6 +62,13 @@ namespace Game.Creature
         [SerializeField] private List<string> _actions = new List<string>();
         [SerializeField] private List<string> _equipment = new List<string>();
 
+        // Dice damageDice = new Dice(damageRolls.damage);
+        // damgeDice.damageType = damageRolls.damageType;
+        // DamageValue flatDamage = new DamageValue(damageRolls.damageType, _strMod)
+        // Actions.Add(new Strike(1, new List<Dice>() { damageDice }, new List<DamageValue>() { flatDamage }));
+        //[SerializeField] private List<EntityAction> _Actions = new List<EntityAction>();
+        //public new List<EntityAction> Actions { get => _Actions; set => _Actions = value ?? new List<EntityAction>(); }
+
         // Public properties for interface
         public new string name { get => _name; set { _name = value; base.name = value; } }
         public int level { get => _level; set => _level = value; }
@@ -102,6 +109,7 @@ namespace Game.Creature
         // expose serialized backing fields via properties used by code
         public List<SkillValue> skills { get => _skills; set => _skills = value ?? new List<SkillValue>(); }
         public string description { get => _description; set => _description = value; }
+
 
 
         void Start()

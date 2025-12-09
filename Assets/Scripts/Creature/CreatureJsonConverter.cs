@@ -99,6 +99,7 @@ namespace Game.Creature
 
     [Serializable] public class EquipmentDto { public string name; public string type; public int quantity; }
 
+
     // --- Mapping extension (apply DTO -> CreatureComponent) ---
     public static class CreatureDtoMapper
     {
@@ -168,6 +169,7 @@ namespace Game.Creature
                     if (!string.IsNullOrEmpty(it?.name))
                         target.actions.Add(it.name);
             }
+
 
             // Equipment
             if (target.equipment == null) target.equipment = new List<string>();
