@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatManagerInterface>
@@ -22,6 +23,12 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// Returns the GameObject Who's Turn it is
     /// </summary>
     public abstract GameObject WhosTurn();
+
+    /// <summary>
+    /// Retrieves the list of active combatants
+    /// </summary>
+    /// <returns>GameObjects of the combatants</returns>
+    public abstract List<GameObject> GetCombatants();
 
     // Temporary function
     public abstract GameObject GetTarget(GameObject attacker);

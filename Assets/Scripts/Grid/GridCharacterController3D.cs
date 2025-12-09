@@ -45,8 +45,8 @@ public class GridCharacterController3D : MonoBehaviour
     public float rangeHighlightHeightOffset = 0.05f;
 
     // Character storage
-    private Dictionary<string, GameObject> characters = new Dictionary<string, GameObject>();
-    private Dictionary<string, ITokenMovement> tokenMovements = new Dictionary<string, ITokenMovement>();
+    private Dictionary<GameObject, GameObject> characters = new Dictionary<GameObject, GameObject>();
+    private Dictionary<GameObject, ITokenMovement> tokenMovements = new Dictionary<GameObject, ITokenMovement>();
 
     // Subsystem references
     private CameraManager camMan;
@@ -63,10 +63,18 @@ public class GridCharacterController3D : MonoBehaviour
     private bool isInitialized = false;
     // Whether a turn is being processed
     private bool isProcessingTurn = false;
-    private string currentPlayer = "Player1";
+    private GameObject currentPlayer = null;
+
+    // Shared per-frame state for input coroutine
+    private Camera currentCamera;
+    private ITokenMovement currentMovement;
 
     // Input tracking
     private float lastClickTime = 0f;
+    private bool leftClick = false;
+    private bool rightClick = false;
+    private bool isDoubleClick = false;
+    public bool cancel = false;
     // Last clicked cell position
     private Vector3Int lastClickedCell;
 
@@ -110,7 +118,7 @@ public class GridCharacterController3D : MonoBehaviour
     /// <summary>
     /// Initializes the character controller and subsystems
     /// </summary>
-    void Start()
+    public void Setup()
     {
         InitializeCoordinateConverter();
         InitializePathfinder();
@@ -121,64 +129,55 @@ public class GridCharacterController3D : MonoBehaviour
         // Mark as initialized
         isInitialized = true;
 
-        // Start combat after initialization
-        StartCoroutine(StartCombatAfterDelay());
-    }
-
-    void Update()
-    {
         // Update pathfinder settings if changed in inspector
         if (pathfinder != null)
         {
             pathfinder.SetDiagonalMovement(allowDiagonalMovement, diagonalCost);
         }
+    }
+
+    void Update()
+    {
+        
         // Check if system is ready
-        if (!IsReadyForUpdate(out var cam)) return;
+        if (!IsReadyForUpdate(out currentCamera)) return;
         // Get current character data
-        if (!TryGetCurrentCharacterData(currentPlayer, out var currentCharacter, out var currentMovement))
+        if (!TryGetCurrentCharacterData(currentPlayer, out currentMovement))
             return;
         // Handle player input
-        HandlePlayerInput(cam, currentPlayer, currentCharacter, currentMovement);
+        // HandlePlayerInput(cam, currentPlayer, currentMovement);
 
         // Update camera
         camMan?.update();
 
-        //test for the emination code: when press G, run get occupants in area for current player with range 3
-        if (Input.GetKeyDown(KeyCode.G))
-        {
-            List<GameObject> occupants = GetOccupantsInArea(currentCharacter, 2);
-            Debug.Log($"[GridCharacterController3D] Occupants in area: {occupants.Count}");
-            foreach (var obj in occupants)
-            {
-                Debug.Log($" - {obj.name}");
-            }
-        }
-        //reset highlights hen press H
-        if (Input.GetKeyDown(KeyCode.H))
-        {
-            Vector3Int startCell = coordinateConverter.GetCharacterCell(currentCharacter);
-            rangeHighlighter.UpdateHighlights(startCell, maxMovementDistance);
-            Debug.Log("[GridCharacterController3D] Highlights reset.");
-        }
-    }
+        
+        float timeSinceLastClick = Time.time - lastClickTime;
 
-    /// <summary>
-    /// Starts combat after a short delay to ensure all components are initialized
-    /// </summary>
-    private IEnumerator StartCombatAfterDelay()
-    {
-        yield return null;
 
-        CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
-        if (combatManager != null)
+        //left click pressed, set leftclick to true, otherwise false
+        if (InputCompat.LeftClickDown())
         {
-            Debug.Log("[GridCharacterController3D] Starting combat...");
-            combatManager.StartCombat();
+            leftClick = true;
+            lastClickTime = Time.time;
+            isDoubleClick = timeSinceLastClick <= doubleClickTime;
+        }
+        else 
+        {
+            leftClick = false;
+            isDoubleClick = false;
+        }
+        //right click pressed, set rightclick to true, otherwise false
+        if (InputCompat.RightClickDown())
+        {
+            rightClick = true;
         }
         else
         {
-            Debug.LogError("[GridCharacterController3D] CombatManager not found!");
+            rightClick = false;
         }
+
+
+        
     }
 
     /// <summary>
@@ -239,7 +238,7 @@ public class GridCharacterController3D : MonoBehaviour
                 foreach (var kvp in characters)
                 {
                     // add character to camera manager
-                    camMan.addActor(kvp.Key, kvp.Value);
+                    camMan.addActor(kvp.Key);
                 }
                 camMan.SetCameraForCharacter("Player1", CameraType.Pick);
             }
@@ -292,7 +291,7 @@ public class GridCharacterController3D : MonoBehaviour
     private bool IsReadyForUpdate(out Camera cam)
     {
         cam = null;
-
+        // 
         if (!Application.isPlaying || !isInitialized) return false;
 
         if (!grid)
@@ -307,9 +306,10 @@ public class GridCharacterController3D : MonoBehaviour
         return true;
     }
 
-    private bool TryGetCurrentCharacterData(string characterName, out GameObject character, out ITokenMovement movement)
+    private bool TryGetCurrentCharacterData(GameObject characterName, out ITokenMovement movement)
     {
-        return characters.TryGetValue(characterName, out character) &
+        movement = null;
+        return characters.ContainsKey(characterName) && 
                tokenMovements.TryGetValue(characterName, out movement);
     }
 
@@ -320,56 +320,142 @@ public class GridCharacterController3D : MonoBehaviour
 
         return rangeHighlighter.IsCellReachable(targetCell);
     }
-
-    private void HandlePlayerInput(Camera cam, string characterName, GameObject character, ITokenMovement movement)
+    // strike coroutine
+    public IEnumerator StrikeCoroutine(GameObject character, int range, CoroutineResult<GameObject> result)
     {
-        // Handle right-click to cancel indicator
-        if (InputCompat.RightClickDown())
+        cancel = true;
+        yield return null;
+        cancel = false;
+        SetActivePlayer(character);
+        List<GameObject> occupants = GetOccupantsInArea(character, range);
+        result.Value = null;     
+        // wait for leftclick to be true
+        while (true)
         {
-            if (visualIndicator.IsActive)
+            yield return new WaitUntil(() => leftClick || rightClick || cancel);
+            if (cancel) break;
+            if (rightClick)
             {
-                visualIndicator.Clear();
-                Debug.Log("[GridCharacterController3D] Visual indicator cancelled.");
+                Debug.Log("Strike cancelled");
+                rightClick = false;
+                break;
             }
-            return;
+            leftClick = false;
+            Debug.Log("StrikeCoroutine started.");
+            if  (TryGetClickedCell(currentCamera, out Vector3Int targetCell))
+            {
+                Debug.Log("test1");
+                List<GameObject> occupantsInCell = grid.GetOccupantsInArea(new List<Vector3Int> { targetCell });
+                if (occupantsInCell.Count == 0)
+                {
+                    Debug.Log("No occupants in the selected cell.");
+                    continue;
+                } else {
+                    result.Value = grid.GetOccupantsInArea(new List<Vector3Int> { targetCell })[0];
+                }
+                
+                if (result.Value == null)
+                    continue;
+                // Check for double-click
+                if (isDoubleClick)
+                {
+                    // Double-click detected - confirm selection
+                    if(occupants.Contains(result.Value))
+                    {
+                        Debug.Log(""+result.Value.name);
+                        break;
+                    }
+                    else
+                    {
+                        Debug.Log("Selected an invalid target.");
+                        continue;
+                    }
+                }
+                else
+                {
+                    // Single-click
+                    Debug.Log("TODO: display character information");
+                    
+                }
+
+            }
         }
-
-        // Check for left mouse click
-        if (!InputCompat.LeftClickDown() || isProcessingTurn)
-            return;
-
-        // Validate and get path on left click
-        if (TryValidateAndGetPath(cam, character, out List<Vector3Int> path))
-        {
-            // Check for double-click
-            float timeSinceLastClick = Time.time - lastClickTime;
-            bool isDoubleClick = visualIndicator.IsActive &&
-                                 lastClickedCell == path[path.Count - 1] &&
-                                 timeSinceLastClick <= doubleClickTime;
-
-            if (isDoubleClick)
-            {
-                // Double-click detected - confirm movement
-                Debug.Log("[GridCharacterController3D] Double-click detected - confirming movement.");
-
-                isProcessingTurn = true;
-                rangeHighlighter.ClearHighlights();
-                visualIndicator.Clear();
-
-                StartCoroutine(HandleTurn(character, movement, path));
-            }
-            else
-            {
-                // Single-click - show/update indicator
-                Debug.Log("[GridCharacterController3D] Single-click detected - showing visual indicator.");
-                visualIndicator.ShowPath(path, false);
-
-                // Update click tracking
-                lastClickTime = Time.time;
-                lastClickedCell = path[path.Count - 1];
-            }
-        }
+        cancel = false;   
+        leftClick = false;
+        rightClick = false;
+        rangeHighlighter.ClearHighlights();
+        Debug.Log("strike finished");
+        // terminate coroutine
+        yield return null;
     }
+
+    // stride coroutine
+    public IEnumerator StrideCoroutine(GameObject character, CoroutineResult<bool> canceled)
+    {
+        cancel = true;
+        yield return null;
+        cancel = false;
+        SetActivePlayer(character);
+        // Update highlights for new player
+        Vector3Int startCell = coordinateConverter.GetCharacterCell(currentPlayer);
+        rangeHighlighter.UpdateHighlights(startCell, maxMovementDistance);
+        // wait for leftclick to be true
+        while (true)
+        {
+            yield return new WaitUntil(() => leftClick || rightClick || cancel);
+            if (cancel) break;
+            if (rightClick)
+            {
+                if (visualIndicator.IsActive)
+                {
+                    visualIndicator.Clear();
+                    Debug.Log("[GridCharacterController3D] Visual indicator cancelled.");
+                }
+                rightClick = false;
+                continue;
+            }
+            leftClick = false;
+            if (TryValidateAndGetPath(currentCamera, character, out List<Vector3Int> path))
+            {
+                // Check for double-click
+
+                if (isDoubleClick)
+                {
+                    // Double-click detected - confirm movement
+                    Debug.Log("[GridCharacterController3D] Double-click detected - confirming movement.");
+                    if(visualIndicator.IsActive && lastClickedCell == path[path.Count - 1])
+                    {                    
+                        isProcessingTurn = true;
+                        rangeHighlighter.ClearHighlights();
+                        visualIndicator.Clear();
+                        StartCoroutine(HandleTurn(character, currentMovement, path));
+                        break;
+                    }
+                }
+                else
+                {
+                    // Single-click - show/update indicator
+                    Debug.Log("[GridCharacterController3D] Single-click detected - showing visual indicator.");
+                    visualIndicator.ShowPath(path, false);
+
+                    // Update click tracking
+                    lastClickedCell = path[path.Count - 1];
+                }
+            }
+        }
+        canceled.Value = cancel;
+        cancel = false;
+        leftClick = false;
+        rightClick = false;       
+        if (visualIndicator.IsActive)
+        {
+            visualIndicator.Clear();
+            Debug.Log("[GridCharacterController3D] Visual indicator cancelled.");
+        }
+        rangeHighlighter.ClearHighlights();
+        Debug.Log("stride finished");
+    }
+    
 
     private bool TryValidateAndGetPath(Camera cam, GameObject character, out List<Vector3Int> path)
     {
@@ -478,19 +564,20 @@ public class GridCharacterController3D : MonoBehaviour
             return;
         }
 
-        SpawnCharacter("Player1", prefab, new Vector3(.5f, yPos, .5f), Color.white);
+        SpawnCharacter(prefab, new Vector3(.5f, yPos, .5f), Color.white);
 
         GameObject player2Prefab = prefab2 != null ? prefab2 : prefab;
-        SpawnCharacter("Player2", player2Prefab, new Vector3(18.5f, yPos, 1.5f), Color.red);
+        SpawnCharacter(player2Prefab, new Vector3(18.5f, yPos, 1.5f), Color.red);
     }
 
-    private void SpawnCharacter(string name, GameObject prefab, Vector3 position, Color color)
+    private void SpawnCharacter(GameObject prefab, Vector3 position, Color color)
     {
         // Instantiate character GameObject
         GameObject player = Instantiate(prefab);
         player.name = name.Replace("Player", "Player ");
         player.transform.position = position;
-        characters[name] = player;
+        characters[player] = player;
+        currentPlayer = currentPlayer ?? player;
 
         var renderer = player.GetComponent<MeshRenderer>();
         // Apply color if not white
@@ -500,7 +587,7 @@ public class GridCharacterController3D : MonoBehaviour
         }
 
         //ANOTHER TEMP FIX, grid IS PROBABLY NOT THE RIGHT WAY TO CALL THESE METHODS BUT IDK HOW ELSE TO DO IT
-        grid.SetCreaturePosition(characters[name], coordinateConverter.GetCharacterCell(characters[name]));
+        grid.SetCreaturePosition(player, coordinateConverter.GetCharacterCell(player));
     }
 
     void SnapToValidCell(GameObject obj)
@@ -523,7 +610,7 @@ public class GridCharacterController3D : MonoBehaviour
     /// <summary>
     /// Gets the currently previewed path for a character
     /// </summary>
-    public List<Vector3Int> GetPreviewedPathForCharacter(string characterName)
+    public List<Vector3Int> GetPreviewedPathForCharacter(GameObject characterName)
     {
         if (characterName == currentPlayer && visualIndicator.IsActive)
         {
@@ -535,16 +622,16 @@ public class GridCharacterController3D : MonoBehaviour
     /// <summary>
     /// Gets the character GameObject by name
     /// </summary>
-    public GameObject GetCharacter(string characterName)
-    {
-        characters.TryGetValue(characterName, out GameObject character);
-        return character;
-    }
+    //public GameObject GetCharacter(string characterName)
+    //{
+    //    characters.TryGetValue(characterName, out GameObject character);
+    //    return character;
+    //}
 
     /// <summary>
     /// Gets the movement controller for a character
     /// </summary>
-    public ITokenMovement GetMovementController(string characterName)
+    public ITokenMovement GetMovementController(GameObject characterName)
     {
         tokenMovements.TryGetValue(characterName, out ITokenMovement movement);
         return movement;
@@ -553,29 +640,23 @@ public class GridCharacterController3D : MonoBehaviour
     /// <summary>
     /// Sets the active player and updates highlights
     /// </summary>
-    public void SetActivePlayer(string characterName)
+    public void SetActivePlayer(GameObject characterName)
     {
         Debug.Log("Setting active Player");
         rangeHighlighter.ClearHighlights();
         visualIndicator.Clear();
 
         currentPlayer = characterName;
+        currentMovement = tokenMovements.ContainsKey(characterName) ? tokenMovements[characterName] : null;
+        
         Debug.Log($"[GridCharacterController3D] Active player set to {currentPlayer}");
-
-        // Update highlights for new player
-        if (characters.TryGetValue(currentPlayer, out GameObject character))
-        {
-            Vector3Int startCell = coordinateConverter.GetCharacterCell(character);
-            rangeHighlighter.UpdateHighlights(startCell, maxMovementDistance);
-        }
 
         isProcessingTurn = false;
     }
-
     /// <summary>
     /// Executes movement for a character along a given path
     /// </summary>
-    public IEnumerator ExecuteMovement(string characterName, List<Vector3Int> path)
+    public IEnumerator ExecuteMovement(GameObject characterName, List<Vector3Int> path)
     {
         if (!characters.TryGetValue(characterName, out GameObject character))
         {

@@ -5,14 +5,16 @@ using NUnit.Framework;
 
 public class ActionController : MonoBehaviour
 {
-    [SerializeField]
+    //[SerializeField]
     protected List<EntityAction> Actions = new List<EntityAction>();
-    [SerializeField]
+    //[SerializeField]
     protected List<EntityAction> Movements = new List<EntityAction>();
-    private bool IsTurn = false;
-    private uint ActionPoints;
+    protected bool IsTurn = false;
+    public bool IsTakingAction { get; set; } = false;
+    [field: SerializeField]
+    public uint ActionPoints { get; set; }
 
-    protected void Start()
+    protected void Awake()
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);
         
@@ -42,17 +44,13 @@ public class ActionController : MonoBehaviour
     [ContextMenu("End Turn")]
     public void EndTurn()
     {
-        if (IsTurn)
+        if (IsTurn && !IsTakingAction)
         {
             IsTurn = false;
             Debug.Log("Turn End: " + this.gameObject.name);
             // Clean up turn state
             // I.E. UI, etc
             CombatManagerInterface.GetInstance().NextTurn();
-        }
-        else
-        {
-            Debug.LogWarning("Cannot end turn - it's not this character's turn!");
         }
     }
 
@@ -96,10 +94,10 @@ public class ActionController : MonoBehaviour
 
     public void TakeAction(EntityAction action)
     {
-        uint cost = action.Cost();
+        uint cost = action.ActionCost;
         if (!IsTurn || cost > ActionPoints)
             return;
-        ActionPoints -= action.Cost();
+        IsTakingAction = true;
         action.Invoke(this.gameObject);
     }
 

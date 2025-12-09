@@ -62,6 +62,7 @@ namespace Game.Creature
         [SerializeField] private List<string> _actions = new List<string>();
         [SerializeField] private List<string> _equipment = new List<string>();
 
+        // NOTES FOR IMPLEMENTING STRIKE VARIANTS
         // Dice damageDice = new Dice(damageRolls.damage);
         // damgeDice.damageType = damageRolls.damageType;
         // DamageValue flatDamage = new DamageValue(damageRolls.damageType, _strMod)
@@ -109,7 +110,6 @@ namespace Game.Creature
         // expose serialized backing fields via properties used by code
         public List<SkillValue> skills { get => _skills; set => _skills = value ?? new List<SkillValue>(); }
         public string description { get => _description; set => _description = value; }
-
 
 
         void Start()
@@ -211,6 +211,10 @@ namespace Game.Creature
                 _hp += _tempHp;
                 _tempHp = 0;
                 _hp = Mathf.Max(0, _hp);
+            }
+            if(_hp == 0)
+            {
+                this.gameObject.SetActive(false);
             }
         }
 
