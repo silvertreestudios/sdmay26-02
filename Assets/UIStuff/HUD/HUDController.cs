@@ -202,7 +202,7 @@ public class HUDController : MonoBehaviour
     private void updateCurrentPlayerCard() {
         // Debug.Log("updateCurrentPlayerCard called");
         CreatureComponent p = Players[1].GetComponent<CreatureComponent>();
-        currentPlayerHealthBar.title = p.name;
+        currentPlayerHealthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
         currentPlayerHealthBar.value = p.hp;
         currentPlayerHealthBar.highValue = p.maxHp;
     }
@@ -210,7 +210,7 @@ public class HUDController : MonoBehaviour
     private void updateTargetCard() {
         // Debug.Log("updateTargetCard called");
         CreatureComponent p = Players[0].GetComponent<CreatureComponent>();
-        targetHealthBar.title = p.name;
+        targetHealthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
         targetHealthBar.value = p.hp;
         targetHealthBar.highValue = p.maxHp;
     }
