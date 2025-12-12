@@ -1,6 +1,10 @@
 #makeshift README 
 #TODO update
 
+Needs .NET to run:
+https://aka.ms/dotnet-download
+https://dotnet.microsoft.com/en-us/download/dotnet/thank-you/runtime-8.0.22-windows-x64-installer
+
 !! IMPORTANT !!
 Program.cs references uncommitted "gitToken.txt" file to call GitHub API.
 You must add gitToken.txt file to this directory for the program to work.
