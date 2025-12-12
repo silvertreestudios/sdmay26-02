@@ -13,7 +13,7 @@ namespace JsonImporter
         /*
         TLDR: What this program does:
         - Connects to GitHub API for the foundryvtt/pf2e repository (using a personal access token)
-        - Recursively lists JSON files from the whitelisted directories/files, that are within targetDir
+        - Recursively lists JSON files from the whitelisted directories/files (that are within 'targetDir')
         - Downloads each located JSON file
         - Checks if the JSON content meets specified criteria in IsContentApproved
         - Process JSON files based on their source directory (and other factores as needed)
@@ -79,15 +79,18 @@ namespace JsonImporter
 
     public static class Constants
     {
-        // public const string rootURL = "https://github.com/foundryvtt/pf2e/tree/v13-dev/packs/"; // GitHub web URL (not API)
-        public const string apiRoot = "https://api.github.com/repos/foundryvtt/pf2e/contents/"; // TODO make version specific!
+        // GitHub API root for the pf2e repository contents
+        public const string apiRoot = "https://api.github.com/repos/foundryvtt/pf2e/contents/";
 
-        // Change if you need a different branch.
+        // Human-friendly branch label (kept for reference)
         public const string apiBranch = "v13-dev";
+
+        // The Contents API accepts branch, tag, or commit SHA in the `ref` parameter — default tag "7.8.0".
+        public const string apiRef = "7.8.0";
 
         // Specify directory within the apiRoot to limit scope of files read
         // WARNING: GitHub API limits easily hit when reading many files at once, use this to limit scope
-        public const string targetDir = "packs/pf2e";
+        public const string targetDir = "packs";
 
         // Local root directory to save imported files.
         public static readonly string localRoot = Path.Combine(ComputeLocalRoot(), "Assets", "DataFiles");
@@ -99,24 +102,24 @@ namespace JsonImporter
         // WARNING: /equipment/ is extremely large with no sub directories, use with caution
         public static readonly HashSet<string> whitelist = new HashSet<string>
         {
-            // "packs/pf2e/spells/cantrip/",
-            // "packs/pf2e/spells/1st-rank/",
-            // "packs/pf2e/equipment/longsword.json",
-            // "packs/pf2e/pf2e/equipment/scimitar.json",
-            // "packs/pf2e/equipment/dogslicer.json",
-            // "packs/pf2e/equipment/shortbow.json",
-            // "packs/pf2e/equipment/leather-armor.json",
-            "packs/pf2e/pathfinder-monster-core/goblin-warrior.json",
-            "packs/pf2e/pathfinder-monster-core/zombie-shambler.json",
-            "packs/pf2e/pathfinder-monster-core/skeleton-guard.json",
-            "packs/pf2e/pathfinder-monster-core/kobold-warrior.json",
-            // "packs/pf2e/ancestries/human.json",
-            // "packs/pf2e/heritages/human/skilled-human.json",
-            // "packs/pf2e/feats/ancestry/human/natural-skill.json",
-            // "packs/pf2e/backgrounds/warrior.json",
-            // "packs/pf2e/backgrounds/nomad.json",
-            // "packs/pf2e/classes/fighter.json",
-            // "packs/pf2e/feats/class/shared-class-feats/reactive-shield.json"
+            // "packs/spells/cantrip/",
+            // "packs/spells/1st-rank/",
+            // "packs/equipment/longsword.json",
+            // "packs/pf2e/equipment/scimitar.json",
+            // "packs/equipment/dogslicer.json",
+            // "packs/equipment/shortbow.json",
+            // "packs/equipment/leather-armor.json",
+            "packs/pathfinder-monster-core/goblin-warrior.json",
+            // "packs/pathfinder-monster-core/zombie-shambler.json",
+            // "packs/pathfinder-monster-core/skeleton-guard.json",
+            // "packs/pathfinder-monster-core/kobold-warrior.json",
+            // "packs/ancestries/human.json",
+            // "packs/heritages/human/skilled-human.json",
+            // "packs/feats/ancestry/human/natural-skill.json",
+            // "packs/backgrounds/warrior.json",
+            // "packs/backgrounds/nomad.json",
+            // "packs/classes/fighter.json",
+            // "packs/feats/class/shared-class-feats/reactive-shield.json"
         };
 
         public const bool requireRemaster = true; // or false, as needed
@@ -224,8 +227,7 @@ namespace JsonImporter
                             return;
 
                         // Download JSON file
-                        // string fileUrl = $"{Constants.apiRoot}{filePath}".Replace("\\", "/");
-                        string fileUrl = $"{Constants.apiRoot}{filePath}".Replace("\\", "/") + $"?ref={Constants.apiBranch}";
+                        string fileUrl = $"{Constants.apiRoot}{filePath}".Replace("\\", "/") + $"?ref={Constants.apiRef}";
                         string jsonContent = await DownloadJsonAsync(fileUrl);
 
                         // License check
@@ -376,8 +378,8 @@ namespace JsonImporter
                     }
                     else
                     {
-                        // include branch ref for existence check
-                        string apiUrl = $"{Constants.apiRoot}{allowedNorm}?ref={Constants.apiBranch}";
+                        // include ref (now a tag) for existence check
+                        string apiUrl = $"{Constants.apiRoot}{allowedNorm}?ref={Constants.apiRef}";
                         var response = await httpClient.GetAsync(apiUrl);
                         if (response.IsSuccessStatusCode)
                         {
@@ -398,8 +400,8 @@ namespace JsonImporter
 
         private async Task ListGitHubFilesRecursiveAsync(string relativePath, HashSet<string> files)
         {
-            // include branch ref when listing directory contents
-            string apiUrl = $"{Constants.apiRoot}{relativePath}?ref={Constants.apiBranch}";
+            // include ref (tag) when listing directory contents
+            string apiUrl = $"{Constants.apiRoot}{relativePath}?ref={Constants.apiRef}";
             Console.WriteLine($"Listing GitHub directory: {apiUrl}");
             var response = await httpClient.GetAsync(apiUrl);
 
@@ -424,7 +426,7 @@ namespace JsonImporter
                 var body = await response.Content.ReadAsStringAsync();
                 Console.WriteLine($"Failed to list directory: {apiUrl} (Status: {response.StatusCode})");
                 Console.WriteLine($"Response body: {body}");
-                Console.WriteLine("Check that the branch name and path are correct; the API is case-sensitive and branch must exist.");
+                Console.WriteLine("Check that the ref (tag or branch name) and path are correct; the API is case-sensitive and ref must exist.");
                 return;
             }
 

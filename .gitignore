@@ -14,10 +14,19 @@
 
 # JsonImporter
 /JsonImporter/gitToken.txt
-.env
-.env.*
-*.secret
-
+/JsonImporter/bin/
+/JsonImporter/obj/
+/JsonImporter/*.log
+/JsonImporter/*.user
+/JsonImporter/*.suo
+/JsonImporter/.vs/
+/JsonImporter/.vscode/
+/JsonImporter/.idea/
+/JsonImporter/.DS_Store
+/JsonImporter/packages/
+/JsonImporter/Backup*/
+#/JsonImporter/*.sln
+#!/JsonImporter/JsonImporter.csproj
 
 # By default unity supports Blender asset imports, *.blend1 blender files do not need to be commited to version control.
 *.blend1
