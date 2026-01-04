@@ -7,7 +7,7 @@ using System.Collections.Generic;
 /// </summary>
 public class GridCoordinateConverter
 {
-    private readonly GridRenderer3D grid;
+    private readonly IGridMemory grid;
     private readonly Dictionary<GameObject, Vector3Int> cachedCharacterCells;
     private readonly Dictionary<GameObject, Vector3> cachedCharacterPositions;
 
@@ -15,7 +15,7 @@ public class GridCoordinateConverter
     /// Creates a new GridCoordinateConverter for the specified grid
     /// </summary>
     /// <param name="gridReference">The grid to perform conversions for</param>
-    public GridCoordinateConverter(GridRenderer3D gridReference)
+    public GridCoordinateConverter(IGridMemory gridReference)
     {
         grid = gridReference;
         cachedCharacterCells = new Dictionary<GameObject, Vector3Int>();
@@ -31,9 +31,9 @@ public class GridCoordinateConverter
     /// <returns>World position at the center of the specified cell</returns>
     public Vector3 GridCellCenterWorld(int x, int z, float yOffset = 0f)
     {
-        float wx = grid.origin.x + (x + 0.5f) * grid.cellSize;
-        float wz = grid.origin.z + (z + 0.5f) * grid.cellSize;
-        return new Vector3(wx, grid.gridY + yOffset, wz);
+        float wx = grid.Origin.x + (x + 0.5f) * grid.CellSize;
+        float wz = grid.Origin.z + (z + 0.5f) * grid.CellSize;
+        return new Vector3(wx, grid.GridY + yOffset, wz);
     }
 
     /// <summary>
@@ -85,19 +85,19 @@ public class GridCoordinateConverter
     /// <returns>True if the cell is within bounds (or clamp is true), false otherwise</returns>
     public bool TryGridWorldToCell(Vector3 world, out Vector3Int cell, bool clamp = false)
     {
-        int cx = Mathf.FloorToInt((world.x - grid.origin.x) / grid.cellSize);
-        int cz = Mathf.FloorToInt((world.z - grid.origin.z) / grid.cellSize);
+        int cx = Mathf.FloorToInt((world.x - grid.Origin.x) / grid.CellSize);
+        int cz = Mathf.FloorToInt((world.z - grid.Origin.z) / grid.CellSize);
 
         if (clamp)
         {
-            cx = Mathf.Clamp(cx, 0, grid.width - 1);
-            cz = Mathf.Clamp(cz, 0, grid.height - 1);
+            cx = Mathf.Clamp(cx, 0, grid.Width - 1);
+            cz = Mathf.Clamp(cz, 0, grid.Height - 1);
             cell = new Vector3Int(cx, 0, cz);
             return true;
         }
 
         cell = new Vector3Int(cx, 0, cz);
-        return (uint)cx < (uint)grid.width && (uint)cz < (uint)grid.height;
+        return (uint)cx < (uint)grid.Width && (uint)cz < (uint)grid.Height;
     }
 
     /// <summary>

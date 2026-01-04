@@ -4,34 +4,9 @@ using System.Collections.Generic;
 using UnityEngine;
 
 [ExecuteAlways, DisallowMultipleComponent]
-public class GridRenderer3D : GridInterface
+public class GridRenderer3D : MonoBehaviour
 {
     // ---------- Public, serialized settings ----------
-
-    public enum TileType
-    {
-        Ground,
-        Wall,
-        Void
-    }
-
-    public enum TileStatus
-    {
-        Normal,
-        Fire
-    }
-
-    public struct TILE
-    {
-        public int x;
-        public int y;
-        public int z;
-        public TileType type;
-        //tile can be occupied without an occupant (e.g., obstacle)
-        public bool isOccupied;
-        public GameObject occupant;
-        public TileStatus[] status;
-    }
 
     [Header("Grid (XYZ plane)")]
     [SerializeField] private ImageToGrid imageToGrid;
@@ -66,51 +41,8 @@ public class GridRenderer3D : GridInterface
     [SerializeField] private GameObject selectTile;
 
     // ---------- Grid Data ----------
-    //3d array of tile info
-    public TILE[,,] gridInfo;
-
-    // Delegate to check if a cell is selectable (used by GridCharacterController3D)
-    public System.Func<Vector3Int, bool> IsCellSelectable { get; set; }
-
-   
-    public void SetStatus(int x, int z, TileStatus statusToSet)
-    {
-        if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return;
-        if (!System.Array.Exists(gridInfo[x, gridY, z].status, status => status == statusToSet))
-        {
-            var statuses = new List<TileStatus>(gridInfo[x, gridY, z].status);
-            statuses.Add(statusToSet);
-            gridInfo[x, gridY, z].status = statuses.ToArray();
-        }
-    }
-
-    public bool HasStatus(int x, int z, TileStatus statusToCheck)
-    {
-        if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return false;
-        return System.Array.Exists(gridInfo[x, gridY, z].status, status => status == statusToCheck);
-    }
-
-    public bool getIsOccupied(int x, int z)
-    {
-        if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return false;
-        return gridInfo[x, gridY, z].isOccupied;
-    }
-
-    public void setIsOccupied(int x, int z, bool occupied)
-    {
-        if (gridInfo == null || x < 0 || x >= width || z < 0 || z >= height) return;
-        gridInfo[x, gridY, z].isOccupied = occupied;
-    }
-    public bool IsWalkable(int x, int z)
-    {
-        // if tiles array is null, treat all cells as non-walkable
-        if (gridInfo == null) return false;
-        // if x or z are out of bounds, return false
-        if (x < 0 || x >= width) return false;
-        if (z < 0 || z >= height) return false;
-        // Check if the tile type allows walking
-        return gridInfo[x, gridY, z].type == TileType.Ground && !gridInfo[x, gridY, z].isOccupied;
-    }
+    // Grid memory instance
+    public GridMemory gridMemory;
 
     // Parent rotated so children (2D sprites) lie on XZ plane.
     Transform _plane;
@@ -202,7 +134,7 @@ public class GridRenderer3D : GridInterface
                 Mathf.FloorToInt((hit.z - origin.y) / cellSize));
             // Inside bounds?
             bool inside = (uint)cell.x < (uint)width && (uint)cell.z < (uint)height;
-            bool canHover = inside && IsWalkable(cell.x, cell.z);
+            bool canHover = inside && gridMemory != null && gridMemory.IsWalkable(cell.x, cell.z);
 
             if (canHover && !cell.Equals(HoverCell)) { HoverCell = cell; HasHover = true; UpdateHover(); }
             else if (!canHover) HasHover = false;
@@ -285,27 +217,21 @@ public class GridRenderer3D : GridInterface
             imageToGrid.PrintGrid();
         }
 
-        if (gridData != null)
-        {
-            // Create new tile grid
-            gridInfo = new TILE[width, gridY + 1, height];
+        if (!gridMemory) gridMemory = GetComponent<GridMemory>();
+        if (!gridMemory) gridMemory = gameObject.AddComponent<GridMemory>();
+        
+        gridMemory.Initialize(width, height, gridY, cellSize, origin, gridData);
+        this.width = width;
+        this.height = height;
 
+        if (gridMemory.GridInfo != null)
+        {
             for (int z = 0; z < height; z++)
             {
                 for (int x = 0; x < width; x++)
                 {
-                    // Initialize tile with default values
-                    gridInfo[x, gridY, z] = new TILE
-                    {
-                        x = x,
-                        z = z,
-                        type = gridData[x, z] == 1 ? TileType.Ground : TileType.Void,
-                        isOccupied = false,
-                        status = new TileStatus[] { TileStatus.Normal }
-                    };
-
                     // Skip tile creation for non-walkable cells
-                    if (gridInfo[x, gridY, z].type == TileType.Void) continue;
+                    if (gridMemory.GridInfo[x, gridY, z].type == GridMemory.TileType.Void) continue;
 
                     var tile = Instantiate(groundTile, _gridRoot.transform);
                     tile.name = $"C{x}_{z}";
@@ -321,10 +247,6 @@ public class GridRenderer3D : GridInterface
                     }
                 }
             }
-        }
-        else
-        {   // If no image, clear tiles
-            gridInfo = null;
         }
 
     }
@@ -384,56 +306,5 @@ public class GridRenderer3D : GridInterface
                 SafeDestroy(child);
             }
         }
-    }
-
-    public override void MoveCreaturePosition(GameObject token, Vector3Int targetPosition, Vector3Int startPosition)
-    {
-        //make sure we are moving the right character
-        if(token == null || gridInfo[startPosition.x, gridY, startPosition.z].occupant != token)
-        {
-            Debug.Log("Failed to move creature from " + startPosition.ToString() + " to " + targetPosition.ToString());
-            return;
-        }
-        gridInfo[startPosition.x, gridY, startPosition.z].isOccupied = false;
-        gridInfo[startPosition.x, gridY, startPosition.z].occupant = null;
-        gridInfo[targetPosition.x, gridY, targetPosition.z].isOccupied = true;
-        gridInfo[targetPosition.x, gridY, targetPosition.z].occupant = token;
-        return; 
-    }
-
-    public override void SetCreaturePosition(GameObject token, Vector3Int spawnPosition)
-    {
-        //make sure we are placing a valid character and the tile is not already occupied
-        if (token == null || gridInfo[spawnPosition.x, gridY, spawnPosition.z].isOccupied)
-        {
-            Debug.Log("Failed to set creature position at " + spawnPosition.ToString());
-            return;
-        }
-        gridInfo[spawnPosition.x, gridY, spawnPosition.z].isOccupied = true;
-        gridInfo[spawnPosition.x, gridY, spawnPosition.z].occupant = token;
-        
-    }
-
-    public override Boolean IsCellWalkable(Vector3Int position)
-    {
-        return IsWalkable(position.x, position.z);
-    }
-    public override IEnumerator TargetSelect(int range, CoroutineResult<GameObject> result)
-    {
-        //return a selected monster if valid
-        yield return null;
-    }
-    //this will return an array of game objects that are found in the given list of points
-    public override List<GameObject> GetOccupantsInArea(List<Vector3Int> area)
-    {
-        List<GameObject> occupants = new List<GameObject>();
-        foreach (Vector3Int point in area)
-        {
-            if (gridInfo[point.x, gridY, point.z].isOccupied && gridInfo[point.x, gridY, point.z].occupant != null)
-            {
-                occupants.Add(gridInfo[point.x, gridY, point.z].occupant);
-            }
-        }
-        return occupants;
     }
 }

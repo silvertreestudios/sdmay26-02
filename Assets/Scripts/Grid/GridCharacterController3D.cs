@@ -11,7 +11,7 @@ public class GridCharacterController3D : MonoBehaviour
     public static GridCharacterController3D Instance => instance;
 
     // References to grid and prefabs set in inspector
-    public GridRenderer3D grid;
+    public GridMemory gridMemory;
     public GameObject prefab;
     public GameObject prefab2;
     public bool autoFindGrid = true;
@@ -92,22 +92,22 @@ public class GridCharacterController3D : MonoBehaviour
     void OnEnable()
     {
         // Auto-find grid if needed
-        if (autoFindGrid && !grid)
-            grid = FindAnyObjectByType<GridRenderer3D>();
+        if (autoFindGrid && !gridMemory)
+            gridMemory = FindAnyObjectByType<GridMemory>();
 
         // Register cell selectability check with grid
-        if (grid != null)
+        if (gridMemory != null)
         {
-            grid.IsCellSelectable = IsCellSelectableForCurrentCharacter;
+            gridMemory.IsCellSelectable = IsCellSelectableForCurrentCharacter;
         }
     }
 
     void OnDisable()
     {
         // Unregister selectability check
-        if (grid != null)
+        if (gridMemory != null)
         {
-            grid.IsCellSelectable = null;
+            gridMemory.IsCellSelectable = null;
         }
 
         // Clean up subsystems
@@ -185,9 +185,9 @@ public class GridCharacterController3D : MonoBehaviour
     /// </summary>
     private void InitializeCoordinateConverter()
     {
-        if (grid != null)
+        if (gridMemory != null)
         {
-            coordinateConverter = new GridCoordinateConverter(grid);
+            coordinateConverter = new GridCoordinateConverter(gridMemory);
         }
         else
         {
@@ -200,13 +200,13 @@ public class GridCharacterController3D : MonoBehaviour
     /// </summary>
     private void InitializePathfinder()
     {
-        if (grid != null)
+        if (gridMemory != null)
         {
-            pathfinder = new GridPathfinder(grid, allowDiagonalMovement, diagonalCost);
+            pathfinder = new GridPathfinder(gridMemory, allowDiagonalMovement, diagonalCost);
         }
         else
         {
-            Debug.LogError("[GridCharacterController3D] Grid is null, cannot initialize pathfinder!");
+            Debug.LogError("[GridCharacterController3D] Grid or GridMemory is null, cannot initialize pathfinder!");
         }
     }
 
@@ -271,7 +271,7 @@ public class GridCharacterController3D : MonoBehaviour
 
         // Initialize movement range highlighter
         rangeHighlighter = new MovementRange(
-            gridReference: grid,
+            gridReference: gridMemory,
             prefab: rangeHighlightPrefab,
             color: rangeHighlightColor,
             heightOffset: rangeHighlightHeightOffset,
@@ -294,13 +294,14 @@ public class GridCharacterController3D : MonoBehaviour
         // 
         if (!Application.isPlaying || !isInitialized) return false;
 
-        if (!grid)
+        if (!gridMemory)
         {
-            if (autoFindGrid) grid = FindAnyObjectByType<GridRenderer3D>();
-            if (!grid) return false;
+            if (autoFindGrid) gridMemory = FindAnyObjectByType<GridMemory>();
+            if (!gridMemory) return false;
         }
 
-        cam = grid.targetCamera ? grid.targetCamera : Camera.main;
+        var renderer = gridMemory.GetComponent<GridRenderer3D>();
+        cam = (renderer && renderer.targetCamera) ? renderer.targetCamera : Camera.main;
         if (!cam) return false;
 
         return true;
@@ -345,13 +346,13 @@ public class GridCharacterController3D : MonoBehaviour
             if  (TryGetClickedCell(currentCamera, out Vector3Int targetCell))
             {
                 Debug.Log("test1");
-                List<GameObject> occupantsInCell = grid.GetOccupantsInArea(new List<Vector3Int> { targetCell });
+                List<GameObject> occupantsInCell = gridMemory.GetOccupantsInArea(new List<Vector3Int> { targetCell });
                 if (occupantsInCell.Count == 0)
                 {
                     Debug.Log("No occupants in the selected cell.");
                     continue;
                 } else {
-                    result.Value = grid.GetOccupantsInArea(new List<Vector3Int> { targetCell })[0];
+                    result.Value = gridMemory.GetOccupantsInArea(new List<Vector3Int> { targetCell })[0];
                 }
                 
                 if (result.Value == null)
@@ -466,7 +467,7 @@ public class GridCharacterController3D : MonoBehaviour
             return false;
 
         // Early exit: check if target is walkable and reachable (cheap checks first)
-        if (!grid.IsCellWalkable(targetCell))
+        if (!gridMemory.IsWalkable(targetCell.x, targetCell.z))
             return false;
 
         if (!rangeHighlighter.IsCellReachable(targetCell))
@@ -498,7 +499,7 @@ public class GridCharacterController3D : MonoBehaviour
     {
         targetCell = Vector3Int.zero;
 
-        if (!coordinateConverter.ScreenToXZPlane(cam, InputCompat.MousePositionScreen(), grid.gridY, out Vector3 hit))
+        if (!coordinateConverter.ScreenToXZPlane(cam, InputCompat.MousePositionScreen(), gridMemory.GridY, out Vector3 hit))
             return false;
 
         return coordinateConverter.TryGridWorldToCell(hit, out targetCell);
@@ -533,7 +534,7 @@ public class GridCharacterController3D : MonoBehaviour
             // only touch grid if the actor actually entered a new cell
             if (currentCell != lastCell)
             {
-                grid.MoveCreaturePosition(actor, currentCell, lastCell);
+                gridMemory.MoveCreaturePosition(actor, currentCell, lastCell);
                 lastCell = currentCell;
             }
         }
@@ -542,7 +543,7 @@ public class GridCharacterController3D : MonoBehaviour
         Vector3Int finalCell = coordinateConverter.GetCharacterCell(actor);
         if (finalCell != lastCell)
         {
-            grid.MoveCreaturePosition(actor, finalCell, lastCell);
+            gridMemory.MoveCreaturePosition(actor, finalCell, lastCell);
         }
 
         yield return new WaitForSeconds(0.5f);
@@ -556,7 +557,7 @@ public class GridCharacterController3D : MonoBehaviour
 
     void SpawnCharacters()
     {
-        float yPos = grid ? grid.gridY + yDrawOffset : 0.001f;
+        float yPos = gridMemory ? gridMemory.GridY + yDrawOffset : 0.001f;
 
         if (prefab == null)
         {
@@ -587,17 +588,17 @@ public class GridCharacterController3D : MonoBehaviour
         }
 
         //ANOTHER TEMP FIX, grid IS PROBABLY NOT THE RIGHT WAY TO CALL THESE METHODS BUT IDK HOW ELSE TO DO IT
-        grid.SetCreaturePosition(player, coordinateConverter.GetCharacterCell(player));
+        gridMemory.SetCreaturePosition(player, coordinateConverter.GetCharacterCell(player));
     }
 
     void SnapToValidCell(GameObject obj)
     {
-        if (!grid) return;
+        if (!gridMemory) return;
 
         if (!coordinateConverter.TryGridWorldToCell(obj.transform.position, out var cell, clamp: true))
             return;
 
-        if (!grid.IsCellWalkable(cell))
+        if (!gridMemory.IsWalkable(cell.x, cell.z))
             return;
 
         obj.transform.position = coordinateConverter.GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
@@ -721,7 +722,7 @@ public class GridCharacterController3D : MonoBehaviour
         rangeHighlighter.UpdateAttackHighlights(centerCell, areaCells);
         //convert hashset to list
         List<Vector3Int> areaCellsList = new List<Vector3Int>(areaCells);
-        return grid.GetOccupantsInArea(areaCellsList);
+        return gridMemory.GetOccupantsInArea(areaCellsList);
     }
 
     /// <summary>

@@ -9,7 +9,7 @@ using UnityEngine;
 public class MovementRange
 {
     // Grid reference for pathfinding and coordinate conversion
-    private readonly GridRenderer3D grid;
+    private readonly IGridMemory grid;
 
     // Movement configuration
     private readonly bool allowDiagonalMovement;
@@ -67,7 +67,7 @@ public class MovementRange
     /// <param name="diagCost">Cost for diagonal movement</param>
     /// <param name="gridCellToWorld">Function to convert grid coordinates to world position</param>
     public MovementRange(
-        GridRenderer3D gridReference,
+        IGridMemory gridReference,
         GameObject prefab,
         Color color,
         float heightOffset,
@@ -174,7 +174,7 @@ public class MovementRange
             continue;
 
         // Add to reachable if within range, walkable and not the start cell
-        if (grid.IsCellWalkable(current) && current != start)
+        if (grid.IsWalkable(current.x, current.z) && current != start)
         {
             reachable.Add(current);
         }
@@ -187,7 +187,7 @@ public class MovementRange
                 continue;
 
             // Check walkability for neighbor; allow the start cell even if it's not walkable
-            if (!grid.IsCellWalkable(neighbor) && neighbor != start)
+            if (!grid.IsWalkable(neighbor.x, neighbor.z) && neighbor != start)
                 continue;
 
             // Calculate movement cost
@@ -266,11 +266,11 @@ public class MovementRange
     private HashSet<Vector3Int> GetAllWalkableTiles()
     {
         HashSet<Vector3Int> allTiles = new HashSet<Vector3Int>();
-        for (int x = 0; x < grid.width; x++)
+        for (int x = 0; x < grid.Width; x++)
         {
-            for (int z = 0; z < grid.height; z++)
+            for (int z = 0; z < grid.Height; z++)
             {
-                if (grid.IsCellWalkable(new Vector3Int(x, 0, z)))
+                if (grid.IsWalkable(x, z))
                 {
                     allTiles.Add(new Vector3Int(x, 0, z));
                 }
@@ -299,8 +299,8 @@ public class MovementRange
                 Vector3Int adjacent1 = cell + new Vector3Int(dir.x, 0, 0);
                 Vector3Int adjacent2 = cell + new Vector3Int(0, 0, dir.z);
 
-                bool adjacent1Valid = IsWithinBounds(adjacent1) && grid.IsCellWalkable(adjacent1);
-                bool adjacent2Valid = IsWithinBounds(adjacent2) && grid.IsCellWalkable(adjacent2);
+                bool adjacent1Valid = IsWithinBounds(adjacent1) && grid.IsWalkable(adjacent1.x, adjacent1.z);
+                bool adjacent2Valid = IsWithinBounds(adjacent2) && grid.IsWalkable(adjacent2.x, adjacent2.z);
 
                 if (adjacent1Valid && adjacent2Valid)
                 {
@@ -315,8 +315,8 @@ public class MovementRange
     /// </summary>
     private bool IsWithinBounds(Vector3Int cell)
     {
-        return cell.x >= 0 && cell.x < grid.width &&
-               cell.z >= 0 && cell.z < grid.height;
+        return cell.x >= 0 && cell.x < grid.Width &&
+               cell.z >= 0 && cell.z < grid.Height;
     }
 
     /// <summary>
@@ -356,9 +356,9 @@ public class MovementRange
 
             // Scale highlight to match grid cell size
             highlight.transform.localScale = new Vector3(
-                grid.cellSize * 0.1f,
+                grid.CellSize * 0.1f,
                 1f,
-                grid.cellSize * 0.1f);
+                grid.CellSize * 0.1f);
 
             // Apply color using shared material to avoid leaks
             var renderer = highlight.GetComponent<MeshRenderer>();

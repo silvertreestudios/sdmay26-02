@@ -279,7 +279,7 @@ MonoBehaviour:
   _maxHp: 10
   _tempHp: 0
   _ac: 5
-  _attackBonus: 0
+  _attackBonus: 2
   _damageBonus: 0
   _strMod: 5
   _dexMod: 5
@@ -307,3 +307,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 52e9b306fa533c64ba72572bd127a099, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
+  <ActionPoints>k__BackingField: 0

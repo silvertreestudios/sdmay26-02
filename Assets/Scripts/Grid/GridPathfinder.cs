@@ -10,7 +10,7 @@ using UnityEngine;
 public class GridPathfinder
 {
     // reference to the grid for walkability checks
-    private readonly GridRenderer3D grid;
+    private readonly IGridMemory grid;
 
     // configuration for diagonal movement
     private bool allowDiagonalMovement;
@@ -48,7 +48,7 @@ public class GridPathfinder
     /// <param name="gridReference">Grid to pathfind on</param>
     /// <param name="allowDiagonal">Whether to allow diagonal movement</param>
     /// <param name="diagCost">Cost multiplier for diagonal moves (typically √2 ≈ 1.414)</param>
-    public GridPathfinder(GridRenderer3D gridReference, bool allowDiagonal = true, float diagCost = 1.414f)
+    public GridPathfinder(IGridMemory gridReference, bool allowDiagonal = true, float diagCost = 1.414f)
     {
         grid = gridReference ?? throw new ArgumentNullException(nameof(gridReference));
         allowDiagonalMovement = allowDiagonal;
@@ -76,7 +76,7 @@ public class GridPathfinder
         startCell = start;
 
         // helper to convert 2D cell to 1D index
-        int w = grid.width, h = grid.height, total = w * h;
+        int w = grid.Width, h = grid.Height, total = w * h;
 
         // local function to compute index from Vector3Int
         int Idx(Vector3Int p) => p.x + p.z * w;
@@ -161,7 +161,7 @@ public class GridPathfinder
                 continue;
 
             // check if neighbor cell is walkable
-            if (v != startCell && !grid.IsCellWalkable(v))
+            if (v != startCell && !grid.IsWalkable(v.x, v.z))
                 continue;
 
             // for diagonal movement, also check if both adjacent cardinal cells are walkable
@@ -192,12 +192,12 @@ public class GridPathfinder
 
         // check horizontal adjacent cell
         var horizontal = new Vector3Int(from.x + dx, 0, from.z);
-        if (!grid.IsCellWalkable(horizontal))
+        if (!grid.IsWalkable(horizontal.x, horizontal.z))
             return false;
 
         // check vertical adjacent cell
         var vertical = new Vector3Int(from.x, 0, from.z + dz);
-        if (!grid.IsCellWalkable(vertical))
+        if (!grid.IsWalkable(vertical.x, vertical.z))
             return false;
 
         return true;
