@@ -467,7 +467,7 @@ public class GridCharacterController3D : MonoBehaviour
             return false;
 
         // Early exit: check if target is walkable and reachable (cheap checks first)
-        if (!gridMemory.IsWalkable(targetCell.x, targetCell.z))
+        if (!gridMemory.IsCellWalkable(targetCell))
             return false;
 
         if (!rangeHighlighter.IsCellReachable(targetCell))
@@ -598,7 +598,7 @@ public class GridCharacterController3D : MonoBehaviour
         if (!coordinateConverter.TryGridWorldToCell(obj.transform.position, out var cell, clamp: true))
             return;
 
-        if (!gridMemory.IsWalkable(cell.x, cell.z))
+        if (!gridMemory.IsCellWalkable(cell))
             return;
 
         obj.transform.position = coordinateConverter.GridCellCenterWorld(cell.x, cell.z, yDrawOffset);

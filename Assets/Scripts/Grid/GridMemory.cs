@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.Collections;
 
-public class GridMemory : GridInterface, IGridMemory
+public class GridMemory : IGridMemory
 {
     public enum TileType
     {
@@ -29,17 +29,18 @@ public class GridMemory : GridInterface, IGridMemory
         public TileStatus[] status;
     }
 
-    public int Width { get; private set; }
-    public int Height { get; private set; }
-    public float CellSize { get; private set; }
-    public Vector3 Origin { get; private set; }
-    public int GridY { get; private set; }
+    public override int Width { get; protected set; }
+    public override int Height { get; protected set; }
+    public override float CellSize { get; protected set; }
+    public override Vector3 Origin { get; protected set; }
+    public override int GridY { get; protected set; }
+
     public TILE[,,] GridInfo { get; private set; }
 
     // Delegate to check if a cell is selectable
     public System.Func<Vector3Int, bool> IsCellSelectable { get; set; }
 
-    public void Initialize(int width, int height, int gridY, float cellSize, Vector3 origin, int[,] gridData)
+    public override void Initialize(int width, int height, int gridY, float cellSize, Vector3 origin, int[,] gridData)
     {
         this.Width = width;
         this.Height = height;
@@ -72,11 +73,11 @@ public class GridMemory : GridInterface, IGridMemory
             GridInfo = null;
         }
     }
-
-    public void SetStatus(int x, int z, TileStatus statusToSet)
+    //creates a list of current statuses, then adds the new status if not already present. might need a cleaner way to do this.
+    public override void SetStatus(int x, int z, TileStatus statusToSet)
     {
         if (GridInfo == null || x < 0 || x >= Width || z < 0 || z >= Height) return;
-        if (!System.Array.Exists(GridInfo[GridY, GridY, z].status, status => status == statusToSet))
+        if (!System.Array.Exists(GridInfo[x, GridY, z].status, status => status == statusToSet))
         {
             var statuses = new List<TileStatus>(GridInfo[x, GridY, z].status);
             statuses.Add(statusToSet);
@@ -84,33 +85,22 @@ public class GridMemory : GridInterface, IGridMemory
         }
     }
 
-    public bool HasStatus(int x, int z, TileStatus statusToCheck)
+    public override bool HasStatus(int x, int z, TileStatus statusToCheck)
     {
         if (GridInfo == null || x < 0 || x >= Width || z < 0 || z >= Height) return false;
         return System.Array.Exists(GridInfo[x, GridY, z].status, status => status == statusToCheck);
     }
 
-    public bool GetIsOccupied(int x, int z)
+    public override bool GetIsOccupied(int x, int z)
     {
         if (GridInfo == null || x < 0 || x >= Width || z < 0 || z >= Height) return false;
         return GridInfo[x, GridY, z].isOccupied;
     }
 
-    public void SetIsOccupied(int x, int z, bool occupied)
+    public override void SetIsOccupied(int x, int z, bool occupied)
     {
         if (GridInfo == null || x < 0 || x >= Width || z < 0 || z >= Height) return;
         GridInfo[x, GridY, z].isOccupied = occupied;
-    }
-
-    public bool IsWalkable(int x, int z)
-    {
-        // if tiles array is null, treat all cells as non-walkable
-        if (GridInfo == null) return false;
-        // if x or z are out of bounds, return false
-        if (x < 0 || x >= Width) return false;
-        if (z < 0 || z >= Height) return false;
-        // Check if the tile type allows walking
-        return GridInfo[x, GridY, z].type == TileType.Ground && !GridInfo[x, GridY, z].isOccupied;
     }
 
     public override void MoveCreaturePosition(GameObject token, Vector3Int targetPosition, Vector3Int startPosition)
@@ -140,6 +130,18 @@ public class GridMemory : GridInterface, IGridMemory
         GridInfo[spawnPosition.x, GridY, spawnPosition.z].occupant = token;
     }
 
+    public override void ClearCreaturePosition(GameObject token, Vector3Int position)
+    {
+        //make sure we are clearing the right character
+        if (token == null || GridInfo[position.x, GridY, position.z].occupant != token)
+        {
+            Debug.Log("Failed to clear creature position at " + position.ToString());
+            return;
+        }
+        GridInfo[position.x, GridY, position.z].isOccupied = false;
+        GridInfo[position.x, GridY, position.z].occupant = null;
+    }
+
     public override List<GameObject> GetOccupantsInArea(List<Vector3Int> area)
     {
         List<GameObject> occupants = new List<GameObject>();
@@ -155,7 +157,13 @@ public class GridMemory : GridInterface, IGridMemory
 
     public override bool IsCellWalkable(Vector3Int position)
     {
-        return IsWalkable(position.x, position.z);
+        if (GridInfo == null) return false;
+        // if x or z are out of bounds, return false
+        if (position.x < 0 || position.x >= Width) return false;
+        if (position.z < 0 || position.z >= Height) return false;
+        // Check if the tile type allows walking
+        return GridInfo[position.x, GridY, position.z].type == TileType.Ground && !GridInfo[position.x, GridY, position.z].isOccupied;
+
     }
 
     public override IEnumerator TargetSelect(int range, CoroutineResult<GameObject> result)

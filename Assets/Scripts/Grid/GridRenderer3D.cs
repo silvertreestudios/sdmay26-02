@@ -134,7 +134,7 @@ public class GridRenderer3D : MonoBehaviour
                 Mathf.FloorToInt((hit.z - origin.y) / cellSize));
             // Inside bounds?
             bool inside = (uint)cell.x < (uint)width && (uint)cell.z < (uint)height;
-            bool canHover = inside && gridMemory != null && gridMemory.IsWalkable(cell.x, cell.z);
+            bool canHover = inside && gridMemory != null && gridMemory.IsCellWalkable(cell);
 
             if (canHover && !cell.Equals(HoverCell)) { HoverCell = cell; HasHover = true; UpdateHover(); }
             else if (!canHover) HasHover = false;

@@ -174,7 +174,7 @@ public class MovementRange
             continue;
 
         // Add to reachable if within range, walkable and not the start cell
-        if (grid.IsWalkable(current.x, current.z) && current != start)
+        if (grid.IsCellWalkable(current) && current != start)
         {
             reachable.Add(current);
         }
@@ -187,7 +187,7 @@ public class MovementRange
                 continue;
 
             // Check walkability for neighbor; allow the start cell even if it's not walkable
-            if (!grid.IsWalkable(neighbor.x, neighbor.z) && neighbor != start)
+            if (!grid.IsCellWalkable(neighbor) && neighbor != start)
                 continue;
 
             // Calculate movement cost
@@ -270,7 +270,7 @@ public class MovementRange
         {
             for (int z = 0; z < grid.Height; z++)
             {
-                if (grid.IsWalkable(x, z))
+                if (grid.IsCellWalkable(new Vector3Int(x, 0, z)))
                 {
                     allTiles.Add(new Vector3Int(x, 0, z));
                 }
@@ -299,8 +299,8 @@ public class MovementRange
                 Vector3Int adjacent1 = cell + new Vector3Int(dir.x, 0, 0);
                 Vector3Int adjacent2 = cell + new Vector3Int(0, 0, dir.z);
 
-                bool adjacent1Valid = IsWithinBounds(adjacent1) && grid.IsWalkable(adjacent1.x, adjacent1.z);
-                bool adjacent2Valid = IsWithinBounds(adjacent2) && grid.IsWalkable(adjacent2.x, adjacent2.z);
+                bool adjacent1Valid = IsWithinBounds(adjacent1) && grid.IsCellWalkable(adjacent1);
+                bool adjacent2Valid = IsWithinBounds(adjacent2) && grid.IsCellWalkable(adjacent2);
 
                 if (adjacent1Valid && adjacent2Valid)
                 {

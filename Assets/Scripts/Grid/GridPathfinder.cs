@@ -161,7 +161,7 @@ public class GridPathfinder
                 continue;
 
             // check if neighbor cell is walkable
-            if (v != startCell && !grid.IsWalkable(v.x, v.z))
+            if (v != startCell && !grid.IsCellWalkable(v))
                 continue;
 
             // for diagonal movement, also check if both adjacent cardinal cells are walkable
@@ -192,12 +192,12 @@ public class GridPathfinder
 
         // check horizontal adjacent cell
         var horizontal = new Vector3Int(from.x + dx, 0, from.z);
-        if (!grid.IsWalkable(horizontal.x, horizontal.z))
+        if (!grid.IsCellWalkable(horizontal))
             return false;
 
         // check vertical adjacent cell
         var vertical = new Vector3Int(from.x, 0, from.z + dz);
-        if (!grid.IsWalkable(vertical.x, vertical.z))
+        if (!grid.IsCellWalkable(vertical))
             return false;
 
         return true;
