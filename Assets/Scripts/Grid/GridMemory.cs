@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using System.Collections;
 
@@ -14,7 +14,7 @@ public class GridMemory : IGridMemory
     public enum TileStatus
     {
         Normal,
-        Fire
+        FireI
     }
 
     public struct TILE
