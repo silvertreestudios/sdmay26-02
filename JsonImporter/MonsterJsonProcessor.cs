@@ -23,6 +23,7 @@ namespace JsonImporter
             // Prepare arrays for items and equipment
             var newItemsArr = new JArray();
             var equipmentArr = new JArray();
+            var conditionsArr = new JArray();
 
             if (obj["items"] is JArray itemsArr)
             {
@@ -244,6 +245,14 @@ namespace JsonImporter
                         };
 
                         newItemsArr.Add(newItem);
+
+                        // TODO 
+                        // Refine implementation to avoid double listing in both items and conditions.
+                        string context = cloned?["descriptionContext"]?.ToString() ?? "";
+                        if (context.Contains("Compendium.pf2e.conditionitems.Item."))
+                        {
+                            conditionsArr.Add(newItem);
+                        }
                     }
                     else
                     {
@@ -381,7 +390,8 @@ namespace JsonImporter
                 ["type"] = obj["type"],
                 ["system"] = obj["system"],
                 ["equipment"] = equipmentArr,
-                ["items"] = orderedItems
+                ["items"] = orderedItems,
+                ["conditions"] = conditionsArr
             };
 
             // Preserve Source if it existed in the original file (some JSON uses capital "Source")

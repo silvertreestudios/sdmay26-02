@@ -35,6 +35,8 @@ namespace Game.Creature
         [SerializeField] private int _damageBonus;
         [SerializeField] private List<DamageValue> _weaknesses = new List<DamageValue>();
         [SerializeField] private List<DamageValue> _resistances = new List<DamageValue>();
+        // hash map or alternative get for modifications?
+        // handle conditions/modifiers in CreatureComponent
 
         // Example for ability modifiers
         [Header("Ability Modifiers")]
@@ -61,6 +63,9 @@ namespace Game.Creature
         [Header("Actions & Equipment")]
         [SerializeField] private List<string> _actions = new List<string>();
         [SerializeField] private List<string> _equipment = new List<string>();
+
+        [Header("Conditions")]
+        [SerializeField] private List<string> _conditions = new List<string>();
 
         // NOTES FOR IMPLEMENTING STRIKE VARIANTS
         // Dice damageDice = new Dice(damageRolls.damage);
@@ -100,6 +105,7 @@ namespace Game.Creature
         // TODO: properly implement
         public List<string> actions { get => _actions; set => _actions = value ?? new List<string>(); }
         public List<string> equipment { get => _equipment; set => _equipment = value ?? new List<string>(); }
+        public List<string> conditions { get => _conditions; set => _conditions = value ?? new List<string>(); }
 
         // TODO: properly implement        
         public List<string> traits { get; set; } = new List<string>();
