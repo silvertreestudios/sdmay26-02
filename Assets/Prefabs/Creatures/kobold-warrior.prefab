@@ -1,0 +1,365 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1551290694673666571
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1635621051094725681}
+  m_Layer: 0
+  m_Name: ------MESH--------
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1635621051094725681
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1551290694673666571}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7408508251949133032}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &3916794351801599935
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 9003288471512252410}
+  - component: {fileID: 4436701508290409841}
+  - component: {fileID: 887650071648930774}
+  - component: {fileID: 3090984155669832934}
+  m_Layer: 0
+  m_Name: Character (Mesh)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 2147483647
+  m_IsActive: 1
+--- !u!4 &9003288471512252410
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3916794351801599935}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0.125, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7408508251949133032}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &4436701508290409841
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3916794351801599935}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 87a96a4edfed340c8adf702c6db3d943, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: '::'
+  meshOptions:
+  - mesh: {fileID: 7240564204133861249, guid: f1a9de5bda18b48eb83ee4c127002d5d, type: 3}
+    Name: Wizard
+  - mesh: {fileID: 2408006936957244630, guid: a01983ff1951040909df518c0c998c67, type: 3}
+    Name: Skeleton Guard
+  - mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
+    Name: Goblin Warrior
+  - mesh: {fileID: 1327527995072578448, guid: dc0e81157777e49e1bfb3447ea78273b, type: 3}
+    Name: Kobold Warrior
+  - mesh: {fileID: -1306287401402662401, guid: d9e17dbadb98846ae8b04c9726f148e9, type: 3}
+    Name: Zombie Shambler
+  selectedMeshFromInspector: 
+  meshToFind: Boblin
+--- !u!23 &887650071648930774
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3916794351801599935}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: b873bf17dc2184e9d84b58caaad20cf8, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!33 &3090984155669832934
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3916794351801599935}
+  m_Mesh: {fileID: 0}
+--- !u!1 &6552337668452043717
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 7408508251949133032}
+  - component: {fileID: 9122479921112241106}
+  - component: {fileID: 2651402527887923664}
+  m_Layer: 0
+  m_Name: kobold-warrior
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &7408508251949133032
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6552337668452043717}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 1635621051094725681}
+  - {fileID: 9003288471512252410}
+  - {fileID: 1835224772792858728}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &9122479921112241106
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6552337668452043717}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ab40f563b33ddbb4d910714452a24c99, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CreatureComponent
+  _name: Kobold Warrior
+  _level: -1
+  _initiative: 3
+  _speed: 25
+  _hp: 7
+  _maxHp: 7
+  _tempHp: 0
+  _ac: 16
+  _attackBonus: 3
+  _damageBonus: 1
+  _strMod: 1
+  _dexMod: 3
+  _conMod: -1
+  _intMod: 0
+  _wisMod: 1
+  _chaMod: 1
+  _fortitudeSave: 3
+  _reflexSave: 7
+  _willSave: 3
+  _allSaves: 0
+  _skills:
+  - skillName: acrobatics
+    skillMod: 5
+  - skillName: crafting
+    skillMod: 2
+  - skillName: stealth
+    skillMod: 5
+  _description: 'The typical kobold trains in tunnel fighting, learning to use simple
+    weapons that are effective in narrow spaces. Kobolds are capable of landing sneaky
+    strikes against unsuspecting foes, but are just as quick to scamper off to safety
+    when they don''t outnumber their enemies by at least two to one.
+
+
+    Kobolds
+    are small reptilian humanoids. They lurk in dark spaces, usually tunnels and
+    mines beneath the earth, in either warrens of their own design or complexes discovered
+    and colonized after the original builders have moved on. Though kobolds are far
+    more pragmatic than courageous, they use every inch of their cunning to even
+    the playing field between themselves and other, stronger creatures. They attack
+    from the darkness and at range, and kobold artificers and engineers master the
+    art of simple but effective traps, which they use to protect their lairs. Kobolds
+    are skilled at working together by necessity, and they often set up ambushes
+    or hit-and-run assaults that allow them to do the most damage possible without
+    being harmed in return.
+
+
+    Kobolds are diligent and hardworking creatures.
+    While some kobolds live in communal collectives that maintain neutral relations
+    with the creatures around them, they can be easily swayed into serving malevolent
+    powers or megalomaniacal leaders. This is in part due to kobolds'' innate pragmatism,
+    as they would rather concede to servitude than risk being killed, but it is also
+    in part due to a reverence for the power they generally lack. Notably, kobold
+    eggs left in the proximity of magical creatures or places tend to absorb similar
+    traits from the exposure. The resulting physical changes mark the appearance
+    of each tribe, but a few lucky kobolds are also born with magical power that
+    reflects their tribe''s patron.'
+  _actions:
+  - Spear
+  - Spear
+  - Sling
+  - Scamper
+  - Sneak Attack
+  _equipment:
+  - Sling
+  - Spear
+  - Leather Armor
+  - Sling Bullets
+--- !u!114 &2651402527887923664
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6552337668452043717}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 52e9b306fa533c64ba72572bd127a099, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ActionController
+  <ActionPoints>k__BackingField: 0
+--- !u!1 &9067623565197655360
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1835224772792858728}
+  - component: {fileID: 5841769901541850777}
+  - component: {fileID: 1828628694830145696}
+  m_Layer: 0
+  m_Name: Base (Mesh)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1835224772792858728
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9067623565197655360}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 0.5, y: 0.5, z: 0.5}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7408508251949133032}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &5841769901541850777
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9067623565197655360}
+  m_Mesh: {fileID: 1431553746238890192, guid: 111aee36d4b234665ac7a1c809067fca, type: 3}
+--- !u!23 &1828628694830145696
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9067623565197655360}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: b873bf17dc2184e9d84b58caaad20cf8, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_AdditionalVertexStreams: {fileID: 0}
