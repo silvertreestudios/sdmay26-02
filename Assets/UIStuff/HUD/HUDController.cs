@@ -179,7 +179,7 @@ public class HUDController : MonoBehaviour
     public void CancelAction() {
         Debug.Log("CancelAction called");
         Debug.Log("Clicked Cancel Action button");
-        GridCharacterController3D.Instance.cancel = true;
+        FSM_API.CancelCurrentAction();
     }
 
     public void focusOnPlayer(int playerIndex) {
