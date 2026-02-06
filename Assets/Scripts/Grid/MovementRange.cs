@@ -4,47 +4,51 @@ using UnityEngine;
 
 /// <summary>
 /// Manages visual highlights for reachable tiles within movement range.
-/// Calculates reachable tiles using depth-first search and creates highlight GameObjects.
 /// </summary>
 public class MovementRange
 {
-    // Grid reference for pathfinding and coordinate conversion
     private readonly IGridMemory grid;
-
-    // Movement configuration
     private readonly bool allowDiagonalMovement;
     private readonly float diagonalCost;
-
-    // Highlight visual configuration
     private readonly GameObject highlightPrefab;
     private readonly Color highlightColor;
     private readonly float highlightHeightOffset;
-
-    // Runtime state
     private readonly List<GameObject> activeHighlights = new List<GameObject>();
     private HashSet<Vector3Int> currentReachableTiles = new HashSet<Vector3Int>();
     private HashSet<Vector3Int> attackedTiles = new HashSet<Vector3Int>();
-
-
-    // Delegate for converting grid cells to world positions
     private readonly System.Func<int, int, float, Vector3> gridToWorld;
 
     // Cached direction arrays to avoid repeated allocations
     private static readonly Vector3Int[] CardinalDirections = new[]
     {
-        new Vector3Int(1, 0, 0),   // East
-        new Vector3Int(-1, 0, 0),  // West
-        new Vector3Int(0, 0, 1),   // North
-        new Vector3Int(0, 0, -1)   // South
+        new Vector3Int(1, 0, 0),
+        new Vector3Int(-1, 0, 0),
+        new Vector3Int(0, 0, 1),
+        new Vector3Int(0, 0, -1)
     };
 
     private static readonly Vector3Int[] DiagonalDirections = new[]
     {
-        new Vector3Int(1, 0, 1),   // Northeast
-        new Vector3Int(-1, 0, 1),  // Northwest
-        new Vector3Int(1, 0, -1),  // Southeast
-        new Vector3Int(-1, 0, -1)  // Southwest
+        new Vector3Int(1, 0, 1),
+        new Vector3Int(-1, 0, 1),
+        new Vector3Int(1, 0, -1),
+        new Vector3Int(-1, 0, -1)
     };
+
+    /// <summary>
+    /// Creates a new MovementRange
+    /// </summary>
+    /// <param name="controller">Reference to the grid controller</param>
+    public MovementRange(GridCharacterController3D controller)
+    {
+        this.grid = controller.gridMemory;
+        this.highlightPrefab = controller.rangeHighlightPrefab;
+        this.highlightColor = controller.rangeHighlightColor;
+        this.highlightHeightOffset = controller.rangeHighlightHeightOffset;
+        this.allowDiagonalMovement = controller.allowDiagonalMovement;
+        this.diagonalCost = controller.diagonalCost;
+        this.gridToWorld = controller.coordinateConverter.GridCellCenterWorld;
+    }
 
     /// <summary>
     /// Gets the current set of reachable tiles
@@ -55,39 +59,6 @@ public class MovementRange
     /// Checks if a specific cell is within the current reachable range
     /// </summary>
     public bool IsCellReachable(Vector3Int cell) => currentReachableTiles.Contains(cell);
-
-    /// <summary>
-    /// Creates a new MovementRangeHighlighter
-    /// </summary>
-    /// <param name="gridReference">Grid for pathfinding</param>
-    /// <param name="prefab">Prefab to instantiate for highlights</param>
-    /// <param name="color">Color for highlight visuals</param>
-    /// <param name="heightOffset">Height offset above grid</param>
-    /// <param name="allowDiagonal">Whether diagonal movement is allowed</param>
-    /// <param name="diagCost">Cost for diagonal movement</param>
-    /// <param name="gridCellToWorld">Function to convert grid coordinates to world position</param>
-    public MovementRange(
-        IGridMemory gridReference,
-        GameObject prefab,
-        Color color,
-        float heightOffset,
-        bool allowDiagonal,
-        float diagCost,
-        System.Func<int, int, float, Vector3> gridCellToWorld)
-    {
-        if (gridReference == null)
-        {
-            Debug.LogError("[MovementRangeHighlighter] Grid reference cannot be null!");
-        }
-
-        this.grid = gridReference;
-        this.highlightPrefab = prefab;
-        this.highlightColor = color;
-        this.highlightHeightOffset = heightOffset;
-        this.allowDiagonalMovement = allowDiagonal;
-        this.diagonalCost = Mathf.Max(1f, diagCost); // Ensure diagonal cost is at least 1
-        this.gridToWorld = gridCellToWorld;
-    }
 
     /// <summary>
     /// Updates highlights for a character at a given position
