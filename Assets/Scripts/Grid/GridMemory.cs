@@ -166,6 +166,31 @@ public class GridMemory : IGridMemory
 
     }
 
+    // PUBLIC API FOR ACCESSING TILE INFORMATION
+
+    // get tile information at a given position using x and z coordinates
+    public TILE GetTileAt(int x, int z)
+    {
+        if (GridInfo == null || x < 0 || x >= Width || z < 0 || z >= Height) 
+            return default;
+        return GridInfo[x, GridY, z];
+    }
+
+    // get tile information at a given position using Vector3Int
+    public TILE GetTileAt(Vector3Int position)
+    {
+        return GetTileAt(position.x, position.z);
+    }
+
+    // get a type of tile at a given position
+    public TileType GetTileTypeAt(int x, int z)
+    {
+        if (GridInfo == null || x < 0 || x >= Width || z < 0 || z >= Height) 
+            return default;
+        return GridInfo[x, GridY, z].type;
+    }
+
+
     public override IEnumerator TargetSelect(int range, CoroutineResult<GameObject> result)
     {
         //return a selected monster if valid
