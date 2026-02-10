@@ -1,5 +1,5 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="True">
-    <ui:Label text="Token Mesh Selection (Prototyping Only):&#10;This manual selection method is for prototyping and testing purposes. In the final implementation, mesh selection will be automated through code. For now, enter a mesh name below and drag the corresponding mesh asset into Mesh Options to preview different tokens in the Scene view." style="white-space: normal; padding: 5px; margin-bottom: 10px; -unity-font-style: italic;" />
-    <uie:PropertyField label="Selected Mesh" binding-path="selectedMeshFromInspector"/>
-    <uie:PropertyField label="Mesh Options" binding-path="meshOptions" class="unity-base-field__aligned" />
+    <ui:Label text="Token Mesh Selection:&#10;&#10;For your creature, assign the mesh you would like to use along with the name it is associated with in CreatureComponent&#10;&#10;For the Bases, assign your mesh and what level that mesh is associated with. (In Progress)" style="white-space: normal; padding: 5px; margin-bottom: 10px; -unity-font-style: italic;" />
+    <uie:PropertyField label="Token Mesh Options" binding-path="TokenOptions" class="unity-base-field__aligned" />
+    <uie:PropertyField label="Base Mesh Options" binding-path="BaseOptions" class="unity-base-field__aligned" />
 </ui:UXML>

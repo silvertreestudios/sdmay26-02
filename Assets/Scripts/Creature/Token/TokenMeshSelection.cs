@@ -5,15 +5,17 @@ using UnityEngine;
 
 public class TokenMeshSelection : MonoBehaviour
 {
-    public MeshPathEntry[] meshOptions = new MeshPathEntry[1];
-
+    public TokenMeshes[] TokenOptions = new TokenMeshes[1];
+    public BaseMeshes[] BaseOptions = new BaseMeshes[1];
+    GameObject tokenObject;
+    GameObject baseObject;
     CreatureComponent creatureComponent;
-    
-    public string selectedMeshFromInspector; // Set by Inspector
-    MeshRenderer MeshRenderer;
-    MeshFilter MeshFilter;
+    MeshRenderer TokenMeshRenderer;
+    MeshFilter TokenMeshFilter;
+    MeshRenderer BaseMeshRenderer;
+    MeshFilter BaseMeshFilter;
 
-    public string meshToFind;
+    private string TokenMeshToFind;
 
     #if UNITY_EDITOR
     void OnValidate()
@@ -21,7 +23,7 @@ public class TokenMeshSelection : MonoBehaviour
         // Only update in editor when values change and object is in a scene
         if (gameObject.scene.IsValid())
         {
-            UpdateMesh();
+            UpdateTokenMesh();
         }
     }
     #endif
@@ -29,49 +31,59 @@ public class TokenMeshSelection : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        UpdateMesh();
+        UpdateTokenMesh();
     }
-
-    void UpdateMesh()
+ 
+    void UpdateTokenMesh()
     {
         // Safety check for destroyed objects
         if (this == null || gameObject == null) return;
 
-        MeshFilter = GetComponent<MeshFilter>();
-        MeshRenderer = GetComponent<MeshRenderer>();
 
-        if (MeshFilter == null)
+        tokenObject = transform.GetChild(0).gameObject;
+        baseObject = transform.GetChild(1).gameObject;
+
+
+
+        TokenMeshFilter = tokenObject.GetComponent<MeshFilter>();
+        TokenMeshRenderer = tokenObject.GetComponent<MeshRenderer>();
+
+        BaseMeshFilter = baseObject.GetComponent<MeshFilter>();
+        BaseMeshRenderer = baseObject.GetComponent<MeshRenderer>();
+
+        if (TokenMeshFilter == null)
         {
             Debug.LogWarning("No MeshFilter component found!");
             return;
         }
 
         creatureComponent = GetComponentInParent<CreatureComponent>();
-        // FIX: Check if creatureComponent is null before accessing it
+        
         if (creatureComponent != null)
         {
-            meshToFind = creatureComponent.name;
+            TokenMeshToFind = creatureComponent.name;
+
         }
         else
         {
-            meshToFind = selectedMeshFromInspector;
+            TokenMeshToFind = "Wizard"; // Default mesh name if no CreatureComponent found
         }
         
         // Don't proceed if we have nothing to search for
-        if (string.IsNullOrEmpty(meshToFind))
+        if (string.IsNullOrEmpty(TokenMeshToFind))
         {
             return;
         }
-        Debug.Log("Looking for mesh: " + meshToFind);
+        Debug.Log("Looking for mesh: " + TokenMeshToFind);
         bool meshFound = false;
 
-        foreach (MeshPathEntry entry in meshOptions)
+        foreach (TokenMeshes entry in TokenOptions)
         {
-            if (entry != null && entry.Name == meshToFind)
+            if (entry != null && entry.Name == TokenMeshToFind)
             {
                 if (entry.mesh != null)
                 {
-                    MeshFilter.sharedMesh = entry.mesh;
+                    TokenMeshFilter.sharedMesh = entry.mesh;
                     Debug.Log($"Selected {entry.Name} Mesh");
                     meshFound = true;
                     break;
@@ -85,10 +97,13 @@ public class TokenMeshSelection : MonoBehaviour
             }
         }
 
+
+        BaseMeshFilter.sharedMesh = BaseOptions[0].mesh;
+
         if (!meshFound)
         {
-            Debug.LogError($"No mesh found with name: {meshToFind}");
-            MeshFilter.sharedMesh = null;
+            Debug.LogError($"No mesh found with name: {TokenMeshToFind}");
+            TokenMeshFilter.sharedMesh = null;
         }
     }
 
@@ -102,9 +117,17 @@ public class TokenMeshSelection : MonoBehaviour
 }
 
 [System.Serializable]
-public class MeshPathEntry
+public class TokenMeshes
 {
     public Mesh mesh;
     public string Name = "default";
+    
+}
+
+[System.Serializable]
+public class BaseMeshes
+{
+    public Mesh mesh;
+    public int level = 0;
     
 }
