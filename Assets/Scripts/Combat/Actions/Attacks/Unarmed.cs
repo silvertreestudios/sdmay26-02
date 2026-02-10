@@ -17,8 +17,11 @@ public class Unarmed : MultiFrameEntityAction
         ActionController ac = attacker.GetComponent<ActionController>();
         // Grid get target;
         CoroutineResult<GameObject> target = new();
-        yield return GridCharacterController3D.Instance.StrikeCoroutine(attacker, 2, target);
-        if(target.Value)
+        CoroutineResult<bool> canceled = new();
+        //yield return GridCharacterController3D.Instance.StrikeCoroutine(attacker, 2, target);
+        yield return FSM_API.Unarmed(attacker, 2, target, canceled);
+        // I implemented a cancel refund for this action, let me know if it needs to change - Adam
+        if(target.Value && !canceled.Value)
         {
             Debug.Log(attacker + " Striking " + target.Value);
             Strike.Damage(attacker, target.Value);
