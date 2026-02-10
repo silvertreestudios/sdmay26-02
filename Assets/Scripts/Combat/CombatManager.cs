@@ -49,4 +49,17 @@ public class CombatManager : CombatManagerInterface
         }
         return null;
     }
+
+    //added by Ryan Meyer 5/29/24, For cameraManager to get the positions of all tokens
+    public Vector3[] getPoistions()
+    {
+        Vector3[] positions = new Vector3[combatants.Count];
+        int i = 0;
+        foreach(var c in combatants)
+        {
+            positions[i] = c.gameObject.transform.position;
+            i++;
+        }
+        return positions;
+    }
 }

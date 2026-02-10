@@ -49,7 +49,7 @@ public class GridCharacterController3D : MonoBehaviour
     private Dictionary<GameObject, ITokenMovement> tokenMovements = new Dictionary<GameObject, ITokenMovement>();
 
     // Subsystem references
-    public CameraManager camMan {get; private set;}
+    // public CameraManager camMan {get; private set;}
     public GridPathfinder pathfinder {get; private set;}
     public VisualIndicator visualIndicator {get; private set;}
     public MovementRange rangeHighlighter {get; private set;}
@@ -118,7 +118,7 @@ public class GridCharacterController3D : MonoBehaviour
         InitializePathfinder();
         SpawnCharacters();
         InitializeMovementControllers();
-        InitializeCameraManager();
+        //InitializeCameraManager();
         InitializeSubsystems();
 
         // Mark as initialized
@@ -142,7 +142,7 @@ public class GridCharacterController3D : MonoBehaviour
             return;
 
         // Update camera
-        camMan?.update();
+        // camMan?.update();
     }
 
     /// <summary>
@@ -187,31 +187,31 @@ public class GridCharacterController3D : MonoBehaviour
         }
     }
 
-    private void InitializeCameraManager()
-    {
-        try
-        {
-            camMan = CameraManager.GetInstance();
-            if (camMan != null)
-            {
-                camMan.setCamera(Camera.main);
-                foreach (var kvp in characters)
-                {
-                    camMan.addActor(kvp.Key);
-                }
-                camMan.SetCameraForCharacter("Player1", CameraType.Pick);
-            }
+    // private void InitializeCameraManager()
+    // {
+    //     try
+    //     {
+    //         camMan = CameraManager.GetInstance();
+    //         if (camMan != null)
+    //         {
+    //             camMan.setCamera(Camera.main);
+    //             foreach (var kvp in characters)
+    //             {
+    //                 camMan.addActor(kvp.Key);
+    //             }
+    //             camMan.SetCameraForCharacter("Player1", CameraType.Pick);
+    //         }
 
-            foreach (var character in characters.Values)
-            {
-                SnapToValidCell(character);
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("CameraManager error: " + e.Message);
-        }
-    }
+    //         foreach (var character in characters.Values)
+    //         {
+    //             SnapToValidCell(character);
+    //         }
+    //     }
+    //     catch (Exception e)
+    //     {
+    //         Debug.LogError("CameraManager error: " + e.Message);
+    //     }
+    // }
 
     /// <summary>
     /// Initialize subsystems: VisualIndicator and MovementRangeHighlighter
