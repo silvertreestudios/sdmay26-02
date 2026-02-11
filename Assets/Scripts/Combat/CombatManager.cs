@@ -63,4 +63,17 @@ public class CombatManager : CombatManagerInterface
         e.Trigger();
         TurnQueue.Add(e);
     }
+
+    //added by Ryan Meyer 5/29/24, For cameraManager to get the positions of all tokens
+    public Vector3[] getPoistions()
+    {
+        Vector3[] positions = new Vector3[Combatants.Count];
+        int i = 0;
+        foreach(var c in Combatants)
+        {
+            positions[i] = c.gameObject.transform.position;
+            i++;
+        }
+        return positions;
+    }
 }
