@@ -36,6 +36,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         moveAction = InputSystem.actions.FindAction("MoveCamera");
         zoomAction = InputSystem.actions.FindAction("ZoomCamera");
         rotateAction = InputSystem.actions.FindAction("RotateCamera");
+        //This is purely placeholder 
         interactAction = InputSystem.actions.FindAction("Sprint");
     }
 
@@ -165,7 +166,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         Vector3 offset = mainCamera.transform.position - currentLookAt;
         
         // Calculate desired zoom based on combatant spread
-        float maxDistance = GetMaxDistanceFromAverage(averagePosition);
+        float maxDistance = GetMaxDistanceFromAveragePoint(averagePosition);
         
         // Map distance to Y height (closer combatants = lower camera, spread out = higher camera)
         float targetY = Mathf.Lerp(minCamearYLimit, maxCameraYLimit, maxDistance/5f); // Adjust divisor to tune sensitivity
@@ -178,7 +179,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         mainCamera.transform.position = averagePosition + offset;
     }
 
-    private float GetMaxDistanceFromAverage(Vector3 average)
+    private float GetMaxDistanceFromAveragePoint(Vector3 average)
     {
         Vector3[] positions = combatManager.getPoistions();
         float maxDist = 0f;
