@@ -14,7 +14,8 @@ public class Stride : MultiFrameEntityAction
     {
         ActionController ac = target.GetComponent<ActionController>();
         CoroutineResult<bool> canceled = new();
-        yield return GridCharacterController3D.Instance.StrideCoroutine(target, canceled);
+        //yield return GridCharacterController3D.Instance.StrideCoroutine(target, canceled);
+        yield return FSM_API.Stride(target, canceled);
         if (!canceled.Value)
         {
             if (ac)
