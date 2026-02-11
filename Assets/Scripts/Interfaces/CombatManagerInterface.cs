@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Events;
 
 public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatManagerInterface>
 {
@@ -20,6 +21,18 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     public abstract void AddCombatant(ActionController combatant);
 
     /// <summary>
+    /// Removes a combatant from the CombatManager
+    /// </summary>
+    /// <param name="combatant"></param>
+    public abstract void Remove(ActionController combatant);
+
+    /// <summary>
+    /// Removes an event from the combat TurnQueue
+    /// </summary>
+    /// <param name="e"></param>
+    public abstract void Remove(TurnStep e);
+
+    /// <summary>
     /// Returns the GameObject Who's Turn it is
     /// </summary>
     public abstract GameObject WhosTurn();
@@ -29,7 +42,4 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// </summary>
     /// <returns>GameObjects of the combatants</returns>
     public abstract List<GameObject> GetCombatants();
-
-    // Temporary function
-    public abstract GameObject GetTarget(GameObject attacker);
 }
