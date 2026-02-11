@@ -10,11 +10,7 @@ namespace Game.Creature
     public struct Condition
     {
         public string name;   // name of the condition
-        public string appliedBy; // gameObject ID of GO that applied the condition, TODO change to GO ID
-
-        public string applicationMethod; // the method that applied the condition (spell/item/ability)
-        // public int duration; // duration in rounds, -1 for indefinite (?), tracked by Game Manager?
-        // public string[] modfiers; // tags for how condition should be handled (?).  Permanent, item, spell, etc
+        // public string source; // gameObject ID of GO that applied the condition
     }
 
     [System.Serializable]
