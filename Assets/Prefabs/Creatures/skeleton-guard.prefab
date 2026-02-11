@@ -80,11 +80,18 @@ MonoBehaviour:
   - Scimitar
   - Claw
   - Shortbow
+  _reactions: []
+  _passives:
   - Void Healing
+  _conditions: []
+  _equippedArmor: 
   _equipment:
   - Shortbow
   - Scimitar
   - Arrows
+  _weaponsList:
+  - Shortbow
+  - Scimitar
 --- !u!114 &7487853166917741111
 MonoBehaviour:
   m_ObjectHideFlags: 0

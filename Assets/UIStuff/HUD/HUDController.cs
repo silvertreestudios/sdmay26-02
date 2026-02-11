@@ -1,3 +1,4 @@
+
 using NUnit.Framework.Internal;
 using Unity.VisualScripting;
 using UnityEngine;
@@ -98,21 +99,17 @@ public class HUDController : MonoBehaviour
         updateTargetCard();
 
         // Update player queue cards if needed
-        if (needToUpdateCards)
-        {
+        if (needToUpdateCards) {
             // cardHolder = ui.Q<VisualElement>("PlayerQueueCardHolder");
             fillPlayerCards();
             needToUpdateCards = false;
         }
 
-        if (isActionRunning())
-        {
+        if (isActionRunning()){
             strikeButton.SetEnabled(false);
             moveButton.SetEnabled(false);
             endTurnButton.SetEnabled(false);
-        }
-        else
-        {
+        } else {
             strikeButton.SetEnabled(true);
             moveButton.SetEnabled(true);
             endTurnButton.SetEnabled(true);
@@ -136,23 +133,18 @@ public class HUDController : MonoBehaviour
         }
     }
 
-    private void HighlightCurrentPlayerCard()
-    {
+    private void HighlightCurrentPlayerCard() {
         // Debug.Log("HighlightCurrentPlayerCard called");
         // Logic to highlight the current player's card
         // This is a placeholder implementation
-        int playerIndex = CombatManagerInterface.GetInstance().WhosTurn() == Players[0] ? 1 : 0;
-        for (int i = 0; i < cardHolder.childCount; i++)
-        {
+        int playerIndex = CombatManagerInterface.GetInstance().WhosTurn() == Players[0]? 1: 0;
+        for (int i = 0; i < cardHolder.childCount; i++) {
             var card = cardHolder.ElementAt(i);
-            if (i == playerIndex)
-            {
+            if (i == playerIndex) {
                 //another coPilot idea vvv , works for intial testing
                 card.style.borderBottomColor = Color.yellow;
                 card.style.borderBottomWidth = 4;
-            }
-            else
-            {
+            } else {
                 card.style.borderBottomWidth = 0;
             }
         }
@@ -210,18 +202,17 @@ public class HUDController : MonoBehaviour
 
     private void updateCurrentPlayerCard() {
         // Debug.Log("updateCurrentPlayerCard called");
-        CreatureComponent p1 = CombatManagerInterface.GetInstance().WhosTurn().GetComponent<CreatureComponent>();
-        currentPlayerHealthBar.title = p1.name;
-        currentPlayerHealthBar.value = p1.hp;
-        currentPlayerHealthBar.highValue = p1.maxHp;
+        CreatureComponent p = Players[1].GetComponent<CreatureComponent>();
+        currentPlayerHealthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
+        currentPlayerHealthBar.value = p.hp;
+        currentPlayerHealthBar.highValue = p.maxHp;
     }
 
-    private void updateTargetCard(TESTPlayerCard targetPlayer) {
+    private void updateTargetCard() {
         // Debug.Log("updateTargetCard called");
-        GameObject p1 = CombatManagerInterface.GetInstance().WhosTurn();
-        CreatureComponent p2 = CombatManagerInterface.GetInstance().GetTarget(p1).GetComponent<CreatureComponent>();
-        targetHealthBar.title = p2.name;
-        targetHealthBar.value = p2.hp;
-        targetHealthBar.highValue = p2.maxHp;
+        CreatureComponent p = Players[0].GetComponent<CreatureComponent>();
+        targetHealthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
+        targetHealthBar.value = p.hp;
+        targetHealthBar.highValue = p.maxHp;
     }
 }

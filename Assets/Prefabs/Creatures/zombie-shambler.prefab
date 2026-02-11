@@ -316,10 +316,15 @@ MonoBehaviour:
   _actions:
   - Fist
   - Jaws
+  - Grab
+  _reactions: []
+  _passives:
   - Slow
   - Void Healing
-  - Grab
+  _conditions: []
+  _equippedArmor: 
   _equipment: []
+  _weaponsList: []
 --- !u!114 &4126133449529308398
 MonoBehaviour:
   m_ObjectHideFlags: 0
