@@ -5,6 +5,18 @@ using UnityEngine;
 namespace Game.Creature
 {
 
+    // TODO temp location 
+    [System.Serializable]
+    public struct Condition
+    {
+        public string name;   // name of the condition
+        public string appliedBy; // gameObject ID of GO that applied the condition, TODO change to GO ID
+
+        public string applicationMethod; // the method that applied the condition (spell/item/ability)
+        // public int duration; // duration in rounds, -1 for indefinite (?), tracked by Game Manager?
+        // public string[] modfiers; // tags for how condition should be handled (?).  Permanent, item, spell, etc
+    }
+
     [System.Serializable]
     public struct SkillValue
     {
@@ -60,12 +72,22 @@ namespace Game.Creature
         [SerializeField][TextArea] private string _description;
 
         // Serialized actions & equipment (previously auto-properties; won't persist)
-        [Header("Actions & Equipment")]
-        [SerializeField] private List<string> _actions = new List<string>();
-        [SerializeField] private List<string> _equipment = new List<string>();
+        [Header("Actions & Abilities")]
+        [SerializeField] private List<string> _actions = new List<string>(); // standard actions
+        [SerializeField] private List<string> _reactions = new List<string>();
+        [SerializeField] private List<string> _passives = new List<string>();
 
         [Header("Conditions")]
         [SerializeField] private List<string> _conditions = new List<string>();
+
+        [Header("Equipment")]
+        [SerializeField] private string _equippedArmor;
+        [SerializeField] private EquipmentWeapon _equippedRightHand;
+        [SerializeField] private EquipmentWeapon _equippedLeftHand;
+        [SerializeField] private List<string> _equipment = new List<string>();
+        [SerializeField] private List<string> _weaponsList = new List<string>();
+        [SerializeField] private List<EquipmentWeapon> _weapons = new List<EquipmentWeapon>();
+
 
         // NOTES FOR IMPLEMENTING STRIKE VARIANTS
         // Dice damageDice = new Dice(damageRolls.damage);
@@ -104,8 +126,18 @@ namespace Game.Creature
 
         // TODO: properly implement
         public List<string> actions { get => _actions; set => _actions = value ?? new List<string>(); }
-        public List<string> equipment { get => _equipment; set => _equipment = value ?? new List<string>(); }
+        public List<string> reactions { get => _reactions; set => _reactions = value ?? new List<string>(); }
+        public List<string> passives { get => _passives; set => _passives = value ?? new List<string>(); }
         public List<string> conditions { get => _conditions; set => _conditions = value ?? new List<string>(); }
+
+        // TODO: properly implement
+        public List<string> equipment { get => _equipment; set => _equipment = value ?? new List<string>(); }
+        public string equippedArmor { get => _equippedArmor; set => _equippedArmor = value; }
+        public EquipmentWeapon equippedRightHand { get => _equippedRightHand; set => _equippedRightHand = value; }
+        public EquipmentWeapon equippedLeftHand { get => _equippedLeftHand; set => _equippedLeftHand = value; }
+        public List<string> weaponsList { get => _weaponsList; set => _weaponsList = value ?? new List<string>(); }
+        public List<EquipmentWeapon> weapons { get => _weapons; set => _weapons = value ?? new List<EquipmentWeapon>(); }
+
 
         // TODO: properly implement        
         public List<string> traits { get; set; } = new List<string>();
@@ -229,5 +261,36 @@ namespace Game.Creature
             _hp += healAmount;
             _hp = Mathf.Clamp(_hp, 0, _maxHp);
         }
+
+        public void equipWeaponLeft(EquipmentWeapon weapon)
+        {
+            if (weapon == null) return;
+            if (equippedRightHand != null && equippedRightHand.hands == 2)
+            {
+                Debug.Log($"Cannot equip {weapon.name} in left hand because right hand has a two-handed weapon");
+                return;
+            }
+            _equippedLeftHand = weapon;
+        }
+        public void equipWeaponRight(EquipmentWeapon weapon)
+        {
+            if (weapon == null) return;
+            if (equippedLeftHand != null && equippedLeftHand.hands == 2)
+            {
+                Debug.Log($"Cannot equip {weapon.name} in right hand because left hand has a two-handed weapon");
+                return;
+            }
+            _equippedRightHand = weapon;
+        }
+        public void unequipWeaponLeft()
+        {
+            _equippedLeftHand = null;
+        }
+        public void unequipWeaponRight()
+        {
+            _equippedRightHand = null;
+        }
+        // equipArmor
+        // unequipArmor
     }
 }

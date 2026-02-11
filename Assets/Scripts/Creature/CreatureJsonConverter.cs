@@ -15,7 +15,11 @@ namespace Game.Creature
         public string type;
         public SystemDto system;
         public ItemDto[] items;
+        public ItemDto[] reactions;
+        public ItemDto[] passives;
         public EquipmentDto[] equipment;
+        public WeaponDto[] weapons;
+        public ConditionsDto[] conditions;
         public string Source;
     }
 
@@ -63,6 +67,9 @@ namespace Game.Creature
 
     // Item DTOs
     [Serializable] public class ItemDto { public string name; public string type; public ItemSystemDto system; }
+    // TODO sections for reactions and passives?
+    // [Serializable] public class ReactionDto { public string name; public string description; }
+    // [Serializable] public class PassiveDto { public string name; public string description; }
 
     // ItemSystemDto updated to match MonsterJsonProcessor output:
     // - damageRolls is now an array
@@ -98,6 +105,29 @@ namespace Game.Creature
     }
 
     [Serializable] public class EquipmentDto { public string name; public string type; public int quantity; }
+    [Serializable] 
+    public class WeaponDto { 
+        public string name;
+        public string type;
+        public string group;
+        public string category;
+        public int hands;
+        public int damageDice;
+        public int damageDie;
+        public string damageType;
+        public string description;
+        public List<string> traits;
+        public string materialType;
+        public string materialGrade;
+        public List<string> runes;
+        public string price;
+        public int range;
+        public string ammo;
+        public int bulk;
+    }
+
+    // Conditions DTOs TODO
+    [Serializable] public class ConditionsDto { public string name; public string source; }
 
 
     // --- Mapping extension (apply DTO -> CreatureComponent) ---
@@ -160,7 +190,7 @@ namespace Game.Creature
                     target.resistances.Add(new DamageValue(r.type, r.value));
             }
 
-            // Actions (store item names)
+            // Actions - Standard (store item names)
             if (target.actions == null) target.actions = new List<string>();
             target.actions.Clear();
             if (dto.items != null)
@@ -169,9 +199,29 @@ namespace Game.Creature
                     if (!string.IsNullOrEmpty(it?.name))
                         target.actions.Add(it.name);
             }
-
+            // Actions - Reactions
+            if(target.reactions == null) target.reactions = new List<string>();
+            target.reactions.Clear();
+            if (dto.reactions != null)
+            {
+                foreach (var r in dto.reactions)
+                    if (!string.IsNullOrEmpty(r?.name))
+                        target.reactions.Add(r.name);
+            }
+            if(target.passives == null) target.passives = new List<string>();
+            // Actions - Passives
+            target.passives.Clear();
+            if (dto.passives != null)
+            {
+                foreach (var p in dto.passives)
+                    if (!string.IsNullOrEmpty(p?.name))
+                        target.passives.Add(p.name);
+            }
 
             // Equipment
+            // TODO use equipment names from creature JSON as args to look up actual Equipment items from datafiles
+            //      -Done for weapons
+            //      -TODO armor
             if (target.equipment == null) target.equipment = new List<string>();
             target.equipment.Clear();
             if (dto.equipment != null)
@@ -179,6 +229,38 @@ namespace Game.Creature
                 foreach (var e in dto.equipment)
                     if (!string.IsNullOrEmpty(e?.name))
                         target.equipment.Add(e.name);
+            }
+            // Weapons
+            if (target.weapons == null) target.weapons = new List<EquipmentWeapon>();
+            target.weapons.Clear();
+            target.weaponsList.Clear();
+            //if (dto.weapons != null)
+            foreach (var e in dto.equipment)
+                if (!string.IsNullOrEmpty(e?.name) && !string.IsNullOrEmpty(e?.type)){
+                    Debug.Log($"CreatureDtoMapper: processing equipment: {e.name} ({e.type})");
+                    if (e.type.Equals("weapon", StringComparison.OrdinalIgnoreCase))
+                    {
+                        EquipmentWeapon temp = CreatureJsonConverter.GetWeaponByName(e.name);
+                        if(temp == null){
+                            Debug.LogWarning($"CreatureDtoMapper: weapon not found for equipment entry: {e.name}");
+                        }
+                        else
+                        {
+                            target.weapons.Add(temp);
+                            target.weaponsList.Add(temp.name); // TODO temp for debugging
+                        }
+                    }
+                }
+            
+
+            // Conditions
+            if (target.conditions == null) target.conditions = new List<string>();
+            target.conditions.Clear();
+            if (dto.conditions != null)
+            {
+                foreach (var c in dto.conditions)
+                    if (!string.IsNullOrEmpty(c?.name))
+                        target.conditions.Add(c.name);
             }
 
             // Skills: dto.system.skills is now an array produced by JsonImporter
@@ -189,7 +271,7 @@ namespace Game.Creature
                     target.skills.Add(new SkillValue { skillName = s.name, skillMod = s.@base });
             }
 
-            // publicNotes (plain/paragraphs) — importer can produce these; map into description
+            // publicNotes (plain/paragraphs) ï¿½ importer can produce these; map into description
             if (dto.system?.details != null)
             {
                 var details = dto.system.details;
@@ -260,6 +342,60 @@ namespace Game.Creature
             }
 
             return CreateFromFile(match, prefab);
+        }
+
+        public static EquipmentWeapon GetWeaponByName(string weaponName)
+        {
+            // Debug.Log($"CreatureJsonConverter: looking up weapon: {weaponName}");
+            if (string.IsNullOrEmpty(weaponName)) return null;
+            string rootDirectory = Path.Combine(Application.dataPath, "DataFiles/equipment");
+            if (!Directory.Exists(rootDirectory))
+            {
+                Debug.LogWarning($"CreatureJsonConverter: DataFiles directory not found: {rootDirectory}");
+                return null;
+            }
+            var files = Directory.GetFiles(rootDirectory, "*.json", SearchOption.AllDirectories);
+            files = files.Where(f => Path.GetFileNameWithoutExtension(f).Equals(weaponName, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (files.Length > 1)
+                Debug.LogWarning($"Mutliple instances found for : {weaponName}");
+            else if (files.Length == 0)
+            {
+                Debug.LogWarning($"CreatureJsonConverter: weapon not found: {weaponName}");
+                return null;
+            }
+
+            foreach (var file in files)
+            {
+                string json = File.ReadAllText(file);
+                WeaponDto dto = null;
+                try
+                {
+                    dto = JsonUtility.FromJson<WeaponDto>(json);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"CreatureJsonConverter: failed to parse JSON in {file}: {ex.Message}");
+                    continue;
+                }
+                EquipmentWeapon weapon = new EquipmentWeapon();
+                weapon.name = dto.name;
+                weapon.type = dto.type;
+                weapon.group = dto.group;   
+                weapon.category = dto.category;
+                weapon.hands = dto.hands;
+                weapon.damage = new Dice(dto.damageDice, dto.damageDie, dto.damageType);
+                weapon.description = dto.description;
+                weapon.traits = dto.traits;
+                weapon.materialType = dto.materialType;
+                weapon.materialGrade = dto.materialGrade;
+                weapon.runes = dto.runes;
+                weapon.price = double.TryParse(dto.price, out double priceValue) ? priceValue : 0.0; // Handle parsing price string to double
+                weapon.range = dto.range;
+                weapon.ammo = dto.ammo;
+                weapon.bulk = dto.bulk;
+                return weapon;
+            }
+            return null;
         }
     }
 }

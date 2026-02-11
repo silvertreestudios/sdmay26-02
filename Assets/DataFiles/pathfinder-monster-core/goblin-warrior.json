@@ -129,21 +129,25 @@
     {
       "name": "Dogslicer",
       "type": "weapon",
+      "hands": 1,
       "quantity": 1
     },
     {
       "name": "Shortbow",
       "type": "weapon",
+      "hands": 0,
       "quantity": 1
     },
     {
       "name": "Leather Armor",
       "type": "armor",
+      "hands": 0,
       "quantity": 1
     },
     {
       "name": "Arrows",
       "type": "ammo",
+      "hands": null,
       "quantity": 10
     }
   ],
@@ -221,7 +225,9 @@
           ]
         }
       }
-    },
+    }
+  ],
+  "reactions": [
     {
       "name": "Goblin Scuttle",
       "type": "action",
@@ -237,8 +243,11 @@
           "value": "<p><strong>Trigger</strong> A goblin ally ends a move action adjacent to the goblin.</p>\n<hr />\n<p><strong>Effect</strong> The goblin warrior @UUID[Compendium.pf2e.actionspf2e.Item.Step]{Steps}.</p>"
         },
         "descriptionParagraphs": [
-          "Trigger A goblin ally ends a move action adjacent to the goblin.",
-          "Effect The goblin warrior @UUID[Compendium.pf2e.actionspf2e.Item.Step]{Steps}."
+          "Trigger: A goblin ally ends a move action adjacent to the goblin.",
+          "Effect: The goblin warrior {Steps}."
+        ],
+        "descriptionContext": [
+          "Compendium.pf2e.actionspf2e.Item.Step"
         ],
         "rules": [],
         "slug": "",
@@ -249,5 +258,7 @@
       }
     }
   ],
+  "passives": [],
+  "conditions": [],
   "Source": "packs/pathfinder-monster-core"
 }

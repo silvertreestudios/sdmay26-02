@@ -29,23 +29,110 @@ namespace JsonImporter
             // Build the new "system" object with only the allowed fields
             var allowedSystemFields = new HashSet<string>
             {
-                "baseItem", "bonus", "bonusDamage", "bulk", "category", "damage", "description",
+                "baseItem", "bonus", "bonusDamage", "bulk", "category", "damage", "description", "equipped",
                 "group", "material", "price", "publication", "quantity", "range", "reload", "rules",
                 "runes", "size", "splashDamage", "traits", "usage"
             };
 
-            var newSystem = new JObject();
-            if (system != null)
-            {
-                foreach (var prop in system.Properties())
+            //REFERENCE ["hands"] = system.SelectToken("equipped.handsHeld"),
+            // var newSystem = new JObject();
+            if(system.SelectToken("group") != null)
+                output["group"] = system.SelectToken("group");
+            if(system.SelectToken("category") != null)
+                output["category"] = system.SelectToken("category");
+            if(system.SelectToken("usage") != null)
+                // TODO make sure this applies in all cases
+                if(system.SelectToken("usage.value").ToString().Equals("held-in-one-hand", StringComparison.OrdinalIgnoreCase))
+                    output["hands"] = 1;
+                else
+                    output["hands"] = 2;
+            if(system.SelectToken("damage") != null)
+                output["damageDice"] = system.SelectToken("damage.dice");
+                // remove 'd' to make damage die to int, e.g., "1d6" -> 6
+                output["damageDie"] = system.SelectToken("damage.die")?.ToString().TrimStart('d');
+                output["damageType"] = system.SelectToken("damage.damageType");
+            if(system.SelectToken("description") != null)
+                output["description"] = system.SelectToken("description.value");
+            if(system.SelectToken("traits") != null)
+                foreach (var trait in system.SelectToken("traits.value")?.OfType<JValue>() ?? Enumerable.Empty<JValue>())
                 {
-                    if (allowedSystemFields.Contains(prop.Name))
+                    if (trait != null)
                     {
-                        newSystem[prop.Name] = prop.Value;
+                        if (output["traits"] == null)
+                            output["traits"] = new JArray();
+                        ((JArray)output["traits"]).Add(trait);
                     }
                 }
+            if(system.SelectToken("material") != null)
+                output["materialType"] = system.SelectToken("material.type");
+                output["materialGrade"] = system.SelectToken("material.grade");
+            if(system.SelectToken("runes") != null)
+                // TODO rework to match rune implementation if needed
+                foreach (var rune in system.SelectToken("runes.value")?.OfType<JValue>() ?? Enumerable.Empty<JValue>())
+                {
+                    if (rune != null)
+                    {
+                        if (output["runes"] == null)
+                            output["runes"] = new JArray();
+                        ((JArray)output["runes"]).Add(rune);
+                    }
+                }
+            if(system.SelectToken("price") != null){
+                // Assumes gold is standard currency.
+                double goldValue = 0.0;
+                if (system.SelectToken("price.value.cp") != null)
+                    goldValue += system.SelectToken("price.value.cp").Value<double>() / 100.0; // 100 cp = 1 gp
+                if (system.SelectToken("price.value.sp") != null)
+                    goldValue += system.SelectToken("price.value.sp").Value<double>() / 10.0; // 10 sp = 1 gp
+                if (system.SelectToken("price.value.gp") != null)
+                    goldValue += system.SelectToken("price.value.gp").Value<double>();
+                if (system.SelectToken("price.value.pp") != null)
+                    goldValue += system.SelectToken("price.value.pp").Value<double>() * 10.0; // 1 pp = 10 gp
+                output["price_GP"] = goldValue;
             }
-            output["system"] = newSystem;
+            if(system.SelectToken("range") != null)
+                output["range"] = system.SelectToken("range.value");
+            if(system.SelectToken("reload") != null)
+                output["reload"] = system.SelectToken("reload.value");
+            if(system.SelectToken("ammo") != null)
+                output["ammo"] = system.SelectToken("ammo.value");
+            if(system.SelectToken("bulk") != null)
+                output["bulk"] = system.SelectToken("bulk.value");
+            if(system.SelectToken("size") != null)
+                output["size"] = system.SelectToken("size.value");
+            if(system.SelectToken("baseItem") != null)
+                output["baseItem"] = system.SelectToken("baseItem.value");
+            if(system.SelectToken("bonus.value") != null)
+                output["bonus"] = system.SelectToken("bonus.value");
+            if(system.SelectToken("bonusDamage.value") != null)
+                output["bonusDamage"] = system.SelectToken("bonusDamage.value");
+            if(system.SelectToken("splashDamage") != null)
+                output["splashDamage"] = system.SelectToken("splashDamage.value");
+            if(system.SelectToken("rules") != null)
+                // TODO rework as needed, as of yet rules[] has only been empty
+                foreach (var rule in system.SelectToken("rules")?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+                {
+                    if (rule != null)
+                    {
+                        if (output["rules"] == null)
+                            output["rules"] = new JArray();
+                        ((JArray)output["rules"]).Add(rule);
+                    }
+                }
+            if(system.SelectToken("publication") != null)
+                 output["publication"] = system.SelectToken("publication");
+            // var newSystem = new JObject();
+            // if (system != null)
+            // {
+            //     foreach (var prop in system.Properties())
+            //     {
+            //         if (allowedSystemFields.Contains(prop.Name))
+            //         {
+            //             newSystem[prop.Name] = prop.Value;
+            //         }
+            //     }
+            // }
+            // output["system"] = newSystem;
 
             return output.ToString(Newtonsoft.Json.Formatting.Indented);
         }

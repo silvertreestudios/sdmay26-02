@@ -19,6 +19,7 @@ namespace JsonImporter
         - Process JSON files based on their source directory (and other factores as needed)
         - Saves processed JSON files to designated local directory, maintaining hierarchy
         */
+
         static async Task Main(string[] args)
         {
 
@@ -53,7 +54,8 @@ namespace JsonImporter
                     { "packs/feats", JsonProcessingFunctions.ProcessFeatJson },
                     { "packs/spells", JsonProcessingFunctions.ProcessSpellJson },
                     { "packs/equipment", JsonProcessingFunctions.ProcessEquipmentJson },
-                    { "packs/pathfinder-monster-core", JsonProcessingFunctions.ProcessMonsterJson }
+                    { "packs/pathfinder-monster-core", JsonProcessingFunctions.ProcessMonsterJson },
+                    { "packs/iconics", JsonProcessingFunctions.ProcessMonsterJson   } //TODO confirm if converts properly
                 };
                 var parser = new JSONParser(Constants.whitelist, processingFunctions, httpClient);
                 await parser.SyncJsonFilesAsync(Constants.localRoot);
@@ -104,13 +106,15 @@ namespace JsonImporter
         {
             // "packs/spells/cantrip/",
             // "packs/spells/1st-rank/",
-            // "packs/equipment/longsword.json",
-            // "packs/pf2e/equipment/scimitar.json",
-            // "packs/equipment/dogslicer.json",
-            // "packs/equipment/shortbow.json",
+            "packs/equipment/longsword.json",
+            "packs/equipment/scimitar.json",
+            "packs/equipment/dogslicer.json",
+            "packs/equipment/shortbow.json",
+            "packs/equipment/sling.json",
+            "packs/equipment/spear.json",
             // "packs/equipment/leather-armor.json",
             // "packs/pathfinder-monster-core/goblin-warrior.json",
-            "packs/pathfinder-monster-core/zombie-shambler.json",
+            // "packs/pathfinder-monster-core/zombie-shambler.json",
             // "packs/pathfinder-monster-core/skeleton-guard.json",
             // "packs/pathfinder-monster-core/kobold-warrior.json",
             // "packs/ancestries/human.json",
@@ -119,14 +123,18 @@ namespace JsonImporter
             // "packs/backgrounds/warrior.json",
             // "packs/backgrounds/nomad.json",
             // "packs/classes/fighter.json",
+            // "packs/iconics/valeros-level-1.json",
             // "packs/feats/class/shared-class-feats/reactive-shield.json"
         };
 
-        public const bool requireRemaster = true; // or false, as needed
+
+        public const bool requireRemaster = false; // or false, as needed
         public static readonly HashSet<string> sourceBooks = new HashSet<string>
         {
             "Pathfinder Player Core",
             "Pathfinder Monster Core",
+            "Pathfinder Core Rulebook", // TODO temp for importing iconic characters
+            "Pathfinder GM Core", // TODO temp for importing iconic characters
             // Add other allowed titles here
         };
 
@@ -462,7 +470,7 @@ namespace JsonImporter
                 var jsonObj = JToken.Parse(jsonContent);
 
                 bool IsValidLicense(string? license) =>
-                    license != null && license.Equals("ORC", StringComparison.OrdinalIgnoreCase);
+                    license != null && (license.Equals("ORC", StringComparison.OrdinalIgnoreCase) || license.Equals("OGL", StringComparison.OrdinalIgnoreCase));
 
                 bool IsValidRemaster(JToken publication) =>
                     !Constants.requireRemaster || (publication["remaster"]?.Value<bool>() == true);
@@ -518,7 +526,7 @@ namespace JsonImporter
                 if (!approved)
                 {
                     var name = jsonObj.SelectToken("name")?.ToString() ?? "<unknown file>";
-                    Console.WriteLine($"Rejected file (publication criteria not met): {name}");
+                    Console.WriteLine($"Rejected file (publication criteria not met): {name}, hasValidTitle: {hasValidTitle}, allValidLicenseRemaster: {allValidLicenseRemaster}");
                 }
                 return approved;
             }

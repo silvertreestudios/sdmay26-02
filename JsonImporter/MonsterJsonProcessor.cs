@@ -24,6 +24,9 @@ namespace JsonImporter
             var newItemsArr = new JArray();
             var equipmentArr = new JArray();
             var conditionsArr = new JArray();
+            var reactionsArr = new JArray();
+            var passivesArr = new JArray();
+            //? var reactionsArr = new JArray();
 
             if (obj["items"] is JArray itemsArr)
             {
@@ -40,6 +43,7 @@ namespace JsonImporter
                         {
                             ["name"] = item["name"],
                             ["type"] = item["type"],
+                            ["hands"] = system.SelectToken("equipped.handsHeld"),
                             // ensure quantity is an integer and provide a sensible default (1)
                             ["quantity"] = system?["quantity"]?.Value<int?>() ?? 1
                         };
@@ -244,14 +248,31 @@ namespace JsonImporter
                             ["system"] = cloned
                         };
 
-                        newItemsArr.Add(newItem);
-
                         // TODO 
                         // Refine implementation to avoid double listing in both items and conditions.
+                        /*
                         string context = cloned?["descriptionContext"]?.ToString() ?? "";
                         if (context.Contains("Compendium.pf2e.conditionitems.Item."))
                         {
+                            string descPar = cloned?["descriptionParagraphs"]?.ToString() ?? "";
+                            string conditionName = ExtractFirstBracedText(descPar);
+                            if (conditionName != null)
+                            {
+                                newItem["name"] = conditionName;
+                            }
                             conditionsArr.Add(newItem);
+                        }
+                        */
+                        if (item["system"]?["actionType"]?["value"]?.ToString() == "reaction")
+                        {
+                            reactionsArr.Add(newItem);
+                        }else if (item["system"]?["actionType"]?["value"]?.ToString() == "passive")
+                        {
+                            passivesArr.Add(newItem);
+                        }
+                        else
+                        {
+                            newItemsArr.Add(newItem);
                         }
                     }
                     else
@@ -391,6 +412,8 @@ namespace JsonImporter
                 ["system"] = obj["system"],
                 ["equipment"] = equipmentArr,
                 ["items"] = orderedItems,
+                ["reactions"] = reactionsArr,
+                ["passives"] = passivesArr,
                 ["conditions"] = conditionsArr
             };
 
@@ -402,6 +425,20 @@ namespace JsonImporter
 
             // Optionally: pretty-print the output
             return output.ToString(Newtonsoft.Json.Formatting.Indented);
+        }
+
+        public static string ExtractFirstBracedText(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return null;
+
+            int start = input.IndexOf('{');
+            int end = input.IndexOf('}', start + 1);
+
+            if (start == -1 || end == -1 || end <= start)
+                return null;
+
+            return input.Substring(start + 1, end - start - 1);
         }
     }
 }
