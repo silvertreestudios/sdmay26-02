@@ -24,11 +24,11 @@ public class CombatManager : CombatManagerInterface
         }
     }
 
-    public override void Remove(UnityEvent e)
+    public override void Remove(TurnStep e)
     {
         for (int i = 0; i < TurnQueue.Count; i++)
         {
-            if (TurnQueue[i].Event == e)
+            if (TurnQueue[i] == e)
                 TurnQueue.RemoveAt(i);
         }
     }
@@ -56,9 +56,11 @@ public class CombatManager : CombatManagerInterface
 
     public override void NextTurn()
     {
-        ActionController e = TurnQueue.Remove(0);
-        TurnTaker = e;
-        e.StartTurn();
-        combatants.Add(e);
+        TurnStep e = TurnQueue[0];
+        TurnQueue.RemoveAt(0);
+        if(e.Player)
+            TurnTaker = e.Player;
+        e.Trigger();
+        TurnQueue.Add(e);
     }
 }

@@ -27,8 +27,7 @@ public class TurnStep
         else if (EventDelay-- <= 0)
         {
             Event.Invoke();
-            CombatManager.Remove(this);
+            CombatManagerInterface.GetInstance().Remove(this);
         }
-
     }
 }

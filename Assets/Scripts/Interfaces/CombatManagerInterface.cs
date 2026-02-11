@@ -30,7 +30,7 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// Removes an event from the combat TurnQueue
     /// </summary>
     /// <param name="e"></param>
-    public abstract void Remove(UnityEvent e);
+    public abstract void Remove(TurnStep e);
 
     /// <summary>
     /// Returns the GameObject Who's Turn it is
