@@ -84,7 +84,6 @@ public class GridMemory : IGridMemory
             GridInfo[x, GridY, z].status = statuses.ToArray();
         }
     }
-
     public override bool HasStatus(int x, int z, TileStatus statusToCheck)
     {
         if (GridInfo == null || x < 0 || x >= Width || z < 0 || z >= Height) return false;
@@ -117,7 +116,6 @@ public class GridMemory : IGridMemory
         GridInfo[targetPosition.x, GridY, targetPosition.z].occupant = token;
         return;
     }
-
     public override void SetCreaturePosition(GameObject token, Vector3Int spawnPosition)
     {
         //make sure we are placing a valid character and the tile is not already occupied
@@ -154,7 +152,6 @@ public class GridMemory : IGridMemory
         }
         return occupants;
     }
-
     public override bool IsCellWalkable(Vector3Int position)
     {
         if (GridInfo == null) return false;
@@ -163,7 +160,6 @@ public class GridMemory : IGridMemory
         if (position.z < 0 || position.z >= Height) return false;
         // Check if the tile type allows walking
         return GridInfo[position.x, GridY, position.z].type == TileType.Ground && !GridInfo[position.x, GridY, position.z].isOccupied;
-
     }
 
     // PUBLIC API FOR ACCESSING TILE INFORMATION
@@ -190,6 +186,24 @@ public class GridMemory : IGridMemory
         return GridInfo[x, GridY, z].type;
     }
 
+    // get a list of all walkable tiles on the grid
+    public Vector3Int[] GetWalkableTiles()
+    {
+        if (GridInfo == null) return new Vector3Int[0];
+
+        List<Vector3Int> walkable = new List<Vector3Int>();
+        for (int x = 0; x < Width; x++)
+        {
+            for (int z = 0; z < Height; z++)
+            {
+                if (GridInfo[x, GridY, z].type == TileType.Ground && !GridInfo[x, GridY, z].isOccupied)
+                {
+                    walkable.Add(new Vector3Int(x, GridY, z));
+                }
+            }
+        }
+        return walkable.ToArray();
+    }
 
     public override IEnumerator TargetSelect(int range, CoroutineResult<GameObject> result)
     {
