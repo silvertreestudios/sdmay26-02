@@ -5,6 +5,7 @@ public class ImageToGrid
 {
     [Header("Level Image")]
     [SerializeField] private Texture2D img;
+ 
 
     public int[,] grid;
 
