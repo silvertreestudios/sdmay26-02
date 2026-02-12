@@ -18,6 +18,15 @@ public static class FSM_API
         }
     }
 
+    // end turn
+    public static void EndTurn()
+    {
+        if (!ActionFSM.isInTransition)
+        {
+            ActionFSM.ChangeState(ActionFSM.idleState, false);
+        }
+    }
+
     // contstruct stride
     public static IEnumerator Stride(GameObject character, CoroutineResult<bool> canceled)
     {
@@ -39,23 +48,23 @@ public static class FSM_API
         }
         
     }
-    // construct unarmed
-    public static IEnumerator Unarmed(GameObject attacker, int range, CoroutineResult<GameObject> target, CoroutineResult<bool> canceled)
+    // construct Strike
+    public static IEnumerator Strike(GameObject attacker, int range, CoroutineResult<GameObject> target, CoroutineResult<bool> canceled)
     {
         if(!ActionFSM.isInTransition && ActionFSM.currentState == ActionFSM.idleState)
         {
-            State_Unarmed unarmedState = new State_Unarmed(attacker, range, Controller);
-            ActionFSM.ChangeState(unarmedState, false);
-            // wait until state is no longer Unarmed
-            while (ActionFSM.currentState == unarmedState)
+            State_Strike strikeState = new State_Strike(attacker, range, Controller);
+            ActionFSM.ChangeState(strikeState, false);
+            // wait until state is no longer Strike
+            while (ActionFSM.currentState == strikeState)
             {
                 yield return null;
             }
-            target.Value = unarmedState.target;
-            canceled.Value = unarmedState.canceled;
+            target.Value = strikeState.target;
+            canceled.Value = strikeState.canceled;
         } else
         {
-            Debug.LogWarning("[FSM_API] Cannot initiate Unarmed while FSM is in transition or not in Idle state.");
+            Debug.LogWarning("[FSM_API] Cannot initiate Strike while FSM is in transition or not in Idle state.");
             canceled.Value = true;
         }
         
