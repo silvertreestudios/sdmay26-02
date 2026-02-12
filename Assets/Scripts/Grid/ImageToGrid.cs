@@ -6,11 +6,12 @@ public class ImageToGrid
 {
     [Header("Level Image")]
     [SerializeField] private Texture2D img;
-    [SerializeField] private Texture3D img2;
+    [SerializeField] private Texture2D img2;
 
     public int[,] grid;
-    public int[,,] wall;
+    public int[,] wall;
 
+    // black pixel indicates ground
     public int[,] GenerateGrid()
     {
         if (img == null) return null;
@@ -26,37 +27,30 @@ public class ImageToGrid
         return grid;
     }
 
-    public int[,,] GenerateWall()
+    // green pixel indicates wall, 3D cube prefab
+    public int[,] GenerateWalls()
     {
         if (img2 == null) return null;
-        wall = new int[img2.width, img2.height, img2.depth];
+        wall = new int[img2.width, img2.height];
         for (int i = 0; i<img2.width; i++)
         {
             for (int j = 0; j < img2.height; j++)
             {
-                for (int k = 0; k < img2.depth; k++)
-                {
-                    Color pixel = img2.GetPixel(i, j, k);
-                    wall[i, j, k] = (pixel == Color.white) ? 1 : 0;
+                Color pixel = img2.GetPixel(i, j);
+                wall[i, j] = (pixel == Color.blue) ? 1 : 0;
 
-                }
             }
         }
         return wall;
     }
 
-
-
-    // seperate color to indicate tile_type.wall
-    // 3d cube prefab
-
-
+    // getters
     public int[,] GetGrid()
     {
         return grid;
     }
 
-    public int[,,] GetWall()
+    public int[,] GetWall()
     {
         return wall;
     }
@@ -70,11 +64,7 @@ public class ImageToGrid
         return img.height;
     }
 
-    public int GetDepth()
-    {
-        return img2.depth;
-    }
-
+    // print grid to console for debugging
     public void PrintGrid()
     {
         if (grid == null) return;
@@ -88,5 +78,21 @@ public class ImageToGrid
             gridString += "\n";
         }
         Debug.Log(gridString);
+    }
+
+    // print wall to console for debugging
+    public void PrintWalls()
+    {
+        if (wall == null) return;
+        string wallString = "";
+        for (int j = wall.GetLength(1) - 1; j >= 0; j--)
+        {
+            for (int i = 0; i < wall.GetLength(0); i++)
+            {
+                wallString += wall[i, j] + " ";
+            }
+            wallString += "\n";
+        }
+        Debug.Log(wallString);
     }
 }

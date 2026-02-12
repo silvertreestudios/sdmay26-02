@@ -49,13 +49,13 @@ public class GridCharacterController3D : MonoBehaviour
     private Dictionary<GameObject, ITokenMovement> tokenMovements = new Dictionary<GameObject, ITokenMovement>();
 
     // Subsystem references
-    public CameraManager camMan {get; private set;}
-    public GridPathfinder pathfinder {get; private set;}
-    public VisualIndicator visualIndicator {get; private set;}
-    public MovementRange rangeHighlighter {get; private set;}
-    public GridCoordinateConverter coordinateConverter {get; private set;}
+    public CameraManager camMan { get; private set; }
+    public GridPathfinder pathfinder { get; private set; }
+    public VisualIndicator visualIndicator { get; private set; }
+    public MovementRange rangeHighlighter { get; private set; }
+    public GridCoordinateConverter coordinateConverter { get; private set; }
     // State flags
-    public bool isInitialized {get; private set;} = false;
+    public bool isInitialized { get; private set; } = false;
     public bool isProcessingTurn = false;
     private GameObject currentPlayer = null;
 
@@ -70,7 +70,7 @@ public class GridCharacterController3D : MonoBehaviour
     private bool isDoubleClick = false;
     public bool cancel = false;
     public Vector3Int lastClickedCell;
-    
+
 
     void Awake()
     {
@@ -131,7 +131,7 @@ public class GridCharacterController3D : MonoBehaviour
         }
     }
 
-// ideally this gets removed for performance, but is fine for now
+    // ideally this gets removed for performance, but is fine for now
     void Update()
     {
         // Check if system is ready
@@ -216,26 +216,10 @@ public class GridCharacterController3D : MonoBehaviour
     /// <summary>
     /// Initialize subsystems: VisualIndicator and MovementRangeHighlighter
     /// </summary>
-    /// TODO: FIX THIS!!!! you can just pass the class reference for all of this!!!!
     private void InitializeSubsystems()
     {
-        visualIndicator = new VisualIndicator(
-            parent: transform,
-            material: indicatorMaterial,
-            width: indicatorWidth,
-            height: indicatorHeight,
-            defaultPreviewColor: defaultIndicatorColor,
-            confirmedPreviewColor: confirmedIndicatorColor,
-            gridCellToWorld: coordinateConverter.GridCellCenterWorld);
-
-        rangeHighlighter = new MovementRange(
-            gridReference: gridMemory,
-            prefab: rangeHighlightPrefab,
-            color: rangeHighlightColor,
-            heightOffset: rangeHighlightHeightOffset,
-            allowDiagonal: allowDiagonalMovement,
-            diagCost: diagonalCost,
-            gridCellToWorld: coordinateConverter.GridCellCenterWorld);
+        visualIndicator = new VisualIndicator(this);
+        rangeHighlighter = new MovementRange(this);
 
         Debug.Log("[GridCharacterController3D] Subsystems initialized.");
     }
@@ -462,27 +446,17 @@ public class GridCharacterController3D : MonoBehaviour
     {
         path = null;
 
-        if (!TryGetClickedCell(cam, out Vector3Int targetCell))
-            return false;
-
-        if (!gridMemory.IsCellWalkable(targetCell))
-            return false;
-
-        if (!rangeHighlighter.IsCellReachable(targetCell))
+        if (!TryGetClickedCell(cam, out Vector3Int targetCell) ||
+            !gridMemory.IsCellWalkable(targetCell) ||
+            !rangeHighlighter.IsCellReachable(targetCell))
             return false;
 
         Vector3Int startCell = coordinateConverter.GetCharacterCell(character);
         var pathResult = pathfinder.FindPath(startCell, targetCell);
 
-        if (!pathResult.found || pathResult.path == null || pathResult.path.Count < 2)
+        if (!pathResult.found || pathResult.path == null || pathResult.path.Count < 2 ||
+            (maxMovementDistance > 0 && pathResult.path.Count - 1 > maxMovementDistance))
             return false;
-
-        if (maxMovementDistance > 0)
-        {
-            int pathSteps = pathResult.path.Count - 1;
-            if (pathSteps > maxMovementDistance)
-                return false;
-        }
 
         path = pathResult.path;
         return true;
