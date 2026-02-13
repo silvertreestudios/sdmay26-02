@@ -9,6 +9,7 @@ namespace Game.Creature
     [System.Serializable]
     public struct Condition
     {
+        // Just condition name for now, but left as struct 
         public string name;   // name of the condition
         // public string source; // gameObject ID of GO that applied the condition
     }
@@ -70,19 +71,21 @@ namespace Game.Creature
         // Serialized actions & equipment (previously auto-properties; won't persist)
         [Header("Actions & Abilities")]
         [SerializeField] private List<string> _actions = new List<string>(); // standard actions
-        [SerializeField] private List<string> _reactions = new List<string>();
-        [SerializeField] private List<string> _passives = new List<string>();
+        [SerializeField] private List<string> _reactions = new List<string>(); // reactions
+        [SerializeField] private List<string> _passives = new List<string>(); // abilities that don't require an action
 
         [Header("Conditions")]
         [SerializeField] private List<string> _conditions = new List<string>();
 
         [Header("Equipment")]
-        [SerializeField] private string _equippedArmor;
+        [SerializeField] private EquipmentArmor _equippedArmor;
         [SerializeField] private EquipmentWeapon _equippedRightHand;
         [SerializeField] private EquipmentWeapon _equippedLeftHand;
         [SerializeField] private List<string> _equipment = new List<string>();
-        [SerializeField] private List<string> _weaponsList = new List<string>();
+        [SerializeField] private List<string> _weaponsList = new List<string>(); // Temp to display _weapons in inspector
         [SerializeField] private List<EquipmentWeapon> _weapons = new List<EquipmentWeapon>();
+        [SerializeField] private List<string> _armorList = new List<string>(); // Temp to display armor in inspector
+        [SerializeField] private List<EquipmentArmor> _armor = new List<EquipmentArmor>(); // Temp to display armor in inspector
 
 
         // NOTES FOR IMPLEMENTING STRIKE VARIANTS
@@ -128,11 +131,13 @@ namespace Game.Creature
 
         // TODO: properly implement
         public List<string> equipment { get => _equipment; set => _equipment = value ?? new List<string>(); }
-        public string equippedArmor { get => _equippedArmor; set => _equippedArmor = value; }
+        public EquipmentArmor equippedArmor { get => _equippedArmor; set => _equippedArmor = value; }
         public EquipmentWeapon equippedRightHand { get => _equippedRightHand; set => _equippedRightHand = value; }
         public EquipmentWeapon equippedLeftHand { get => _equippedLeftHand; set => _equippedLeftHand = value; }
         public List<string> weaponsList { get => _weaponsList; set => _weaponsList = value ?? new List<string>(); }
         public List<EquipmentWeapon> weapons { get => _weapons; set => _weapons = value ?? new List<EquipmentWeapon>(); }
+        public List<string> armorList { get => _armorList; set => _armorList = value ?? new List<string>(); }
+        public List<EquipmentArmor> armor { get => _armor; set => _armor = value ?? new List<EquipmentArmor>(); }
 
 
         // TODO: properly implement        
@@ -149,6 +154,7 @@ namespace Game.Creature
         void Start()
         {
             // Initialization code here
+            // TODO create method to run check against action/ability lists to populate additional scripts
         }
 
         void Update()
@@ -258,6 +264,7 @@ namespace Game.Creature
             _hp = Mathf.Clamp(_hp, 0, _maxHp);
         }
 
+        // ? Instead of disallowing equipping, unequip the other weapon?
         public void equipWeaponLeft(EquipmentWeapon weapon)
         {
             if (weapon == null) return;
@@ -286,7 +293,29 @@ namespace Game.Creature
         {
             _equippedRightHand = null;
         }
-        // equipArmor
-        // unequipArmor
+        public void equipArmor(EquipmentArmor armor)
+        {
+            if (armor == null) return;
+            _equippedArmor = armor;
+        }
+        public void unequipArmor()
+        {
+            _equippedArmor = null;
+        }
+        public void calculateArmorAC()
+        {
+            if (_equippedArmor != null)
+            {
+                // Base AC from armor
+                int baseAc = 10 + _equippedArmor.acBonus;
+                // Add Dex modifier up to the armor's dex cap
+                int dexBonus = Mathf.Min(dexMod, _equippedArmor.dexCap);
+                _ac = baseAc + dexBonus;
+            }
+            else
+            {
+                _ac = 10 + dexMod; // Unarmored AC calculation, modify to include natural armor or other bonuses
+            }
+        }
     }
 }

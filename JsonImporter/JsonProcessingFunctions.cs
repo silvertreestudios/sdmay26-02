@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Newtonsoft.Json.Linq;
 
 namespace JsonImporter
@@ -51,8 +52,11 @@ namespace JsonImporter
                 // remove 'd' to make damage die to int, e.g., "1d6" -> 6
                 output["damageDie"] = system.SelectToken("damage.die")?.ToString().TrimStart('d');
                 output["damageType"] = system.SelectToken("damage.damageType");
-            if(system.SelectToken("description") != null)
-                output["description"] = system.SelectToken("description.value");
+            if(system.SelectToken("description") != null){
+                // output["description"] = system.SelectToken("description.value");
+                HtmlUtils.ExtractPlainAndParagraphs(input.SelectToken("description.value")?.ToString(), out string plainDesc, out JArray plainText, out JArray contexts);
+                output["description"] = plainText;
+            }
             if(system.SelectToken("traits") != null)
                 foreach (var trait in system.SelectToken("traits.value")?.OfType<JValue>() ?? Enumerable.Empty<JValue>())
                 {
@@ -63,9 +67,10 @@ namespace JsonImporter
                         ((JArray)output["traits"]).Add(trait);
                     }
                 }
-            if(system.SelectToken("material") != null)
+            if(system.SelectToken("material") != null){
                 output["materialType"] = system.SelectToken("material.type");
                 output["materialGrade"] = system.SelectToken("material.grade");
+            }
             if(system.SelectToken("runes") != null)
                 // TODO rework to match rune implementation if needed
                 foreach (var rune in system.SelectToken("runes.value")?.OfType<JValue>() ?? Enumerable.Empty<JValue>())
@@ -136,6 +141,75 @@ namespace JsonImporter
 
             return output.ToString(Newtonsoft.Json.Formatting.Indented);
         }
+        public static string ProcessArmorJson(string jsonContent)
+        {
+            var input = JToken.Parse(jsonContent);
+
+            // Prepare the output root
+            var output = new JObject();
+
+            // Always keep "type" at root
+            output["type"] = input["type"];
+            output["name"] = input["name"];
+            // Assumes gold is standard currency.
+            double goldValue = 0.0;
+            if (input.SelectToken("system.price.value.cp") != null)
+                goldValue += input.SelectToken("system.price.value.cp").Value<double>() / 100.0; // 100 cp = 1 gp
+            if (input.SelectToken("system.price.value.sp") != null)
+                goldValue += input.SelectToken("system.price.value.sp").Value<double>() / 10.0; // 10 sp = 1 gp
+            if (input.SelectToken("system.price.value.gp") != null)
+                goldValue += input.SelectToken("system.price.value.gp").Value<double>();
+            if (input.SelectToken("system.price.value.pp") != null)
+                goldValue += input.SelectToken("system.price.value.pp").Value<double>() * 10.0; // 1 pp = 10 gp
+            output["price_GP"] = goldValue;
+            output["acBonus"] = input.SelectToken("system.acBonus");
+            output["dexCap"] = input.SelectToken("system.dexCap");
+            output["checkPenalty"] = input.SelectToken("system.checkPenalty");
+            output["speedPenalty"] = input.SelectToken("system.speedPenalty");
+            output["strengthRequirement"] = input.SelectToken("system.strength");
+            //output["description"] = input.SelectToken("system.description.value");
+            HtmlUtils.ExtractPlainAndParagraphs(input.SelectToken("system.description.value")?.ToString(), out string plainDesc, out JArray plainText, out JArray contexts);
+            output["description"] = plainText;
+            output["bulk"] = input.SelectToken("system.bulk.value").Value<double>();
+            output["group"] = input.SelectToken("system.group");
+            output["armorTraits"] = new JArray();
+            foreach (var trait in input.SelectToken("system.traits.value")?.OfType<JValue>() ?? Enumerable.Empty<JValue>())
+            {
+                if (trait != null)
+                {
+                    ((JArray)output["armorTraits"]).Add(trait);
+                }
+            }
+            output["runes"] = new JArray();
+            foreach (var trait in input.SelectToken("system.runes")?.OfType<JValue>() ?? Enumerable.Empty<JValue>())
+            {
+                if (trait != null)
+                {
+                    ((JArray)output["runes"]).Add(trait);
+                }
+            }
+            output["materialType"] = input.SelectToken("system.material.type");
+            output["materialGrade"] = input.SelectToken("system.material.grade");
+            output["publication"] = input.SelectToken("system.publication");
+
+/*
+        string name { get; set; }          // armor name
+        string type { get; set; }          // e.g., weapon, armor.  Remove??
+        double price { get; set; }         // <int> <currency> --or-- decimal with 1.0=1gp
+        int acBonus { get; set; }          // armor class bonus provided by the armor
+        int dexCap { get; set; }           // maximum Dexterity modifier that can be applied to AC when wearing this armor
+        int checkPenalty { get; set; }      // penalty to certain checks (e.g., stealth) when wearing this armor
+        int speedPenalty { get; set; }      // penalty to movement speed when wearing this armor
+        int strengthRequirement { get; set; } // minimum Strength score required to wear this armor without penalty
+        string description { get; set; }   // text description
+        double bulk { get; set; }              // look up uses
+        string group { get; set; }         // such as light, medium, heavy, shield, etc.
+        List<string> armorTraits { get; set; }  // list of traits
+*/
+
+            // TODO FINISH
+            return output.ToString(Newtonsoft.Json.Formatting.Indented);
+        }
 
         public static string ProcessEquipmentJson(string jsonContent)
         {
@@ -144,6 +218,10 @@ namespace JsonImporter
             if (type != null && type.Equals("weapon", StringComparison.OrdinalIgnoreCase))
             {
                 return ProcessWeaponJson(jsonContent);
+            }
+            else if (type != null && type.Equals("armor", StringComparison.OrdinalIgnoreCase))
+            {
+                return ProcessArmorJson(jsonContent);
             }
             // Add more type checks here for other equipment types as needed
             // For now, just pretty-print for non-weapon equipment

@@ -19,6 +19,7 @@ namespace Game.Creature
         public ItemDto[] passives;
         public EquipmentDto[] equipment;
         public WeaponDto[] weapons;
+        public ArmorDto[] armor;
         public ConditionsDto[] conditions;
         public string Source;
     }
@@ -67,14 +68,10 @@ namespace Game.Creature
 
     // Item DTOs
     [Serializable] public class ItemDto { public string name; public string type; public ItemSystemDto system; }
-    // TODO sections for reactions and passives?
+    // TODO variants for reactions and passives as needed
     // [Serializable] public class ReactionDto { public string name; public string description; }
     // [Serializable] public class PassiveDto { public string name; public string description; }
 
-    // ItemSystemDto updated to match MonsterJsonProcessor output:
-    // - damageRolls is now an array
-    // - descriptionParagraphs promoted (optional)
-    // - range and traits promoted (optional)
     [Serializable]
     public class ItemSystemDto
     {
@@ -124,6 +121,22 @@ namespace Game.Creature
         public int range;
         public string ammo;
         public int bulk;
+    }
+
+    [Serializable]
+    public class ArmorDto {
+        public string name;
+        public string type;
+        public double price;
+        public int acBonus;
+        public int dexCap;
+        public int checkPenalty;
+        public int speedPenalty;
+        public int strengthRequirement;
+        public string description;
+        public double bulk;
+        public string group;
+        public List<string> armorTraits;
     }
 
     // Conditions DTOs TODO
@@ -231,10 +244,16 @@ namespace Game.Creature
                         target.equipment.Add(e.name);
             }
             // Weapons
-            if (target.weapons == null) target.weapons = new List<EquipmentWeapon>();
-            target.weapons.Clear();
-            target.weaponsList.Clear();
-            //if (dto.weapons != null)
+            if (target.weapons == null){
+                target.weapons = new List<EquipmentWeapon>();
+                target.weapons.Clear();
+                target.weaponsList.Clear();
+            }
+            if (target.armor == null){
+                target.armor = new List<EquipmentArmor>();
+                target.armor.Clear();
+                target.armorList.Clear();
+            }
             foreach (var e in dto.equipment)
                 if (!string.IsNullOrEmpty(e?.name) && !string.IsNullOrEmpty(e?.type)){
                     Debug.Log($"CreatureDtoMapper: processing equipment: {e.name} ({e.type})");
@@ -248,6 +267,18 @@ namespace Game.Creature
                         {
                             target.weapons.Add(temp);
                             target.weaponsList.Add(temp.name); // TODO temp for debugging
+                        }
+                    }
+                    else if (e.type.Equals("armor", StringComparison.OrdinalIgnoreCase))
+                    {
+                        EquipmentArmor temp = CreatureJsonConverter.GetArmorByName(e.name);
+                        if(temp == null){
+                            Debug.LogWarning($"CreatureDtoMapper: armor not found for equipment entry: {e.name}");
+                        }
+                        else
+                        {
+                            target.armor.Add(temp);
+                            target.armorList.Add(temp.name); // TODO temp for debugging
                         }
                     }
                 }
@@ -348,6 +379,7 @@ namespace Game.Creature
         {
             // Debug.Log($"CreatureJsonConverter: looking up weapon: {weaponName}");
             if (string.IsNullOrEmpty(weaponName)) return null;
+            NormalizeFilename(weaponName);
             string rootDirectory = Path.Combine(Application.dataPath, "DataFiles/equipment");
             if (!Directory.Exists(rootDirectory))
             {
@@ -397,5 +429,66 @@ namespace Game.Creature
             }
             return null;
         }
+
+        public static EquipmentArmor GetArmorByName(string armorName)
+        {
+            // Similar implementation to GetWeaponByName, but for EquipmentArmor
+            // Debug.Log($"CreatureJsonConverter: looking up weapon: {armorName}");
+            if (string.IsNullOrEmpty(armorName)) return null;
+            armorName = NormalizeFilename(armorName);
+            string rootDirectory = Path.Combine(Application.dataPath, "DataFiles/equipment");
+            if (!Directory.Exists(rootDirectory))
+            {
+                Debug.LogWarning($"CreatureJsonConverter: DataFiles directory not found: {rootDirectory}");
+                return null;
+            }
+            var files = Directory.GetFiles(rootDirectory, "*.json", SearchOption.AllDirectories);
+            files = files.Where(f => Path.GetFileNameWithoutExtension(f).Equals(armorName, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (files.Length > 1)
+                Debug.LogWarning($"Mutliple instances found for : {armorName}");
+            else if (files.Length == 0)
+            {
+                Debug.LogWarning($"CreatureJsonConverter: armor not found: {armorName}");
+                return null;
+            }
+
+            foreach (var file in files)
+            {
+                string json = File.ReadAllText(file);
+                ArmorDto dto = null;
+                try
+                {
+                    dto = JsonUtility.FromJson<ArmorDto>(json);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"CreatureJsonConverter: failed to parse JSON in {file}: {ex.Message}");
+                    continue;
+                }
+                EquipmentArmor armor = new EquipmentArmor();
+                armor.name = dto.name;
+                armor.type = dto.type; 
+                armor.price = dto.price;
+                armor.acBonus = dto.acBonus;    
+                armor.dexCap = dto.dexCap;
+                armor.checkPenalty = dto.checkPenalty;
+                armor.speedPenalty = dto.speedPenalty;
+                armor.strengthRequirement = dto.strengthRequirement;
+                armor.description = dto.description;
+                armor.bulk = dto.bulk;
+                armor.group = dto.group;
+                armor.armorTraits = dto.armorTraits;
+                return armor;
+            }
+            return null;
+        }
+
+        // helper method to convert multi word equipment names to match filenames e.g. "Leather Armor" -> "leather-armor"
+        public static string NormalizeFilename(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return name;
+            return name.Trim().ToLower().Replace(' ', '-');
+        }
+
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
@@ -44,6 +45,7 @@ namespace JsonImporter
                             ["name"] = item["name"],
                             ["type"] = item["type"],
                             ["hands"] = system.SelectToken("equipped.handsHeld"),
+                            ["category"] =system.SelectToken("category"),
                             // ensure quantity is an integer and provide a sensible default (1)
                             ["quantity"] = system?["quantity"]?.Value<int?>() ?? 1
                         };
@@ -333,7 +335,7 @@ namespace JsonImporter
                 }
             }
 
-            // Reorder items so melee/ranged (weapons) come first — convenient when consumer
+            // Reorder items so melee/ranged (weapons) come first ï¿½ convenient when consumer
             // picks the "first" item for attack-related values.
             var orderedItems = new JArray(
                 newItemsArr
@@ -439,6 +441,48 @@ namespace JsonImporter
                 return null;
 
             return input.Substring(start + 1, end - start - 1);
+        }
+
+        // Rough method for inferring monster weapon proficiencies based on their action bonuses
+        public static JArray InferProficiencies(JArray actions, JArray equipment, JObject character)
+        {
+            var profs = new JArray
+            {
+                new JObject{["unarmed"] = 0},
+                new JObject{["simple"] = 0},
+                new JObject{["martial"] = 0},
+                new JObject{["advanced"] = 0},
+            };
+            // Search equipment for weapons
+            foreach (var equip in equipment.OfType<JObject>())
+            {
+                string type = equip["type"]?.ToString();
+                if (type == "weapon")
+                {
+                    string weaponName = equip["name"]?.ToString() ?? "";
+                    // Check actions for a name that matches the weapon
+                    foreach (var action in actions.OfType<JObject>())
+                    {
+                        string actionName = action["name"]?.ToString() ?? "";
+                        if (weaponName == actionName)
+                        {
+                            // get item attack bonus, weapon's category, and character's str/dex mods
+                            int bonus = action["system"]?["bonus"]?["value"]?.Value<int>() ?? 0;
+                            string category = equip["category"]?.ToString() ?? "";
+                            int strMod= character["system"]?["abilities"]?["str"]?["mod"]?.Value<int>() ?? 0;
+                            int dexMod= character["system"]?["abilities"]?["dex"]?["mod"]?.Value<int>() ?? 0;
+                            // assume creature uses weapons better for their stats
+                            int proficiency = Math.Max(bonus-strMod, bonus-dexMod);
+                            // clamp to 0-5 range just in case we're looking at bad data
+                            proficiency = Math.Clamp(proficiency, 0, 5);
+                            // use higher if a value has already been found for that category
+                            profs[category] = Math.Max(proficiency, profs[category].Value<int>());
+                        }   
+                    }
+                }
+            }
+            // ? set unarmed and simple <= martial if martial found, etc.?
+            return profs;
         }
     }
 }
