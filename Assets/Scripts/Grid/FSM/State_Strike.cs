@@ -1,7 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-public class State_Unarmed : FSM_State_Abstract
+public class State_Strike : FSM_State_Abstract
 {
     // target character
     GameObject character;
@@ -16,7 +16,7 @@ public class State_Unarmed : FSM_State_Abstract
     private float lastClickTime = 0f;
 
     // compact constructor
-    public State_Unarmed(GameObject character, int range, GridCharacterController3D controller)
+    public State_Strike(GameObject character, int range, GridCharacterController3D controller)
     {
         this.controller = controller;
         this.character = character;
@@ -50,11 +50,11 @@ public class State_Unarmed : FSM_State_Abstract
             List<GameObject> occupantsInCell = controller.gridMemory.GetOccupantsInArea(new List<Vector3Int> { targetCell });
             if (occupantsInCell.Count == 0)
             {
-                Debug.Log("[State_Unarmed] No occupants in the selected cell.");
+                Debug.Log("[State_Strike] No occupants in the selected cell.");
             } else
             {
                 selection = occupantsInCell[0];
-                Debug.Log($"[State_Unarmed] Target preview: {selection.name}");
+                Debug.Log($"[State_Strike] Target preview: {selection.name}");
             }
         }
     }
@@ -64,18 +64,18 @@ public class State_Unarmed : FSM_State_Abstract
         if (occupantsInRange.Contains(selection))
         {
             target = selection;
-            Debug.Log($"[State_Unarmed] Target confirmed: {target.name}");
+            Debug.Log($"[State_Strike] Target confirmed: {target.name}");
             ExitState(false);
         }
         else
         {
-            Debug.Log("[State_Unarmed] Selected an invalid target.");
+            Debug.Log("[State_Strike] Selected an invalid target.");
         }
     }
     public override void Rightclick()
     {
         // cancel action when right clicking
-        Debug.Log("[State_Unarmed] Action cancelled");
+        Debug.Log("[State_Strike] Action cancelled");
         selection = null;
         target = null;
         ExitState(true);
