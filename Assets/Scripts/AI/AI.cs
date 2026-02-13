@@ -2,30 +2,55 @@ using UnityEngine;
 
 public class AI : MonoBehaviour, IDecisionMaker
 {
-    // gameobject
 
-    // get actions
-    // public List<Entity Actions> GetActions()
+    private ActionController actionController;
+    private Movement movement;
 
-    // public List<Entity Actions> GetMovements()
+    public List<EntityAction> GetActions()
+    {
 
-    // public gameObject GetTarget()
+    }
 
-    // public bool CanHit(Entity action, GameObject target)
+    public List<EntityAction> GetMovements()
+    {
 
-    // public void DecideAction()
+    }
 
-    // private List<GameObject> FindEnemiesInRange(float range);
+    public GameObject GetTarget()
+    {
+
+    }
+
+    public bool CanHit(EntityAction, GameObject target)
+    {
+
+    }
+
+    public void DecideAction()
+    {
+
+    }
+
+    //private List<GameObject> FindEnemiesInRange(float range);
     // range (work with adam) strike range
 
-    // private void moveToCell(Vector3Int targetCell)
+    private void moveToCell(Vector3Int targetCell)
+    {
 
-    // private void ExecuteAction(Entity action)
-    // 
+    }
+
+    private void ExecuteAction(Entity action)
+    {
+
+    }
+  
 
     //debug logging for actions, movement
 
-    // private Vector3Int FindClosestMoveToTarget(, Vector3Int target)
+    private Vector3Int FindClosestMoveToTarget(Vector3Int target)
+    {
+
+    }
     // get list of distances from grid
     
     
