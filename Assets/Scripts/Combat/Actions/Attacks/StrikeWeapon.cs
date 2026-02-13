@@ -1,26 +1,16 @@
-using UnityEngine;
-using System.Collections;
 using Game.Creature;
 using System.Collections.Generic;
+using System.Collections;
+using UnityEngine;
 
-
+[System.Serializable]
 public class StrikeWeapon : MultiFrameEntityAction
 {
-    public Strike Strike;
-    public EquipmentWeapon Weapon;
-
-    
-    public Strike(List<Dice> damages, List<DamageValue> flatDamages)
-    {
-        Damages = damages ?? new();
-        FlatDamages = flatDamages ?? new();
-    }
-    
-
+    private Strike Strike;
 
     public StrikeWeapon(uint cost, EquipmentWeapon weapon, GameObject creature) :base(cost)
     {
-        Weapon = weapon;
+        //Weapon = weapon;
         int flatDamageBonus = creature.GetComponent<CreatureComponent>().damageBonus;
         flatDamageBonus += creature.GetComponent<CreatureComponent>().strMod;
         List<Dice> damageList = new List<Dice>();
@@ -30,12 +20,6 @@ public class StrikeWeapon : MultiFrameEntityAction
         
         Strike = new Strike(damageList, flatDamageList);
     }
-    public StrikeWeapon(uint cost, List<Dice> damages, List<DamageValue> flatDamages) : base(cost)
-    {
-        Strike = new Strike(damages, flatDamages);
-    }
-    
-
 
     protected override IEnumerator MFInvoke(GameObject attacker)
     {
@@ -44,7 +28,7 @@ public class StrikeWeapon : MultiFrameEntityAction
         CoroutineResult<GameObject> target = new();
         CoroutineResult<bool> canceled = new();
         //yield return GridCharacterController3D.Instance.StrikeCoroutine(attacker, 2, target);
-        yield return FSM_API.Unarmed(attacker, 2, target, canceled);
+        yield return FSM_API.Strike(attacker, 2, target, canceled);
         // I implemented a cancel refund for this action, let me know if it needs to change - Adam
         if(target.Value && !canceled.Value)
         {
@@ -56,5 +40,8 @@ public class StrikeWeapon : MultiFrameEntityAction
         if(ac)
             ac.IsTakingAction = false;
     }
-    
 }
+
+
+
+
