@@ -23,6 +23,7 @@ public class GridRenderer3D : MonoBehaviour
     public Camera targetCamera;
     // refrence to tile prefab
     [SerializeField] private GameObject groundTile;
+    private GameObject wall;
 
     [Header("Appearance")]
     // Color of each cell quad.
