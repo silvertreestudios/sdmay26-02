@@ -271,12 +271,19 @@ MonoBehaviour:
   _actions:
   - Dogslicer
   - Shortbow
+  _reactions:
   - Goblin Scuttle
+  _passives: []
+  _conditions: []
+  _equippedArmor: 
   _equipment:
   - Dogslicer
   - Shortbow
   - Leather Armor
   - Arrows
+  _weaponsList:
+  - Dogslicer
+  - Shortbow
 --- !u!114 &1464774667860202458
 MonoBehaviour:
   m_ObjectHideFlags: 0

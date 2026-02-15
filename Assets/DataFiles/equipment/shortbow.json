@@ -1,0 +1,32 @@
+{
+  "type": "weapon",
+  "name": "Shortbow",
+  "group": "bow",
+  "category": "martial",
+  "hands": 2,
+  "damageDice": 1,
+  "damageDie": "6",
+  "damageType": "piercing",
+  "description": "<p>This smaller bow is made of a single piece of wood and favored by skirmishers and cavalry.</p>",
+  "traits": [
+    "deadly-d10"
+  ],
+  "materialType": null,
+  "materialGrade": null,
+  "price_GP": 3.0,
+  "range": null,
+  "reload": "0",
+  "ammo": null,
+  "bulk": 1,
+  "size": null,
+  "baseItem": null,
+  "bonus": 0,
+  "bonusDamage": 0,
+  "splashDamage": 0,
+  "publication": {
+    "license": "ORC",
+    "remaster": true,
+    "title": "Pathfinder Player Core"
+  },
+  "Source": "packs/equipment"
+}
