@@ -39,13 +39,11 @@
                 <ui:TabView name="NestedAncestryChoices">
                     <ui:Tab label="Heritage" name="HeritageTab" view-data-key="HeritageTab">
                         <ui:Label text="Your heritage is a sub-race" name="HeritageContent" class="tab-content" />
-                        <ui:RadioButtonGroup name="HeritageRadioButtonGroup">
-                            <ui:RadioButton label="Ancient" name="AncientElf" />
-                            <ui:RadioButton label="Arctic" name="ArcticElf" />
-                        </ui:RadioButtonGroup>
+                        <ui:RadioButtonGroup name="HeritageRadioButtonGroup" />
                     </ui:Tab>
                     <ui:Tab label="Ancestry Feats" name="AncestryFeatsTab">
                         <ui:Label text="Feats provide special benefits" name="AncestryFeatsContent" class="tab-content" />
+                        <ui:RadioButtonGroup label="Radio Button Group" name="AncestryFeatsRadioButtonGroup" />
                     </ui:Tab>
                     <ui:Tab label="Free Boost" name="FreeAttributeBoostTab">
                         <ui:Label text="Pick a free attribute boost" name="FreeBoostLabel" />
