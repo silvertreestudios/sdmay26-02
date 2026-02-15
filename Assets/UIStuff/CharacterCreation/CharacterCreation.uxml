@@ -43,7 +43,7 @@
                     </ui:Tab>
                     <ui:Tab label="Ancestry Feats" name="AncestryFeatsTab">
                         <ui:Label text="Feats provide special benefits" name="AncestryFeatsContent" class="tab-content" />
-                        <ui:RadioButtonGroup label="Radio Button Group" name="AncestryFeatsRadioButtonGroup" />
+                        <ui:RadioButtonGroup name="AncestryFeatsRadioButtonGroup" />
                     </ui:Tab>
                     <ui:Tab label="Free Boost" name="FreeAttributeBoostTab">
                         <ui:Label text="Pick a free attribute boost" name="FreeBoostLabel" />
@@ -60,12 +60,34 @@
             </ui:Tab>
             <ui:Tab label="Background" name="BackgroundTab" view-data-key="BackgroundTab">
                 <ui:Label text="Background is your former occupation" name="BackgroundContent" class="tab-content" />
+                <ui:RadioButtonGroup name="BackgroundRadioButtonGroup">
+                    <ui:RadioButton label="Acolyte" name="AcolyteRadioButton" />
+                    <ui:RadioButton label="Bandit" name="BanditRadioButton" />
+                    <ui:RadioButton label="Cook" name="CookRadioButton" />
+                </ui:RadioButtonGroup>
+                <ui:TabView name="NestedBackgroundChoices">
+                    <ui:Tab label="Boost Choice" name="BoostChoices">
+                        <ui:Label text="Pick a background boost" name="BackgroundBoostChoiceLabel" />
+                        <ui:RadioButtonGroup label="Radio Button Group" name="BackgroundBoostChoiceRadioButtonGroup" />
+                    </ui:Tab>
+                    <ui:Tab label="Free Boost" name="BackgroundFreeBoost">
+                        <ui:Label text="Free Boost for Background" name="BackgroundFreeBoostLabel" />
+                        <ui:RadioButtonGroup label="Radio Button Group" name="BackgroundFreeBoostRadioGroup" />
+                    </ui:Tab>
+                </ui:TabView>
             </ui:Tab>
             <ui:Tab label="Class" name="ClassTab" view-data-key="ClassTab">
                 <ui:Label text="Class is your style" name="ClassContent" class="tab-content" />
+                <ui:RadioButtonGroup label="Radio Button Group" name="ClassesRadioButtonGroup">
+                    <ui:RadioButton label="Fighter" name="FighterRadioButton" />
+                    <ui:RadioButton label="Cleric" name="ClericRadioButton" />
+                    <ui:RadioButton label="Rogue" name="RogueRadioButton" />
+                    <ui:RadioButton label="Sorcerer" name="SorcererRadioButton" />
+                </ui:RadioButtonGroup>
                 <ui:TabView name="NestedClassChoices">
                     <ui:Tab label="Class Feats" name="ClassFeats">
                         <ui:Label text="These are the class feats" name="ClassFeatsContent" class="tab-content" />
+                        <ui:RadioButtonGroup label="Radio Button Group" name="ClassFeatsRadioButtonGroup" />
                     </ui:Tab>
                 </ui:TabView>
             </ui:Tab>
@@ -75,6 +97,9 @@
         <ui:VisualElement name="AncestryDetails" enabled="true" style="flex-grow: 1; background-color: rgb(255, 0, 0);">
             <ui:Label text="Elves are a tall, long-lived people with a strong tradition of art and magic." name="AncestryDescription" />
             <ui:ListView name="AncestryAttributeBoostsList" />
+            <ui:Label name="BackgroundDescriptionLabel" />
+            <ui:Label name="BackgroundSkillLabel" />
+            <ui:Label name="BackgroundSkillFeatLabel" />
         </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>
