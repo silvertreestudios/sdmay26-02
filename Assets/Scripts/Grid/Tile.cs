@@ -4,15 +4,10 @@ public class Tile
 {
     public enum Type
     {
-        Ground,
-        Wall,
+        Walkable,
         Void,
-        Water,
-        Lava,
-        Ice
-        // Easily expandable
+        Wall
     }
-
     public Type TileType { get; private set; }
     public Vector3 WorldPosition { get; private set; }
     public Vector3Int GridPosition { get; private set; }

@@ -3,6 +3,7 @@
 public class DecoratorMap
 {
     private static DecoratorMap instance;
+    // public static property to access singleton
     public static DecoratorMap Instance
     {
         get
@@ -63,20 +64,22 @@ public class DecoratorMap
             // convert between enum types using switch expression
             return tile.type switch
             {
-                GridMemory.TileType.Ground => Tile.Type.Ground,
+                GridMemory.TileType.Ground => Tile.Type.Walkable,
                 GridMemory.TileType.Wall => Tile.Type.Wall,
                 GridMemory.TileType.Void => Tile.Type.Void,
-                _ => Tile.Type.Ground
+                _ => Tile.Type.Walkable  
             };
         }
         return Tile.Type.Ground;
     }
 
+    // returns 2d array of tiles with type and world position
     public Tile[,] GetTileMap()
     {
         return tileMap;
     }
 
+    // returns single tile at grid coordinates
     public Tile GetTile(int x, int z)
     {
         // bounds checking before array access
@@ -85,6 +88,7 @@ public class DecoratorMap
         return tileMap[x, z];
     }
 
+    // returns single tile at grid position vector
     public Tile GetTile(Vector3Int gridPosition)
     {
         return GetTile(gridPosition.x, gridPosition.z);
