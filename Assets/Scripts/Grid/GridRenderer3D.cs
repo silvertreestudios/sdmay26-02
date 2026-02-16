@@ -160,6 +160,7 @@ public class GridRenderer3D : MonoBehaviour
         {
             _plane = transform.Find("PlaneXZ");
             if (!_plane) { _plane = new GameObject("PlaneXZ").transform; _plane.SetParent(transform, false); }
+            // make sure plane is at correct position and rotation
             _gridRoot = GetOrMake(_plane, "Grid");
 
             _overlayRoot = GetOrMake(_plane, "Overlay");
@@ -257,13 +258,14 @@ public class GridRenderer3D : MonoBehaviour
                     // create wall tiles for wall cells
                     else if (tileType == GridMemory.TileType.Wall && wallTile != null)
                     {
+                        // use different prefab for walls
                         var wall = Instantiate(wallTile, _gridRoot.transform);
                         wall.name = $"W{x}_{z}";
                         var wallTransform = wall.transform;
                         float wallHeight = cellSize;
-                        // Position: lift center up by half the wall height so base stays at gridY
+                        // lift center up by half the wall height so base stays at gridY
                         wallTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY + (wallHeight * 0.5f), z0 + (z + 0.5f) * cellSize);
-                        wallTransform.localScale = new Vector3(cellSize, wallHeight, cellSize);
+                        wallTransform.localScale = new Vector3(cellSize, wallHeight, cellSize * 3f);
                         var meshRenderer = wall.GetComponent<MeshRenderer>();
                         if (meshRenderer != null)
                         {

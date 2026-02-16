@@ -9,7 +9,6 @@ public class GridMemory : IGridMemory
         Ground,
         Wall,
         Void,
-        Walkable
     }
 
     public enum TileStatus
@@ -57,9 +56,12 @@ public class GridMemory : IGridMemory
             {
                 for (int x = 0; x < width; x++)
                 {
+                    // Determine tile type based on grid data
                     TileType tileType = TileType.Void;
+                    // ground
                     if (gridData[x, z] == 1)
                         tileType = TileType.Ground;
+                    // wall
                     else if (gridData[x, z] == 2)
                         tileType = TileType.Wall;
 
