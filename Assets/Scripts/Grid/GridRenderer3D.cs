@@ -43,7 +43,6 @@ public class GridRenderer3D : MonoBehaviour
     public Vector3Int HoverCell { get; private set; } = new(-1, 0, -1);
     [SerializeField] private GameObject selectTile;
 
-    // ---------- Grid Data ----------
     // Grid memory instance
     public GridMemory gridMemory;
 
@@ -53,8 +52,6 @@ public class GridRenderer3D : MonoBehaviour
     Transform _gridRoot, _overlayRoot;
 
     // ---------- Sprite references ----------
-    // One SR per cell.
-    // readonly List<SpriteRenderer> _cells = new();
     //trying to use plane meshes instead of sprites so we dont have to deal with the camera. this will also makes textures easier. pysics will also be easier
     readonly List<MeshRenderer> _cells = new();
     readonly List<MeshRenderer> _walls = new();
@@ -100,7 +97,6 @@ public class GridRenderer3D : MonoBehaviour
 
     /// <summary>
     /// Clean overlay children when disabled/destroyed to avoid leaks.
-    /// </summary>
     void OnDisable()
     {
         if (_overlayRoot)
@@ -196,9 +192,6 @@ public class GridRenderer3D : MonoBehaviour
         var cam = Cam(); if (cam) { UpdateHover(); }
     }
 
-    /// <summary>
-    /// Remove old grid SRs, create per-cell SRs.
-    /// </summary>
     void RebuildGrid()
     {
         int width = 0;
@@ -240,6 +233,7 @@ public class GridRenderer3D : MonoBehaviour
 
                     // Determine which prefab to use based on gridData
                     GameObject tilePrefab = null;
+                    // Default color for ground tiles, overridden for wall tiles.
                     Color tileColor = cellFillColor;
                     List<MeshRenderer> targetList = _cells;
 
