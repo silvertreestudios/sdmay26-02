@@ -112,13 +112,14 @@ namespace JsonImporter
             // "packs/equipment/shortbow.json",
             // "packs/equipment/sling.json",
             // "packs/equipment/spear.json",
-               "packs/equipment/leather-armor.json",
-               "packs/equipment/breastplate.json",
-               "packs/equipment/padded-armor.json",
-            // "packs/pathfinder-monster-core/goblin-warrior.json",
-            // "packs/pathfinder-monster-core/zombie-shambler.json",
-            // "packs/pathfinder-monster-core/skeleton-guard.json",
-            // "packs/pathfinder-monster-core/kobold-warrior.json",
+            // "packs/equipment/halberd.json",
+            // "packs/equipment/leather-armor.json",
+            // "packs/equipment/breastplate.json",
+            // "packs/equipment/padded-armor.json",
+            "packs/pathfinder-monster-core/goblin-warrior.json",
+            "packs/pathfinder-monster-core/zombie-shambler.json",
+            "packs/pathfinder-monster-core/skeleton-guard.json",
+            "packs/pathfinder-monster-core/kobold-warrior.json",
             // "packs/ancestries/human.json",
             // "packs/heritages/human/skilled-human.json",
             // "packs/feats/ancestry/human/natural-skill.json",
@@ -129,14 +130,13 @@ namespace JsonImporter
             // "packs/feats/class/shared-class-feats/reactive-shield.json"
         };
 
-
-        public const bool requireRemaster = false; // or false, as needed
+        public const bool requireRemaster = true; // or false, as needed
         public static readonly HashSet<string> sourceBooks = new HashSet<string>
         {
             "Pathfinder Player Core",
             "Pathfinder Monster Core",
-            "Pathfinder Core Rulebook", // TODO temp for importing iconic characters
-            "Pathfinder GM Core", // TODO temp for importing iconic characters
+            // "Pathfinder Core Rulebook", // TODO temp for importing iconic characters
+            // "Pathfinder GM Core", // TODO temp for importing iconic characters
             // Add other allowed titles here
         };
 
@@ -472,7 +472,8 @@ namespace JsonImporter
                 var jsonObj = JToken.Parse(jsonContent);
 
                 bool IsValidLicense(string? license) =>
-                    license != null && (license.Equals("ORC", StringComparison.OrdinalIgnoreCase) || license.Equals("OGL", StringComparison.OrdinalIgnoreCase));
+                    license != null && (license.Equals("ORC", StringComparison.OrdinalIgnoreCase) );
+                    // || license.Equals("OGL", StringComparison.OrdinalIgnoreCase));
 
                 bool IsValidRemaster(JToken publication) =>
                     !Constants.requireRemaster || (publication["remaster"]?.Value<bool>() == true);

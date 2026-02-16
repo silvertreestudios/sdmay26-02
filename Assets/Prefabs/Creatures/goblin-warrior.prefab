@@ -234,6 +234,22 @@ MonoBehaviour:
   _ac: 16
   _attackBonus: 7
   _damageBonus: 0
+  _weaponBonuses:
+  - category: unarmed
+    bonus: 4
+  - category: simple
+    bonus: 4
+  - category: martial
+    bonus: 4
+  - category: advanced
+    bonus: 0
+  _armorBonuses:
+  - category: light
+    bonus: 2
+  - category: medium
+    bonus: 0
+  - category: heavy
+    bonus: 0
   _strMod: 0
   _dexMod: 3
   _conMod: 1
@@ -275,7 +291,6 @@ MonoBehaviour:
   - Goblin Scuttle
   _passives: []
   _conditions: []
-  _equippedArmor: 
   _equipment:
   - Dogslicer
   - Shortbow
@@ -284,6 +299,8 @@ MonoBehaviour:
   _weaponsList:
   - Dogslicer
   - Shortbow
+  _armorList:
+  - Leather Armor
 --- !u!114 &1464774667860202458
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -297,6 +314,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
+  _actionNames:
+  - Game.Strikes.StrikeWeapon
 --- !u!1 &3448458747370394776
 GameObject:
   m_ObjectHideFlags: 0

@@ -56,6 +56,22 @@ MonoBehaviour:
   _ac: 16
   _attackBonus: 6
   _damageBonus: 2
+  _weaponBonuses:
+  - category: unarmed
+    bonus: 2
+  - category: simple
+    bonus: 2
+  - category: martial
+    bonus: 2
+  - category: advanced
+    bonus: 0
+  _armorBonuses:
+  - category: light
+    bonus: 0
+  - category: medium
+    bonus: 0
+  - category: heavy
+    bonus: 0
   _strMod: 2
   _dexMod: 4
   _conMod: 0
@@ -84,7 +100,6 @@ MonoBehaviour:
   _passives:
   - Void Healing
   _conditions: []
-  _equippedArmor: 
   _equipment:
   - Shortbow
   - Scimitar
@@ -92,6 +107,7 @@ MonoBehaviour:
   _weaponsList:
   - Shortbow
   - Scimitar
+  _armorList: []
 --- !u!114 &7487853166917741111
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -105,6 +121,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
+  _actionNames:
+  - Game.Strikes.StrikeWeapon
 --- !u!1 &3603541461017081578
 GameObject:
   m_ObjectHideFlags: 0

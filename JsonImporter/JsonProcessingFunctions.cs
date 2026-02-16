@@ -96,17 +96,17 @@ namespace JsonImporter
                 output["price_GP"] = goldValue;
             }
             if(system.SelectToken("range") != null)
-                output["range"] = system.SelectToken("range.value");
+                output["range"] = system.SelectToken("range");
             if(system.SelectToken("reload") != null)
                 output["reload"] = system.SelectToken("reload.value");
             if(system.SelectToken("ammo") != null)
-                output["ammo"] = system.SelectToken("ammo.value");
+                output["ammo"] = system.SelectToken("ammo.baseType");
             if(system.SelectToken("bulk") != null)
                 output["bulk"] = system.SelectToken("bulk.value");
             if(system.SelectToken("size") != null)
                 output["size"] = system.SelectToken("size.value");
             if(system.SelectToken("baseItem") != null)
-                output["baseItem"] = system.SelectToken("baseItem.value");
+                output["baseItem"] = system.SelectToken("baseItem");
             if(system.SelectToken("bonus.value") != null)
                 output["bonus"] = system.SelectToken("bonus.value");
             if(system.SelectToken("bonusDamage.value") != null)
@@ -151,6 +151,7 @@ namespace JsonImporter
             // Always keep "type" at root
             output["type"] = input["type"];
             output["name"] = input["name"];
+            output["category"] = input.SelectToken("system.category");
             // Assumes gold is standard currency.
             double goldValue = 0.0;
             if (input.SelectToken("system.price.value.cp") != null)

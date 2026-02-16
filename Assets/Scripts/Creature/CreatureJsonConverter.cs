@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using Game.Strikes;
 
 namespace Game.Creature
 {
@@ -14,6 +15,8 @@ namespace Game.Creature
         public string name;
         public string type;
         public SystemDto system;
+        public WeaponBonusDto[] weaponBonuses; // added for weapon bonus bonuses
+        public ArmorBonusDto[] armorBonuses; // added for armor bonus bonuses
         public ItemDto[] items;
         public ItemDto[] reactions;
         public ItemDto[] passives;
@@ -29,8 +32,11 @@ namespace Game.Creature
     public class SkillDto
     {
         public string name;
-        public int @base; // matches "base" key in JSON; use @ to escape keyword
+        public int value; // matches "base" key in JSON; use @ to escape keyword
     }
+
+    [Serializable] public class WeaponBonusDto{ public string category; public int bonus;}
+    [Serializable] public class ArmorBonusDto{ public string category; public int bonus;}
 
     [Serializable] public class SystemDto
     {
@@ -85,21 +91,9 @@ namespace Game.Creature
     [Serializable] public class BonusDto { public int value; }
     [Serializable] public class DamageRollsDto { public string damage; public string damageType; }
 
-    [Serializable]
-    public class RangeDto
-    {
-        // JSON may have increment and max. JsonUtility maps missing numeric fields to 0.
-        public int increment;
-        public int max;
-    }
+    [Serializable] public class RangeDto { public int increment; public int max; }
 
-    [Serializable]
-    public class TraitsDto
-    {
-        // Matches the promoted structure (example: { "rarity":"common", "value":[ "agile", ... ] })
-        public string rarity;
-        public string[] value;
-    }
+    [Serializable] public class TraitsDto { public string rarity; public string[] value; }
 
     [Serializable] public class EquipmentDto { public string name; public string type; public int quantity; }
     [Serializable] 
@@ -127,6 +121,7 @@ namespace Game.Creature
     public class ArmorDto {
         public string name;
         public string type;
+        public string category;
         public double price;
         public int acBonus;
         public int dexCap;
@@ -170,8 +165,30 @@ namespace Game.Creature
                 ? dto.items[0]?.system?.bonus?.value ?? target.attackBonus
                 : target.attackBonus;
 
-            // Damage bonus directly from str mod // Temporary
+            // TODO: temporary, damage bonus directly from str mod 
             target.damageBonus = dto.system.abilities?.str?.mod ?? target.strMod;
+
+            // Weapon attack bonuses by proficiency category
+            if (target.weaponBonuses == null) target.weaponBonuses = new List<WeaponBonus>();
+            target.weaponBonuses.Clear();
+            if(dto.weaponBonuses != null)
+            {
+                foreach(var wb in dto.weaponBonuses)
+                {
+                    target.weaponBonuses.Add(new WeaponBonus { category = wb.category, bonus = wb.bonus });
+                }
+            }
+
+            // Armor bonuses by proficiency category
+            if (target.armorBonuses == null) target.armorBonuses = new List<ArmorBonus>();
+            target.armorBonuses.Clear();
+            if(dto.armorBonuses != null)
+            {
+                foreach(var ab in dto.armorBonuses)
+                {
+                    target.armorBonuses.Add(new ArmorBonus { category = ab.category, bonus = ab.bonus });
+                }
+            }
 
             // Ability modifiers
             target.strMod = dto.system.abilities?.str?.mod ?? target.strMod;
@@ -256,7 +273,7 @@ namespace Game.Creature
             }
             foreach (var e in dto.equipment)
                 if (!string.IsNullOrEmpty(e?.name) && !string.IsNullOrEmpty(e?.type)){
-                    Debug.Log($"CreatureDtoMapper: processing equipment: {e.name} ({e.type})");
+                    // Debug.Log($"CreatureDtoMapper: processing equipment: {e.name} ({e.type})");
                     if (e.type.Equals("weapon", StringComparison.OrdinalIgnoreCase))
                     {
                         EquipmentWeapon temp = CreatureJsonConverter.GetWeaponByName(e.name);
@@ -279,7 +296,16 @@ namespace Game.Creature
                         {
                             target.armor.Add(temp);
                             target.armorList.Add(temp.name); // TODO temp for debugging
+                            // target.calculateAC(); // Recalculate AC when armor is added
                         }
+                    }
+                    if (target.armor.Count > 0)
+                    {
+                        // For simplicity, assume the first armor in the list is equipped
+                        target.equippedArmor = target.armor[0];
+                        Debug.Log($"CreatureDtoMapper: equipped armor set to {target.equippedArmor.name} with AC bonus {target.equippedArmor.acBonus}");
+                        target.calculateAC(); // Recalculate AC when armor is added
+                        Debug.Log($"CreatureDtoMapper: AC after equipping armor: {target.ac}");
                     }
                 }
             
@@ -299,7 +325,7 @@ namespace Game.Creature
             if (dto.system?.skills != null)
             {
                 foreach (var s in dto.system.skills)
-                    target.skills.Add(new SkillValue { skillName = s.name, skillMod = s.@base });
+                    target.skills.Add(new SkillValue { skillName = s.name, skillMod = s.value });
             }
 
             // publicNotes (plain/paragraphs) � importer can produce these; map into description
@@ -316,10 +342,6 @@ namespace Game.Creature
                     target.description = details.publicNotesPlain;
                 }
             }
-
-            // Note: item-level fields such as item.system.damageRolls (array), item.system.descriptionParagraphs,
-            // item.system.range, item.system.traits are now available in DTOs for future mapping if needed.
-            // Leave damageBonus and other fields untouched unless DTO provides them
         }
     }
 
@@ -350,6 +372,7 @@ namespace Game.Creature
             GameObject go = prefab != null ? UnityEngine.Object.Instantiate(prefab) : new GameObject(dto?.name ?? "Creature");
             var comp = go.GetComponent<CreatureComponent>() ?? go.AddComponent<CreatureComponent>();
             comp.ApplyFromDto(dto);
+            StrikeWeapon.WeaponStrikeAdderTEMP(go); // Temporary: add an arbitrary strike action based on a creature weapon for testing
             return go;
         }
 
@@ -375,6 +398,7 @@ namespace Game.Creature
             return CreateFromFile(match, prefab);
         }
 
+        // Get EquipmentWeapon by name from DataFiles/equipment
         public static EquipmentWeapon GetWeaponByName(string weaponName)
         {
             // Debug.Log($"CreatureJsonConverter: looking up weapon: {weaponName}");
@@ -468,6 +492,7 @@ namespace Game.Creature
                 EquipmentArmor armor = new EquipmentArmor();
                 armor.name = dto.name;
                 armor.type = dto.type; 
+                armor.category = dto.category;
                 armor.price = dto.price;
                 armor.acBonus = dto.acBonus;    
                 armor.dexCap = dto.dexCap;

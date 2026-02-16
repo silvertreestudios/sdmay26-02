@@ -294,6 +294,22 @@ MonoBehaviour:
   _ac: 12
   _attackBonus: 7
   _damageBonus: 3
+  _weaponBonuses:
+  - category: unarmed
+    bonus: 0
+  - category: simple
+    bonus: 0
+  - category: martial
+    bonus: 0
+  - category: advanced
+    bonus: 0
+  _armorBonuses:
+  - category: light
+    bonus: 0
+  - category: medium
+    bonus: 0
+  - category: heavy
+    bonus: 0
   _strMod: 3
   _dexMod: -2
   _conMod: 2
@@ -322,9 +338,9 @@ MonoBehaviour:
   - Slow
   - Void Healing
   _conditions: []
-  _equippedArmor: 
   _equipment: []
   _weaponsList: []
+  _armorList: []
 --- !u!114 &4126133449529308398
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -338,3 +354,4 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
+  _actionNames: []

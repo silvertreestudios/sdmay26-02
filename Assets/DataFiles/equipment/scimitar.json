@@ -7,7 +7,7 @@
   "damageDice": 1,
   "damageDie": "6",
   "damageType": "slashing",
-  "description": "<p>This one-handed curved blade is sharp on one side.</p>",
+  "description": null,
   "traits": [
     "forceful",
     "sweep"
@@ -20,7 +20,7 @@
   "ammo": null,
   "bulk": 1,
   "size": null,
-  "baseItem": null,
+  "baseItem": "scimitar",
   "bonus": 0,
   "bonusDamage": 0,
   "splashDamage": 0,

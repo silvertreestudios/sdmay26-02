@@ -141,11 +141,11 @@
     "skills": [
       {
         "name": "acrobatics",
-        "base": 6
+        "value": 6
       },
       {
         "name": "athletics",
-        "base": 3
+        "value": 3
       }
     ],
     "traits": {
@@ -168,18 +168,21 @@
       "name": "Shortbow",
       "type": "weapon",
       "hands": 0,
+      "category": "martial",
       "quantity": 1
     },
     {
       "name": "Scimitar",
       "type": "weapon",
       "hands": 1,
+      "category": "martial",
       "quantity": 1
     },
     {
       "name": "Arrows",
       "type": "ammo",
       "hands": null,
+      "category": null,
       "quantity": 20
     }
   ],
@@ -335,5 +338,37 @@
     }
   ],
   "conditions": [],
+  "weaponBonuses": [
+    {
+      "category": "unarmed",
+      "bonus": 2
+    },
+    {
+      "category": "simple",
+      "bonus": 2
+    },
+    {
+      "category": "martial",
+      "bonus": 2
+    },
+    {
+      "category": "advanced",
+      "bonus": 0
+    }
+  ],
+  "armorBonuses": [
+    {
+      "category": "light",
+      "bonus": 0
+    },
+    {
+      "category": "medium",
+      "bonus": 0
+    },
+    {
+      "category": "heavy",
+      "bonus": 0
+    }
+  ],
   "Source": "packs/pathfinder-monster-core"
 }
