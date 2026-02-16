@@ -22,12 +22,14 @@ public class GridRenderer3D : MonoBehaviour
     // explicit camera (falls back to Camera.main).
     public Camera targetCamera;
     // refrence to tile prefab
-    [SerializeField] private GameObject groundTile;
-    private GameObject wall;
+    [SerializeField] 
+    private GameObject groundTile;
+    private GameObject wallTile;
 
     [Header("Appearance")]
     // Color of each cell quad.
     public Color cellFillColor = new(0.07f, 0.1f, 0.16f, 0.8f);
+    public Color wallFillColor = new(0.2f, 0.2f, 0.2f, 0.8f);
     // Desired gap/axis thickness measured in pixels on screen.
     public float lineThicknessPixels = 1f;
 
@@ -55,6 +57,7 @@ public class GridRenderer3D : MonoBehaviour
     // readonly List<SpriteRenderer> _cells = new();
     //trying to use plane meshes instead of sprites so we dont have to deal with the camera. this will also makes textures easier. pysics will also be easier
     readonly List<MeshRenderer> _cells = new();
+    readonly List<MeshRenderer> _walls = new();
 
     // Instance of the select tile prefab for selection visual.
     private GameObject _selectTileInstance;
@@ -203,6 +206,7 @@ public class GridRenderer3D : MonoBehaviour
         int[,] gridData = null;
         // Clear all previous grid children and empty the cell list.
         ClearChildrenPlane(_gridRoot, _cells);
+        ClearChildrenPlane(_gridRoot, _walls);
         // Destroy all select tile instances under _overlayRoot
         if (_overlayRoot) { ClearOverlayChildren(); }
         _selectTileInstance = null;
@@ -231,20 +235,54 @@ public class GridRenderer3D : MonoBehaviour
             {
                 for (int x = 0; x < width; x++)
                 {
-                    // Skip tile creation for non-walkable cells
+                    // Skip tile creation for void cells
                     if (gridMemory.GridInfo[x, gridY, z].type == GridMemory.TileType.Void) continue;
 
-                    var tile = Instantiate(groundTile, _gridRoot.transform);
-                    tile.name = $"C{x}_{z}";
+                    // Determine which prefab to use based on gridData
+                    GameObject tilePrefab = null;
+                    Color tileColor = cellFillColor;
+                    List<MeshRenderer> targetList = _cells;
+
+                    if (gridData != null && gridData[x, z] == 2) // Wall tile
+                    {
+                        if (wallTile != null)
+                        {
+                            tilePrefab = wallTile;
+                            tileColor = wallFillColor;
+                            targetList = _walls;
+                        }
+                        else
+                        {
+                            Debug.LogWarning("Wall tile prefab is not assigned!");
+                            continue;
+                        }
+                    }
+                    else if (gridData != null && gridData[x, z] == 1) // Ground tile
+                    {
+                        tilePrefab = groundTile;
+                    }
+                    else
+                    {
+                        continue; // Skip if no valid tile type
+                    }
+
+                    if (tilePrefab == null) continue;
+
+                    var tile = Instantiate(tilePrefab, _gridRoot.transform);
+                    // Name the tile for easier hierarchy debugging.
+                    tile.name = $"C{x}_{z}_{(gridData[x, z] == 2 ? "Wall" : "Ground")}";
+                    // Position the tile at the center of the cell.
                     var tileTransform = tile.transform;
+                    // Set the tile's position to the center of the cell, adjusting for origin and cell size.
                     tileTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY, z0 + (z + 0.5f) * cellSize);
+                    // Scale the tile to fit the cell size, with a small factor to create a gap between tiles.
                     tileTransform.localScale = new Vector3(cellSize * 0.1f, 1f, cellSize * 0.1f);
                     var meshRenderer = tile.GetComponent<MeshRenderer>();
                     if (meshRenderer != null)
                     {
                         // Use sharedMaterial to avoid creating instances
-                        meshRenderer.sharedMaterial.color = cellFillColor;
-                        _cells.Add(meshRenderer);
+                        meshRenderer.sharedMaterial.color = tileColor;
+                        targetList.Add(meshRenderer);
                     }
                 }
             }
