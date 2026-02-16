@@ -265,7 +265,7 @@ public class GridRenderer3D : MonoBehaviour
                         float wallHeight = cellSize;
                         // lift center up by half the wall height so base stays at gridY
                         wallTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY + (wallHeight * 0.5f), z0 + (z + 0.5f) * cellSize);
-                        wallTransform.localScale = new Vector3(cellSize, wallHeight, cellSize);
+                        wallTransform.localScale = new Vector3(cellSize, wallHeight, cellSize*3f);
                         var meshRenderer = wall.GetComponent<MeshRenderer>();
                         if (meshRenderer != null)
                         {
