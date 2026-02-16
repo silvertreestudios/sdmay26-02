@@ -88,6 +88,7 @@ namespace JsonImporter
         public const string apiBranch = "v13-dev";
 
         // The Contents API accepts branch, tag, or commit SHA in the `ref` parameter — default tag "7.8.0".
+        // !! WARNING !! Considerable changes made to source repo format after "7.8.0" that would require multiple changes to adjust for
         public const string apiRef = "7.8.0";
 
         // Specify directory within the apiRoot to limit scope of files read
@@ -116,16 +117,17 @@ namespace JsonImporter
             // "packs/equipment/leather-armor.json",
             // "packs/equipment/breastplate.json",
             // "packs/equipment/padded-armor.json",
-            "packs/pathfinder-monster-core/goblin-warrior.json",
-            "packs/pathfinder-monster-core/zombie-shambler.json",
-            "packs/pathfinder-monster-core/skeleton-guard.json",
-            "packs/pathfinder-monster-core/kobold-warrior.json",
+            // "packs/pathfinder-monster-core/goblin-warrior.json",
+            // "packs/pathfinder-monster-core/zombie-shambler.json",
+            // "packs/pathfinder-monster-core/skeleton-guard.json",
+            // "packs/pathfinder-monster-core/kobold-warrior.json",
             // "packs/ancestries/human.json",
             // "packs/heritages/human/skilled-human.json",
             // "packs/feats/ancestry/human/natural-skill.json",
             // "packs/backgrounds/warrior.json",
             // "packs/backgrounds/nomad.json",
             // "packs/classes/fighter.json",
+            "packs/classes/barbarian.json",
             // "packs/iconics/valeros-level-1.json",
             // "packs/feats/class/shared-class-feats/reactive-shield.json"
         };
@@ -134,6 +136,7 @@ namespace JsonImporter
         public static readonly HashSet<string> sourceBooks = new HashSet<string>
         {
             "Pathfinder Player Core",
+            "Pathfinder Player Core 2",
             "Pathfinder Monster Core",
             // "Pathfinder Core Rulebook", // TODO temp for importing iconic characters
             // "Pathfinder GM Core", // TODO temp for importing iconic characters

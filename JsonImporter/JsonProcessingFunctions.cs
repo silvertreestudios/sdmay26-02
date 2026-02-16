@@ -126,18 +126,6 @@ namespace JsonImporter
                 }
             if(system.SelectToken("publication") != null)
                  output["publication"] = system.SelectToken("publication");
-            // var newSystem = new JObject();
-            // if (system != null)
-            // {
-            //     foreach (var prop in system.Properties())
-            //     {
-            //         if (allowedSystemFields.Contains(prop.Name))
-            //         {
-            //             newSystem[prop.Name] = prop.Value;
-            //         }
-            //     }
-            // }
-            // output["system"] = newSystem;
 
             return output.ToString(Newtonsoft.Json.Formatting.Indented);
         }
@@ -192,21 +180,6 @@ namespace JsonImporter
             output["materialType"] = input.SelectToken("system.material.type");
             output["materialGrade"] = input.SelectToken("system.material.grade");
             output["publication"] = input.SelectToken("system.publication");
-
-/*
-        string name { get; set; }          // armor name
-        string type { get; set; }          // e.g., weapon, armor.  Remove??
-        double price { get; set; }         // <int> <currency> --or-- decimal with 1.0=1gp
-        int acBonus { get; set; }          // armor class bonus provided by the armor
-        int dexCap { get; set; }           // maximum Dexterity modifier that can be applied to AC when wearing this armor
-        int checkPenalty { get; set; }      // penalty to certain checks (e.g., stealth) when wearing this armor
-        int speedPenalty { get; set; }      // penalty to movement speed when wearing this armor
-        int strengthRequirement { get; set; } // minimum Strength score required to wear this armor without penalty
-        string description { get; set; }   // text description
-        double bulk { get; set; }              // look up uses
-        string group { get; set; }         // such as light, medium, heavy, shield, etc.
-        List<string> armorTraits { get; set; }  // list of traits
-*/
 
             // TODO FINISH
             return output.ToString(Newtonsoft.Json.Formatting.Indented);

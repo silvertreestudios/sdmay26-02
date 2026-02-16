@@ -64,14 +64,6 @@ namespace JsonImporter
                             ["acBonus"] = system.SelectToken("acBonus"),
                             ["dexCap"] = system.SelectToken("dexCap")
                         };
-
-                        // var armorInfo = new JObject
-                        // {
-                        //     ["acBonus"] = system.SelectToken("acBonus"),
-                        //     ["dexCap"] = system.SelectToken("dexCap")
-                        // };
-
-                        // newEquip["armorInfo"] = armorInfo;
                         equipmentArr.Add(newEquip);
                     }
                     else if (type == "melee" || type == "ranged")
@@ -273,21 +265,7 @@ namespace JsonImporter
                             ["system"] = cloned
                         };
 
-                        // TODO 
-                        // Refine implementation to avoid double listing in both items and conditions.
-                        /*
-                        string context = cloned?["descriptionContext"]?.ToString() ?? "";
-                        if (context.Contains("Compendium.pf2e.conditionitems.Item."))
-                        {
-                            string descPar = cloned?["descriptionParagraphs"]?.ToString() ?? "";
-                            string conditionName = ExtractFirstBracedText(descPar);
-                            if (conditionName != null)
-                            {
-                                newItem["name"] = conditionName;
-                            }
-                            conditionsArr.Add(newItem);
-                        }
-                        */
+
                         if (item["system"]?["actionType"]?["value"]?.ToString() == "reaction")
                         {
                             reactionsArr.Add(newItem);

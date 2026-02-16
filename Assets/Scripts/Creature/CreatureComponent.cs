@@ -14,14 +14,9 @@ namespace Game.Creature
         // public string source; // gameObject ID of GO that applied the condition
     }
 
-    [System.Serializable]
-    public struct SkillValue
-    {
-        public string skillName;
-        public int skillMod;
-    }
+    [System.Serializable] public struct SkillValue { public string skillName; public int skillMod; }
 
-    [System.Serializable] public struct WeaponBonus { public string category; public int bonus;}
+    [System.Serializable] public struct WeaponBonus { public string category; public int bonus; }
 
     [System.Serializable] public struct ArmorBonus { public string category; public int bonus; }
 
