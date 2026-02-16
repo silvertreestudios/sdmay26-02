@@ -235,7 +235,7 @@ public class GridRenderer3D : MonoBehaviour
                 for (int x = 0; x < width; x++)
                 {
                     var tileType = gridMemory.GridInfo[x, gridY, z].type;
-                    
+
                     // Skip void tiles
                     if (tileType == GridMemory.TileType.Void) continue;
 
@@ -265,7 +265,7 @@ public class GridRenderer3D : MonoBehaviour
                         float wallHeight = cellSize;
                         // lift center up by half the wall height so base stays at gridY
                         wallTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY + (wallHeight * 0.5f), z0 + (z + 0.5f) * cellSize);
-                        wallTransform.localScale = new Vector3(cellSize, wallHeight, cellSize * 3f);
+                        wallTransform.localScale = new Vector3(cellSize, wallHeight, cellSize);
                         var meshRenderer = wall.GetComponent<MeshRenderer>();
                         if (meshRenderer != null)
                         {
