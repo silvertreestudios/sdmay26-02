@@ -5,6 +5,7 @@ public class Tile
     public enum Type
     {
         Walkable,
+        Ground,
         Void,
         Wall
     }

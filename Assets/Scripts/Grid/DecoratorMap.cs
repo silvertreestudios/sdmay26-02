@@ -64,7 +64,7 @@ public class DecoratorMap
             // convert between enum types using switch expression
             return tile.type switch
             {
-                GridMemory.TileType.Ground => Tile.Type.Walkable,
+                GridMemory.TileType.Ground => Tile.Type.Walkable,  
                 GridMemory.TileType.Wall => Tile.Type.Wall,
                 GridMemory.TileType.Void => Tile.Type.Void,
                 _ => Tile.Type.Walkable  
