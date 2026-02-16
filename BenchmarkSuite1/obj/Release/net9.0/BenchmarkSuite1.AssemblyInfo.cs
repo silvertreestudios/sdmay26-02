@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BenchmarkSuite1")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6142b3e3951ef90f27e609d8ef9e28888cbcc847")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5f436fc7c3907a1bf75f12009aa52bb443f0e1b0")]
 [assembly: System.Reflection.AssemblyProductAttribute("BenchmarkSuite1")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BenchmarkSuite1")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
