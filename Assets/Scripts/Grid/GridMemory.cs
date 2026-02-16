@@ -8,7 +8,8 @@ public class GridMemory : IGridMemory
     {
         Ground,
         Wall,
-        Void
+        Void,
+        Walkable
     }
 
     public enum TileStatus
@@ -56,13 +57,19 @@ public class GridMemory : IGridMemory
             {
                 for (int x = 0; x < width; x++)
                 {
+                    TileType tileType = TileType.Void;
+                    if (gridData[x, z] == 1)
+                        tileType = TileType.Ground;
+                    else if (gridData[x, z] == 2)
+                        tileType = TileType.Wall;
+
                     // Initialize tile with default values
                     GridInfo[x, gridY, z] = new TILE
                     {
                         x = x,
                         z = z,
-                        type = gridData[x, z] == 1 ? TileType.Ground : TileType.Void,
-                        isOccupied = false,
+                        type = tileType,
+                        isOccupied = gridData[x, z] == 2, // Walls are occupied
                         status = new TileStatus[] { TileStatus.Normal }
                     };
                 }

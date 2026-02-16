@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.U2D;
 //change to be non monoBehaviour, its not needed
 [System.Serializable]
@@ -6,7 +6,7 @@ public class ImageToGrid
 {
     [Header("Level Image")]
     [SerializeField] private Texture2D img;
-  
+
 
     public int[,] grid;
 
@@ -15,26 +15,29 @@ public class ImageToGrid
     {
         if (img == null) return null;
         grid = new int[img.width, img.height];
+        
+        Color32 black = new Color32(0, 0, 0, 255);      // #000000
+        Color32 yellow = new Color32(255, 255, 0, 255); // #FFFF00
+        
         for (int i = 0; i < img.width; i++)
         {
             for (int j = 0; j < img.height; j++)
             {
-                Color pixel = img.GetPixel(i, j);
+                Color32 pixel = img.GetPixel(i, j);
 
-                if (pixel == Color.black)
+                if (pixel.r == black.r && pixel.g == black.g && pixel.b == black.b)
                 {
                     grid[i, j] = 1; //ground
                 }
-                else if (pixel == Color.yellow)
+                else if (pixel.r == yellow.r && pixel.g == yellow.g && pixel.b == yellow.b)
                 {
                     grid[i, j] = 2; //wall
-                    // reference library for hex program for correct color
                 }
                 else
                 {
                     grid[i, j] = 0; //empty
                 }
-                
+
             }
         }
         return grid;
