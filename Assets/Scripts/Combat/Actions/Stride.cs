@@ -2,6 +2,7 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
 using UnityEditor.Experimental.GraphView;
+using UnityEngineInternal;
 
 public class Stride : MultiFrameEntityAction
 {
@@ -12,10 +13,10 @@ public class Stride : MultiFrameEntityAction
 
     protected override IEnumerator MFInvoke(GameObject target)
     {
-        ActionController ac = target.GetComponent<ActionController>();
+        PlayerActionController ac = target.GetComponent<PlayerActionController>();
         CoroutineResult<bool> canceled = new();
         //yield return GridCharacterController3D.Instance.StrideCoroutine(target, canceled);
-        yield return FSM_API.Stride(target, canceled);
+        yield return GridAPI.GetInstance().Stride(target, canceled);
         if (!canceled.Value)
         {
             if (ac)

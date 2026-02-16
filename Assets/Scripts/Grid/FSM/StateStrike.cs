@@ -1,7 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-public class State_Strike : FSM_State_Abstract
+public class StateStrike : GridFSMState
 {
     // target character
     GameObject character;
@@ -12,20 +12,17 @@ public class State_Strike : FSM_State_Abstract
     public bool canceled { get; private set; } = false;
     private int range;
     private List<GameObject> occupantsInRange = new List<GameObject>();
-    private float timeSinceLastClick = 0f;
-    private float lastClickTime = 0f;
 
     // compact constructor
-    public State_Strike(GameObject character, int range, GridCharacterController3D controller)
+    public StateStrike(GameObject character, int range, GridCharacterController3D controller)
     {
         this.controller = controller;
         this.character = character;
         this.range = range;
     }
-    public override void EnterState()
+    public override void Enter(FiniteStateMachine<GridFSMState> fsm)
     {
-        lastClickTime = 0f;
-        timeSinceLastClick = 0f;
+        base.Enter(fsm);
         target = null;
         selection = null;
         canceled = false;
@@ -36,12 +33,17 @@ public class State_Strike : FSM_State_Abstract
         occupantsInRange = controller.GetOccupantsInArea(character, range);
 
     }
-    public override void ExitState(bool canceled)
+    public override bool Exit()
     {
         this.canceled = canceled;
         occupantsInRange.Clear();
         controller.rangeHighlighter.ClearHighlights();
-        Action_FSM.GetInstance().ChangeState(Action_FSM.GetInstance().idleState, canceled);
+        if (!fsm.ChangeState(fsm.idleState))
+        {
+            Debug.LogError("[State_Strike] Failed to change state to idle.");
+            return false;
+        }
+        return true;
     }
     public override void Leftclick()
     {
@@ -59,13 +61,13 @@ public class State_Strike : FSM_State_Abstract
         }
     }
 
-    public void doubleLeftclick()
+    public override void DoubleLeftclick()
     {
         if (occupantsInRange.Contains(selection))
         {
             target = selection;
             Debug.Log($"[State_Strike] Target confirmed: {target.name}");
-            ExitState(false);
+            Exit();
         }
         else
         {
@@ -78,30 +80,8 @@ public class State_Strike : FSM_State_Abstract
         Debug.Log("[State_Strike] Action cancelled");
         selection = null;
         target = null;
-        ExitState(true);
+        Exit();
     }
-    public override void StateUpdate()
-    {
-        // update function that is called from the Action_FSM every frame
-        timeSinceLastClick = Time.time - lastClickTime;
-        if (InputCompat.LeftClickDown())
-        {
-            lastClickTime = Time.time;
-            if(timeSinceLastClick <= controller.doubleClickTime)
-            {
-                doubleLeftclick();
-            } else
-            {
-                Leftclick();
-            }
-        }
-
-
-        if (InputCompat.RightClickDown())
-        {
-            Rightclick();
-        }
-
-    }
+    
     
 }

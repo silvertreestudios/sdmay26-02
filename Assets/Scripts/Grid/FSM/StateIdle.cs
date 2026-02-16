@@ -1,12 +1,11 @@
+using Unity.VisualScripting;
 using UnityEngine;
 
-public class State_Idle : FSM_State_Abstract
+public class StateIdle : GridFSMState
 {
-    public override void EnterState()
+    public override bool Exit()
     {
-    }
-    public override void ExitState(bool canceled)
-    {
+        return true;
     }
     public override void Leftclick()
     {

@@ -1,29 +1,30 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 public class AI : MonoBehaviour, IDecisionMaker
 {
 
-    private ActionController actionController;
+    private PlayerActionController actionController;
     private Movement movement;
 
     public List<EntityAction> GetActions()
     {
-
+        return null;
     }
 
     public List<EntityAction> GetMovements()
     {
-
+        return null;
     }
 
     public GameObject GetTarget()
     {
-
+        return null;
     }
 
-    public bool CanHit(EntityAction, GameObject target)
+    public bool CanHit(EntityAction action, GameObject target)
     {
-
+        return false;
     }
 
     public void DecideAction()
@@ -39,7 +40,7 @@ public class AI : MonoBehaviour, IDecisionMaker
 
     }
 
-    private void ExecuteAction(Entity action)
+    private void ExecuteAction(EntityAction action)
     {
 
     }
@@ -49,7 +50,7 @@ public class AI : MonoBehaviour, IDecisionMaker
 
     private Vector3Int FindClosestMoveToTarget(Vector3Int target)
     {
-
+        return Vector3Int.zero;
     }
     // get list of distances from grid
     

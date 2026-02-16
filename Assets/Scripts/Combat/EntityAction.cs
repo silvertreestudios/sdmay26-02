@@ -9,7 +9,7 @@ public abstract class EntityAction
         this.ActionCost = cost;
     }
 
-    protected void PayCost(ActionController ac)
+    protected void PayCost(PlayerActionController ac)
     {
         if (ac != null) 
             ac.ActionPoints -= ActionCost;

@@ -154,7 +154,7 @@ public class HUDController : MonoBehaviour
         Debug.Log("Strike called");
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        g.GetComponent<ActionController>().TestStrike();
+        g.GetComponent<PlayerActionController>().TestStrike();
         Debug.Log("Clicked Strike button");
         //for testing, have strike do damage to next player
         // players[(currentPlayerIndex + 1) % players.Length].TakeDamage(10);
@@ -164,7 +164,7 @@ public class HUDController : MonoBehaviour
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        g.GetComponent<ActionController>().TestStride();
+        g.GetComponent<PlayerActionController>().TestStride();
         Debug.Log("Clicked Move button");
     }
 
@@ -172,15 +172,15 @@ public class HUDController : MonoBehaviour
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        g.GetComponent<ActionController>().EndTurn();
-        FSM_API.EndTurn();
+        g.GetComponent<PlayerActionController>().EndTurn();
+        GridAPI.GetInstance().CancelCurrentAction();
         Debug.Log("Clicked End Turn button");
     }
 
     public void CancelAction() {
         Debug.Log("CancelAction called");
         Debug.Log("Clicked Cancel Action button");
-        FSM_API.CancelCurrentAction();
+        GridAPI.GetInstance().CancelCurrentAction();
     }
 
     public void focusOnPlayer(int playerIndex) {
