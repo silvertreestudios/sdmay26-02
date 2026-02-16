@@ -162,49 +162,6 @@ public class GridMemory : IGridMemory
         return GridInfo[position.x, GridY, position.z].type == TileType.Ground && !GridInfo[position.x, GridY, position.z].isOccupied;
     }
 
-    // PUBLIC API FOR ACCESSING TILE INFORMATION
-
-    // get tile information at a given position using x and z coordinates
-    public TILE GetTileAt(int x, int z)
-    {
-        if (GridInfo == null || x < 0 || x >= Width || z < 0 || z >= Height) 
-            return default;
-        return GridInfo[x, GridY, z];
-    }
-
-    // get tile information at a given position using Vector3Int
-    public TILE GetTileAt(Vector3Int position)
-    {
-        return GetTileAt(position.x, position.z);
-    }
-
-    // get a type of tile at a given position
-    public TileType GetTileTypeAt(int x, int z)
-    {
-        if (GridInfo == null || x < 0 || x >= Width || z < 0 || z >= Height) 
-            return default;
-        return GridInfo[x, GridY, z].type;
-    }
-
-    // get a list of all walkable tiles on the grid
-    public Vector3Int[] GetWalkableTiles()
-    {
-        if (GridInfo == null) return new Vector3Int[0];
-
-        List<Vector3Int> walkable = new List<Vector3Int>();
-        for (int x = 0; x < Width; x++)
-        {
-            for (int z = 0; z < Height; z++)
-            {
-                if (GridInfo[x, GridY, z].type == TileType.Ground && !GridInfo[x, GridY, z].isOccupied)
-                {
-                    walkable.Add(new Vector3Int(x, GridY, z));
-                }
-            }
-        }
-        return walkable.ToArray();
-    }
-
     public override IEnumerator TargetSelect(int range, CoroutineResult<GameObject> result)
     {
         //return a selected monster if valid
