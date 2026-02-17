@@ -20,12 +20,7 @@ namespace Game.Creature
         public ItemDto[] items;
         public ItemDto[] reactions;
         public ItemDto[] passives;
-        public ItemDto[] reactions;
-        public ItemDto[] passives;
         public EquipmentDto[] equipment;
-        public WeaponDto[] weapons;
-        public ArmorDto[] armor;
-        public ConditionsDto[] conditions;
         public WeaponDto[] weapons;
         public ArmorDto[] armor;
         public ConditionsDto[] conditions;
