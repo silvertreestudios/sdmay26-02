@@ -4,47 +4,51 @@ using UnityEngine;
 
 /// <summary>
 /// Manages visual highlights for reachable tiles within movement range.
-/// Calculates reachable tiles using depth-first search and creates highlight GameObjects.
 /// </summary>
 public class MovementRange
 {
-    // Grid reference for pathfinding and coordinate conversion
     private readonly IGridMemory grid;
-
-    // Movement configuration
     private readonly bool allowDiagonalMovement;
     private readonly float diagonalCost;
-
-    // Highlight visual configuration
     private readonly GameObject highlightPrefab;
     private readonly Color highlightColor;
     private readonly float highlightHeightOffset;
-
-    // Runtime state
     private readonly List<GameObject> activeHighlights = new List<GameObject>();
     private HashSet<Vector3Int> currentReachableTiles = new HashSet<Vector3Int>();
     private HashSet<Vector3Int> attackedTiles = new HashSet<Vector3Int>();
-
-
-    // Delegate for converting grid cells to world positions
     private readonly System.Func<int, int, float, Vector3> gridToWorld;
 
     // Cached direction arrays to avoid repeated allocations
     private static readonly Vector3Int[] CardinalDirections = new[]
     {
-        new Vector3Int(1, 0, 0),   // East
-        new Vector3Int(-1, 0, 0),  // West
-        new Vector3Int(0, 0, 1),   // North
-        new Vector3Int(0, 0, -1)   // South
+        new Vector3Int(1, 0, 0),
+        new Vector3Int(-1, 0, 0),
+        new Vector3Int(0, 0, 1),
+        new Vector3Int(0, 0, -1)
     };
 
     private static readonly Vector3Int[] DiagonalDirections = new[]
     {
-        new Vector3Int(1, 0, 1),   // Northeast
-        new Vector3Int(-1, 0, 1),  // Northwest
-        new Vector3Int(1, 0, -1),  // Southeast
-        new Vector3Int(-1, 0, -1)  // Southwest
+        new Vector3Int(1, 0, 1),
+        new Vector3Int(-1, 0, 1),
+        new Vector3Int(1, 0, -1),
+        new Vector3Int(-1, 0, -1)
     };
+
+    /// <summary>
+    /// Creates a new MovementRange
+    /// </summary>
+    /// <param name="controller">Reference to the grid controller</param>
+    public MovementRange(GridCharacterController3D controller)
+    {
+        this.grid = controller.gridMemory;
+        this.highlightPrefab = controller.rangeHighlightPrefab;
+        this.highlightColor = controller.rangeHighlightColor;
+        this.highlightHeightOffset = controller.rangeHighlightHeightOffset;
+        this.allowDiagonalMovement = controller.allowDiagonalMovement;
+        this.diagonalCost = controller.diagonalCost;
+        this.gridToWorld = controller.coordinateConverter.GridCellCenterWorld;
+    }
 
     /// <summary>
     /// Gets the current set of reachable tiles
@@ -55,39 +59,6 @@ public class MovementRange
     /// Checks if a specific cell is within the current reachable range
     /// </summary>
     public bool IsCellReachable(Vector3Int cell) => currentReachableTiles.Contains(cell);
-
-    /// <summary>
-    /// Creates a new MovementRangeHighlighter
-    /// </summary>
-    /// <param name="gridReference">Grid for pathfinding</param>
-    /// <param name="prefab">Prefab to instantiate for highlights</param>
-    /// <param name="color">Color for highlight visuals</param>
-    /// <param name="heightOffset">Height offset above grid</param>
-    /// <param name="allowDiagonal">Whether diagonal movement is allowed</param>
-    /// <param name="diagCost">Cost for diagonal movement</param>
-    /// <param name="gridCellToWorld">Function to convert grid coordinates to world position</param>
-    public MovementRange(
-        IGridMemory gridReference,
-        GameObject prefab,
-        Color color,
-        float heightOffset,
-        bool allowDiagonal,
-        float diagCost,
-        System.Func<int, int, float, Vector3> gridCellToWorld)
-    {
-        if (gridReference == null)
-        {
-            Debug.LogError("[MovementRangeHighlighter] Grid reference cannot be null!");
-        }
-
-        this.grid = gridReference;
-        this.highlightPrefab = prefab;
-        this.highlightColor = color;
-        this.highlightHeightOffset = heightOffset;
-        this.allowDiagonalMovement = allowDiagonal;
-        this.diagonalCost = Mathf.Max(1f, diagCost); // Ensure diagonal cost is at least 1
-        this.gridToWorld = gridCellToWorld;
-    }
 
     /// <summary>
     /// Updates highlights for a character at a given position
@@ -141,80 +112,80 @@ public class MovementRange
         currentReachableTiles.Clear();
     }
 
-    
+
     /// <summary>
     /// Calculates all reachable tiles within movement range using depth-first search
     /// </summary>
     private HashSet<Vector3Int> CalculateReachableTiles(Vector3Int start, int maxRange)
-{
-    // Return all walkable tiles if unlimited range
-    if (maxRange <= 0)
     {
-        return GetAllWalkableTiles();
-    }
-
-    HashSet<Vector3Int> reachable = new HashSet<Vector3Int>();
-    Dictionary<Vector3Int, float> bestCost = new Dictionary<Vector3Int, float>();
-    Stack<(Vector3Int cell, float cost)> stack = new Stack<(Vector3Int, float)>();
-
-    // Start DFS
-    stack.Push((start, 0f));
-    bestCost[start] = 0f;
-
-    while (stack.Count > 0)
-    {
-        var (current, currentCost) = stack.Pop();
-
-        // Skip if we've already found a better path to this cell
-        if (bestCost.TryGetValue(current, out float existingCost) && currentCost > existingCost)
-            continue;
-
-        // Only proceed if within range
-        if (currentCost > maxRange)
-            continue;
-
-        // Add to reachable if within range, walkable and not the start cell
-        if (grid.IsCellWalkable(current) && current != start)
+        // Return all walkable tiles if unlimited range
+        if (maxRange <= 0)
         {
-            reachable.Add(current);
+            return GetAllWalkableTiles();
         }
 
-        // Explore neighbors (even if current is not walkable, as long as we are within range)
-        foreach (var neighbor in GetNeighbors(current))
+        HashSet<Vector3Int> reachable = new HashSet<Vector3Int>();
+        Dictionary<Vector3Int, float> bestCost = new Dictionary<Vector3Int, float>();
+        Stack<(Vector3Int cell, float cost)> stack = new Stack<(Vector3Int, float)>();
+
+        // Start DFS
+        stack.Push((start, 0f));
+        bestCost[start] = 0f;
+
+        while (stack.Count > 0)
         {
-            // Check bounds
-            if (!IsWithinBounds(neighbor))
+            var (current, currentCost) = stack.Pop();
+
+            // Skip if we've already found a better path to this cell
+            if (bestCost.TryGetValue(current, out float existingCost) && currentCost > existingCost)
                 continue;
 
-            // Check walkability for neighbor; allow the start cell even if it's not walkable
-            if (!grid.IsCellWalkable(neighbor) && neighbor != start)
+            // Only proceed if within range
+            if (currentCost > maxRange)
                 continue;
 
-            // Calculate movement cost
-            float moveCost = CalculateMovementCost(current, neighbor);
-            float newCost = currentCost + moveCost;
-
-            // Only add if within range and better than any previous path
-            if (newCost <= maxRange)
+            // Add to reachable if within range, walkable and not the start cell
+            if (grid.IsCellWalkable(current) && current != start)
             {
-                if (!bestCost.TryGetValue(neighbor, out float neighborBestCost) || newCost < neighborBestCost)
+                reachable.Add(current);
+            }
+
+            // Explore neighbors (even if current is not walkable, as long as we are within range)
+            foreach (var neighbor in GetNeighbors(current))
+            {
+                // Check bounds
+                if (!IsWithinBounds(neighbor))
+                    continue;
+
+                // Check walkability for neighbor; allow the start cell even if it's not walkable
+                if (!grid.IsCellWalkable(neighbor) && neighbor != start)
+                    continue;
+
+                // Calculate movement cost
+                float moveCost = CalculateMovementCost(current, neighbor);
+                float newCost = currentCost + moveCost;
+
+                // Only add if within range and better than any previous path
+                if (newCost <= maxRange)
                 {
-                    bestCost[neighbor] = newCost;
-                    stack.Push((neighbor, newCost));
+                    if (!bestCost.TryGetValue(neighbor, out float neighborBestCost) || newCost < neighborBestCost)
+                    {
+                        bestCost[neighbor] = newCost;
+                        stack.Push((neighbor, newCost));
+                    }
                 }
             }
         }
-    }
 
-    return reachable;
-}
+        return reachable;
+    }
 
     //this method calculates and returns all reachable tiles within a range that have line of sight to the start position
     public HashSet<Vector3Int> CalculateEmination(Vector3Int start, int maxRange)
     {
         attackedTiles.Clear();
         HashSet<Vector3Int> reachable = CalculateCircle(start, maxRange);
-       
+
 
         foreach (var cell in reachable)
         {
@@ -241,7 +212,7 @@ public class MovementRange
                 // round down to the nearest whole number to avoid missing edge tiles
                 float distance = Mathf.Sqrt(x * x + z * z);
 
-                if (distance <= effectiveRange && IsWithinBounds(candidate) && (x!= 0 || z != 0))
+                if (distance <= effectiveRange && IsWithinBounds(candidate) && (x != 0 || z != 0))
                 {
                     circleTiles.Add(candidate);
                 }
