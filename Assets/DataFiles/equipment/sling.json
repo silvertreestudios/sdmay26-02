@@ -7,7 +7,9 @@
   "damageDice": 1,
   "damageDie": "6",
   "damageType": "bludgeoning",
-  "description": null,
+  "description": [
+    "Little more than a leather cup attached to a pair of straps, a sling can be used to fling smooth stones or sling bullets at a range."
+  ],
   "traits": [
     "propulsive"
   ],
@@ -18,7 +20,7 @@
   "reload": "1",
   "ammo": "sling-bullets",
   "bulk": 0.1,
-  "size": null,
+  "size": "med",
   "baseItem": "sling",
   "bonus": 0,
   "bonusDamage": 0,

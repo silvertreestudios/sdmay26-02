@@ -7,7 +7,9 @@
   "damageDice": 1,
   "damageDie": "6",
   "damageType": "slashing",
-  "description": null,
+  "description": [
+    "This short, curved, and crude makeshift blade often has holes drilled into it to reduce its weight. It's a favored weapon of goblins."
+  ],
   "traits": [
     "agile",
     "backstabber",
@@ -21,7 +23,7 @@
   "reload": null,
   "ammo": null,
   "bulk": 0.1,
-  "size": null,
+  "size": "med",
   "baseItem": "dogslicer",
   "bonus": 0,
   "bonusDamage": 0,

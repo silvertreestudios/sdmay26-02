@@ -7,7 +7,9 @@
   "damageDice": 1,
   "damageDie": "10",
   "damageType": "piercing",
-  "description": null,
+  "description": [
+    "This polearm has a relatively short, 5-foot shaft. The business end is a long spike with an axe blade attached."
+  ],
   "traits": [
     "reach",
     "versatile-s"
@@ -19,7 +21,7 @@
   "reload": null,
   "ammo": null,
   "bulk": 2,
-  "size": null,
+  "size": "med",
   "baseItem": "halberd",
   "bonus": 0,
   "bonusDamage": 0,

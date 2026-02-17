@@ -7,7 +7,9 @@
   "damageDice": 1,
   "damageDie": "6",
   "damageType": "piercing",
-  "description": null,
+  "description": [
+    "A long metal shaft ending with a metal spike, a spear can be used one-handed as a melee weapon and can be thrown."
+  ],
   "traits": [
     "monk",
     "thrown-20"
@@ -19,7 +21,7 @@
   "reload": "-",
   "ammo": null,
   "bulk": 1,
-  "size": null,
+  "size": "med",
   "baseItem": "spear",
   "bonus": 0,
   "bonusDamage": 0,

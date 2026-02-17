@@ -54,7 +54,7 @@ namespace JsonImporter
                 output["damageType"] = system.SelectToken("damage.damageType");
             if(system.SelectToken("description") != null){
                 // output["description"] = system.SelectToken("description.value");
-                HtmlUtils.ExtractPlainAndParagraphs(input.SelectToken("description.value")?.ToString(), out string plainDesc, out JArray plainText, out JArray contexts);
+                HtmlUtils.ExtractPlainAndParagraphs(system.SelectToken("description.value")?.ToString(), out string plainDesc, out JArray plainText, out JArray contexts);
                 output["description"] = plainText;
             }
             if(system.SelectToken("traits") != null)
@@ -104,7 +104,7 @@ namespace JsonImporter
             if(system.SelectToken("bulk") != null)
                 output["bulk"] = system.SelectToken("bulk.value");
             if(system.SelectToken("size") != null)
-                output["size"] = system.SelectToken("size.value");
+                output["size"] = system.SelectToken("size");
             if(system.SelectToken("baseItem") != null)
                 output["baseItem"] = system.SelectToken("baseItem");
             if(system.SelectToken("bonus.value") != null)
