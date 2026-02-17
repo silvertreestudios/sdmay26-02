@@ -1,0 +1,19 @@
+{
+  "ancestries": [
+    {
+      "id": "Elf",
+      "description": "Elves are tall, long-lived people with a strong tradition of art and magic.",
+      "attributeBoost": ["dexterity", "intelligence"],
+      "attributeFlaw": "constitution",
+      "hp": 6,
+      "speed": 30,
+      "ancestryFeat": ["Ancestral Longevity", "Elven Weapon Familiarity", "Forlorn", "Nimble Elf", "Otherwordly Magic", "Unwavering Mien"],
+      "heritage": ["Ancient", "Arctic", "Carvern", "Seer", "Whisper", "Woodland"]
+    },
+    {
+      "id": "Human",
+      "hp": 6,
+      "skill": "Lore"
+    }
+  ]
+}

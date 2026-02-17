@@ -68,11 +68,11 @@
                 <ui:TabView name="NestedBackgroundChoices">
                     <ui:Tab label="Boost Choice" name="BoostChoices">
                         <ui:Label text="Pick a background boost" name="BackgroundBoostChoiceLabel" />
-                        <ui:RadioButtonGroup label="Radio Button Group" name="BackgroundBoostChoiceRadioButtonGroup" />
+                        <ui:RadioButtonGroup name="BackgroundBoostChoiceRadioButtonGroup" />
                     </ui:Tab>
                     <ui:Tab label="Free Boost" name="BackgroundFreeBoost">
                         <ui:Label text="Free Boost for Background" name="BackgroundFreeBoostLabel" />
-                        <ui:RadioButtonGroup label="Radio Button Group" name="BackgroundFreeBoostRadioGroup" />
+                        <ui:RadioButtonGroup name="BackgroundFreeBoostRadioGroup" />
                     </ui:Tab>
                 </ui:TabView>
             </ui:Tab>

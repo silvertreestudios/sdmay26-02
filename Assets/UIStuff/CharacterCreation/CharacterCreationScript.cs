@@ -1,6 +1,25 @@
 using UnityEngine;
 using UnityEngine.UIElements;
 using System.Collections.Generic;
+
+[System.Serializable]
+public class Ancestry
+{
+    public string id;
+    public string description;
+    public string[] attributeBoost;
+    public string attributeFlaw;
+    public int hp;
+    public int speed;
+    public string[] ancestryFeat;
+    public string[] ancestryHeritage;
+}
+
+[System.Serializable]
+public class AncestryDatabase
+ {
+    public List<Ancestry> ancestries;
+}
     
 //Inherits from class `MonoBehaviour`. This makes it attachable to a game object as a component.
 public class CharacterCreationScript : MonoBehaviour
@@ -21,6 +40,11 @@ public class CharacterCreationScript : MonoBehaviour
     Dictionary<string, List<string>> backgroundDescriptionByBackground;
     Dictionary<string, List<string>> classFeatByClass;
 
+    //for json
+    TextAsset jsonFile;
+    AncestryDatabase db;
+    //for json end
+
     private void OnEnable()
     {
 
@@ -37,7 +61,10 @@ public class CharacterCreationScript : MonoBehaviour
         backgroundSkillFeatLabel = root.Q<Label>("BackgroundSkillFeatLabel");
         classFeatsRadioButtonGroup = root.Q<RadioButtonGroup>("ClassFeatsRadioButtonGroup");
         classesRadioButtonGroup = root.Q<RadioButtonGroup>("ClassesRadioButtonGroup");
-        //ancestryRadioButtonGroup.value = 0;
+
+        //for json pt2, assigning
+        jsonFile = Resources.Load<TextAsset>("Data/ancestry");
+        db = JsonUtility.FromJson<AncestryDatabase>(jsonFile.text);
 
         heritagesByAncestry = new Dictionary<string, List<string>>()
         {
@@ -138,6 +165,16 @@ public class CharacterCreationScript : MonoBehaviour
         }
 
         heritageRadioButtonGroup.value = 0; // optional: auto-select first
+
+        //FOR TESTING JSON BITS
+        // foreach (var ant in db.ancestries)
+        // {
+        //     var rb = new RadioButton
+        //     {
+        //         text = ant.id
+        //     };
+        //     heritageRadioButtonGroup.Add(rb);
+        // }
     }
 
     void PopulateAncestryFeatButtons(string ancestry)
