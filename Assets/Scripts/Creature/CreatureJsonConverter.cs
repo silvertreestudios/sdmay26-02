@@ -20,7 +20,12 @@ namespace Game.Creature
         public ItemDto[] items;
         public ItemDto[] reactions;
         public ItemDto[] passives;
+        public ItemDto[] reactions;
+        public ItemDto[] passives;
         public EquipmentDto[] equipment;
+        public WeaponDto[] weapons;
+        public ArmorDto[] armor;
+        public ConditionsDto[] conditions;
         public WeaponDto[] weapons;
         public ArmorDto[] armor;
         public ConditionsDto[] conditions;
@@ -74,6 +79,9 @@ namespace Game.Creature
 
     // Item DTOs
     [Serializable] public class ItemDto { public string name; public string type; public ItemSystemDto system; }
+    // TODO variants for reactions and passives as needed
+    // [Serializable] public class ReactionDto { public string name; public string description; }
+    // [Serializable] public class PassiveDto { public string name; public string description; }
     // TODO variants for reactions and passives as needed
     // [Serializable] public class ReactionDto { public string name; public string description; }
     // [Serializable] public class PassiveDto { public string name; public string description; }
@@ -221,6 +229,7 @@ namespace Game.Creature
             }
 
             // Actions - Standard (store item names)
+            // Actions - Standard (store item names)
             if (target.actions == null) target.actions = new List<string>();
             target.actions.Clear();
             if (dto.items != null)
@@ -247,8 +256,29 @@ namespace Game.Creature
                     if (!string.IsNullOrEmpty(p?.name))
                         target.passives.Add(p.name);
             }
+            // Actions - Reactions
+            if(target.reactions == null) target.reactions = new List<string>();
+            target.reactions.Clear();
+            if (dto.reactions != null)
+            {
+                foreach (var r in dto.reactions)
+                    if (!string.IsNullOrEmpty(r?.name))
+                        target.reactions.Add(r.name);
+            }
+            if(target.passives == null) target.passives = new List<string>();
+            // Actions - Passives
+            target.passives.Clear();
+            if (dto.passives != null)
+            {
+                foreach (var p in dto.passives)
+                    if (!string.IsNullOrEmpty(p?.name))
+                        target.passives.Add(p.name);
+            }
 
             // Equipment
+            // TODO use equipment names from creature JSON as args to look up actual Equipment items from datafiles
+            //      -Done for weapons
+            //      -TODO armor
             // TODO use equipment names from creature JSON as args to look up actual Equipment items from datafiles
             //      -Done for weapons
             //      -TODO armor

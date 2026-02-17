@@ -48,6 +48,8 @@ namespace Game.Creature
         [SerializeField] private List<DamageValue> _resistances = new List<DamageValue>();
         // hash map or alternative get for modifications?
         // handle conditions/modifiers in CreatureComponent
+        // hash map or alternative get for modifications?
+        // handle conditions/modifiers in CreatureComponent
 
         // Example for ability modifiers
         [Header("Ability Modifiers")]
@@ -79,6 +81,7 @@ namespace Game.Creature
         [Header("Conditions")]
         [SerializeField] private List<string> _conditions = new List<string>();
 
+
         [Header("Equipment")]
         [SerializeField] private EquipmentArmor _equippedArmor;
         [SerializeField] private EquipmentWeapon _equippedRightHand;
@@ -88,15 +91,6 @@ namespace Game.Creature
         [SerializeField] private List<EquipmentWeapon> _weapons = new List<EquipmentWeapon>();
         [SerializeField] private List<string> _armorList = new List<string>(); // Temp to display armor in inspector
         [SerializeField] private List<EquipmentArmor> _armor = new List<EquipmentArmor>(); // Temp to display armor in inspector
-
-
-        // NOTES FOR IMPLEMENTING STRIKE VARIANTS
-        // Dice damageDice = new Dice(damageRolls.damage);
-        // damgeDice.damageType = damageRolls.damageType;
-        // DamageValue flatDamage = new DamageValue(damageRolls.damageType, _strMod)
-        // Actions.Add(new Strike(1, new List<Dice>() { damageDice }, new List<DamageValue>() { flatDamage }));
-        //[SerializeField] private List<EntityAction> _Actions = new List<EntityAction>();
-        //public new List<EntityAction> Actions { get => _Actions; set => _Actions = value ?? new List<EntityAction>(); }
 
         // Public properties for interface
         public new string name { get => _name; set { _name = value; base.name = value; } }
@@ -133,6 +127,7 @@ namespace Game.Creature
         public List<string> passives { get => _passives; set => _passives = value ?? new List<string>(); }
         public List<string> conditions { get => _conditions; set => _conditions = value ?? new List<string>(); }
 
+
         // TODO: properly implement
         public List<string> equipment { get => _equipment; set => _equipment = value ?? new List<string>(); }
         public EquipmentArmor equippedArmor { get => _equippedArmor; set => _equippedArmor = value; }
@@ -158,6 +153,7 @@ namespace Game.Creature
         void Start()
         {
             // Initialization code here
+            // TODO create method to run check against action/ability lists to populate additional scripts
             // TODO create method to run check against action/ability lists to populate additional scripts
         }
 
