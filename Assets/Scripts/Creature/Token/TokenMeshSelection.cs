@@ -15,7 +15,7 @@ public class TokenMeshSelection : MonoBehaviour
     MeshRenderer BaseMeshRenderer;
     MeshFilter BaseMeshFilter;
 
-    private string TokenMeshToFind;
+    protected string TokenMeshToFind; // Changed to protected so ViewModel can access it
 
     #if UNITY_EDITOR
     void OnValidate()
@@ -29,21 +29,18 @@ public class TokenMeshSelection : MonoBehaviour
     #endif
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
+    protected void Start()
     {
         UpdateTokenMesh();
     }
  
-    void UpdateTokenMesh()
+    protected void UpdateTokenMesh() // Changed to protected so ViewModel can call it
     {
         // Safety check for destroyed objects
         if (this == null || gameObject == null) return;
 
-
         tokenObject = transform.GetChild(0).gameObject;
         baseObject = transform.GetChild(1).gameObject;
-
-
 
         TokenMeshFilter = tokenObject.GetComponent<MeshFilter>();
         TokenMeshRenderer = tokenObject.GetComponent<MeshRenderer>();
@@ -62,7 +59,6 @@ public class TokenMeshSelection : MonoBehaviour
         if (creatureComponent != null)
         {
             TokenMeshToFind = creatureComponent.name;
-
         }
         else
         {
@@ -97,7 +93,6 @@ public class TokenMeshSelection : MonoBehaviour
             }
         }
 
-
         BaseMeshFilter.sharedMesh = BaseOptions[0].mesh;
 
         if (!meshFound)
@@ -108,12 +103,10 @@ public class TokenMeshSelection : MonoBehaviour
     }
 
     // Update is called once per frame
-    void Update()
+    protected void Update()
     {
 
     }
-
-
 }
 
 [System.Serializable]
