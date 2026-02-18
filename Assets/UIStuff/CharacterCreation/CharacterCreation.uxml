@@ -1,0 +1,105 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/UIStuff/CharacterCreation/CharacterCreation.uss?fileID=7433441132597879392&amp;guid=ab2c21ff1365a96489a5f75bb7e25c0f&amp;type=3#CharacterCreation" />
+    <ui:VisualElement name="Panel" class="panel">
+        <ui:VisualElement name="ProfilePanel">
+            <ui:TextField label="Ancestry" name="AncestryChoice" readonly="true" />
+            <ui:TextField label="Heritage" placeholder-text="filler text" name="HeritageChoice" />
+            <ui:TextField label="Background" placeholder-text="filler text" name="BackgroundChoice" />
+            <ui:TextField label="Class" placeholder-text="filler text" name="ClassChoice" />
+            <ui:IntegerField label="HP" value="42" name="HP" />
+            <ui:IntegerField label="Speed" value="42" name="Speed" />
+            <ui:Foldout text="Attributes" name="Attributes">
+                <ui:IntegerField label="Strength" value="42" name="StrengthAttribute" />
+                <ui:IntegerField label="Dexterity" value="42" name="DexterityAttribute" />
+                <ui:IntegerField label="Constitution" value="42" name="ConstitutionAttribute" />
+                <ui:IntegerField label="Intelligence" value="42" name="IntelligenceAttribute" />
+                <ui:IntegerField label="Wisdom" value="42" name="WisdomAttribute" />
+                <ui:IntegerField label="Charisma" value="42" name="CharismaAttribute" />
+            </ui:Foldout>
+            <ui:Foldout text="Saving Throws" name="SavingThrows" />
+        </ui:VisualElement>
+        <ui:TextField label="Name" placeholder-text="Enter character&apos;s name" name="NameField" />
+        <ui:RadioButtonGroup label="Gender" name="Gender">
+            <ui:RadioButton label="Male" name="Male" style="background-image: none;" />
+            <ui:RadioButton label="Female" name="Female" />
+        </ui:RadioButtonGroup>
+        <ui:TabView view-data-key="CharacterCreation" enabled="true" reorderable="false">
+            <ui:Tab label="Ancestry" name="AncestryTab" view-data-key="AncestryTab">
+                <ui:RadioButtonGroup name="AncestryRadioButtonGroup">
+                    <ui:RadioButton label="Human" name="Human" />
+                    <ui:RadioButton label="Elf" name="Elf" />
+                    <ui:RadioButton label="Gnome" name="Gnome" />
+                    <ui:RadioButton label="Orc" name="Orc" />
+                    <ui:RadioButton label="Dwarf" name="Dwarf" />
+                    <ui:RadioButton label="Halfling" name="Halfling" />
+                    <ui:RadioButton label="Goblin" name="Goblin" />
+                    <ui:RadioButton label="Leshy" name="Leshy" />
+                </ui:RadioButtonGroup>
+                <ui:Label name="AncestryContent" text="Ancestry is your people and your culture" class="tab-content" />
+                <ui:TabView name="NestedAncestryChoices">
+                    <ui:Tab label="Heritage" name="HeritageTab" view-data-key="HeritageTab">
+                        <ui:Label text="Your heritage is a sub-race" name="HeritageContent" class="tab-content" />
+                        <ui:RadioButtonGroup name="HeritageRadioButtonGroup" />
+                    </ui:Tab>
+                    <ui:Tab label="Ancestry Feats" name="AncestryFeatsTab">
+                        <ui:Label text="Feats provide special benefits" name="AncestryFeatsContent" class="tab-content" />
+                        <ui:RadioButtonGroup name="AncestryFeatsRadioButtonGroup" />
+                    </ui:Tab>
+                    <ui:Tab label="Free Boost" name="FreeAttributeBoostTab">
+                        <ui:Label text="Pick a free attribute boost" name="FreeBoostLabel" />
+                        <ui:RadioButtonGroup name="FreeBoostRadioButtonGroup">
+                            <ui:RadioButton label="Strength" name="StrengthAttributeRadio" />
+                            <ui:RadioButton label="Dexterity" name="DexterityAttributeRadio" />
+                            <ui:RadioButton label="Constitution" name="ConstitutionAttributeRadio" />
+                            <ui:RadioButton label="Intelligence" name="IntelligenceAttributeRadio" />
+                            <ui:RadioButton label="Wisdom" name="WisdomAttributeRadio" />
+                            <ui:RadioButton label="Charisma" name="CharismaAttributeRadio" />
+                        </ui:RadioButtonGroup>
+                    </ui:Tab>
+                </ui:TabView>
+            </ui:Tab>
+            <ui:Tab label="Background" name="BackgroundTab" view-data-key="BackgroundTab">
+                <ui:Label text="Background is your former occupation" name="BackgroundContent" class="tab-content" />
+                <ui:RadioButtonGroup name="BackgroundRadioButtonGroup">
+                    <ui:RadioButton label="Acolyte" name="AcolyteRadioButton" />
+                    <ui:RadioButton label="Bandit" name="BanditRadioButton" />
+                    <ui:RadioButton label="Cook" name="CookRadioButton" />
+                </ui:RadioButtonGroup>
+                <ui:TabView name="NestedBackgroundChoices">
+                    <ui:Tab label="Boost Choice" name="BoostChoices">
+                        <ui:Label text="Pick a background boost" name="BackgroundBoostChoiceLabel" />
+                        <ui:RadioButtonGroup name="BackgroundBoostChoiceRadioButtonGroup" />
+                    </ui:Tab>
+                    <ui:Tab label="Free Boost" name="BackgroundFreeBoost">
+                        <ui:Label text="Free Boost for Background" name="BackgroundFreeBoostLabel" />
+                        <ui:RadioButtonGroup name="BackgroundFreeBoostRadioGroup" />
+                    </ui:Tab>
+                </ui:TabView>
+            </ui:Tab>
+            <ui:Tab label="Class" name="ClassTab" view-data-key="ClassTab">
+                <ui:Label text="Class is your style" name="ClassContent" class="tab-content" />
+                <ui:RadioButtonGroup label="Radio Button Group" name="ClassesRadioButtonGroup">
+                    <ui:RadioButton label="Fighter" name="FighterRadioButton" />
+                    <ui:RadioButton label="Cleric" name="ClericRadioButton" />
+                    <ui:RadioButton label="Rogue" name="RogueRadioButton" />
+                    <ui:RadioButton label="Sorcerer" name="SorcererRadioButton" />
+                </ui:RadioButtonGroup>
+                <ui:TabView name="NestedClassChoices">
+                    <ui:Tab label="Class Feats" name="ClassFeats">
+                        <ui:Label text="These are the class feats" name="ClassFeatsContent" class="tab-content" />
+                        <ui:RadioButtonGroup label="Radio Button Group" name="ClassFeatsRadioButtonGroup" />
+                    </ui:Tab>
+                </ui:TabView>
+            </ui:Tab>
+        </ui:TabView>
+    </ui:VisualElement>
+    <ui:VisualElement name="BottomPanel" style="flex-grow: 1;">
+        <ui:VisualElement name="AncestryDetails" enabled="true" style="flex-grow: 1; background-color: rgb(255, 0, 0);">
+            <ui:Label name="AncestryDescription" />
+            <ui:Label name="AncestryBoostsFlaws" />
+            <ui:Label name="BackgroundDescriptionLabel" />
+            <ui:Label name="BackgroundSkillLabel" />
+            <ui:Label name="BackgroundSkillFeatLabel" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>
