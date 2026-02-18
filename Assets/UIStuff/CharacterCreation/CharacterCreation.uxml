@@ -3,11 +3,11 @@
     <ui:VisualElement name="Panel" class="panel">
         <ui:VisualElement name="ProfilePanel">
             <ui:TextField label="Ancestry" name="AncestryChoice" readonly="true" />
-            <ui:TextField label="Heritage" placeholder-text="filler text" name="HeritageChoice" />
+            <ui:TextField label="Heritage" name="HeritageChoice" readonly="true" />
             <ui:TextField label="Background" placeholder-text="filler text" name="BackgroundChoice" />
             <ui:TextField label="Class" placeholder-text="filler text" name="ClassChoice" />
-            <ui:IntegerField label="HP" value="42" name="HP" />
-            <ui:IntegerField label="Speed" value="42" name="Speed" />
+            <ui:IntegerField label="HP" value="0" name="HP" readonly="true" />
+            <ui:IntegerField label="Speed" value="0" name="Speed" readonly="true" />
             <ui:Foldout text="Attributes" name="Attributes">
                 <ui:IntegerField label="Strength" value="42" name="StrengthAttribute" />
                 <ui:IntegerField label="Dexterity" value="42" name="DexterityAttribute" />
@@ -72,7 +72,14 @@
                     </ui:Tab>
                     <ui:Tab label="Free Boost" name="BackgroundFreeBoost">
                         <ui:Label text="Free Boost for Background" name="BackgroundFreeBoostLabel" />
-                        <ui:RadioButtonGroup name="BackgroundFreeBoostRadioGroup" />
+                        <ui:RadioButtonGroup name="BackgroundFreeBoostRadioGroup">
+                            <ui:RadioButton label="Strength" name="BackgroundStrength" />
+                            <ui:RadioButton label="Dexterity" name="BackgroundDexterity" />
+                            <ui:RadioButton label="Constitution" name="BackgroundConstitution" />
+                            <ui:RadioButton label="Intelligence" name="BackgroundIntelligence" />
+                            <ui:RadioButton label="Wisdom" name="BackgroundWisdom" />
+                            <ui:RadioButton label="Charisma" name="BackgroundCharisma" />
+                        </ui:RadioButtonGroup>
                     </ui:Tab>
                 </ui:TabView>
             </ui:Tab>
@@ -97,6 +104,7 @@
         <ui:VisualElement name="AncestryDetails" enabled="true" style="flex-grow: 1; background-color: rgb(255, 0, 0);">
             <ui:Label name="AncestryDescription" />
             <ui:Label name="AncestryBoostsFlaws" />
+            <ui:Label name="AncestrySpecialAbilities" />
             <ui:Label name="BackgroundDescriptionLabel" />
             <ui:Label name="BackgroundSkillLabel" />
             <ui:Label name="BackgroundSkillFeatLabel" />

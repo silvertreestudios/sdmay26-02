@@ -1,0 +1,68 @@
+{
+  "classes": [
+    {
+      "id": "fighter",
+      "description": "here",
+      "attributeBoost": "strength or dexterity",
+      "hp": 10,
+      "perception": "expert",
+      "fortitude": "expert",
+      "reflex": "expert",
+      "will": "trained",
+      "skills": ["acrobatics", "athletics"],
+      "attacks": ["simple weapons", "martial weapons", "advanced weapons", "unarmed attacks"],
+      "defenses": ["all armor", "unarmored defense"],
+      "spells": ["none"],
+      "subclass": ["none"],
+      "classFeat": ["Combat Assessment", "Double Slice", "Exacting Strike", "Point Blank Stance", "Reactive Shield", "Snagging Strike", "Sudden Charge", "Vicious Swing"]
+    },
+    {
+      "id": "cleric",
+      "description": "here",
+      "attributeBoost": "wisdom",
+      "hp": 8,
+      "perception": "trained",
+      "fortitude": "trained",
+      "reflex": "trained",
+      "will": "expert",
+      "skills": ["religion"],
+      "attacks": ["simple weapons", "unarmed attacks"],
+      "defenses": ["unarmored defense"],
+      "spells": ["spell attacker modifier", "spell DC"],
+      "subclass": ["cloistered", "warpriest"],
+      "classFeat": ["Deadly Simplicity", "Divine Castigation", "Domain Initiate", "Harming Hands", "Healing Hands", "Premonition of Avoidance", "Reach Spell"]
+    },
+    {
+      "id": "rogue",
+      "description": "here",
+      "attributeBoost": "dexterity or other",
+      "hp": 8,
+      "perception": "expert",
+      "fortitude": "trained",
+      "reflex": "expert",
+      "will": "expert",
+      "skills": ["stealth"],
+      "attacks": ["simple weapons", "martial weapons", "unarmed attacks"],
+      "defenses": ["light armor", "unarmored defense"],
+      "spells": ["none"],
+      "subclass": ["racket"],
+      "classFeat": ["Nimble Dodge", "Overextending Feint", "Plant Evidence", "Trap Finder", "Tumble Behind", "Twin Feint", "You're Next"]
+    },
+    {
+      "id": "sorcerer",
+      "description": "here",
+      "attributeBoost": "charisma",
+      "hp": 6,
+      "perception": "trained",
+      "fortitude": "trained",
+      "reflex": "trained",
+      "will": "expert",
+      "skills": "here",
+      "attacks": ["simple weapons", "unarmed attacks"],
+      "defenses": ["unarmored defense"],
+      "spells": ["spell attacker modifier", "spell DC"],
+      "subclass": ["bloodline"],
+      "classFeat": ["Blood Rising", "Familiar", "Reach Spell", "Tap into Blood", "Widen Spell"]
+    }
+]
+}

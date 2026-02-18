@@ -41,8 +41,11 @@ public class CharacterCreationScript : MonoBehaviour
     Label backgroundSkillFeatLabel;
     Label ancestryDescriptionLabel;
     Label ancestryBoostsFlawsLabel;
+    Label ancestrySpecialAbilitiesLabel;
     TextField ancestryChoiceField;
     TextField heritageChoiceField;
+    IntegerField hpField;
+    IntegerField speedField;
     Dictionary<string, List<string>> backgroundDescriptionByBackground;
     Dictionary<string, List<string>> classFeatByClass;
 
@@ -69,13 +72,17 @@ public class CharacterCreationScript : MonoBehaviour
         classesRadioButtonGroup = root.Q<RadioButtonGroup>("ClassesRadioButtonGroup");
         ancestryDescriptionLabel = root.Q<Label>("AncestryDescription");
         ancestryBoostsFlawsLabel = root.Q<Label>("AncestryBoostsFlaws");
+        ancestrySpecialAbilitiesLabel = root.Q<Label>("AncestrySpecialAbilities");
         ancestryChoiceField = root.Q<TextField>("AncestryChoice");
-        heritageChoiceField = root.Q<TextField>("HeritageChoice"); //NOT CURRENTLY TIED TO ANYTHING
+        heritageChoiceField = root.Q<TextField>("HeritageChoice");
+        hpField = root.Q<IntegerField>("HP");
+        speedField = root.Q<IntegerField>("Speed");
 
-        //for json pt2, assigning
+        //for json, assigning
         jsonFile = Resources.Load<TextAsset>("Data/ancestry");
         db = JsonUtility.FromJson<AncestryDatabase>(jsonFile.text);
 
+        //small enough that I'm keeping as a dictionary for now
         backgroundDescriptionByBackground = new Dictionary<string, List<string>>()
         {
             {"Acolyte", new List<string> {"You spent your early days in a religious monastery or cloister. You may have traveled out into the world to spread the message of your religion or because you cast away the teachings of your faith, but deep down you'll always carry within you the lessons you learned.", "Intelligence", "Wisdom", "Religion", "Student of the Canon"}},
@@ -94,6 +101,8 @@ public class CharacterCreationScript : MonoBehaviour
         ancestryRadioButtonGroup.RegisterValueChangedCallback(OnAncestryChanged);
         backgroundRadioButtonGroup.RegisterValueChangedCallback(OnBackgroundChanged);
         classesRadioButtonGroup.RegisterValueChangedCallback(OnClassChanged);
+
+        heritageRadioButtonGroup.RegisterValueChangedCallback(OnHeritageChanged);
     }
 
     //when there's a change in the ancestryRadioGroup, grab that text
@@ -101,9 +110,23 @@ public class CharacterCreationScript : MonoBehaviour
     {
         string selectedAncestry = (ancestryRadioButtonGroup[evt.newValue] as RadioButton).label; //evt.newValue is the index of the selected button
         ancestryChoiceField.value = selectedAncestry;
+        hpField.value = db.ancestries.Find(a => a.id == selectedAncestry).hp;
+        speedField.value = db.ancestries.Find(a => a.id == selectedAncestry).speed;
         PopulateHeritageButtons(selectedAncestry);
         PopulateAncestryFeatButtons(selectedAncestry);
         PopulateAncestryDescription(selectedAncestry);
+    }
+
+    //when there's a change in the heritageRadioGroup, grab that text
+    void OnHeritageChanged(ChangeEvent<int> evt)
+    {
+        //guards against -1, which is when no button is selected
+        if (evt.newValue < 0) {
+            return;
+        }
+
+        string selectedHeritage = (heritageRadioButtonGroup[evt.newValue] as RadioButton).text; //for some reason .label doesn't work here but .text does
+        heritageChoiceField.value = selectedHeritage;
     }
 
     //works with json
@@ -153,6 +176,7 @@ public class CharacterCreationScript : MonoBehaviour
         ancestryDescriptionLabel.text = "Description: " + selectedAncestry.description;
 
         ancestryBoostsFlawsLabel.text = "Attribute Boosts: " + string.Join(", ", selectedAncestry.attributeBoost) + "\n" + "Attribute Flaw: " + selectedAncestry.attributeFlaw;
+        ancestrySpecialAbilitiesLabel.text = "Special Abilities: " + string.Join(", ", selectedAncestry.specialAbilities);
     }
 
     //when there's a change in the backgroundRadioGroup, grab that text
