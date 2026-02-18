@@ -2,7 +2,7 @@
     <Style src="project://database/Assets/UIStuff/CharacterCreation/CharacterCreation.uss?fileID=7433441132597879392&amp;guid=ab2c21ff1365a96489a5f75bb7e25c0f&amp;type=3#CharacterCreation" />
     <ui:VisualElement name="Panel" class="panel">
         <ui:VisualElement name="ProfilePanel">
-            <ui:TextField label="Ancestry" placeholder-text="filler text" name="AncestryChoice" />
+            <ui:TextField label="Ancestry" name="AncestryChoice" readonly="true" />
             <ui:TextField label="Heritage" placeholder-text="filler text" name="HeritageChoice" />
             <ui:TextField label="Background" placeholder-text="filler text" name="BackgroundChoice" />
             <ui:TextField label="Class" placeholder-text="filler text" name="ClassChoice" />
@@ -95,8 +95,8 @@
     </ui:VisualElement>
     <ui:VisualElement name="BottomPanel" style="flex-grow: 1;">
         <ui:VisualElement name="AncestryDetails" enabled="true" style="flex-grow: 1; background-color: rgb(255, 0, 0);">
-            <ui:Label text="Elves are a tall, long-lived people with a strong tradition of art and magic." name="AncestryDescription" />
-            <ui:ListView name="AncestryAttributeBoostsList" />
+            <ui:Label name="AncestryDescription" />
+            <ui:Label name="AncestryBoostsFlaws" />
             <ui:Label name="BackgroundDescriptionLabel" />
             <ui:Label name="BackgroundSkillLabel" />
             <ui:Label name="BackgroundSkillFeatLabel" />
