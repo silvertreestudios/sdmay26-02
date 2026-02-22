@@ -24,6 +24,31 @@ public class AncestryDatabase
  {
     public List<Ancestry> ancestries;
 }
+
+[System.Serializable]
+public class ClassInfo
+{
+    public string id;
+    public string description;
+    public string attributeBoost;
+    public int hp;
+    public string perception;
+    public string fortitude;
+    public string reflex;
+    public string will;
+    public List<string> skills;
+    public Dictionary<string, string> attacks; // attack name -> proficiency level
+    public List<string> defenses;
+    public string spells;
+    public List<string> subclass;
+    public List<string> classFeat;
+}
+
+[System.Serializable]
+public class ClassDatabase
+ {
+    public List<ClassInfo> classes;
+}
     
 //Inherits from class `MonoBehaviour`. This makes it attachable to a game object as a component.
 public class CharacterCreationScript : MonoBehaviour
@@ -36,22 +61,33 @@ public class CharacterCreationScript : MonoBehaviour
     RadioButtonGroup backgroundBoostChoiceRadioButtonGroup;
     RadioButtonGroup classFeatsRadioButtonGroup;
     RadioButtonGroup classesRadioButtonGroup;
+    RadioButtonGroup subclassRadioButtonGroup;
     Label backgroundDescriptionLabel;
     Label backgroundSkillLabel;
     Label backgroundSkillFeatLabel;
     Label ancestryDescriptionLabel;
     Label ancestryBoostsFlawsLabel;
     Label ancestrySpecialAbilitiesLabel;
+    Label classDescriptionLabel;
+    Label classBoostsLabel;
+    Label classSkillsLabel;
     TextField ancestryChoiceField;
     TextField heritageChoiceField;
+    TextField backgroundChoiceField;
+    TextField classChoiceField;
     IntegerField hpField;
     IntegerField speedField;
+    TextField perceptionField;
+    TextField fortitudeField;
+    TextField reflexField;
+    TextField willField;
     Dictionary<string, List<string>> backgroundDescriptionByBackground;
-    Dictionary<string, List<string>> classFeatByClass;
 
     //for json
     TextAsset jsonFile;
+    TextAsset jsonFile2;
     AncestryDatabase db;
+    ClassDatabase db2;
     //for json end
 
     private void OnEnable()
@@ -77,10 +113,23 @@ public class CharacterCreationScript : MonoBehaviour
         heritageChoiceField = root.Q<TextField>("HeritageChoice");
         hpField = root.Q<IntegerField>("HP");
         speedField = root.Q<IntegerField>("Speed");
+        subclassRadioButtonGroup = root.Q<RadioButtonGroup>("SubClassRadioButtonGroup");
+        classDescriptionLabel = root.Q<Label>("ClassDescription");
+        classBoostsLabel = root.Q<Label>("ClassBoosts");
+        classSkillsLabel = root.Q<Label>("ClassSkills");
+        perceptionField = root.Q<TextField>("Perception");
+        fortitudeField = root.Q<TextField>("Fortitude");
+        reflexField = root.Q<TextField>("Reflex");
+        willField = root.Q<TextField>("Will");
+        backgroundChoiceField = root.Q<TextField>("BackgroundChoice");
+        classChoiceField = root.Q<TextField>("ClassChoice");
 
         //for json, assigning
         jsonFile = Resources.Load<TextAsset>("Data/ancestry");
         db = JsonUtility.FromJson<AncestryDatabase>(jsonFile.text);
+
+        jsonFile2 = Resources.Load<TextAsset>("Data/class");
+        db2 = JsonUtility.FromJson<ClassDatabase>(jsonFile2.text);
 
         //small enough that I'm keeping as a dictionary for now
         backgroundDescriptionByBackground = new Dictionary<string, List<string>>()
@@ -88,14 +137,6 @@ public class CharacterCreationScript : MonoBehaviour
             {"Acolyte", new List<string> {"You spent your early days in a religious monastery or cloister. You may have traveled out into the world to spread the message of your religion or because you cast away the teachings of your faith, but deep down you'll always carry within you the lessons you learned.", "Intelligence", "Wisdom", "Religion", "Student of the Canon"}},
             {"Bandit", new List<string> {"Your past includes no small amount of rural banditry, robbing travelers on the road and scraping by. Whether your robbery was sanctioned by a local noble or you did so of your own accord, you eventually got caught up in the adventuring life. Now, adventure is your stock and trade, and years of camping and skirmishing have only helped.", "Dexterity", "Charisma", "Intimidation", "Group Coercion"}},
             {"Cook", new List<string> {"You grew up in the kitchens of a tavern or other dining establishment and excelled there, becoming an exceptional cook. Baking, cooking, a little brewing on the side—you've spent lots of time out of sight. It's about time you went out into the world to catch some sights for yourself", "Constitution", "Intelligence", "Survival", "Seasoned"}}
-        };
-
-        classFeatByClass = new Dictionary<string, List<string>>()
-        {
-            {"Fighter", new List<string> {"Combat Assessment", "Double Slice", "Exacting Strike", "Point Blank Stance", "Reactive Shield", "Snagging Strike", "Sudden Charge", "Vicious Swing"}},
-            {"Cleric", new List<string> {"Deadly Simplicity", "Divine Castigation", "Domain Initiate", "Harming Hands", "Healing Hands", "Premonition of Avoidance", "Reach Spell"}},
-            {"Rogue", new List<string> {"Nimble Dodge", "Overextending Feint", "Plant Evidence", "Trap Finder", "Tumble Behind", "Twin Feint", "You're Next"}},
-            {"Sorcerer", new List<string> {"Blood Rising", "Familiar", "Reach Spell", "Tap into Blood", "Widen Spell"}}  
         };
 
         ancestryRadioButtonGroup.RegisterValueChangedCallback(OnAncestryChanged);
@@ -184,6 +225,7 @@ public class CharacterCreationScript : MonoBehaviour
     {
         string selectedBackground = (backgroundRadioButtonGroup[evt.newValue] as RadioButton).label; //evt.newValue is the index of the selected button
         PopulateBackgroundInfo(selectedBackground);
+        backgroundChoiceField.value = selectedBackground;
     }
 
     void PopulateBackgroundInfo(string background)
@@ -220,25 +262,57 @@ public class CharacterCreationScript : MonoBehaviour
     {
         string selectedClass = (classesRadioButtonGroup[evt.newValue] as RadioButton).label; //evt.newValue is the index of the selected button
         PopulateClassFeatButtons(selectedClass);
+        PopulateSubclassButtons(selectedClass);
+        PopulateClassDescription(selectedClass);
+
+        classChoiceField.value = selectedClass;
+
+        perceptionField.value = db2.classes.Find(a => a.id == selectedClass).perception;
+        fortitudeField.value = db2.classes.Find(a => a.id == selectedClass).fortitude;
+        reflexField.value = db2.classes.Find(a => a.id == selectedClass).reflex;
+        willField.value = db2.classes.Find(a => a.id == selectedClass).will;
     }
  
     void PopulateClassFeatButtons(string className)
     {
         classFeatsRadioButtonGroup.Clear(); //clear out past buttons
 
-        if (!classFeatByClass.TryGetValue(className, out var classFeats))
-            return;
-
-        foreach (string classFeat in classFeats)
+        ClassInfo selectedClass = db2.classes.Find(a => a.id == className);
+        foreach (string classFeat in selectedClass.classFeat)
         {
             var rb = new RadioButton
             {
                 text = classFeat
             };
-
             classFeatsRadioButtonGroup.Add(rb);
         }
 
         classFeatsRadioButtonGroup.value = 0; // optional: auto-select first
+    }
+
+    void PopulateSubclassButtons(string className)
+    {
+        subclassRadioButtonGroup.Clear(); //clear out past buttons
+
+        ClassInfo selectedClass = db2.classes.Find(a => a.id == className);
+        foreach (string subclass in selectedClass.subclass)
+        {
+            var rb = new RadioButton
+            {
+                text = subclass
+            };
+            subclassRadioButtonGroup.Add(rb);
+        }
+
+        subclassRadioButtonGroup.value = 0; // optional: auto-select first
+    }
+
+    void PopulateClassDescription(string className)
+    {
+        ClassInfo selectedClass = db2.classes.Find(a => a.id == className);
+        classDescriptionLabel.text = "Description: " + selectedClass.description;
+
+        classBoostsLabel.text = "Attribute Boosts: " + string.Join(", ", selectedClass.attributeBoost);
+        classSkillsLabel.text = "Class Skills: " + string.Join(", ", selectedClass.skills);
     }
 }

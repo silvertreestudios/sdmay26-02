@@ -4,8 +4,8 @@
         <ui:VisualElement name="ProfilePanel">
             <ui:TextField label="Ancestry" name="AncestryChoice" readonly="true" />
             <ui:TextField label="Heritage" name="HeritageChoice" readonly="true" />
-            <ui:TextField label="Background" placeholder-text="filler text" name="BackgroundChoice" />
-            <ui:TextField label="Class" placeholder-text="filler text" name="ClassChoice" />
+            <ui:TextField label="Background" name="BackgroundChoice" readonly="true" />
+            <ui:TextField label="Class" name="ClassChoice" readonly="true" />
             <ui:IntegerField label="HP" value="0" name="HP" readonly="true" />
             <ui:IntegerField label="Speed" value="0" name="Speed" readonly="true" />
             <ui:Foldout text="Attributes" name="Attributes">
@@ -16,7 +16,12 @@
                 <ui:IntegerField label="Wisdom" value="42" name="WisdomAttribute" />
                 <ui:IntegerField label="Charisma" value="42" name="CharismaAttribute" />
             </ui:Foldout>
-            <ui:Foldout text="Saving Throws" name="SavingThrows" />
+            <ui:Foldout text="Saving Throws" name="SavingThrows">
+                <ui:TextField label="Perception" name="Perception" readonly="true" />
+                <ui:TextField label="Fortitude" name="Fortitude" readonly="true" />
+                <ui:TextField label="Reflex" name="Reflex" readonly="true" />
+                <ui:TextField label="Will" name="Will" readonly="true" />
+            </ui:Foldout>
         </ui:VisualElement>
         <ui:TextField label="Name" placeholder-text="Enter character&apos;s name" name="NameField" />
         <ui:RadioButtonGroup label="Gender" name="Gender">
@@ -96,6 +101,9 @@
                         <ui:Label text="These are the class feats" name="ClassFeatsContent" class="tab-content" />
                         <ui:RadioButtonGroup label="Radio Button Group" name="ClassFeatsRadioButtonGroup" />
                     </ui:Tab>
+                    <ui:Tab label="SubClass" name="SubClass">
+                        <ui:RadioButtonGroup label="Radio Button Group" name="SubClassRadioButtonGroup" />
+                    </ui:Tab>
                 </ui:TabView>
             </ui:Tab>
         </ui:TabView>
@@ -108,6 +116,9 @@
             <ui:Label name="BackgroundDescriptionLabel" />
             <ui:Label name="BackgroundSkillLabel" />
             <ui:Label name="BackgroundSkillFeatLabel" />
+            <ui:Label name="ClassDescription" />
+            <ui:Label name="ClassBoosts" />
+            <ui:Label name="ClassSkills" />
         </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>

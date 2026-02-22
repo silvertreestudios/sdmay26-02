@@ -1,8 +1,8 @@
 {
   "classes": [
     {
-      "id": "fighter",
-      "description": "here",
+      "id": "Fighter",
+      "description": "Fighting for honor, greed, loyalty, or simply the thrill of battle, you are an undisputed master of weaponry and combat techniques. You combine your actions through clever combinations of opening moves, finishing strikes, and counterattacks whenever your foes are unwise enough to drop their guard. Whether you are a knight, mercenary, sharpshooter, or blade master, you have honed your martial skills into an art form and perform devastating critical attacks on your enemies.",
       "attributeBoost": "strength or dexterity",
       "hp": 10,
       "perception": "expert",
@@ -10,15 +10,20 @@
       "reflex": "expert",
       "will": "trained",
       "skills": ["acrobatics", "athletics"],
-      "attacks": ["simple weapons", "martial weapons", "advanced weapons", "unarmed attacks"],
+      "attacks": {
+        "simple weapons": "expert",
+        "martial weapons": "expert",
+        "advanced weapons": "trained",
+        "unarmed attacks": "expert"
+      },
       "defenses": ["all armor", "unarmored defense"],
-      "spells": ["none"],
+      "spells": "none",
       "subclass": ["none"],
       "classFeat": ["Combat Assessment", "Double Slice", "Exacting Strike", "Point Blank Stance", "Reactive Shield", "Snagging Strike", "Sudden Charge", "Vicious Swing"]
     },
     {
-      "id": "cleric",
-      "description": "here",
+      "id": "Cleric",
+      "description": "Deities work their will upon the world in infinite ways, and you serve as one of their most stalwart mortal servants. Blessed with divine magic, you live the ideals of your faith, adorn yourself with the symbols of your church, and train diligently to wield your deity's favored weapon. Your spells might protect and heal your allies, or they might punish foes and enemies of your faith, as your deity wills. Yours is a life of devotion, spreading the teachings of your faith through both word and deed.",
       "attributeBoost": "wisdom",
       "hp": 8,
       "perception": "trained",
@@ -26,15 +31,20 @@
       "reflex": "trained",
       "will": "expert",
       "skills": ["religion"],
-      "attacks": ["simple weapons", "unarmed attacks"],
+      "attacks": {
+        "simple weapons": "trained",
+        "martial weapons": "untrained",
+        "advanced weapons": "untrained",
+        "unarmed attacks": "trained"
+      },
       "defenses": ["unarmored defense"],
-      "spells": ["spell attacker modifier", "spell DC"],
+      "spells": "available",
       "subclass": ["cloistered", "warpriest"],
       "classFeat": ["Deadly Simplicity", "Divine Castigation", "Domain Initiate", "Harming Hands", "Healing Hands", "Premonition of Avoidance", "Reach Spell"]
     },
     {
-      "id": "rogue",
-      "description": "here",
+      "id": "Rogue",
+      "description": "You are skilled and opportunistic. Using your sharp wits and quick reactions, you take advantage of your opponents' missteps and strike where it hurts most. You play a dangerous game, seeking thrills and testing your skills, and likely don't care much for any laws that happen to get in your way. While the path of every rogue is unique and riddled with danger, the one thing you all share in common is the breadth and depth of your skills.",
       "attributeBoost": "dexterity or other",
       "hp": 8,
       "perception": "expert",
@@ -42,15 +52,20 @@
       "reflex": "expert",
       "will": "expert",
       "skills": ["stealth"],
-      "attacks": ["simple weapons", "martial weapons", "unarmed attacks"],
+      "attacks": {
+        "simple weapons": "trained",
+        "martial weapons": "trained",
+        "advanced weapons": "untrained",
+        "unarmed attacks": "trained"
+      },
       "defenses": ["light armor", "unarmored defense"],
-      "spells": ["none"],
-      "subclass": ["racket"],
+      "spells": "none",
+      "subclass": ["mastermind", "ruffian", "scoundrel", "thief"],
       "classFeat": ["Nimble Dodge", "Overextending Feint", "Plant Evidence", "Trap Finder", "Tumble Behind", "Twin Feint", "You're Next"]
     },
     {
-      "id": "sorcerer",
-      "description": "here",
+      "id": "Sorcerer",
+      "description": "You didn't choose to become a spellcaster-you were born one. There's magic in your blood, whether a divinity touched one of your ancestors, a forebear communed with a primal creature, or a powerful occult ritual influenced your line. Self-reflection and study allow you to refine your inherent magical skills and unlock new, more powerful abilities. The power in your blood carries a risk, however, and you constantly face the choice of whether you'll rise to become a master spellcaster or fall into destruction.",
       "attributeBoost": "charisma",
       "hp": 6,
       "perception": "trained",
@@ -58,10 +73,15 @@
       "reflex": "trained",
       "will": "expert",
       "skills": "here",
-      "attacks": ["simple weapons", "unarmed attacks"],
+      "attacks": {
+        "simple weapons": "trained",
+        "martial weapons": "untrained",
+        "advanced weapons": "untrained",
+        "unarmed attacks": "trained"
+      },
       "defenses": ["unarmored defense"],
-      "spells": ["spell attacker modifier", "spell DC"],
-      "subclass": ["bloodline"],
+      "spells": "available",
+      "subclass": ["abberant", "angelic", "demonic", "diabolic", "draconic", "elemental", "fey", "hag", "imperial", "undead"],
       "classFeat": ["Blood Rising", "Familiar", "Reach Spell", "Tap into Blood", "Widen Spell"]
     }
 ]
