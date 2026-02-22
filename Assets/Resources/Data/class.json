@@ -11,10 +11,10 @@
       "will": "trained",
       "skills": ["acrobatics", "athletics"],
       "attacks": {
-        "simple weapons": "expert",
-        "martial weapons": "expert",
-        "advanced weapons": "trained",
-        "unarmed attacks": "expert"
+        "simpleWeapons": "expert",
+        "martialWeapons": "expert",
+        "advancedWeapons": "trained",
+        "unarmedAttacks": "expert"
       },
       "defenses": ["all armor", "unarmored defense"],
       "spells": "none",
@@ -32,10 +32,10 @@
       "will": "expert",
       "skills": ["religion"],
       "attacks": {
-        "simple weapons": "trained",
-        "martial weapons": "untrained",
-        "advanced weapons": "untrained",
-        "unarmed attacks": "trained"
+        "simpleWeapons": "trained",
+        "martialWeapons": "untrained",
+        "advancedWeapons": "untrained",
+        "unarmedAttacks": "trained"
       },
       "defenses": ["unarmored defense"],
       "spells": "available",
@@ -53,10 +53,10 @@
       "will": "expert",
       "skills": ["stealth"],
       "attacks": {
-        "simple weapons": "trained",
-        "martial weapons": "trained",
-        "advanced weapons": "untrained",
-        "unarmed attacks": "trained"
+        "simpleWeapons": "trained",
+        "martialWeapons": "trained",
+        "advancedWeapons": "untrained",
+        "unarmedAttacks": "trained"
       },
       "defenses": ["light armor", "unarmored defense"],
       "spells": "none",
@@ -74,10 +74,10 @@
       "will": "expert",
       "skills": "here",
       "attacks": {
-        "simple weapons": "trained",
-        "martial weapons": "untrained",
-        "advanced weapons": "untrained",
-        "unarmed attacks": "trained"
+        "simpleWeapons": "trained",
+        "martialWeapons": "untrained",
+        "advancedWeapons": "untrained",
+        "unarmedAttacks": "trained"
       },
       "defenses": ["unarmored defense"],
       "spells": "available",

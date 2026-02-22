@@ -37,11 +37,21 @@ public class ClassInfo
     public string reflex;
     public string will;
     public List<string> skills;
-    public Dictionary<string, string> attacks; // attack name -> proficiency level
+    public Attacks attacks; // attack name -> proficiency level
     public List<string> defenses;
     public string spells;
     public List<string> subclass;
     public List<string> classFeat;
+}
+
+//because I made attacks nested in the json
+[System.Serializable]
+public class Attacks
+{
+    public string simpleWeapons;
+    public string martialWeapons;
+    public string advancedWeapons;
+    public string unarmedAttacks;
 }
 
 [System.Serializable]
@@ -81,7 +91,20 @@ public class CharacterCreationScript : MonoBehaviour
     TextField fortitudeField;
     TextField reflexField;
     TextField willField;
+    TextField simpleWeaponsField;
+    TextField martialWeaponsField;
+    TextField advancedWeaponsField;
+    TextField unarmedAttackField;
+    Toggle strengthToggle;
+    Toggle dexterityToggle;
+    Toggle constitutionToggle;
+    Toggle intelligenceToggle;
+    Toggle wisdomToggle;
+    Toggle charismaToggle;
     Dictionary<string, List<string>> backgroundDescriptionByBackground;
+    List<Toggle> toggles;
+    int maxSelections = 4;
+    int selectedCount = 0;
 
     //for json
     TextAsset jsonFile;
@@ -123,6 +146,16 @@ public class CharacterCreationScript : MonoBehaviour
         willField = root.Q<TextField>("Will");
         backgroundChoiceField = root.Q<TextField>("BackgroundChoice");
         classChoiceField = root.Q<TextField>("ClassChoice");
+        strengthToggle = root.Q<Toggle>("StrengthToggle");
+        dexterityToggle = root.Q<Toggle>("DexterityToggle");
+        constitutionToggle = root.Q<Toggle>("ConstitutionToggle");
+        intelligenceToggle = root.Q<Toggle>("IntelligenceToggle");
+        wisdomToggle = root.Q<Toggle>("WisdomToggle");
+        charismaToggle = root.Q<Toggle>("CharismaToggle");
+        simpleWeaponsField = root.Q<TextField>("SimpleAttack");
+        martialWeaponsField = root.Q<TextField>("MartialAttack");
+        advancedWeaponsField = root.Q<TextField>("AdvancedAttack");
+        unarmedAttackField = root.Q<TextField>("UnarmedAttack");
 
         //for json, assigning
         jsonFile = Resources.Load<TextAsset>("Data/ancestry");
@@ -142,8 +175,17 @@ public class CharacterCreationScript : MonoBehaviour
         ancestryRadioButtonGroup.RegisterValueChangedCallback(OnAncestryChanged);
         backgroundRadioButtonGroup.RegisterValueChangedCallback(OnBackgroundChanged);
         classesRadioButtonGroup.RegisterValueChangedCallback(OnClassChanged);
-
         heritageRadioButtonGroup.RegisterValueChangedCallback(OnHeritageChanged);
+
+        //no special grouping for toggles, so I'm handling them as list manually
+        toggles = new List<Toggle> { strengthToggle, dexterityToggle, constitutionToggle, intelligenceToggle, wisdomToggle, charismaToggle };
+        foreach (var toggle in toggles)
+        {
+            toggle.RegisterValueChangedCallback(evt =>
+            {
+                HandleToggleChanged(toggle, evt.newValue);
+            });
+        }
     }
 
     //when there's a change in the ancestryRadioGroup, grab that text
@@ -267,6 +309,11 @@ public class CharacterCreationScript : MonoBehaviour
 
         classChoiceField.value = selectedClass;
 
+        simpleWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.simpleWeapons;
+        martialWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.martialWeapons;
+        advancedWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.advancedWeapons;
+        unarmedAttackField.value = db2.classes.Find(a => a.id == selectedClass).attacks.unarmedAttacks;
+
         perceptionField.value = db2.classes.Find(a => a.id == selectedClass).perception;
         fortitudeField.value = db2.classes.Find(a => a.id == selectedClass).fortitude;
         reflexField.value = db2.classes.Find(a => a.id == selectedClass).reflex;
@@ -314,5 +361,39 @@ public class CharacterCreationScript : MonoBehaviour
 
         classBoostsLabel.text = "Attribute Boosts: " + string.Join(", ", selectedClass.attributeBoost);
         classSkillsLabel.text = "Class Skills: " + string.Join(", ", selectedClass.skills);
+    }
+
+    //for handling individual toggle changes
+    private void HandleToggleChanged(Toggle changedToggle, bool isOn)
+    {
+        if (isOn) //if toggle is on
+        {
+            if (selectedCount >= maxSelections) //and the user has selected 4 already
+            {
+                changedToggle.SetValueWithoutNotify(false); //then prevent the next toggle from turning on
+                return;
+            }
+
+            selectedCount++; //otherwise, continue counting
+        }
+        else
+        {
+            selectedCount--; //if toggle is turned off, then decrease the count
+        }
+
+        UpdateToggleStates();
+    }
+
+    //for handling the toggles as a group
+    private void UpdateToggleStates()
+    {
+        bool atLimit = selectedCount >= maxSelections; //maxed out?
+
+        //then for each toggle, disable unchecked toggles if at limit, enable all toggles otherwise
+        foreach (var toggle in toggles)
+        {
+            if (!toggle.value)
+                toggle.SetEnabled(!atLimit);
+        }
     }
 }

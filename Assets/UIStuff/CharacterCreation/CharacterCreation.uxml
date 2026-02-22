@@ -23,6 +23,15 @@
                 <ui:TextField label="Will" name="Will" readonly="true" />
             </ui:Foldout>
         </ui:VisualElement>
+        <ui:VisualElement style="flex-grow: 1;">
+            <ui:Foldout text="Attacks" name="ClassAttackFoldout">
+                <ui:TextField label="Simple Weapons" name="SimpleAttack" readonly="true" />
+                <ui:TextField label="Martial Weapons" name="MartialAttack" readonly="true" />
+                <ui:TextField label="Advanced Weapons" name="AdvancedAttack" readonly="true" />
+                <ui:TextField label="Unarmed Attack" name="UnarmedAttack" readonly="true" />
+            </ui:Foldout>
+            <ui:Foldout text="Defense" name="ClassDefenseFoldout" />
+        </ui:VisualElement>
         <ui:TextField label="Name" placeholder-text="Enter character&apos;s name" name="NameField" />
         <ui:RadioButtonGroup label="Gender" name="Gender">
             <ui:RadioButton label="Male" name="Male" style="background-image: none;" />
@@ -105,6 +114,15 @@
                         <ui:RadioButtonGroup label="Radio Button Group" name="SubClassRadioButtonGroup" />
                     </ui:Tab>
                 </ui:TabView>
+            </ui:Tab>
+            <ui:Tab label="Final Boosts" name="FinalBoosts">
+                <ui:Label text="you get 4 final boosts. you must apply each one to a different modifier" name="FinalBoostLabel" />
+                <ui:Toggle label="Strength" name="StrengthToggle" />
+                <ui:Toggle label="Dexterity" name="DexterityToggle" />
+                <ui:Toggle label="Constitution" name="ConstitutionToggle" />
+                <ui:Toggle label="Intelligence" name="IntelligenceToggle" />
+                <ui:Toggle label="Wisdom" name="WisdomToggle" />
+                <ui:Toggle label="Charisma" name="CharismaToggle" />
             </ui:Tab>
         </ui:TabView>
     </ui:VisualElement>
