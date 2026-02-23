@@ -95,6 +95,10 @@ public class CharacterCreationScript : MonoBehaviour
     TextField martialWeaponsField;
     TextField advancedWeaponsField;
     TextField unarmedAttackField;
+    TextField unarmoredDefenseField;
+    TextField lightArmorField;
+    TextField mediumArmorField;
+    TextField allArmorField;
     Toggle strengthToggle;
     Toggle dexterityToggle;
     Toggle constitutionToggle;
@@ -105,6 +109,8 @@ public class CharacterCreationScript : MonoBehaviour
     List<Toggle> toggles;
     int maxSelections = 4;
     int selectedCount = 0;
+    int classHP;
+    int ancestryHP;
 
     //for json
     TextAsset jsonFile;
@@ -156,6 +162,10 @@ public class CharacterCreationScript : MonoBehaviour
         martialWeaponsField = root.Q<TextField>("MartialAttack");
         advancedWeaponsField = root.Q<TextField>("AdvancedAttack");
         unarmedAttackField = root.Q<TextField>("UnarmedAttack");
+        unarmoredDefenseField = root.Q<TextField>("UnarmoredDefense");
+        lightArmorField = root.Q<TextField>("LightArmorDefense");
+        mediumArmorField = root.Q<TextField>("MediumArmorDefense");
+        allArmorField = root.Q<TextField>("AllArmorDefense");
 
         //for json, assigning
         jsonFile = Resources.Load<TextAsset>("Data/ancestry");
@@ -191,9 +201,12 @@ public class CharacterCreationScript : MonoBehaviour
     //when there's a change in the ancestryRadioGroup, grab that text
     void OnAncestryChanged(ChangeEvent<int> evt)
     {
+        ancestryHP = 0; //resets the ancestry hp every the ancestry changes so it doesn't keep adding up
+
         string selectedAncestry = (ancestryRadioButtonGroup[evt.newValue] as RadioButton).label; //evt.newValue is the index of the selected button
         ancestryChoiceField.value = selectedAncestry;
-        hpField.value = db.ancestries.Find(a => a.id == selectedAncestry).hp;
+        ancestryHP = db.ancestries.Find(a => a.id == selectedAncestry).hp;
+        hpField.value = classHP + ancestryHP; //add ancestry hp to total hp
         speedField.value = db.ancestries.Find(a => a.id == selectedAncestry).speed;
         PopulateHeritageButtons(selectedAncestry);
         PopulateAncestryFeatButtons(selectedAncestry);
@@ -309,10 +322,19 @@ public class CharacterCreationScript : MonoBehaviour
 
         classChoiceField.value = selectedClass;
 
+        classHP = 0;
+        classHP = db2.classes.Find(a => a.id == selectedClass).hp;
+        hpField.value = ancestryHP + classHP; //add class hp to total hp
+
         simpleWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.simpleWeapons;
         martialWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.martialWeapons;
         advancedWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.advancedWeapons;
         unarmedAttackField.value = db2.classes.Find(a => a.id == selectedClass).attacks.unarmedAttacks;
+
+        unarmoredDefenseField.value = db2.classes.Find(a => a.id == selectedClass).defenses.Contains("unarmored defense") ? "trained" : "untrained";
+        lightArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.Contains("light armor") ? "trained" : "untrained";
+        mediumArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.Contains("medium armor") ? "trained" : "untrained";
+        allArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.Contains("all armor") ? "trained" : "untrained";
 
         perceptionField.value = db2.classes.Find(a => a.id == selectedClass).perception;
         fortitudeField.value = db2.classes.Find(a => a.id == selectedClass).fortitude;
