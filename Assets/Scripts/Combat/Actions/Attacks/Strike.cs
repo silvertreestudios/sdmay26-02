@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
 using Game.Creature;
@@ -26,14 +26,14 @@ public class Strike
         // Hit Check
         D20Result attackRoll = D20.Roll(attackBonus, to.ac);
 
-        string log = "Attack:\n  AC: " + to.ac + "\n  Attack Roll: " + attackRoll.total +" (" +attackRoll.roll +" + " +attackBonus +")" 
-            +"\n  Result: "+attackRoll.degree ;
+        string log = "Attack:\n  AC: " + to.ac + "\n  Attack Roll: " + attackRoll.total + " (" + attackRoll.roll + " + " + attackBonus + ")"
+            + "\n  Result: " + attackRoll.degree;
         if (attackRoll.degree == DegreeOfSuccess.Success || attackRoll.degree == DegreeOfSuccess.CriticalSuccess)
         {
             log += "\n  Damage: ";
             foreach (var d in Damages)
             {
-                log += " " + d.numberOfDice + "d" + d.sidesPerDie +"+" +damageBonus + " " + d.damageType+", ";
+                log += " " + d.numberOfDice + "d" + d.sidesPerDie + "+" + damageBonus + " " + d.damageType + ", ";
             }
             // Adds a new flat damage for the damage bonus, type matching the first damage type
             FlatDamages.Add(new DamageValue(Damages[0].damageType, damageBonus));
@@ -49,7 +49,7 @@ public class Strike
             }
             log += "\n  Total: " + damage;
         }
-        log+= "\n";
+        log += "\n";
         Debug.Log(log);
     }
 }
