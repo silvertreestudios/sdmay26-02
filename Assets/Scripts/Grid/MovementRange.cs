@@ -145,7 +145,7 @@ public class MovementRange
     /// <summary>
     /// Calculates all reachable tiles within movement range using depth-first search
     /// </summary>
-    private HashSet<Vector3Int> CalculateReachableTiles(Vector3Int start, int maxRange)
+    public HashSet<Vector3Int> CalculateReachableTiles(Vector3Int start, int maxRange)
 {
     // Return all walkable tiles if unlimited range
     if (maxRange <= 0)

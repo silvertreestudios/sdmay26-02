@@ -2,9 +2,12 @@ using UnityEngine;
 using System.Collections.Generic;
 using Game.Creature;
 using NUnit.Framework;
+using System;
 
-public abstract class AIActionController_API : ActionController
+//TODO abstract AIActionConroller and make a subclass for mindless
+public abstract class AIActionController : ActionController
 {
+    protected GridCharacterController3D Controller => GridCharacterController3D.Instance;
     protected void Awake()
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);
@@ -25,8 +28,7 @@ public abstract class AIActionController_API : ActionController
     {
         IsTurn = true;
         ActionPoints = 3;
-        
-        // Provide Options
+     
         // Prompt user or AI for action
         Debug.Log("Turn: " + this.gameObject.name);
     }
@@ -82,4 +84,5 @@ public abstract class AIActionController_API : ActionController
             TakeAction(Actions[0]);
         }
     }
+
 }
