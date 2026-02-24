@@ -167,16 +167,19 @@
     {
       "name": "Shortbow",
       "type": "weapon",
+      "hands": 0,
       "quantity": 1
     },
     {
       "name": "Scimitar",
       "type": "weapon",
+      "hands": 1,
       "quantity": 1
     },
     {
       "name": "Arrows",
       "type": "ammo",
+      "hands": null,
       "quantity": 20
     }
   ],
@@ -286,7 +289,10 @@
           ]
         }
       }
-    },
+    }
+  ],
+  "reactions": [],
+  "passives": [
     {
       "name": "Void Healing",
       "type": "action",
@@ -328,5 +334,6 @@
       }
     }
   ],
+  "conditions": [],
   "Source": "packs/pathfinder-monster-core"
 }

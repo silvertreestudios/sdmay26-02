@@ -1,0 +1,25 @@
+{
+  "type": "armor",
+  "name": "Leather Armor",
+  "price_GP": 2.0,
+  "acBonus": 1,
+  "dexCap": 4,
+  "checkPenalty": -1,
+  "speedPenalty": 0,
+  "strengthRequirement": 0,
+  "description": [
+    "A mix of flexible and molded boiled leather, a suit of this type of armor provides some protection with maximum flexibility."
+  ],
+  "bulk": 1.0,
+  "group": "leather",
+  "armorTraits": [],
+  "runes": [],
+  "materialType": null,
+  "materialGrade": null,
+  "publication": {
+    "license": "ORC",
+    "remaster": true,
+    "title": "Pathfinder Player Core"
+  },
+  "Source": "packs/equipment"
+}
