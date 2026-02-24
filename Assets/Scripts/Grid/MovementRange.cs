@@ -200,32 +200,38 @@ public class MovementRange
         return count;
     }
 
-    // checks to see if there's a clear path between two points on grid 
-    // starting point is where player is, ending point is the tile being checked for line of sight
-    // offsets allow for checks of tile corners 
+    /// <summary>
+    /// uses raycasting to determine if there's a clear line of sight between start and end point
+    /// </summary>
+    /// <param name="start"></attacking cell (player position)>
+    /// <param name="end"></target cell>
+    /// <param name="startOffset"></offset from center of start tile>
+    /// <param name="endOffset"></offset from center of end tile>
+    /// <returns></returns whether or not there's a clear line of sight between start an end points>
     private bool IsRayBlocked(Vector3Int start, Vector3Int end, Vector2 startOffset, Vector2 endOffset)
     {
         // calculate ray start and end positions in world space
         float rayStartX = start.x + 0.5f + startOffset.x;
         float rayStartZ = start.z + 0.5f + startOffset.y;
+        // adding 0.5 to get center of tile, then applying offset for corner rays
         float rayEndX = end.x + 0.5f + endOffset.x;
         float rayEndZ = end.z + 0.5f + endOffset.y;
 
-        // calculate ray direction and distance
-        // e.x start is (2,3) and end is (5,7) then direction is (3,4) and distance is 5
+        // vector from start to end point
         float directionX = rayEndX - rayStartX;
         float directionZ = rayEndZ - rayStartZ;
+        // calculate distance of ray to determine how many steps to take
         float rayDistance = Mathf.Sqrt(directionX * directionX + directionZ * directionZ);
 
+        // if start and end are the same or very close, return not blocked
         if (rayDistance < 0.01f)
             return false;
 
-        // normalize direction vector
-        // creates unit vector, allowing consistent stepping along ray regardless of distance
-        directionX /= rayDistance;
-        directionZ /= rayDistance;
+        // normalize direction to unit vector
+        // allows consistent step increments regardless of distance
+        (directionX, directionZ) = (directionX / rayDistance, directionZ / rayDistance);
 
-        // Sample 4 points per cell for accuracy
+        // Sample 4 points per tile 
         int sampleCount = Mathf.CeilToInt(rayDistance * 4);
         // keep track of visited cells
         HashSet<Vector3Int> visitedCells = new HashSet<Vector3Int>(sampleCount);
@@ -241,7 +247,6 @@ public class MovementRange
                 start.y,
                 Mathf.FloorToInt(sampleZ)
             );
-
             // Skip if already checked, or if it's start/end cell
             if (!visitedCells.Add(currentCell) || currentCell == start || currentCell == end)
                 continue;
