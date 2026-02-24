@@ -26,6 +26,11 @@ public static class DefinedConditions
         return true;
     }
 
+    /// <summary>
+    /// Attempts to retrieve a condition from the list of defined conditions
+    /// </summary>
+    /// <param name="conditionName"></param>
+    /// <returns></returns>
     public static Condition TryGet(string conditionName)
     {
         Condition result;
@@ -134,7 +139,7 @@ public static class DefinedConditions
     public static void Slowed(GameObject target, uint tier) 
     {
         ActionController ac = target.GetComponent<ActionController>();
-        ac.GetReactionsEvent.AddListener((List<EntityAction> reactions) => reactions.Clear());
+        ac.ResetActionPointsEvent.AddListener((Ref<uint> points) => { points.Value -= tier; });
     }
 
     /// <summary>Senseless; lose actions; stunned may include total actions lost.</summary>

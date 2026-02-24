@@ -3,16 +3,6 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 
-public class Ref<T>
-{
-    public T Value;
-
-    public Ref(T value)
-    {
-        Value = value;
-    }
-}
-
 /// <summary>Triggered upon reseting action points</summary>
 public class OnResetActionPoints : UnityEvent<Ref<uint>> {}
 

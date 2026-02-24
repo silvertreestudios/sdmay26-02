@@ -43,7 +43,7 @@ public class ActionController : MonoBehaviour
         Ref<uint> newActionPoints = new(3);
         ResetActionPointsEvent.Invoke(newActionPoints);
         ActionPoints = newActionPoints.Value;
-        
+
         // Provide Options
         // Prompt user or AI for action
         Debug.Log("Turn: " + this.gameObject.name);

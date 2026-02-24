@@ -85,7 +85,7 @@ public class CombatManager : CombatManagerInterface
                 teams.Add(team);
         }
         if (teams.Count < 2)
-            ;// Signal end
+            OnCombatEnd.Invoke();// Signal end
         // Take the next turn.
         TurnStep e = TurnQueue[0];
         TurnQueue.RemoveAt(0);

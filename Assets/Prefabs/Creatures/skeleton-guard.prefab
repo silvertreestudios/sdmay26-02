@@ -11,6 +11,8 @@ GameObject:
   - component: {fileID: 2823068465819933521}
   - component: {fileID: 7103529764029366654}
   - component: {fileID: 7487853166917741111}
+  - component: {fileID: 6541716138016750133}
+  - component: {fileID: 7307225294011316968}
   m_Layer: 6
   m_Name: skeleton-guard
   m_TagString: Untagged
@@ -84,7 +86,6 @@ MonoBehaviour:
   _passives:
   - Void Healing
   _conditions: []
-  _equippedArmor: 
   _equipment:
   - Shortbow
   - Scimitar
@@ -92,6 +93,7 @@ MonoBehaviour:
   _weaponsList:
   - Shortbow
   - Scimitar
+  _armorList: []
 --- !u!114 &7487853166917741111
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -105,6 +107,31 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
+--- !u!114 &6541716138016750133
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3082204389870873576}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Team
+  <Name>k__BackingField: 
+--- !u!114 &7307225294011316968
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3082204389870873576}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a5bfa416ba896145a723c877fac7ac9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Conditions
 --- !u!1 &3603541461017081578
 GameObject:
   m_ObjectHideFlags: 0

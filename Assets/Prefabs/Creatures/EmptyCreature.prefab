@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 6819483576359709902}
   - component: {fileID: -2800045436435895595}
   - component: {fileID: -9005069984893689813}
+  - component: {fileID: 2437390198408201632}
   m_Layer: 6
   m_Name: EmptyCreature
   m_TagString: Untagged
@@ -95,11 +96,16 @@ MonoBehaviour:
   - Dogslicer
   - Shortbow
   - Goblin Scuttle
+  _reactions: []
+  _passives: []
+  _conditions: []
   _equipment:
   - Dogslicer
   - Shortbow
   - Leather Armor
   - Arrows
+  _weaponsList: []
+  _armorList: []
 --- !u!114 &-2800045436435895595
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -126,6 +132,18 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Team
   <Name>k__BackingField: 
+--- !u!114 &2437390198408201632
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4250615070516425197}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a5bfa416ba896145a723c877fac7ac9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Conditions
 --- !u!1 &5791139501262925988
 GameObject:
   m_ObjectHideFlags: 0

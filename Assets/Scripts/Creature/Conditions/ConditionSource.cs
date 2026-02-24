@@ -33,6 +33,8 @@ public class ConditionSource
         }
     }
 }
+
+/*
 public class Equipment : ConditionSource
 {
     string Name;
@@ -48,7 +50,8 @@ public class Equipment : ConditionSource
         Remove();
     }
 }
-
+*/
+/*
 public class Spell : ConditionSource
 {
     public string Name;
@@ -66,3 +69,4 @@ public class Spell : ConditionSource
         // 
     }
 }
+*/

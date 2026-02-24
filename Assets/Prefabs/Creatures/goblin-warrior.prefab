@@ -189,6 +189,8 @@ GameObject:
   - component: {fileID: 8129944122838095635}
   - component: {fileID: 8645837826170176907}
   - component: {fileID: 1464774667860202458}
+  - component: {fileID: 7904382073243480596}
+  - component: {fileID: 340161752949087146}
   m_Layer: 6
   m_Name: goblin-warrior
   m_TagString: Untagged
@@ -275,7 +277,6 @@ MonoBehaviour:
   - Goblin Scuttle
   _passives: []
   _conditions: []
-  _equippedArmor: 
   _equipment:
   - Dogslicer
   - Shortbow
@@ -284,6 +285,8 @@ MonoBehaviour:
   _weaponsList:
   - Dogslicer
   - Shortbow
+  _armorList:
+  - Leather Armor
 --- !u!114 &1464774667860202458
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -297,6 +300,31 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
+--- !u!114 &7904382073243480596
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2171469257415402326}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Team
+  <Name>k__BackingField: 
+--- !u!114 &340161752949087146
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2171469257415402326}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a5bfa416ba896145a723c877fac7ac9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Conditions
 --- !u!1 &3448458747370394776
 GameObject:
   m_ObjectHideFlags: 0

@@ -11,6 +11,8 @@ GameObject:
   - component: {fileID: 2846634470035672397}
   - component: {fileID: 3521904239797893748}
   - component: {fileID: 2811146936450233142}
+  - component: {fileID: 2740840343433820351}
+  - component: {fileID: 5157734609779047827}
   m_Layer: 6
   m_Name: kobold-warrior
   m_TagString: Untagged
@@ -111,7 +113,6 @@ MonoBehaviour:
   _passives:
   - Sneak Attack
   _conditions: []
-  _equippedArmor: 
   _equipment:
   - Sling
   - Spear
@@ -120,6 +121,8 @@ MonoBehaviour:
   _weaponsList:
   - Sling
   - Spear
+  _armorList:
+  - Leather Armor
 --- !u!114 &2811146936450233142
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -133,6 +136,31 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
+--- !u!114 &2740840343433820351
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 993963896387612600}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Team
+  <Name>k__BackingField: 
+--- !u!114 &5157734609779047827
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 993963896387612600}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a5bfa416ba896145a723c877fac7ac9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Conditions
 --- !u!1 &3155191821625320957
 GameObject:
   m_ObjectHideFlags: 0

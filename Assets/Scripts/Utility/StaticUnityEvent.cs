@@ -13,7 +13,7 @@ public class StaticUnityEvent<S, T> where S : new()
     /// <summary>
     /// The internal UnityEvent
     /// </summary>
-    static UnityEvent<T> Event;
+    static UnityEvent<T> Event = new();
 
     /// <summary>
     /// Adds a listener to the event
@@ -48,7 +48,7 @@ public class StaticUnityEvent<T> where T : new()
     /// <summary>
     /// The internal UnityEvent
     /// </summary>
-    static UnityEvent Event;
+    static UnityEvent Event = new();
 
     /// <summary>
     /// Adds a listener to the event

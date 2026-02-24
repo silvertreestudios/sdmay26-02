@@ -6,11 +6,11 @@ using UnityEngine;
 /// </summary>
 public class Conditions : MonoBehaviour, IConditionTarget
 {
-    protected Dictionary<string, List<ConditionSource>> AppliedConditions;
+    protected Dictionary<string, List<ConditionSource>> AppliedConditions = new();
     public void Add(string condition, ConditionSource source)
     {
         List<ConditionSource> sources;
-        if(AppliedConditions.TryGetValue(condition, out sources))
+        if(!AppliedConditions.TryGetValue(condition, out sources))
             AppliedConditions.Add(condition, new List<ConditionSource>() { source });
         else
             sources.Add(source);
@@ -38,7 +38,7 @@ public class Conditions : MonoBehaviour, IConditionTarget
         }
     }
 
-    public void Update(string oldCondition, ConditionSource oldSource, string newCondition, ConditionSource newSource)
+    public void Change(string oldCondition, ConditionSource oldSource, string newCondition, ConditionSource newSource)
     {
         Remove(oldCondition, oldSource);
         Add(newCondition, newSource);
