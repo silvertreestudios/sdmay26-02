@@ -11,6 +11,8 @@ public abstract class IGridMemory : SingletonMonoBehaviour<IGridMemory>
     public abstract int GridY { get; protected set; }
     public abstract float CellSize { get; protected set; }
     public abstract Vector3 Origin { get; protected set; }
+    public object GridInfo { get; internal set; }
+
     ///
 
     public abstract void Initialize(int width, int height, int gridY, float cellSize, Vector3 origin, int[,] gridData);

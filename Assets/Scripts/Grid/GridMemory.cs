@@ -176,4 +176,9 @@ public class GridMemory : IGridMemory
         //return a selected monster if valid
         yield return null;
     }
+
+    internal class TileInfo
+    {
+        internal TileType type;
+    }
 }
