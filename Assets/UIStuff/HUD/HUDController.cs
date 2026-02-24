@@ -1,3 +1,4 @@
+
 using NUnit.Framework.Internal;
 using Unity.VisualScripting;
 using UnityEngine;
@@ -173,6 +174,7 @@ public class HUDController : MonoBehaviour
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
         g.GetComponent<ActionController>().EndTurn();
+        FSM_API.EndTurn();
         Debug.Log("Clicked End Turn button");
     }
 

@@ -1,0 +1,32 @@
+{
+  "type": "weapon",
+  "name": "Longsword",
+  "group": "sword",
+  "category": "martial",
+  "hands": 1,
+  "damageDice": 1,
+  "damageDie": "8",
+  "damageType": "slashing",
+  "description": "<p>Longswords, also known as arming swords, can be one-edged or two-edged swords. Their blades are heavy and they're between 3 and 4 feet in length.</p>",
+  "traits": [
+    "versatile-p"
+  ],
+  "materialType": null,
+  "materialGrade": null,
+  "price_GP": 1.0,
+  "range": null,
+  "reload": "-",
+  "ammo": null,
+  "bulk": 1,
+  "size": null,
+  "baseItem": null,
+  "bonus": 0,
+  "bonusDamage": 0,
+  "splashDamage": 0,
+  "publication": {
+    "license": "ORC",
+    "remaster": true,
+    "title": "Pathfinder Player Core"
+  },
+  "Source": "packs/equipment"
+}

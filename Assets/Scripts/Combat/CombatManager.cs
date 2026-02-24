@@ -76,6 +76,17 @@ public class CombatManager : CombatManagerInterface
 
     public override void NextTurn()
     {
+        List<string> teams = new();
+        // Check if a team has won yet.
+        foreach(var combatant in Combatants)
+        {
+            string team = combatant.GetComponent<Team>().Name;
+            if(!teams.Contains(name))
+                teams.Add(team);
+        }
+        if (teams.Count < 2)
+            ;// Signal end
+        // Take the next turn.
         TurnStep e = TurnQueue[0];
         TurnQueue.RemoveAt(0);
         if (e.Player)
@@ -85,5 +96,18 @@ public class CombatManager : CombatManagerInterface
         }
         e.Trigger();
         TurnQueue.Add(e);
+    }
+
+    //added by Ryan Meyer 5/29/24, For cameraManager to get the positions of all tokens
+    public Vector3[] getPoistions()
+    {
+        Vector3[] positions = new Vector3[Combatants.Count];
+        int i = 0;
+        foreach(var c in Combatants)
+        {
+            positions[i] = c.gameObject.transform.position;
+            i++;
+        }
+        return positions;
     }
 }

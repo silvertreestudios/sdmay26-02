@@ -5,6 +5,15 @@ using UnityEngine;
 namespace Game.Creature
 {
 
+    // TODO temp location 
+    [System.Serializable]
+    public struct Condition
+    {
+        // Just condition name for now, but left as struct 
+        public string name;   // name of the condition
+        // public string source; // gameObject ID of GO that applied the condition
+    }
+
     [System.Serializable]
     public struct SkillValue
     {
@@ -35,6 +44,8 @@ namespace Game.Creature
         [SerializeField] private int _damageBonus;
         [SerializeField] private List<DamageValue> _weaknesses = new List<DamageValue>();
         [SerializeField] private List<DamageValue> _resistances = new List<DamageValue>();
+        // hash map or alternative get for modifications?
+        // handle conditions/modifiers in CreatureComponent
 
         // Example for ability modifiers
         [Header("Ability Modifiers")]
@@ -58,9 +69,32 @@ namespace Game.Creature
         [SerializeField][TextArea] private string _description;
 
         // Serialized actions & equipment (previously auto-properties; won't persist)
-        [Header("Actions & Equipment")]
-        [SerializeField] private List<string> _actions = new List<string>();
+        [Header("Actions & Abilities")]
+        [SerializeField] private List<string> _actions = new List<string>(); // standard actions
+        [SerializeField] private List<string> _reactions = new List<string>(); // reactions
+        [SerializeField] private List<string> _passives = new List<string>(); // abilities that don't require an action
+
+        [Header("Conditions")]
+        [SerializeField] private List<string> _conditions = new List<string>();
+
+        [Header("Equipment")]
+        [SerializeField] private EquipmentArmor _equippedArmor;
+        [SerializeField] private EquipmentWeapon _equippedRightHand;
+        [SerializeField] private EquipmentWeapon _equippedLeftHand;
         [SerializeField] private List<string> _equipment = new List<string>();
+        [SerializeField] private List<string> _weaponsList = new List<string>(); // Temp to display _weapons in inspector
+        [SerializeField] private List<EquipmentWeapon> _weapons = new List<EquipmentWeapon>();
+        [SerializeField] private List<string> _armorList = new List<string>(); // Temp to display armor in inspector
+        [SerializeField] private List<EquipmentArmor> _armor = new List<EquipmentArmor>(); // Temp to display armor in inspector
+
+
+        // NOTES FOR IMPLEMENTING STRIKE VARIANTS
+        // Dice damageDice = new Dice(damageRolls.damage);
+        // damgeDice.damageType = damageRolls.damageType;
+        // DamageValue flatDamage = new DamageValue(damageRolls.damageType, _strMod)
+        // Actions.Add(new Strike(1, new List<Dice>() { damageDice }, new List<DamageValue>() { flatDamage }));
+        //[SerializeField] private List<EntityAction> _Actions = new List<EntityAction>();
+        //public new List<EntityAction> Actions { get => _Actions; set => _Actions = value ?? new List<EntityAction>(); }
 
         // Public properties for interface
         public new string name { get => _name; set { _name = value; base.name = value; } }
@@ -91,7 +125,20 @@ namespace Game.Creature
 
         // TODO: properly implement
         public List<string> actions { get => _actions; set => _actions = value ?? new List<string>(); }
+        public List<string> reactions { get => _reactions; set => _reactions = value ?? new List<string>(); }
+        public List<string> passives { get => _passives; set => _passives = value ?? new List<string>(); }
+        public List<string> conditions { get => _conditions; set => _conditions = value ?? new List<string>(); }
+
+        // TODO: properly implement
         public List<string> equipment { get => _equipment; set => _equipment = value ?? new List<string>(); }
+        public EquipmentArmor equippedArmor { get => _equippedArmor; set => _equippedArmor = value; }
+        public EquipmentWeapon equippedRightHand { get => _equippedRightHand; set => _equippedRightHand = value; }
+        public EquipmentWeapon equippedLeftHand { get => _equippedLeftHand; set => _equippedLeftHand = value; }
+        public List<string> weaponsList { get => _weaponsList; set => _weaponsList = value ?? new List<string>(); }
+        public List<EquipmentWeapon> weapons { get => _weapons; set => _weapons = value ?? new List<EquipmentWeapon>(); }
+        public List<string> armorList { get => _armorList; set => _armorList = value ?? new List<string>(); }
+        public List<EquipmentArmor> armor { get => _armor; set => _armor = value ?? new List<EquipmentArmor>(); }
+
 
         // TODO: properly implement        
         public List<string> traits { get; set; } = new List<string>();
@@ -107,6 +154,7 @@ namespace Game.Creature
         void Start()
         {
             // Initialization code here
+            // TODO create method to run check against action/ability lists to populate additional scripts
         }
 
         void Update()
@@ -214,6 +262,60 @@ namespace Game.Creature
         {
             _hp += healAmount;
             _hp = Mathf.Clamp(_hp, 0, _maxHp);
+        }
+
+        // ? Instead of disallowing equipping, unequip the other weapon?
+        public void equipWeaponLeft(EquipmentWeapon weapon)
+        {
+            if (weapon == null) return;
+            if (equippedRightHand != null && equippedRightHand.hands == 2)
+            {
+                Debug.Log($"Cannot equip {weapon.name} in left hand because right hand has a two-handed weapon");
+                return;
+            }
+            _equippedLeftHand = weapon;
+        }
+        public void equipWeaponRight(EquipmentWeapon weapon)
+        {
+            if (weapon == null) return;
+            if (equippedLeftHand != null && equippedLeftHand.hands == 2)
+            {
+                Debug.Log($"Cannot equip {weapon.name} in right hand because left hand has a two-handed weapon");
+                return;
+            }
+            _equippedRightHand = weapon;
+        }
+        public void unequipWeaponLeft()
+        {
+            _equippedLeftHand = null;
+        }
+        public void unequipWeaponRight()
+        {
+            _equippedRightHand = null;
+        }
+        public void equipArmor(EquipmentArmor armor)
+        {
+            if (armor == null) return;
+            _equippedArmor = armor;
+        }
+        public void unequipArmor()
+        {
+            _equippedArmor = null;
+        }
+        public void calculateArmorAC()
+        {
+            if (_equippedArmor != null)
+            {
+                // Base AC from armor
+                int baseAc = 10 + _equippedArmor.acBonus;
+                // Add Dex modifier up to the armor's dex cap
+                int dexBonus = Mathf.Min(dexMod, _equippedArmor.dexCap);
+                _ac = baseAc + dexBonus;
+            }
+            else
+            {
+                _ac = 10 + dexMod; // Unarmored AC calculation, modify to include natural armor or other bonuses
+            }
         }
     }
 }
