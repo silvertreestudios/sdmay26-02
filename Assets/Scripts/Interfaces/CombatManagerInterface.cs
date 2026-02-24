@@ -16,9 +16,14 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     public abstract void NextTurn();
 
     /// <summary>
-    /// Starts the next Combatant's turn
+    /// Adds a combatant
     /// </summary>
     public abstract void AddCombatant(ActionController combatant);
+
+    /// <summary>
+    /// Adds an event to the TurnQueue
+    /// </summary>
+    public abstract void AddEvent(TurnStep ts);
 
     /// <summary>
     /// Removes a combatant from the CombatManager
@@ -27,10 +32,17 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     public abstract void Remove(ActionController combatant);
 
     /// <summary>
-    /// Removes an event from the combat TurnQueue
+    /// Removes a TurnStep from the combat TurnQueue
     /// </summary>
     /// <param name="e"></param>
     public abstract void Remove(TurnStep e);
+
+    /// <summary>
+    /// Removes an Event from everywhere in the combat queue
+    /// </summary>
+    /// <typeparam name="T">The parameter type for the event</typeparam>
+    /// <param name="e">the event to remove</param>
+    public abstract void Remove(UnityAction e);
 
     /// <summary>
     /// Returns the GameObject Who's Turn it is

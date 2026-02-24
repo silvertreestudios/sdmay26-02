@@ -5,14 +5,21 @@ using NUnit.Framework;
 
 public class ActionController : MonoBehaviour
 {
-    //[SerializeField]
-    protected List<EntityAction> Actions = new List<EntityAction>();
-    //[SerializeField]
-    protected List<EntityAction> Movements = new List<EntityAction>();
+    // Fields
+    protected List<EntityAction> Actions = new();
+    protected List<EntityAction> Movements = new();
+    protected List<EntityAction> Reactions = new();
     protected bool IsTurn = false;
     public bool IsTakingAction { get; set; } = false;
     [field: SerializeField]
     public uint ActionPoints { get; set; }
+    public bool Reacted { get; set; }
+
+    //Events
+    public OnResetActionPoints ResetActionPointsEvent { get; protected set; } = new();
+    public OnGetActions GetActionsEvent { get; protected set; } = new();
+    public OnGetMovements GetMovementsEvent { get; protected set; } = new();
+    public OnGetReactions GetReactionsEvent { get; protected set; } = new();
 
     protected void Awake()
     {
@@ -33,7 +40,9 @@ public class ActionController : MonoBehaviour
     public void StartTurn()
     {
         IsTurn = true;
-        ActionPoints = 3;
+        Ref<uint> newActionPoints = new(3);
+        ResetActionPointsEvent.Invoke(newActionPoints);
+        ActionPoints = newActionPoints.Value;
         
         // Provide Options
         // Prompt user or AI for action
@@ -92,6 +101,43 @@ public class ActionController : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Returns a copied list of all actions the controller can perform, excluding movements
+    /// </summary>
+    /// <returns></returns>
+    public List<EntityAction> GetActions()
+    {
+        List<EntityAction> available = new(Actions);
+        GetActionsEvent.Invoke(available);
+        return available;
+    }
+
+    /// <summary>
+    /// Returns a copied list of all movements the controller can perform
+    /// </summary>
+    /// <returns></returns>
+    public List<EntityAction> GetMovements()
+    {
+        List<EntityAction> available = new(Movements);
+        GetMovementsEvent.Invoke(available);
+        return available;
+    }
+
+    /// <summary>
+    /// Returns a copied list of all reactions the controller can perform
+    /// </summary>
+    /// <returns></returns>
+    public List<EntityAction> GetReactions()
+    {
+        List<EntityAction> available = new(Reactions);
+        GetReactionsEvent.Invoke(available);
+        return available;
+    }
+
+    /// <summary>
+    /// Performs a given action for this controller
+    /// </summary>
+    /// <param name="action"></param>
     public void TakeAction(EntityAction action)
     {
         uint cost = action.ActionCost;
