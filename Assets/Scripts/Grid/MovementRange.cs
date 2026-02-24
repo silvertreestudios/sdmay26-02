@@ -7,7 +7,9 @@ using UnityEngine;
 /// </summary>
 public class MovementRange
 {
+    // reference to grid memory for walkability checks and dimensions
     private readonly IGridMemory grid;
+    // configuration options for movement and highlights
     private readonly bool allowDiagonalMovement;
     private readonly float diagonalCost;
     private readonly GameObject highlightPrefab;
@@ -70,9 +72,6 @@ public class MovementRange
         diagonalCost = controller.diagonalCost;
         gridToWorld = controller.coordinateConverter.GridCellCenterWorld;
     }
-
-    // currently reachable tiles are stored in hash set for quick lookup
-    public HashSet<Vector3Int> ReachableTiles => new HashSet<Vector3Int>(currentReachableTiles);
     public bool IsCellReachable(Vector3Int cell) => currentReachableTiles.Contains(cell);
     public void UpdateHighlights(Vector3Int startCell, int maxRange)
     {
@@ -171,14 +170,14 @@ public class MovementRange
     {
         bool centerClear = !IsRayBlocked(start, target, Vector2.zero, Vector2.zero);
 
-        // If center ray is blocked, check corners to see if it's fully blocked or just partially
+        // if center ray is blocked, check corners to see if it's fully blocked or just partially
         if (!centerClear)
         {
             int clearCorners = CountCornerRays(start, target, false);
             return clearCorners == 0 ? LOSStatus.FullyBlocked : LOSStatus.PartialBlock;
         }
         int blockedRays = CountCornerRays(start, target, true);
-        // If more than 25% of corner rays are blocked, consider it partially blocked
+        // if more than 25% of corner rays are blocked, consider partially blocked, otherwise clear
         return (blockedRays / 16f > 0.25f) ? LOSStatus.PartialBlock : LOSStatus.Clear;
     }
 
@@ -213,16 +212,13 @@ public class MovementRange
         // calculate ray start and end positions in world space
         float rayStartX = start.x + 0.5f + startOffset.x;
         float rayStartZ = start.z + 0.5f + startOffset.y;
-        // adding 0.5 to get center of tile, then applying offset for corner rays
         float rayEndX = end.x + 0.5f + endOffset.x;
         float rayEndZ = end.z + 0.5f + endOffset.y;
 
         // vector from start to end point
         float directionX = rayEndX - rayStartX;
         float directionZ = rayEndZ - rayStartZ;
-        // calculate distance of ray to determine how many steps to take
         float rayDistance = Mathf.Sqrt(directionX * directionX + directionZ * directionZ);
-
         // if start and end are the same or very close, return not blocked
         if (rayDistance < 0.01f)
             return false;
@@ -239,6 +235,7 @@ public class MovementRange
         // Step along ray, skipping start (i=0) and end (i=sampleCount)
         for (int i = 1; i < sampleCount; i++)
         {
+            // 
             float normalizedDistance = (float)i / sampleCount;
             float sampleX = rayStartX + directionX * rayDistance * normalizedDistance;
             float sampleZ = rayStartZ + directionZ * rayDistance * normalizedDistance;
@@ -270,6 +267,7 @@ public class MovementRange
             if (cell.Equals(startCell))
                 continue;
 
+            // determine LOS status for this tile and get corresponding color and text
             LOSStatus status = GetLOSStatus(startCell, cell);
             (Color color, string statusText) = GetLOSColorAndText(status, ref clearCount, ref partialCount, ref blockedCount);
             Debug.Log($"Tile {cell}: {statusText}");
@@ -297,11 +295,13 @@ public class MovementRange
         }
     }
 
+    // calculates tiles in a circular area around the start cell, used for attack range
     private HashSet<Vector3Int> CalculateCircle(Vector3Int start, int maxRange)
     {
         HashSet<Vector3Int> circleTiles = new HashSet<Vector3Int>();
         float effectiveRange = maxRange + 0.5f;
 
+        // iterate over square area around the start cell, but only include tiles within the circular radius
         for (int x = -maxRange; x <= maxRange; x++)
         {
             for (int z = -maxRange; z <= maxRange; z++)
@@ -309,7 +309,7 @@ public class MovementRange
                 Vector3Int candidate = new Vector3Int(start.x + x, start.y, start.z + z);
                 float distance = Mathf.Sqrt(x * x + z * z);
 
-                // Only include tiles within the effective range, that are walkable, and not the starting cell
+                // only include tiles within range, that are walkable, and not starting cell
                 if (distance <= effectiveRange &&
                     IsWithinBounds(candidate) &&
                     (x != 0 || z != 0) &&
@@ -346,6 +346,7 @@ public class MovementRange
     {
         // Yield all cardinal neighbors
         foreach (var dir in CardinalDirections)
+            // yield used to return neighbors one at a time without needing to create a full list in memory
             yield return cell + dir;
 
         // Yield valid diagonal neighbors if enabled
