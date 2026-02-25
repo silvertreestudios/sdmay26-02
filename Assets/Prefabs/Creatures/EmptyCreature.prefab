@@ -57,6 +57,8 @@ MonoBehaviour:
   _ac: 16
   _attackBonus: 7
   _damageBonus: 0
+  _weaponBonuses: []
+  _armorBonuses: []
   _strMod: 0
   _dexMod: 3
   _conMod: 1
@@ -95,11 +97,16 @@ MonoBehaviour:
   - Dogslicer
   - Shortbow
   - Goblin Scuttle
+  _reactions: []
+  _passives: []
+  _conditions: []
   _equipment:
   - Dogslicer
   - Shortbow
   - Leather Armor
   - Arrows
+  _weaponsList: []
+  _armorList: []
 --- !u!114 &-2800045436435895595
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -113,6 +120,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
+  _actionNames: []
 --- !u!114 &-9005069984893689813
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -125,7 +133,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Team
-  <Name>k__BackingField: 
+  <Name>k__BackingField: Default
 --- !u!1 &5791139501262925988
 GameObject:
   m_ObjectHideFlags: 0

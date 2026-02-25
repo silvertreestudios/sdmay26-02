@@ -12,8 +12,8 @@ GameObject:
   - component: {fileID: 2552202126626353107}
   - component: {fileID: 4182675092943521504}
   - component: {fileID: 8045147821009797249}
-  - component: {fileID: 8548891857229615628}
   - component: {fileID: 5101723315732227100}
+  - component: {fileID: 8295596141503369100}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -72,18 +72,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c63e5f4589a3016449240eb64cd1ea17, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CombatManager
---- !u!114 &8548891857229615628
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 6894993630465325587}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a42053f6cea6f38499b863fab8c08653, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Action_FSM
 --- !u!114 &5101723315732227100
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -99,3 +87,15 @@ MonoBehaviour:
   TeamList:
   - Players
   - Enemies
+--- !u!114 &8295596141503369100
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6894993630465325587}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1e468212449f17a42b30bc98ac4ed1e9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Grid

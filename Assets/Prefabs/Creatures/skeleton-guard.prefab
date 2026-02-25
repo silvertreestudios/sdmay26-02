@@ -100,6 +100,7 @@ GameObject:
   - component: {fileID: 2252408804514861379}
   - component: {fileID: 1391534583168929581}
   - component: {fileID: 2627365968489530025}
+  - component: {fileID: 3879951894586944656}
   m_Layer: 6
   m_Name: skeleton-guard
   m_TagString: Untagged
@@ -212,6 +213,19 @@ MonoBehaviour:
   <ActionPoints>k__BackingField: 0
   _actionNames:
   - Game.Strikes.StrikeWeapon
+--- !u!114 &3879951894586944656
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5488967783477118630}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Team
+  <Name>k__BackingField: Default
 --- !u!1 &6643102022807808188
 GameObject:
   m_ObjectHideFlags: 0
