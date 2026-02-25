@@ -248,7 +248,7 @@ GameObject:
   m_Component:
   - component: {fileID: 4034230794919110322}
   - component: {fileID: 2803676297427325591}
-  - component: {fileID: 4126133449529308398}
+  - component: {fileID: -3302125067649585345}
   m_Layer: 6
   m_Name: zombie-shambler
   m_TagString: Untagged
@@ -320,7 +320,7 @@ MonoBehaviour:
   - Void Healing
   - Grab
   _equipment: []
---- !u!114 &4126133449529308398
+--- !u!114 &-3302125067649585345
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -329,7 +329,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 6492974055441343421}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 52e9b306fa533c64ba72572bd127a099, type: 3}
+  m_Script: {fileID: 11500000, guid: 97518c29693e5e544b3fbdd1324b642d, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ActionController
+  m_EditorClassIdentifier: Assembly-CSharp::MindlessController
   <ActionPoints>k__BackingField: 0

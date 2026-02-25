@@ -8,6 +8,9 @@ using System;
 public abstract class AIActionController : ActionController
 {
     protected GridCharacterController3D Controller => GridCharacterController3D.Instance;
+    public GameObject bestTarget{get; protected set;}
+    public List<Vector3Int> bestPath{get; protected set;}
+    public Vector3Int selectedTile{get; protected set;}
     protected void Awake()
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);

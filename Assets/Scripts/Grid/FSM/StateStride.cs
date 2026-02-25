@@ -30,53 +30,39 @@ public class StateStride : GridFSMState
         //Set active player for helper functions
         controller.SetActivePlayer(character);
 
-        AI ai = character.GetComponent<AI>();
+        AIActionController ai = character.GetComponent<AIActionController>();
         if (ai != null) {
-            // ask ai what tile
-            // check if clicked cell is valid stride location, then display preview of path
-            if(controller.TryValidateAndGetPath(controller.currentCamera, character, out List<Vector3Int> path))
-            {
-                this.path = path;
-                controller.visualIndicator.ShowPath(path, false);
-                controller.lastClickedCell = path[path.Count - 1];
-            } else
-            {
-                // invalid cell, make it impossible to execute stride
-                controller.lastClickedCell = Vector3Int.zero;
-            }
-            if (controller.visualIndicator.IsActive && controller.lastClickedCell == path[path.Count - 1])
-            {
+            
                 controller.isProcessingTurn = true;
-                controller.rangeHighlighter.ClearHighlights();
-                controller.visualIndicator.Clear();
-                
-                // movement tracking is handled by character controller, not sure if this is the best design choice
-                // could maybe cause issues if multiply actions try to read the movement information without cleaning up
-                controller.StartCoroutine(controller.ExecuteMovementInternal(character, controller.currentMovement, path));
-                Exit();
-            }
-        }
+                // grab best path from the AI's controller, this should be set during its decision making process
+                if(ai.bestPath == null || ai.bestPath.Count == 0)
+                {
+                    Debug.LogWarning("AI has no path to target, skipping movement");                    
+                    this.fsm.ChangeState(this.fsm.idleState);
+                } else {
+                    Debug.Log("starting AI stride movement, path length: " + ai.bestPath.Count);
+                    controller.StartCoroutine(ExecutePlayerMovement(ai.bestPath));
+                }
+        } else {
 
         //Highlight possible stride locations
         controller.rangeHighlighter.UpdateHighlights(startCell, controller.maxMovementDistance);
+        }
     }
+
+    //called by FSM machine once a state change is triggered
     public override bool Exit()
     {
-        this.canceled = canceled;
-        // Clear visual indicators and return to idle
+        fsm.canceled = canceled;
+        // Clear visual indicators
         controller.visualIndicator.Clear();
         controller.rangeHighlighter.ClearHighlights();
-        fsm.canceled = canceled;
-        if(!fsm.ChangeState(fsm.idleState))
-        {
-            Debug.LogError("[State_Stride] Failed to change to idle state");
-            return false;
-        }
-        // Debug.Log("[State_Stride] Exited Stride State");
         return true;
     }
     public override void Leftclick()
     {
+        if (controller.isProcessingTurn) return; // Cannot select path while moving
+
         // check if clicked cell is valid stride location, then display preview of path
         if(controller.TryValidateAndGetPath(controller.currentCamera, character, out List<Vector3Int> path))
         {
@@ -93,6 +79,8 @@ public class StateStride : GridFSMState
 
     public override void DoubleLeftclick()
     {
+        if (controller.isProcessingTurn) return; // Cannot execute stride while moving
+
         // execute stride if a valid path is selected
         if (controller.visualIndicator.IsActive && controller.lastClickedCell == path[path.Count - 1])
         {
@@ -102,19 +90,28 @@ public class StateStride : GridFSMState
             
             // movement tracking is handled by character controller, not sure if this is the best design choice
             // could maybe cause issues if multiply actions try to read the movement information without cleaning up
-            controller.StartCoroutine(controller.ExecuteMovementInternal(character, controller.currentMovement, path));
-            canceled = false;
-            Exit();
+            controller.StartCoroutine(ExecutePlayerMovement(path));
         }
     }
+
+    private System.Collections.IEnumerator ExecutePlayerMovement(List<Vector3Int> path)
+    {
+        ITokenMovement movement = controller.GetMovementController(character);
+        yield return controller.StartCoroutine(controller.ExecuteMovementInternal(character, movement, path));
+        canceled = false;
+        fsm.ChangeState(fsm.idleState);
+    }
+
     public override void Rightclick()
     {
+        if (controller.isProcessingTurn) return; // Cannot cancel while moving
+
         // cancel stride when right clicking
         // if you are reading this and want to make another action, try to keep right click consistent for cancelling
         // I like it because its how the UI in Rimworld works and I quite enjoy that game :)
         Debug.Log("[State_Stride] Stride cancelled");
         canceled = true;
-        Exit();
+        fsm.ChangeState(fsm.idleState);
 
     }
     

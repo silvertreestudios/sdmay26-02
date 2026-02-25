@@ -50,6 +50,6 @@ public class ImageToGrid
             }
             gridString += "\n";
         }
-        Debug.Log(gridString);
+        // Debug.Log(gridString);
     }
 }

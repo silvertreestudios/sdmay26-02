@@ -64,10 +64,6 @@ public class GridCharacterController3D : MonoBehaviour
     public ITokenMovement currentMovement;
 
     // Input tracking
-    private float lastClickTime = 0f;
-    private bool leftClick = false;
-    private bool rightClick = false;
-    private bool isDoubleClick = false;
     public bool cancel = false;
     public Vector3Int lastClickedCell;
     
@@ -280,6 +276,8 @@ public class GridCharacterController3D : MonoBehaviour
 
     #region Character Spawning
 
+    //here is where you manually spawn characters for now
+    //TODO make a more intuitive way to spawn characters on a map
     void SpawnCharacters()
     {
         float yPos = gridMemory ? gridMemory.GridY + yDrawOffset : 0.001f;
@@ -483,6 +481,22 @@ public class GridCharacterController3D : MonoBehaviour
             if (pathSteps > maxMovementDistance)
                 return false;
         }
+
+        path = pathResult.path;
+        return true;
+    }
+
+    public bool TryValidateAndGetPathAI(Vector3Int startCell, Vector3Int targetCell, out List<Vector3Int> path)
+    {
+        path = null;
+
+        if (!gridMemory.IsCellWalkable(targetCell))
+            return false;
+
+        var pathResult = pathfinder.FindPath(startCell, targetCell);
+
+        if (!pathResult.found || pathResult.path == null || pathResult.path.Count < 2)
+            return false;
 
         path = pathResult.path;
         return true;

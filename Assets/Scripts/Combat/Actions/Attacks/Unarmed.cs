@@ -14,7 +14,7 @@ public class Unarmed : MultiFrameEntityAction
 
     protected override IEnumerator MFInvoke(GameObject attacker)
     {
-        PlayerActionController ac = attacker.GetComponent<PlayerActionController>();
+        ActionController ac = attacker.GetComponent<ActionController>();
         // Grid get target;
         CoroutineResult<GameObject> target = new();
         CoroutineResult<bool> canceled = new();

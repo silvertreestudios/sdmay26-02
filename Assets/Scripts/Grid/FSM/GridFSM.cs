@@ -19,7 +19,13 @@ public class GridFSM : FiniteStateMachine<GridFSMState>
 
     public override bool ChangeState(GridFSMState newState)
     {
-        
+        if (isInTransition)
+        {
+            // If we are already transitioning, queue the state change to happen next frame
+            GridCharacterController3D.Instance.StartCoroutine(DelayedChangeState(newState));
+            return true;
+        }
+
         if (base.ChangeState(newState))
         {
             timeSinceLastClick = 0f;
@@ -28,6 +34,13 @@ public class GridFSM : FiniteStateMachine<GridFSMState>
         } 
         return false;
         
+    }
+
+    //copilot added this, it is needed for the AI to change states properly because of how fast it acts
+    private IEnumerator DelayedChangeState(GridFSMState newState)
+    {
+        yield return null;
+        ChangeState(newState);
     }
 
     // Update is called once per frame
