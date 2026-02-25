@@ -1,0 +1,212 @@
+{
+  "name": "Barbarian",
+  "system": {
+    "ancestryFeatLevels": {
+      "value": [
+        1,
+        5,
+        9,
+        13,
+        17
+      ]
+    },
+    "attacks": {
+      "advanced": 0,
+      "martial": 1,
+      "other": {
+        "name": "",
+        "rank": 0
+      },
+      "simple": 1,
+      "unarmed": 1
+    },
+    "classFeatLevels": {
+      "value": [
+        1,
+        2,
+        4,
+        6,
+        8,
+        10,
+        12,
+        14,
+        16,
+        18,
+        20
+      ]
+    },
+    "defenses": {
+      "heavy": 0,
+      "light": 1,
+      "medium": 1,
+      "unarmored": 1
+    },
+    "description": {
+      "value": "<p><em>Rage consumes you in battle. You delight in wreaking havoc and using powerful weapons to carve through your enemies, relying on astonishing durability without needing complicated techniques or rigid training. Your rages draw upon a vicious instinct, which you might associate with an animal, a spirit, or some part of yourself. To many barbarians, brute force is a hammer and every problem looks like a nail, whereas others try to hold back the storm of emotions inside them and release their rage only when it matters most.</em></p>\n<p>@UUID[Compendium.pf2e.journals.JournalEntry.kzxu2dI7tFxv6Ix6.JournalEntryPage.lvuutBI9BSCU6cWe]{Barbarian}</p>"
+    },
+    "generalFeatLevels": {
+      "value": [
+        3,
+        7,
+        11,
+        15,
+        19
+      ]
+    },
+    "hp": 12,
+    "items": {
+      "Quick-Tempered": {
+        "level": 1,
+        "name": "Quick-Tempered",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Quick-Tempered"
+      },
+      "Instinct": {
+        "level": 1,
+        "name": "Instinct",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Instinct"
+      },
+      "Rage": {
+        "level": 1,
+        "name": "Rage",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Rage"
+      },
+      "Furious Footfalls": {
+        "level": 3,
+        "name": "Furious Footfalls",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Furious Footfalls"
+      },
+      "Brutality": {
+        "level": 5,
+        "name": "Brutality",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Brutality"
+      },
+      "Juggernaut": {
+        "level": 7,
+        "name": "Juggernaut",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Juggernaut"
+      },
+      "Weapon Specialization": {
+        "level": 7,
+        "name": "Weapon Specialization",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Weapon Specialization"
+      },
+      "Raging Resistance": {
+        "level": 9,
+        "name": "Raging Resistance",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Raging Resistance"
+      },
+      "Reflex Expertise": {
+        "level": 9,
+        "name": "Reflex Expertise",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Reflex Expertise"
+      },
+      "Mighty Rage": {
+        "level": 11,
+        "name": "Mighty Rage",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Mighty Rage"
+      },
+      "Weapon Mastery": {
+        "level": 13,
+        "name": "Weapon Mastery",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Weapon Mastery"
+      },
+      "Medium Armor Expertise": {
+        "level": 13,
+        "name": "Medium Armor Expertise",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Medium Armor Expertise"
+      },
+      "Greater Juggernaut": {
+        "level": 13,
+        "name": "Greater Juggernaut",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Greater Juggernaut"
+      },
+      "Indomitable Will": {
+        "level": 15,
+        "name": "Indomitable Will",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Indomitable Will"
+      },
+      "Greater Weapon Specialization (Barbarian)": {
+        "level": 15,
+        "name": "Greater Weapon Specialization (Barbarian)",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Greater Weapon Specialization (Barbarian)"
+      },
+      "Perception Mastery": {
+        "level": 17,
+        "name": "Perception Mastery",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Perception Mastery"
+      },
+      "Revitalizing Rage": {
+        "level": 17,
+        "name": "Revitalizing Rage",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Revitalizing Rage"
+      },
+      "Devastator": {
+        "level": 19,
+        "name": "Devastator",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Devastator"
+      },
+      "Armor Mastery": {
+        "level": 19,
+        "name": "Armor Mastery",
+        "uuid": "Compendium.pf2e.classfeatures.Item.Armor Mastery"
+      }
+    },
+    "keyAbility": {
+      "value": [
+        "str"
+      ]
+    },
+    "perception": 2,
+    "publication": {
+      "license": "ORC",
+      "remaster": true,
+      "title": "Pathfinder Player Core 2"
+    },
+    "rules": [],
+    "savingThrows": {
+      "fortitude": 2,
+      "reflex": 1,
+      "will": 2
+    },
+    "skillFeatLevels": {
+      "value": [
+        2,
+        4,
+        6,
+        8,
+        10,
+        12,
+        14,
+        16,
+        18,
+        20
+      ]
+    },
+    "skillIncreaseLevels": {
+      "value": [
+        3,
+        5,
+        7,
+        9,
+        11,
+        13,
+        15,
+        17,
+        19
+      ]
+    },
+    "spellcasting": 0,
+    "trainedSkills": {
+      "additional": 3,
+      "value": [
+        "athletics"
+      ]
+    },
+    "traits": {
+      "rarity": "common",
+      "value": []
+    }
+  },
+  "type": "class",
+  "Source": "packs/classes"
+}

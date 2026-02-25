@@ -5,15 +5,17 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using Game.Creature;
+using Game.Strikes;
 using System.Collections.Generic;
 
-public class HUDController : MonoBehaviour
+public class HUDController : SingletonMonoBehaviour<HUDController>
 {
 
     public VisualElement ui;
     public Button strikeButton;
     public Button moveButton;
     public Button endTurnButton;
+    public Button strikeWeaponButtton; // for testing, will need to be generated based on equipped weapons in the future
 
 
     //####Player Queue Card Variables####   
@@ -36,7 +38,8 @@ public class HUDController : MonoBehaviour
     private static bool IsActive = false;
     
 
-    private void Awake() {
+    protected override void Awake() {
+        base.Awake();
         Debug.Log("Awake called");
         ui = GetComponent<UIDocument>().rootVisualElement;
 
@@ -57,6 +60,9 @@ public class HUDController : MonoBehaviour
         //####Button Setup####
         strikeButton = ui.Q<Button>("StrikeButton");
         strikeButton.clicked += Strike;
+
+        strikeWeaponButtton = ui.Q<Button>("StrikeWeaponButton");
+        strikeWeaponButtton.clicked += StrikeWeapon;
 
         moveButton = ui.Q<Button>("MoveButton");
         moveButton.clicked += Move;
@@ -159,6 +165,61 @@ public class HUDController : MonoBehaviour
         Debug.Log("Clicked Strike button");
         //for testing, have strike do damage to next player
         // players[(currentPlayerIndex + 1) % players.Length].TakeDamage(10);
+    }
+
+    // Testing function for StrikeWeapon action
+    public void StrikeWeapon() {
+        Debug.Log("Strike Weapon called");
+        GameObject g = CombatManager.GetInstance().WhosTurn();
+        List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
+        StrikeWeapon strikeWeaponAction = null;
+        Debug.Log("Available actions for current player: "+ acs.Count);
+        foreach (var a in acs)
+        {
+            Debug.Log("Checking action: " + a);
+            if (a is StrikeWeapon)
+            {
+                Debug.Log("Found StrikeWeapon action: " + a);
+                strikeWeaponAction = (StrikeWeapon)a;
+                // break;
+            }
+        }
+        if (strikeWeaponAction == null)
+        {
+            Debug.LogWarning("No StrikeWeapon action found for current player!");
+            return;
+        }
+        g.GetComponent<ActionController>().TakeAction(strikeWeaponAction);
+        Debug.Log("Clicked Strike Weapon button");
+    }
+
+    public void SetStrikeWeaponText(string weaponName)
+    {
+        if (strikeWeaponButtton != null && !string.IsNullOrEmpty(weaponName))
+        {
+            //ui.Q<Button>("StrikeWeaponButton").text = weaponName;
+            strikeWeaponButtton.text = weaponName;
+        }
+        else
+        {
+            GameObject g = CombatManager.GetInstance().WhosTurn();
+            List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
+            StrikeWeapon strikeWeaponAction = null;
+            Debug.Log("Available actions for current player: "+ acs.Count);
+            foreach (var a in acs)
+            {
+                Debug.Log("Checking action: " + a);
+                if (a is StrikeWeapon)
+                {
+                    Debug.Log("Found StrikeWeapon action: " + a);
+                    strikeWeaponAction = (StrikeWeapon)a;
+                    strikeWeaponButtton.text = strikeWeaponAction.GetWeaponName();
+                    return;
+                }
+            }
+            strikeWeaponButtton.text = "N/A";
+        }
+        
     }
 
     public void Move()
