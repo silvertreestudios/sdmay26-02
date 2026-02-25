@@ -59,6 +59,16 @@ public class ClassDatabase
  {
     public List<ClassInfo> classes;
 }
+
+//individually track the attribute boosts from ancestry, background, and class
+[System.Serializable]
+public class AttributeContributions
+{
+    public int ancestry;
+    public int background;
+    public int className;
+    public int attributeTotal => ancestry + background + className;
+}
     
 //Inherits from class `MonoBehaviour`. This makes it attachable to a game object as a component.
 public class CharacterCreationScript : MonoBehaviour
@@ -87,6 +97,12 @@ public class CharacterCreationScript : MonoBehaviour
     TextField classChoiceField;
     IntegerField hpField;
     IntegerField speedField;
+    IntegerField strengthAttributeField;
+    IntegerField dexterityAttributeField;
+    IntegerField constitutionAttributeField;
+    IntegerField intelligenceAttributeField;
+    IntegerField wisdomAttributeField;
+    IntegerField charismaAttributeField;
     TextField perceptionField;
     TextField fortitudeField;
     TextField reflexField;
@@ -111,6 +127,13 @@ public class CharacterCreationScript : MonoBehaviour
     int selectedCount = 0;
     int classHP;
     int ancestryHP;
+    // int strengthBoost = 0;
+    // int dexterityBoost = 0;
+    // int constitutionBoost = 0;
+    // int intelligenceBoost = 0;
+    // int wisdomBoost = 0;
+    // int charismaBoost = 0;
+    Dictionary<string, AttributeContributions> attributes; //string is the attribute, AttributeContributions is ancestry/background/class; main storage for current attributes
 
     //for json
     TextAsset jsonFile;
@@ -166,6 +189,12 @@ public class CharacterCreationScript : MonoBehaviour
         lightArmorField = root.Q<TextField>("LightArmorDefense");
         mediumArmorField = root.Q<TextField>("MediumArmorDefense");
         allArmorField = root.Q<TextField>("AllArmorDefense");
+        strengthAttributeField = root.Q<IntegerField>("StrengthAttribute");
+        dexterityAttributeField = root.Q<IntegerField>("DexterityAttribute");
+        constitutionAttributeField = root.Q<IntegerField>("ConstitutionAttribute");
+        intelligenceAttributeField = root.Q<IntegerField>("IntelligenceAttribute");
+        wisdomAttributeField = root.Q<IntegerField>("WisdomAttribute");
+        charismaAttributeField = root.Q<IntegerField>("CharismaAttribute"); 
 
         //for json, assigning
         jsonFile = Resources.Load<TextAsset>("Data/ancestry");
@@ -177,10 +206,19 @@ public class CharacterCreationScript : MonoBehaviour
         //small enough that I'm keeping as a dictionary for now
         backgroundDescriptionByBackground = new Dictionary<string, List<string>>()
         {
-            {"Acolyte", new List<string> {"You spent your early days in a religious monastery or cloister. You may have traveled out into the world to spread the message of your religion or because you cast away the teachings of your faith, but deep down you'll always carry within you the lessons you learned.", "Intelligence", "Wisdom", "Religion", "Student of the Canon"}},
-            {"Bandit", new List<string> {"Your past includes no small amount of rural banditry, robbing travelers on the road and scraping by. Whether your robbery was sanctioned by a local noble or you did so of your own accord, you eventually got caught up in the adventuring life. Now, adventure is your stock and trade, and years of camping and skirmishing have only helped.", "Dexterity", "Charisma", "Intimidation", "Group Coercion"}},
-            {"Cook", new List<string> {"You grew up in the kitchens of a tavern or other dining establishment and excelled there, becoming an exceptional cook. Baking, cooking, a little brewing on the side—you've spent lots of time out of sight. It's about time you went out into the world to catch some sights for yourself", "Constitution", "Intelligence", "Survival", "Seasoned"}}
+            {"Acolyte", new List<string> {"You spent your early days in a religious monastery or cloister. You may have traveled out into the world to spread the message of your religion or because you cast away the teachings of your faith, but deep down you'll always carry within you the lessons you learned.", "intelligence", "wisdom", "Religion", "Student of the Canon"}},
+            {"Bandit", new List<string> {"Your past includes no small amount of rural banditry, robbing travelers on the road and scraping by. Whether your robbery was sanctioned by a local noble or you did so of your own accord, you eventually got caught up in the adventuring life. Now, adventure is your stock and trade, and years of camping and skirmishing have only helped.", "dexterity", "charisma", "Intimidation", "Group Coercion"}},
+            {"Cook", new List<string> {"You grew up in the kitchens of a tavern or other dining establishment and excelled there, becoming an exceptional cook. Baking, cooking, a little brewing on the side—you've spent lots of time out of sight. It's about time you went out into the world to catch some sights for yourself", "constitution", "intelligence", "Survival", "Seasoned"}}
         };
+
+        //initialize "attributes" dictionary with all 6 attributes, each with an AttributeContributions object
+        attributes = new Dictionary<string, AttributeContributions>();
+        attributes.Add("strength", new AttributeContributions());
+        attributes.Add("dexterity", new AttributeContributions());
+        attributes.Add("constitution", new AttributeContributions());
+        attributes.Add("intelligence", new AttributeContributions());
+        attributes.Add("wisdom", new AttributeContributions());
+        attributes.Add("charisma", new AttributeContributions());
 
         ancestryRadioButtonGroup.RegisterValueChangedCallback(OnAncestryChanged);
         backgroundRadioButtonGroup.RegisterValueChangedCallback(OnBackgroundChanged);
@@ -206,7 +244,33 @@ public class CharacterCreationScript : MonoBehaviour
         string selectedAncestry = (ancestryRadioButtonGroup[evt.newValue] as RadioButton).label; //evt.newValue is the index of the selected button
         ancestryChoiceField.value = selectedAncestry;
         ancestryHP = db.ancestries.Find(a => a.id == selectedAncestry).hp;
-        hpField.value = classHP + ancestryHP; //add ancestry hp to total hp
+        hpField.value = classHP + ancestryHP; //add ancestry hp to other hp
+
+        //use selectedAncestry to check the json list for the matching ancestry
+        //get the list of boosts for that ancestry
+        //apply those boosts to matching attribute display fields
+        //BUT, display fields should reset ONLY for the ancestry boosts
+        // Ancestry selectedAncestryObj = db.ancestries.Find(a => a.id == selectedAncestry); //make an ancestry object
+        // List<string> boosts = new List<string>(selectedAncestryObj.attributeBoost); //make a list of that ancestry's boosts
+        // strengthBoost = boosts.Contains("strength") ? 1 : 0; //if found, change to 1, otherwise 0
+        // dexterityBoost = boosts.Contains("dexterity") ? 1 : 0;
+        // constitutionBoost = boosts.Contains("constitution") ? 1 : 0;
+        // intelligenceBoost = boosts.Contains("intelligence") ? 1 : 0;
+        // wisdomBoost = boosts.Contains("wisdom") ? 1 : 0;
+        // charismaBoost = boosts.Contains("charisma") ? 1 : 0;
+        // strengthAttributeField.value = strengthBoost; //then updates the display fields
+        // dexterityAttributeField.value = dexterityBoost;
+        // constitutionAttributeField.value = constitutionBoost;
+        // intelligenceAttributeField.value = intelligenceBoost;
+        // wisdomAttributeField.value = wisdomBoost;
+        // charismaAttributeField.value = charismaBoost;
+
+        Ancestry selectedAncestryObj = db.ancestries.Find(a => a.id == selectedAncestry); //make an ancestry object
+        List<string> boosts = new List<string>(selectedAncestryObj.attributeBoost); //make a list of that ancestry's boosts
+        ClearAncestryContributions();
+        ApplyAncestryBoosts(boosts); //pass in List of strings
+        RefreshAttributeFields();
+
         speedField.value = db.ancestries.Find(a => a.id == selectedAncestry).speed;
         PopulateHeritageButtons(selectedAncestry);
         PopulateAncestryFeatButtons(selectedAncestry);
@@ -281,6 +345,12 @@ public class CharacterCreationScript : MonoBehaviour
         string selectedBackground = (backgroundRadioButtonGroup[evt.newValue] as RadioButton).label; //evt.newValue is the index of the selected button
         PopulateBackgroundInfo(selectedBackground);
         backgroundChoiceField.value = selectedBackground;
+
+        //handle attributes 
+        List<string> boosts = new List<string>{backgroundDescriptionByBackground[selectedBackground][1], backgroundDescriptionByBackground[selectedBackground][2]}; //make a list of that background's boosts
+        ClearBackgroundContributions();
+        ApplyBackgroundBoosts(boosts); //pass in List of strings
+        RefreshAttributeFields();
     }
 
     void PopulateBackgroundInfo(string background)
@@ -417,5 +487,44 @@ public class CharacterCreationScript : MonoBehaviour
             if (!toggle.value)
                 toggle.SetEnabled(!atLimit);
         }
+    }
+
+    //attribute tracker helpers (3 parts): clear and apply for each category, then refresh display fields
+    void ClearAncestryContributions() //anything ancestry is reset
+    {
+        foreach (var entry in attributes.Values)
+        {
+            entry.ancestry = 0;
+        }
+    }
+    void ApplyAncestryBoosts(List<string> boosts) //pass in what boosts from ancestry to update
+    {
+        foreach (string boost in boosts)
+        {
+            attributes[boost].ancestry++;
+        }
+    }
+    void ClearBackgroundContributions() //anything background is reset
+    {
+        foreach (var entry in attributes.Values)
+        {
+            entry.background = 0;
+        }
+    }
+    void ApplyBackgroundBoosts(List<string> boosts) //pass in what boosts from background to update
+    {
+        foreach (string boost in boosts)
+        {
+            attributes[boost].background++;
+        }
+    }
+    void RefreshAttributeFields() //lastly, update the display fields
+    {
+        strengthAttributeField.value     = attributes["strength"].attributeTotal;
+        dexterityAttributeField.value    = attributes["dexterity"].attributeTotal;
+        constitutionAttributeField.value = attributes["constitution"].attributeTotal;
+        intelligenceAttributeField.value = attributes["intelligence"].attributeTotal;
+        wisdomAttributeField.value       = attributes["wisdom"].attributeTotal;
+        charismaAttributeField.value     = attributes["charisma"].attributeTotal;
     }
 }
