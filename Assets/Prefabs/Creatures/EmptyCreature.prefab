@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 6933968513404160077}
   - component: {fileID: 6819483576359709902}
   - component: {fileID: -2800045436435895595}
+  - component: {fileID: -9005069984893689813}
   m_Layer: 6
   m_Name: EmptyCreature
   m_TagString: Untagged
@@ -112,6 +113,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
+--- !u!114 &-9005069984893689813
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4250615070516425197}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Team
+  <Name>k__BackingField: 
 --- !u!1 &5791139501262925988
 GameObject:
   m_ObjectHideFlags: 0

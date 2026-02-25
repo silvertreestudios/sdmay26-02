@@ -56,6 +56,17 @@ public class CombatManager : CombatManagerInterface
 
     public override void NextTurn()
     {
+        List<string> teams = new();
+        // Check if a team has won yet.
+        foreach(var combatant in Combatants)
+        {
+            string team = combatant.GetComponent<Team>().Name;
+            if(!teams.Contains(name))
+                teams.Add(team);
+        }
+        if (teams.Count < 2)
+            ;// Signal end
+        // Take the next turn.
         TurnStep e = TurnQueue[0];
         TurnQueue.RemoveAt(0);
         if(e.Player)

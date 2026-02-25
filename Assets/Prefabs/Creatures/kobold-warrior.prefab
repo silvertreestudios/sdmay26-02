@@ -107,12 +107,19 @@ MonoBehaviour:
   - Spear
   - Sling
   - Scamper
+  _reactions: []
+  _passives:
   - Sneak Attack
+  _conditions: []
+  _equippedArmor: 
   _equipment:
   - Sling
   - Spear
   - Leather Armor
   - Sling Bullets
+  _weaponsList:
+  - Sling
+  - Spear
 --- !u!114 &2811146936450233142
 MonoBehaviour:
   m_ObjectHideFlags: 0

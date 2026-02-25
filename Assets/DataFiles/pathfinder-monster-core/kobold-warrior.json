@@ -125,21 +125,25 @@
     {
       "name": "Sling",
       "type": "weapon",
+      "hands": 0,
       "quantity": 1
     },
     {
       "name": "Spear",
       "type": "weapon",
+      "hands": 1,
       "quantity": 1
     },
     {
       "name": "Leather Armor",
       "type": "armor",
+      "hands": 0,
       "quantity": 1
     },
     {
       "name": "Sling Bullets",
       "type": "ammo",
+      "hands": null,
       "quantity": 20
     }
   ],
@@ -296,7 +300,10 @@
           "value": []
         }
       }
-    },
+    }
+  ],
+  "reactions": [],
+  "passives": [
     {
       "name": "Sneak Attack",
       "type": "action",
@@ -340,5 +347,6 @@
       }
     }
   ],
+  "conditions": [],
   "Source": "packs/pathfinder-monster-core"
 }
