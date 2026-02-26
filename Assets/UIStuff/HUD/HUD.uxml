@@ -1,7 +1,7 @@
 <ui:UXML xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" noNamespaceSchemaLocation="../../../UIElementsSchema/UIElements.xsd" editor-extension-mode="False">
     <Style src="project://database/Assets/UIStuff/HUD/HUD.uss?fileID=7433441132597879392&amp;guid=7bce28169aab53a4c97f829107456fc8&amp;type=3#HUD" />
     <ui:VisualElement name="Panel" style="flex-grow: 1;">
-        <ui:VisualElement name="UpperArea" style="flex-grow: 1; flex-direction: row; align-items: auto;">
+        <ui:VisualElement name="UpperArea" style="flex-grow: 1; flex-direction: row; align-items: auto; visibility: hidden;">
             <ui:VisualElement name="CurrentPlayerInfo" style="flex-grow: 1; align-self: flex-start; justify-content: flex-start; align-items: flex-start;">
                 <ui:ProgressBar value="22" title="my-progress" name="HealthBar" style="align-items: stretch;" />
             </ui:VisualElement>

@@ -117,7 +117,7 @@ public class HUDController : MonoBehaviour
         }
 
         // Highlight the current player's card
-        HighlightCurrentPlayerCard();
+        
         updatePlayerQueueCards();
     }
 
@@ -130,35 +130,10 @@ public class HUDController : MonoBehaviour
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
-            cardInstance.Q<Label>("Card_Name").text = p.name;
             Debug.Log("Added card for " + Players[i].name);
         }
     }
 
-    private void HighlightCurrentPlayerCard() {
-        // Debug.Log("HighlightCurrentPlayerCard called");
-        // Logic to highlight the current player's card
-        // This is a placeholder implementation
-        int playerIndex = CombatManagerInterface.GetInstance().WhosTurn() == Players[0] ? 1 : 0;
-        if(playerIndex != lastPlayerIndex) {
-            needToMoveCards = true; // Set flag to move cards in the next update
-        }
-        for (int i = 0; i < cardHolder.childCount; i++) {
-            var card = cardHolder.ElementAt(i);
-            if (i == playerIndex) {
-                // Highlight and scale up the active card
-                lastPlayerIndex = playerIndex; // Update last player index
-                card.style.scale = new Vector3(1.2f, 1.2f, 1); // Scale up
-                if(needToMoveCards){card.BringToFront();} // Ensure the active card is on top}
-                needToMoveCards = false;
-            } else {
-                // Remove highlight and scale down
-                
-                card.style.scale = new Vector3(0.9f, 0.9f, 1); // Scale down
-            }
-        }
-    }
-    // End of Card Logic
 
     public void Strike() {
         Debug.Log("Strike called");
@@ -228,16 +203,32 @@ public class HUDController : MonoBehaviour
     }
 
     private void updatePlayerQueueCards() {
-        Debug.Log("updatePlayerQueueCards called");
         // Logic to update player queue cards
         // This is a placeholder implementation
         for (int i = 0; i < cardHolder.childCount; i++) {
             var card = cardHolder.ElementAt(i);
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             var healthBar = card.Q<ProgressBar>("HealthBar");
+            card.Q<Label>("Card_Name").text = p.name + " photo would go here"; // Update name in case it changes
             healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
             healthBar.value = p.hp;
             healthBar.highValue = p.maxHp;
+            if (p == CombatManager.GetInstance().WhosTurn().GetComponent<CreatureComponent>()) {
+                card.style.scale = new Vector3(1.5f, 1.5f, 1); // Scale up the current player's card
+                card.style.opacity = 1f; // Full opacity for current player card
+                card.style.borderBottomColor = Color.clear;
+                card.style.borderBottomWidth = 50;
+            } else {
+                card.style.borderBottomColor = Color.clear;
+                card.style.borderBottomWidth = 0;
+                card.style.scale = new Vector3(1f, 1f, 1);
+                card.style.opacity = 0.5f; // Dim non-current player cards
+            }
+            if (p.hp <= 0) {
+                needToMoveCards = true; // Flag to move cards if a player is defeated
+                return; // Exit early to avoid updating cards that may be removed
+            }
+            card.Q<Label>("AP").text = "AP: " + p.GetComponent<ActionController>().ActionPoints; // Update action points display
         }
     }
 }
