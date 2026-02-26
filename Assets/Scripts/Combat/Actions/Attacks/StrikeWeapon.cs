@@ -96,8 +96,11 @@ public class StrikeWeapon : MultiFrameEntityAction
             Debug.Log(attacker + " Striking " + target.Value +" with " + Weapon.name);
             // TODO: need to modify strike/damage to account for character abilities, weapons traits, etc
             Strike.Damage(attacker, target.Value);
-            if(ac)
+            if (ac)
+            {
                 PayCost(ac);
+                ac.StrikePenalty += 1;
+            }
         }
         if(ac)
             ac.IsTakingAction = false;
