@@ -55,18 +55,19 @@ public class Equipment : ConditionSource
 public class Spell : ConditionSource
 {
     public string Name;
+    Condition c;
 
     public void Apply(List<GameObject> g)
     {
-        // Get IConditionTarget on gameobjects
+        Conditions c = g.GetComponent<Conditions>();
+        c.Add(this, condition)
 
-        // Condition added 
-        int conditionDuration = 0;
-        UnityEvent e = new();
-        TurnStep ts = new TurnStep(e, conditionDuration);
-        // CombatManager.Add(Turnstep);
-
-        // 
+        int conditionDuration = 5; // Insert in turn queue right now. will not execute until the 6th attempt
+        UnityAction callback = () => {
+            c.Remove(this, condition);
+        };
+        TurnStep ts = new TurnStep(callback, conditionDuration);
+        CombatManager.Add(Turnstep);
     }
 }
 */

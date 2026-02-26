@@ -88,6 +88,7 @@ namespace JsonImporter
         public const string apiBranch = "v13-dev";
 
         // The Contents API accepts branch, tag, or commit SHA in the `ref` parameter — default tag "7.8.0".
+        // !! WARNING !! Considerable changes made to source repo format after "7.8.0" that would require multiple changes to adjust for
         public const string apiRef = "7.8.0";
 
         // Specify directory within the apiRoot to limit scope of files read
@@ -106,15 +107,16 @@ namespace JsonImporter
         {
             // "packs/spells/cantrip/",
             // "packs/spells/1st-rank/",
-            // "packs/equipment/longsword.json",
-            // "packs/equipment/scimitar.json",
-            // "packs/equipment/dogslicer.json",
-            // "packs/equipment/shortbow.json",
-            // "packs/equipment/sling.json",
-            // "packs/equipment/spear.json",
-               "packs/equipment/leather-armor.json",
-               "packs/equipment/breastplate.json",
-               "packs/equipment/padded-armor.json",
+            "packs/equipment/longsword.json",
+            "packs/equipment/scimitar.json",
+            "packs/equipment/dogslicer.json",
+            "packs/equipment/shortbow.json",
+            "packs/equipment/sling.json",
+            "packs/equipment/spear.json",
+            "packs/equipment/halberd.json",
+            // "packs/equipment/leather-armor.json",
+            // "packs/equipment/breastplate.json",
+            // "packs/equipment/padded-armor.json",
             // "packs/pathfinder-monster-core/goblin-warrior.json",
             // "packs/pathfinder-monster-core/zombie-shambler.json",
             // "packs/pathfinder-monster-core/skeleton-guard.json",
@@ -125,18 +127,19 @@ namespace JsonImporter
             // "packs/backgrounds/warrior.json",
             // "packs/backgrounds/nomad.json",
             // "packs/classes/fighter.json",
+            // "packs/classes/barbarian.json",
             // "packs/iconics/valeros-level-1.json",
             // "packs/feats/class/shared-class-feats/reactive-shield.json"
         };
 
-
-        public const bool requireRemaster = false; // or false, as needed
+        public const bool requireRemaster = true; // or false, as needed
         public static readonly HashSet<string> sourceBooks = new HashSet<string>
         {
             "Pathfinder Player Core",
+            "Pathfinder Player Core 2",
             "Pathfinder Monster Core",
-            "Pathfinder Core Rulebook", // TODO temp for importing iconic characters
-            "Pathfinder GM Core", // TODO temp for importing iconic characters
+            // "Pathfinder Core Rulebook", // TODO temp for importing iconic characters
+            // "Pathfinder GM Core", // TODO temp for importing iconic characters
             // Add other allowed titles here
         };
 
@@ -472,7 +475,8 @@ namespace JsonImporter
                 var jsonObj = JToken.Parse(jsonContent);
 
                 bool IsValidLicense(string? license) =>
-                    license != null && (license.Equals("ORC", StringComparison.OrdinalIgnoreCase) || license.Equals("OGL", StringComparison.OrdinalIgnoreCase));
+                    license != null && (license.Equals("ORC", StringComparison.OrdinalIgnoreCase) );
+                    // || license.Equals("OGL", StringComparison.OrdinalIgnoreCase));
 
                 bool IsValidRemaster(JToken publication) =>
                     !Constants.requireRemaster || (publication["remaster"]?.Value<bool>() == true);

@@ -1,6 +1,7 @@
 {
   "type": "armor",
   "name": "Leather Armor",
+  "category": "light",
   "price_GP": 2.0,
   "acBonus": 1,
   "dexCap": 4,

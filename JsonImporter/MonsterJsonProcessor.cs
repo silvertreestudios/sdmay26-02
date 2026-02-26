@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 
@@ -37,7 +38,7 @@ namespace JsonImporter
                     var clonedSystem = item["system"] != null ? item["system"].DeepClone() as JObject : null;
 
                     string type = item["type"]?.ToString();
-                    if (type == "weapon" || type == "armor" || type == "ammo")
+                    if (type == "weapon" || type == "ammo")
                     {
                         var system = item["system"] as JObject;
                         var newEquip = new JObject
@@ -46,8 +47,22 @@ namespace JsonImporter
                             ["type"] = item["type"],
                             ["hands"] = system.SelectToken("equipped.handsHeld"),
                             ["category"] =system.SelectToken("category"),
-                            // ensure quantity is an integer and provide a sensible default (1)
                             ["quantity"] = system?["quantity"]?.Value<int?>() ?? 1
+                        };
+                        equipmentArr.Add(newEquip);
+                    }
+                    else if (type == "armor")
+                    {
+                        var system = item["system"] as JObject;
+                        var newEquip = new JObject
+                        {
+                            ["name"] = item["name"],
+                            ["type"] = item["type"],
+                            ["hands"] = system.SelectToken("equipped.handsHeld"),
+                            ["category"] =system.SelectToken("category"),
+                            ["quantity"] = system?["quantity"]?.Value<int?>() ?? 1,
+                            ["acBonus"] = system.SelectToken("acBonus"),
+                            ["dexCap"] = system.SelectToken("dexCap")
                         };
                         equipmentArr.Add(newEquip);
                     }
@@ -250,21 +265,7 @@ namespace JsonImporter
                             ["system"] = cloned
                         };
 
-                        // TODO 
-                        // Refine implementation to avoid double listing in both items and conditions.
-                        /*
-                        string context = cloned?["descriptionContext"]?.ToString() ?? "";
-                        if (context.Contains("Compendium.pf2e.conditionitems.Item."))
-                        {
-                            string descPar = cloned?["descriptionParagraphs"]?.ToString() ?? "";
-                            string conditionName = ExtractFirstBracedText(descPar);
-                            if (conditionName != null)
-                            {
-                                newItem["name"] = conditionName;
-                            }
-                            conditionsArr.Add(newItem);
-                        }
-                        */
+
                         if (item["system"]?["actionType"]?["value"]?.ToString() == "reaction")
                         {
                             reactionsArr.Add(newItem);
@@ -363,7 +364,7 @@ namespace JsonImporter
                     var skillEntry = new JObject
                     {
                         ["name"] = prop.Name,
-                        ["base"] = baseVal
+                        ["value"] = baseVal // changed from "base" to "value" to avoid syntax issues with C# keywords
                     };
                     skillsArray.Add(skillEntry);
                 }
@@ -406,6 +407,8 @@ namespace JsonImporter
                 if (systemObj["resistances"] == null) systemObj["resistances"] = new JArray();
             }
 
+            JArray weaponProfs = InferProficiencies(orderedItems, equipmentArr, obj);
+            JArray armorProfs = inferArmorProficiencies(equipmentArr, obj);
             // Build the output object in the specified order and include Source if present
             var output = new JObject
             {
@@ -416,7 +419,9 @@ namespace JsonImporter
                 ["items"] = orderedItems,
                 ["reactions"] = reactionsArr,
                 ["passives"] = passivesArr,
-                ["conditions"] = conditionsArr
+                ["conditions"] = conditionsArr,
+                ["weaponBonuses"] = weaponProfs,
+                ["armorBonuses"] = armorProfs
             };
 
             // Preserve Source if it existed in the original file (some JSON uses capital "Source")
@@ -446,21 +451,19 @@ namespace JsonImporter
         // Rough method for inferring monster weapon proficiencies based on their action bonuses
         public static JArray InferProficiencies(JArray actions, JArray equipment, JObject character)
         {
-            var profs = new JArray
-            {
-                new JObject{["unarmed"] = 0},
-                new JObject{["simple"] = 0},
-                new JObject{["martial"] = 0},
-                new JObject{["advanced"] = 0},
-            };
+            int unarmedBonus = 0;
+            int simpleBonus = 0;
+            int martialBonus = 0;
+            int advancedBonus = 0;
+
             // Search equipment for weapons
             foreach (var equip in equipment.OfType<JObject>())
             {
                 string type = equip["type"]?.ToString();
                 if (type == "weapon")
                 {
-                    string weaponName = equip["name"]?.ToString() ?? "";
                     // Check actions for a name that matches the weapon
+                    string weaponName = equip["name"]?.ToString() ?? "";
                     foreach (var action in actions.OfType<JObject>())
                     {
                         string actionName = action["name"]?.ToString() ?? "";
@@ -472,16 +475,104 @@ namespace JsonImporter
                             int strMod= character["system"]?["abilities"]?["str"]?["mod"]?.Value<int>() ?? 0;
                             int dexMod= character["system"]?["abilities"]?["dex"]?["mod"]?.Value<int>() ?? 0;
                             // assume creature uses weapons better for their stats
-                            int proficiency = Math.Max(bonus-strMod, bonus-dexMod);
-                            // clamp to 0-5 range just in case we're looking at bad data
-                            proficiency = Math.Clamp(proficiency, 0, 5);
+                            // TODO retrieve weapon traits to check for finesse or ranged, etc. instead of assuming based on higher mod
+                            int proficiency = bonus - Math.Max(strMod, dexMod);
                             // use higher if a value has already been found for that category
-                            profs[category] = Math.Max(proficiency, profs[category].Value<int>());
+                            if (category == "unarmed")
+                                unarmedBonus = Math.Max(proficiency, unarmedBonus);
+                            else if (category == "simple")
+                                simpleBonus = Math.Max(proficiency, simpleBonus);
+                            else if (category == "martial")
+                                martialBonus = Math.Max(proficiency, martialBonus);
+                            else if (category == "advanced")
+                                advancedBonus = Math.Max(proficiency, advancedBonus);
                         }   
                     }
                 }
             }
-            // ? set unarmed and simple <= martial if martial found, etc.?
+            // assuming proficiencies scale downward...
+            martialBonus = Math.Max(martialBonus, advancedBonus);
+            simpleBonus = Math.Max(simpleBonus, martialBonus);
+            unarmedBonus = Math.Max(unarmedBonus, simpleBonus);
+
+            // assign values
+            var profs = new JArray
+            {
+                new JObject
+                {
+                    ["category"] = "unarmed",
+                    ["bonus"] = unarmedBonus
+                },
+                new JObject
+                {
+                    ["category"] = "simple",
+                    ["bonus"] = simpleBonus
+                },
+                new JObject
+                {
+                    ["category"] = "martial",
+                    ["bonus"] = martialBonus
+                },
+                new JObject
+                {
+                    ["category"] = "advanced",
+                    ["bonus"] = advancedBonus
+                }
+            };
+            return profs;
+        }
+
+        public static JArray inferArmorProficiencies(JArray equipment, JObject character)
+        {
+            int lightBonus = 0;
+            int mediumBonus = 0;
+            int heavyBonus = 0;
+
+            foreach (var equip in equipment.OfType<JObject>())
+            {
+                string type = equip["type"]?.ToString();
+                if (type == "armor")
+                {
+                    string category = equip["category"]?.ToString() ?? "";
+                    int acBonus = equip["acBonus"]?.Value<int>() ?? 0;
+                    int dexCap = equip["dexCap"]?.Value<int>() ?? 0;
+                    int ac = character["system"]?["attributes"]?["ac"]?["value"]?.Value<int>() ?? 0;
+                    int dexMod = character["system"]?["abilities"]?["dex"]?["mod"]?.Value<int>() ?? 0;
+                    int level = character["system"]?["details"]?["level"]?["value"]?.Value<int>() ?? 0;
+
+                    int prof = ac - 10 -acBonus - Math.Min(dexMod, dexCap);
+
+                    if (category == "light")
+                        lightBonus = Math.Max(prof, lightBonus);
+                    else if (category == "medium")
+                        mediumBonus = Math.Max(prof, mediumBonus);
+                    else if (category == "heavy")
+                        heavyBonus = Math.Max(prof, heavyBonus);
+                }
+            }
+
+            // assume armor proficiencies scale downward
+            mediumBonus = Math.Max(mediumBonus, heavyBonus);
+            lightBonus = Math.Max(lightBonus, mediumBonus);
+
+            var profs = new JArray
+            {
+                new JObject
+                {
+                    ["category"] = "light",
+                    ["bonus"] = lightBonus
+                },
+                new JObject
+                {
+                    ["category"] = "medium",
+                    ["bonus"] = mediumBonus
+                },
+                new JObject
+                {
+                    ["category"] = "heavy",
+                    ["bonus"] = heavyBonus
+                }
+            };
             return profs;
         }
     }

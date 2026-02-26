@@ -1,6 +1,7 @@
 {
   "type": "armor",
   "name": "Padded Armor",
+  "category": "light",
   "price_GP": 0.2,
   "acBonus": 1,
   "dexCap": 3,

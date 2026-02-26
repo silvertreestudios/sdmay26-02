@@ -42,5 +42,11 @@ namespace Game.Creature
             // Delegate lookup + creation to the converter (it will search Assets/DataFiles)
             return CreatureJsonConverter.GetWeaponByName(weaponName);
         }
+
+        public static EquipmentArmor GetArmor(string armorName)
+        {
+            // Delegate lookup + creation to the converter (it will search Assets/DataFiles)
+            return CreatureJsonConverter.GetArmorByName(armorName);
+        }
     }
 }

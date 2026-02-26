@@ -14,12 +14,12 @@ namespace Game.Creature
         // public string source; // gameObject ID of GO that applied the condition
     }
 
-    [System.Serializable]
-    public struct SkillValue
-    {
-        public string skillName;
-        public int skillMod;
-    }
+    [System.Serializable] public struct SkillValue { public string skillName; public int skillMod; }
+
+    [System.Serializable] public struct WeaponBonus { public string category; public int bonus; }
+
+    [System.Serializable] public struct ArmorBonus { public string category; public int bonus; }
+
 
     // Extension as a Unity MonoBehaviour
     public class CreatureComponent : MonoBehaviour 
@@ -42,8 +42,12 @@ namespace Game.Creature
         [SerializeField] private int _ac;
         [SerializeField] private int _attackBonus;
         [SerializeField] private int _damageBonus;
+        [SerializeField] private List<WeaponBonus> _weaponBonuses = new List<WeaponBonus>();
+        [SerializeField] private List<ArmorBonus> _armorBonuses = new List<ArmorBonus>();
         [SerializeField] private List<DamageValue> _weaknesses = new List<DamageValue>();
         [SerializeField] private List<DamageValue> _resistances = new List<DamageValue>();
+        // hash map or alternative get for modifications?
+        // handle conditions/modifiers in CreatureComponent
         // hash map or alternative get for modifications?
         // handle conditions/modifiers in CreatureComponent
 
@@ -77,6 +81,7 @@ namespace Game.Creature
         [Header("Conditions")]
         [SerializeField] private List<string> _conditions = new List<string>();
 
+
         [Header("Equipment")]
         [SerializeField] private EquipmentArmor _equippedArmor;
         [SerializeField] private EquipmentWeapon _equippedRightHand;
@@ -86,15 +91,6 @@ namespace Game.Creature
         [SerializeField] private List<EquipmentWeapon> _weapons = new List<EquipmentWeapon>();
         [SerializeField] private List<string> _armorList = new List<string>(); // Temp to display armor in inspector
         [SerializeField] private List<EquipmentArmor> _armor = new List<EquipmentArmor>(); // Temp to display armor in inspector
-
-
-        // NOTES FOR IMPLEMENTING STRIKE VARIANTS
-        // Dice damageDice = new Dice(damageRolls.damage);
-        // damgeDice.damageType = damageRolls.damageType;
-        // DamageValue flatDamage = new DamageValue(damageRolls.damageType, _strMod)
-        // Actions.Add(new Strike(1, new List<Dice>() { damageDice }, new List<DamageValue>() { flatDamage }));
-        //[SerializeField] private List<EntityAction> _Actions = new List<EntityAction>();
-        //public new List<EntityAction> Actions { get => _Actions; set => _Actions = value ?? new List<EntityAction>(); }
 
         // Public properties for interface
         public new string name { get => _name; set { _name = value; base.name = value; } }
@@ -108,6 +104,8 @@ namespace Game.Creature
         public int ac { get => _ac; set => _ac = value; }
         public int attackBonus { get => _attackBonus; set => _attackBonus = value; }
         public int damageBonus { get => _damageBonus; set => _damageBonus = value; }
+        public List<WeaponBonus> weaponBonuses { get => _weaponBonuses; set => _weaponBonuses = value ?? new List<WeaponBonus>(); }
+        public List<ArmorBonus> armorBonuses { get => _armorBonuses; set => _armorBonuses = value ?? new List<ArmorBonus>(); }
         public List<DamageValue> weaknesses { get => _weaknesses; set => _weaknesses = value; }
         public List<DamageValue> resistances { get => _resistances; set => _resistances = value; }
 
@@ -128,6 +126,7 @@ namespace Game.Creature
         public List<string> reactions { get => _reactions; set => _reactions = value ?? new List<string>(); }
         public List<string> passives { get => _passives; set => _passives = value ?? new List<string>(); }
         public List<string> conditions { get => _conditions; set => _conditions = value ?? new List<string>(); }
+
 
         // TODO: properly implement
         public List<string> equipment { get => _equipment; set => _equipment = value ?? new List<string>(); }
@@ -155,6 +154,7 @@ namespace Game.Creature
         {
             // Initialization code here
             // TODO create method to run check against action/ability lists to populate additional scripts
+            // TODO create method to run check against action/ability lists to populate additional scripts
         }
 
         void Update()
@@ -164,6 +164,7 @@ namespace Game.Creature
 
         // helper: get skill mod by name (case-insensitive). If the skill is present in the serialized
         // skills list we return that value. Otherwise we return the associated ability modifier.
+        public int GetSkillMod(string skillName) { return GetSkillMod(skillName, 0);}
         public int GetSkillMod(string skillName, int defaultValue = 0)
         {
             if (string.IsNullOrWhiteSpace(skillName)) return defaultValue;
@@ -302,19 +303,20 @@ namespace Game.Creature
         {
             _equippedArmor = null;
         }
-        public void calculateArmorAC()
+        public void calculateAC()
         {
+            // If armor is equipped
             if (_equippedArmor != null)
             {
-                // Base AC from armor
-                int baseAc = 10 + _equippedArmor.acBonus;
                 // Add Dex modifier up to the armor's dex cap
-                int dexBonus = Mathf.Min(dexMod, _equippedArmor.dexCap);
-                _ac = baseAc + dexBonus;
-            }
-            else
-            {
-                _ac = 10 + dexMod; // Unarmored AC calculation, modify to include natural armor or other bonuses
+                _ac = 10 + _equippedArmor.acBonus + Mathf.Min(dexMod, _equippedArmor.dexCap);
+                _ac += armorBonuses.Find(b => b.category == _equippedArmor.category).bonus; // Add armor bonuses based on equipped armor group
+                Debug.Log($"Calculated AC with armor: 10 + {_equippedArmor.acBonus} (armor bonus) + {Mathf.Min(dexMod, _equippedArmor.dexCap)} (Dex modifier, capped) + {armorBonuses.Find(b => b.category == _equippedArmor.group).bonus} (armor proficiency bonus) = {_ac}");
+                Debug.Log($" _equippedArmor.group: {_equippedArmor.category}, armorBonuses: {string.Join(", ", armorBonuses.ConvertAll(b => $"{b.category}: {b.bonus}"))}");
+            }else{
+                // Unarmored AC calculation
+                // TODO: modify to include natural armor or other bonuses
+                _ac = 10 + dexMod; 
             }
         }
     }

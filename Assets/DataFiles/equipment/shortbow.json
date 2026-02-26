@@ -7,19 +7,21 @@
   "damageDice": 1,
   "damageDie": "6",
   "damageType": "piercing",
-  "description": "<p>This smaller bow is made of a single piece of wood and favored by skirmishers and cavalry.</p>",
+  "description": [
+    "This smaller bow is made of a single piece of wood and favored by skirmishers and cavalry."
+  ],
   "traits": [
     "deadly-d10"
   ],
   "materialType": null,
   "materialGrade": null,
   "price_GP": 3.0,
-  "range": null,
+  "range": 60,
   "reload": "0",
-  "ammo": null,
+  "ammo": "arrows",
   "bulk": 1,
-  "size": null,
-  "baseItem": null,
+  "size": "med",
+  "baseItem": "shortbow",
   "bonus": 0,
   "bonusDamage": 0,
   "splashDamage": 0,

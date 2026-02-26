@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 6819483576359709902}
   - component: {fileID: -2800045436435895595}
   - component: {fileID: -9005069984893689813}
-  - component: {fileID: 2437390198408201632}
+  - component: {fileID: 1093093337166745848}
   m_Layer: 6
   m_Name: EmptyCreature
   m_TagString: Untagged
@@ -58,6 +58,8 @@ MonoBehaviour:
   _ac: 16
   _attackBonus: 7
   _damageBonus: 0
+  _weaponBonuses: []
+  _armorBonuses: []
   _strMod: 0
   _dexMod: 3
   _conMod: 1
@@ -119,6 +121,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
+  _actionNames: []
 --- !u!114 &-9005069984893689813
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -131,8 +134,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Team
-  <Name>k__BackingField: 
---- !u!114 &2437390198408201632
+  <Name>k__BackingField: NoTeam
+--- !u!114 &1093093337166745848
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -141,7 +144,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 4250615070516425197}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2a5bfa416ba896145a723c877fac7ac9, type: 3}
+  m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Conditions
 --- !u!1 &5791139501262925988
@@ -333,7 +336,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 8702933331957744273}
-  m_Mesh: {fileID: 7240564204133861249, guid: f1a9de5bda18b48eb83ee4c127002d5d, type: 3}
+  m_Mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
 --- !u!23 &3809631225244301513
 MeshRenderer:
   m_ObjectHideFlags: 0

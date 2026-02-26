@@ -2,6 +2,7 @@ using UnityEngine;
 using System.Collections.Generic;
 using Game.Creature;
 using NUnit.Framework;
+using Game.Strikes;
 
 public class ActionController : MonoBehaviour
 {
@@ -21,6 +22,9 @@ public class ActionController : MonoBehaviour
     public OnGetMovements GetMovementsEvent { get; protected set; } = new();
     public OnGetReactions GetReactionsEvent { get; protected set; } = new();
 
+    [SerializeField]
+    List<string> _actionNames = new List<string>(); // Temporary list of action names to add for testing purposes.  TODO remove
+
     protected void Awake()
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);
@@ -32,6 +36,9 @@ public class ActionController : MonoBehaviour
 
         Unarmed unarmed = new Unarmed(1, dices, new());
         Actions.Add(unarmed);
+
+        // TODO: temporary, add an arbitrary strike action based on a creature weapon for testing
+        StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject); 
     }
 
     /// <summary>
@@ -43,6 +50,9 @@ public class ActionController : MonoBehaviour
         Ref<uint> newActionPoints = new(3);
         ResetActionPointsEvent.Invoke(newActionPoints);
         ActionPoints = newActionPoints.Value;
+
+        // TODO find a better place to have this triggger
+        HUDController.GetInstance().SetStrikeWeaponText(""); // pass empty string to have it auto detect
 
         // Provide Options
         // Prompt user or AI for action
@@ -140,6 +150,12 @@ public class ActionController : MonoBehaviour
     /// <param name="action"></param>
     public void TakeAction(EntityAction action)
     {
+        if (action == null)
+        {
+            Debug.LogWarning("No action provided to TakeAction!");
+            return;
+        }
+        Debug.Log("Attempting to take action: " + action);
         uint cost = action.ActionCost;
         if (!IsTurn || cost > ActionPoints)
             return;
@@ -150,5 +166,14 @@ public class ActionController : MonoBehaviour
     public uint GetInitiative()
     {
         return (uint)Random.Range(1, 20);
+    }
+    public void AddAction(EntityAction action)
+    {
+        Actions.Add(action);
+        _actionNames.Add(action.ToString()); // Add action name to the list for testing purposes
+    }
+    public void RemoveAction(EntityAction action)
+    {
+        Actions.Remove(action);
     }
 }
