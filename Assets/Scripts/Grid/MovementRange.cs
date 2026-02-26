@@ -8,7 +8,6 @@ public class MovementRange
 {
     // reference to grid memory for walkability checks and dimensions
     private readonly IGridMemory grid;
-    // configuration options for movement and highlights
     private readonly bool allowDiagonalMovement;
     private readonly float diagonalCost;
     private readonly GameObject highlightPrefab;
@@ -172,39 +171,36 @@ public class MovementRange
     }
 
     /// <summary>
-    /// Determines line of sight status using Pathfinder 2E rules:
-    /// Check all 16 corner-to-corner rays (4 source corners × 4 target corners)
+    /// Determines line of sight status 
     /// </summary>
     private LOSStatus GetLOSStatus(Vector3Int start, Vector3Int target, out int clearRays)
     {
         // Count how many of the 16 corner-to-corner rays are clear
         clearRays = CountCornerToCornerRays(start, target);
-       
         // if ANY corner-to-corner line is clear, you have line of sight
         if (clearRays == 0)
-            return LOSStatus.FullyBlocked; // No LOS at all
-        else if (clearRays == 16) // All rays clear
-            return LOSStatus.Clear; // Perfect LOS, no cover
+            return LOSStatus.FullyBlocked;
+        else if (clearRays == 16)
+            return LOSStatus.Clear;
         else
-            return LOSStatus.PartialBlock; // Has LOS but with cover
+            return LOSStatus.PartialBlock; 
     }
 
     /// <summary>
-    /// Calculates cover degree based on Pathfinder 2E rules.
-    /// Uses the percentage of blocked rays to determine cover level.
+    /// Calculates cover degree
     /// </summary>
     private CoverDegree CalculateCoverDegree(int clearRays)
     {
         // Calculate percentage of rays that are blocked
         float percentBlocked = (16 - clearRays) / 16f;
-        if (percentBlocked >= 0.75f) // 75%+ blocked (4 or fewer clear rays)
-            return CoverDegree.Greater; // +4 AC - Almost completely hidden
-        else if (percentBlocked >= 0.50f) // 50-75% blocked (5-8 clear rays)
-            return CoverDegree.Standard; // +2 AC - Standard cover
-        else if (percentBlocked >= 0.25f) // 25-50% blocked (9-12 clear rays)
-            return CoverDegree.Lesser; // +1 AC - Light cover
+        if (percentBlocked >= 0.75f)
+            return CoverDegree.Greater;
+        else if (percentBlocked >= 0.50f)
+            return CoverDegree.Standard;
+        else if (percentBlocked >= 0.25f)
+            return CoverDegree.Lesser;
         else
-            return CoverDegree.None; // Less than 25% blocked - no meaningful cover
+            return CoverDegree.None; 
     }
 
     /// <summary>
@@ -213,16 +209,13 @@ public class MovementRange
     private int CountCornerToCornerRays(Vector3Int start, Vector3Int target)
     {
         int clearCount = 0;
-        // Check all 16 combinations: 4 source corners × 4 target corners
+        // check all 16 combinations: 4 source corners × 4 target corners
         foreach (var sourceCorner in TileCornerOffsets)
         {
             foreach (var targetCorner in TileCornerOffsets)
             {
-                bool blocked = IsRayBlocked(start, target, sourceCorner, targetCorner);
-                if (!blocked)
-                {
+                if (!IsRayBlocked(start, target, sourceCorner, targetCorner))
                     clearCount++;
-                }
             }
         }
         return clearCount;
@@ -241,13 +234,11 @@ public class MovementRange
         // create a 2D vector 
         Vector2 rayStart = new Vector2(start.x + 0.5f + startOffset.x, start.z + 0.5f + startOffset.y);
         Vector2 rayEnd = new Vector2(end.x + 0.5f + endOffset.x, end.z + 0.5f + endOffset.y);
-        
         Vector2 direction = rayEnd - rayStart;
         float rayDistance = direction.magnitude;
         
         if (rayDistance < MIN_RAY_DISTANCE)
             return false;
-
         direction.Normalize();
         int sampleCount = Mathf.CeilToInt(rayDistance * SAMPLES_PER_TILE);
         HashSet<Vector3Int> visitedCells = new HashSet<Vector3Int>(sampleCount);
@@ -257,8 +248,7 @@ public class MovementRange
             Vector2 samplePos = rayStart + direction * rayDistance * ((float)i / sampleCount);
             Vector3Int currentCell = new Vector3Int(Mathf.FloorToInt(samplePos.x), start.y, Mathf.FloorToInt(samplePos.y));
             if (!visitedCells.Add(currentCell) || currentCell == start || currentCell == end)
-                continue;
-                
+                continue;                
             if (!IsWithinBounds(currentCell) || !grid.IsCellWalkable(currentCell))
                 return true;
         }
