@@ -30,15 +30,6 @@ public class MovementRange
         FullyBlocked
     }
 
-    // represents the degree of cover 
-    public enum CoverDegree
-    {
-        None,        // No cover
-        Lesser,      // +1 circumstance bonus to armor class
-        Standard,    // +2 circumstance bonus to armor class
-        Greater      // +4 circumstance bonus to armor class
-    }
-
     // directions for cardinal and diagonal movement, used for neighbor checks
     private static readonly Vector3Int[] CardinalDirections = new[]
     {
@@ -191,23 +182,6 @@ public class MovementRange
     }
 
     /// <summary>
-    /// Calculates cover degree based on how many target corners are visible
-    /// </summary>
-    private CoverDegree CalculateCoverDegree(int visibleCorners)
-    {
-        // Calculate percentage of corners that are blocked
-        float percentBlocked = (4 - visibleCorners) / 4f;
-        if (percentBlocked >= 0.75f)
-            return CoverDegree.Greater;
-        else if (percentBlocked >= 0.50f)
-            return CoverDegree.Standard;
-        else if (percentBlocked >= 0.25f)
-            return CoverDegree.Lesser;
-        else
-            return CoverDegree.None;
-    }
-
-    /// <summary>
     /// Counts how many of the 16 corner-to-corner rays are clear.
     /// </summary>
     private int CountCornerToCornerRays(Vector3Int start, Vector3Int target)
@@ -337,9 +311,7 @@ public class MovementRange
             {
                 float distance = CalculateDistance(startCell, cell);
                 int visibleCorners = CountVisibleCorners(startCell, cell);
-                CoverDegree cover = CalculateCoverDegree(visibleCorners);
-                string coverText = GetCoverText(cover);
-                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles - Cover: {coverText}");
+                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
             }
             else if (status == LOS_Status.Clear)
             {
@@ -354,22 +326,6 @@ public class MovementRange
         }
 
         Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount}");
-    }
-
-    // Helper to get cover text for display
-    private string GetCoverText(CoverDegree cover)
-    {
-        switch (cover)
-        {
-            case CoverDegree.Lesser:
-                return "Lesser (+1 AC)";
-            case CoverDegree.Standard:
-                return "Standard (+2 AC)";
-            case CoverDegree.Greater:
-                return "Greater (+4 AC)";
-            default:
-                return "None";
-        }
     }
 
     // calculates the grid distance between two cells in whole tiles
@@ -531,13 +487,4 @@ public class MovementRange
     /// <summary>
     /// Checks if there's line of sight between two cells and returns cover information.
     /// </summary>
-    public bool HasLineOfSight(Vector3Int from, Vector3Int to, out CoverDegree coverDegree)
-    {
-        LOS_Status status = GetLOSStatus(from, to, out int clearRays);
-        int visibleCorners = CountVisibleCorners(from, to);
-        coverDegree = CalculateCoverDegree(visibleCorners);
-
-        // PF2E Rule: even partial block means you have LOS (just with cover)
-        return status != LOS_Status.FullyBlocked;
-    }
 }
