@@ -15,5 +15,6 @@ public class Ability : ConditionSource
     public void Apply(GameObject g)
     {
         ApplyCallback(g);
+        Debug.Log("Applied ability " + Name +" to " + g.name);
     }
 }

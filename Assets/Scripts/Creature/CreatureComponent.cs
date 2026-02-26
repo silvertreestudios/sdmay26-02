@@ -154,7 +154,14 @@ namespace Game.Creature
         {
             // Initialization code here
             // TODO create method to run check against action/ability lists to populate additional scripts
-            // TODO create method to run check against action/ability lists to populate additional scripts
+            foreach (var a in passives)
+            {
+                var ability = DefinedAbilities.TryGet(a);
+                if (ability != null)
+                    ability.Apply(this.gameObject);
+                else
+                    Debug.LogWarning($"Ability '{a}' not found for {name}");
+            }
         }
 
         void Update()

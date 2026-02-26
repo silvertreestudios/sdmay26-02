@@ -246,9 +246,12 @@ namespace Game.Creature
             target.passives.Clear();
             if (dto.passives != null)
             {
-                foreach (var p in dto.passives)
-                    if (!string.IsNullOrEmpty(p?.name))
+                foreach (var p in dto.passives){
+                    if (!string.IsNullOrEmpty(p?.name)){
                         target.passives.Add(p.name);
+                        //DefinedAbilities.TryGet(p.name)?.Apply(target.gameObject); 
+                    }
+                }
             }
 
             // Equipment
