@@ -69,13 +69,13 @@ public class HUDController : MonoBehaviour
         cancelActionButton = ui.Q<Button>("CancelActionButton");
         cancelActionButton.clicked += CancelAction;
 
-        //####Player Queue Card Setup####
-        currentPlayerCard = ui.Q<VisualElement>("CurrentPlayerInfo");
-        currentPlayerHealthBar = currentPlayerCard.Q<ProgressBar>("HealthBar");
+        // //####Player Queue Card Setup####
+        // currentPlayerCard = ui.Q<VisualElement>("CurrentPlayerInfo");
+        // currentPlayerHealthBar = currentPlayerCard.Q<ProgressBar>("HealthBar");
 
-        //####Target Card Setup####
-        targetCard = ui.Q<VisualElement>("TargetInfo");
-        targetHealthBar = targetCard.Q<ProgressBar>("HealthBar");
+        // //####Target Card Setup####
+        // targetCard = ui.Q<VisualElement>("TargetInfo");
+        // targetHealthBar = targetCard.Q<ProgressBar>("HealthBar");
 
         //####Player Queue Card Setup####
         cardHolder = ui.Q<VisualElement>("CardHolder");
@@ -102,7 +102,6 @@ public class HUDController : MonoBehaviour
 
         // Update player queue cards if needed
         if (needToUpdateCards) {
-            // cardHolder = ui.Q<VisualElement>("PlayerQueueCardHolder");
             fillPlayerCards();
             needToUpdateCards = false;
         }
@@ -126,7 +125,6 @@ public class HUDController : MonoBehaviour
 
     // Card Logic attempt by Ryan
     private void fillPlayerCards() {
-        Debug.Log("fillPlayerCards called");
         cardHolder.Clear(); // Fix: Clear existing cards before adding new ones
         for (int i = 0; i < Players.Count; i++) {
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
