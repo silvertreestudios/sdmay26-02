@@ -183,16 +183,16 @@ public class MovementRange
         else if (clearRays == 16)
             return LOSStatus.Clear;
         else
-            return LOSStatus.PartialBlock; 
+            return LOSStatus.PartialBlock;
     }
 
     /// <summary>
-    /// Calculates cover degree
+    /// Calculates cover degree based on how many target corners are visible
     /// </summary>
-    private CoverDegree CalculateCoverDegree(int clearRays)
+    private CoverDegree CalculateCoverDegree(int visibleCorners)
     {
-        // Calculate percentage of rays that are blocked
-        float percentBlocked = (16 - clearRays) / 16f;
+        // Calculate percentage of corners that are blocked
+        float percentBlocked = (4 - visibleCorners) / 4f;
         if (percentBlocked >= 0.75f)
             return CoverDegree.Greater;
         else if (percentBlocked >= 0.50f)
@@ -200,7 +200,7 @@ public class MovementRange
         else if (percentBlocked >= 0.25f)
             return CoverDegree.Lesser;
         else
-            return CoverDegree.None; 
+            return CoverDegree.None;
     }
 
     /// <summary>
@@ -222,6 +222,34 @@ public class MovementRange
     }
 
     /// <summary>
+    /// Counts how many of the 4 target corners are visible from at least one source corner.
+    /// </summary>
+    private int CountVisibleCorners(Vector3Int start, Vector3Int target)
+    {
+        int visibleCorners = 0;
+        
+        // For each target corner, check if it's visible from any source corner
+        foreach (var targetCorner in TileCornerOffsets)
+        {
+            bool cornerVisible = false;
+            foreach (var sourceCorner in TileCornerOffsets)
+            {
+                if (!IsRayBlocked(start, target, sourceCorner, targetCorner))
+                {
+                    cornerVisible = true;
+                    break; // At least one ray to this corner is clear
+                }
+            }
+            if (cornerVisible)
+            {
+                visibleCorners++;
+            }
+        }
+        
+        return visibleCorners;
+    }
+
+    /// <summary>
     /// uses raycasting to determine if there's a clear line of sight between start and end point
     /// </summary>
     /// <param name="start">attacking cell (player position)</param>
@@ -236,7 +264,7 @@ public class MovementRange
         Vector2 rayEnd = new Vector2(end.x + 0.5f + endOffset.x, end.z + 0.5f + endOffset.y);
         Vector2 direction = rayEnd - rayStart;
         float rayDistance = direction.magnitude;
-        
+
         if (rayDistance < MIN_RAY_DISTANCE)
             return false;
         direction.Normalize();
@@ -248,7 +276,7 @@ public class MovementRange
             Vector2 samplePos = rayStart + direction * rayDistance * ((float)i / sampleCount);
             Vector3Int currentCell = new Vector3Int(Mathf.FloorToInt(samplePos.x), start.y, Mathf.FloorToInt(samplePos.y));
             if (!visitedCells.Add(currentCell) || currentCell == start || currentCell == end)
-                continue;                
+                continue;
             if (!IsWithinBounds(currentCell) || !grid.IsCellWalkable(currentCell))
                 return true;
         }
@@ -271,23 +299,24 @@ public class MovementRange
             // determine LOS status for this tile and get corresponding color and text
             LOSStatus status = GetLOSStatus(startCell, cell, out int clearRays);
             (Color color, string statusText) = GetLOSColorAndText(status, ref clearCount, ref partialCount, ref blockedCount);
-            
+
             if (status == LOSStatus.PartialBlock)
             {
                 float distance = CalculateDistance(startCell, cell);
-                CoverDegree cover = CalculateCoverDegree(clearRays);
+                int visibleCorners = CountVisibleCorners(startCell, cell);
+                CoverDegree cover = CalculateCoverDegree(visibleCorners);
                 string coverText = GetCoverText(cover);
-                Debug.Log($"Tile {cell}: {statusText} - Clear Rays: {clearRays}/16 - Distance: {distance:F2} - Cover: {coverText}");
+                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance:F2} - Cover: {coverText}");
             }
             else if (status == LOSStatus.Clear)
             {
-                Debug.Log($"Tile {cell}: {statusText} - No Cover");
+                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: 4 - No Cover");
             }
             else
             {
-                Debug.Log($"Tile {cell}: {statusText} - No LOS");
+                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: 0 - No Line of Sight");
             }
-            
+
             CreateHighlight(cell, color, $"AttackHighlight_{cell.x}_{cell.z}_{statusText}");
         }
 
@@ -469,8 +498,9 @@ public class MovementRange
     public bool HasLineOfSight(Vector3Int from, Vector3Int to, out CoverDegree coverDegree)
     {
         LOSStatus status = GetLOSStatus(from, to, out int clearRays);
-        coverDegree = CalculateCoverDegree(clearRays);
-        
+        int visibleCorners = CountVisibleCorners(from, to);
+        coverDegree = CalculateCoverDegree(visibleCorners);
+
         // PF2E Rule: even partial block means you have LOS (just with cover)
         return status != LOSStatus.FullyBlocked;
     }
