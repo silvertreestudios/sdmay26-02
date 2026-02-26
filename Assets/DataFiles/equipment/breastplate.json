@@ -1,0 +1,26 @@
+{
+  "type": "armor",
+  "name": "Breastplate",
+  "category": "medium",
+  "price_GP": 8.0,
+  "acBonus": 4,
+  "dexCap": 1,
+  "checkPenalty": -2,
+  "speedPenalty": -5,
+  "strengthRequirement": 3,
+  "description": [
+    "Though referred to as a breastplate, this type of armor consists of several pieces of plate or {Half Plate} armor that protect the torso, chest, neck, and sometimes the hips and lower legs. It strategically grants some of the protection of plate while allowing greater flexibility and speed."
+  ],
+  "bulk": 2.0,
+  "group": "plate",
+  "armorTraits": [],
+  "runes": [],
+  "materialType": null,
+  "materialGrade": null,
+  "publication": {
+    "license": "ORC",
+    "remaster": true,
+    "title": "Pathfinder Player Core"
+  },
+  "Source": "packs/equipment"
+}

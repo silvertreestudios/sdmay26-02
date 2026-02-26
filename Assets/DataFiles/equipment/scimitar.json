@@ -1,0 +1,35 @@
+{
+  "type": "weapon",
+  "name": "Scimitar",
+  "group": "sword",
+  "category": "martial",
+  "hands": 1,
+  "damageDice": 1,
+  "damageDie": "6",
+  "damageType": "slashing",
+  "description": [
+    "This one-handed curved blade is sharp on one side."
+  ],
+  "traits": [
+    "forceful",
+    "sweep"
+  ],
+  "materialType": null,
+  "materialGrade": null,
+  "price_GP": 1.0,
+  "range": null,
+  "reload": null,
+  "ammo": null,
+  "bulk": 1,
+  "size": "med",
+  "baseItem": "scimitar",
+  "bonus": 0,
+  "bonusDamage": 0,
+  "splashDamage": 0,
+  "publication": {
+    "license": "ORC",
+    "remaster": true,
+    "title": "Pathfinder Player Core"
+  },
+  "Source": "packs/equipment"
+}

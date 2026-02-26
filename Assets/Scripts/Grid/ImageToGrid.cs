@@ -6,6 +6,7 @@ public class ImageToGrid
 {
     [Header("Level Image")]
     [SerializeField] private Texture2D img;
+ 
 
 
     public int[,] grid;
@@ -71,6 +72,6 @@ public class ImageToGrid
             }
             gridString += "\n";
         }
-        Debug.Log(gridString);
+        // Debug.Log(gridString);
     }
 }

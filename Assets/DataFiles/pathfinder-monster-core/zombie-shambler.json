@@ -129,7 +129,7 @@
     "skills": [
       {
         "name": "athletics",
-        "base": 7
+        "value": 7
       }
     ],
     "traits": {
@@ -227,6 +227,42 @@
       }
     },
     {
+      "name": "Grab",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "action"
+        },
+        "actions": {
+          "value": 1
+        },
+        "category": "offensive",
+        "description": {
+          "value": "<p>@Localize[PF2E.NPC.Abilities.Glossary.Grab]</p>"
+        },
+        "descriptionParagraphs": [
+          "{Grab}"
+        ],
+        "descriptionContext": [
+          "PF2E.NPC.Abilities.Glossary.Grab"
+        ],
+        "publication": {
+          "license": "ORC",
+          "remaster": true,
+          "title": "Pathfinder Monster Core"
+        },
+        "rules": [],
+        "slug": "grab",
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    }
+  ],
+  "reactions": [],
+  "passives": [
+    {
       "name": "Slow",
       "type": "action",
       "system": {
@@ -299,39 +335,39 @@
           "value": []
         }
       }
+    }
+  ],
+  "conditions": [],
+  "weaponBonuses": [
+    {
+      "category": "unarmed",
+      "bonus": 0
     },
     {
-      "name": "Grab",
-      "type": "action",
-      "system": {
-        "actionType": {
-          "value": "action"
-        },
-        "actions": {
-          "value": 1
-        },
-        "category": "offensive",
-        "description": {
-          "value": "<p>@Localize[PF2E.NPC.Abilities.Glossary.Grab]</p>"
-        },
-        "descriptionParagraphs": [
-          "{Grab}"
-        ],
-        "descriptionContext": [
-          "PF2E.NPC.Abilities.Glossary.Grab"
-        ],
-        "publication": {
-          "license": "ORC",
-          "remaster": true,
-          "title": "Pathfinder Monster Core"
-        },
-        "rules": [],
-        "slug": "grab",
-        "traits": {
-          "rarity": "common",
-          "value": []
-        }
-      }
+      "category": "simple",
+      "bonus": 0
+    },
+    {
+      "category": "martial",
+      "bonus": 0
+    },
+    {
+      "category": "advanced",
+      "bonus": 0
+    }
+  ],
+  "armorBonuses": [
+    {
+      "category": "light",
+      "bonus": 0
+    },
+    {
+      "category": "medium",
+      "bonus": 0
+    },
+    {
+      "category": "heavy",
+      "bonus": 0
     }
   ],
   "Source": "packs/pathfinder-monster-core"

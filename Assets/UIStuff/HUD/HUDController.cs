@@ -1,19 +1,21 @@
+
 using NUnit.Framework.Internal;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using Game.Creature;
+using Game.Strikes;
 using System.Collections.Generic;
 
-public class HUDController : MonoBehaviour
+public class HUDController : SingletonMonoBehaviour<HUDController>
 {
 
     public VisualElement ui;
     public Button strikeButton;
     public Button moveButton;
     public Button endTurnButton;
-    
+    public Button strikeWeaponButtton; // for testing, will need to be generated based on equipped weapons in the future
 
 
     //####Player Queue Card Variables####   
@@ -38,8 +40,9 @@ public class HUDController : MonoBehaviour
     private static bool IsActive = false;
     
 
-    private void Awake() {
-        Debug.Log("Awake called");
+    protected override void Awake() {
+        base.Awake();
+        //Debug.Log("Awake called");
         ui = GetComponent<UIDocument>().rootVisualElement;
 
         //Copiloy made this so I could point it to another UXML file for a template
@@ -55,10 +58,13 @@ public class HUDController : MonoBehaviour
     }
 
     private void OnEnable() {
-        Debug.Log("OnEnable called");
+        //Debug.Log("OnEnable called");
         //####Button Setup####
         strikeButton = ui.Q<Button>("StrikeButton");
         strikeButton.clicked += Strike;
+
+        strikeWeaponButtton = ui.Q<Button>("StrikeWeaponButton");
+        strikeWeaponButtton.clicked += StrikeWeapon;
 
         moveButton = ui.Q<Button>("MoveButton");
         moveButton.clicked += Move;
@@ -125,57 +131,113 @@ public class HUDController : MonoBehaviour
 
     // Card Logic attempt by Ryan
     private void fillPlayerCards() {
+        //Debug.Log("fillPlayerCards called");
         cardHolder.Clear(); // Fix: Clear existing cards before adding new ones
         for (int i = 0; i < Players.Count; i++) {
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
-            Debug.Log("Added card for " + Players[i].name);
+            cardInstance.Q<Label>("Card_Name").text = Players[i].name;
+            //Debug.Log("Added card for " + Players[i].name);
         }
     }
 
 
     public void Strike() {
-        Debug.Log("Strike called");
+        //Debug.Log("Strike called");
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        g.GetComponent<ActionController>().TestStrike();
-        Debug.Log("Clicked Strike button");
+        g.GetComponent<PlayerActionController>().TestStrike();
+        //Debug.Log("Clicked Strike button");
         //for testing, have strike do damage to next player
         // players[(currentPlayerIndex + 1) % players.Length].TakeDamage(10);
+    }
+
+    // Testing function for StrikeWeapon action
+    public void StrikeWeapon() {
+        //Debug.Log("Strike Weapon called");
+        GameObject g = CombatManager.GetInstance().WhosTurn();
+        List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
+        StrikeWeapon strikeWeaponAction = null;
+        Debug.Log("Available actions for current player: "+ acs.Count);
+        foreach (var a in acs)
+        {
+            Debug.Log("Checking action: " + a);
+            if (a is StrikeWeapon)
+            {
+                Debug.Log("Found StrikeWeapon action: " + a);
+                strikeWeaponAction = (StrikeWeapon)a;
+                // break;
+            }
+        }
+        if (strikeWeaponAction == null)
+        {
+            Debug.LogWarning("No StrikeWeapon action found for current player!");
+            return;
+        }
+        g.GetComponent<ActionController>().TakeAction(strikeWeaponAction);
+        //Debug.Log("Clicked Strike Weapon button");
+    }
+
+    public void SetStrikeWeaponText(string weaponName)
+    {
+        if (strikeWeaponButtton != null && !string.IsNullOrEmpty(weaponName))
+        {
+            //ui.Q<Button>("StrikeWeaponButton").text = weaponName;
+            strikeWeaponButtton.text = weaponName;
+        }
+        else
+        {
+            GameObject g = CombatManager.GetInstance().WhosTurn();
+            List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
+            StrikeWeapon strikeWeaponAction = null;
+            Debug.Log("Available actions for current player: "+ acs.Count);
+            foreach (var a in acs)
+            {
+                Debug.Log("Checking action: " + a);
+                if (a is StrikeWeapon)
+                {
+                    Debug.Log("Found StrikeWeapon action: " + a);
+                    strikeWeaponAction = (StrikeWeapon)a;
+                    strikeWeaponButtton.text = strikeWeaponAction.GetWeaponName();
+                    return;
+                }
+            }
+            strikeWeaponButtton.text = "N/A";
+        }
+        
     }
 
     public void Move()
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        g.GetComponent<ActionController>().TestStride();
-        Debug.Log("Clicked Move button");
+        g.GetComponent<PlayerActionController>().TestStride();
+        //Debug.Log("Clicked Move button");
     }
 
     public void EndTurn()
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        g.GetComponent<ActionController>().EndTurn();
-        FSM_API.EndTurn();
-        Debug.Log("Clicked End Turn button");
-
+        GridAPI.GetInstance().CancelCurrentAction();
+        g.GetComponent<PlayerActionController>().EndTurn();
+       // Debug.Log("Clicked End Turn button");
     }
 
     public void CancelAction() {
-        Debug.Log("CancelAction called");
-        Debug.Log("Clicked Cancel Action button");
-        FSM_API.CancelCurrentAction();
+        //Debug.Log("CancelAction called");
+        //Debug.Log("Clicked Cancel Action button");
+        GridAPI.GetInstance().CancelCurrentAction();
     }
 
     public void focusOnPlayer(int playerIndex) {
-        Debug.Log("focusOnPlayer called");
-        Debug.Log("Focus on player: " + Players[playerIndex]);
+        //Debug.Log("focusOnPlayer called");
+        //Debug.Log("Focus on player: " + Players[playerIndex]);
     }
 
     public void getQueuePoisition() {
-        Debug.Log("getQueuePoisition called");
+        //Debug.Log("getQueuePoisition called");
         // Need current player index from turn manager
     }
 

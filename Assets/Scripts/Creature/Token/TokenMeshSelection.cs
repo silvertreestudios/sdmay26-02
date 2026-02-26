@@ -74,7 +74,7 @@ public class TokenMeshSelection : MonoBehaviour
         {
             return;
         }
-        Debug.Log("Looking for mesh: " + TokenMeshToFind);
+        //Debug.Log("Looking for mesh: " + TokenMeshToFind);
         bool meshFound = false;
 
         foreach (TokenMeshes entry in TokenOptions)
@@ -84,7 +84,7 @@ public class TokenMeshSelection : MonoBehaviour
                 if (entry.mesh != null)
                 {
                     TokenMeshFilter.sharedMesh = entry.mesh;
-                    Debug.Log($"Selected {entry.Name} Mesh");
+                    //Debug.Log($"Selected {entry.Name} Mesh");
                     meshFound = true;
                     break;
                 }

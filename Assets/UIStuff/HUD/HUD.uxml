@@ -11,6 +11,7 @@
         </ui:VisualElement>
         <ui:VisualElement name="BasicButtonContainer" style="flex-grow: 1; align-self: flex-start; align-content: auto; justify-content: space-around;">
             <ui:Button text="Strike" name="StrikeButton" class="unity-button-hover" />
+            <ui:Button text="Strike Weapon" name="StrikeWeaponButton" class="unity-button-hover" />
             <ui:Button text="Move" name="MoveButton" class="unity-button-hover" />
             <ui:Button text="End Turn" name="EndTurnButton" class="unity-button-hover" />
             <ui:Button text="Cancel" name="CancelActionButton" style="align-items: auto; align-self: auto; align-content: auto;" />
