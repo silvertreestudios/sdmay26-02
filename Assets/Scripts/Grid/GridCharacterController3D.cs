@@ -233,7 +233,7 @@ public class GridCharacterController3D : MonoBehaviour
             diagCost: diagonalCost,
             gridCellToWorld: coordinateConverter.GridCellCenterWorld);
 
-        Debug.Log("[GridCharacterController3D] Subsystems initialized.");
+        //Debug.Log("[GridCharacterController3D] Subsystems initialized.");
     }
 
     /// <summary>
@@ -354,14 +354,14 @@ public class GridCharacterController3D : MonoBehaviour
     /// </summary>
     public void SetActivePlayer(GameObject characterName)
     {
-        Debug.Log("Setting active Player");
+        //Debug.Log("Setting active Player");
         rangeHighlighter.ClearHighlights();
         visualIndicator.Clear();
 
         currentPlayer = characterName;
         currentMovement = tokenMovements.ContainsKey(characterName) ? tokenMovements[characterName] : null;
 
-        Debug.Log($"[GridCharacterController3D] Active player set to {currentPlayer}");
+        //Debug.Log($"[GridCharacterController3D] Active player set to {currentPlayer}");
 
         isProcessingTurn = false;
     }
@@ -389,7 +389,7 @@ public class GridCharacterController3D : MonoBehaviour
             yield break;
         }
 
-        Debug.Log($"[GridCharacterController3D] Executing movement for {characterName}");
+        //Debug.Log($"[GridCharacterController3D] Executing movement for {characterName}");
 
         visualIndicator.Clear();
         rangeHighlighter.ClearHighlights();
@@ -413,7 +413,7 @@ public class GridCharacterController3D : MonoBehaviour
 
         isProcessingTurn = false;
 
-        Debug.Log($"[GridCharacterController3D] Movement completed for {characterName}");
+        //Debug.Log($"[GridCharacterController3D] Movement completed for {characterName}");
     }
 
     /// <summary>

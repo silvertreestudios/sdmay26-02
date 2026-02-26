@@ -28,7 +28,7 @@ public class PlayerActionController : ActionController
         
         // Provide Options
         // Prompt user or AI for action
-        Debug.Log("Turn: " + this.gameObject.name);
+        //Debug.Log("Turn: " + this.gameObject.name);
     }
 
     // Changed from private to public so actions can call it

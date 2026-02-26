@@ -15,7 +15,7 @@ public class FiniteStateMachine <T> where T : IFSMState<T>
     {
         if (isInTransition)
         {
-            Debug.LogWarning("[FiniteStateMachine] Attempted to change state while already in transition.");
+            //Debug.LogWarning("[FiniteStateMachine] Attempted to change state while already in transition.");
             return false;
         }
 
@@ -27,7 +27,7 @@ public class FiniteStateMachine <T> where T : IFSMState<T>
     {
         isInTransition = true;
         if (currentState != null)currentState.Exit();
-        Debug.Log($"[FiniteStateMachine] Exited state: {currentState?.GetType().Name}");
+        //Debug.Log($"[FiniteStateMachine] Exited state: {currentState?.GetType().Name}");
         
         previousState = currentState;
         currentState = newState;
@@ -35,13 +35,13 @@ public class FiniteStateMachine <T> where T : IFSMState<T>
         if(currentState != null) currentState.Enter(this);
 
         isInTransition = false;
-        Debug.Log($"[FiniteStateMachine] Entered state: {currentState?.GetType().Name}");
+        //Debug.Log($"[FiniteStateMachine] Entered state: {currentState?.GetType().Name}");
     }
 
     public void RevertState()
     {
         if (previousState != null) ChangeState(previousState);
-        else Debug.LogWarning("[FiniteStateMachine] No previous state to revert to.");
+        //else Debug.LogWarning("[FiniteStateMachine] No previous state to revert to.");
     }
 
     

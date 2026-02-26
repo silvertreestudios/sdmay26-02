@@ -39,7 +39,7 @@ public class GridFSM : FiniteStateMachine<GridFSMState>
     //copilot added this, it is needed for the AI to change states properly because of how fast it acts
     private IEnumerator DelayedChangeState(GridFSMState newState)
     {
-        yield return null;
+        yield return new WaitUntil(() => !isInTransition);
         ChangeState(newState);
     }
 

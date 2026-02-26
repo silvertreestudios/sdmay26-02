@@ -25,19 +25,18 @@ public class MindlessController : AIActionController
     {
         while (ActionPoints > 0)
         {
-            Debug.Log(ActionPoints + " action points remaining");
+            //Debug.Log(ActionPoints + " action points remaining");
             EntityAction action = MindlessDecision();
             if (action != null)
             {
                 // yield return waits for the TakeAction coroutine to completely finish
-                IsTakingAction = true;
                 TakeAction(action);
                 yield return new WaitUntil(() => !IsTakingAction); // Wait until the action is fully resolved before continuing
-                Debug.Log("AI action finished");
+                //Debug.Log("AI action finished");
             }
             else
             {
-                Debug.Log("No valid actions, ending turn");
+                //Debug.Log("No valid actions, ending turn");
                 break;
             }
         }

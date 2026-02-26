@@ -17,13 +17,6 @@ public class Grid : GridAPI
     // contstruct stride
     public override IEnumerator Stride(GameObject character, CoroutineResult<bool> canceled)
     {
-        // Wait for the FSM to be in idle and not mid-transition before attempting to change state.
-        // Without this, if ChangeState is called while isInTransition=true, GridFSM queues a
-        // DelayedChangeState and returns true immediately without actually changing currentState.
-        // The while loop below would then see currentState != strideState and exit immediately,
-        // causing the action to "complete" instantly and deduct an action point with no movement.
-        // The delayed Enter() would fire next frame alongside the next stride, causing double movement.
-        yield return new WaitUntil(() => !GridFSM.isInTransition && GridFSM.currentState == GridFSM.idleState);
 
         StateStride strideState = new StateStride(character, Controller);
         if (GridFSM.ChangeState(strideState))

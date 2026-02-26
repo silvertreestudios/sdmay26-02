@@ -40,7 +40,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     protected override void Awake() {
         base.Awake();
-        Debug.Log("Awake called");
+        //Debug.Log("Awake called");
         ui = GetComponent<UIDocument>().rootVisualElement;
 
         //Copiloy made this so I could point it to another UXML file for a template
@@ -56,7 +56,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     }
 
     private void OnEnable() {
-        Debug.Log("OnEnable called");
+        //Debug.Log("OnEnable called");
         //####Button Setup####
         strikeButton = ui.Q<Button>("StrikeButton");
         strikeButton.clicked += Strike;
@@ -129,13 +129,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     // Card Logic attempt by Ryan
     private void fillPlayerCards() {
-        Debug.Log("fillPlayerCards called");
+        //Debug.Log("fillPlayerCards called");
         cardHolder.Clear(); // Fix: Clear existing cards before adding new ones
         for (int i = 0; i < Players.Count; i++) {
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
             cardInstance.Q<Label>("Card_Name").text = Players[i].name;
-            Debug.Log("Added card for " + Players[i].name);
+            //Debug.Log("Added card for " + Players[i].name);
         }
     }
 
@@ -158,18 +158,18 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     // End of Card Logic
 
     public void Strike() {
-        Debug.Log("Strike called");
+        //Debug.Log("Strike called");
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
         g.GetComponent<PlayerActionController>().TestStrike();
-        Debug.Log("Clicked Strike button");
+        //Debug.Log("Clicked Strike button");
         //for testing, have strike do damage to next player
         // players[(currentPlayerIndex + 1) % players.Length].TakeDamage(10);
     }
 
     // Testing function for StrikeWeapon action
     public void StrikeWeapon() {
-        Debug.Log("Strike Weapon called");
+        //Debug.Log("Strike Weapon called");
         GameObject g = CombatManager.GetInstance().WhosTurn();
         List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
         StrikeWeapon strikeWeaponAction = null;
@@ -190,7 +190,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             return;
         }
         g.GetComponent<ActionController>().TakeAction(strikeWeaponAction);
-        Debug.Log("Clicked Strike Weapon button");
+        //Debug.Log("Clicked Strike Weapon button");
     }
 
     public void SetStrikeWeaponText(string weaponName)
@@ -227,31 +227,31 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
         g.GetComponent<PlayerActionController>().TestStride();
-        Debug.Log("Clicked Move button");
+        //Debug.Log("Clicked Move button");
     }
 
     public void EndTurn()
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        g.GetComponent<PlayerActionController>().EndTurn();
         GridAPI.GetInstance().CancelCurrentAction();
-        Debug.Log("Clicked End Turn button");
+        g.GetComponent<PlayerActionController>().EndTurn();
+       // Debug.Log("Clicked End Turn button");
     }
 
     public void CancelAction() {
-        Debug.Log("CancelAction called");
-        Debug.Log("Clicked Cancel Action button");
+        //Debug.Log("CancelAction called");
+        //Debug.Log("Clicked Cancel Action button");
         GridAPI.GetInstance().CancelCurrentAction();
     }
 
     public void focusOnPlayer(int playerIndex) {
-        Debug.Log("focusOnPlayer called");
-        Debug.Log("Focus on player: " + Players[playerIndex]);
+        //Debug.Log("focusOnPlayer called");
+        //Debug.Log("Focus on player: " + Players[playerIndex]);
     }
 
     public void getQueuePoisition() {
-        Debug.Log("getQueuePoisition called");
+        //Debug.Log("getQueuePoisition called");
         // Need current player index from turn manager
     }
 
