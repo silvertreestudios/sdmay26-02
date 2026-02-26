@@ -13,12 +13,15 @@ public class HUDController : MonoBehaviour
     public Button strikeButton;
     public Button moveButton;
     public Button endTurnButton;
+    
 
 
     //####Player Queue Card Variables####   
     private VisualElement cardHolder; 
     private VisualTreeAsset playerCardTemplate;
     private bool needToUpdateCards = true;
+    private bool needToMoveCards = false;
+    private int lastPlayerIndex = -1; // Track the last player index to detect changes
 
     //####Cancel Action Button####
     private Button cancelActionButton;
@@ -92,10 +95,10 @@ public class HUDController : MonoBehaviour
         // Debug.Log("Update called");
         // Debug.Log("HUD Update called");
         // Update current player card (placeholder logic)
-        updateCurrentPlayerCard();
+        //updateCurrentPlayerCard();
 
         // Update target card (placeholder logic)
-        updateTargetCard();
+        //updateTargetCard();
 
         // Update player queue cards if needed
         if (needToUpdateCards) {
@@ -116,6 +119,7 @@ public class HUDController : MonoBehaviour
 
         // Highlight the current player's card
         HighlightCurrentPlayerCard();
+        updatePlayerQueueCards();
     }
 
 
@@ -125,9 +129,10 @@ public class HUDController : MonoBehaviour
         Debug.Log("fillPlayerCards called");
         cardHolder.Clear(); // Fix: Clear existing cards before adding new ones
         for (int i = 0; i < Players.Count; i++) {
+            CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
-            cardInstance.Q<Label>("Card_Name").text = Players[i].name;
+            cardInstance.Q<Label>("Card_Name").text = p.name;
             Debug.Log("Added card for " + Players[i].name);
         }
     }
@@ -136,15 +141,22 @@ public class HUDController : MonoBehaviour
         // Debug.Log("HighlightCurrentPlayerCard called");
         // Logic to highlight the current player's card
         // This is a placeholder implementation
-        int playerIndex = CombatManagerInterface.GetInstance().WhosTurn() == Players[0]? 1: 0;
+        int playerIndex = CombatManagerInterface.GetInstance().WhosTurn() == Players[0] ? 1 : 0;
+        if(playerIndex != lastPlayerIndex) {
+            needToMoveCards = true; // Set flag to move cards in the next update
+        }
         for (int i = 0; i < cardHolder.childCount; i++) {
             var card = cardHolder.ElementAt(i);
             if (i == playerIndex) {
-                //another coPilot idea vvv , works for intial testing
-                card.style.borderBottomColor = Color.yellow;
-                card.style.borderBottomWidth = 4;
+                // Highlight and scale up the active card
+                lastPlayerIndex = playerIndex; // Update last player index
+                card.style.scale = new Vector3(1.2f, 1.2f, 1); // Scale up
+                if(needToMoveCards){card.BringToFront();} // Ensure the active card is on top}
+                needToMoveCards = false;
             } else {
-                card.style.borderBottomWidth = 0;
+                // Remove highlight and scale down
+                
+                card.style.scale = new Vector3(0.9f, 0.9f, 1); // Scale down
             }
         }
     }
@@ -175,6 +187,7 @@ public class HUDController : MonoBehaviour
         g.GetComponent<ActionController>().EndTurn();
         FSM_API.EndTurn();
         Debug.Log("Clicked End Turn button");
+
     }
 
     public void CancelAction() {
@@ -214,5 +227,19 @@ public class HUDController : MonoBehaviour
         targetHealthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
         targetHealthBar.value = p.hp;
         targetHealthBar.highValue = p.maxHp;
+    }
+
+    private void updatePlayerQueueCards() {
+        Debug.Log("updatePlayerQueueCards called");
+        // Logic to update player queue cards
+        // This is a placeholder implementation
+        for (int i = 0; i < cardHolder.childCount; i++) {
+            var card = cardHolder.ElementAt(i);
+            CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
+            var healthBar = card.Q<ProgressBar>("HealthBar");
+            healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
+            healthBar.value = p.hp;
+            healthBar.highValue = p.maxHp;
+        }
     }
 }

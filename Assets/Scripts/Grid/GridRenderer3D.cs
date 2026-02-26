@@ -240,38 +240,38 @@ public class GridRenderer3D : MonoBehaviour
                     if (tileType == GridMemory.TileType.Void) continue;
 
                     // create ground tiles for walkable cells
-                    if (tileType == GridMemory.TileType.Ground && groundTile != null)
-                    {
-                        var tile = Instantiate(groundTile, _gridRoot.transform);
-                        tile.name = $"C{x}_{z}";
-                        var tileTransform = tile.transform;
-                        tileTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY, z0 + (z + 0.5f) * cellSize);
-                        tileTransform.localScale = new Vector3(cellSize * 0.1f, 1f, cellSize * 0.1f);
-                        var meshRenderer = tile.GetComponent<MeshRenderer>();
-                        if (meshRenderer != null)
-                        {
-                            // Use sharedMaterial to avoid creating instances
-                            meshRenderer.sharedMaterial.color = cellFillColor;
-                            _cells.Add(meshRenderer);
-                        }
-                    }
+                    // if (tileType == GridMemory.TileType.Ground && groundTile != null)
+                    // {
+                    //     var tile = Instantiate(groundTile, _gridRoot.transform);
+                    //     tile.name = $"C{x}_{z}";
+                    //     var tileTransform = tile.transform;
+                    //     tileTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY, z0 + (z + 0.5f) * cellSize);
+                    //     tileTransform.localScale = new Vector3(cellSize * 0.1f, 1f, cellSize * 0.1f);
+                    //     var meshRenderer = tile.GetComponent<MeshRenderer>();
+                    //     if (meshRenderer != null)
+                    //     {
+                    //         // Use sharedMaterial to avoid creating instances
+                    //         meshRenderer.sharedMaterial.color = cellFillColor;
+                    //         _cells.Add(meshRenderer);
+                    //     }
+                    // }
                     // create wall tiles for wall cells
-                    else if (tileType == GridMemory.TileType.Wall && wallTile != null)
-                    {
-                        // use different prefab for walls
-                        var wall = Instantiate(wallTile, _gridRoot.transform);
-                        wall.name = $"W{x}_{z}";
-                        var wallTransform = wall.transform;
-                        float wallHeight = cellSize;
-                        // lift center up by half the wall height so base stays at gridY
-                        wallTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY + (wallHeight * 0.5f), z0 + (z + 0.5f) * cellSize);
-                        wallTransform.localScale = new Vector3(cellSize, wallHeight, cellSize*3f);
-                        var meshRenderer = wall.GetComponent<MeshRenderer>();
-                        if (meshRenderer != null)
-                        {
-                            _walls.Add(meshRenderer);
-                        }
-                    }
+                    // else if (tileType == GridMemory.TileType.Wall && wallTile != null)
+                    // {
+                    //     // use different prefab for walls
+                    //     var wall = Instantiate(wallTile, _gridRoot.transform);
+                    //     wall.name = $"W{x}_{z}";
+                    //     var wallTransform = wall.transform;
+                    //     float wallHeight = cellSize;
+                    //     // lift center up by half the wall height so base stays at gridY
+                    //     wallTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY + (wallHeight * 0.5f), z0 + (z + 0.5f) * cellSize);
+                    //     wallTransform.localScale = new Vector3(cellSize, wallHeight, cellSize*3f);
+                    //     var meshRenderer = wall.GetComponent<MeshRenderer>();
+                    //     if (meshRenderer != null)
+                    //     {
+                    //         _walls.Add(meshRenderer);
+                    //     }
+                    // }
                 }
             }
         }
