@@ -67,7 +67,8 @@ public class AttributeContributions
     public int ancestry;
     public int background;
     public int className;
-    public int attributeTotal => ancestry + background + className;
+    public int freeChoice;
+    public int attributeTotal => ancestry + background + className + freeChoice;
 }
     
 //Inherits from class `MonoBehaviour`. This makes it attachable to a game object as a component.
@@ -123,17 +124,13 @@ public class CharacterCreationScript : MonoBehaviour
     Toggle charismaToggle;
     Dictionary<string, List<string>> backgroundDescriptionByBackground;
     List<Toggle> toggles;
+    List<string> attributeKeysForToggles; //the index of the List<Toggle> matches the index of List<string> attributeKey
+    HashSet<string> selectedAttributes; //HashSet was recommended...
     int maxSelections = 4;
-    int selectedCount = 0;
+    //int selectedCount = 0;
     int classHP;
     int ancestryHP;
-    // int strengthBoost = 0;
-    // int dexterityBoost = 0;
-    // int constitutionBoost = 0;
-    // int intelligenceBoost = 0;
-    // int wisdomBoost = 0;
-    // int charismaBoost = 0;
-    Dictionary<string, AttributeContributions> attributes; //string is the attribute, AttributeContributions is ancestry/background/class; main storage for current attributes
+    Dictionary<string, AttributeContributions> attributes; //string is the attribute, AttributeContributions is ancestry/background/class/freeChoice; main storage for current attributes
 
     //for json
     TextAsset jsonFile;
@@ -226,7 +223,9 @@ public class CharacterCreationScript : MonoBehaviour
         heritageRadioButtonGroup.RegisterValueChangedCallback(OnHeritageChanged);
 
         //no special grouping for toggles, so I'm handling them as list manually
+        selectedAttributes = new();
         toggles = new List<Toggle> { strengthToggle, dexterityToggle, constitutionToggle, intelligenceToggle, wisdomToggle, charismaToggle };
+        attributeKeysForToggles = new List<string> {"strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"};
         foreach (var toggle in toggles)
         {
             toggle.RegisterValueChangedCallback(evt =>
@@ -245,25 +244,6 @@ public class CharacterCreationScript : MonoBehaviour
         ancestryChoiceField.value = selectedAncestry;
         ancestryHP = db.ancestries.Find(a => a.id == selectedAncestry).hp;
         hpField.value = classHP + ancestryHP; //add ancestry hp to other hp
-
-        //use selectedAncestry to check the json list for the matching ancestry
-        //get the list of boosts for that ancestry
-        //apply those boosts to matching attribute display fields
-        //BUT, display fields should reset ONLY for the ancestry boosts
-        // Ancestry selectedAncestryObj = db.ancestries.Find(a => a.id == selectedAncestry); //make an ancestry object
-        // List<string> boosts = new List<string>(selectedAncestryObj.attributeBoost); //make a list of that ancestry's boosts
-        // strengthBoost = boosts.Contains("strength") ? 1 : 0; //if found, change to 1, otherwise 0
-        // dexterityBoost = boosts.Contains("dexterity") ? 1 : 0;
-        // constitutionBoost = boosts.Contains("constitution") ? 1 : 0;
-        // intelligenceBoost = boosts.Contains("intelligence") ? 1 : 0;
-        // wisdomBoost = boosts.Contains("wisdom") ? 1 : 0;
-        // charismaBoost = boosts.Contains("charisma") ? 1 : 0;
-        // strengthAttributeField.value = strengthBoost; //then updates the display fields
-        // dexterityAttributeField.value = dexterityBoost;
-        // constitutionAttributeField.value = constitutionBoost;
-        // intelligenceAttributeField.value = intelligenceBoost;
-        // wisdomAttributeField.value = wisdomBoost;
-        // charismaAttributeField.value = charismaBoost;
 
         Ancestry selectedAncestryObj = db.ancestries.Find(a => a.id == selectedAncestry); //make an ancestry object
         List<string> boosts = new List<string>(selectedAncestryObj.attributeBoost); //make a list of that ancestry's boosts
@@ -410,6 +390,12 @@ public class CharacterCreationScript : MonoBehaviour
         fortitudeField.value = db2.classes.Find(a => a.id == selectedClass).fortitude;
         reflexField.value = db2.classes.Find(a => a.id == selectedClass).reflex;
         willField.value = db2.classes.Find(a => a.id == selectedClass).will;
+
+        ClassInfo selectedClassObj = db2.classes.Find(a => a.id == selectedClass); //make a Class object
+        string boost = selectedClassObj.attributeBoost; //get that classes's boost (classes only have one)
+        ClearClassContributions();
+        ApplyClassBoosts(boost); //pass in 
+        RefreshAttributeFields();
     }
  
     void PopulateClassFeatButtons(string className)
@@ -458,28 +444,36 @@ public class CharacterCreationScript : MonoBehaviour
     //for handling individual toggle changes
     private void HandleToggleChanged(Toggle changedToggle, bool isOn)
     {
+        int index = toggles.IndexOf(changedToggle); //so we know the attribute associated with the toggle
+        string attribute = attributeKeysForToggles[index]; //turn the index into the actual string
+
         if (isOn) //if toggle is on
         {
-            if (selectedCount >= maxSelections) //and the user has selected 4 already
+            if (selectedAttributes.Count >= maxSelections) //and the user has selected 4 already
             {
                 changedToggle.SetValueWithoutNotify(false); //then prevent the next toggle from turning on
                 return;
             }
 
-            selectedCount++; //otherwise, continue counting
+            //selectedCount++; //otherwise, continue counting
+            selectedAttributes.Add(attribute);
+            attributes[attribute].freeChoice += 1; //for that dictionary called attributes, update the freeChoice storage
         }
         else
         {
-            selectedCount--; //if toggle is turned off, then decrease the count
+            //selectedCount--; //if toggle is turned off, then decrease the count
+            selectedAttributes.Remove(attribute);
+            attributes[attribute].freeChoice -= 1;
         }
 
+        RefreshAttributeFields();
         UpdateToggleStates();
     }
 
     //for handling the toggles as a group
     private void UpdateToggleStates()
     {
-        bool atLimit = selectedCount >= maxSelections; //maxed out?
+        bool atLimit = selectedAttributes.Count >= maxSelections; //maxed out?
 
         //then for each toggle, disable unchecked toggles if at limit, enable all toggles otherwise
         foreach (var toggle in toggles)
@@ -488,6 +482,22 @@ public class CharacterCreationScript : MonoBehaviour
                 toggle.SetEnabled(!atLimit);
         }
     }
+
+    // void ClearAllAttributeToggles() //for resetting toggles. Do I need?
+    // {
+    //     foreach (var attribute in selectedAttributes)
+    //     {
+    //         attributes[attribute].freeChoice -= 1;
+    //     }
+
+    //     selectedAttributes.Clear();
+
+    //     foreach (var toggle in toggles)
+    //         toggle.SetValueWithoutNotify(false);
+
+    //     RefreshAttributeFields();
+    //     UpdateToggleStates();
+    // }
 
     //attribute tracker helpers (3 parts): clear and apply for each category, then refresh display fields
     void ClearAncestryContributions() //anything ancestry is reset
@@ -517,6 +527,17 @@ public class CharacterCreationScript : MonoBehaviour
         {
             attributes[boost].background++;
         }
+    }
+    void ClearClassContributions() //anything class is reset
+    {
+        foreach (var entry in attributes.Values)
+        {
+            entry.className = 0;
+        }
+    }
+    void ApplyClassBoosts(string boost) //pass in what boost from class to update; only ever one for classes
+    {
+        attributes[boost].className++;
     }
     void RefreshAttributeFields() //lastly, update the display fields
     {
