@@ -69,6 +69,11 @@ public class StrikeWeapon : MultiFrameEntityAction
         return Strike;
     }
 
+    public int GetRange()
+    {
+        return range;
+    }  
+
     // Variant of Strike action based on a weapon
     public StrikeWeapon(uint cost, EquipmentWeapon weapon, GameObject creature) :base(cost)
     {

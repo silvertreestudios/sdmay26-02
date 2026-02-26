@@ -1,6 +1,7 @@
 using Game.Creature;
 using System.Collections.Generic;
 using UnityEngine;
+using Game.Strikes;
 
 namespace Game.Creature
 {
@@ -150,7 +151,7 @@ namespace Game.Creature
         public string description { get => _description; set => _description = value; }
 
 
-        void Start()
+        void Awake()
         {
             // Initialization code here
             // TODO create method to run check against action/ability lists to populate additional scripts
@@ -162,6 +163,7 @@ namespace Game.Creature
                 else
                     Debug.LogWarning($"Ability '{a}' not found for {name}");
             }
+            StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject);
         }
 
         void Update()
