@@ -108,7 +108,7 @@ public class MovementRange
             CreateHighlightVisuals(startCell, currentReachableTiles);
         }
 
-        Debug.Log($"[MovementRangeHighlighter] Updated highlights: {currentReachableTiles.Count} tiles reachable.");
+//        Debug.Log($"[MovementRangeHighlighter] Updated highlights: {currentReachableTiles.Count} tiles reachable.");
     }
     //similar to UpdateHighlights but for attacks
     public void UpdateAttackHighlights(Vector3Int startCell, HashSet<Vector3Int> attackedTiles)
@@ -122,7 +122,7 @@ public class MovementRange
             CreateHighlightVisuals(startCell, attackedTiles);
         }
 
-        Debug.Log($"[MovementRangeHighlighter] Updated attack highlights: {attackedTiles.Count} tiles reachable.");
+//        Debug.Log($"[MovementRangeHighlighter] Updated attack highlights: {attackedTiles.Count} tiles reachable.");
     }
 
     /// <summary>
@@ -145,7 +145,7 @@ public class MovementRange
     /// <summary>
     /// Calculates all reachable tiles within movement range using depth-first search
     /// </summary>
-    private HashSet<Vector3Int> CalculateReachableTiles(Vector3Int start, int maxRange)
+    public HashSet<Vector3Int> CalculateReachableTiles(Vector3Int start, int maxRange)
 {
     // Return all walkable tiles if unlimited range
     if (maxRange <= 0)

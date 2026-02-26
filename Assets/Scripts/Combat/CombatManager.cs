@@ -69,7 +69,7 @@ public class CombatManager : CombatManagerInterface
     public override void StartCombat()
     {
         OnCombatStart.Invoke();
-        Debug.Log("Start Combat.");
+        //Debug.Log("Start Combat.");
 
         NextTurn();
     }

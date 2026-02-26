@@ -1,10 +1,14 @@
 using Unity.VisualScripting;
 using UnityEngine;
 
-public abstract class FSM_State_Abstract
+public abstract class GridFSMState : IFSMState<GridFSMState>
 {
-    public abstract void EnterState();
-    public abstract void ExitState(bool canceled);
+    protected GridFSM fsm;
+    public virtual void Enter(FiniteStateMachine<GridFSMState> fsm)
+    {
+        this.fsm = (GridFSM)fsm;
+    }
+    public abstract bool Exit();
     public abstract void Leftclick();
     public virtual void DoubleLeftclick() { }
     public abstract void Rightclick();

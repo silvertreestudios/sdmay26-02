@@ -99,15 +99,18 @@ public class StrikeWeapon : MultiFrameEntityAction
         CoroutineResult<GameObject> target = new();
         CoroutineResult<bool> canceled = new();
         //yield return GridCharacterController3D.Instance.StrikeCoroutine(attacker, 2, target);
-        yield return FSM_API.Strike(attacker, range, target, canceled);
+        yield return GridAPI.GetInstance().Strike(attacker, range, target, canceled);
         // I implemented a cancel refund for this action, let me know if it needs to change - Adam
         if(target.Value && !canceled.Value)
         {
             Debug.Log(attacker + " Striking " + target.Value +" with " + Weapon.name);
             // TODO: need to modify strike/damage to account for character abilities, weapons traits, etc
             Strike.Damage(attacker, target.Value);
-            if(ac)
+            if (ac)
+            {
                 PayCost(ac);
+                ac.StrikePenalty += 1;
+            }
         }
         if(ac)
             ac.IsTakingAction = false;
