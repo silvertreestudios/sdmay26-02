@@ -265,6 +265,19 @@ namespace Game.Creature
             _hp = Mathf.Clamp(_hp, 0, _maxHp);
         }
 
+        public void GainTempHp(int tempHpAmount)
+        {
+            // TODO replace with UI prompt for player decision about which 
+            if(_tempHp > 0)
+            {
+                // UI prompt here
+            }
+            if(tempHpAmount >_tempHp){
+                _tempHp += tempHpAmount;
+            }
+        }
+
+
         // ? Instead of disallowing equipping, unequip the other weapon?
         public void equipWeaponLeft(EquipmentWeapon weapon)
         {
