@@ -40,7 +40,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2187803836732694160}
-  m_Mesh: {fileID: 7240564204133861249, guid: f1a9de5bda18b48eb83ee4c127002d5d, type: 3}
+  m_Mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
 --- !u!23 &931177512749420072
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -249,7 +249,8 @@ GameObject:
   - component: {fileID: 7437372328704202929}
   - component: {fileID: 8914976665182790947}
   - component: {fileID: 5489623171515365460}
-  - component: {fileID: 4601113897919855513}
+  - component: {fileID: 5049490658535004338}
+  - component: {fileID: 598170735464826064}
   m_Layer: 6
   m_Name: kobold-warrior
   m_TagString: Untagged
@@ -391,7 +392,7 @@ MonoBehaviour:
   <ActionPoints>k__BackingField: 0
   _actionNames:
   - Game.Strikes.StrikeWeapon
---- !u!114 &4601113897919855513
+--- !u!114 &5049490658535004338
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -403,4 +404,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Team
-  <Name>k__BackingField: Default
+  <Name>k__BackingField: NoTeam
+--- !u!114 &598170735464826064
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8560756850187711930}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Conditions

@@ -5,7 +5,7 @@ public class TurnStep
 {
     bool IsPlayer;
     public ActionController Player { get; private set; }
-    public UnityEvent Event { get; private set; }
+    public UnityAction Event { get; private set; }
     int EventDelay;
 
     public TurnStep (ActionController player)
@@ -13,11 +13,17 @@ public class TurnStep
         IsPlayer = true;
         Player = player;
     }
-    public TurnStep(UnityEvent e, int eventDelay)
+    public TurnStep(UnityAction callback)
     {
-        EventDelay = eventDelay;
+        Event = callback;
         IsPlayer= false;
-        Event = e;
+        EventDelay = 0;
+    }
+    public TurnStep(UnityAction callback, int eventDelay)
+    {
+        Event = callback;
+        IsPlayer = false;
+        EventDelay = eventDelay;
     }
 
     public void Trigger () 

@@ -6,14 +6,21 @@ using Game.Strikes;
 
 public abstract class ActionController : MonoBehaviour
 {
-    //[SerializeField]
-    protected List<EntityAction> Actions = new List<EntityAction>();
-    //[SerializeField]
-    protected List<EntityAction> Movements = new List<EntityAction>();
+    // Fields
+    protected List<EntityAction> Actions = new();
+    protected List<EntityAction> Movements = new();
+    protected List<EntityAction> Reactions = new();
     protected bool IsTurn = false;
     public bool IsTakingAction { get; set; } = false;
     [field: SerializeField]
     public uint ActionPoints { get; set; }
+    public bool Reacted { get; set; }
+
+    //Events
+    public OnResetActionPoints ResetActionPointsEvent { get; protected set; } = new();
+    public OnGetActions GetActionsEvent { get; protected set; } = new();
+    public OnGetMovements GetMovementsEvent { get; protected set; } = new();
+    public OnGetReactions GetReactionsEvent { get; protected set; } = new();
 
     [SerializeField]
     List<string> _actionNames = new List<string>(); // Temporary list of action names to add for testing purposes.  TODO remove
@@ -23,11 +30,54 @@ public abstract class ActionController : MonoBehaviour
     /// <summary>
     /// Starts this creature's turn
     /// </summary>
-    public abstract void StartTurn();
+    public virtual void StartTurn()
+    {
+        IsTurn = true;
+        Ref<uint> newActionPoints = new(3);
+        ResetActionPointsEvent.Invoke(newActionPoints);
+        ActionPoints = newActionPoints.Value;
+    }
+
     public abstract void EndTurn();
 
 
+    /// <summary>
+    /// Returns a copied list of all actions the controller can perform, excluding movements
+    /// </summary>
+    /// <returns></returns>
+    public List<EntityAction> GetActions()
+    {
+        List<EntityAction> available = new(Actions);
+        GetActionsEvent.Invoke(available);
+        return available;
+    }
 
+    /// <summary>
+    /// Returns a copied list of all movements the controller can perform
+    /// </summary>
+    /// <returns></returns>
+    public List<EntityAction> GetMovements()
+    {
+        List<EntityAction> available = new(Movements);
+        GetMovementsEvent.Invoke(available);
+        return available;
+    }
+
+    /// <summary>
+    /// Returns a copied list of all reactions the controller can perform
+    /// </summary>
+    /// <returns></returns>
+    public List<EntityAction> GetReactions()
+    {
+        List<EntityAction> available = new(Reactions);
+        GetReactionsEvent.Invoke(available);
+        return available;
+    }
+
+    /// <summary>
+    /// Performs a given action for this controller
+    /// </summary>
+    /// <param name="action"></param>
     public void TakeAction(EntityAction action)
     {
         if (action == null)
@@ -46,10 +96,6 @@ public abstract class ActionController : MonoBehaviour
     public uint GetInitiative()
     {
         return (uint)Random.Range(1, 20);
-    }
-    public List<EntityAction> GetActions()
-    {
-        return Actions;
     }
     public void AddAction(EntityAction action)
     {

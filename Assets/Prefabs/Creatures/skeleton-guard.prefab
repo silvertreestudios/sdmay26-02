@@ -40,7 +40,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 551832130524599936}
-  m_Mesh: {fileID: 7240564204133861249, guid: f1a9de5bda18b48eb83ee4c127002d5d, type: 3}
+  m_Mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
 --- !u!23 &6911504225729484125
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -100,7 +100,8 @@ GameObject:
   - component: {fileID: 2252408804514861379}
   - component: {fileID: 1391534583168929581}
   - component: {fileID: 2627365968489530025}
-  - component: {fileID: 3879951894586944656}
+  - component: {fileID: 1685312289907558816}
+  - component: {fileID: 7822092932797490492}
   m_Layer: 6
   m_Name: skeleton-guard
   m_TagString: Untagged
@@ -213,7 +214,7 @@ MonoBehaviour:
   <ActionPoints>k__BackingField: 0
   _actionNames:
   - Game.Strikes.StrikeWeapon
---- !u!114 &3879951894586944656
+--- !u!114 &1685312289907558816
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -225,7 +226,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Team
-  <Name>k__BackingField: Default
+  <Name>k__BackingField: NoTeam
+--- !u!114 &7822092932797490492
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5488967783477118630}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Conditions
 --- !u!1 &6643102022807808188
 GameObject:
   m_ObjectHideFlags: 0

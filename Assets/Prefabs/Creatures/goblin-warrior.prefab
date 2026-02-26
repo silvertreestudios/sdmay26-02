@@ -11,7 +11,8 @@ GameObject:
   - component: {fileID: 6168038074156405215}
   - component: {fileID: 3557282407119985219}
   - component: {fileID: 2092882040488812791}
-  - component: {fileID: 4617292550482394308}
+  - component: {fileID: 8362074675100557896}
+  - component: {fileID: 3138839757628200053}
   m_Layer: 6
   m_Name: goblin-warrior
   m_TagString: Untagged
@@ -139,7 +140,7 @@ MonoBehaviour:
   <ActionPoints>k__BackingField: 0
   _actionNames:
   - Game.Strikes.StrikeWeapon
---- !u!114 &4617292550482394308
+--- !u!114 &8362074675100557896
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -151,7 +152,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Team
-  <Name>k__BackingField: Default
+  <Name>k__BackingField: NoTeam
+--- !u!114 &3138839757628200053
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2886620269212729914}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Conditions
 --- !u!1 &4461432389202375196
 GameObject:
   m_ObjectHideFlags: 0
@@ -192,7 +205,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 4461432389202375196}
-  m_Mesh: {fileID: 7240564204133861249, guid: f1a9de5bda18b48eb83ee4c127002d5d, type: 3}
+  m_Mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
 --- !u!23 &7662114340277635330
 MeshRenderer:
   m_ObjectHideFlags: 0
