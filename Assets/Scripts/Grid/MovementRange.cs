@@ -35,6 +35,17 @@ public class MovementRange
         FullyBlocked
     }
 
+    /// <summary>
+    /// Represents the degree of cover
+    /// </summary>
+    public enum CoverDegree
+    {
+        None,        // No cover
+        Lesser,      // +1 circumstance bonus to AC
+        Standard,    // +2 circumstance bonus to AC
+        Greater      // +4 circumstance bonus to AC
+    }
+
     // directions for cardinal and diagonal movement, used for neighbor checks
     private static readonly Vector3Int[] CardinalDirections = new[]
     {
@@ -166,19 +177,49 @@ public class MovementRange
     }
 
     // determines line of sight status for a target tile by checking center and corner rays
-    private LOSStatus GetLOSStatus(Vector3Int start, Vector3Int target)
+    private LOSStatus GetLOSStatus(Vector3Int start, Vector3Int target, out int visibleCorners)
     {
-        bool centerClear = !IsRayBlocked(start, target, Vector2.zero, Vector2.zero);
+        // Count all 16 corner-to-corner rays
+        int clearRays = CountCornerRays(start, target, false);
+        visibleCorners = clearRays;
+       
+        // Even 1 clear ray means you have line of sight
+        if (clearRays == 0)
+            return LOSStatus.FullyBlocked; // No LOS
+        else if (clearRays >= 15) // Almost all or all rays clear
+            return LOSStatus.Clear; // Clear LOS, minimal to no cover
+        else
+            return LOSStatus.PartialBlock; // Has LOS but with cover (Lesser/Standard/Greater depending on rays blocked)
+    }
 
-        // if center ray is blocked, check corners to see if it's fully blocked or just partially
-        if (!centerClear)
+    // Calculates cover degree
+    private CoverDegree CalculateCoverDegree(int clearRays)
+    {
+        float percentBlocked = (16 - clearRays) / 16f;
+        if (percentBlocked >= 0.75f)
+            return CoverDegree.Greater; // +4 AC
+        else if (percentBlocked >= 0.50f)
+            return CoverDegree.Standard; // +2 AC
+        else if (percentBlocked >= 0.25f)
+            return CoverDegree.Lesser; // +1 circumstance bonus to AC
+        else
+            return CoverDegree.None;
+    }
+
+    // counts how many of the 4 target tile corners are visible from the center of the start tile
+    private int CountVisibleTargetCorners(Vector3Int start, Vector3Int target)
+    {
+        int visibleCount = 0;
+        foreach (var cornerOffset in TileCornerOffsets)
         {
-            int clearCorners = CountCornerRays(start, target, false);
-            return clearCorners == 0 ? LOSStatus.FullyBlocked : LOSStatus.PartialBlock;
+            // Check ray from center of start tile to each corner of target tile
+            bool blocked = IsRayBlocked(start, target, Vector2.zero, cornerOffset);
+            if (!blocked)
+            {
+                visibleCount++;
+            }
         }
-        int blockedRays = CountCornerRays(start, target, true);
-        // if more than 25% of corner rays are blocked, consider partially blocked, otherwise clear
-        return (blockedRays / 16f > 0.25f) ? LOSStatus.PartialBlock : LOSStatus.Clear;
+        return visibleCount;
     }
 
     // counts how many corner rays are blocked or clear based on the countBlocked parameter
@@ -209,7 +250,7 @@ public class MovementRange
     /// <returns></returns whether or not there's a clear line of sight between start an end points>
     private bool IsRayBlocked(Vector3Int start, Vector3Int end, Vector2 startOffset, Vector2 endOffset)
     {
-        // calculate ray start and end positions in world space
+        // calculate ray start and end positions
         float rayStartX = start.x + 0.5f + startOffset.x;
         float rayStartZ = start.z + 0.5f + startOffset.y;
         float rayEndX = end.x + 0.5f + endOffset.x;
@@ -227,7 +268,7 @@ public class MovementRange
         // allows consistent step increments regardless of distance
         (directionX, directionZ) = (directionX / rayDistance, directionZ / rayDistance);
 
-        // Sample 4 points per tile 
+        // Sample 4 points per tile for corners
         int sampleCount = Mathf.CeilToInt(rayDistance * 4);
         // keep track of visited cells
         HashSet<Vector3Int> visitedCells = new HashSet<Vector3Int>(sampleCount);
@@ -268,13 +309,53 @@ public class MovementRange
                 continue;
 
             // determine LOS status for this tile and get corresponding color and text
-            LOSStatus status = GetLOSStatus(startCell, cell);
+            LOSStatus status = GetLOSStatus(startCell, cell, out int visibleCorners);
             (Color color, string statusText) = GetLOSColorAndText(status, ref clearCount, ref partialCount, ref blockedCount);
-            Debug.Log($"Tile {cell}: {statusText}");
+            
+            if (status == LOSStatus.PartialBlock)
+            {
+                float distance = CalculateDistance(startCell, cell);
+                CoverDegree cover = CalculateCoverDegree(visibleCorners);
+                string coverText = GetCoverText(cover);
+                Debug.Log($"Tile {cell}: {statusText} - Visible Rays: {visibleCorners}/16 - Distance: {distance:F2} - Cover: {coverText}");
+            }
+            else if (status == LOSStatus.Clear)
+            {
+                Debug.Log($"Tile {cell}: {statusText} - No Cover");
+            }
+            else
+            {
+                Debug.Log($"Tile {cell}: {statusText} - No LOS");
+            }
+            
             CreateHighlight(cell, color, $"AttackHighlight_{cell.x}_{cell.z}_{statusText}");
         }
 
         Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount}");
+    }
+
+    // Helper to get cover text for display
+    private string GetCoverText(CoverDegree cover)
+    {
+        switch (cover)
+        {
+            case CoverDegree.Lesser:
+                return "Lesser (+1 AC)";
+            case CoverDegree.Standard:
+                return "Standard (+2 AC)";
+            case CoverDegree.Greater:
+                return "Greater (+4 AC)";
+            default:
+                return "None";
+        }
+    }
+
+    // calculates the euclidean distance between two cells
+    private float CalculateDistance(Vector3Int from, Vector3Int to)
+    {
+        int dx = to.x - from.x;
+        int dz = to.z - from.z;
+        return Mathf.Sqrt(dx * dx + dz * dz);
     }
 
     private (Color color, string text) GetLOSColorAndText(LOSStatus status, ref int clearCount, ref int partialCount, ref int blockedCount)
@@ -420,5 +501,17 @@ public class MovementRange
     public void Dispose()
     {
         ClearHighlights();
+    }
+
+    /// <summary>
+    /// Checks if there's line of sight between two cells and returns cover information
+    /// </summary>
+    public bool HasLineOfSight(Vector3Int from, Vector3Int to, out CoverDegree coverDegree)
+    {
+        LOSStatus status = GetLOSStatus(from, to, out int visibleCorners);
+        coverDegree = CalculateCoverDegree(visibleCorners);
+        
+        // even partial block means you have LOS (just with cover)
+        return status != LOSStatus.FullyBlocked;
     }
 }
