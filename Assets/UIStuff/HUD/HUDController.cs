@@ -138,9 +138,12 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
 <<<<<<< HEAD
+<<<<<<< HEAD
             cardInstance.Q<Label>("Card_Name").text = Players[i].name;
             //Debug.Log("Added card for " + Players[i].name);
 =======
+=======
+>>>>>>> parent of 230baf2 (Reapply "Refactor HUD layout and player cards")
             cardInstance.Q<Label>("Card_Name").text = p.name;
             Debug.Log("Added card for " + Players[i].name);
 >>>>>>> parent of 230baf2 (Reapply "Refactor HUD layout and player cards")
