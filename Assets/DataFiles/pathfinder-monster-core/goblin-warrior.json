@@ -97,19 +97,19 @@
     "skills": [
       {
         "name": "acrobatics",
-        "base": 5
+        "value": 5
       },
       {
         "name": "athletics",
-        "base": 2
+        "value": 2
       },
       {
         "name": "nature",
-        "base": 1
+        "value": 1
       },
       {
         "name": "stealth",
-        "base": 5
+        "value": 5
       }
     ],
     "traits": {
@@ -129,21 +129,31 @@
     {
       "name": "Dogslicer",
       "type": "weapon",
+      "hands": 1,
+      "category": "martial",
       "quantity": 1
     },
     {
       "name": "Shortbow",
       "type": "weapon",
+      "hands": 0,
+      "category": "martial",
       "quantity": 1
     },
     {
       "name": "Leather Armor",
       "type": "armor",
-      "quantity": 1
+      "hands": 0,
+      "category": "light",
+      "quantity": 1,
+      "acBonus": 1,
+      "dexCap": 4
     },
     {
       "name": "Arrows",
       "type": "ammo",
+      "hands": null,
+      "category": null,
       "quantity": 10
     }
   ],
@@ -221,7 +231,9 @@
           ]
         }
       }
-    },
+    }
+  ],
+  "reactions": [
     {
       "name": "Goblin Scuttle",
       "type": "action",
@@ -237,8 +249,11 @@
           "value": "<p><strong>Trigger</strong> A goblin ally ends a move action adjacent to the goblin.</p>\n<hr />\n<p><strong>Effect</strong> The goblin warrior @UUID[Compendium.pf2e.actionspf2e.Item.Step]{Steps}.</p>"
         },
         "descriptionParagraphs": [
-          "Trigger A goblin ally ends a move action adjacent to the goblin.",
-          "Effect The goblin warrior @UUID[Compendium.pf2e.actionspf2e.Item.Step]{Steps}."
+          "Trigger: A goblin ally ends a move action adjacent to the goblin.",
+          "Effect: The goblin warrior {Steps}."
+        ],
+        "descriptionContext": [
+          "Compendium.pf2e.actionspf2e.Item.Step"
         ],
         "rules": [],
         "slug": "",
@@ -247,6 +262,40 @@
           "value": []
         }
       }
+    }
+  ],
+  "passives": [],
+  "conditions": [],
+  "weaponBonuses": [
+    {
+      "category": "unarmed",
+      "bonus": 4
+    },
+    {
+      "category": "simple",
+      "bonus": 4
+    },
+    {
+      "category": "martial",
+      "bonus": 4
+    },
+    {
+      "category": "advanced",
+      "bonus": 0
+    }
+  ],
+  "armorBonuses": [
+    {
+      "category": "light",
+      "bonus": 2
+    },
+    {
+      "category": "medium",
+      "bonus": 0
+    },
+    {
+      "category": "heavy",
+      "bonus": 0
     }
   ],
   "Source": "packs/pathfinder-monster-core"

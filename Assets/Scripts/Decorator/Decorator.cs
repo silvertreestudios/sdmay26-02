@@ -12,7 +12,7 @@ public class Decorator : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     
     [ExecuteInEditMode]
-    void OnEnable()
+    void Start()
     {
 
         dm = DecoratorMap.Instance;
@@ -58,7 +58,7 @@ public class Decorator : MonoBehaviour
                     break;
             }
         }
-        //VisualizePerlinNoise(0.55f, 0.05f, null);
+        VisualizePerlinNoise(0.55f, 0.05f, null);
     }
 
     private void DrawQuad(Tile tile, Color color, Material mat)

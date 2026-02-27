@@ -97,15 +97,15 @@
     "skills": [
       {
         "name": "acrobatics",
-        "base": 5
+        "value": 5
       },
       {
         "name": "crafting",
-        "base": 2
+        "value": 2
       },
       {
         "name": "stealth",
-        "base": 5
+        "value": 5
       }
     ],
     "traits": {
@@ -125,21 +125,31 @@
     {
       "name": "Sling",
       "type": "weapon",
+      "hands": 0,
+      "category": "simple",
       "quantity": 1
     },
     {
       "name": "Spear",
       "type": "weapon",
+      "hands": 1,
+      "category": "simple",
       "quantity": 1
     },
     {
       "name": "Leather Armor",
       "type": "armor",
-      "quantity": 1
+      "hands": 0,
+      "category": "light",
+      "quantity": 1,
+      "acBonus": 1,
+      "dexCap": 4
     },
     {
       "name": "Sling Bullets",
       "type": "ammo",
+      "hands": null,
+      "category": null,
       "quantity": 20
     }
   ],
@@ -296,7 +306,10 @@
           "value": []
         }
       }
-    },
+    }
+  ],
+  "reactions": [],
+  "passives": [
     {
       "name": "Sneak Attack",
       "type": "action",
@@ -338,6 +351,39 @@
           "value": []
         }
       }
+    }
+  ],
+  "conditions": [],
+  "weaponBonuses": [
+    {
+      "category": "unarmed",
+      "bonus": 2
+    },
+    {
+      "category": "simple",
+      "bonus": 2
+    },
+    {
+      "category": "martial",
+      "bonus": 0
+    },
+    {
+      "category": "advanced",
+      "bonus": 0
+    }
+  ],
+  "armorBonuses": [
+    {
+      "category": "light",
+      "bonus": 2
+    },
+    {
+      "category": "medium",
+      "bonus": 0
+    },
+    {
+      "category": "heavy",
+      "bonus": 0
     }
   ],
   "Source": "packs/pathfinder-monster-core"
