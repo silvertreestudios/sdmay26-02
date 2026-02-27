@@ -274,14 +274,14 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             healthBar.value = p.hp;
             healthBar.highValue = p.maxHp;
             if (p == CombatManager.GetInstance().WhosTurn().GetComponent<CreatureComponent>()) {
-                card.style.scale = new Vector3(1.5f, 1.5f, 1); // Scale up the current player's card
+                card.style.scale = new StyleScale(new Scale(new Vector3(1.5f,1.5f,1))); // Scale up the current player's card
                 card.style.opacity = 1f; // Full opacity for current player card
                 card.style.borderBottomColor = Color.clear;
                 card.style.borderBottomWidth = 50;
             } else {
                 card.style.borderBottomColor = Color.clear;
                 card.style.borderBottomWidth = 0;
-                card.style.scale = new Vector3(1f, 1f, 1);
+                card.style.scale = new StyleScale(new Scale(new Vector3(1f, 1f, 1))); // Normal scale for non-current player cards
                 card.style.opacity = 0.5f; // Dim non-current player cards
             }
             if (p.hp <= 0) {
