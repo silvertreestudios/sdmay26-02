@@ -224,7 +224,6 @@ namespace Game.Creature
             }
 
             // Actions - Standard (store item names)
-            // Actions - Standard (store item names)
             if (target.actions == null) target.actions = new List<string>();
             target.actions.Clear();
             if (dto.items != null)
@@ -247,27 +246,12 @@ namespace Game.Creature
             target.passives.Clear();
             if (dto.passives != null)
             {
-                foreach (var p in dto.passives)
-                    if (!string.IsNullOrEmpty(p?.name))
+                foreach (var p in dto.passives){
+                    if (!string.IsNullOrEmpty(p?.name)){
                         target.passives.Add(p.name);
-            }
-            // Actions - Reactions
-            if(target.reactions == null) target.reactions = new List<string>();
-            target.reactions.Clear();
-            if (dto.reactions != null)
-            {
-                foreach (var r in dto.reactions)
-                    if (!string.IsNullOrEmpty(r?.name))
-                        target.reactions.Add(r.name);
-            }
-            if(target.passives == null) target.passives = new List<string>();
-            // Actions - Passives
-            target.passives.Clear();
-            if (dto.passives != null)
-            {
-                foreach (var p in dto.passives)
-                    if (!string.IsNullOrEmpty(p?.name))
-                        target.passives.Add(p.name);
+                        //DefinedAbilities.TryGet(p.name)?.Apply(target.gameObject); 
+                    }
+                }
             }
 
             // Equipment

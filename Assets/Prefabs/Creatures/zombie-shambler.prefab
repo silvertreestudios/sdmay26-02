@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 7509527161798057004}
   - component: {fileID: 1230489140210506536}
   - component: {fileID: 1621377164598422165}
-  - component: {fileID: 7142645192071020132}
+  - component: {fileID: 507985902987611829}
   m_Layer: 6
   m_Name: zombie-shambler
   m_TagString: Untagged
@@ -130,7 +130,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Conditions
---- !u!114 &7142645192071020132
+--- !u!114 &507985902987611829
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -184,7 +184,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1260192250810322083}
-  m_Mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
+  m_Mesh: {fileID: -1306287401402662401, guid: d9e17dbadb98846ae8b04c9726f148e9, type: 3}
 --- !u!23 &5281836773456808635
 MeshRenderer:
   m_ObjectHideFlags: 0

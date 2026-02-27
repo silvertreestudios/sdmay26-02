@@ -15,6 +15,7 @@ public abstract class ActionController : MonoBehaviour
     [field: SerializeField]
     public uint ActionPoints { get; set; }
     public bool Reacted { get; set; }
+    public uint StrikePenalty { get; set; } = 0;
 
     //Events
     public OnResetActionPoints ResetActionPointsEvent { get; protected set; } = new();
@@ -36,6 +37,8 @@ public abstract class ActionController : MonoBehaviour
         Ref<uint> newActionPoints = new(3);
         ResetActionPointsEvent.Invoke(newActionPoints);
         ActionPoints = newActionPoints.Value;
+        StrikePenalty = 0;
+        HUDController.GetInstance().SetStrikeWeaponText("");
     }
 
     public abstract void EndTurn();

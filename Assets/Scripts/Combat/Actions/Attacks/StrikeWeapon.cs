@@ -59,6 +59,21 @@ public class StrikeWeapon : MultiFrameEntityAction
         return weaponName;
     }
 
+    public EquipmentWeapon GetWeapon()
+    {
+        return Weapon;
+    }
+
+    public Strike GetStrike()
+    {
+        return Strike;
+    }
+
+    public int GetRange()
+    {
+        return range;
+    }  
+
     // Variant of Strike action based on a weapon
     public StrikeWeapon(uint cost, EquipmentWeapon weapon, GameObject creature) :base(cost)
     {
@@ -96,8 +111,11 @@ public class StrikeWeapon : MultiFrameEntityAction
             Debug.Log(attacker + " Striking " + target.Value +" with " + Weapon.name);
             // TODO: need to modify strike/damage to account for character abilities, weapons traits, etc
             Strike.Damage(attacker, target.Value);
-            if(ac)
+            if (ac)
+            {
                 PayCost(ac);
+                ac.StrikePenalty += 1;
+            }
         }
         if(ac)
             ac.IsTakingAction = false;

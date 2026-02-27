@@ -20,13 +20,15 @@ public class Strike
         // Get Data
         CreatureComponent from = from_go.GetComponent<CreatureComponent>();
         CreatureComponent to = to_go.GetComponent<CreatureComponent>();
+        uint penalty = 5* (from_go.GetComponent<ActionController>()?.StrikePenalty ?? 0);
         int attackBonus = from.attackBonus;
         int damageBonus = from.damageBonus;
 
         // Hit Check
-        D20Result attackRoll = D20.Roll(attackBonus, to.ac);
+        D20Result attackRoll = D20.Roll(attackBonus -(int)penalty, to.ac);
 
-        string log = "Attack:\n  AC: " + to.ac + "\n  Attack Roll: " + attackRoll.total +" (" +attackRoll.roll +" + " +attackBonus +")" 
+        string log = "Attack:\n  AC: " + to.ac + "\n  Attack Roll: " + attackRoll.total 
+            +" (" +attackRoll.roll +" + " +attackBonus + " - " + penalty +")" 
             +"\n  Result: "+attackRoll.degree ;
         if (attackRoll.degree == DegreeOfSuccess.Success || attackRoll.degree == DegreeOfSuccess.CriticalSuccess)
         {

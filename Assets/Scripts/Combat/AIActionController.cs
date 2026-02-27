@@ -29,11 +29,8 @@ public abstract class AIActionController : ActionController
     /// </summary>
     public override void StartTurn()
     {
-        IsTurn = true;
-        ActionPoints = 3;
+        base.StartTurn();
      
-        // Prompt user or AI for action
-        Debug.Log("Turn: " + this.gameObject.name);
     }
 
     // Changed from private to public so actions can call it

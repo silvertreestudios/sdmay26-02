@@ -1,6 +1,7 @@
 using Game.Creature;
 using System.Collections.Generic;
 using UnityEngine;
+using Game.Strikes;
 
 namespace Game.Creature
 {
@@ -150,11 +151,19 @@ namespace Game.Creature
         public string description { get => _description; set => _description = value; }
 
 
-        void Start()
+        void Awake()
         {
             // Initialization code here
             // TODO create method to run check against action/ability lists to populate additional scripts
-            // TODO create method to run check against action/ability lists to populate additional scripts
+            foreach (var a in passives)
+            {
+                var ability = DefinedAbilities.TryGet(a);
+                if (ability != null)
+                    ability.Apply(this.gameObject);
+                else
+                    Debug.LogWarning($"Ability '{a}' not found for {name}");
+            }
+            StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject);
         }
 
         void Update()
@@ -264,6 +273,19 @@ namespace Game.Creature
             _hp += healAmount;
             _hp = Mathf.Clamp(_hp, 0, _maxHp);
         }
+
+        public void GainTempHp(int tempHpAmount)
+        {
+            // TODO replace with UI prompt for player decision about which 
+            if(_tempHp > 0)
+            {
+                // UI prompt here
+            }
+            if(tempHpAmount >_tempHp){
+                _tempHp += tempHpAmount;
+            }
+        }
+
 
         // ? Instead of disallowing equipping, unequip the other weapon?
         public void equipWeaponLeft(EquipmentWeapon weapon)
