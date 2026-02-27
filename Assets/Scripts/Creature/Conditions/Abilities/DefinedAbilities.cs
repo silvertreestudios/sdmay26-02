@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Game.Creature;
 using Game.Strikes;
+using UnityEngine.Events;
 
 
 public static class DefinedAbilities
@@ -53,7 +54,7 @@ public static class DefinedAbilities
         {
             //g.GetComponent<Conditions>().Add("Raging", g);
 
-            // Add THP, if rage hasn't ended with 1 min
+            // Add THP, if rage hasn't ended with 1 min == 10 turns
             if (true)
             {
                 int tempHP = g.GetComponent<CreatureComponent>().level;
@@ -68,16 +69,19 @@ public static class DefinedAbilities
             {
                 if(action is StrikeWeapon)
                 {
-                    string damageType = ((StrikeWeapon)action).GetStrike().FlatDamages[0].DamageType;
-                    // half bonus
-                    if (((StrikeWeapon)action).GetWeapon().traits.Contains("agile") || ((StrikeWeapon)action).GetWeaponName() == "unarmed")
-                    {
+                    if(((StrikeWeapon)action).GetWeapon().range == 0)
+                        {
+                        string damageType = ((StrikeWeapon)action).GetStrike().FlatDamages[0].DamageType;
+                        // half bonus
+                        if (((StrikeWeapon)action).GetWeapon().traits.Contains("agile") || ((StrikeWeapon)action).GetWeaponName() == "unarmed")
+                        {
                         ((StrikeWeapon)action).GetStrike().FlatDamages.Add(new DamageValue(damageType, rageBonus/2));
-                    }
-                    // full bonus
-                    else
-                    {
-                        ((StrikeWeapon)action).GetStrike().FlatDamages.Add(new DamageValue(damageType, rageBonus));
+                        }
+                        // full bonus
+                        else
+                        {
+                            ((StrikeWeapon)action).GetStrike().FlatDamages.Add(new DamageValue(damageType, rageBonus));
+                        }
                     }
                 }
             }
