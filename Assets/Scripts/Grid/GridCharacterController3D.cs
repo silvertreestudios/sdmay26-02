@@ -49,7 +49,7 @@ public class GridCharacterController3D : MonoBehaviour
     private Dictionary<GameObject, ITokenMovement> tokenMovements = new Dictionary<GameObject, ITokenMovement>();
 
     // Subsystem references
-    public CameraManager camMan {get; private set;}
+    // public CameraManager camMan {get; private set;}
     public GridPathfinder pathfinder {get; private set;}
     public VisualIndicator visualIndicator {get; private set;}
     public MovementRange rangeHighlighter {get; private set;}
@@ -64,10 +64,6 @@ public class GridCharacterController3D : MonoBehaviour
     public ITokenMovement currentMovement;
 
     // Input tracking
-    private float lastClickTime = 0f;
-    private bool leftClick = false;
-    private bool rightClick = false;
-    private bool isDoubleClick = false;
     public bool cancel = false;
     public Vector3Int lastClickedCell;
     
@@ -118,7 +114,7 @@ public class GridCharacterController3D : MonoBehaviour
         InitializePathfinder();
         SpawnCharacters();
         InitializeMovementControllers();
-        InitializeCameraManager();
+        //InitializeCameraManager();
         InitializeSubsystems();
 
         // Mark as initialized
@@ -142,7 +138,7 @@ public class GridCharacterController3D : MonoBehaviour
             return;
 
         // Update camera
-        camMan?.update();
+        // camMan?.update();
     }
 
     /// <summary>
@@ -187,31 +183,31 @@ public class GridCharacterController3D : MonoBehaviour
         }
     }
 
-    private void InitializeCameraManager()
-    {
-        try
-        {
-            camMan = CameraManager.GetInstance();
-            if (camMan != null)
-            {
-                camMan.setCamera(Camera.main);
-                foreach (var kvp in characters)
-                {
-                    camMan.addActor(kvp.Key);
-                }
-                camMan.SetCameraForCharacter("Player1", CameraType.Pick);
-            }
+    // private void InitializeCameraManager()
+    // {
+    //     try
+    //     {
+    //         camMan = CameraManager.GetInstance();
+    //         if (camMan != null)
+    //         {
+    //             camMan.setCamera(Camera.main);
+    //             foreach (var kvp in characters)
+    //             {
+    //                 camMan.addActor(kvp.Key);
+    //             }
+    //             camMan.SetCameraForCharacter("Player1", CameraType.Pick);
+    //         }
 
-            foreach (var character in characters.Values)
-            {
-                SnapToValidCell(character);
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("CameraManager error: " + e.Message);
-        }
-    }
+    //         foreach (var character in characters.Values)
+    //         {
+    //             SnapToValidCell(character);
+    //         }
+    //     }
+    //     catch (Exception e)
+    //     {
+    //         Debug.LogError("CameraManager error: " + e.Message);
+    //     }
+    // }
 
     /// <summary>
     /// Initialize subsystems: VisualIndicator and MovementRangeHighlighter
@@ -237,7 +233,7 @@ public class GridCharacterController3D : MonoBehaviour
             diagCost: diagonalCost,
             gridCellToWorld: coordinateConverter.GridCellCenterWorld);
 
-        Debug.Log("[GridCharacterController3D] Subsystems initialized.");
+        //Debug.Log("[GridCharacterController3D] Subsystems initialized.");
     }
 
     /// <summary>
@@ -280,6 +276,8 @@ public class GridCharacterController3D : MonoBehaviour
 
     #region Character Spawning
 
+    //here is where you manually spawn characters for now
+    //TODO make a more intuitive way to spawn characters on a map
     void SpawnCharacters()
     {
         float yPos = gridMemory ? gridMemory.GridY + yDrawOffset : 0.001f;
@@ -356,14 +354,14 @@ public class GridCharacterController3D : MonoBehaviour
     /// </summary>
     public void SetActivePlayer(GameObject characterName)
     {
-        Debug.Log("Setting active Player");
+        //Debug.Log("Setting active Player");
         rangeHighlighter.ClearHighlights();
         visualIndicator.Clear();
 
         currentPlayer = characterName;
         currentMovement = tokenMovements.ContainsKey(characterName) ? tokenMovements[characterName] : null;
 
-        Debug.Log($"[GridCharacterController3D] Active player set to {currentPlayer}");
+        //Debug.Log($"[GridCharacterController3D] Active player set to {currentPlayer}");
 
         isProcessingTurn = false;
     }
@@ -391,7 +389,7 @@ public class GridCharacterController3D : MonoBehaviour
             yield break;
         }
 
-        Debug.Log($"[GridCharacterController3D] Executing movement for {characterName}");
+        //Debug.Log($"[GridCharacterController3D] Executing movement for {characterName}");
 
         visualIndicator.Clear();
         rangeHighlighter.ClearHighlights();
@@ -415,7 +413,7 @@ public class GridCharacterController3D : MonoBehaviour
 
         isProcessingTurn = false;
 
-        Debug.Log($"[GridCharacterController3D] Movement completed for {characterName}");
+        //Debug.Log($"[GridCharacterController3D] Movement completed for {characterName}");
     }
 
     /// <summary>
@@ -483,6 +481,22 @@ public class GridCharacterController3D : MonoBehaviour
             if (pathSteps > maxMovementDistance)
                 return false;
         }
+
+        path = pathResult.path;
+        return true;
+    }
+
+    public bool TryValidateAndGetPathAI(Vector3Int startCell, Vector3Int targetCell, out List<Vector3Int> path)
+    {
+        path = null;
+
+        if (!gridMemory.IsCellWalkable(targetCell))
+            return false;
+
+        var pathResult = pathfinder.FindPath(startCell, targetCell);
+
+        if (!pathResult.found || pathResult.path == null || pathResult.path.Count < 2)
+            return false;
 
         path = pathResult.path;
         return true;

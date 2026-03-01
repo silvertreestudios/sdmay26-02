@@ -1,24 +1,29 @@
+
 using NUnit.Framework.Internal;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using Game.Creature;
+using Game.Strikes;
 using System.Collections.Generic;
 
-public class HUDController : MonoBehaviour
+public class HUDController : SingletonMonoBehaviour<HUDController>
 {
 
     public VisualElement ui;
     public Button strikeButton;
     public Button moveButton;
     public Button endTurnButton;
+    public Button strikeWeaponButtton; // for testing, will need to be generated based on equipped weapons in the future
 
 
     //####Player Queue Card Variables####   
     private VisualElement cardHolder; 
     private VisualTreeAsset playerCardTemplate;
     private bool needToUpdateCards = true;
+    private bool needToMoveCards = false;
+    private int lastPlayerIndex = -1; // Track the last player index to detect changes
 
     //####Cancel Action Button####
     private Button cancelActionButton;
@@ -35,8 +40,9 @@ public class HUDController : MonoBehaviour
     private static bool IsActive = false;
     
 
-    private void Awake() {
-        Debug.Log("Awake called");
+    protected override void Awake() {
+        base.Awake();
+        //Debug.Log("Awake called");
         ui = GetComponent<UIDocument>().rootVisualElement;
 
         //Copiloy made this so I could point it to another UXML file for a template
@@ -52,10 +58,13 @@ public class HUDController : MonoBehaviour
     }
 
     private void OnEnable() {
-        Debug.Log("OnEnable called");
+        //Debug.Log("OnEnable called");
         //####Button Setup####
         strikeButton = ui.Q<Button>("StrikeButton");
         strikeButton.clicked += Strike;
+
+        strikeWeaponButtton = ui.Q<Button>("StrikeWeaponButton");
+        strikeWeaponButtton.clicked += StrikeWeapon;
 
         moveButton = ui.Q<Button>("MoveButton");
         moveButton.clicked += Move;
@@ -66,13 +75,13 @@ public class HUDController : MonoBehaviour
         cancelActionButton = ui.Q<Button>("CancelActionButton");
         cancelActionButton.clicked += CancelAction;
 
-        //####Player Queue Card Setup####
-        currentPlayerCard = ui.Q<VisualElement>("CurrentPlayerInfo");
-        currentPlayerHealthBar = currentPlayerCard.Q<ProgressBar>("HealthBar");
+        // //####Player Queue Card Setup####
+        // currentPlayerCard = ui.Q<VisualElement>("CurrentPlayerInfo");
+        // currentPlayerHealthBar = currentPlayerCard.Q<ProgressBar>("HealthBar");
 
-        //####Target Card Setup####
-        targetCard = ui.Q<VisualElement>("TargetInfo");
-        targetHealthBar = targetCard.Q<ProgressBar>("HealthBar");
+        // //####Target Card Setup####
+        // targetCard = ui.Q<VisualElement>("TargetInfo");
+        // targetHealthBar = targetCard.Q<ProgressBar>("HealthBar");
 
         //####Player Queue Card Setup####
         cardHolder = ui.Q<VisualElement>("CardHolder");
@@ -92,14 +101,13 @@ public class HUDController : MonoBehaviour
         // Debug.Log("Update called");
         // Debug.Log("HUD Update called");
         // Update current player card (placeholder logic)
-        updateCurrentPlayerCard();
+        //updateCurrentPlayerCard();
 
         // Update target card (placeholder logic)
-        updateTargetCard();
+        //updateTargetCard();
 
         // Update player queue cards if needed
         if (needToUpdateCards) {
-            // cardHolder = ui.Q<VisualElement>("PlayerQueueCardHolder");
             fillPlayerCards();
             needToUpdateCards = false;
         }
@@ -115,80 +123,119 @@ public class HUDController : MonoBehaviour
         }
 
         // Highlight the current player's card
-        HighlightCurrentPlayerCard();
+        
+        updatePlayerQueueCards();
     }
 
 
 
     // Card Logic attempt by Ryan
     private void fillPlayerCards() {
-        Debug.Log("fillPlayerCards called");
         cardHolder.Clear(); // Fix: Clear existing cards before adding new ones
         for (int i = 0; i < Players.Count; i++) {
+            CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
-            cardInstance.Q<Label>("Card_Name").text = Players[i].name;
             Debug.Log("Added card for " + Players[i].name);
         }
     }
 
-    private void HighlightCurrentPlayerCard() {
-        // Debug.Log("HighlightCurrentPlayerCard called");
-        // Logic to highlight the current player's card
-        // This is a placeholder implementation
-        int playerIndex = CombatManagerInterface.GetInstance().WhosTurn() == Players[0]? 1: 0;
-        for (int i = 0; i < cardHolder.childCount; i++) {
-            var card = cardHolder.ElementAt(i);
-            if (i == playerIndex) {
-                //another coPilot idea vvv , works for intial testing
-                card.style.borderBottomColor = Color.yellow;
-                card.style.borderBottomWidth = 4;
-            } else {
-                card.style.borderBottomWidth = 0;
-            }
-        }
-    }
-    // End of Card Logic
 
     public void Strike() {
-        Debug.Log("Strike called");
+        //Debug.Log("Strike called");
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        g.GetComponent<ActionController>().TestStrike();
-        Debug.Log("Clicked Strike button");
+        g.GetComponent<PlayerActionController>().TestStrike();
+        //Debug.Log("Clicked Strike button");
         //for testing, have strike do damage to next player
         // players[(currentPlayerIndex + 1) % players.Length].TakeDamage(10);
+    }
+
+    // Testing function for StrikeWeapon action
+    public void StrikeWeapon() {
+        //Debug.Log("Strike Weapon called");
+        GameObject g = CombatManager.GetInstance().WhosTurn();
+        List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
+        StrikeWeapon strikeWeaponAction = null;
+        Debug.Log("Available actions for current player: "+ acs.Count);
+        foreach (var a in acs)
+        {
+            Debug.Log("Checking action: " + a);
+            if (a is StrikeWeapon)
+            {
+                Debug.Log("Found StrikeWeapon action: " + a);
+                strikeWeaponAction = (StrikeWeapon)a;
+                // break;
+            }
+        }
+        if (strikeWeaponAction == null)
+        {
+            Debug.LogWarning("No StrikeWeapon action found for current player!");
+            return;
+        }
+        g.GetComponent<ActionController>().TakeAction(strikeWeaponAction);
+        //Debug.Log("Clicked Strike Weapon button");
+    }
+
+    public void SetStrikeWeaponText(string weaponName)
+    {
+        if (strikeWeaponButtton != null && !string.IsNullOrEmpty(weaponName))
+        {
+            //ui.Q<Button>("StrikeWeaponButton").text = weaponName;
+            strikeWeaponButtton.text = weaponName;
+        }
+        else
+        {
+            GameObject g = CombatManager.GetInstance().WhosTurn();
+            List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
+            StrikeWeapon strikeWeaponAction = null;
+            Debug.Log("Available actions for current player: "+ acs.Count);
+            foreach (var a in acs)
+            {
+                Debug.Log("Checking action: " + a);
+                if (a is StrikeWeapon)
+                {
+                    Debug.Log("Found StrikeWeapon action: " + a);
+                    strikeWeaponAction = (StrikeWeapon)a;
+                    strikeWeaponButtton.text = strikeWeaponAction.GetWeaponName();
+                    return;
+                }
+            }
+            strikeWeaponButtton.text = "N/A";
+        }
+        
     }
 
     public void Move()
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        g.GetComponent<ActionController>().TestStride();
-        Debug.Log("Clicked Move button");
+        g.GetComponent<PlayerActionController>().TestStride();
+        //Debug.Log("Clicked Move button");
     }
 
     public void EndTurn()
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        g.GetComponent<ActionController>().EndTurn();
-        Debug.Log("Clicked End Turn button");
+        GridAPI.GetInstance().CancelCurrentAction();
+        g.GetComponent<PlayerActionController>().EndTurn();
+       // Debug.Log("Clicked End Turn button");
     }
 
     public void CancelAction() {
-        Debug.Log("CancelAction called");
-        Debug.Log("Clicked Cancel Action button");
-        FSM_API.CancelCurrentAction();
+        //Debug.Log("CancelAction called");
+        //Debug.Log("Clicked Cancel Action button");
+        GridAPI.GetInstance().CancelCurrentAction();
     }
 
     public void focusOnPlayer(int playerIndex) {
-        Debug.Log("focusOnPlayer called");
-        Debug.Log("Focus on player: " + Players[playerIndex]);
+        //Debug.Log("focusOnPlayer called");
+        //Debug.Log("Focus on player: " + Players[playerIndex]);
     }
 
     public void getQueuePoisition() {
-        Debug.Log("getQueuePoisition called");
+        //Debug.Log("getQueuePoisition called");
         // Need current player index from turn manager
     }
 
@@ -213,5 +260,35 @@ public class HUDController : MonoBehaviour
         targetHealthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
         targetHealthBar.value = p.hp;
         targetHealthBar.highValue = p.maxHp;
+    }
+
+    private void updatePlayerQueueCards() {
+        // Logic to update player queue cards
+        // This is a placeholder implementation
+        for (int i = 0; i < cardHolder.childCount; i++) {
+            var card = cardHolder.ElementAt(i);
+            CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
+            var healthBar = card.Q<ProgressBar>("HealthBar");
+            card.Q<Label>("Card_Name").text = p.name + " photo would go here"; // Update name in case it changes
+            healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
+            healthBar.value = p.hp;
+            healthBar.highValue = p.maxHp;
+            if (p == CombatManager.GetInstance().WhosTurn().GetComponent<CreatureComponent>()) {
+                card.style.scale = new StyleScale(new Scale(new Vector3(1.5f,1.5f,1))); // Scale up the current player's card
+                card.style.opacity = 1f; // Full opacity for current player card
+                card.style.borderBottomColor = Color.clear;
+                card.style.borderBottomWidth = 50;
+            } else {
+                card.style.borderBottomColor = Color.clear;
+                card.style.borderBottomWidth = 0;
+                card.style.scale = new StyleScale(new Scale(new Vector3(1f, 1f, 1))); // Normal scale for non-current player cards
+                card.style.opacity = 0.5f; // Dim non-current player cards
+            }
+            if (p.hp <= 0) {
+                needToMoveCards = true; // Flag to move cards if a player is defeated
+                return; // Exit early to avoid updating cards that may be removed
+            }
+            card.Q<Label>("AP").text = "AP: " + p.GetComponent<ActionController>().ActionPoints; // Update action points display
+        }
     }
 }
