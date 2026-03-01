@@ -85,10 +85,15 @@ public class MovementRange
         }
     }
 
-    // updates highlights for attacked tiles, using line of sight checks to determine color and display info
-    public void UpdateAttackHighlights(Vector3Int startCell, HashSet<Vector3Int> attackedTiles)
+    /// <summary>
+    /// Updates highlights for attacked tiles using weapon range, using line of sight checks to determine color and display info
+    /// </summary>
+    /// <param name="startCell">The attacking cell position</param>
+    /// <param name="weaponRange">The maximum range of the weapon</param>
+    public void UpdateAttackHighlightsWithRange(Vector3Int startCell, int weaponRange)
     {
         ClearHighlights();
+        HashSet<Vector3Int> attackedTiles = CalculateEmination(startCell, weaponRange);
         if (highlightPrefab != null)
         {
             CreateAttackHighlightsWithLOSStatus(startCell, attackedTiles);
