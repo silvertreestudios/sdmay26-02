@@ -17,18 +17,13 @@ public class MovementRange
     private HashSet<Vector3Int> currentReachableTiles = new HashSet<Vector3Int>();
     // convert grid coordinates to world position
     private readonly System.Func<int, int, float, Vector3> gridToWorld;
+    
+    // Line-of-sight calculator
+    private readonly LineOfSight lineOfSight;
 
     private readonly Color clearLOSColor = new Color(0f, 1f, 0f, 0.5f);
     private readonly Color partialLOSColor = new Color(1f, 1f, 0f, 0.5f);
     private readonly Color blockedLOSColor = new Color(1f, 0f, 0f, 0.5f);
-
-    // represents the line-of-sight status for a tile
-    public enum LOS_Status
-    {
-        Clear,
-        PartialBlock,
-        FullyBlocked
-    }
 
     // directions for cardinal and diagonal movement, used for neighbor checks
     private static readonly Vector3Int[] CardinalDirections = new[]
@@ -45,19 +40,8 @@ public class MovementRange
         new Vector3Int(1, 0, -1),
         new Vector3Int(-1, 0, -1)
     };
-    // offsets for raycasting to tile corners, used in LOS checks
-    private const float CORNER_OFFSET = 0.4f;
-    private const int SAMPLES_PER_TILE = 4;
-    private const float MIN_RAY_DISTANCE = 0.01f;
+    
     private const float HIGHLIGHT_SCALE_FACTOR = 0.1f;
-
-    private static readonly Vector2[] TileCornerOffsets = new[]
-    {
-        new Vector2(-CORNER_OFFSET, -CORNER_OFFSET),
-        new Vector2(CORNER_OFFSET, -CORNER_OFFSET),
-        new Vector2(-CORNER_OFFSET, CORNER_OFFSET),
-        new Vector2(CORNER_OFFSET, CORNER_OFFSET)
-    };
 
     /// <summary>
     /// Creates a movement range system for a character
@@ -71,7 +55,9 @@ public class MovementRange
         allowDiagonalMovement = controller.allowDiagonalMovement;
         diagonalCost = controller.diagonalCost;
         gridToWorld = controller.coordinateConverter.GridCellCenterWorld;
+        lineOfSight = new LineOfSight(grid);
     }
+    
     public bool IsCellReachable(Vector3Int cell) => currentReachableTiles.Contains(cell);
 
     // updates highlights for movement range, calculating reachable tiles and creating highlight objects
@@ -175,147 +161,34 @@ public class MovementRange
         return CalculateCircle(start, weaponRange);
     }
 
-    /// <summary>
-    /// Determines line of sight status 
-    /// </summary>
-    private LOS_Status GetLOSStatus(Vector3Int start, Vector3Int target, out int clearRays)
-    {
-        // Count how many of the 16 corner-to-corner rays are clear
-        clearRays = CountCornerToCornerRays(start, target);
-        // if ANY corner-to-corner line is clear, you have line of sight
-        if (clearRays == 0)
-            return LOS_Status.FullyBlocked;
-        else if (clearRays == 16)
-            return LOS_Status.Clear;
-        else
-            return LOS_Status.PartialBlock;
-    }
-
-    /// <summary>
-    /// Counts how many of the 16 corner-to-corner rays are clear.
-    /// </summary>
-    private int CountCornerToCornerRays(Vector3Int start, Vector3Int target)
-    {
-        int clearCount = 0;
-        // check all 16 combinations: 4 source corners × 4 target corners
-        foreach (var sourceCorner in TileCornerOffsets)
-        {
-            foreach (var targetCorner in TileCornerOffsets)
-            {
-                if (!IsRayBlocked(start, target, sourceCorner, targetCorner))
-                    clearCount++;
-            }
-        }
-        return clearCount;
-    }
-
-    /// <summary>
-    /// Counts how many of the 4 target corners are visible from at least one source corner.
-    /// </summary>
-    private int CountVisibleCorners(Vector3Int start, Vector3Int target)
-    {
-        int visibleCorners = 0;
-
-        // For each target corner, check if it's visible from any source corner
-        foreach (var targetCorner in TileCornerOffsets)
-        {
-            bool cornerVisible = false;
-            foreach (var sourceCorner in TileCornerOffsets)
-            {
-                if (!IsRayBlocked(start, target, sourceCorner, targetCorner))
-                {
-                    cornerVisible = true;
-                    break; // At least one ray to this corner is clear
-                }
-            }
-            if (cornerVisible)
-            {
-                visibleCorners++;
-            }
-        }
-
-        return visibleCorners;
-    }
-
-    /// <summary>
-    /// Uses raycasting to determine if there's a clear line of sight between start and end point.
-    /// Enhanced to properly detect walls at cell boundaries.
-    /// </summary>
-    /// <param name="start">attacking cell (player position)</param>
-    /// <param name="end">target cell</param>
-    /// <param name="startOffset">offset from center of start tile</param>
-    /// <param name="endOffset">offset from center of end tile</param>
-    /// <returns>whether or not there's a clear line of sight between start and end points</returns>
-    private bool IsRayBlocked(Vector3Int start, Vector3Int end, Vector2 startOffset, Vector2 endOffset)
-    {
-        // calculate ray start and end positions in world space, applying offsets to check corners
-        Vector2 rayStart = new Vector2(start.x + 0.5f + startOffset.x, start.z + 0.5f + startOffset.y);
-        Vector2 rayEnd = new Vector2(end.x + 0.5f + endOffset.x, end.z + 0.5f + endOffset.y);
-        Vector2 direction = rayEnd - rayStart;
-        float rayDistance = direction.magnitude;
-
-        if (rayDistance < MIN_RAY_DISTANCE)
-            return false;
-
-        direction.Normalize();
-        // determine samples to take along ray based on distance, multiple points for longer rays
-        int sampleCount = Mathf.CeilToInt(rayDistance * SAMPLES_PER_TILE);
-        HashSet<Vector3Int> visitedCells = new HashSet<Vector3Int>(sampleCount);
-
-        for (int i = 1; i < sampleCount; i++)
-        {
-            // sample points along ray at regular intervals, convert to grid coord and check walkability
-            Vector2 samplePos = rayStart + direction * rayDistance * ((float)i / sampleCount);
-            Vector3Int currentCell = new Vector3Int(Mathf.FloorToInt(samplePos.x), start.y, Mathf.FloorToInt(samplePos.y));
-            if (!visitedCells.Add(currentCell) || currentCell == start || currentCell == end)
-                continue;
-            if (!IsWithinBounds(currentCell) || !grid.IsCellWalkable(currentCell))
-                return true;
-        }
-
-        return false;
-    }
-
     // creates highlights for attacked tiles
     private void CreateAttackHighlightsWithLOSStatus(Vector3Int startCell, HashSet<Vector3Int> tileSet)
     {
         int clearCount = 0;
         int partialCount = 0;
         int blockedCount = 0;
+        
         foreach (var cell in tileSet)
         {
             if (cell.Equals(startCell))
                 continue;
+            
             // determine LOS status for this tile and get corresponding color and text
-            LOS_Status status = GetLOSStatus(startCell, cell, out int clearRays);
+            LineOfSight.Status status = lineOfSight.GetStatus(startCell, cell, out int clearRays);
 
             // Calculate visible corners for all non-fully-blocked tiles
             int visibleCorners = 0;
-            if (status != LOS_Status.FullyBlocked)
+            if (status != LineOfSight.Status.FullyBlocked)
             {
-                visibleCorners = CountVisibleCorners(startCell, cell);
+                visibleCorners = lineOfSight.CountVisibleCorners(startCell, cell);
+                
                 if ((cell.x == 12 && cell.z == 1) || (cell.x == 12 && cell.z == 3))
                 {
                     Debug.Log($"[DEBUG] Tile {cell}: Status={status}, ClearRays={clearRays}/16, VisibleCorners={visibleCorners}/4");
-                    // Log which corners are visible
-                    for (int i = 0; i < TileCornerOffsets.Length; i++)
-                    {
-                        var targetCorner = TileCornerOffsets[i];
-                        bool cornerVisible = false;
-                        foreach (var sourceCorner in TileCornerOffsets)
-                        {
-                            if (!IsRayBlocked(startCell, cell, sourceCorner, targetCorner))
-                            {
-                                cornerVisible = true;
-                                break;
-                            }
-                        }
-                        Debug.Log($"  Corner {i} (offset {targetCorner}): {(cornerVisible ? "VISIBLE" : "BLOCKED")}");
-                    }
                 }
             }
 
-            if (status == LOS_Status.FullyBlocked)
+            if (status == LineOfSight.Status.FullyBlocked)
             {
                 blockedCount++;
                 continue; // Skip creating highlight for fully blocked tiles
@@ -324,7 +197,7 @@ public class MovementRange
             Color color;
             string statusText;
 
-            if (status == LOS_Status.Clear)
+            if (status == LineOfSight.Status.Clear)
             {
                 clearCount++;
                 color = clearLOSColor;
@@ -332,7 +205,7 @@ public class MovementRange
                 float distance = CalculateDistance(startCell, cell);
                 Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
             }
-            else if (status == LOS_Status.PartialBlock)
+            else if (status == LineOfSight.Status.PartialBlock)
             {
                 partialCount++;
                 color = partialLOSColor;
@@ -495,7 +368,6 @@ public class MovementRange
     {
         int dx = Mathf.Abs(to.x - from.x);
         int dz = Mathf.Abs(to.z - from.z);
-
         return (dx == 1 && dz == 1) ? diagonalCost : 1f;
     }
 
@@ -525,7 +397,6 @@ public class MovementRange
             mat.color = color;
             renderer.material = mat;
         }
-
         activeHighlights.Add(highlight);
     }
 

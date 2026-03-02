@@ -1,0 +1,153 @@
+﻿using System.Collections.Generic;
+using UnityEngine;
+
+/// <summary>
+/// Handles line-of-sight calculations for grid-based combat.
+/// Uses corner-to-corner raycasting with Physics for accurate LOS detection.
+/// </summary>
+public class LineOfSight
+{
+    private readonly IGridMemory grid;
+
+    // offsets for raycasting to tile corners, used in LOS checks
+    private const float CORNER_OFFSET = 0.4f;
+    private const int SAMPLES_PER_TILE = 4;
+    private const float MIN_RAY_DISTANCE = 0.01f;
+
+    private static readonly Vector2[] TileCornerOffsets = new[]
+    {
+        new Vector2(-CORNER_OFFSET, -CORNER_OFFSET),
+        new Vector2(CORNER_OFFSET, -CORNER_OFFSET),
+        new Vector2(-CORNER_OFFSET, CORNER_OFFSET),
+        new Vector2(CORNER_OFFSET, CORNER_OFFSET)
+    };
+
+    public enum Status
+    {
+        Clear,
+        PartialBlock,
+        FullyBlocked
+    }
+
+    /// <summary>
+    /// Creates a line-of-sight calculator
+    /// </summary>
+    /// <param name="gridMemory">Grid memory for walkability checks</param>
+    public LineOfSight(IGridMemory gridMemory)
+    {
+        grid = gridMemory;
+    }
+
+    // Determines line of sight status between two cells
+    public Status GetStatus(Vector3Int start, Vector3Int target, out int clearRays)
+    {
+        clearRays = CountCornerToCornerRays(start, target);
+        if (clearRays == 0)
+            return Status.FullyBlocked;
+        else if (clearRays == 16)
+            return Status.Clear;
+        else
+            return Status.PartialBlock;
+    }
+    // Counts how many of the 16 corner-to-corner rays are clear.
+    public int CountCornerToCornerRays(Vector3Int start, Vector3Int target)
+    {
+        int clearCount = 0;
+        // check all 16 combinations: 4 source corners × 4 target corners
+        foreach (var sourceCorner in TileCornerOffsets)
+        {
+            foreach (var targetCorner in TileCornerOffsets)
+            {
+                if (!IsRayBlocked(start, target, sourceCorner, targetCorner))
+                    clearCount++;
+            }
+        }
+        return clearCount;
+    }
+    // Counts how many of the 4 target corners are visible from at least one source corner.
+    public int CountVisibleCorners(Vector3Int start, Vector3Int target)
+    {
+        int visibleCorners = 0;
+        foreach (var targetCorner in TileCornerOffsets)
+        {
+            bool cornerVisible = false;
+            foreach (var sourceCorner in TileCornerOffsets)
+            {
+                if (!IsRayBlocked(start, target, sourceCorner, targetCorner))
+                {
+                    cornerVisible = true;
+                    break; // At least one ray to this corner is clear
+                }
+            }
+            if (cornerVisible)
+            {
+                visibleCorners++;
+            }
+        }
+        return visibleCorners;
+    }
+
+    /// <summary>
+    /// Uses raycasting to determine if there's a clear line of sight between start and end point.
+    /// Uses Unity Physics to detect actual wall geometry, not just grid walkability.
+    /// </summary>
+    /// <param name="start">Starting cell (player position)</param>
+    /// <param name="end">Target cell</param>
+    /// <param name="startOffset">Offset from center of start tile</param>
+    /// <param name="endOffset">Offset from center of end tile</param>
+    /// <returns>True if ray is blocked, false if clear</returns>
+    private bool IsRayBlocked(Vector3Int start, Vector3Int end, Vector2 startOffset, Vector2 endOffset)
+    {
+        // calculate ray start and end positions in world space, applying offsets to check corners
+        Vector2 rayStart2D = new Vector2(start.x + 0.5f + startOffset.x, start.z + 0.5f + startOffset.y);
+        Vector2 rayEnd2D = new Vector2(end.x + 0.5f + endOffset.x, end.z + 0.5f + endOffset.y);
+        Vector2 direction2D = rayEnd2D - rayStart2D;
+        float rayDistance2D = direction2D.magnitude;
+        if (rayDistance2D < MIN_RAY_DISTANCE)
+            return false;
+
+        // Convert to 3D for Unity Physics raycast
+        float rayHeight = grid.GridY + 0.5f; // Adjust this height based on your character/wall heights
+        Vector3 rayStart3D = new Vector3(rayStart2D.x, rayHeight, rayStart2D.y);
+        Vector3 rayEnd3D = new Vector3(rayEnd2D.x, rayHeight, rayEnd2D.y);
+        Vector3 direction3D = rayEnd3D - rayStart3D;
+        float distance3D = direction3D.magnitude;
+        // Normalize direction for raycast
+        direction3D.Normalize();
+        // Use a small offset to avoid hitting the source character's collider
+        float startOffset3D = 0.1f;
+        if (Physics.Raycast(rayStart3D + direction3D * startOffset3D, direction3D, distance3D - startOffset3D))
+        {
+            return true; // Hit a physical obstacle (wall collider)
+        }
+        // Fall back to grid-based checking for cells marked as non-walkable
+        // This handles cases where walls might not have colliders
+        direction2D.Normalize();
+        int sampleCount = Mathf.CeilToInt(rayDistance2D * SAMPLES_PER_TILE);
+        HashSet<Vector3Int> visitedCells = new HashSet<Vector3Int>(sampleCount);
+
+        for (int i = 1; i < sampleCount; i++)
+        {
+            // sample points along ray at regular intervals, convert to grid coord and check walkability
+            Vector2 samplePos = rayStart2D + direction2D * rayDistance2D * ((float)i / sampleCount);
+            Vector3Int currentCell = new Vector3Int(Mathf.FloorToInt(samplePos.x), start.y, Mathf.FloorToInt(samplePos.y));
+
+            if (!visitedCells.Add(currentCell) || currentCell == start || currentCell == end)
+                continue;
+
+            if (!IsWithinBounds(currentCell) || !grid.IsCellWalkable(currentCell))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a cell is within the grid bounds
+    /// </summary>
+    private bool IsWithinBounds(Vector3Int cell)
+    {
+        return cell.x >= 0 && cell.x < grid.Width &&
+               cell.z >= 0 && cell.z < grid.Height;
+    }
+}
