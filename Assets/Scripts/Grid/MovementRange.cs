@@ -239,6 +239,7 @@ public class MovementRange
 
     /// <summary>
     /// Uses raycasting to determine if there's a clear line of sight between start and end point.
+    /// Enhanced to properly detect walls at cell boundaries.
     /// </summary>
     /// <param name="start">attacking cell (player position)</param>
     /// <param name="end">target cell</param>
@@ -287,6 +288,33 @@ public class MovementRange
                 continue;
             // determine LOS status for this tile and get corresponding color and text
             LOS_Status status = GetLOSStatus(startCell, cell, out int clearRays);
+
+            // Calculate visible corners for all non-fully-blocked tiles
+            int visibleCorners = 0;
+            if (status != LOS_Status.FullyBlocked)
+            {
+                visibleCorners = CountVisibleCorners(startCell, cell);
+                if ((cell.x == 12 && cell.z == 1) || (cell.x == 12 && cell.z == 3))
+                {
+                    Debug.Log($"[DEBUG] Tile {cell}: Status={status}, ClearRays={clearRays}/16, VisibleCorners={visibleCorners}/4");
+                    // Log which corners are visible
+                    for (int i = 0; i < TileCornerOffsets.Length; i++)
+                    {
+                        var targetCorner = TileCornerOffsets[i];
+                        bool cornerVisible = false;
+                        foreach (var sourceCorner in TileCornerOffsets)
+                        {
+                            if (!IsRayBlocked(startCell, cell, sourceCorner, targetCorner))
+                            {
+                                cornerVisible = true;
+                                break;
+                            }
+                        }
+                        Debug.Log($"  Corner {i} (offset {targetCorner}): {(cornerVisible ? "VISIBLE" : "BLOCKED")}");
+                    }
+                }
+            }
+
             if (status == LOS_Status.FullyBlocked)
             {
                 blockedCount++;
@@ -301,27 +329,22 @@ public class MovementRange
                 clearCount++;
                 color = clearLOSColor;
                 statusText = "CLEAR";
+                float distance = CalculateDistance(startCell, cell);
+                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
             }
             else if (status == LOS_Status.PartialBlock)
             {
                 partialCount++;
                 color = partialLOSColor;
                 statusText = "PARTIAL";
+                float distance = CalculateDistance(startCell, cell);
+                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
             }
             else
             {
                 color = highlightColor;
                 statusText = "UNKNOWN";
-            }
-            if (status == LOS_Status.PartialBlock)
-            {
-                float distance = CalculateDistance(startCell, cell);
-                int visibleCorners = CountVisibleCorners(startCell, cell);
-                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
-            }
-            else if (status == LOS_Status.Clear)
-            {
-                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: 4");
+                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners}");
             }
 
             CreateHighlight(cell, color, $"AttackHighlight_{cell.x}_{cell.z}_{statusText}");
@@ -330,12 +353,12 @@ public class MovementRange
         Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount}");
     }
 
-    // calculates the grid distance between two cells in whole tiles
     private int CalculateDistance(Vector3Int from, Vector3Int to)
     {
         int dx = Mathf.Abs(to.x - from.x);
         int dz = Mathf.Abs(to.z - from.z);
-        return dx + dz;
+        // Chebyshev distance: max of the two dimensions
+        return Mathf.Max(dx, dz);
     }
 
     /// <summary>
@@ -349,7 +372,7 @@ public class MovementRange
     private HashSet<Vector3Int> CalculateCircle(Vector3Int start, int maxRange)
     {
         HashSet<Vector3Int> circleTiles = new HashSet<Vector3Int>();
-        
+
         // Range of 1 represents melee attack - only adjacent tiles
         if (maxRange == 1)
         {
@@ -362,7 +385,7 @@ public class MovementRange
                     circleTiles.Add(adjacent);
                 }
             }
-            
+
             // Add diagonal neighbors if diagonal movement is allowed
             if (allowDiagonalMovement)
             {
@@ -392,14 +415,14 @@ public class MovementRange
                         continue;
 
                     Vector3Int candidate = new Vector3Int(start.x + x, 0, start.z + z);
-                    
+
                     // Check bounds first
                     if (!IsWithinBounds(candidate))
                         continue;
 
                     // Use squared distance to avoid sqrt calculation, more accurate
                     float distanceSquared = x * x + z * z;
-                    
+
                     // Only include tiles within the circular range AND are walkable
                     // Use squared comparison for better accuracy
                     if (distanceSquared <= maxRangeSquared && grid.IsCellWalkable(candidate))
