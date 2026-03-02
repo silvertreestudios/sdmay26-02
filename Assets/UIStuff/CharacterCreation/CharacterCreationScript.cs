@@ -142,6 +142,7 @@ public class CharacterCreationScript : MonoBehaviour
     TextField lightArmorField;
     TextField mediumArmorField;
     TextField allArmorField;
+    TextField nameField;
     Toggle strengthToggle;
     Toggle dexterityToggle;
     Toggle constitutionToggle;
@@ -220,6 +221,7 @@ public class CharacterCreationScript : MonoBehaviour
         intelligenceAttributeField = root.Q<IntegerField>("IntelligenceAttribute");
         wisdomAttributeField = root.Q<IntegerField>("WisdomAttribute");
         charismaAttributeField = root.Q<IntegerField>("CharismaAttribute"); 
+        nameField = root.Q<TextField>("NameField");
 
         //for json, assigning
         jsonFile = Resources.Load<TextAsset>("Data/ancestry");
@@ -250,6 +252,8 @@ public class CharacterCreationScript : MonoBehaviour
         attributes.Add("wisdom", new AttributeContributions());
         attributes.Add("charisma", new AttributeContributions());
 
+        nameField.RegisterValueChangedCallback(OnNameChanged);
+
         ancestryRadioButtonGroup.RegisterValueChangedCallback(OnAncestryChanged);
         backgroundRadioButtonGroup.RegisterValueChangedCallback(OnBackgroundChanged);
         classesRadioButtonGroup.RegisterValueChangedCallback(OnClassChanged);
@@ -268,6 +272,12 @@ public class CharacterCreationScript : MonoBehaviour
         }
     }
 
+    void OnNameChanged(ChangeEvent<string> evt)
+    {
+        string enteredName = evt.newValue;
+        currentCharacter.name = enteredName;
+    }
+
     //when there's a change in the ancestryRadioGroup, grab that text
     void OnAncestryChanged(ChangeEvent<int> evt)
     {
@@ -278,6 +288,8 @@ public class CharacterCreationScript : MonoBehaviour
         ancestryHP = db.ancestries.Find(a => a.id == selectedAncestry).hp;
         hpField.value = classHP + ancestryHP; //add ancestry hp to other hp
 
+        currentCharacter.hp = hpField.value;
+
         Ancestry selectedAncestryObj = db.ancestries.Find(a => a.id == selectedAncestry); //make an ancestry object
         List<string> boosts = new List<string>(selectedAncestryObj.attributeBoost); //make a list of that ancestry's boosts
         ClearAncestryContributions();
@@ -285,12 +297,12 @@ public class CharacterCreationScript : MonoBehaviour
         RefreshAttributeFields();
 
         speedField.value = db.ancestries.Find(a => a.id == selectedAncestry).speed;
+        currentCharacter.speed = speedField.value;
         PopulateHeritageButtons(selectedAncestry);
         PopulateAncestryFeatButtons(selectedAncestry);
         PopulateAncestryDescription(selectedAncestry);
 
-        currentCharacter.ancestry = selectedAncestry;
-        Debug.Log(JsonUtility.ToJson(currentCharacter, true));
+        currentCharacter.ancestry = selectedAncestry; //send to PlayerCharacter json
     }
 
     //when there's a change in the heritageRadioGroup, grab that text
@@ -303,6 +315,7 @@ public class CharacterCreationScript : MonoBehaviour
 
         string selectedHeritage = (heritageRadioButtonGroup[evt.newValue] as RadioButton).text; //for some reason .label doesn't work here but .text does
         heritageChoiceField.value = selectedHeritage;
+        currentCharacter.heritage = selectedHeritage;
     }
 
     //works with json
@@ -367,6 +380,8 @@ public class CharacterCreationScript : MonoBehaviour
         ClearBackgroundContributions();
         ApplyBackgroundBoosts(boosts); //pass in List of strings
         RefreshAttributeFields();
+
+        currentCharacter.background = selectedBackground;
     }
 
     void PopulateBackgroundInfo(string background)
@@ -412,6 +427,8 @@ public class CharacterCreationScript : MonoBehaviour
         classHP = db2.classes.Find(a => a.id == selectedClass).hp;
         hpField.value = ancestryHP + classHP; //add class hp to total hp
 
+        currentCharacter.hp = hpField.value;
+
         simpleWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.simpleWeapons;
         martialWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.martialWeapons;
         advancedWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.advancedWeapons;
@@ -427,11 +444,18 @@ public class CharacterCreationScript : MonoBehaviour
         reflexField.value = db2.classes.Find(a => a.id == selectedClass).reflex;
         willField.value = db2.classes.Find(a => a.id == selectedClass).will;
 
+        currentCharacter.perception = perceptionField.value;
+        currentCharacter.fortitude = fortitudeField.value;
+        currentCharacter.reflex = reflexField.value;
+        currentCharacter.will = willField.value;
+
         ClassInfo selectedClassObj = db2.classes.Find(a => a.id == selectedClass); //make a Class object
         string boost = selectedClassObj.attributeBoost; //get that classes's boost (classes only have one)
         ClearClassContributions();
         ApplyClassBoosts(boost); //pass in 
         RefreshAttributeFields();
+
+        currentCharacter.className = selectedClass;
     }
  
     void PopulateClassFeatButtons(string className)
@@ -519,22 +543,6 @@ public class CharacterCreationScript : MonoBehaviour
         }
     }
 
-    // void ClearAllAttributeToggles() //for resetting toggles. Do I need?
-    // {
-    //     foreach (var attribute in selectedAttributes)
-    //     {
-    //         attributes[attribute].freeChoice -= 1;
-    //     }
-
-    //     selectedAttributes.Clear();
-
-    //     foreach (var toggle in toggles)
-    //         toggle.SetValueWithoutNotify(false);
-
-    //     RefreshAttributeFields();
-    //     UpdateToggleStates();
-    // }
-
     //attribute tracker helpers (3 parts): clear and apply for each category, then refresh display fields
     void ClearAncestryContributions() //anything ancestry is reset
     {
@@ -583,5 +591,14 @@ public class CharacterCreationScript : MonoBehaviour
         intelligenceAttributeField.value = attributes["intelligence"].attributeTotal;
         wisdomAttributeField.value       = attributes["wisdom"].attributeTotal;
         charismaAttributeField.value     = attributes["charisma"].attributeTotal;
+
+        currentCharacter.strength = strengthAttributeField.value;
+        currentCharacter.dexterity = dexterityAttributeField.value;
+        currentCharacter.constitution = constitutionAttributeField.value;
+        currentCharacter.intelligence = intelligenceAttributeField.value;
+        currentCharacter.wisdom = wisdomAttributeField.value;
+        currentCharacter.charisma = charismaAttributeField.value;
+
+        Debug.Log(JsonUtility.ToJson(currentCharacter, true));
     }
 }
