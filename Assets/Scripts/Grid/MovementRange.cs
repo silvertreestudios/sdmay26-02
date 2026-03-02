@@ -164,10 +164,16 @@ public class MovementRange
         return reachable;
     }
 
-    // calculates attacked tiles using a simple circular area of effect
-    public HashSet<Vector3Int> CalculateEmination(Vector3Int start, int maxRange)
+    /// <summary>
+    /// Calculates attackable tiles within weapon range that have line of sight
+    /// </summary>
+    /// <param name="start">Starting position</param>
+    /// <param name="weaponRange">Maximum weapon range in grid units</param>
+    /// <returns>HashSet of attackable tiles</returns>
+    public HashSet<Vector3Int> CalculateEmination(Vector3Int start, int weaponRange)
     {
-        return CalculateCircle(start, maxRange);
+        // Calculate all tiles within circular range based on weapon
+        return CalculateCircle(start, weaponRange);
     }
 
     /// <summary>
@@ -233,13 +239,15 @@ public class MovementRange
     }
 
     /// <summary>
-    /// uses raycasting to determine if there's a clear line of sight between start and end point
+    /// Uses raycasting to determine if there's a clear line of sight between start and end point.
+    /// This method is range-agnostic - it checks LOS between any two cells regardless of distance.
+    /// The range filtering happens in CalculateCircle before this method is called.
     /// </summary>
     /// <param name="start">attacking cell (player position)</param>
     /// <param name="end">target cell</param>
     /// <param name="startOffset">offset from center of start tile</param>
     /// <param name="endOffset">offset from center of end tile</param>
-    /// <returns>whether or not there's a clear line of sight between start an end points</returns>
+    /// <returns>whether or not there's a clear line of sight between start and end points</returns>
     private bool IsRayBlocked(Vector3Int start, Vector3Int end, Vector2 startOffset, Vector2 endOffset)
     {
         // calculate ray start and end positions in world space, applying offsets to check corners
@@ -285,6 +293,13 @@ public class MovementRange
             // determine LOS status for this tile and get corresponding color and text
             LOS_Status status = GetLOSStatus(startCell, cell, out int clearRays);
 
+            // DON'T HIGHLIGHT FULLY BLOCKED TILES - they're not attackable
+            if (status == LOS_Status.FullyBlocked)
+            {
+                blockedCount++;
+                continue; // Skip creating highlight for fully blocked tiles
+            }
+
             Color color;
             string statusText;
 
@@ -299,12 +314,6 @@ public class MovementRange
                 partialCount++;
                 color = partialLOSColor;
                 statusText = "PARTIAL";
-            }
-            else if (status == LOS_Status.FullyBlocked)
-            {
-                blockedCount++;
-                color = blockedLOSColor;
-                statusText = "BLOCKED";
             }
             else
             {
@@ -322,15 +331,11 @@ public class MovementRange
             {
                 Debug.Log($"Tile {cell}: {statusText} - Corners Visible: 4");
             }
-            else
-            {
-                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: 0");
-            }
 
             CreateHighlight(cell, color, $"AttackHighlight_{cell.x}_{cell.z}_{statusText}");
         }
 
-        Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount}");
+        Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount} (not highlighted)");
     }
 
     // calculates the grid distance between two cells in whole tiles
@@ -341,27 +346,62 @@ public class MovementRange
         return dx + dz;
     }
 
-    // calculates tiles in a circular area around the start cell, used for attack range
+    /// <summary>
+    /// Calculates tiles in a circular area around the start cell based on weapon range.
+    /// For melee weapons (range = 1), only returns adjacent tiles.
+    /// For ranged weapons (range > 1), returns circular area within range.
+    /// </summary>
+    /// <param name="start">Starting cell position</param>
+    /// <param name="maxRange">Maximum weapon range in grid units</param>
+    /// <returns>HashSet of tiles within weapon range</returns>
     private HashSet<Vector3Int> CalculateCircle(Vector3Int start, int maxRange)
     {
         HashSet<Vector3Int> circleTiles = new HashSet<Vector3Int>();
-        float effectiveRange = maxRange + 0.5f;
-
-        // iterate over square area around the start cell, but only include tiles within the circular radius
-        for (int x = -maxRange; x <= maxRange; x++)
+        
+        // Range of 1 represents melee attack - only adjacent tiles
+        if (maxRange == 1)
         {
-            for (int z = -maxRange; z <= maxRange; z++)
+            // Include all adjacent tiles (cardinal directions)
+            foreach (var dir in CardinalDirections)
             {
-                Vector3Int candidate = new Vector3Int(start.x + x, 0, start.z + z);
-                float distance = Mathf.Sqrt(x * x + z * z);
-
-                // only include tiles within range, that are walkable, and not starting cell
-                if (distance <= effectiveRange &&
-                    IsWithinBounds(candidate) &&
-                    (x != 0 || z != 0) &&
-                    grid.IsCellWalkable(candidate))
+                Vector3Int adjacent = start + dir;
+                if (IsWithinBounds(adjacent) && grid.IsCellWalkable(adjacent))
                 {
-                    circleTiles.Add(candidate);
+                    circleTiles.Add(adjacent);
+                }
+            }
+            
+            // Add diagonal neighbors if diagonal movement is allowed
+            if (allowDiagonalMovement)
+            {
+                foreach (var dir in DiagonalDirections)
+                {
+                    Vector3Int adjacent = start + dir;
+                    if (IsWithinBounds(adjacent) && grid.IsCellWalkable(adjacent))
+                    {
+                        circleTiles.Add(adjacent);
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Range > 1 represents ranged attack - use circular area
+            float effectiveRange = maxRange + 0.5f;
+            // iterate over square area around the start cell, but only include tiles within the circular radius
+            for (int x = -maxRange; x <= maxRange; x++)
+            {
+                for (int z = -maxRange; z <= maxRange; z++)
+                {
+                    Vector3Int candidate = new Vector3Int(start.x + x, 0, start.z + z);
+                    float distance = Mathf.Sqrt(x * x + z * z);
+                    if (distance <= effectiveRange &&
+                        IsWithinBounds(candidate) &&
+                        (x != 0 || z != 0) &&
+                        grid.IsCellWalkable(candidate))
+                    {
+                        circleTiles.Add(candidate);
+                    }
                 }
             }
         }
@@ -467,8 +507,4 @@ public class MovementRange
     {
         ClearHighlights();
     }
-
-    /// <summary>
-    /// Checks if there's line of sight between two cells and returns cover information.
-    /// </summary>
 }
