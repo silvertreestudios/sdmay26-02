@@ -15,6 +15,8 @@ public class MovementRange
     private readonly float highlightHeightOffset;
     private readonly List<GameObject> activeHighlights = new List<GameObject>();
     private HashSet<Vector3Int> currentReachableTiles = new HashSet<Vector3Int>();
+    private int range;
+
     // convert grid coordinates to world position
     private readonly System.Func<int, int, float, Vector3> gridToWorld;
 
@@ -55,8 +57,7 @@ public class MovementRange
         allowDiagonalMovement = controller.allowDiagonalMovement;
         diagonalCost = controller.diagonalCost;
         gridToWorld = controller.coordinateConverter.GridCellCenterWorld;
-        
-        // Initialize line of sight calculator
+        // Initialize line of sight
         losCalculator = new LineOfSight(grid);
     }
     
@@ -196,7 +197,7 @@ public class MovementRange
             if (status == LineOfSight.LOSStatus.PartialBlock)
             {
                 float distance = CalculateDistance(startCell, cell);
-                int visibleCorners = losCalculator.CountVisibleCorners(startCell, cell);
+                int visibleCorners = losCalculator.CountVisibleCorners(startCell, cell, range);
                 Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
             }
             else if (status == LineOfSight.LOSStatus.Clear)
