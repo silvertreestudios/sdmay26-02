@@ -115,7 +115,7 @@ public class MovementRange
     }
 
     // calculate reachable tiles using a depth-first search
-    private HashSet<Vector3Int> CalculateReachableTiles(Vector3Int start, int maxRange)
+    public HashSet<Vector3Int> CalculateReachableTiles(Vector3Int start, int maxRange)
     {
         // If maxRange is zero or negative, treat it as unlimited range
         if (maxRange <= 0)
@@ -258,7 +258,7 @@ public class MovementRange
 
         for (int i = 1; i < sampleCount; i++)
         {
-            // sample points along ray at regular intervals, converting to grid coordinates and checking walkability
+            // sample points along ray at regular intervals, convert to grid coord and check walkability
             Vector2 samplePos = rayStart + direction * rayDistance * ((float)i / sampleCount);
             Vector3Int currentCell = new Vector3Int(Mathf.FloorToInt(samplePos.x), start.y, Mathf.FloorToInt(samplePos.y));
             if (!visitedCells.Add(currentCell) || currentCell == start || currentCell == end)
@@ -320,11 +320,11 @@ public class MovementRange
             }
             else if (status == LOS_Status.Clear)
             {
-                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: 4 - No Cover");
+                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: 4");
             }
             else
             {
-                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: 0 - No Line of Sight");
+                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: 0");
             }
 
             CreateHighlight(cell, color, $"AttackHighlight_{cell.x}_{cell.z}_{statusText}");
@@ -339,27 +339,6 @@ public class MovementRange
         int dx = Mathf.Abs(to.x - from.x);
         int dz = Mathf.Abs(to.z - from.z);
         return dx + dz;
-    }
-
-    // determines the color and text to use for a tile based on its LOS status, while also updating counts for each status type
-    private (Color color, string text) GetLOSColorAndText(LOS_Status status, ref int clearCount, ref int partialCount, ref int blockedCount)
-    {
-        if (status == LOS_Status.Clear)
-        {
-            clearCount++;
-            return (clearLOSColor, "CLEAR");
-        }
-        if (status == LOS_Status.PartialBlock)
-        {
-            partialCount++;
-            return (partialLOSColor, "PARTIAL");
-        }
-        if (status == LOS_Status.FullyBlocked)
-        {
-            blockedCount++;
-            return (blockedLOSColor, "BLOCKED");
-        }
-        return (highlightColor, "UNKNOWN");
     }
 
     // calculates tiles in a circular area around the start cell, used for attack range
