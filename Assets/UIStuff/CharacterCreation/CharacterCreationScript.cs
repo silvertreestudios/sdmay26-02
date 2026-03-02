@@ -56,11 +56,37 @@ public class Attacks
 
 [System.Serializable]
 public class ClassDatabase
- {
+{
     public List<ClassInfo> classes;
 }
 
-//individually track the attribute boosts from ancestry, background, and class
+[System.Serializable]
+public class PlayerCharacter
+{
+    public string name;
+    public string gender;
+    public string ancestry;
+    public string heritage;
+    public string background;
+    public string className;
+    public int hp;
+    public int speed;
+    public int strength;
+    public int dexterity;
+    public int constitution;
+    public int intelligence;
+    public int wisdom;
+    public int charisma;
+    public string perception;
+    public string fortitude;
+    public string reflex;
+    public string will;
+    public string ancestryFeat;
+    public string classFeat;
+    public string subclass;
+}
+
+//individually track the attribute boosts from ancestry, background, and class. Not json related
 [System.Serializable]
 public class AttributeContributions
 {
@@ -138,6 +164,8 @@ public class CharacterCreationScript : MonoBehaviour
     AncestryDatabase db;
     ClassDatabase db2;
     //for json end
+    PlayerCharacter currentCharacter;
+    string jsonFile3;
 
     private void OnEnable()
     {
@@ -200,6 +228,11 @@ public class CharacterCreationScript : MonoBehaviour
         jsonFile2 = Resources.Load<TextAsset>("Data/class");
         db2 = JsonUtility.FromJson<ClassDatabase>(jsonFile2.text);
 
+        //TESTING PLAYERCHARACTER JSON
+        currentCharacter = new PlayerCharacter();
+        //currentCharacter.ancestry = "elf";
+        jsonFile3 = JsonUtility.ToJson(currentCharacter);
+
         //small enough that I'm keeping as a dictionary for now
         backgroundDescriptionByBackground = new Dictionary<string, List<string>>()
         {
@@ -255,6 +288,9 @@ public class CharacterCreationScript : MonoBehaviour
         PopulateHeritageButtons(selectedAncestry);
         PopulateAncestryFeatButtons(selectedAncestry);
         PopulateAncestryDescription(selectedAncestry);
+
+        currentCharacter.ancestry = selectedAncestry;
+        Debug.Log(JsonUtility.ToJson(currentCharacter, true));
     }
 
     //when there's a change in the heritageRadioGroup, grab that text

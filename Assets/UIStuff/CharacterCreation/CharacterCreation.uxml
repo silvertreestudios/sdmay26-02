@@ -9,12 +9,12 @@
             <ui:IntegerField label="HP" value="0" name="HP" readonly="true" />
             <ui:IntegerField label="Speed" value="0" name="Speed" readonly="true" />
             <ui:Foldout text="Attributes" name="Attributes">
-                <ui:IntegerField label="Strength" value="42" name="StrengthAttribute" />
-                <ui:IntegerField label="Dexterity" value="42" name="DexterityAttribute" />
-                <ui:IntegerField label="Constitution" value="42" name="ConstitutionAttribute" />
-                <ui:IntegerField label="Intelligence" value="42" name="IntelligenceAttribute" />
-                <ui:IntegerField label="Wisdom" value="42" name="WisdomAttribute" />
-                <ui:IntegerField label="Charisma" value="42" name="CharismaAttribute" />
+                <ui:IntegerField label="Strength" value="0" name="StrengthAttribute" readonly="true" />
+                <ui:IntegerField label="Dexterity" value="0" name="DexterityAttribute" readonly="true" />
+                <ui:IntegerField label="Constitution" value="0" name="ConstitutionAttribute" readonly="true" />
+                <ui:IntegerField label="Intelligence" value="0" name="IntelligenceAttribute" readonly="true" />
+                <ui:IntegerField label="Wisdom" value="0" name="WisdomAttribute" readonly="true" />
+                <ui:IntegerField label="Charisma" value="0" name="CharismaAttribute" readonly="true" />
             </ui:Foldout>
             <ui:Foldout text="Saving Throws" name="SavingThrows">
                 <ui:TextField label="Perception" name="Perception" readonly="true" />
