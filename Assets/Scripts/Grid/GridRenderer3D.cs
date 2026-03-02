@@ -23,6 +23,7 @@ public class GridRenderer3D : MonoBehaviour
     public Camera targetCamera;
     // refrence to tile prefab
     [SerializeField] private GameObject groundTile;
+    [SerializeField] private GameObject wallTile;
 
     [Header("Appearance")]
     // Color of each cell quad.
@@ -54,6 +55,7 @@ public class GridRenderer3D : MonoBehaviour
     // readonly List<SpriteRenderer> _cells = new();
     //trying to use plane meshes instead of sprites so we dont have to deal with the camera. this will also makes textures easier. pysics will also be easier
     readonly List<MeshRenderer> _cells = new();
+    readonly List<MeshRenderer> _walls = new();
 
     // Instance of the select tile prefab for selection visual.
     private GameObject _selectTileInstance;
@@ -158,6 +160,7 @@ public class GridRenderer3D : MonoBehaviour
         {
             _plane = transform.Find("PlaneXZ");
             if (!_plane) { _plane = new GameObject("PlaneXZ").transform; _plane.SetParent(transform, false); }
+            // make sure plane is at correct position and rotation
             _gridRoot = GetOrMake(_plane, "Grid");
 
             _overlayRoot = GetOrMake(_plane, "Overlay");
@@ -202,6 +205,7 @@ public class GridRenderer3D : MonoBehaviour
         int[,] gridData = null;
         // Clear all previous grid children and empty the cell list.
         ClearChildrenPlane(_gridRoot, _cells);
+        _walls.Clear();
         // Destroy all select tile instances under _overlayRoot
         if (_overlayRoot) { ClearOverlayChildren(); }
         _selectTileInstance = null;
@@ -219,7 +223,7 @@ public class GridRenderer3D : MonoBehaviour
 
         if (!gridMemory) gridMemory = GetComponent<GridMemory>();
         if (!gridMemory) gridMemory = gameObject.AddComponent<GridMemory>();
-        
+
         gridMemory.Initialize(width, height, gridY, cellSize, origin, gridData);
         this.width = width;
         this.height = height;
@@ -230,21 +234,44 @@ public class GridRenderer3D : MonoBehaviour
             {
                 for (int x = 0; x < width; x++)
                 {
-                    // Skip tile creation for non-walkable cells
-                    if (gridMemory.GridInfo[x, gridY, z].type == GridMemory.TileType.Void) continue;
+                    var tileType = gridMemory.GridInfo[x, gridY, z].type;
 
-                    var tile = Instantiate(groundTile, _gridRoot.transform);
-                    tile.name = $"C{x}_{z}";
-                    var tileTransform = tile.transform;
-                    tileTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY, z0 + (z + 0.5f) * cellSize);
-                    tileTransform.localScale = new Vector3(cellSize * 0.1f, 1f, cellSize * 0.1f);
-                    var meshRenderer = tile.GetComponent<MeshRenderer>();
-                    if (meshRenderer != null)
-                    {
-                        // Use sharedMaterial to avoid creating instances
-                        meshRenderer.sharedMaterial.color = cellFillColor;
-                        _cells.Add(meshRenderer);
-                    }
+                    // Skip void tiles
+                    if (tileType == GridMemory.TileType.Void) continue;
+
+                    // create ground tiles for walkable cells
+                    // if (tileType == GridMemory.TileType.Ground && groundTile != null)
+                    // {
+                    //     var tile = Instantiate(groundTile, _gridRoot.transform);
+                    //     tile.name = $"C{x}_{z}";
+                    //     var tileTransform = tile.transform;
+                    //     tileTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY, z0 + (z + 0.5f) * cellSize);
+                    //     tileTransform.localScale = new Vector3(cellSize * 0.1f, 1f, cellSize * 0.1f);
+                    //     var meshRenderer = tile.GetComponent<MeshRenderer>();
+                    //     if (meshRenderer != null)
+                    //     {
+                    //         // Use sharedMaterial to avoid creating instances
+                    //         meshRenderer.sharedMaterial.color = cellFillColor;
+                    //         _cells.Add(meshRenderer);
+                    //     }
+                    // }
+                    // create wall tiles for wall cells
+                    // else if (tileType == GridMemory.TileType.Wall && wallTile != null)
+                    // {
+                    //     // use different prefab for walls
+                    //     var wall = Instantiate(wallTile, _gridRoot.transform);
+                    //     wall.name = $"W{x}_{z}";
+                    //     var wallTransform = wall.transform;
+                    //     float wallHeight = cellSize;
+                    //     // lift center up by half the wall height so base stays at gridY
+                    //     wallTransform.position = new Vector3(x0 + (x + 0.5f) * cellSize, gridY + (wallHeight * 0.5f), z0 + (z + 0.5f) * cellSize);
+                    //     wallTransform.localScale = new Vector3(cellSize, wallHeight, cellSize*3f);
+                    //     var meshRenderer = wall.GetComponent<MeshRenderer>();
+                    //     if (meshRenderer != null)
+                    //     {
+                    //         _walls.Add(meshRenderer);
+                    //     }
+                    // }
                 }
             }
         }

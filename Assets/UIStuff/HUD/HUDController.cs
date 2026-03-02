@@ -22,6 +22,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private VisualElement cardHolder; 
     private VisualTreeAsset playerCardTemplate;
     private bool needToUpdateCards = true;
+    private bool needToMoveCards = false;
+    private int lastPlayerIndex = -1; // Track the last player index to detect changes
 
     //####Cancel Action Button####
     private Button cancelActionButton;
@@ -73,13 +75,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         cancelActionButton = ui.Q<Button>("CancelActionButton");
         cancelActionButton.clicked += CancelAction;
 
-        //####Player Queue Card Setup####
-        currentPlayerCard = ui.Q<VisualElement>("CurrentPlayerInfo");
-        currentPlayerHealthBar = currentPlayerCard.Q<ProgressBar>("HealthBar");
+        // //####Player Queue Card Setup####
+        // currentPlayerCard = ui.Q<VisualElement>("CurrentPlayerInfo");
+        // currentPlayerHealthBar = currentPlayerCard.Q<ProgressBar>("HealthBar");
 
-        //####Target Card Setup####
-        targetCard = ui.Q<VisualElement>("TargetInfo");
-        targetHealthBar = targetCard.Q<ProgressBar>("HealthBar");
+        // //####Target Card Setup####
+        // targetCard = ui.Q<VisualElement>("TargetInfo");
+        // targetHealthBar = targetCard.Q<ProgressBar>("HealthBar");
 
         //####Player Queue Card Setup####
         cardHolder = ui.Q<VisualElement>("CardHolder");
@@ -99,14 +101,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         // Debug.Log("Update called");
         // Debug.Log("HUD Update called");
         // Update current player card (placeholder logic)
-        updateCurrentPlayerCard();
+        //updateCurrentPlayerCard();
 
         // Update target card (placeholder logic)
-        updateTargetCard();
+        //updateTargetCard();
 
         // Update player queue cards if needed
         if (needToUpdateCards) {
-            // cardHolder = ui.Q<VisualElement>("PlayerQueueCardHolder");
             fillPlayerCards();
             needToUpdateCards = false;
         }
@@ -122,40 +123,23 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
 
         // Highlight the current player's card
-        HighlightCurrentPlayerCard();
+        
+        updatePlayerQueueCards();
     }
 
 
 
     // Card Logic attempt by Ryan
     private void fillPlayerCards() {
-        //Debug.Log("fillPlayerCards called");
         cardHolder.Clear(); // Fix: Clear existing cards before adding new ones
         for (int i = 0; i < Players.Count; i++) {
+            CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
-            cardInstance.Q<Label>("Card_Name").text = Players[i].name;
-            //Debug.Log("Added card for " + Players[i].name);
+            Debug.Log("Added card for " + Players[i].name);
         }
     }
 
-    private void HighlightCurrentPlayerCard() {
-        // Debug.Log("HighlightCurrentPlayerCard called");
-        // Logic to highlight the current player's card
-        // This is a placeholder implementation
-        int playerIndex = CombatManagerInterface.GetInstance().WhosTurn() == Players[0]? 1: 0;
-        for (int i = 0; i < cardHolder.childCount; i++) {
-            var card = cardHolder.ElementAt(i);
-            if (i == playerIndex) {
-                //another coPilot idea vvv , works for intial testing
-                card.style.borderBottomColor = Color.yellow;
-                card.style.borderBottomWidth = 4;
-            } else {
-                card.style.borderBottomWidth = 0;
-            }
-        }
-    }
-    // End of Card Logic
 
     public void Strike() {
         //Debug.Log("Strike called");
@@ -276,5 +260,35 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         targetHealthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
         targetHealthBar.value = p.hp;
         targetHealthBar.highValue = p.maxHp;
+    }
+
+    private void updatePlayerQueueCards() {
+        // Logic to update player queue cards
+        // This is a placeholder implementation
+        for (int i = 0; i < cardHolder.childCount; i++) {
+            var card = cardHolder.ElementAt(i);
+            CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
+            var healthBar = card.Q<ProgressBar>("HealthBar");
+            card.Q<Label>("Card_Name").text = p.name + " photo would go here"; // Update name in case it changes
+            healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
+            healthBar.value = p.hp;
+            healthBar.highValue = p.maxHp;
+            if (p == CombatManager.GetInstance().WhosTurn().GetComponent<CreatureComponent>()) {
+                card.style.scale = new StyleScale(new Scale(new Vector3(1.5f,1.5f,1))); // Scale up the current player's card
+                card.style.opacity = 1f; // Full opacity for current player card
+                card.style.borderBottomColor = Color.clear;
+                card.style.borderBottomWidth = 50;
+            } else {
+                card.style.borderBottomColor = Color.clear;
+                card.style.borderBottomWidth = 0;
+                card.style.scale = new StyleScale(new Scale(new Vector3(1f, 1f, 1))); // Normal scale for non-current player cards
+                card.style.opacity = 0.5f; // Dim non-current player cards
+            }
+            if (p.hp <= 0) {
+                needToMoveCards = true; // Flag to move cards if a player is defeated
+                return; // Exit early to avoid updating cards that may be removed
+            }
+            card.Q<Label>("AP").text = "AP: " + p.GetComponent<ActionController>().ActionPoints; // Update action points display
+        }
     }
 }
