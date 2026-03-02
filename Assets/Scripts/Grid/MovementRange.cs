@@ -18,9 +18,8 @@ public class MovementRange
     // convert grid coordinates to world position
     private readonly System.Func<int, int, float, Vector3> gridToWorld;
     
-    // Line-of-sight calculator
+    // Line-of-sight class
     private readonly LineOfSight lineOfSight;
-
     private readonly Color clearLOSColor = new Color(0f, 1f, 0f, 0.5f);
     private readonly Color partialLOSColor = new Color(1f, 1f, 0f, 0.5f);
     private readonly Color blockedLOSColor = new Color(1f, 0f, 0f, 0.5f);
@@ -33,6 +32,8 @@ public class MovementRange
         new Vector3Int(0, 0, 1),
         new Vector3Int(0, 0, -1)
     };
+
+    // diagonal directions for movement, only used if diagonal movement is allowed
     private static readonly Vector3Int[] DiagonalDirections = new[]
     {
         new Vector3Int(1, 0, 1),
@@ -112,7 +113,6 @@ public class MovementRange
         HashSet<Vector3Int> reachable = new HashSet<Vector3Int>();
         Dictionary<Vector3Int, float> bestCost = new Dictionary<Vector3Int, float>();
         Stack<(Vector3Int cell, float cost)> stack = new Stack<(Vector3Int, float)>();
-
         stack.Push((start, 0f));
         bestCost[start] = 0f;
 
@@ -175,7 +175,6 @@ public class MovementRange
             
             // determine LOS status for this tile and get corresponding color and text
             LineOfSight.Status status = lineOfSight.GetStatus(startCell, cell, out int clearRays);
-
             // Calculate visible corners for all non-fully-blocked tiles
             int visibleCorners = 0;
             if (status != LineOfSight.Status.FullyBlocked)
@@ -191,12 +190,11 @@ public class MovementRange
             if (status == LineOfSight.Status.FullyBlocked)
             {
                 blockedCount++;
-                continue; // Skip creating highlight for fully blocked tiles
+                continue;
             }
 
             Color color;
             string statusText;
-
             if (status == LineOfSight.Status.Clear)
             {
                 clearCount++;
@@ -230,7 +228,6 @@ public class MovementRange
     {
         int dx = Mathf.Abs(to.x - from.x);
         int dz = Mathf.Abs(to.z - from.z);
-        // Chebyshev distance: max of the two dimensions
         return Mathf.Max(dx, dz);
     }
 

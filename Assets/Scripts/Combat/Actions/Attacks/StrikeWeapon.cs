@@ -11,7 +11,7 @@ public class StrikeWeapon : MultiFrameEntityAction
 {
     private Strike Strike;
     private EquipmentWeapon Weapon;
-    private int range =1; // default range of 1 tile
+    private int range =60; // default range of 1 tile
     public string weaponName;
 
 

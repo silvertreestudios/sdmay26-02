@@ -3,7 +3,6 @@ using UnityEngine;
 
 /// <summary>
 /// Handles line-of-sight calculations for grid-based combat.
-/// Uses corner-to-corner raycasting with Physics for accurate LOS detection.
 /// </summary>
 public class LineOfSight
 {
@@ -14,6 +13,7 @@ public class LineOfSight
     private const int SAMPLES_PER_TILE = 4;
     private const float MIN_RAY_DISTANCE = 0.01f;
 
+    // predefined offsets for the 4 corners of a tile, used to check LOS from multiple points within the tile
     private static readonly Vector2[] TileCornerOffsets = new[]
     {
         new Vector2(-CORNER_OFFSET, -CORNER_OFFSET),
@@ -22,6 +22,7 @@ public class LineOfSight
         new Vector2(CORNER_OFFSET, CORNER_OFFSET)
     };
 
+    // line of sight status categories based on how many rays are clear
     public enum Status
     {
         Clear,
@@ -120,8 +121,6 @@ public class LineOfSight
         {
             return true; // Hit a physical obstacle (wall collider)
         }
-        // Fall back to grid-based checking for cells marked as non-walkable
-        // This handles cases where walls might not have colliders
         direction2D.Normalize();
         int sampleCount = Mathf.CeilToInt(rayDistance2D * SAMPLES_PER_TILE);
         HashSet<Vector3Int> visitedCells = new HashSet<Vector3Int>(sampleCount);
