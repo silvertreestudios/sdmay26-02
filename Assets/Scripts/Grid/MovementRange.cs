@@ -15,17 +15,20 @@ public class MovementRange
     private readonly float highlightHeightOffset;
     private readonly List<GameObject> activeHighlights = new List<GameObject>();
     private HashSet<Vector3Int> currentReachableTiles = new HashSet<Vector3Int>();
-    private int range;
-
     // convert grid coordinates to world position
     private readonly System.Func<int, int, float, Vector3> gridToWorld;
-
-    // Line of sight calculator for attack range
-    private readonly LineOfSight losCalculator;
 
     private readonly Color clearLOSColor = new Color(0f, 1f, 0f, 0.5f);
     private readonly Color partialLOSColor = new Color(1f, 1f, 0f, 0.5f);
     private readonly Color blockedLOSColor = new Color(1f, 0f, 0f, 0.5f);
+
+    // represents the line-of-sight status for a tile
+    public enum LOS_Status
+    {
+        Clear,
+        PartialBlock,
+        FullyBlocked
+    }
 
     // directions for cardinal and diagonal movement, used for neighbor checks
     private static readonly Vector3Int[] CardinalDirections = new[]
@@ -42,8 +45,19 @@ public class MovementRange
         new Vector3Int(1, 0, -1),
         new Vector3Int(-1, 0, -1)
     };
-
+    // offsets for raycasting to tile corners, used in LOS checks
+    private const float CORNER_OFFSET = 0.4f;
+    private const int SAMPLES_PER_TILE = 4;
+    private const float MIN_RAY_DISTANCE = 0.01f;
     private const float HIGHLIGHT_SCALE_FACTOR = 0.1f;
+
+    private static readonly Vector2[] TileCornerOffsets = new[]
+    {
+        new Vector2(-CORNER_OFFSET, -CORNER_OFFSET),
+        new Vector2(CORNER_OFFSET, -CORNER_OFFSET),
+        new Vector2(-CORNER_OFFSET, CORNER_OFFSET),
+        new Vector2(CORNER_OFFSET, CORNER_OFFSET)
+    };
 
     /// <summary>
     /// Creates a movement range system for a character
@@ -57,10 +71,7 @@ public class MovementRange
         allowDiagonalMovement = controller.allowDiagonalMovement;
         diagonalCost = controller.diagonalCost;
         gridToWorld = controller.coordinateConverter.GridCellCenterWorld;
-        // Initialize line of sight
-        losCalculator = new LineOfSight(grid);
     }
-    
     public bool IsCellReachable(Vector3Int cell) => currentReachableTiles.Contains(cell);
 
     // updates highlights for movement range, calculating reachable tiles and creating highlight objects
@@ -115,6 +126,7 @@ public class MovementRange
         HashSet<Vector3Int> reachable = new HashSet<Vector3Int>();
         Dictionary<Vector3Int, float> bestCost = new Dictionary<Vector3Int, float>();
         Stack<(Vector3Int cell, float cost)> stack = new Stack<(Vector3Int, float)>();
+
         stack.Push((start, 0f));
         bestCost[start] = 0f;
 
@@ -124,8 +136,10 @@ public class MovementRange
             var (current, currentCost) = stack.Pop();
             if (bestCost.TryGetValue(current, out float existingCost) && currentCost > existingCost)
                 continue;
+
             if (currentCost > maxRange)
                 continue;
+
             if (grid.IsCellWalkable(current) && current != start)
             {
                 reachable.Add(current);
@@ -136,7 +150,8 @@ public class MovementRange
                 if (!IsWithinBounds(neighbor) || (!grid.IsCellWalkable(neighbor) && neighbor != start))
                     continue;
 
-                float newCost = currentCost + CalculateDistance(current, neighbor);
+                float newCost = currentCost + CalculateMovementCost(current, neighbor);
+
                 if (newCost <= maxRange && (!bestCost.TryGetValue(neighbor, out float neighborBestCost) || newCost < neighborBestCost))
                 {
                     bestCost[neighbor] = newCost;
@@ -144,14 +159,120 @@ public class MovementRange
                 }
             }
         }
+
         return reachable;
     }
 
-    // Calculates attackable tiles within weapon range that have line of sight
+    /// <summary>
+    /// Calculates attackable tiles within weapon range that have line of sight
+    /// </summary>
+    /// <param name="start">Starting position</param>
+    /// <param name="weaponRange">Maximum weapon range in grid units</param>
+    /// <returns>HashSet of attackable tiles</returns>
     public HashSet<Vector3Int> CalculateEmination(Vector3Int start, int weaponRange)
     {
         // Calculate all tiles within circular range based on weapon
         return CalculateCircle(start, weaponRange);
+    }
+
+    /// <summary>
+    /// Determines line of sight status 
+    /// </summary>
+    private LOS_Status GetLOSStatus(Vector3Int start, Vector3Int target, out int clearRays)
+    {
+        // Count how many of the 16 corner-to-corner rays are clear
+        clearRays = CountCornerToCornerRays(start, target);
+        // if ANY corner-to-corner line is clear, you have line of sight
+        if (clearRays == 0)
+            return LOS_Status.FullyBlocked;
+        else if (clearRays == 16)
+            return LOS_Status.Clear;
+        else
+            return LOS_Status.PartialBlock;
+    }
+
+    /// <summary>
+    /// Counts how many of the 16 corner-to-corner rays are clear.
+    /// </summary>
+    private int CountCornerToCornerRays(Vector3Int start, Vector3Int target)
+    {
+        int clearCount = 0;
+        // check all 16 combinations: 4 source corners × 4 target corners
+        foreach (var sourceCorner in TileCornerOffsets)
+        {
+            foreach (var targetCorner in TileCornerOffsets)
+            {
+                if (!IsRayBlocked(start, target, sourceCorner, targetCorner))
+                    clearCount++;
+            }
+        }
+        return clearCount;
+    }
+
+    /// <summary>
+    /// Counts how many of the 4 target corners are visible from at least one source corner.
+    /// </summary>
+    private int CountVisibleCorners(Vector3Int start, Vector3Int target)
+    {
+        int visibleCorners = 0;
+
+        // For each target corner, check if it's visible from any source corner
+        foreach (var targetCorner in TileCornerOffsets)
+        {
+            bool cornerVisible = false;
+            foreach (var sourceCorner in TileCornerOffsets)
+            {
+                if (!IsRayBlocked(start, target, sourceCorner, targetCorner))
+                {
+                    cornerVisible = true;
+                    break; // At least one ray to this corner is clear
+                }
+            }
+            if (cornerVisible)
+            {
+                visibleCorners++;
+            }
+        }
+
+        return visibleCorners;
+    }
+
+    /// <summary>
+    /// Uses raycasting to determine if there's a clear line of sight between start and end point.
+    /// </summary>
+    /// <param name="start">attacking cell (player position)</param>
+    /// <param name="end">target cell</param>
+    /// <param name="startOffset">offset from center of start tile</param>
+    /// <param name="endOffset">offset from center of end tile</param>
+    /// <returns>whether or not there's a clear line of sight between start and end points</returns>
+    private bool IsRayBlocked(Vector3Int start, Vector3Int end, Vector2 startOffset, Vector2 endOffset)
+    {
+        // calculate ray start and end positions in world space, applying offsets to check corners
+        Vector2 rayStart = new Vector2(start.x + 0.5f + startOffset.x, start.z + 0.5f + startOffset.y);
+        Vector2 rayEnd = new Vector2(end.x + 0.5f + endOffset.x, end.z + 0.5f + endOffset.y);
+        Vector2 direction = rayEnd - rayStart;
+        float rayDistance = direction.magnitude;
+
+        if (rayDistance < MIN_RAY_DISTANCE)
+            return false;
+
+        direction.Normalize();
+        // determine samples to take along ray based on distance, multiple points for longer rays
+        int sampleCount = Mathf.CeilToInt(rayDistance * SAMPLES_PER_TILE);
+        HashSet<Vector3Int> visitedCells = new HashSet<Vector3Int>(sampleCount);
+
+        for (int i = 1; i < sampleCount; i++)
+        {
+            // sample points along ray at regular intervals, convert to grid coord and check walkability
+            Vector2 samplePos = rayStart + direction * rayDistance * ((float)i / sampleCount);
+            Vector3Int currentCell = new Vector3Int(Mathf.FloorToInt(samplePos.x), start.y, Mathf.FloorToInt(samplePos.y));
+            if (!visitedCells.Add(currentCell) || currentCell == start || currentCell == end)
+                continue;
+            if (!IsWithinBounds(currentCell) || !grid.IsCellWalkable(currentCell))
+                return true;
+        }
+
+        return false;
     }
 
     // creates highlights for attacked tiles
@@ -160,29 +281,28 @@ public class MovementRange
         int clearCount = 0;
         int partialCount = 0;
         int blockedCount = 0;
-        
         foreach (var cell in tileSet)
         {
             if (cell.Equals(startCell))
                 continue;
-
-            // Use the LineOfSightCalculator to determine LOS status
-            LineOfSight.LOSStatus status = losCalculator.GetStatus(startCell, cell, out int clearRays);
-            if (status == LineOfSight.LOSStatus.FullyBlocked)
+            // determine LOS status for this tile and get corresponding color and text
+            LOS_Status status = GetLOSStatus(startCell, cell, out int clearRays);
+            if (status == LOS_Status.FullyBlocked)
             {
                 blockedCount++;
-                continue;
+                continue; // Skip creating highlight for fully blocked tiles
             }
 
             Color color;
             string statusText;
-            if (status == LineOfSight.LOSStatus.Clear)
+
+            if (status == LOS_Status.Clear)
             {
                 clearCount++;
                 color = clearLOSColor;
                 statusText = "CLEAR";
             }
-            else if (status == LineOfSight.LOSStatus.PartialBlock)
+            else if (status == LOS_Status.PartialBlock)
             {
                 partialCount++;
                 color = partialLOSColor;
@@ -193,14 +313,13 @@ public class MovementRange
                 color = highlightColor;
                 statusText = "UNKNOWN";
             }
-            
-            if (status == LineOfSight.LOSStatus.PartialBlock)
+            if (status == LOS_Status.PartialBlock)
             {
                 float distance = CalculateDistance(startCell, cell);
-                int visibleCorners = losCalculator.CountVisibleCorners(startCell, cell, range);
+                int visibleCorners = CountVisibleCorners(startCell, cell);
                 Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
             }
-            else if (status == LineOfSight.LOSStatus.Clear)
+            else if (status == LOS_Status.Clear)
             {
                 Debug.Log($"Tile {cell}: {statusText} - Corners Visible: 4");
             }
@@ -211,17 +330,12 @@ public class MovementRange
         Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount}");
     }
 
-    // Combined method that can return both Manhattan and movement cost
-    private float CalculateDistance(Vector3Int from, Vector3Int to, bool useMovementCost = false)
+    // calculates the grid distance between two cells in whole tiles
+    private int CalculateDistance(Vector3Int from, Vector3Int to)
     {
         int dx = Mathf.Abs(to.x - from.x);
         int dz = Mathf.Abs(to.z - from.z);
-        // if using movement cost, diagonal moves cost more than straight moves
-        if (useMovementCost)
-        {
-            return (dx == 1 && dz == 1) ? diagonalCost : 1f;
-        }
-        return dx + dz; // Manhattan distance
+        return dx + dz;
     }
 
     /// <summary>
@@ -267,6 +381,7 @@ public class MovementRange
             // Range > 1 represents ranged attack - use circular area
             // Use Euclidean distance for accurate circular range
             float maxRangeSquared = maxRange * maxRange;
+
             // iterate over square area around the start cell, but only include tiles within the circular radius
             for (int x = -maxRange; x <= maxRange; x++)
             {
@@ -275,10 +390,18 @@ public class MovementRange
                     // Skip the starting cell
                     if (x == 0 && z == 0)
                         continue;
+
                     Vector3Int candidate = new Vector3Int(start.x + x, 0, start.z + z);
+                    
+                    // Check bounds first
                     if (!IsWithinBounds(candidate))
                         continue;
+
+                    // Use squared distance to avoid sqrt calculation, more accurate
                     float distanceSquared = x * x + z * z;
+                    
+                    // Only include tiles within the circular range AND are walkable
+                    // Use squared comparison for better accuracy
                     if (distanceSquared <= maxRangeSquared && grid.IsCellWalkable(candidate))
                     {
                         circleTiles.Add(candidate);
@@ -315,6 +438,7 @@ public class MovementRange
         foreach (var dir in CardinalDirections)
             // yield used to return neighbors one at a time without needing to create a full list in memory
             yield return cell + dir;
+
         // Yield valid diagonal neighbors if enabled
         if (allowDiagonalMovement)
         {
@@ -331,6 +455,7 @@ public class MovementRange
     {
         Vector3Int adjacent1 = cell + new Vector3Int(direction.x, 0, 0);
         Vector3Int adjacent2 = cell + new Vector3Int(0, 0, direction.z);
+
         return IsWithinBounds(adjacent1) && grid.IsCellWalkable(adjacent1) &&
                IsWithinBounds(adjacent2) && grid.IsCellWalkable(adjacent2);
     }
@@ -340,6 +465,15 @@ public class MovementRange
     {
         return cell.x >= 0 && cell.x < grid.Width &&
                cell.z >= 0 && cell.z < grid.Height;
+    }
+
+    // calculates movement cost between two adjacent cells, with diagonal movement costing more if enabled
+    private float CalculateMovementCost(Vector3Int from, Vector3Int to)
+    {
+        int dx = Mathf.Abs(to.x - from.x);
+        int dz = Mathf.Abs(to.z - from.z);
+
+        return (dx == 1 && dz == 1) ? diagonalCost : 1f;
     }
 
     // creates highlight objects for each reachable tile, skipping the starting cell
