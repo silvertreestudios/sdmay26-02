@@ -4,6 +4,7 @@ using System.Collections;
 using Game.Creature;
 using static UnityEngine.GraphicsBuffer;
 using UnityEditor.Experimental.GraphView;
+using System;
 
 public class Strike
 {
@@ -14,6 +15,7 @@ public class Strike
         Damages = damages ?? new();
         FlatDamages = flatDamages ?? new();
     }
+    public List<string> Traits;
 
     public void Damage(GameObject from_go, GameObject to_go)
     {

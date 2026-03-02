@@ -3,6 +3,7 @@ using UnityEngine;
 using Game.Creature;
 using Game.Strikes;
 using UnityEngine.Events;
+using Unity.VisualScripting;
 
 
 public static class DefinedAbilities
@@ -47,9 +48,18 @@ public static class DefinedAbilities
         );
     });
 
+    private static Ability QuickTempered = new("Quick-Tempered", (GameObject g) =>
+    {
+        // TODO
+        // On combat start, IF not wearing heavy armor
+        //    Instantly use rage, no action point cost
+    });
+
     private static Ability Rage = new("Rage", (GameObject g) =>
     {
-        // TODO replace with actual rage check
+        Rage.Traits = new List<string> {"barbarian", "concentrate", "emotion", "mental"};
+
+        // TODO replace with actual raging check, "Raging" is not technically a condition
         if (!g.GetComponent<Conditions>().Contains("Fatigued") && !g.GetComponent<Conditions>().Contains("Raging"))
         {
             //g.GetComponent<Conditions>().Add("Raging", g);
@@ -62,7 +72,7 @@ public static class DefinedAbilities
                 g.GetComponent<CreatureComponent>().GainTempHp(tempHP);
             }
 
-            // Add rage damage bonus
+            // Add rage damage bonus to StrikeWeapon actions
             int rageBonus = 2;
             List <EntityAction> actions = g.GetComponent<ActionController>().GetActions();
             foreach (var action in actions)
@@ -75,7 +85,7 @@ public static class DefinedAbilities
                         // half bonus
                         if (((StrikeWeapon)action).GetWeapon().traits.Contains("agile") || ((StrikeWeapon)action).GetWeaponName() == "unarmed")
                         {
-                        ((StrikeWeapon)action).GetStrike().FlatDamages.Add(new DamageValue(damageType, rageBonus/2));
+                            ((StrikeWeapon)action).GetStrike().FlatDamages.Add(new DamageValue(damageType, rageBonus/2));
                         }
                         // full bonus
                         else
@@ -95,6 +105,7 @@ public static class DefinedAbilities
     private static Dictionary<string, Ability> Abilities = new()
     {
         {"Slow", Slow },
+        {"Quick-Tempered", QuickTempered},
         {"Rage", Rage}
     };
 

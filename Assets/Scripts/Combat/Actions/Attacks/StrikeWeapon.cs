@@ -95,6 +95,7 @@ public class StrikeWeapon : MultiFrameEntityAction
             range += 1; // extend range for reach weapon
         }
         Strike = new Strike(damageList, flatDamageList);
+        Strike.Traits = Weapon.traits;
     }
 
     protected override IEnumerator MFInvoke(GameObject attacker)

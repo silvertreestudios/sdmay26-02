@@ -7,9 +7,13 @@ using UnityEngine;
 public class Unarmed : MultiFrameEntityAction
 {
     private Strike Strike;
+    private int range = 1; // default range of 1 tile
+    
     public Unarmed(uint cost, List<Dice> damages, List<DamageValue> flatDamages) : base(cost)
     {
         Strike = new Strike(damages, flatDamages);
+        // Unarmed strike traits based on PF2e rules
+        Strike.Traits = new List<string>() {"agile", "finesse", "nonlethal", "unarmed"};
     }
 
     protected override IEnumerator MFInvoke(GameObject attacker)
@@ -19,7 +23,7 @@ public class Unarmed : MultiFrameEntityAction
         CoroutineResult<GameObject> target = new();
         CoroutineResult<bool> canceled = new();
         //yield return GridCharacterController3D.Instance.StrikeCoroutine(attacker, 2, target);
-        yield return GridAPI.GetInstance().Strike(attacker, 2, target, canceled);
+        yield return GridAPI.GetInstance().Strike(attacker, range, target, canceled);
         // I implemented a cancel refund for this action, let me know if it needs to change - Adam
         if(target.Value && !canceled.Value)
         {
