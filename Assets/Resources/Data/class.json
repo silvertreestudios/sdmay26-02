@@ -16,7 +16,12 @@
         "advancedWeapons": "trained",
         "unarmedAttacks": "expert"
       },
-      "defenses": ["all armor", "unarmored defense"],
+      "defenses": {
+        "unarmored": "trained",
+        "lightArmor": "untrained",
+        "mediumArmor": "untrained",
+        "allArmor": "trained"
+      },
       "spells": "none",
       "subclass": ["none"],
       "classFeat": ["Combat Assessment", "Double Slice", "Exacting Strike", "Point Blank Stance", "Reactive Shield", "Snagging Strike", "Sudden Charge", "Vicious Swing"]
@@ -37,7 +42,12 @@
         "advancedWeapons": "untrained",
         "unarmedAttacks": "trained"
       },
-      "defenses": ["unarmored defense"],
+      "defenses": {
+        "unarmored": "trained",
+        "lightArmor": "untrained",
+        "mediumArmor": "untrained",
+        "allArmor": "untrained"
+      },
       "spells": "available",
       "subclass": ["cloistered", "warpriest"],
       "classFeat": ["Deadly Simplicity", "Divine Castigation", "Domain Initiate", "Harming Hands", "Healing Hands", "Premonition of Avoidance", "Reach Spell"]
@@ -58,7 +68,12 @@
         "advancedWeapons": "untrained",
         "unarmedAttacks": "trained"
       },
-      "defenses": ["light armor", "unarmored defense"],
+      "defenses": {
+        "unarmored": "trained",
+        "lightArmor": "trained",
+        "mediumArmor": "untrained",
+        "allArmor": "untrained"
+      },
       "spells": "none",
       "subclass": ["mastermind", "ruffian", "scoundrel", "thief"],
       "classFeat": ["Nimble Dodge", "Overextending Feint", "Plant Evidence", "Trap Finder", "Tumble Behind", "Twin Feint", "You're Next"]
@@ -79,7 +94,12 @@
         "advancedWeapons": "untrained",
         "unarmedAttacks": "trained"
       },
-      "defenses": ["unarmored defense"],
+      "defenses": {
+        "unarmored": "trained",
+        "lightArmor": "untrained",
+        "mediumArmor": "untrained",
+        "allArmor": "untrained"
+      },
       "spells": "available",
       "subclass": ["abberant", "angelic", "demonic", "diabolic", "draconic", "elemental", "fey", "hag", "imperial", "undead"],
       "classFeat": ["Blood Rising", "Familiar", "Reach Spell", "Tap into Blood", "Widen Spell"]

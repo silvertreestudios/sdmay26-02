@@ -38,7 +38,7 @@ public class ClassInfo
     public string will;
     public List<string> skills;
     public Attacks attacks; // attack name -> proficiency level
-    public List<string> defenses;
+    public Defenses defenses; //defense name -> proficieny level
     public string spells;
     public List<string> subclass;
     public List<string> classFeat;
@@ -52,6 +52,16 @@ public class Attacks
     public string martialWeapons;
     public string advancedWeapons;
     public string unarmedAttacks;
+}
+
+//because I made defenses nested in the json
+[System.Serializable]
+public class Defenses
+{
+    public string unarmored;
+    public string lightArmor;
+    public string mediumArmor;
+    public string allArmor;
 }
 
 [System.Serializable]
@@ -81,6 +91,14 @@ public class PlayerCharacter
     public string fortitude;
     public string reflex;
     public string will;
+    public string simpleWeapons;
+    public string martialWeapons;
+    public string advancedWeapons;
+    public string unarmedAttack;
+    public string unarmored;
+    public string lightArmor;
+    public string mediumArmor;
+    public string allArmor;
     public string ancestryFeat;
     public string classFeat;
     public string subclass;
@@ -287,7 +305,6 @@ public class CharacterCreationScript : MonoBehaviour
         ancestryChoiceField.value = selectedAncestry;
         ancestryHP = db.ancestries.Find(a => a.id == selectedAncestry).hp;
         hpField.value = classHP + ancestryHP; //add ancestry hp to other hp
-
         currentCharacter.hp = hpField.value;
 
         Ancestry selectedAncestryObj = db.ancestries.Find(a => a.id == selectedAncestry); //make an ancestry object
@@ -434,10 +451,20 @@ public class CharacterCreationScript : MonoBehaviour
         advancedWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.advancedWeapons;
         unarmedAttackField.value = db2.classes.Find(a => a.id == selectedClass).attacks.unarmedAttacks;
 
-        unarmoredDefenseField.value = db2.classes.Find(a => a.id == selectedClass).defenses.Contains("unarmored defense") ? "trained" : "untrained";
-        lightArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.Contains("light armor") ? "trained" : "untrained";
-        mediumArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.Contains("medium armor") ? "trained" : "untrained";
-        allArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.Contains("all armor") ? "trained" : "untrained";
+        currentCharacter.simpleWeapons = simpleWeaponsField.value;
+        currentCharacter.martialWeapons = martialWeaponsField.value;
+        currentCharacter.advancedWeapons = advancedWeaponsField.value;
+        currentCharacter.unarmedAttack = unarmedAttackField.value;
+
+        unarmoredDefenseField.value = db2.classes.Find(a => a.id == selectedClass).defenses.unarmored;
+        lightArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.lightArmor;
+        mediumArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.mediumArmor;
+        allArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.allArmor;
+
+        currentCharacter.unarmored = unarmoredDefenseField.value;
+        currentCharacter.lightArmor = lightArmorField.value;
+        currentCharacter.mediumArmor = mediumArmorField.value;
+        currentCharacter.allArmor = allArmorField.value;
 
         perceptionField.value = db2.classes.Find(a => a.id == selectedClass).perception;
         fortitudeField.value = db2.classes.Find(a => a.id == selectedClass).fortitude;
