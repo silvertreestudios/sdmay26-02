@@ -53,6 +53,7 @@ public static class DefinedAbilities
         // TODO
         // On combat start, IF not wearing heavy armor
         //    Instantly use rage, no action point cost
+        Debug.Log("Applying Quick-Tempered to " + g.name);
         Rage rageAction = new Rage(0);
         rageAction.UseRage(g);
     });
