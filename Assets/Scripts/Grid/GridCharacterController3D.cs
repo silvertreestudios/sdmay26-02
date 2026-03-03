@@ -384,7 +384,7 @@ public class GridCharacterController3D : MonoBehaviour
 
         Vector3Int centerCell = coordinateConverter.GetCharacterCell(token);
         HashSet<Vector3Int> areaCells = rangeHighlighter.CalculateEmination(centerCell, range);
-        rangeHighlighter.UpdateAttackHighlightsWithRange(centerCell, range);
+        rangeHighlighter.UpdateHighlights(centerCell, range, showAttackRange: true);
         List<Vector3Int> areaCellsList = new List<Vector3Int>(areaCells);
         return gridMemory.GetOccupantsInArea(areaCellsList);
     }

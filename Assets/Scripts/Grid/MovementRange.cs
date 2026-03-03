@@ -20,8 +20,6 @@ public class MovementRange
     
     // Line-of-sight class
     private readonly LineOfSight lineOfSight;
-    private readonly Color clearLOSColor = new Color(0f, 1f, 0f, 0.5f);
-    private readonly Color partialLOSColor = new Color(1f, 1f, 0f, 0.5f);
 
     // directions for cardinal and diagonal movement, used for neighbor checks
     private static readonly Vector3Int[] CardinalDirections = new[]
@@ -40,11 +38,13 @@ public class MovementRange
         new Vector3Int(1, 0, -1),
         new Vector3Int(-1, 0, -1)
     };
-    
+
+    // scaling factor for highlight size relative to grid cell size, can be adjusted for better visuals
     private const float HIGHLIGHT_SCALE_FACTOR = 0.1f;
 
     /// <summary>
     /// Creates a movement range system for a player.
+    /// TODO: eventually needs to be expanded for use by mindless AI
     /// </summary>
     public MovementRange(GridCharacterController3D controller)
     {
@@ -57,26 +57,30 @@ public class MovementRange
         gridToWorld = controller.coordinateConverter.GridCellCenterWorld;
         lineOfSight = new LineOfSight(grid);
     }
-    
+
+    // checks if a specific cell is currently highlighted as reachable, used for validating player input
     public bool IsCellReachable(Vector3Int cell) => currentReachableTiles.Contains(cell);
-    // updates highlights for movement range, calculating reachable tiles and creating highlight objects
-    public void UpdateHighlights(Vector3Int startCell, int maxRange)
+
+    // main method to update highlights based on current position and range,
+    // can show either movement range or attack range with line of sight info
+    public void UpdateHighlights(Vector3Int startCell, int maxRange, bool showAttackRange = false)
     {
         ClearHighlights();
-        currentReachableTiles = CalculateReachableTiles(startCell, maxRange);
-        if (highlightPrefab != null)
+        
+        if (highlightPrefab == null)
+            return;
+
+        // if showing attack range, calculate attackable tiles and create highlights with LOS status colors
+        if (showAttackRange)
         {
-            CreateHighlightVisuals(startCell, currentReachableTiles);
-        }
-    }
-    // Updates highlights for attacked tiles using weapon range, using line of sight checks to determine color and display info
-    public void UpdateAttackHighlightsWithRange(Vector3Int startCell, int weaponRange)
-    {
-        ClearHighlights();
-        HashSet<Vector3Int> attackedTiles = CalculateEmination(startCell, weaponRange);
-        if (highlightPrefab != null)
-        {
+            HashSet<Vector3Int> attackedTiles = CalculateEmination(startCell, maxRange);
             CreateAttackHighlightsWithLOSStatus(startCell, attackedTiles);
+        }
+        // otherwise calculate movement range and create standard highlights
+        else
+        {
+            currentReachableTiles = CalculateReachableTiles(startCell, maxRange);
+            CreateHighlightVisuals(startCell, currentReachableTiles);
         }
     }
 
@@ -94,7 +98,7 @@ public class MovementRange
         currentReachableTiles.Clear();
     }
 
-    // calculate reachable tiles using a depth-first search
+    // calculate reachable tiles using a depth-first search 
     public HashSet<Vector3Int> CalculateReachableTiles(Vector3Int start, int maxRange)
     {
         // If maxRange is zero or negative, treat it as unlimited range
@@ -109,7 +113,6 @@ public class MovementRange
         stack.Push((start, 0f));
         bestCost[start] = 0f;
 
-        // DFS loop
         while (stack.Count > 0)
         {
             var (current, currentCost) = stack.Pop();
@@ -142,95 +145,13 @@ public class MovementRange
         return reachable;
     }
 
-    /// <summary>
-    /// Calculates attackable tiles within weapon range that have line of sight
-    /// </summary>
-    /// <param name="start">Starting position</param>
-    /// <param name="weaponRange">Maximum weapon range in grid units</param>
-    /// <returns>HashSet of attackable tiles</returns>
+    // Calculates attackable tiles within weapon range
     public HashSet<Vector3Int> CalculateEmination(Vector3Int start, int weaponRange)
     {
-        // Calculate all tiles within circular range based on weapon
-        return CalculateCircle(start, weaponRange);
-    }
-
-    // creates highlights for attacked tiles
-    private void CreateAttackHighlightsWithLOSStatus(Vector3Int startCell, HashSet<Vector3Int> tileSet)
-    {
-        int clearCount = 0;
-        int partialCount = 0;
-        int blockedCount = 0;
-        
-        foreach (var cell in tileSet)
-        {
-            if (cell.Equals(startCell))
-                continue;
-            // determine line of sight status for this tile and get corresponding color and text
-            LineOfSight.Status status = lineOfSight.GetStatus(startCell, cell, out int clearRays);
-            int visibleCorners = 0;
-
-            // only calculate visible corners if tile not fully blocked
-            if (status != LineOfSight.Status.FullyBlocked)
-            {
-                visibleCorners = lineOfSight.CountVisibleCorners(startCell, cell);
-            }
-
-            // if line of sight is fully blocked, increment blocked count and skip highlight creation
-            if (status == LineOfSight.Status.FullyBlocked)
-            {
-                blockedCount++;
-                continue;
-            }
-
-            Color color;
-            string statusText;
-            if (status == LineOfSight.Status.Clear)
-            {
-                clearCount++;
-                color = clearLOSColor;
-                statusText = "CLEAR";
-                float distance = CalculateDistance(startCell, cell);
-                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
-            }
-            else if (status == LineOfSight.Status.PartialBlock)
-            {
-                partialCount++;
-                color = partialLOSColor;
-                statusText = "PARTIAL";
-                float distance = CalculateDistance(startCell, cell);
-                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
-            }
-            else
-            {
-                color = highlightColor;
-                statusText = "UNKNOWN";
-            }
-            CreateHighlight(cell, color, $"AttackHighlight_{cell.x}_{cell.z}_{statusText}");
-        }
-        Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount}");
-    }
-
-    private int CalculateDistance(Vector3Int from, Vector3Int to)
-    {
-        int dx = Mathf.Abs(to.x - from.x);
-        int dz = Mathf.Abs(to.z - from.z);
-        return Mathf.Max(dx, dz);
-    }
-
-    /// <summary>
-    /// Calculates tiles in a circular area around the start cell based on weapon range.
-    /// For melee weapons (range = 1), only returns adjacent tiles.
-    /// For ranged weapons (range > 1), returns circular area within range.
-    /// </summary>
-    /// <param name="start">Starting cell position</param>
-    /// <param name="maxRange">Maximum weapon range in grid units</param>
-    /// <returns>HashSet of tiles within weapon range</returns>
-    private HashSet<Vector3Int> CalculateCircle(Vector3Int start, int maxRange)
-    {
-        HashSet<Vector3Int> circleTiles = new HashSet<Vector3Int>();
+        HashSet<Vector3Int> rangeTiles = new HashSet<Vector3Int>();
 
         // Range of 1 represents melee attack - only adjacent tiles
-        if (maxRange == 1)
+        if (weaponRange == 1)
         {
             // Include all adjacent tiles (cardinal directions)
             foreach (var dir in CardinalDirections)
@@ -238,7 +159,7 @@ public class MovementRange
                 Vector3Int adjacent = start + dir;
                 if (IsWithinBounds(adjacent) && grid.IsCellWalkable(adjacent))
                 {
-                    circleTiles.Add(adjacent);
+                    rangeTiles.Add(adjacent);
                 }
             }
 
@@ -250,20 +171,19 @@ public class MovementRange
                     Vector3Int adjacent = start + dir;
                     if (IsWithinBounds(adjacent) && grid.IsCellWalkable(adjacent))
                     {
-                        circleTiles.Add(adjacent);
+                        rangeTiles.Add(adjacent);
                     }
                 }
             }
         }
         else
-        {
-            // Range > 1 represents ranged attack - use circular area
+        { 
             // Use Euclidean distance for accurate circular range
-            float maxRangeSquared = maxRange * maxRange;
+            float maxRangeSquared = weaponRange * weaponRange;
             // iterate over square area around the start cell, but only include tiles within the circular radius
-            for (int x = -maxRange; x <= maxRange; x++)
+            for (int x = -weaponRange; x <= weaponRange; x++)
             {
-                for (int z = -maxRange; z <= maxRange; z++)
+                for (int z = -weaponRange; z <= weaponRange; z++)
                 {
                     // Skip the starting cell
                     if (x == 0 && z == 0)
@@ -275,20 +195,82 @@ public class MovementRange
                     if (!IsWithinBounds(candidate))
                         continue;
 
-                    // Use squared distance to avoid sqrt calculation, more accurate
                     float distanceSquared = x * x + z * z;
-
-                    // Only include tiles within the circular range AND are walkable
-                    // Use squared comparison for better accuracy
                     if (distanceSquared <= maxRangeSquared && grid.IsCellWalkable(candidate))
                     {
-                        circleTiles.Add(candidate);
+                        rangeTiles.Add(candidate);
                     }
                 }
             }
         }
+        return rangeTiles;
+    }
 
-        return circleTiles;
+    // creates highlights for attacked tiles
+    private void CreateAttackHighlightsWithLOSStatus(Vector3Int startCell, HashSet<Vector3Int> tileSet)
+    {
+        // start counters at zero for each LOS category
+        int clearCount = 0;
+        int partialCount = 0;
+        int blockedCount = 0;
+        
+        foreach (var cell in tileSet)
+        {
+            if (cell.Equals(startCell))
+                continue;
+
+            // determine line of sight status for this tile and get corresponding color and text
+            LineOfSight.Status status = lineOfSight.GetStatus(startCell, cell, out int clearRays);
+            int visibleCorners = 0;
+
+            // only calculate visible corners if tile not fully blocked
+            if (status != LineOfSight.Status.FullyBlocked)
+            {
+                visibleCorners = lineOfSight.CountVisibleCorners(startCell, cell);
+            }
+
+            // get color from LineOfSight based on status
+            Color color = LineOfSight.GetStatusColor(status);
+            string statusText;
+
+            // if line of sight is fully blocked, increment blocked count
+            if (status == LineOfSight.Status.FullyBlocked)
+            {
+                blockedCount++;
+                continue;
+            }
+            // if line of sight is clear, increment clear count
+            else if (status == LineOfSight.Status.Clear)
+            {
+                clearCount++;
+                statusText = "CLEAR";
+            }
+            // if line of sight is partially blocked, increment partial count
+            else if (status == LineOfSight.Status.PartialBlock)
+            {
+                partialCount++;
+                statusText = "PARTIAL";
+            }
+            else
+            {
+                color = highlightColor;
+                statusText = "UNKNOWN";
+            }
+
+            // calculate distance from start cell to this cell
+            float distance = CalculateDistance(startCell, cell);
+            // display cell coordinates, LOS status, visible corners, and distance
+            Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
+            CreateHighlight(cell, color, $"AttackHighlight_{cell.x}_{cell.z}_{statusText}");
+        }
+        Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount}");
+    }
+
+    private int CalculateDistance(Vector3Int from, Vector3Int to)
+    {
+        int dx = Mathf.Abs(to.x - from.x);
+        int dz = Mathf.Abs(to.z - from.z);
+        return Mathf.Max(dx, dz);
     }
 
     // if max range is zero or negative, we treat it as unlimited and return all walkable tiles
@@ -328,7 +310,7 @@ public class MovementRange
         }
     }
 
-    // for diagonal movement, both adjacent cardinal tiles must be walkable to prevent corner cutting
+    // for diagonal movement, both adjacent tiles must be walkable to prevent corner cutting
     private bool IsDiagonalMovementValid(Vector3Int cell, Vector3Int direction)
     {
         Vector3Int adjacent1 = cell + new Vector3Int(direction.x, 0, 0);

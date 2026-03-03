@@ -13,6 +13,11 @@ public class LineOfSight
     private const int SAMPLES_PER_TILE = 4;
     private const float MIN_RAY_DISTANCE = 0.01f;
 
+    // LOS status colors for visual feedback
+    public static readonly Color ClearColor = new Color(0f, 1f, 0f, 0.5f);      // Green with 50% alpha
+    public static readonly Color PartialColor = new Color(1f, 1f, 0f, 0.5f);    // Yellow with 50% alpha
+    public static readonly Color BlockedColor = new Color(1f, 0f, 0f, 0.5f);    // Red with 50% alpha
+
     // predefined offsets for the 4 corners of a tile, used to check LOS from multiple points within the tile
     private static readonly Vector2[] TileCornerOffsets = new[]
     {
@@ -29,6 +34,7 @@ public class LineOfSight
         PartialBlock,
         FullyBlocked
     }
+
     /// Creates a line-of-sight calculator
     public LineOfSight(IGridMemory gridMemory)
     {
@@ -46,6 +52,21 @@ public class LineOfSight
         else
             return Status.PartialBlock;
     }
+
+    /// <summary>
+    /// Gets the color associated with a line of sight status.
+    /// </summary>
+    public static Color GetStatusColor(Status status)
+    {
+        return status switch
+        {
+            Status.Clear => ClearColor,
+            Status.PartialBlock => PartialColor,
+            Status.FullyBlocked => BlockedColor,
+            _ => Color.white
+        };
+    }
+
     // counts how many of the 16 corner-to-corner rays are clear.
     public int CountCornerToCornerRays(Vector3Int start, Vector3Int target)
     {
@@ -61,6 +82,7 @@ public class LineOfSight
         }
         return clearCount;
     }
+
     // Counts how many of the 4 target corners are visible from at least one source corner.
     public int CountVisibleCorners(Vector3Int start, Vector3Int target)
     {
@@ -84,15 +106,7 @@ public class LineOfSight
         return visibleCorners;
     }
 
-    /// <summary>
-    /// Uses raycasting to determine if there's a clear line of sight between start and end point.
-    /// Uses Unity Physics to detect actual wall geometry, not just grid walkability.
-    /// </summary>
-    /// <param name="start">Starting cell (player position)</param>
-    /// <param name="end">Target cell</param>
-    /// <param name="startOffset">Offset from center of start tile</param>
-    /// <param name="endOffset">Offset from center of end tile</param>
-    /// <returns>True if ray is blocked, false if clear</returns>
+    // Uses raycasting to determine if there's a clear line of sight between start and end point.
     private bool IsRayBlocked(Vector3Int start, Vector3Int end, Vector2 startOffset, Vector2 endOffset)
     {
         // calculate ray start and end positions in world space, applying offsets to check corners
@@ -100,23 +114,24 @@ public class LineOfSight
         Vector2 rayEnd2D = new Vector2(end.x + 0.5f + endOffset.x, end.z + 0.5f + endOffset.y);
         Vector2 direction2D = rayEnd2D - rayStart2D;
         float rayDistance2D = direction2D.magnitude;
+        
         if (rayDistance2D < MIN_RAY_DISTANCE)
             return false;
 
-        // Convert to 3D for Unity Physics raycast
-        float rayHeight = grid.GridY + 0.5f; // Adjust this height based on your character/wall heights
+        // convert to 3D for Unity Physics raycast
+        float rayHeight = grid.GridY + 0.5f;
         Vector3 rayStart3D = new Vector3(rayStart2D.x, rayHeight, rayStart2D.y);
         Vector3 rayEnd3D = new Vector3(rayEnd2D.x, rayHeight, rayEnd2D.y);
-        Vector3 direction3D = rayEnd3D - rayStart3D;
-        float distance3D = direction3D.magnitude;
-        // Normalize direction for raycast
-        direction3D.Normalize();
-        // Use a small offset to avoid hitting the source character's collider
-        float startOffset3D = 0.1f;
+        Vector3 direction3D = (rayEnd3D - rayStart3D).normalized;
+        float distance3D = Vector3.Distance(rayStart3D, rayEnd3D);
+        
+        // use small offset to avoid hitting the source character's collider
+        const float startOffset3D = 0.1f;
+        // raycast in 3D to check for any solid obstacles along the path
         if (Physics.Raycast(rayStart3D + direction3D * startOffset3D, direction3D, distance3D - startOffset3D))
-        {
-            return true; // Hit a physical obstacle (wall collider)
-        }
+            return true; 
+
+        // check grid walkability along the ray path
         direction2D.Normalize();
         int sampleCount = Mathf.CeilToInt(rayDistance2D * SAMPLES_PER_TILE);
         HashSet<Vector3Int> visitedCells = new HashSet<Vector3Int>(sampleCount);
@@ -127,12 +142,13 @@ public class LineOfSight
             Vector2 samplePos = rayStart2D + direction2D * rayDistance2D * ((float)i / sampleCount);
             Vector3Int currentCell = new Vector3Int(Mathf.FloorToInt(samplePos.x), start.y, Mathf.FloorToInt(samplePos.y));
 
-            if (!visitedCells.Add(currentCell) || currentCell == start || currentCell == end)
-                continue;
-
-            if (!IsWithinBounds(currentCell) || !grid.IsCellWalkable(currentCell))
-                return true;
+            if (visitedCells.Add(currentCell) && currentCell != start && currentCell != end)
+            {
+                if (!IsWithinBounds(currentCell) || !grid.IsCellWalkable(currentCell))
+                    return true;
+            }
         }
+        
         return false;
     }
 
