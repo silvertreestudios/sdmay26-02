@@ -14,9 +14,9 @@ public class LineOfSight
     private const float MIN_RAY_DISTANCE = 0.01f;
 
     // LOS status colors for visual feedback
-    public static readonly Color ClearColor = new Color(0f, 1f, 0f, 0.5f);      // Green with 50% alpha
-    public static readonly Color PartialColor = new Color(1f, 1f, 0f, 0.5f);    // Yellow with 50% alpha
-    public static readonly Color BlockedColor = new Color(1f, 0f, 0f, 0.5f);    // Red with 50% alpha
+    public static readonly Color ClearColor = new Color(0f, 1f, 0f, 0.5f);   
+    public static readonly Color PartialColor = new Color(1f, 1f, 0f, 0.5f); 
+    public static readonly Color BlockedColor = new Color(1f, 0f, 0f, 0.5f);    
 
     // predefined offsets for the 4 corners of a tile, used to check LOS from multiple points within the tile
     private static readonly Vector2[] TileCornerOffsets = new[]
@@ -58,13 +58,17 @@ public class LineOfSight
     /// </summary>
     public static Color GetStatusColor(Status status)
     {
-        return status switch
+        switch (status)
         {
-            Status.Clear => ClearColor,
-            Status.PartialBlock => PartialColor,
-            Status.FullyBlocked => BlockedColor,
-            _ => Color.white
-        };
+            case Status.Clear:
+                return ClearColor;
+            case Status.PartialBlock:
+                return PartialColor;
+            case Status.FullyBlocked:
+                return BlockedColor;
+            default:
+                return Color.white;
+        }
     }
 
     // counts how many of the 16 corner-to-corner rays are clear.

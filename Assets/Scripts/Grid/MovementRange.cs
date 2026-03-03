@@ -178,7 +178,6 @@ public class MovementRange
         }
         else
         { 
-            // Use Euclidean distance for accurate circular range
             float maxRangeSquared = weaponRange * weaponRange;
             // iterate over square area around the start cell, but only include tiles within the circular radius
             for (int x = -weaponRange; x <= weaponRange; x++)
@@ -266,6 +265,8 @@ public class MovementRange
         Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount}");
     }
 
+    // calculate distance between tiles within line of sight
+    // only outputs horizontal distance
     private int CalculateDistance(Vector3Int from, Vector3Int to)
     {
         int dx = Mathf.Abs(to.x - from.x);
@@ -273,7 +274,7 @@ public class MovementRange
         return Mathf.Max(dx, dz);
     }
 
-    // if max range is zero or negative, we treat it as unlimited and return all walkable tiles
+    // if max range is zero or negative, treat as unlimited and return all walkable tiles
     private HashSet<Vector3Int> GetAllWalkableTiles()
     {
         HashSet<Vector3Int> allTiles = new HashSet<Vector3Int>();

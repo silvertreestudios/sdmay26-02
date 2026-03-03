@@ -3,6 +3,7 @@ using UnityEngine;
 
 /// <summary>
 /// Manages visual path preview rendering using Unity's LineRenderer.
+/// TODO: make visual indicator look better
 /// </summary>
 public class VisualIndicator
 {
@@ -30,9 +31,16 @@ public class VisualIndicator
     /// <summary>
     /// Gets the currently previewed path (returns null if no path is active)
     /// </summary>
-    public List<Vector3Int> CurrentPath => isActive && currentPath != null
-        ? new List<Vector3Int>(currentPath)
-        : null;
+    public List<Vector3Int> CurrentPath
+    {
+        get
+        {
+            if (isActive && currentPath != null)
+                return new List<Vector3Int>(currentPath);
+
+            return null;
+        }
+    }
 
     /// <summary>
     /// Creates a new VisualIndicator
@@ -120,8 +128,6 @@ public class VisualIndicator
 
         // Show the preview
         indicatorObject.SetActive(true);
-
-        Debug.Log($"[VisualIndicator] Path shown with {path.Count} waypoints.");
     }
 
     /// <summary>
