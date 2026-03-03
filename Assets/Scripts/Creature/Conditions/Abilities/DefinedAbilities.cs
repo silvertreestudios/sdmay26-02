@@ -53,51 +53,53 @@ public static class DefinedAbilities
         // TODO
         // On combat start, IF not wearing heavy armor
         //    Instantly use rage, no action point cost
+        Rage rageAction = new Rage(0);
+        rageAction.UseRage(g);
     });
 
-    private static Ability Rage = new("Rage", (GameObject g) =>
-    {
-        Rage.Traits = new List<string> {"barbarian", "concentrate", "emotion", "mental"};
+    // private static Ability Rage = new("Rage", (GameObject g) =>
+    // {
+        // Rage.Traits = new List<string> {"barbarian", "concentrate", "emotion", "mental"};
 
-        // TODO replace with actual raging check, "Raging" is not technically a condition
-        if (!g.GetComponent<Conditions>().Contains("Fatigued") && !g.GetComponent<Conditions>().Contains("Raging"))
-        {
-            //g.GetComponent<Conditions>().Add("Raging", g);
+        // // TODO replace with actual raging check, "Raging" is not technically a condition
+        // if (!g.GetComponent<Conditions>().Contains("Fatigued") && !g.GetComponent<Conditions>().Contains("Raging"))
+        // {
+        //     //g.GetComponent<Conditions>().Add("Raging", g);
 
-            // Add THP, if rage hasn't ended with 1 min == 10 turns
-            if (true)
-            {
-                int tempHP = g.GetComponent<CreatureComponent>().level;
-                tempHP += g.GetComponent<CreatureComponent>().conMod;
-                g.GetComponent<CreatureComponent>().GainTempHp(tempHP);
-            }
+        //     // Add THP, if rage hasn't ended with 1 min == 10 turns
+        //     if (true)
+        //     {
+        //         int tempHP = g.GetComponent<CreatureComponent>().level;
+        //         tempHP += g.GetComponent<CreatureComponent>().conMod;
+        //         g.GetComponent<CreatureComponent>().GainTempHp(tempHP);
+        //     }
 
-            // Add rage damage bonus to StrikeWeapon actions
-            int rageBonus = 2;
-            List <EntityAction> actions = g.GetComponent<ActionController>().GetActions();
-            foreach (var action in actions)
-            {
-                if(action is StrikeWeapon)
-                {
-                    if(((StrikeWeapon)action).GetWeapon().range == 0)
-                        {
-                        string damageType = ((StrikeWeapon)action).GetStrike().FlatDamages[0].DamageType;
-                        // half bonus
-                        if (((StrikeWeapon)action).GetWeapon().traits.Contains("agile") || ((StrikeWeapon)action).GetWeaponName() == "unarmed")
-                        {
-                            ((StrikeWeapon)action).GetStrike().FlatDamages.Add(new DamageValue(damageType, rageBonus/2));
-                        }
-                        // full bonus
-                        else
-                        {
-                            ((StrikeWeapon)action).GetStrike().FlatDamages.Add(new DamageValue(damageType, rageBonus));
-                        }
-                    }
-                }
-            }
-        }
-        g.GetComponent<ActionController>();
-    });
+        //     // Add rage damage bonus to StrikeWeapon actions
+        //     int rageBonus = 2;
+        //     List <EntityAction> actions = g.GetComponent<ActionController>().GetActions();
+        //     foreach (var action in actions)
+        //     {
+        //         if(action is StrikeWeapon)
+        //         {
+        //             if(((StrikeWeapon)action).GetWeapon().range == 0)
+        //                 {
+        //                 string damageType = ((StrikeWeapon)action).GetStrike().FlatDamages[0].DamageType;
+        //                 // half bonus
+        //                 if (((StrikeWeapon)action).GetWeapon().traits.Contains("agile") || ((StrikeWeapon)action).GetWeaponName() == "unarmed")
+        //                 {
+        //                     ((StrikeWeapon)action).GetStrike().FlatDamages.Add(new DamageValue(damageType, rageBonus/2));
+        //                 }
+        //                 // full bonus
+        //                 else
+        //                 {
+        //                     ((StrikeWeapon)action).GetStrike().FlatDamages.Add(new DamageValue(damageType, rageBonus));
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+        // g.GetComponent<ActionController>();
+    // });
 
     /// <summary>
     /// Keep last in file, needs to be initialized after all referenced abilities
@@ -106,7 +108,7 @@ public static class DefinedAbilities
     {
         {"Slow", Slow },
         {"Quick-Tempered", QuickTempered},
-        {"Rage", Rage}
+        //{"Rage", Rage}
     };
 
 }

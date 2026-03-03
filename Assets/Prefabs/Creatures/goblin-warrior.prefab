@@ -56,7 +56,7 @@ MonoBehaviour:
   _maxHp: 6
   _tempHp: 0
   _ac: 16
-  _attackBonus: 7
+  _attackBonus: 0
   _damageBonus: 0
   _weaponBonuses:
   - category: unarmed
@@ -109,6 +109,7 @@ MonoBehaviour:
     yet consider pickles a delicacy. To a goblin, of course, these are all perfectly
     sensible life choices."
   _actions:
+  - Quick-Tempered
   - Dogslicer
   - Shortbow
   _reactions:

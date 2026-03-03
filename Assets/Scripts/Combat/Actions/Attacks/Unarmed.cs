@@ -16,6 +16,11 @@ public class Unarmed : MultiFrameEntityAction
         Strike.Traits = new List<string>() {"agile", "finesse", "nonlethal", "unarmed"};
     }
 
+    public Strike GetStrike()
+    {
+        return Strike;
+    }
+
     protected override IEnumerator MFInvoke(GameObject attacker)
     {
         ActionController ac = attacker.GetComponent<ActionController>();

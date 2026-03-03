@@ -159,6 +159,32 @@
   ],
   "items": [
     {
+      "name": "Quick-Tempered",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "passive"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "interaction",
+        "description": {
+          "value": "<p>This goblin has rage.  He is a very angry goblin. TEMP FOR TESTING.</p>"
+        },
+        "descriptionParagraphs": [
+          "This goblin has rage.  He is a very angry goblin. TEMP FOR TESTING."
+        ],
+        "descriptionContext": [],
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    },
+    {
       "name": "Dogslicer",
       "type": "melee",
       "system": {
