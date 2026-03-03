@@ -266,7 +266,7 @@ public class MovementRange
     }
 
     // calculate distance between tiles within line of sight
-    // only outputs horizontal distance
+    // outputs horizontal distance
     private int CalculateDistance(Vector3Int from, Vector3Int to)
     {
         int dx = Mathf.Abs(to.x - from.x);

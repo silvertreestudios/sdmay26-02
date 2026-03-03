@@ -54,7 +54,7 @@ public class LineOfSight
     }
 
     /// <summary>
-    /// Gets the color associated with a line of sight status.
+    /// Gets color associated with a line of sight status.
     /// </summary>
     public static Color GetStatusColor(Status status)
     {
@@ -91,6 +91,7 @@ public class LineOfSight
     public int CountVisibleCorners(Vector3Int start, Vector3Int target)
     {
         int visibleCorners = 0;
+        // for each target corner, check if at least one ray from any source corner is clear
         foreach (var targetCorner in TileCornerOffsets)
         {
             bool cornerVisible = false;
@@ -110,40 +111,50 @@ public class LineOfSight
         return visibleCorners;
     }
 
-    // Uses raycasting to determine if there's a clear line of sight between start and end point.
+    // check if a single ray from one corner to another is blocked 
+    // uses both physics raycast for obstacles and grid walkability checks along path
     private bool IsRayBlocked(Vector3Int start, Vector3Int end, Vector2 startOffset, Vector2 endOffset)
     {
-        // calculate ray start and end positions in world space, applying offsets to check corners
+        // x and y positions of start and end corner
         Vector2 rayStart2D = new Vector2(start.x + 0.5f + startOffset.x, start.z + 0.5f + startOffset.y);
         Vector2 rayEnd2D = new Vector2(end.x + 0.5f + endOffset.x, end.z + 0.5f + endOffset.y);
+        
         Vector2 direction2D = rayEnd2D - rayStart2D;
+        // how far apart start and end corners are in 2D space
         float rayDistance2D = direction2D.magnitude;
         
+        // if distance is small, assume unblocked
         if (rayDistance2D < MIN_RAY_DISTANCE)
             return false;
 
-        // convert to 3D for Unity Physics raycast
+        // get height to cast ray at
         float rayHeight = grid.GridY + 0.5f;
+        // convert start and end points to 3D for raycasting
         Vector3 rayStart3D = new Vector3(rayStart2D.x, rayHeight, rayStart2D.y);
         Vector3 rayEnd3D = new Vector3(rayEnd2D.x, rayHeight, rayEnd2D.y);
+
+        // get 3D direction and distance
         Vector3 direction3D = (rayEnd3D - rayStart3D).normalized;
         float distance3D = Vector3.Distance(rayStart3D, rayEnd3D);
-        
-        // use small offset to avoid hitting the source character's collider
+
+        // move ray start slightly forward
         const float startOffset3D = 0.1f;
-        // raycast in 3D to check for any solid obstacles along the path
+        // fire a ray to see if it hits any object
         if (Physics.Raycast(rayStart3D + direction3D * startOffset3D, direction3D, distance3D - startOffset3D))
             return true; 
 
         // check grid walkability along the ray path
         direction2D.Normalize();
+        // how many spots along the ray to check
         int sampleCount = Mathf.CeilToInt(rayDistance2D * SAMPLES_PER_TILE);
+        // track tiles already checked
         HashSet<Vector3Int> visitedCells = new HashSet<Vector3Int>(sampleCount);
 
         for (int i = 1; i < sampleCount; i++)
         {
             // sample points along ray at regular intervals, convert to grid coord and check walkability
             Vector2 samplePos = rayStart2D + direction2D * rayDistance2D * ((float)i / sampleCount);
+            // which tile on the grid this position is at 
             Vector3Int currentCell = new Vector3Int(Mathf.FloorToInt(samplePos.x), start.y, Mathf.FloorToInt(samplePos.y));
 
             if (visitedCells.Add(currentCell) && currentCell != start && currentCell != end)
