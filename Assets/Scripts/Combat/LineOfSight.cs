@@ -29,17 +29,13 @@ public class LineOfSight
         PartialBlock,
         FullyBlocked
     }
-
-    /// <summary>
     /// Creates a line-of-sight calculator
-    /// </summary>
-    /// <param name="gridMemory">Grid memory for walkability checks</param>
     public LineOfSight(IGridMemory gridMemory)
     {
         grid = gridMemory;
     }
 
-    // Determines line of sight status between two cells
+    // determines line of sight status between two cells
     public Status GetStatus(Vector3Int start, Vector3Int target, out int clearRays)
     {
         clearRays = CountCornerToCornerRays(start, target);
@@ -50,7 +46,7 @@ public class LineOfSight
         else
             return Status.PartialBlock;
     }
-    // Counts how many of the 16 corner-to-corner rays are clear.
+    // counts how many of the 16 corner-to-corner rays are clear.
     public int CountCornerToCornerRays(Vector3Int start, Vector3Int target)
     {
         int clearCount = 0;
@@ -137,7 +133,6 @@ public class LineOfSight
             if (!IsWithinBounds(currentCell) || !grid.IsCellWalkable(currentCell))
                 return true;
         }
-
         return false;
     }
 

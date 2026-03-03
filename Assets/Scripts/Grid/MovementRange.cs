@@ -22,7 +22,6 @@ public class MovementRange
     private readonly LineOfSight lineOfSight;
     private readonly Color clearLOSColor = new Color(0f, 1f, 0f, 0.5f);
     private readonly Color partialLOSColor = new Color(1f, 1f, 0f, 0.5f);
-    private readonly Color blockedLOSColor = new Color(1f, 0f, 0f, 0.5f);
 
     // directions for cardinal and diagonal movement, used for neighbor checks
     private static readonly Vector3Int[] CardinalDirections = new[]
@@ -45,7 +44,7 @@ public class MovementRange
     private const float HIGHLIGHT_SCALE_FACTOR = 0.1f;
 
     /// <summary>
-    /// Creates a movement range system for a character
+    /// Creates a movement range system for a player.
     /// </summary>
     public MovementRange(GridCharacterController3D controller)
     {
@@ -60,7 +59,6 @@ public class MovementRange
     }
     
     public bool IsCellReachable(Vector3Int cell) => currentReachableTiles.Contains(cell);
-
     // updates highlights for movement range, calculating reachable tiles and creating highlight objects
     public void UpdateHighlights(Vector3Int startCell, int maxRange)
     {
@@ -71,12 +69,7 @@ public class MovementRange
             CreateHighlightVisuals(startCell, currentReachableTiles);
         }
     }
-
-    /// <summary>
-    /// Updates highlights for attacked tiles using weapon range, using line of sight checks to determine color and display info
-    /// </summary>
-    /// <param name="startCell">The attacking cell position</param>
-    /// <param name="weaponRange">The maximum range of the weapon</param>
+    // Updates highlights for attacked tiles using weapon range, using line of sight checks to determine color and display info
     public void UpdateAttackHighlightsWithRange(Vector3Int startCell, int weaponRange)
     {
         ClearHighlights();
@@ -172,21 +165,17 @@ public class MovementRange
         {
             if (cell.Equals(startCell))
                 continue;
-            
-            // determine LOS status for this tile and get corresponding color and text
+            // determine line of sight status for this tile and get corresponding color and text
             LineOfSight.Status status = lineOfSight.GetStatus(startCell, cell, out int clearRays);
-            // Calculate visible corners for all non-fully-blocked tiles
             int visibleCorners = 0;
+
+            // only calculate visible corners if tile not fully blocked
             if (status != LineOfSight.Status.FullyBlocked)
             {
                 visibleCorners = lineOfSight.CountVisibleCorners(startCell, cell);
-                
-                if ((cell.x == 12 && cell.z == 1) || (cell.x == 12 && cell.z == 3))
-                {
-                    Debug.Log($"[DEBUG] Tile {cell}: Status={status}, ClearRays={clearRays}/16, VisibleCorners={visibleCorners}/4");
-                }
             }
 
+            // if line of sight is fully blocked, increment blocked count and skip highlight creation
             if (status == LineOfSight.Status.FullyBlocked)
             {
                 blockedCount++;
@@ -215,12 +204,9 @@ public class MovementRange
             {
                 color = highlightColor;
                 statusText = "UNKNOWN";
-                Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners}");
             }
-
             CreateHighlight(cell, color, $"AttackHighlight_{cell.x}_{cell.z}_{statusText}");
         }
-
         Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount}");
     }
 
@@ -274,7 +260,6 @@ public class MovementRange
             // Range > 1 represents ranged attack - use circular area
             // Use Euclidean distance for accurate circular range
             float maxRangeSquared = maxRange * maxRange;
-
             // iterate over square area around the start cell, but only include tiles within the circular radius
             for (int x = -maxRange; x <= maxRange; x++)
             {
@@ -395,10 +380,5 @@ public class MovementRange
             renderer.material = mat;
         }
         activeHighlights.Add(highlight);
-    }
-
-    public void Dispose()
-    {
-        ClearHighlights();
     }
 }
