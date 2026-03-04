@@ -24,6 +24,7 @@ public class GridRenderer3D : MonoBehaviour
     // refrence to tile prefab
     [SerializeField] private GameObject groundTile;
     [SerializeField] private GameObject wallTile;
+    [SerializeField] private GameObject doorTile;
 
     [Header("Appearance")]
     // Color of each cell quad.
@@ -50,9 +51,6 @@ public class GridRenderer3D : MonoBehaviour
     // Buckets for grid, overlay/hover.
     Transform _gridRoot, _overlayRoot;
 
-    // ---------- Sprite references ----------
-    // One SR per cell.
-    // readonly List<SpriteRenderer> _cells = new();
     //trying to use plane meshes instead of sprites so we dont have to deal with the camera. this will also makes textures easier. pysics will also be easier
     readonly List<MeshRenderer> _cells = new();
     readonly List<MeshRenderer> _walls = new();

@@ -189,8 +189,6 @@ public class GridCharacterController3D : MonoBehaviour
     {
         visualIndicator = new VisualIndicator(this);
         rangeHighlighter = new MovementRange(this);
-
-        Debug.Log("[GridCharacterController3D] Subsystems initialized.");
     }
 
     /// <summary>
