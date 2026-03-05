@@ -81,6 +81,7 @@ public class PlayerCharacter
     public string className;
     public int hp;
     public int speed;
+    public string size;
     public int strength;
     public int dexterity;
     public int constitution;
@@ -102,6 +103,10 @@ public class PlayerCharacter
     public string ancestryFeat;
     public string classFeat;
     public string subclass;
+    public string[] specialAbilities;
+    //hard coded for barbarian test
+    public string weapon = "Great Axe";
+    public string armor = "Scalemail";
 }
 
 //individually track the attribute boosts from ancestry, background, and class. Not json related
@@ -172,6 +177,7 @@ public class CharacterCreationScript : MonoBehaviour
     Toggle intelligenceToggle;
     Toggle wisdomToggle;
     Toggle charismaToggle;
+    Button jsonDebug;
     Dictionary<string, List<string>> backgroundDescriptionByBackground;
     List<Toggle> toggles;
     List<string> attributeKeysForToggles; //the index of the List<Toggle> matches the index of List<string> attributeKey
@@ -233,6 +239,7 @@ public class CharacterCreationScript : MonoBehaviour
         intelligenceToggle = root.Q<Toggle>("IntelligenceToggle");
         wisdomToggle = root.Q<Toggle>("WisdomToggle");
         charismaToggle = root.Q<Toggle>("CharismaToggle");
+        jsonDebug = root.Q<Button>("jsondebug");
         simpleWeaponsField = root.Q<TextField>("SimpleAttack");
         martialWeaponsField = root.Q<TextField>("MartialAttack");
         advancedWeaponsField = root.Q<TextField>("AdvancedAttack");
@@ -278,13 +285,18 @@ public class CharacterCreationScript : MonoBehaviour
         attributes.Add("Wisdom", new AttributeContributions());
         attributes.Add("Charisma", new AttributeContributions());
 
+        jsonDebug.clicked += PrintJson; //FOR DEBUGGING THE PLAYERCHARACTER JSON
+
         nameField.RegisterValueChangedCallback(OnNameChanged);
         genderRadioButtonGroup.RegisterValueChangedCallback(OnGenderChanged);
 
         ancestryRadioButtonGroup.RegisterValueChangedCallback(OnAncestryChanged);
+        ancestryFeatsRadioButtonGroup.RegisterValueChangedCallback(OnAncestryFeatChanged);
         ancestryFreeBoostRadioButtonGroup.RegisterValueChangedCallback(OnAncestryFreeBoostChanged);
         backgroundRadioButtonGroup.RegisterValueChangedCallback(OnBackgroundChanged);
         classesRadioButtonGroup.RegisterValueChangedCallback(OnClassChanged);
+        classFeatsRadioButtonGroup.RegisterValueChangedCallback(OnClassFeatChanged);
+        subclassRadioButtonGroup.RegisterValueChangedCallback(OnSubclassChanged);
         heritageRadioButtonGroup.RegisterValueChangedCallback(OnHeritageChanged);
         backgroundBoostChoiceRadioButtonGroup.RegisterValueChangedCallback(OnBackgroundBoostChanged);
         backgroundFreeBoostRadioButtonGroup.RegisterValueChangedCallback(OnBackgroundFreeBoostChanged);
@@ -300,6 +312,11 @@ public class CharacterCreationScript : MonoBehaviour
                 HandleToggleChanged(toggle, evt.newValue);
             });
         }
+    }
+
+    void PrintJson()
+    {
+        Debug.Log(JsonUtility.ToJson(currentCharacter, true));
     }
 
     void OnNameChanged(ChangeEvent<string> evt)
@@ -321,6 +338,7 @@ public class CharacterCreationScript : MonoBehaviour
 
         string selectedAncestry = (ancestryRadioButtonGroup[evt.newValue] as RadioButton).label; //evt.newValue is the index of the selected button
         ancestryChoiceField.value = selectedAncestry;
+        currentCharacter.ancestry = selectedAncestry; //send to PlayerCharacter json
         ancestryHP = db.ancestries.Find(a => a.id == selectedAncestry).hp;
         hpField.value = classHP + ancestryHP; //add ancestry hp to other hp
         currentCharacter.hp = hpField.value;
@@ -333,11 +351,10 @@ public class CharacterCreationScript : MonoBehaviour
 
         speedField.value = db.ancestries.Find(a => a.id == selectedAncestry).speed;
         currentCharacter.speed = speedField.value;
+        currentCharacter.size = db.ancestries.Find(a => a.id == selectedAncestry).size;
         PopulateHeritageButtons(selectedAncestry);
         PopulateAncestryFeatButtons(selectedAncestry);
         PopulateAncestryDescription(selectedAncestry);
-
-        currentCharacter.ancestry = selectedAncestry; //send to PlayerCharacter json
     }
 
     //when there's a change in the heritageRadioGroup, grab that text
@@ -403,6 +420,18 @@ public class CharacterCreationScript : MonoBehaviour
         ancestryFeatsRadioButtonGroup.value = 0; // optional: auto-select first
     }
 
+    //when there's a change in the ancestry feats RadioGroup, grab that text
+    void OnAncestryFeatChanged(ChangeEvent<int> evt)
+    {
+        //guards against -1, which is when no button is selected
+        if (evt.newValue < 0) {
+            return;
+        }
+
+        string selectedAncestryFeat = (ancestryFeatsRadioButtonGroup[evt.newValue] as RadioButton).text; //for some reason .label doesn't work here but .text does
+        currentCharacter.ancestryFeat = selectedAncestryFeat;
+    }
+
     //also populates attribute boosts and flaws
     void PopulateAncestryDescription(string ancestry)
     {
@@ -411,6 +440,7 @@ public class CharacterCreationScript : MonoBehaviour
 
         ancestryBoostsFlawsLabel.text = "Attribute Boosts: " + string.Join(", ", selectedAncestry.attributeBoost) + "\n" + "Attribute Flaw: " + selectedAncestry.attributeFlaw;
         ancestrySpecialAbilitiesLabel.text = "Special Abilities: " + string.Join(", ", selectedAncestry.specialAbilities);
+        currentCharacter.specialAbilities = selectedAncestry.specialAbilities;
     }
 
     //when there's a change in the backgroundRadioGroup, grab that text
@@ -553,6 +583,18 @@ public class CharacterCreationScript : MonoBehaviour
         classFeatsRadioButtonGroup.value = 0; // optional: auto-select first
     }
 
+    //when there's a change in the class feats RadioGroup, grab that text
+    void OnClassFeatChanged(ChangeEvent<int> evt)
+    {
+        //guards against -1, which is when no button is selected
+        if (evt.newValue < 0) {
+            return;
+        }
+
+        string selectedClassFeat = (classFeatsRadioButtonGroup[evt.newValue] as RadioButton).text; //for some reason .label doesn't work here but .text does
+        currentCharacter.classFeat = selectedClassFeat;
+    }
+
     void PopulateSubclassButtons(string className)
     {
         subclassRadioButtonGroup.Clear(); //clear out past buttons
@@ -568,6 +610,18 @@ public class CharacterCreationScript : MonoBehaviour
         }
 
         subclassRadioButtonGroup.value = 0; // optional: auto-select first
+    }
+
+    //when there's a change in the subclass RadioGroup, grab that text
+    void OnSubclassChanged(ChangeEvent<int> evt)
+    {
+        //guards against -1, which is when no button is selected
+        if (evt.newValue < 0) {
+            return;
+        }
+
+        string selectedSubclass = (subclassRadioButtonGroup[evt.newValue] as RadioButton).text; //for some reason .label doesn't work here but .text does
+        currentCharacter.subclass = selectedSubclass;
     }
 
     void PopulateClassDescription(string className)
@@ -697,6 +751,6 @@ public class CharacterCreationScript : MonoBehaviour
         currentCharacter.wisdom = wisdomAttributeField.value;
         currentCharacter.charisma = charismaAttributeField.value;
 
-        Debug.Log(JsonUtility.ToJson(currentCharacter, true));
+        // Debug.Log(JsonUtility.ToJson(currentCharacter, true));
     }
 }

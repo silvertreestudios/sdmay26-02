@@ -9,6 +9,7 @@
             "className": "none",
             "hp": "0",
             "speed": "0",
+            "size": "0",
             "strength": "0",
             "dexterity": "0",
             "constitution": "0",
@@ -29,7 +30,10 @@
             "allArmor": "none",
             "ancestryFeat": "none",
             "classFeat": "none",
-            "subclass": "none"
+            "subclass": "none",
+            "specialAbilities": ["none"],
+            "weapon": "none",
+            "armor": "none"
         }
     ]
 }

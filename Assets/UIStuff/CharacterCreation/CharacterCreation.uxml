@@ -142,6 +142,7 @@
             <ui:Label name="ClassDescription" />
             <ui:Label name="ClassBoosts" />
             <ui:Label name="ClassSkills" />
+            <ui:Button text="Button" name="jsondebug" />
         </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>
