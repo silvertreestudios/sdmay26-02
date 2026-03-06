@@ -1,386 +1,488 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
+
 [DisallowMultipleComponent]
 public class GridCharacterController3D : MonoBehaviour
 {
-    [Header("References")]
-    // Grid to move on
-    public GridRenderer3D grid;
-    // prefab to visualize the player
+    // Singleton instance
+    private static GridCharacterController3D instance;
+    public static GridCharacterController3D Instance => instance;
+
+    // References to grid and prefabs set in inspector
+    public GridMemory gridMemory;
     public GameObject prefab;
-    // Try to find a GridRenderer automatically if none is assigned
+    public GameObject prefab2;
     public bool autoFindGrid = true;
+    public GameObject rangeHighlightPrefab;
 
-    [Header("Spawn")]
-    // Sorting order so the character renders above the grid
-    public int sortingOrder = 200;
-
-    [Header("Movement (XZ only)")]
-    public float moveSpeed = 2f;
-    // Slight Y offset so the character draws on top of the grid
+    // Spawn settings
     public float yDrawOffset = 0.001f;
 
-    // Instance of the visualized character (prefab or generated)
-    GameObject _character;
-    // SpriteRenderer used to display the character
-    SpriteRenderer _sr;
-    // Current path as a list of grid cells to follow (x,y,z)
-    List<Vector3Int> _path = null;
-    // Index of the next waypoint in the path
-    int _pathIndex = 0;
-    // Convenience: true while we still have waypoints to follow
-    bool _isMoving => _path != null && _pathIndex < _path.Count;
+    // Movement settings
+    public float moveSpeed = 2f;
+    public int maxMovementDistance = 9;
 
-    // Called when component becomes active
+    // Animation settings
+    public float stepHeight;
+    public float maxRotation;
+    public AnimationCurve ptLerp;
+    public AnimationCurve yLerp;
+    public float JumpDuration = 0.5f;
+    public Transform dummyTarget;
+    public bool allowDiagonalMovement = true;
+    public float diagonalCost = 1.414f;
+
+    // Visual indicator settings
+    public Material indicatorMaterial;
+    public float indicatorWidth = 0.2f;
+    public float indicatorHeight = 0.1f;
+    public Color defaultIndicatorColor = new Color(1f, 1f, 0f, 0.7f);
+    public Color confirmedIndicatorColor = new Color(1f, 0f, 0f, 0.7f);
+    public float doubleClickTime = 0.3f;
+    public Color rangeHighlightColor = new Color(1f, 0f, 0f, 0.5f);
+    public float rangeHighlightHeightOffset = 0.05f;
+
+    // Character storage
+    private Dictionary<GameObject, GameObject> characters = new Dictionary<GameObject, GameObject>();
+    private Dictionary<GameObject, ITokenMovement> tokenMovements = new Dictionary<GameObject, ITokenMovement>();
+
+    // Subsystem references
+    public GridPathfinder pathfinder { get; private set; }
+    public VisualIndicator visualIndicator { get; private set; }
+    public MovementRange rangeHighlighter { get; private set; }
+    public GridCoordinateConverter coordinateConverter { get; private set; }
+    // State flags
+    public bool isInitialized { get; private set; } = false;
+    public bool isProcessingTurn = false;
+    private GameObject currentPlayer = null;
+
+    // Shared per-frame state for input coroutine
+    public Camera currentCamera;
+    public ITokenMovement currentMovement;
+
+    // Input tracking
+    private float lastClickTime = 0f;
+    private bool leftClick = false;
+    private bool rightClick = false;
+    private bool isDoubleClick = false;
+    public bool cancel = false;
+    public Vector3Int lastClickedCell;
+
+
+    void Awake()
+    {
+        // Set up singleton
+        if (instance != null && instance != this)
+        {
+            Destroy(this.gameObject);
+            return;
+        }
+        instance = this;
+    }
+
     void OnEnable()
     {
-        // If requested and missing, look up the first GridRenderer in the scene
-        if (autoFindGrid && !grid) grid = FindAnyObjectByType<GridRenderer3D>();
-    }
+        // Auto-find grid if needed
+        if (autoFindGrid && !gridMemory)
+            gridMemory = FindAnyObjectByType<GridMemory>();
 
-    // Called on the first frame the component is active
-    void Start()
-    {
-        // Create or instantiate the character visual
-        SpawnCharacter();
-        // Move the visual to a valid grid cell center if needed
-        SnapToValidCellIfNeeded();
-    }
-
-    // Create the character GameObject and renderer (from prefab or generated circle)
-    void SpawnCharacter()
-    {
-        // If a prefab is provided, instantiate it
-        if (prefab)
+        // Register cell selectability check with grid
+        if (gridMemory != null)
         {
-            // Instantiate with default rotation (no Quaternion ops)
-            _character = Instantiate(prefab);
-            // Match the prefab's name for clarity
-            _character.name = prefab.name;
-            // Cache the SpriteRenderer if present
-            _sr = _character.GetComponent<SpriteRenderer>();
-            // Ensure it draws above the grid
-            if (_sr) _sr.sortingOrder = sortingOrder;
+            gridMemory.IsCellSelectable = IsCellSelectableForCurrentCharacter;
         }
-        // Place the character at grid Y level (plus tiny offset to avoid z-fighting)
-        float yPos;
-
-        if (grid)
-            yPos = grid.gridY + yDrawOffset;
-        else
-            yPos = 0.001f;
-
-        _character.transform.position = new Vector3(0f, yPos, 0f);
-
     }
 
-    // Per-frame update while playing
+    void OnDisable()
+    {
+        // Unregister selectability check
+        if (gridMemory != null)
+        {
+            gridMemory.IsCellSelectable = null;
+        }
+
+        // Clean up subsystems
+        rangeHighlighter?.ClearHighlights();
+        visualIndicator?.Clear();
+    }
+
+    /// <summary>
+    /// Initializes the character controller and subsystems
+    /// </summary>
+    public void Setup()
+    {
+        InitializeCoordinateConverter();
+        InitializePathfinder();
+        SpawnCharacters();
+        InitializeMovementControllers();
+        InitializeSubsystems();
+
+        // Mark as initialized
+        isInitialized = true;
+
+        // Update pathfinder settings if changed in inspector
+        if (pathfinder != null)
+        {
+            pathfinder.SetDiagonalMovement(allowDiagonalMovement, diagonalCost);
+        }
+    }
+
+    // ideally this gets removed for performance, but is fine for now
     void Update()
     {
-        // Ignore updates in edit mode
-        if (!Application.isPlaying) return;
+        // Check if system is ready
+        if (!IsReadyForUpdate(out currentCamera)) return;
 
-        // Ensure we have a grid reference (try auto-find once per frame until found)
-        if (!grid)
-        {
-            if (autoFindGrid) grid = FindAnyObjectByType<GridRenderer3D>();
-            if (!grid) return;
-        }
-
-        // Use the grid’s camera if set, otherwise the main camera
-        var cam = grid.targetCamera ? grid.targetCamera : Camera.main;
-        // If no camera exists, we can’t pick cells from the mouse
-        if (!cam) return;
-
-        // On left mouse click, compute a path to the clicked cell
-        if (InputCompat.LeftClickDown())
-        {
-            // Convert mouse position to a world hit on the plane Y = gridY
-            if (!ScreenToXZPlane(cam, InputCompat.MousePositionScreen(), grid.gridY, out Vector3 hit)) return;
-
-            // Convert that world hit to a target grid cell (fail if outside grid)
-            if (!TryGridWorldToCell(hit, out Vector3Int targetCell)) return;
-
-            // Set destination tile,
-
-            // reject clicks on non-walkable cells
-            if (!grid.IsCellWalkable(targetCell.x, targetCell.z))
-            {
-                Debug.Log("Cell is occupied");
-                return;
-            }
-
-            // Determine the current cell based on character position
-            Vector3Int startCell;
-            if (!TryGridWorldToCell(_character.transform.position, out startCell))
-                startCell = ClampToGridXZ(_character.transform.position);
-
-
-            // Run Dijkstra (with wall checks) to find a path
-            var result = Dijkstra(startCell, targetCell);
-
-
-            // If no route, clear any existing path
-            if (!result.found) { _path = null; }
-            else
-            {
-                // Store the new path and start from the next node if first equals start
-                if (result.path != null)
-                    _path = result.path;
-                else
-                    _path = new List<Vector3Int>();
-
-                if (_path.Count > 1 && _path[0].Equals(startCell))
-                    _pathIndex = 1;
-                else
-                    _pathIndex = 0;
-
-                //// Mark start cell unoccupied and target cell occupied
-                //grid.setIsOccupied(startCell.x, startCell.z, false);
-                //grid.setIsOccupied(targetCell.x, targetCell.z, true);
-
-
-                // Snap character exactly to the start cell center (keep Y)
-                var startCenter = GridCellCenterWorld(startCell.x, startCell.z, yDrawOffset);
-                _character.transform.position = startCenter;
-            }
-        }
-
-        // If we have a path, move towards the next waypoint
-        if (_isMoving)
-        {
-            // Get the next cell to move to
-            var cell = _path[_pathIndex];
-
-            // Convert that cell to its world center position
-            Vector3 target = GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
-
-            // Read current position and lock Y to grid level
-            var p = _character.transform.position;
-            p.y = grid.gridY + yDrawOffset;
-
-            // Move a step towards the target based on speed and deltaTime
-            float step = moveSpeed * Time.deltaTime;
-            var newPos = Vector3.MoveTowards(p, target, step);
-            // Keep Y locked after move
-            newPos.y = grid.gridY + yDrawOffset;
-            // Apply the new position
-            _character.transform.position = newPos;
-        }
+        // Get current character data
+        if (!TryGetCurrentCharacterData(currentPlayer, out currentMovement))
+            return;
     }
 
-    // ===== Helpers for XZ-plane picking and grid conversion =====
-
-    // Convert a screen position to a world hit point on plane Y = planeY
-    bool ScreenToXZPlane(Camera cam, Vector2 screenPos, float planeY, out Vector3 hit)
+    /// <summary>
+    /// Initializes the coordinate converter
+    /// </summary>
+    private void InitializeCoordinateConverter()
     {
-        // Orthographic: direct ScreenToWorldPoint at the plane’s depth
-        if (cam.orthographic)
+        if (gridMemory != null)
         {
-            var wp = cam.ScreenToWorldPoint(new Vector3(screenPos.x, screenPos.y, Mathf.Abs(planeY - cam.transform.position.y)));
-            hit = new Vector3(wp.x, planeY, wp.z);
-            return true;
+            coordinateConverter = new GridCoordinateConverter(gridMemory);
         }
-        // Perspective: raycast the screen ray against the plane
         else
         {
-            var ray = cam.ScreenPointToRay(screenPos);
-            var plane = new Plane(Vector3.up, new Vector3(0f, planeY, 0f));
-            if (plane.Raycast(ray, out float t)) { hit = ray.GetPoint(t); return true; }
+            Debug.LogError("[GridCharacterController3D] Grid is null, cannot initialize coordinate converter!");
         }
-        hit = default; return false;
     }
 
-    // Convert a world position to a grid cell (returns false if outside grid bounds)
-    bool TryGridWorldToCell(Vector3 world, out Vector3Int cell)
+    /// <summary>
+    /// Initializes the pathfinder
+    /// </summary>
+    private void InitializePathfinder()
     {
-        // Compute cell indices by subtracting origin and dividing by cell size
-        int cx = Mathf.FloorToInt((world.x - grid.origin.x) / grid.cellSize);
-        int cz = Mathf.FloorToInt((world.z - grid.origin.z) / grid.cellSize);
-        // Package in a Vector3Int (y is 0 since we're working on XZ plane)
-        cell = new Vector3Int(cx, 0, cz);
-        // Ensure indices are inside [0,width) and [0,height)
-        return (uint)cx < (uint)grid.width && (uint)cz < (uint)grid.height;
-    }
-
-    // Clamp an arbitrary world position to the nearest valid cell indices
-    Vector3Int ClampToGridXZ(Vector3 pos)
-    {
-        // Convert to grid space, floor to cell, then clamp to edges
-        int gx = Mathf.Clamp(Mathf.FloorToInt((pos.x - grid.origin.x) / grid.cellSize), 0, grid.width - 1);
-        int gz = Mathf.Clamp(Mathf.FloorToInt((pos.z - grid.origin.z) / grid.cellSize), 0, grid.height - 1);
-        // Return the clamped cell
-        return new Vector3Int(gx, 0, gz);
-    }
-
-    // Ensure the character’s current position is at a valid cell center
-    void SnapToValidCellIfNeeded()
-    {
-        // If there’s no grid yet, nothing to do
-        if (!grid) return;
-        // Try to read the current cell; clamp if out of bounds
-        if (!TryGridWorldToCell(_character.transform.position, out var cell))
-            cell = ClampToGridXZ(_character.transform.position);
-
-        // if current cell isn't walkable, search a small neighborhood for one
-        if (!grid.IsCellWalkable(cell.x, cell.z))
+        if (gridMemory != null)
         {
-            bool found = false;
-            for (int r = 0; r <= 3 && !found; r++)
-            {
-                for (int dz = -r; dz <= r && !found; dz++)
-                    for (int dx = -r; dx <= r && !found; dx++)
-                    {
-                        int nx = Mathf.Clamp(cell.x + dx, 0, grid.width - 1);
-                        int nz = Mathf.Clamp(cell.z + dz, 0, grid.height - 1);
-                        if (grid.IsCellWalkable(nx, nz)) { cell = new Vector3Int(nx, 0, nz); found = true; }
-                    }
-            }
-            if (!grid.IsCellWalkable(cell.x, cell.z)) return; // nothing found; keep position as-is
+            pathfinder = new GridPathfinder(gridMemory, allowDiagonalMovement, diagonalCost);
         }
-
-        // Place the character precisely at that cell center
-        _character.transform.position = GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
-    }
-
-    // Get the world-space coordinates of the center of cell (x,z)
-    Vector3 GridCellCenterWorld(int x, int z, float yOffset = 0f)
-    {
-        // Midpoint in world along X based on origin and cell size
-        float wx = grid.origin.x + (x + 0.5f) * grid.cellSize;
-        // Midpoint in world along Z based on origin and cell size
-        float wz = grid.origin.z + (z + 0.5f) * grid.cellSize;
-        // Return a Vector3 at grid Y plus optional offset
-        return new Vector3(wx, grid.gridY + yOffset, wz);
-    }
-
-    // ===== Dijkstra pathfinding on a 2D grid (with diagonals) =====
-
-    // Node used in the priority queue (position + distance)
-    struct Node { public Vector3Int pos; public float dist; }
-
-    // Minimal binary heap for the Dijkstra frontier
-    class MinHeap
-    {
-        // Internal array list for heap storage
-        readonly List<Node> _d = new();
-        // Number of elements currently in the heap
-        public int Count => _d.Count;
-        // Insert a node and bubble it up
-        public void Push(Node n) { _d.Add(n); SiftUp(_d.Count - 1); }
-        // Remove and return the smallest node (distance)
-        public Node Pop() { var r = _d[0]; int last = _d.Count - 1; _d[0] = _d[last]; _d.RemoveAt(last); if (_d.Count > 0) SiftDown(0); return r; }
-        // Restore heap by moving node upward
-        void SiftUp(int i) { while (i > 0) { int p = (i - 1) >> 1; if (_d[i].dist >= _d[p].dist) break; (_d[i], _d[p]) = (_d[p], _d[i]); i = p; } }
-        // Restore heap by moving node downward
-        void SiftDown(int i) { for (; ; ) { int l = (i << 1) + 1, r = l + 1, s = i; if (l < _d.Count && _d[l].dist < _d[s].dist) s = l; if (r < _d.Count && _d[r].dist < _d[s].dist) s = r; if (s == i) break; (_d[i], _d[s]) = (_d[s], _d[i]); i = s; } }
-    }
-
-    // Dijkstra's algorithm from start to target; returns whether found, total distance, and the path
-    (bool found, float distance, List<Vector3Int> path) Dijkstra(Vector3Int start, Vector3Int target)
-    {
-        // Grid width/height and total cells
-        int w = grid.width, h = grid.height, total = w * h;
-        // Convert (x,z) to linear array index
-        int Idx(Vector3Int p) => p.x + p.z * w;
-
-        // Distance array initialized to +∞
-        var dist = new float[total];
-        for (int i = 0; i < total; i++) dist[i] = float.PositiveInfinity;
-        // Predecessor array for path reconstruction
-        var prev = new Vector3Int?[total];
-        // Min-heap frontier
-        var heap = new MinHeap();
-
-        // Start node distance is zero; push into heap
-        dist[Idx(start)] = 0f;
-        heap.Push(new Node { pos = start, dist = 0f });
-
-        // 8-neighborhood directions (4-cardinal + 4-diagonals)
-        var dirs = new Vector3Int[] {
-            new(1, 0, 0), new(-1, 0, 0), new(0, 0, 1), new(0, 0, -1),
-            new(1, 0, 1), new(1, 0, -1), new(-1, 0, 1), new(-1, 0, -1)
-        };
-        // Costs for cardinal (1) and diagonal (~√2)
-        var costs = new float[] {
-            1f, 1f, 1f, 1f,
-            1.41421356f, 1.41421356f, 1.41421356f, 1.41421356f
-        };
-
-        // Process until frontier is empty
-        while (heap.Count > 0)
+        else
         {
-            // Pop the closest node so far
-            var node = heap.Pop();
-            // Current position and index
-            var u = node.pos; int uIdx = Idx(u);
-            // Skip outdated heap entries
-            if (node.dist != dist[uIdx]) continue;
-
-            // Early exit if we reached the target
-            if (u == target)
-            {
-                // Rebuild the path by following predecessors
-                var path = new List<Vector3Int>();
-                var cur = target;
-                while (true)
-                {
-                    path.Add(cur);
-                    if (cur.Equals(start)) break;
-                    var p = prev[Idx(cur)]; if (!p.HasValue) break; cur = p.Value;
-                }
-                // Reverse so it goes start→target
-                path.Reverse();
-                // Return success with final distance and path
-                return (true, dist[uIdx], path);
-            }
-
-            // Relax edges to neighbors
-            for (int i = 0; i < dirs.Length; i++)
-            {
-                // Neighbor cell
-                var v = u + dirs[i];
-                // Skip if out of grid bounds
-                if ((uint)v.x >= (uint)w || (uint)v.z >= (uint)h) continue;
-
-                // cannot step onto a non-walkable destination
-                if (!grid.IsCellWalkable(v.x, v.z)) continue;
-
-                // Skip if a wall blocks this move (including diagonal corner cutting)
-                if (IsMoveBlocked(u, v)) continue;
-
-                // Candidate distance via u
-                int vIdx = Idx(v);
-                float alt = dist[uIdx] + costs[i];
-                // If shorter, record and push to heap
-                if (alt < dist[vIdx]) { dist[vIdx] = alt; prev[vIdx] = u; heap.Push(new Node { pos = v, dist = alt }); }
-            }
+            Debug.LogError("[GridCharacterController3D] Grid or GridMemory is null, cannot initialize pathfinder!");
         }
-        // No path found
-        return (false, -1f, null);
-
-
     }
 
-    // Check whether moving from u to v is blocked by walls
-    bool IsMoveBlocked(Vector3Int u, Vector3Int v)
+    /// <summary>
+    /// initializes movement controllers for each character
+    /// </summary>
+    private void InitializeMovementControllers()
     {
-        // Compute delta components and Manhattan distance
-        int dx = v.x - u.x, dy = v.z - u.z;
-        int manhattan = Mathf.Abs(dx) + Mathf.Abs(dy);
-        // Cardinal move: ask grid if the edge is blocked
-        if (manhattan == 1) return grid.IsEdgeBlocked(u, v);
-        // Diagonal move: disallow if either orthogonal step is blocked (no corner cutting)
-        if (manhattan == 2 && Mathf.Abs(dx) == 1 && Mathf.Abs(dy) == 1)
+        foreach (var kvp in characters)
         {
-            // The two orthogonal steps that compose the diagonal
-            var stepX = new Vector3Int(u.x + dx, 0, u.z);
-            var stepZ = new Vector3Int(u.x, 0, u.z + dy);
-            // Block diagonal if either side is blocked
-            return grid.IsEdgeBlocked(u, stepX) || grid.IsEdgeBlocked(u, stepZ);
+            tokenMovements[kvp.Key] = new tokenMovement(
+                kvp.Value.transform, stepHeight, maxRotation, ptLerp, yLerp);
         }
-        // Any other move (non-adjacent) is invalid/blocked
+    }
+
+    /// <summary>
+    /// Initialize subsystems: VisualIndicator and MovementRangeHighlighter
+    /// </summary>
+    private void InitializeSubsystems()
+    {
+        visualIndicator = new VisualIndicator(this);
+        rangeHighlighter = new MovementRange(this);
+
+        Debug.Log("[GridCharacterController3D] Subsystems initialized.");
+    }
+
+    /// <summary>
+    /// Checks if the system is prepared for update operations 
+    /// and retrieves the active camera if ready
+    /// </summary>
+    private bool IsReadyForUpdate(out Camera cam)
+    {
+        cam = null;
+
+        if (!Application.isPlaying || !isInitialized) return false;
+
+        if (!gridMemory)
+        {
+            if (autoFindGrid) gridMemory = FindAnyObjectByType<GridMemory>();
+            if (!gridMemory) return false;
+        }
+
+        var renderer = gridMemory.GetComponent<GridRenderer3D>();
+        cam = (renderer && renderer.targetCamera) ? renderer.targetCamera : Camera.main;
+        if (!cam) return false;
+
         return true;
     }
-}
 
+    private bool TryGetCurrentCharacterData(GameObject characterName, out ITokenMovement movement)
+    {
+        movement = null;
+        return characters.ContainsKey(characterName) &&
+               tokenMovements.TryGetValue(characterName, out movement);
+    }
+
+    private bool IsCellSelectableForCurrentCharacter(Vector3Int targetCell)
+    {
+        if (isProcessingTurn)
+            return false;
+
+        return rangeHighlighter.IsCellReachable(targetCell);
+    }
+
+    #region Character Spawning
+
+    void SpawnCharacters()
+    {
+        float yPos = gridMemory ? gridMemory.GridY + yDrawOffset : 0.001f;
+
+        if (prefab == null)
+        {
+            Debug.LogError("[GridCharacterController3D] prefab is not assigned in the Inspector!");
+            return;
+        }
+
+        SpawnCharacter(prefab, new Vector3(.5f, yPos, .5f), Color.white);
+
+        GameObject player2Prefab = prefab2 != null ? prefab2 : prefab;
+        SpawnCharacter(player2Prefab, new Vector3(18.5f, yPos, 1.5f), Color.red);
+    }
+
+    private void SpawnCharacter(GameObject prefab, Vector3 position, Color color)
+    {
+        GameObject player = Instantiate(prefab);
+        player.name = name.Replace("Player", "Player ");
+        player.transform.position = position;
+        characters[player] = player;
+        currentPlayer = currentPlayer ?? player;
+
+        var renderer = player.GetComponent<MeshRenderer>();
+        if (renderer && color != Color.white)
+        {
+            renderer.material.color = color;
+        }
+
+        gridMemory.SetCreaturePosition(player, coordinateConverter.GetCharacterCell(player));
+    }
+
+    void SnapToValidCell(GameObject obj)
+    {
+        if (!gridMemory) return;
+
+        if (!coordinateConverter.TryGridWorldToCell(obj.transform.position, out var cell, clamp: true))
+            return;
+
+        if (!gridMemory.IsCellWalkable(cell))
+            return;
+
+        obj.transform.position = coordinateConverter.GridCellCenterWorld(cell.x, cell.z, yDrawOffset);
+    }
+
+    #endregion
+
+    #region Public API
+
+    /// <summary>
+    /// Gets the currently previewed path for a character
+    /// </summary>
+    public List<Vector3Int> GetPreviewedPathForCharacter(GameObject characterName)
+    {
+        if (characterName == currentPlayer && visualIndicator.IsActive)
+        {
+            return visualIndicator.CurrentPath;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the movement controller for a character
+    /// </summary>
+    public ITokenMovement GetMovementController(GameObject characterName)
+    {
+        tokenMovements.TryGetValue(characterName, out ITokenMovement movement);
+        return movement;
+    }
+
+    /// <summary>
+    /// Sets the active player and updates highlights
+    /// </summary>
+    public void SetActivePlayer(GameObject characterName)
+    {
+        Debug.Log("Setting active Player");
+        rangeHighlighter.ClearHighlights();
+        visualIndicator.Clear();
+
+        currentPlayer = characterName;
+        currentMovement = tokenMovements.ContainsKey(characterName) ? tokenMovements[characterName] : null;
+
+        Debug.Log($"[GridCharacterController3D] Active player set to {currentPlayer}");
+
+        isProcessingTurn = false;
+    }
+
+    /// <summary>
+    /// Executes movement for a character along a given path
+    /// </summary>
+    public IEnumerator ExecuteMovement(GameObject characterName, List<Vector3Int> path)
+    {
+        if (!characters.TryGetValue(characterName, out GameObject character))
+        {
+            Debug.LogError($"[GridCharacterController3D] Character {characterName} not found!");
+            yield break;
+        }
+
+        if (!tokenMovements.TryGetValue(characterName, out ITokenMovement movement))
+        {
+            Debug.LogError($"[GridCharacterController3D] Movement controller for {characterName} not found!");
+            yield break;
+        }
+
+        if (path == null || path.Count < 2)
+        {
+            Debug.LogWarning($"[GridCharacterController3D] Invalid path for {characterName}!");
+            yield break;
+        }
+
+        Debug.Log($"[GridCharacterController3D] Executing movement for {characterName}");
+
+        visualIndicator.Clear();
+        rangeHighlighter.ClearHighlights();
+
+        isProcessingTurn = true;
+
+        movement.setPath(path);
+        yield return new WaitForSeconds(0.3f);
+        movement.start();
+
+        while (movement.IsMoving())
+        {
+            yield return movement.update();
+        }
+
+        yield return new WaitForSeconds(0.5f);
+        yield return new WaitForSeconds(0.3f);
+
+        Vector3Int newCell = coordinateConverter.GetCharacterCell(character);
+        rangeHighlighter.UpdateHighlights(newCell, maxMovementDistance);
+
+        isProcessingTurn = false;
+
+        Debug.Log($"[GridCharacterController3D] Movement completed for {characterName}");
+    }
+
+    /// <summary>
+    /// Gets occupants within a specified range from a token
+    /// </summary>
+    public List<GameObject> GetOccupantsInArea(GameObject token, int range)
+    {
+        if (!characters.ContainsValue(token))
+        {
+            Debug.LogError("[GridCharacterController3D] Token not recognized!");
+            return new List<GameObject>();
+        }
+
+        Vector3Int centerCell = coordinateConverter.GetCharacterCell(token);
+        HashSet<Vector3Int> areaCells = rangeHighlighter.CalculateEmination(centerCell, range);
+        rangeHighlighter.UpdateHighlights(centerCell, range, showAttackRange: true);
+        List<Vector3Int> areaCellsList = new List<Vector3Int>(areaCells);
+        return gridMemory.GetOccupantsInArea(areaCellsList);
+    }
+
+    /// <summary>
+    /// Gets the coordinate converter instance
+    /// </summary>
+    public GridCoordinateConverter GetCoordinateConverter()
+    {
+        return coordinateConverter;
+    }
+    /// <summary>
+    /// Converts screen click to grid cell
+    /// </summary>
+    public bool TryGetClickedCell(Camera cam, out Vector3Int targetCell)
+    {
+        targetCell = Vector3Int.zero;
+
+        if (!coordinateConverter.ScreenToXZPlane(cam, InputCompat.MousePositionScreen(), gridMemory.GridY, out Vector3 hit))
+            return false;
+
+        return coordinateConverter.TryGridWorldToCell(hit, out targetCell);
+    }
+    /// <summary>
+    /// Validates clicked cell and calculates path
+    /// </summary>
+    public bool TryValidateAndGetPath(Camera cam, GameObject character, out List<Vector3Int> path)
+    {
+        path = null;
+
+        if (!TryGetClickedCell(cam, out Vector3Int targetCell) ||
+            !gridMemory.IsCellWalkable(targetCell) ||
+            !rangeHighlighter.IsCellReachable(targetCell))
+            return false;
+
+        Vector3Int startCell = coordinateConverter.GetCharacterCell(character);
+        var pathResult = pathfinder.FindPath(startCell, targetCell);
+
+        if (!pathResult.found || pathResult.path == null || pathResult.path.Count < 2 ||
+            (maxMovementDistance > 0 && pathResult.path.Count - 1 > maxMovementDistance))
+            return false;
+
+        path = pathResult.path;
+        return true;
+    }
+
+    /// <summary>
+    /// Internal movement execution coroutine
+    /// </summary>
+    public IEnumerator ExecuteMovementInternal(GameObject actor, ITokenMovement movement, List<Vector3Int> path)
+    {
+        movement.setPath(path);
+        yield return new WaitForSeconds(0.3f);
+        movement.start();
+
+        Vector3Int lastCell = coordinateConverter.GetCharacterCell(actor);
+
+        while (movement.IsMoving())
+        {
+            yield return movement.update();
+
+            Vector3Int currentCell = coordinateConverter.GetCharacterCell(actor);
+
+            if (currentCell != lastCell)
+            {
+                gridMemory.MoveCreaturePosition(actor, currentCell, lastCell);
+                lastCell = currentCell;
+            }
+        }
+
+        Vector3Int finalCell = coordinateConverter.GetCharacterCell(actor);
+        if (finalCell != lastCell)
+        {
+            gridMemory.MoveCreaturePosition(actor, finalCell, lastCell);
+        }
+
+        yield return new WaitForSeconds(0.5f);
+        isProcessingTurn = false;
+
+    }
+
+    public bool TryValidateAndGetPathAI(Vector3Int startCell, Vector3Int targetCell, out List<Vector3Int> path)
+    {
+        path = null;
+
+        if (!gridMemory.IsCellWalkable(targetCell))
+            return false;
+
+        var pathResult = pathfinder.FindPath(startCell, targetCell);
+
+        if (!pathResult.found || pathResult.path == null || pathResult.path.Count < 2)
+            return false;
+
+        path = pathResult.path;
+        return true;
+    }
+    #endregion
+
+    [Header("Debug")]
+    [SerializeField] private bool showDebugInfo = false;
+}

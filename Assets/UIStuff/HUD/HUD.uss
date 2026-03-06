@@ -1,0 +1,56 @@
+:root {
+}
+
+.unity-button {
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+    font-size: 36px;
+    color: rgb(233, 196, 140);
+    background-color: rgb(68, 24, 13);
+}
+
+.unity-button:hover {
+    background-color: rgb(122, 62, 46);
+    transition-duration: 0.5s;
+}
+
+
+
+
+
+.unity-progress-bar{
+    width: 150px;
+    height: 25px;
+    /* background-color: rgb(68, 24, 13); */
+    justify-content: center;
+    font-size: 14px;
+    color: white;
+}
+
+.unity-progress-bar__container {
+    width: 150px;
+    height: 25px;
+    min-height: 25px;
+    max-height: 25px;
+    /* no idea but it WILL NOT listen to just height, had to do these two */
+    
+    border-color: rgba(225, 140, 233, 1);
+    align-self: center;
+}
+
+.unity-progress-bar__background {
+    
+    background-color: rgb(68, 24, 13);
+    border-color: rgb(68, 24, 13);
+    height: 25px;
+    
+}
+
+.unity-progress-bar__progress {
+    
+    background-color: rgba(5, 158, 5, 1);
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+}
+
+
+
+

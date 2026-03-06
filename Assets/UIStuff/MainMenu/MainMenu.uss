@@ -9,11 +9,11 @@
     color: rgb(233, 196, 140);
     -unity-text-outline-color: rgb(57, 16, 19);
     -unity-text-outline-width: 0;
-    -unity-font-definition: url("project://database/Assets/UIStuff/TitilliumWeb-Regular%20SDF%201.asset?fileID=11400000&guid=b612e1ec6ca91ca4c97599a8af0b2178&type=2#TitilliumWeb-Regular SDF 1");
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
 .unity-label {
-    -unity-font-definition: url("project://database/Assets/UI%20Toolkit/UnityThemes/UnityDefaultRuntimeTheme.tss?fileID=2230732570650464555&guid=3e7a399873b15124e9f16ed3c884627b&type=3#NotInter-Regular");
+    -unity-font-definition: resource("Metamorphous-Regular SDF");
     font-size: 68px;
 }
 
