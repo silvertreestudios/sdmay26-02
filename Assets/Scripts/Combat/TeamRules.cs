@@ -16,6 +16,10 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
     /// </summary>
     public void AddFriendlyTeam(string team)
     {
+        Friendly.Add(team, new());
+        Neutral.Add(team, new());
+        Hostile.Add(team, new());
+
         foreach (string t in TeamList)
             MutualFriendly(team, t);
 
@@ -27,6 +31,10 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
     /// </summary>
     public void AddNeutralTeam(string team)
     {
+        Friendly.Add(team, new());
+        Neutral.Add(team, new());
+        Hostile.Add(team, new());
+
         foreach (string t in TeamList)
             MutualNeutral(team, t);
 
@@ -38,6 +46,10 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
     /// </summary>
     public void AddHostileTeam(string team)
     {
+        Friendly.Add(team, new());
+        Neutral.Add(team, new());
+        Hostile.Add(team, new());
+
         foreach (string t in TeamList)
             MutualHostile(team, t);
 
@@ -64,15 +76,6 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
         // Add/overwrite in correct dictionary
         if(!target[team1].Contains(team2))
             target[team1].Add(team2);
-    }
-
-    /// <summary>
-    /// Helper to find team
-    /// </summary>
-    protected List<string> Teams(GameObject g)
-    {
-        List<string> list = new();
-        return list;
     }
 
     /// <summary>
