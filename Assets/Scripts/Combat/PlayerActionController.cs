@@ -23,8 +23,7 @@ public class PlayerActionController : ActionController
     /// </summary>
     public override void StartTurn()
     {
-        IsTurn = true;
-        ActionPoints = 3;
+        base.StartTurn();
         
         // Provide Options
         // Prompt user or AI for action

@@ -15,9 +15,7 @@ public class MindlessController : AIActionController
     /// </summary>
     public override void StartTurn()
     {
-        IsTurn = true;
-        ActionPoints = 3;
-        Debug.Log("Turn: " + this.gameObject.name);
+        base.StartTurn();
         StartCoroutine(ExecuteTurnSequence());
     }
 

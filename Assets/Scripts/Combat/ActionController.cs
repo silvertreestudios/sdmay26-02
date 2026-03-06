@@ -38,6 +38,7 @@ public abstract class ActionController : MonoBehaviour
         ResetActionPointsEvent.Invoke(newActionPoints);
         ActionPoints = newActionPoints.Value;
         StrikePenalty = 0;
+        HUDController.GetInstance().SetStrikeWeaponText("");
     }
 
     public abstract void EndTurn();

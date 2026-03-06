@@ -130,6 +130,7 @@ namespace JsonImporter
             // "packs/classes/barbarian.json",
             // "packs/iconics/valeros-level-1.json",
             // "packs/feats/class/shared-class-feats/reactive-shield.json"
+            "packs/actions/rage.json"
         };
 
         public const bool requireRemaster = true; // or false, as needed
