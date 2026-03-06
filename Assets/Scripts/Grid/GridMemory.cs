@@ -67,18 +67,29 @@ public class GridMemory : IGridMemory
                     // wall
                     else if (gridData[x, z] == 2)
                         tileType = TileType.Wall;
+                    // closed door
                     else if (gridData[x, z] == 3)
                         tileType = TileType.Door;
 
-                        // Initialize tile with default values
-                        GridInfo[x, gridY, z] = new TILE
-                        {
-                            x = x,
-                            z = z,
-                            type = tileType,
-                            isOccupied = gridData[x, z] == 2, // Walls are occupied
-                            status = new TileStatus[] { TileStatus.Normal }
-                        };
+                    // Initialize tile with default values
+                    TileStatus[] initialStatus;
+                    if (gridData[x, z] == 3)
+                    {
+                        initialStatus = new TileStatus[] { TileStatus.DoorClosed };
+                    }
+                    else
+                    {
+                        initialStatus = new TileStatus[] { TileStatus.Normal };
+                    }
+
+                    GridInfo[x, gridY, z] = new TILE
+                    {
+                        x = x,
+                        z = z,
+                        type = tileType,
+                        isOccupied = gridData[x, z] == 2 || gridData[x, z] == 3, // Walls and closed doors are occupied
+                        status = initialStatus
+                    };
                 }
             }
         }
@@ -169,11 +180,20 @@ public class GridMemory : IGridMemory
     public override bool IsCellWalkable(Vector3Int position)
     {
         if (GridInfo == null) return false;
-        // if x or z are out of bounds, return false
         if (position.x < 0 || position.x >= Width) return false;
         if (position.z < 0 || position.z >= Height) return false;
-        // Check if the tile type allows walking
-        return GridInfo[position.x, GridY, position.z].type == TileType.Ground && !GridInfo[position.x, GridY, position.z].isOccupied;
+        
+        var tile = GridInfo[position.x, GridY, position.z];
+        
+        // Ground tiles are walkable if not occupied
+        if (tile.type == TileType.Ground)
+            return !tile.isOccupied;
+        
+        // Open doors are walkable
+        if (tile.type == TileType.Door)
+            return HasStatus(position.x, position.z, TileStatus.DoorOpen) && !tile.isOccupied;
+        
+        return false;
     }
 
     public override IEnumerator TargetSelect(int range, CoroutineResult<GameObject> result)
