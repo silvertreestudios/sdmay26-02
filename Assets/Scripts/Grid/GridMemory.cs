@@ -7,6 +7,7 @@ public class GridMemory : IGridMemory
     public enum TileType
     {
         Ground,
+        Door,
         Wall,
         Void,
     }
@@ -14,7 +15,9 @@ public class GridMemory : IGridMemory
     public enum TileStatus
     {
         Normal,
-        FireI
+        FireI,
+        DoorOpen,
+        DoorClosed
     }
 
     public struct TILE
@@ -64,16 +67,18 @@ public class GridMemory : IGridMemory
                     // wall
                     else if (gridData[x, z] == 2)
                         tileType = TileType.Wall;
+                    else if (gridData[x, z] == 3)
+                        tileType = TileType.Door;
 
-                    // Initialize tile with default values
-                    GridInfo[x, gridY, z] = new TILE
-                    {
-                        x = x,
-                        z = z,
-                        type = tileType,
-                        isOccupied = gridData[x, z] == 2, // Walls are occupied
-                        status = new TileStatus[] { TileStatus.Normal }
-                    };
+                        // Initialize tile with default values
+                        GridInfo[x, gridY, z] = new TILE
+                        {
+                            x = x,
+                            z = z,
+                            type = tileType,
+                            isOccupied = gridData[x, z] == 2, // Walls are occupied
+                            status = new TileStatus[] { TileStatus.Normal }
+                        };
                 }
             }
         }
