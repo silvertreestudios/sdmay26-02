@@ -87,7 +87,7 @@
       "fortitude": "trained",
       "reflex": "trained",
       "will": "expert",
-      "skills": "here",
+      "skills": ["here"],
       "attacks": {
         "simpleWeapons": "trained",
         "martialWeapons": "untrained",
@@ -103,6 +103,32 @@
       "spells": "available",
       "subclass": ["abberant", "angelic", "demonic", "diabolic", "draconic", "elemental", "fey", "hag", "imperial", "undead"],
       "classFeat": ["Blood Rising", "Familiar", "Reach Spell", "Tap into Blood", "Widen Spell"]
+    },
+      {
+      "id": "Barbarian",
+      "description": "Rage consumes you in battle. You delight in wreaking havoc and using powerful weapons to carve through your enemies, relying on astonishing durability without needing complicated techniques or rigid training. Your rages draw upon a vicious instinct, which you might associate with an animal, a spirit, or some part of yourself. To many barbarians, brute force is a hammer and every problem looks like a nail, whereas others try to hold back the storm of emotions inside them and release their rage only when it matters most.",
+      "attributeBoost": "Strength",
+      "hp": 12,
+      "perception": "expert",
+      "fortitude": "expert",
+      "reflex": "trained",
+      "will": "expert",
+      "skills": ["athletics"],
+      "attacks": {
+        "simpleWeapons": "trained",
+        "martialWeapons": "trained",
+        "advancedWeapons": "untrained",
+        "unarmedAttacks": "trained"
+      },
+      "defenses": {
+        "unarmored": "trained",
+        "lightArmor": "trained",
+        "mediumArmor": "trained",
+        "allArmor": "untrained"
+      },
+      "spells": "none",
+      "subclass": ["animal instinct", "dragon instinct", "fury instinct", "giant instinct", "spirit instinct", "superstition instinct"],
+      "classFeat": ["Acute Vision", "Adrenaline Rush", "Draconic Arrogance", "Moment of Clarity", "Raging Intimidation", "Raging Thrower", "Sudden Charge"]
     }
 ]
 }

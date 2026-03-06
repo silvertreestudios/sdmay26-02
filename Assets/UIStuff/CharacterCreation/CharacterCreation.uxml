@@ -109,6 +109,7 @@
                     <ui:RadioButton label="Cleric" name="ClericRadioButton" />
                     <ui:RadioButton label="Rogue" name="RogueRadioButton" />
                     <ui:RadioButton label="Sorcerer" name="SorcererRadioButton" />
+                    <ui:RadioButton label="Barbarian" name="BarbarianRadioButton" />
                 </ui:RadioButtonGroup>
                 <ui:TabView name="NestedClassChoices">
                     <ui:Tab label="Class Feats" name="ClassFeats">

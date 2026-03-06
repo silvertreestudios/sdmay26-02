@@ -347,6 +347,7 @@ public class CharacterCreationScript : MonoBehaviour
         List<string> boosts = new List<string>(selectedAncestryObj.attributeBoost); //make a list of that ancestry's boosts
         ClearAncestryContributions();
         ApplyAncestryBoosts(boosts); //pass in List of strings
+        ApplyAncestryFlaw(db.ancestries.Find(a => a.id == selectedAncestry).attributeFlaw);
         RefreshAttributeFields();
 
         speedField.value = db.ancestries.Find(a => a.id == selectedAncestry).speed;
@@ -689,6 +690,10 @@ public class CharacterCreationScript : MonoBehaviour
         {
             attributes[boost].ancestry++;
         }
+    }
+    void ApplyAncestryFlaw(string flaw) //pass in what flaw from ancestry to update
+    {
+        attributes[flaw].ancestry--;
     }
     void ClearAncestryFreeChoiceContributions() //ancestry free choice is reset
     {
