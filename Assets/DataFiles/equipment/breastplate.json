@@ -1,6 +1,7 @@
 {
   "type": "armor",
   "name": "Breastplate",
+  "category": "medium",
   "price_GP": 8.0,
   "acBonus": 4,
   "dexCap": 1,

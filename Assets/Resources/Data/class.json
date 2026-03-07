@@ -1,0 +1,134 @@
+{
+  "classes": [
+    {
+      "id": "Fighter",
+      "description": "Fighting for honor, greed, loyalty, or simply the thrill of battle, you are an undisputed master of weaponry and combat techniques. You combine your actions through clever combinations of opening moves, finishing strikes, and counterattacks whenever your foes are unwise enough to drop their guard. Whether you are a knight, mercenary, sharpshooter, or blade master, you have honed your martial skills into an art form and perform devastating critical attacks on your enemies.",
+      "attributeBoost": "Strength",
+      "hp": 10,
+      "perception": "expert",
+      "fortitude": "expert",
+      "reflex": "expert",
+      "will": "trained",
+      "skills": ["acrobatics", "athletics"],
+      "attacks": {
+        "simpleWeapons": "expert",
+        "martialWeapons": "expert",
+        "advancedWeapons": "trained",
+        "unarmedAttacks": "expert"
+      },
+      "defenses": {
+        "unarmored": "trained",
+        "lightArmor": "untrained",
+        "mediumArmor": "untrained",
+        "allArmor": "trained"
+      },
+      "spells": "none",
+      "subclass": ["none"],
+      "classFeat": ["Combat Assessment", "Double Slice", "Exacting Strike", "Point Blank Stance", "Reactive Shield", "Snagging Strike", "Sudden Charge", "Vicious Swing"]
+    },
+    {
+      "id": "Cleric",
+      "description": "Deities work their will upon the world in infinite ways, and you serve as one of their most stalwart mortal servants. Blessed with divine magic, you live the ideals of your faith, adorn yourself with the symbols of your church, and train diligently to wield your deity's favored weapon. Your spells might protect and heal your allies, or they might punish foes and enemies of your faith, as your deity wills. Yours is a life of devotion, spreading the teachings of your faith through both word and deed.",
+      "attributeBoost": "Wisdom",
+      "hp": 8,
+      "perception": "trained",
+      "fortitude": "trained",
+      "reflex": "trained",
+      "will": "expert",
+      "skills": ["religion"],
+      "attacks": {
+        "simpleWeapons": "trained",
+        "martialWeapons": "untrained",
+        "advancedWeapons": "untrained",
+        "unarmedAttacks": "trained"
+      },
+      "defenses": {
+        "unarmored": "trained",
+        "lightArmor": "untrained",
+        "mediumArmor": "untrained",
+        "allArmor": "untrained"
+      },
+      "spells": "available",
+      "subclass": ["cloistered", "warpriest"],
+      "classFeat": ["Deadly Simplicity", "Divine Castigation", "Domain Initiate", "Harming Hands", "Healing Hands", "Premonition of Avoidance", "Reach Spell"]
+    },
+    {
+      "id": "Rogue",
+      "description": "You are skilled and opportunistic. Using your sharp wits and quick reactions, you take advantage of your opponents' missteps and strike where it hurts most. You play a dangerous game, seeking thrills and testing your skills, and likely don't care much for any laws that happen to get in your way. While the path of every rogue is unique and riddled with danger, the one thing you all share in common is the breadth and depth of your skills.",
+      "attributeBoost": "Dexterity",
+      "hp": 8,
+      "perception": "expert",
+      "fortitude": "trained",
+      "reflex": "expert",
+      "will": "expert",
+      "skills": ["stealth"],
+      "attacks": {
+        "simpleWeapons": "trained",
+        "martialWeapons": "trained",
+        "advancedWeapons": "untrained",
+        "unarmedAttacks": "trained"
+      },
+      "defenses": {
+        "unarmored": "trained",
+        "lightArmor": "trained",
+        "mediumArmor": "untrained",
+        "allArmor": "untrained"
+      },
+      "spells": "none",
+      "subclass": ["mastermind", "ruffian", "scoundrel", "thief"],
+      "classFeat": ["Nimble Dodge", "Overextending Feint", "Plant Evidence", "Trap Finder", "Tumble Behind", "Twin Feint", "You're Next"]
+    },
+    {
+      "id": "Sorcerer",
+      "description": "You didn't choose to become a spellcaster-you were born one. There's magic in your blood, whether a divinity touched one of your ancestors, a forebear communed with a primal creature, or a powerful occult ritual influenced your line. Self-reflection and study allow you to refine your inherent magical skills and unlock new, more powerful abilities. The power in your blood carries a risk, however, and you constantly face the choice of whether you'll rise to become a master spellcaster or fall into destruction.",
+      "attributeBoost": "Charisma",
+      "hp": 6,
+      "perception": "trained",
+      "fortitude": "trained",
+      "reflex": "trained",
+      "will": "expert",
+      "skills": ["here"],
+      "attacks": {
+        "simpleWeapons": "trained",
+        "martialWeapons": "untrained",
+        "advancedWeapons": "untrained",
+        "unarmedAttacks": "trained"
+      },
+      "defenses": {
+        "unarmored": "trained",
+        "lightArmor": "untrained",
+        "mediumArmor": "untrained",
+        "allArmor": "untrained"
+      },
+      "spells": "available",
+      "subclass": ["abberant", "angelic", "demonic", "diabolic", "draconic", "elemental", "fey", "hag", "imperial", "undead"],
+      "classFeat": ["Blood Rising", "Familiar", "Reach Spell", "Tap into Blood", "Widen Spell"]
+    },
+      {
+      "id": "Barbarian",
+      "description": "Rage consumes you in battle. You delight in wreaking havoc and using powerful weapons to carve through your enemies, relying on astonishing durability without needing complicated techniques or rigid training. Your rages draw upon a vicious instinct, which you might associate with an animal, a spirit, or some part of yourself. To many barbarians, brute force is a hammer and every problem looks like a nail, whereas others try to hold back the storm of emotions inside them and release their rage only when it matters most.",
+      "attributeBoost": "Strength",
+      "hp": 12,
+      "perception": "expert",
+      "fortitude": "expert",
+      "reflex": "trained",
+      "will": "expert",
+      "skills": ["athletics"],
+      "attacks": {
+        "simpleWeapons": "trained",
+        "martialWeapons": "trained",
+        "advancedWeapons": "untrained",
+        "unarmedAttacks": "trained"
+      },
+      "defenses": {
+        "unarmored": "trained",
+        "lightArmor": "trained",
+        "mediumArmor": "trained",
+        "allArmor": "untrained"
+      },
+      "spells": "none",
+      "subclass": ["animal instinct", "dragon instinct", "fury instinct", "giant instinct", "spirit instinct", "superstition instinct"],
+      "classFeat": ["Acute Vision", "Adrenaline Rush", "Draconic Arrogance", "Moment of Clarity", "Raging Intimidation", "Raging Thrower", "Sudden Charge"]
+    }
+]
+}

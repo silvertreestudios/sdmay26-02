@@ -2,98 +2,93 @@ using UnityEngine;
 using System.Collections.Generic;
 using Game.Creature;
 using NUnit.Framework;
+using Game.Strikes;
 
-public class ActionController : MonoBehaviour
+public abstract class ActionController : MonoBehaviour
 {
-    //[SerializeField]
-    protected List<EntityAction> Actions = new List<EntityAction>();
-    //[SerializeField]
-    protected List<EntityAction> Movements = new List<EntityAction>();
+    // Fields
+    protected List<EntityAction> Actions = new();
+    protected List<EntityAction> Movements = new();
+    protected List<EntityAction> Reactions = new();
     protected bool IsTurn = false;
     public bool IsTakingAction { get; set; } = false;
     [field: SerializeField]
     public uint ActionPoints { get; set; }
+    public bool Reacted { get; set; }
+    public uint StrikePenalty { get; set; } = 0;
 
-    protected void Awake()
-    {
-        CombatManagerInterface.GetInstance().AddCombatant(this);
-        
-        Stride strideAction = new Stride(1); // Cost of 1 action point
-        Movements.Add(strideAction);
+    //Events
+    public OnResetActionPoints ResetActionPointsEvent { get; protected set; } = new();
+    public OnGetActions GetActionsEvent { get; protected set; } = new();
+    public OnGetMovements GetMovementsEvent { get; protected set; } = new();
+    public OnGetReactions GetReactionsEvent { get; protected set; } = new();
 
-        List<Dice> dices = new() { new Dice(1, 3, "Bludgeoning") };
+    [SerializeField]
+    List<string> _actionNames = new List<string>(); // Temporary list of action names to add for testing purposes.  TODO remove
 
-        Unarmed unarmed = new Unarmed(1, dices, new());
-        Actions.Add(unarmed);
-    }
+    
 
     /// <summary>
     /// Starts this creature's turn
     /// </summary>
-    public void StartTurn()
+    public virtual void StartTurn()
     {
         IsTurn = true;
-        ActionPoints = 3;
-        
-        // Provide Options
-        // Prompt user or AI for action
-        Debug.Log("Turn: " + this.gameObject.name);
+        Ref<uint> newActionPoints = new(3);
+        ResetActionPointsEvent.Invoke(newActionPoints);
+        ActionPoints = newActionPoints.Value;
+        StrikePenalty = 0;
+        HUDController.GetInstance().SetStrikeWeaponText("");
     }
 
-    // Changed from private to public so actions can call it
-    [ContextMenu("End Turn")]
-    public void EndTurn()
+    public abstract void EndTurn();
+
+
+    /// <summary>
+    /// Returns a copied list of all actions the controller can perform, excluding movements
+    /// </summary>
+    /// <returns></returns>
+    public List<EntityAction> GetActions()
     {
-        if (IsTurn && !IsTakingAction)
-        {
-            IsTurn = false;
-            Debug.Log("Turn End: " + this.gameObject.name);
-            // Clean up turn state
-            // I.E. UI, etc
-            CombatManagerInterface.GetInstance().NextTurn();
-        }
+        List<EntityAction> available = new(Actions);
+        GetActionsEvent.Invoke(available);
+        return available;
     }
 
     /// <summary>
-    /// Temporary function to invoke the Stride movement action for testing.
-    /// Can be triggered from the Unity editor during runtime via right-click menu.
+    /// Returns a copied list of all movements the controller can perform
     /// </summary>
-    [ContextMenu("Test Invoke Stride")]
-    public void TestStride()
+    /// <returns></returns>
+    public List<EntityAction> GetMovements()
     {
-        if (!IsTurn)
-        {
-            Debug.LogWarning("Cannot use Stride - it's not this character's turn!");
-            return;
-        }
-
-        if (Movements.Count > 0)
-        {
-            Debug.Log("Invoking Stride action...");
-            TakeAction(Movements[0]);
-        }
-        else
-        {
-            Debug.LogWarning("Stride action is not initialized!");
-        }
+        List<EntityAction> available = new(Movements);
+        GetMovementsEvent.Invoke(available);
+        return available;
     }
 
     /// <summary>
-    /// Temporary function to invoke the strike action for testing.
-    /// Can be triggered from the Unity editor during runtime via right-click menu.
+    /// Returns a copied list of all reactions the controller can perform
     /// </summary>
-    [ContextMenu("Test Strike")]
-    public void TestStrike()
+    /// <returns></returns>
+    public List<EntityAction> GetReactions()
     {
-        if (Actions.Count > 0)
-        {
-            Debug.Log("Invoking Strike action...");
-            TakeAction(Actions[0]);
-        }
+        List<EntityAction> available = new(Reactions);
+        GetReactionsEvent.Invoke(available);
+        return available;
     }
 
+    /// <summary>
+    /// Performs a given action for this controller
+    /// </summary>
+    /// <param name="action"></param>
     public void TakeAction(EntityAction action)
     {
+        if (action == null)
+        {
+            Debug.LogWarning("No action provided to TakeAction!");
+            return;
+        }
+        Debug.Log("Attempting to take action: " + action);
         uint cost = action.ActionCost;
         if (!IsTurn || cost > ActionPoints)
             return;
@@ -104,5 +99,14 @@ public class ActionController : MonoBehaviour
     public uint GetInitiative()
     {
         return (uint)Random.Range(1, 20);
+    }
+    public void AddAction(EntityAction action)
+    {
+        Actions.Add(action);
+        _actionNames.Add(action.ToString()); // Add action name to the list for testing purposes
+    }
+    public void RemoveAction(EntityAction action)
+    {
+        Actions.Remove(action);
     }
 }

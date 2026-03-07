@@ -8,6 +8,9 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
     // Whether or not combat is active
     private bool combatMode;
 
+    [SerializeField]
+    public TeamRules TeamRelationships { get; private set; }
+
     private void Start()
     {
         StartCoroutine("StartCombat");

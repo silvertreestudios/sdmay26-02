@@ -54,7 +54,7 @@ namespace JsonImporter
                 output["damageType"] = system.SelectToken("damage.damageType");
             if(system.SelectToken("description") != null){
                 // output["description"] = system.SelectToken("description.value");
-                HtmlUtils.ExtractPlainAndParagraphs(input.SelectToken("description.value")?.ToString(), out string plainDesc, out JArray plainText, out JArray contexts);
+                HtmlUtils.ExtractPlainAndParagraphs(system.SelectToken("description.value")?.ToString(), out string plainDesc, out JArray plainText, out JArray contexts);
                 output["description"] = plainText;
             }
             if(system.SelectToken("traits") != null)
@@ -96,17 +96,17 @@ namespace JsonImporter
                 output["price_GP"] = goldValue;
             }
             if(system.SelectToken("range") != null)
-                output["range"] = system.SelectToken("range.value");
+                output["range"] = system.SelectToken("range");
             if(system.SelectToken("reload") != null)
                 output["reload"] = system.SelectToken("reload.value");
             if(system.SelectToken("ammo") != null)
-                output["ammo"] = system.SelectToken("ammo.value");
+                output["ammo"] = system.SelectToken("ammo.baseType");
             if(system.SelectToken("bulk") != null)
                 output["bulk"] = system.SelectToken("bulk.value");
             if(system.SelectToken("size") != null)
-                output["size"] = system.SelectToken("size.value");
+                output["size"] = system.SelectToken("size");
             if(system.SelectToken("baseItem") != null)
-                output["baseItem"] = system.SelectToken("baseItem.value");
+                output["baseItem"] = system.SelectToken("baseItem");
             if(system.SelectToken("bonus.value") != null)
                 output["bonus"] = system.SelectToken("bonus.value");
             if(system.SelectToken("bonusDamage.value") != null)
@@ -126,18 +126,6 @@ namespace JsonImporter
                 }
             if(system.SelectToken("publication") != null)
                  output["publication"] = system.SelectToken("publication");
-            // var newSystem = new JObject();
-            // if (system != null)
-            // {
-            //     foreach (var prop in system.Properties())
-            //     {
-            //         if (allowedSystemFields.Contains(prop.Name))
-            //         {
-            //             newSystem[prop.Name] = prop.Value;
-            //         }
-            //     }
-            // }
-            // output["system"] = newSystem;
 
             return output.ToString(Newtonsoft.Json.Formatting.Indented);
         }
@@ -151,6 +139,7 @@ namespace JsonImporter
             // Always keep "type" at root
             output["type"] = input["type"];
             output["name"] = input["name"];
+            output["category"] = input.SelectToken("system.category");
             // Assumes gold is standard currency.
             double goldValue = 0.0;
             if (input.SelectToken("system.price.value.cp") != null)
@@ -191,21 +180,6 @@ namespace JsonImporter
             output["materialType"] = input.SelectToken("system.material.type");
             output["materialGrade"] = input.SelectToken("system.material.grade");
             output["publication"] = input.SelectToken("system.publication");
-
-/*
-        string name { get; set; }          // armor name
-        string type { get; set; }          // e.g., weapon, armor.  Remove??
-        double price { get; set; }         // <int> <currency> --or-- decimal with 1.0=1gp
-        int acBonus { get; set; }          // armor class bonus provided by the armor
-        int dexCap { get; set; }           // maximum Dexterity modifier that can be applied to AC when wearing this armor
-        int checkPenalty { get; set; }      // penalty to certain checks (e.g., stealth) when wearing this armor
-        int speedPenalty { get; set; }      // penalty to movement speed when wearing this armor
-        int strengthRequirement { get; set; } // minimum Strength score required to wear this armor without penalty
-        string description { get; set; }   // text description
-        double bulk { get; set; }              // look up uses
-        string group { get; set; }         // such as light, medium, heavy, shield, etc.
-        List<string> armorTraits { get; set; }  // list of traits
-*/
 
             // TODO FINISH
             return output.ToString(Newtonsoft.Json.Formatting.Indented);
