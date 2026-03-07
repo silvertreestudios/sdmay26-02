@@ -45,10 +45,8 @@
         <ui:TabView view-data-key="CharacterCreation" enabled="true" reorderable="false">
             <ui:Tab label="Ancestry" name="AncestryTab" view-data-key="AncestryTab">
                 <ui:RadioButtonGroup name="AncestryRadioButtonGroup">
-                    <ui:RadioButton label="Human" name="Human" />
                     <ui:RadioButton label="Elf" name="Elf" />
                     <ui:RadioButton label="Gnome" name="Gnome" />
-                    <ui:RadioButton label="Orc" name="Orc" />
                     <ui:RadioButton label="Dwarf" name="Dwarf" />
                     <ui:RadioButton label="Halfling" name="Halfling" />
                     <ui:RadioButton label="Goblin" name="Goblin" />

@@ -14,20 +14,6 @@
       "traits": ["Elf", "Humanoid"],
       "specialAbilities": ["low light vision"]
     },
-    {
-      "id": "Human",
-      "description": "Humans are diverse and adaptable people with wide potential and deep ambitions.",
-      "attributeBoost": ["free", "free"],
-      "attributeFlaw": "none",
-      "hp": 8,
-      "speed": 25,
-      "ancestryFeat": ["Adapted Cantrip", "Cooperative Nature", "General Training", "Naughty Obstinacy", "Natural Ambition", "Natural Skill", "Unconventional Weaponry"],
-      "heritage": ["Skilled", "Versatile"],
-      "size": "medium",
-      "languages": "Common",
-      "traits": ["Human", "Humanoid"],
-      "specialAbilities": ["none"]
-    },
         {
       "id": "Goblin",
       "description": "Goblins are a short, scrappy, energetic people who have spent millennia maligned and feared.",
@@ -55,20 +41,6 @@
       "languages": ["Common", "Dwarven"],
       "traits": ["Dwarf", "Humanoid"],
       "specialAbilities": ["darkvision", "clan dagger"]
-    },
-        {
-      "id": "Orc",
-      "description": "Orcs are proud, strong people with hardened physiques who value physical might and glory in combat.",
-      "attributeBoost": ["free", "free"],
-      "attributeFlaw": "none",
-      "hp": 10,
-      "speed": 25,
-      "ancestryFeat": ["Beast Trainer", "Iron Fists", "Orc Ferocity", "Orc Superstition", "Hold Mark", "Orc Weapon Familiarity", "Tusks"],
-      "heritage": ["Badlands", "Battle-Ready", "Deep", "Grave", "Hold-Scarred", "Rainfall", "Winter"],
-      "size": "medium",
-      "languages": ["Common", "Orcish"],
-      "traits": ["Orc", "Humanoid"],
-      "specialAbilities": ["darkvision"]
     },
         {
       "id": "Halfling",
