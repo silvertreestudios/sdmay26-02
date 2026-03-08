@@ -55,13 +55,11 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
     public MovementRange rangeHighlighter { get; private set; }
     public GridCoordinateConverter coordinateConverter { get; private set; }
     // State flags
-    public bool isInitialized { get; private set; } = false;
     public bool isProcessingTurn = false;
     private GameObject currentPlayer => CombatManagerInterface.GetInstance()?.WhosTurn();
 
     // Shared per-frame state for input coroutine
     public Camera currentCamera;
-    public ITokenMovement currentMovement;
 
     // Input tracking
     public Vector3Int lastClickedCell;
@@ -103,49 +101,10 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
         visualIndicator = new VisualIndicator(this);
         rangeHighlighter = new MovementRange(this);
 
-        isInitialized = true;
-    }
-
-    // ideally this gets removed for performance, but is fine for now
-    void Update()
-    {
-        // Check if system is ready
-        if (!IsReadyForUpdate(out currentCamera)) return;
-
-        // Get current character data
-        if (!TryGetCurrentCharacterData(currentPlayer, out currentMovement))
-            return;
-    }
-
-    /// <summary>
-    /// Checks if the system is prepared for update operations 
-    /// and retrieves the active camera if ready
-    /// </summary>
-    private bool IsReadyForUpdate(out Camera cam)
-    {
-        cam = null;
-
-        if (!Application.isPlaying || !isInitialized) return false;
-
-        if (!gridMemory)
-        {
-            if (autoFindGrid) gridMemory = FindAnyObjectByType<GridMemory>();
-            if (!gridMemory) return false;
-        }
-
         var renderer = gridMemory.GetComponent<GridRenderer3D>();
-        cam = (renderer && renderer.targetCamera) ? renderer.targetCamera : Camera.main;
-        if (!cam) return false;
-
-        return true;
+        currentCamera = (renderer && renderer.targetCamera) ? renderer.targetCamera : Camera.main;
     }
 
-    private bool TryGetCurrentCharacterData(GameObject characterName, out ITokenMovement movement)
-    {
-        movement = null;
-        return characters.Contains(characterName) &&
-               tokenMovements.TryGetValue(characterName, out movement);
-    }
 
     #region Character Spawning
 
@@ -290,41 +249,6 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
         return true;
     }
 
-    /// <summary>
-    /// Internal movement execution coroutine
-    /// </summary>
-    public IEnumerator ExecuteMovementInternal(GameObject actor, ITokenMovement movement, List<Vector3Int> path)
-    {
-        movement.setPath(path);
-        yield return new WaitForSeconds(0.3f);
-        movement.start();
-
-        Vector3Int lastCell = coordinateConverter.GetCharacterCell(actor);
-
-        while (movement.IsMoving())
-        {
-            yield return movement.update();
-
-            Vector3Int currentCell = coordinateConverter.GetCharacterCell(actor);
-
-            if (currentCell != lastCell && gridMemory.IsCellSelectableTraversal(currentCell))
-            {
-                gridMemory.MoveCreaturePosition(actor, currentCell, lastCell);
-                lastCell = currentCell;
-            }
-        }
-
-        Vector3Int finalCell = coordinateConverter.GetCharacterCell(actor);
-        if (finalCell != lastCell)
-        {
-            gridMemory.MoveCreaturePosition(actor, finalCell, lastCell);
-        }
-
-        yield return new WaitForSeconds(0.5f);
-        isProcessingTurn = false;
-
-    }
-
     public bool TryValidateAndGetPathAI(Vector3Int startCell, Vector3Int targetCell, out List<Vector3Int> path, bool ignoreTargetOccupancy = false)
     {
         path = null;
@@ -357,6 +281,42 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
 
         path = pathResult.path;
         return true;
+    }
+
+    /// <summary>
+    /// Internal movement execution coroutine
+    /// </summary>
+    public IEnumerator ExecuteMovementInternal(GameObject actor, ITokenMovement movement, List<Vector3Int> path)
+    {
+        
+        movement.setPath(path);
+        yield return new WaitForSeconds(0.3f);
+        movement.start();
+
+        Vector3Int lastCell = coordinateConverter.GetCharacterCell(actor);
+
+        while (movement.IsMoving())
+        {
+            yield return movement.update();
+
+            Vector3Int currentCell = coordinateConverter.GetCharacterCell(actor);
+
+            if (currentCell != lastCell && gridMemory.IsCellSelectableTraversal(currentCell))
+            {
+                gridMemory.MoveCreaturePosition(actor, currentCell, lastCell);
+                lastCell = currentCell;
+            }
+        }
+
+        Vector3Int finalCell = coordinateConverter.GetCharacterCell(actor);
+        if (finalCell != lastCell)
+        {
+            gridMemory.MoveCreaturePosition(actor, finalCell, lastCell);
+        }
+
+        yield return new WaitForSeconds(0.5f);
+        isProcessingTurn = false;
+
     }
     #endregion
 }
