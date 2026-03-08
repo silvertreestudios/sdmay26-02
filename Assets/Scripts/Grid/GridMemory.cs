@@ -28,7 +28,8 @@ public class GridMemory : IGridMemory
         public GameObject occupant;
         public TileStatus[] status;
     }
-
+    private TeamRules teamRules => TeamRules.GetInstance();
+    private CombatManagerInterface combatManager => CombatManagerInterface.GetInstance();
     public override int Width { get; protected set; }
     public override int Height { get; protected set; }
     public override float CellSize { get; protected set; }
@@ -37,8 +38,6 @@ public class GridMemory : IGridMemory
 
     public TILE[,,] GridInfo { get; private set; }
 
-    // Delegate to check if a cell is selectable
-    public System.Func<Vector3Int, bool> IsCellSelectable { get; set; }
 
     public override void Initialize(int width, int height, int gridY, float cellSize, Vector3 origin, int[,] gridData)
     {
@@ -116,7 +115,7 @@ public class GridMemory : IGridMemory
         //make sure we are moving the right character
         if (token == null || GridInfo[startPosition.x, GridY, startPosition.z].occupant != token)
         {
-            Debug.Log("Failed to move creature from " + startPosition.ToString() + " to " + targetPosition.ToString());
+            Debug.LogWarning("Failed to move creature from " + startPosition.ToString() + " to " + targetPosition.ToString());
             return;
         }
         GridInfo[startPosition.x, GridY, startPosition.z].isOccupied = false;
@@ -130,7 +129,7 @@ public class GridMemory : IGridMemory
         //make sure we are placing a valid character and the tile is not already occupied
         if (token == null || GridInfo[spawnPosition.x, GridY, spawnPosition.z].isOccupied)
         {
-            Debug.Log("Failed to set creature position at " + spawnPosition.ToString());
+            Debug.LogWarning("Failed to set creature position at " + spawnPosition.ToString());
             return;
         }
         GridInfo[spawnPosition.x, GridY, spawnPosition.z].isOccupied = true;
@@ -142,7 +141,7 @@ public class GridMemory : IGridMemory
         //make sure we are clearing the right character
         if (token == null || GridInfo[position.x, GridY, position.z].occupant != token)
         {
-            Debug.Log("Failed to clear creature position at " + position.ToString());
+            Debug.LogWarning("Failed to clear creature position at " + position.ToString());
             return;
         }
         GridInfo[position.x, GridY, position.z].isOccupied = false;
@@ -161,6 +160,7 @@ public class GridMemory : IGridMemory
         }
         return occupants;
     }
+    // returns true if a player can walk to or through a particular cell
     public override bool IsCellWalkable(Vector3Int position)
     {
         if (GridInfo == null) return false;
@@ -168,9 +168,40 @@ public class GridMemory : IGridMemory
         if (position.x < 0 || position.x >= Width) return false;
         if (position.z < 0 || position.z >= Height) return false;
         // Check if the tile type allows walking
-        return GridInfo[position.x, GridY, position.z].type == TileType.Ground && !GridInfo[position.x, GridY, position.z].isOccupied;
+        TILE tile = GridInfo[position.x, GridY, position.z];
+        if (tile.type != TileType.Ground) return false;
+        if (!tile.isOccupied) return true;
+        return teamRules.IsFriendly(tile.occupant.GetComponent<Team>().Name, combatManager.WhosTurn().GetComponent<Team>().Name);
+     
+     }
+
+    // returns true if a player can select a particular cell, this is for cases where a cell might be occupied but still selectable (e.g., for an attack)
+    // alternatlivley this could return true if a player can walk through a cell but not end their turn there
+    public override bool IsCellSelectableTraversal(Vector3Int position)
+    {
+        if (GridInfo == null) return false;
+        // if x or z are out of bounds, return false
+        if (position.x < 0 || position.x >= Width) return false;
+        if (position.z < 0 || position.z >= Height) return false;
+        // Check if the tile type allows selection
+        TILE tile = GridInfo[position.x, GridY, position.z];
+        if (tile.type == TileType.Void) return false; // Can't select void tiles
+        if (tile.isOccupied) return false; // Can't select occupied tiles for traversal
+        return true; // For now, allow selection of all non-void tiles regardless of occupancy
     }
 
+    public override bool IsCellSelectableAction(Vector3Int position)
+    {
+        if (GridInfo == null) return false;
+        // if x or z are out of bounds, return false
+        if (position.x < 0 || position.x >= Width) return false;
+        if (position.z < 0 || position.z >= Height) return false;
+        // Check if the tile type allows selection
+        TILE tile = GridInfo[position.x, GridY, position.z];
+        if (tile.type == TileType.Wall) return false; // Can't select wall tiles for actions
+        //notibly you can select doors and void tiles in some edge cases
+        return true; // Allow selection of unoccupied tiles
+    }
     public override IEnumerator TargetSelect(int range, CoroutineResult<GameObject> result)
     {
         //return a selected monster if valid

@@ -81,7 +81,7 @@ public class CombatManager : CombatManagerInterface
         foreach(var combatant in Combatants)
         {
             string team = combatant.GetComponent<Team>().Name;
-            if(!teams.Contains(name))
+            if(!teams.Contains(team))
                 teams.Add(team);
         }
         if (teams.Count < 2)

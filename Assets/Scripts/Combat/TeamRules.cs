@@ -4,7 +4,7 @@ using UnityEngine;
 [System.Serializable]
 public class TeamRules : SingletonMonoBehaviour<TeamRules>
 {
-    [SerializeField]
+    //[SerializeField]
     private List<string> TeamList = new();
 
     private Dictionary<string, List<string>> Friendly = new();

@@ -159,7 +159,7 @@ public class LineOfSight
 
             if (visitedCells.Add(currentCell) && currentCell != start && currentCell != end)
             {
-                if (!IsWithinBounds(currentCell) || !grid.IsCellWalkable(currentCell))
+                if (!IsWithinBounds(currentCell) || !grid.IsCellSelectableAction(currentCell))
                     return true;
             }
         }

@@ -22,7 +22,7 @@ public class GridFSM : FiniteStateMachine<GridFSMState>
         if (isInTransition)
         {
             // If we are already transitioning, queue the state change to happen next frame
-            GridCharacterController3D.Instance.StartCoroutine(DelayedChangeState(newState));
+            GridCharacterController3D.GetInstance().StartCoroutine(DelayedChangeState(newState));
             return true;
         }
 

@@ -122,7 +122,7 @@ public class MovementRange
             if (currentCost > maxRange)
                 continue;
 
-            if (grid.IsCellWalkable(current) && current != start)
+            if (grid.IsCellWalkable(current) && grid.IsCellSelectableTraversal(current) && current != start)
             {
                 reachable.Add(current);
             }
@@ -157,7 +157,7 @@ public class MovementRange
             foreach (var dir in CardinalDirections)
             {
                 Vector3Int adjacent = start + dir;
-                if (IsWithinBounds(adjacent) && grid.IsCellWalkable(adjacent))
+                if (IsWithinBounds(adjacent) && grid.IsCellSelectableAction(adjacent))
                 {
                     rangeTiles.Add(adjacent);
                 }
@@ -169,7 +169,7 @@ public class MovementRange
                 foreach (var dir in DiagonalDirections)
                 {
                     Vector3Int adjacent = start + dir;
-                    if (IsWithinBounds(adjacent) && grid.IsCellWalkable(adjacent))
+                    if (IsWithinBounds(adjacent) && grid.IsCellSelectableAction(adjacent))
                     {
                         rangeTiles.Add(adjacent);
                     }
@@ -188,14 +188,14 @@ public class MovementRange
                     if (x == 0 && z == 0)
                         continue;
 
-                    Vector3Int candidate = new Vector3Int(start.x + x, 0, start.z + z);
+                    Vector3Int candidate = new Vector3Int(start.x + x, start.y, start.z + z);
 
                     // Check bounds first
                     if (!IsWithinBounds(candidate))
                         continue;
 
                     float distanceSquared = x * x + z * z;
-                    if (distanceSquared <= maxRangeSquared && grid.IsCellWalkable(candidate))
+                    if (distanceSquared <= maxRangeSquared && grid.IsCellSelectableAction(candidate))
                     {
                         rangeTiles.Add(candidate);
                     }
@@ -259,10 +259,10 @@ public class MovementRange
             // calculate distance from start cell to this cell
             float distance = CalculateDistance(startCell, cell);
             // display cell coordinates, LOS status, visible corners, and distance
-            Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
+            //Debug.Log($"Tile {cell}: {statusText} - Corners Visible: {visibleCorners} - Distance: {distance} tiles");
             CreateHighlight(cell, color, $"AttackHighlight_{cell.x}_{cell.z}_{statusText}");
         }
-        Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount}");
+       // Debug.Log($"Clear: {clearCount}, Partial: {partialCount}, Blocked: {blockedCount}");
     }
 
     // calculate distance between tiles within line of sight

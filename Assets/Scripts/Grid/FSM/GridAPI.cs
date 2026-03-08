@@ -5,7 +5,7 @@ using System.Collections;
 public abstract class GridAPI : SingletonMonoBehaviour<GridAPI>
 {
     // set dependencies
-    protected GridCharacterController3D Controller => GridCharacterController3D.Instance;
+    protected GridCharacterController3D Controller => GridCharacterController3D.GetInstance();
 
 
     // cancel current action

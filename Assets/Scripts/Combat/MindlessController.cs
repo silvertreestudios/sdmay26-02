@@ -58,66 +58,47 @@ public class MindlessController : AIActionController
         float minDistance = float.MaxValue;
         //find closest target, move towards them, and strike if in range
         List<GameObject> targets = CombatManagerInterface.GetInstance().GetCombatants();
-        // Define neighbor offsets for 8 surrounding tiles
-        Vector3Int[] neighborOffsets = {
-            new Vector3Int(0, 0, 1), new Vector3Int(1, 0, 1), new Vector3Int(1, 0, 0), new Vector3Int(1, 0, -1),
-            new Vector3Int(0, 0, -1), new Vector3Int(-1, 0, -1), new Vector3Int(-1, 0, 0), new Vector3Int(-1, 0, 1)
-        };
 
         //TODO kinda clunky, the best way to do this is to make the pathfind check ignore the iswalkable flag on the enemy tile and just pathfind to bestPath-1
         foreach (GameObject target in targets)
         {
-            if (target != this.gameObject)
+            // only target non-friendly teams
+            if (target != this.gameObject && !TeamRules.GetInstance().IsFriendly(this.gameObject.GetComponent<Team>().Name, target.GetComponent<Team>().Name))
             {
                 Vector3Int targetCell = Controller.coordinateConverter.GetCharacterCell(target);
-
-                // Check paths to all neighbors of the target
-                foreach (Vector3Int offset in neighborOffsets)
+             
+                // find closest target neighbor using pathfinding
+                List<Vector3Int> pathResult = null;
+                if(!Controller.TryValidateAndGetPathAI(currentCell, targetCell, out pathResult, ignoreTargetOccupancy: true))
                 {
-                    Vector3Int neighborCell = targetCell + offset;
-
-                    // find closest target neighbor using pathfinding
-                    List<Vector3Int> pathResult = null;
-                    if(!Controller.TryValidateAndGetPathAI(currentCell, neighborCell, out pathResult))
+                    continue;
+                }
+                
+                // Ensure path is valid and reachable
+                if (pathResult != null && pathResult.Count > 0)
+                {
+                    float distance = pathResult.Count - 2; // Subtract 2 to exclude the starting and ending cells
+                    if (distance < minDistance)
                     {
-                        continue;
-                    }
-                    
-                    // Ensure path is valid and reachable
-                    if (pathResult != null && pathResult.Count > 0)
-                    {
-                        float distance = pathResult.Count - 1; // Subtract 1 to exclude the starting cell
-                        if (distance < minDistance)
-                        {
-                            minDistance = distance;
-                            bestPath = pathResult;
-                            bestTarget = target;
-                        }
+                        minDistance = distance;
+                        // subtract the ending cell from the path
+                        pathResult.RemoveAt(pathResult.Count - 1);
+                        bestPath = pathResult;
+                        bestTarget = target;
                     }
                 }
+                
             }
         }
         //check if in strike range
         //GridCharacterController3D
-        List<GameObject> occupantsInRange = Controller.GetOccupantsInArea(this.gameObject, 1);
-        //temp fix until we get highlights out of getoccupantsinarea
-        //Controller.rangeHighlighter.ClearHighlights();
+        List<GameObject> occupantsInRange = Controller.StrikeOccupantsInArea(this.gameObject, 1);
 
         if (occupantsInRange.Contains(bestTarget))
         {
             selectedTile = Controller.coordinateConverter.GetCharacterCell(bestTarget);
             //<call fsm to take action>
             return Actions[0];
-        }
-        else if (occupantsInRange.Count > 0)
-        {
-            // this covers the edge case where the mindless creature is next to the target in a 1 tile wide corridor
-            // because the itle the creature and target are stating on are not walkable there is a case where it cant
-            // "pathfind" to the target because there are no "walkable" tiles between the creature and target
-            //TODO need to add team functionality to this dececision tree after merge
-            selectedTile = Controller.coordinateConverter.GetCharacterCell(occupantsInRange[0]); 
-            bestTarget = occupantsInRange[0];
-            return Actions[0];           
         }
         else
         {
