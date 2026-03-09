@@ -98,6 +98,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     {
         if (!IsActive)
             return;
+
+        List<GameObject> currentCombatants = CombatManagerInterface.GetInstance().GetCombatants();
+        if (Players == null || HaveCombatantsChanged(currentCombatants)) {
+            Players = currentCombatants;
+            needToUpdateCards = true;
+        }
+
         // Debug.Log("Update called");
         // Debug.Log("HUD Update called");
         // Update current player card (placeholder logic)
@@ -132,12 +139,32 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     // Card Logic attempt by Ryan
     private void fillPlayerCards() {
         cardHolder.Clear(); // Fix: Clear existing cards before adding new ones
+        if (Players == null) {
+            return;
+        }
         for (int i = 0; i < Players.Count; i++) {
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
             //Debug.Log("Added card for " + Players[i].name);
         }
+    }
+
+    private bool HaveCombatantsChanged(List<GameObject> currentCombatants)
+    {
+        if (Players == null || currentCombatants == null)
+            return true;
+
+        if (Players.Count != currentCombatants.Count)
+            return true;
+
+        for (int i = 0; i < Players.Count; i++)
+        {
+            if (Players[i] != currentCombatants[i])
+                return true;
+        }
+
+        return false;
     }
 
 
