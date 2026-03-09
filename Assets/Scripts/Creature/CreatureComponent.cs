@@ -250,6 +250,8 @@ namespace Game.Creature
 
             _hp -= remaining;
             _hp = Mathf.Max(0, _hp);
+            if (_hp == 0)
+                Defeat();
         }
 
         public void TakeDamage(uint amount)
@@ -262,10 +264,27 @@ namespace Game.Creature
                 _tempHp = 0;
                 _hp = Mathf.Max(0, _hp);
             }
-            if(_hp == 0)
+            if (_hp == 0)
+                Defeat();
+        }
+
+        //helper function to signal to CombatManager when a player is defeated, so they can be removed from the turn queue and combat
+        //this function also clears the character's position from the grid memory and deactivates their game object
+        private void Defeat()
+        {
+            var ac = gameObject.GetComponent<ActionController>();
+            if (ac != null && CombatManagerInterface.GetInstance() != null)
+                CombatManagerInterface.GetInstance().Remove(ac);
+
+            var gridController = GridCharacterController3D.GetInstance();
+            var gridMemory = IGridMemory.GetInstance();
+            if (gridController != null && gridMemory != null)
             {
-                this.gameObject.SetActive(false);
+                Vector3Int cell = gridController.coordinateConverter.GetCharacterCell(gameObject);
+                gridMemory.ClearCreaturePosition(gameObject, cell);
             }
+
+            gameObject.SetActive(false);
         }
 
         public void Heal(int healAmount)

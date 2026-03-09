@@ -81,11 +81,15 @@ public class CombatManager : CombatManagerInterface
         foreach(var combatant in Combatants)
         {
             string team = combatant.GetComponent<Team>().Name;
-            if(!teams.Contains(name))
+            if(!teams.Contains(team))
                 teams.Add(team);
         }
         if (teams.Count < 2)
+        {
+            Debug.Log("Team " + teams[0] + " wins!");
             OnCombatEnd.Invoke();// Signal end
+            return;
+        }
         // Take the next turn.
         TurnStep e = TurnQueue[0];
         TurnQueue.RemoveAt(0);
@@ -95,7 +99,9 @@ public class CombatManager : CombatManagerInterface
             OnNextTurn.Invoke(TurnTaker.gameObject);
         }
         e.Trigger();
-        TurnQueue.Add(e);
+        // Only re-queue if the combatant is still active (not killed during their turn)
+        if (e.Player == null || e.Player.gameObject.activeSelf)
+            TurnQueue.Add(e);
     }
 
     //added by Ryan Meyer 5/29/24, For cameraManager to get the positions of all tokens

@@ -46,7 +46,7 @@ public class StrikeWeapon : MultiFrameEntityAction
             {
                 StrikeWeapon strikeWeaponAction = new StrikeWeapon(1, weapon, creature);
                 creature.GetComponent<ActionController>().AddAction(strikeWeaponAction);
-                Debug.Log("WeaponStrikeAdderTEMP added StrikeWeapon action for " + weapon.name + " to " + creature.name);
+                //Debug.Log("WeaponStrikeAdderTEMP added StrikeWeapon action for " + weapon.name + " to " + creature.name);
                 break;
             }
         }
@@ -100,6 +100,7 @@ public class StrikeWeapon : MultiFrameEntityAction
 
     protected override IEnumerator MFInvoke(GameObject attacker)
     {
+        
         ActionController ac = attacker.GetComponent<ActionController>();
         // Grid get target;
         CoroutineResult<GameObject> target = new();

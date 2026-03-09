@@ -136,7 +136,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
-            Debug.Log("Added card for " + Players[i].name);
+            //Debug.Log("Added card for " + Players[i].name);
         }
     }
 
@@ -189,13 +189,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             GameObject g = CombatManager.GetInstance().WhosTurn();
             List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
             StrikeWeapon strikeWeaponAction = null;
-            Debug.Log("Available actions for current player: "+ acs.Count);
+            //Debug.Log("Available actions for current player: "+ acs.Count);
             foreach (var a in acs)
             {
-                Debug.Log("Checking action: " + a);
+                //Debug.Log("Checking action: " + a);
                 if (a is StrikeWeapon)
                 {
-                    Debug.Log("Found StrikeWeapon action: " + a);
+                    //Debug.Log("Found StrikeWeapon action: " + a);
                     strikeWeaponAction = (StrikeWeapon)a;
                     strikeWeaponButtton.text = strikeWeaponAction.GetWeaponName();
                     return;

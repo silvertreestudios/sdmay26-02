@@ -12,6 +12,8 @@ public class StateStrike : GridFSMState
     public bool canceled { get; private set; } = false;
     private int range;
     private List<GameObject> occupantsInRange = new List<GameObject>();
+    private Vector3Int startCell;
+    
 
     // compact constructor
     public StateStrike(GameObject character, int range, GridCharacterController3D controller)
@@ -27,8 +29,8 @@ public class StateStrike : GridFSMState
         selection = null;
         canceled = false;
         occupantsInRange.Clear();
-        //Set active player for helper functions
-        controller.SetActivePlayer(character);
+        startCell = controller.coordinateConverter.GetCharacterCell(character);
+        controller.isProcessingTurn = false;
         AIActionController ai = character.GetComponent<AIActionController>();
         if (ai != null) {
             
@@ -42,8 +44,11 @@ public class StateStrike : GridFSMState
                 }
             this.fsm.ChangeState(this.fsm.idleState);
         } else {
-        //currently the highlights are set in this function, this needs to be moved here in the future
-        occupantsInRange = controller.GetOccupantsInArea(character, range);
+        controller.rangeHighlighter.UpdateHighlights(startCell, range, showAttackRange: true);
+        //currently I am filtering out friendly targets in StrikeOccupantsInArea
+        //but this may not be 100% accurate to the pathfinder 2E rules
+        //TODO talk to Cole and Chris about this implementation
+        occupantsInRange = controller.StrikeOccupantsInArea(character, range);
         }
 
     }
@@ -75,7 +80,7 @@ public class StateStrike : GridFSMState
         if (occupantsInRange.Contains(selection))
         {
             target = selection;
-            Debug.Log($"[State_Strike] Target confirmed: {target.name}");
+            //Debug.Log($"[State_Strike] Target confirmed: {target.name}");
             fsm.ChangeState(fsm.idleState);
         }
         else
@@ -86,7 +91,7 @@ public class StateStrike : GridFSMState
     public override void Rightclick()
     {
         // cancel action when right clicking
-        Debug.Log("[State_Strike] Action cancelled");
+        //Debug.Log("[State_Strike] Action cancelled");
         selection = null;
         target = null;
         canceled = true;

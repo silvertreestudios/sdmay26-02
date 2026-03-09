@@ -7,6 +7,9 @@ public class PlayerActionController : ActionController
 {
     protected void Awake()
     {
+        //// TEMPORARY TEAM ASSIGNMENT ////
+        this.gameObject.GetComponent<Team>().Name = "Players";
+        //// END TEMPORARY TEAM ASSIGNMENT ////
         CombatManagerInterface.GetInstance().AddCombatant(this);
         
         Stride strideAction = new Stride(1); // Cost of 1 action point
@@ -59,7 +62,7 @@ public class PlayerActionController : ActionController
 
         if (Movements.Count > 0)
         {
-            Debug.Log("Invoking Stride action...");
+            //Debug.Log("Invoking Stride action...");
             TakeAction(Movements[0]);
         }
         else
@@ -77,7 +80,7 @@ public class PlayerActionController : ActionController
     {
         if (Actions.Count > 0)
         {
-            Debug.Log("Invoking Strike action...");
+            //Debug.Log("Invoking Strike action...");
             TakeAction(Actions[0]);
         }
     }
