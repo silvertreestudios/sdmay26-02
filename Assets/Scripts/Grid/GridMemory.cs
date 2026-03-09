@@ -98,6 +98,49 @@ public class GridMemory : IGridMemory
             GridInfo = null;
         }
     }
+
+    public override bool IsDoor(int x, int z)
+    {
+        if (GridInfo == null || x < 0 || x >= Width || z < 0 || z >= Height) return false;
+        return GridInfo[x, GridY, z].type == TileType.Door;
+    }
+
+    public override bool IsDoorOpen(int x, int z)
+    {
+        if (!IsDoor(x, z)) return false;
+        return HasStatus(x, z, TileStatus.DoorOpen);
+    }
+
+    public override void ToggleDoor(int x, int z)
+    {
+        if (!IsDoor(x, z)) return;
+
+        if (HasStatus(x, z, TileStatus.DoorOpen))
+        {
+            // Close door
+            RemoveStatus(x, z, TileStatus.DoorOpen);
+            SetStatus(x, z, TileStatus.DoorClosed);
+            SetIsOccupied(x, z, true); // closed doors block movement
+        }
+        else
+        {
+            // Open door
+            RemoveStatus(x, z, TileStatus.DoorClosed);
+            SetStatus(x, z, TileStatus.DoorOpen);
+            SetIsOccupied(x, z, false); // open doors allow movement
+        }
+    }
+
+    // Helper method to remove a status
+    public override void RemoveStatus(int x, int z, TileStatus statusToRemove)
+    {
+        if (GridInfo == null || x < 0 || x >= Width || z < 0 || z >= Height) return;
+
+        var statuses = new List<TileStatus>(GridInfo[x, GridY, z].status);
+        statuses.Remove(statusToRemove);
+        GridInfo[x, GridY, z].status = statuses.ToArray();
+    }
+
     //creates a list of current statuses, then adds the new status if not already present. might need a cleaner way to do this.
     public override void SetStatus(int x, int z, TileStatus statusToSet)
     {
@@ -182,7 +225,6 @@ public class GridMemory : IGridMemory
         if (GridInfo == null) return false;
         if (position.x < 0 || position.x >= Width) return false;
         if (position.z < 0 || position.z >= Height) return false;
-        
         var tile = GridInfo[position.x, GridY, position.z];
         
         // Ground tiles are walkable if not occupied
