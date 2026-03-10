@@ -202,8 +202,7 @@ public class GridRenderer3D : MonoBehaviour
     }
 
     /// <summary>
-    /// Remove old grid SRs, create per-cell SRs.
-    /// </summary>
+    /// Remove old grid SRs, create per-cell SRs
     void RebuildGrid()
     {
         int width = 0;
