@@ -121,7 +121,6 @@ public class GridRenderer3D : MonoBehaviour
 
         // Keep plane at Y=gridY and rotated onto XZ each frame.
         if (_plane) { _plane.position = new Vector3(0, gridY, 0); _plane.localEulerAngles = new Vector3(90, 0, 0); }
-
         // Build a ray from the mouse to find the hit on the grid plane.
         var ray = cam.ScreenPointToRay(InputCompat.MousePositionScreen());
         var plane = new Plane(Vector3.up, new Vector3(0f, gridY, 0f));
@@ -284,11 +283,7 @@ public class GridRenderer3D : MonoBehaviour
     bool IsCellHoverable(Vector3Int cell)
     {
         if (gridMemory == null) return false;
-
-        // Check if cell is walkable (ground tiles)
         if (gridMemory.IsCellWalkable(cell)) return true;
-
-        // Check if cell is a door and door hovering is enabled
         if (allowDoorHover && gridMemory.GridInfo != null)
         {
             int x = cell.x;
@@ -299,7 +294,6 @@ public class GridRenderer3D : MonoBehaviour
                 return tileType == GridMemory.TileType.Door;
             }
         }
-
         return false;
     }
 
@@ -323,7 +317,6 @@ public class GridRenderer3D : MonoBehaviour
 
             if (isCurrentlyOpen)
             {
-                // Close the door
                 Debug.Log($"Door clicked at ({x}, {z}). Closing door.");
                 gridMemory.RemoveStatus(x, z, GridMemory.TileStatus.DoorOpen);
                 gridMemory.SetStatus(x, z, GridMemory.TileStatus.DoorClosed);
@@ -331,7 +324,6 @@ public class GridRenderer3D : MonoBehaviour
             }
             else
             {
-                // Open the door
                 Debug.Log($"Door clicked at ({x}, {z}). Opening door.");
                 gridMemory.RemoveStatus(x, z, GridMemory.TileStatus.DoorClosed);
                 gridMemory.SetStatus(x, z, GridMemory.TileStatus.DoorOpen);
