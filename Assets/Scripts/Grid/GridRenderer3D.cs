@@ -148,7 +148,6 @@ public class GridRenderer3D : MonoBehaviour
         {
             HandleCellClick(HoverCell);
         }
-
         // Keep all visuals pixel-consistent as the camera moves/zooms.
         UpdateHover();
     }
@@ -168,7 +167,6 @@ public class GridRenderer3D : MonoBehaviour
             if (!_plane) { _plane = new GameObject("PlaneXZ").transform; _plane.SetParent(transform, false); }
             // make sure plane is at correct position and rotation
             _gridRoot = GetOrMake(_plane, "Grid");
-
             _overlayRoot = GetOrMake(_plane, "Overlay");
         }
 
