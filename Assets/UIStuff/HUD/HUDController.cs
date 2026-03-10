@@ -329,13 +329,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         Debug.Log("Finished updating player queue cards");
     }
 
-    // Call this when a character's turn starts
-    public void SetActiveTurn(GameObject player) {
-        for (int i = 0; i < Players.Count; i++) {
-            Portrait portraitScript = Players[i].GetComponent<Portrait>();
-            if (portraitScript != null) {
-                portraitScript.SetPortraitCameraEnabled(Players[i] == player);
-            }
-        }
-    }
+    // // Call this when a character's turn starts
+    // public void SetActiveTurn(GameObject player) {
+    //     for (int i = 0; i < Players.Count; i++) {
+    //         Portrait portraitScript = Players[i].GetComponent<Portrait>();
+    //         if (portraitScript != null) {
+    //             portraitScript.SetPortraitCameraEnabled(Players[i] == player);
+    //         }
+    //     }
+    // }
 }
