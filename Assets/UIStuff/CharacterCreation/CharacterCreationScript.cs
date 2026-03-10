@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.UIElements;
 using System.Collections.Generic;
+using UnityEngine.SceneManagement;
+using System.Reflection;
 
 [System.Serializable]
 public class Ancestry
@@ -369,19 +371,79 @@ public class CharacterCreationScript : MonoBehaviour
     void FinishCreation()
     {
         //no need to show overview because everything is displayed already
-        //check json
-        //check attributes
+
+        bool ready = false;
+
+        //check json/currentCharacter object for any null fields
+        ready = HasNullFields(currentCharacter);
+
+        //check attributes. There's gotta be a way to make this cleaner. What if multiple are over 5? I think it does just once at a time
         if(currentCharacter.dexterity >= 5)
         {
             notificationElement.style.display = DisplayStyle.Flex;
             notificationElement.text = "Dexterity cannot be more than 4";
             notificationElement.clicked += Disappear;
         }
-        //change scene
+        if(currentCharacter.charisma >= 5)
+        {
+            notificationElement.style.display = DisplayStyle.Flex;
+            notificationElement.text = "Charisma cannot be more than 4";
+            notificationElement.clicked += Disappear;
+        }
+        if(currentCharacter.strength >= 5)
+        {
+            notificationElement.style.display = DisplayStyle.Flex;
+            notificationElement.text = "Strength cannot be more than 4";
+            notificationElement.clicked += Disappear;
+        }
+        if(currentCharacter.wisdom >= 5)
+        {
+            notificationElement.style.display = DisplayStyle.Flex;
+            notificationElement.text = "Wisdom cannot be more than 4";
+            notificationElement.clicked += Disappear;
+        }
+        if(currentCharacter.intelligence >= 5)
+        {
+            notificationElement.style.display = DisplayStyle.Flex;
+            notificationElement.text = "Intelligence cannot be more than 4";
+            notificationElement.clicked += Disappear;
+        }
+        if(currentCharacter.constitution >= 5)
+        {
+            notificationElement.style.display = DisplayStyle.Flex;
+            notificationElement.text = "Constitution cannot be more than 4";
+            notificationElement.clicked += Disappear;
+        }
+
+        //change scene to gameplay
+        if (ready)
+        {
+            SceneManager.LoadScene("SampleScene");
+        }
     }
 
+    //this could probably be better...
     void Disappear() {
         notificationElement.style.display = DisplayStyle.None;
+    }
+    //helper function for checking for null/unassigned variables for currentCharacter
+    public bool HasNullFields(PlayerCharacter character)
+    {
+        foreach (FieldInfo field in typeof(PlayerCharacter).GetFields())
+        {
+            object value = field.GetValue(character);
+
+            if (value == null) //if a variable is null
+            {
+                Debug.Log(field.Name + " is null");
+                notificationElement.style.display = DisplayStyle.Flex;
+                notificationElement.text = field.Name + " is null";
+                notificationElement.clicked += Disappear;
+                return false;
+            }
+        }
+
+        return true;
     }
 
     void OnNameChanged(ChangeEvent<string> evt)
