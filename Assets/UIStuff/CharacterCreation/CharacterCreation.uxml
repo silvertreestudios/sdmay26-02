@@ -130,6 +130,8 @@
             </ui:Tab>
         </ui:TabView>
     </ui:VisualElement>
+    <ui:Button text="Button" name="NotificationElement" enabled="true" style="display: none;" />
+    <ui:Button text="Finish" name="FinishCharacterCreationButton" />
     <ui:VisualElement name="BottomPanel" style="flex-grow: 1;">
         <ui:VisualElement name="AncestryDetails" enabled="true" style="flex-grow: 1; background-color: rgb(255, 0, 0);">
             <ui:Label name="AncestryDescription" />
@@ -141,7 +143,8 @@
             <ui:Label name="ClassDescription" />
             <ui:Label name="ClassBoosts" />
             <ui:Label name="ClassSkills" />
-            <ui:Button text="Button" name="jsondebug" />
+            <ui:Button text="debug" name="jsondebug" />
+            <ui:Button text="Default Barbarian" name="DefaultBarbarianButton" />
         </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>

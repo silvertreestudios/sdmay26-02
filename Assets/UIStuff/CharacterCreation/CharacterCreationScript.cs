@@ -146,6 +146,7 @@ public class CharacterCreationScript : MonoBehaviour
     Label classDescriptionLabel;
     Label classBoostsLabel;
     Label classSkillsLabel;
+    Button notificationElement;
     TextField ancestryChoiceField;
     TextField heritageChoiceField;
     TextField backgroundChoiceField;
@@ -178,6 +179,8 @@ public class CharacterCreationScript : MonoBehaviour
     Toggle wisdomToggle;
     Toggle charismaToggle;
     Button jsonDebug;
+    Button defaultBarbarian;
+    Button finishCharacterCreation;
     Dictionary<string, List<string>> backgroundDescriptionByBackground;
     List<Toggle> toggles;
     List<string> attributeKeysForToggles; //the index of the List<Toggle> matches the index of List<string> attributeKey
@@ -240,6 +243,8 @@ public class CharacterCreationScript : MonoBehaviour
         wisdomToggle = root.Q<Toggle>("WisdomToggle");
         charismaToggle = root.Q<Toggle>("CharismaToggle");
         jsonDebug = root.Q<Button>("jsondebug");
+        defaultBarbarian = root.Q<Button>("DefaultBarbarianButton");
+        finishCharacterCreation = root.Q<Button>("FinishCharacterCreationButton");
         simpleWeaponsField = root.Q<TextField>("SimpleAttack");
         martialWeaponsField = root.Q<TextField>("MartialAttack");
         advancedWeaponsField = root.Q<TextField>("AdvancedAttack");
@@ -255,6 +260,7 @@ public class CharacterCreationScript : MonoBehaviour
         wisdomAttributeField = root.Q<IntegerField>("WisdomAttribute");
         charismaAttributeField = root.Q<IntegerField>("CharismaAttribute"); 
         nameField = root.Q<TextField>("NameField");
+        notificationElement = root.Q<Button>("NotificationElement");
 
         //for json, assigning
         jsonFile = Resources.Load<TextAsset>("Data/ancestry");
@@ -286,6 +292,8 @@ public class CharacterCreationScript : MonoBehaviour
         attributes.Add("Charisma", new AttributeContributions());
 
         jsonDebug.clicked += PrintJson; //FOR DEBUGGING THE PLAYERCHARACTER JSON
+        defaultBarbarian.clicked += PopulateDefaultBarbarianJson;
+        finishCharacterCreation.clicked += FinishCreation;
 
         nameField.RegisterValueChangedCallback(OnNameChanged);
         genderRadioButtonGroup.RegisterValueChangedCallback(OnGenderChanged);
@@ -317,6 +325,63 @@ public class CharacterCreationScript : MonoBehaviour
     void PrintJson()
     {
         Debug.Log(JsonUtility.ToJson(currentCharacter, true));
+    }
+
+    void PopulateDefaultBarbarianJson()
+    {
+        currentCharacter.name = "Torgrim";
+        currentCharacter.gender = "male";
+        currentCharacter.ancestry = "Dwarf";
+        currentCharacter.heritage = "Rock";
+        currentCharacter.background = "Bandit";
+        currentCharacter.className = "Barbarian";
+        currentCharacter.hp = 22;
+        currentCharacter.speed = 20;
+        currentCharacter.size = "medium";
+        currentCharacter.strength = 4;
+        currentCharacter.dexterity = 2;
+        currentCharacter.constitution = 1;
+        currentCharacter.intelligence = 1;
+        currentCharacter.wisdom = 1;
+        currentCharacter.charisma = 0;
+        currentCharacter.perception = "expert";
+        currentCharacter.fortitude = "expert";
+        currentCharacter.reflex = "trained";
+        currentCharacter.will = "expert";
+        currentCharacter.simpleWeapons = "trained";
+        currentCharacter.martialWeapons = "trained";
+        currentCharacter.advancedWeapons = "untrained";
+        currentCharacter.unarmedAttack = "trained";
+        currentCharacter.unarmored = "trained";
+        currentCharacter.lightArmor = "trained";
+        currentCharacter.mediumArmor = "trained";
+        currentCharacter.allArmor = "untrained";
+        currentCharacter.ancestryFeat = "Mountain Strategy";
+        currentCharacter.classFeat = "Raging Intimidation";
+        currentCharacter.subclass = "Giant Instinct";
+        currentCharacter.specialAbilities = new string[2];
+        currentCharacter.specialAbilities[0] = "dark vision";
+        currentCharacter.specialAbilities[1] = "clan dagger";
+        currentCharacter.weapon = "Great Axe";
+        currentCharacter.armor = "Scalemail";
+    }
+
+    void FinishCreation()
+    {
+        //no need to show overview because everything is displayed already
+        //check json
+        //check attributes
+        if(currentCharacter.dexterity >= 5)
+        {
+            notificationElement.style.display = DisplayStyle.Flex;
+            notificationElement.text = "Dexterity cannot be more than 4";
+            notificationElement.clicked += Disappear;
+        }
+        //change scene
+    }
+
+    void Disappear() {
+        notificationElement.style.display = DisplayStyle.None;
     }
 
     void OnNameChanged(ChangeEvent<string> evt)
