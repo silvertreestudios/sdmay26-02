@@ -7,9 +7,6 @@ public class PlayerActionController : ActionController
 {
     protected void Awake()
     {
-        //// TEMPORARY TEAM ASSIGNMENT ////
-        this.gameObject.GetComponent<Team>().Name = "Players";
-        //// END TEMPORARY TEAM ASSIGNMENT ////
         CombatManagerInterface.GetInstance().AddCombatant(this);
         
         Stride strideAction = new Stride(1); // Cost of 1 action point

@@ -15,5 +15,13 @@ public abstract class EntityAction
             ac.ActionPoints -= ActionCost;
     }
 
-    public abstract void Invoke(GameObject target);
+    /// <summary>
+    /// Base caller for entity actions. Should be 
+    /// called once action is completed.
+    /// </summary>
+    /// <param name="target">The calling gameobject</param>
+    public virtual void Invoke(GameObject target)
+    {
+        CombatManager.GetInstance().CheckForEndOfGame();
+    }
 }

@@ -11,6 +11,12 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     public abstract void StartCombat();
 
     /// <summary>
+    /// Checks all conditions for the end of the game, fires the OnCombatEnd event
+    /// </summary>
+    /// <returns>True if combat has ended</returns>
+    public abstract bool CheckForEndOfGame();
+
+    /// <summary>
     /// Starts delegating combat turns
     /// </summary>
     public abstract void NextTurn();

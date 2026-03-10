@@ -13,16 +13,11 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
 
     private void Start()
     {
-        TeamRules.GetInstance().AddNeutralTeam("Players");
-        TeamRules.GetInstance().AddHostileTeam("Enemies");
-        TeamRules.GetInstance().OneWayFriendly("Players", "Players");
-        TeamRules.GetInstance().OneWayFriendly("Enemies", "Enemies");
         StartCoroutine("StartCombat");
     }
 
     private IEnumerator StartCombat()
     {
-        GridCharacterController3D.GetInstance().Setup();
         CombatManagerInterface.GetInstance().StartCombat();
         HUDController.Setup();
         yield return null;
