@@ -254,7 +254,6 @@ public class GridCharacterController3D : MonoBehaviour
         player.transform.position = position;
         characters[player] = player;
         currentPlayer = currentPlayer ?? player;
-
         var renderer = player.GetComponent<MeshRenderer>();
         if (renderer && color != Color.white)
         {
