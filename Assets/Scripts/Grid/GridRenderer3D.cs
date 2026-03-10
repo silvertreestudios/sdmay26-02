@@ -35,6 +35,8 @@ public class GridRenderer3D : MonoBehaviour
     [Header("Hover/Click")]
     // Whether to draw hover visual.
     public bool drawHoverCell = true;
+    // Allow hovering over door tiles
+    public bool allowDoorHover = true;
 
     // True when mouse ray hits grid and cell is inside bounds.
     public bool HasHover { get; private set; }
@@ -134,12 +136,18 @@ public class GridRenderer3D : MonoBehaviour
                 Mathf.FloorToInt((hit.z - origin.y) / cellSize));
             // Inside bounds?
             bool inside = (uint)cell.x < (uint)width && (uint)cell.z < (uint)height;
-            bool canHover = inside && gridMemory != null && gridMemory.IsCellWalkable(cell);
+            bool canHover = inside && gridMemory != null && IsCellHoverable(cell);
 
             if (canHover && !cell.Equals(HoverCell)) { HoverCell = cell; HasHover = true; UpdateHover(); }
             else if (!canHover) HasHover = false;
         }
         else HasHover = false;
+
+        // Handle click on door tiles
+        if (HasHover && Input.GetMouseButtonDown(0))
+        {
+            HandleCellClick(HoverCell);
+        }
 
         // Keep all visuals pixel-consistent as the camera moves/zooms.
         UpdateHover();
@@ -274,6 +282,65 @@ public class GridRenderer3D : MonoBehaviour
             }
         }
 
+    }
+
+    bool IsCellHoverable(Vector3Int cell)
+    {
+        if (gridMemory == null) return false;
+        
+        // Check if cell is walkable (ground tiles)
+        if (gridMemory.IsCellWalkable(cell)) return true;
+        
+        // Check if cell is a door and door hovering is enabled
+        if (allowDoorHover && gridMemory.GridInfo != null)
+        {
+            int x = cell.x;
+            int z = cell.z;
+            if (x >= 0 && x < width && z >= 0 && z < height)
+            {
+                var tileType = gridMemory.GridInfo[x, gridY, z].type;
+                return tileType == GridMemory.TileType.Door;
+            }
+        }
+        
+        return false;
+    }
+
+
+    void HandleCellClick(Vector3Int cell)
+    {
+        if (gridMemory == null || gridMemory.GridInfo == null) return;
+
+        int x = cell.x;
+        int z = cell.z;
+
+        // Validate cell bounds
+        if (x < 0 || x >= width || z < 0 || z >= height) return;
+
+        var tile = gridMemory.GridInfo[x, gridY, z];
+
+        // If it's a door tile, toggle between open and closed
+        if (tile.type == GridMemory.TileType.Door)
+        {
+            bool isCurrentlyOpen = gridMemory.IsDoorOpen(x, z);
+            
+            if (isCurrentlyOpen)
+            {
+                // Close the door
+                Debug.Log($"Door clicked at ({x}, {z}). Closing door.");
+                gridMemory.RemoveStatus(x, z, GridMemory.TileStatus.DoorOpen);
+                gridMemory.SetStatus(x, z, GridMemory.TileStatus.DoorClosed);
+                gridMemory.SetIsOccupied(x, z, true); // Closed doors block movement
+            }
+            else
+            {
+                // Open the door
+                Debug.Log($"Door clicked at ({x}, {z}). Opening door.");
+                gridMemory.RemoveStatus(x, z, GridMemory.TileStatus.DoorClosed);
+                gridMemory.SetStatus(x, z, GridMemory.TileStatus.DoorOpen);
+                gridMemory.SetIsOccupied(x, z, false); // Open doors allow movement
+            }
+        }
     }
 
     /// <summary>
