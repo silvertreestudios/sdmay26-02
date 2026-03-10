@@ -1,4 +1,3 @@
-
 using NUnit.Framework.Internal;
 using Unity.VisualScripting;
 using UnityEngine;
@@ -296,7 +295,17 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             var card = cardHolder.ElementAt(i);
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             var healthBar = card.Q<ProgressBar>("HealthBar");
-            card.Q<Label>("Card_Name").text = p.name + " photo would go here"; // Update name in case it changes
+            var portraitImage = card.Q<Image>("PortraitImage");
+            
+            // Get portrait snapshot and display it
+            Portrait portraitScript = Players[i].GetComponent<Portrait>();
+            if (portraitScript != null) {
+                Texture2D portraitSnapshot = portraitScript.GetPortraitSnapshot();
+                if (portraitSnapshot != null && portraitImage != null) {
+                    portraitImage.image = portraitSnapshot;
+                }
+            }
+            
             healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
             healthBar.value = p.hp;
             healthBar.highValue = p.maxHp;
@@ -316,6 +325,16 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 return; // Exit early to avoid updating cards that may be removed
             }
             card.Q<Label>("AP").text = "AP: " + p.GetComponent<ActionController>().ActionPoints; // Update action points display
+        }
+    }
+
+    // Call this when a character's turn starts
+    public void SetActiveTurn(GameObject player) {
+        for (int i = 0; i < Players.Count; i++) {
+            Portrait portraitScript = Players[i].GetComponent<Portrait>();
+            if (portraitScript != null) {
+                portraitScript.SetPortraitCameraEnabled(Players[i] == player);
+            }
         }
     }
 }
