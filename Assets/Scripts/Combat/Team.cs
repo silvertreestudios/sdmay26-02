@@ -5,4 +5,14 @@ public class Team : MonoBehaviour
 {
     [field: SerializeField]
     public string Name { get; set; }
+
+    private void Awake()
+    {
+        TeamRules tr = TeamRules.GetInstance();
+        if(!tr.Contains(Name)) 
+        {
+            tr.AddHostileTeam(Name);
+            tr.OneWayFriendly(Name, Name);
+        }
+    }
 }

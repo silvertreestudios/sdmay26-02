@@ -3,7 +3,7 @@ using UnityEngine;
 
 /// <summary>
 /// Manages visual path preview rendering using Unity's LineRenderer.
-/// Handles path display, color changes, and cleanup.
+/// TODO: make visual indicator look better
 /// </summary>
 public class VisualIndicator
 {
@@ -31,37 +31,31 @@ public class VisualIndicator
     /// <summary>
     /// Gets the currently previewed path (returns null if no path is active)
     /// </summary>
-    public List<Vector3Int> CurrentPath => isActive && currentPath != null
-        ? new List<Vector3Int>(currentPath)
-        : null;
+    public List<Vector3Int> CurrentPath
+    {
+        get
+        {
+            if (isActive && currentPath != null)
+                return new List<Vector3Int>(currentPath);
+
+            return null;
+        }
+    }
 
     /// <summary>
     /// Creates a new VisualIndicator
     /// </summary>
-    /// <param name="parent">Parent transform for the LineRenderer GameObject</param>
-    /// <param name="material">Material for the line (null creates default)</param>
-    /// <param name="width">Width of the preview line</param>
-    /// <param name="height">Height offset above the ground</param>
-    /// <param name="defaultPreviewColor">Color for normal preview</param>
-    /// <param name="confirmedPreviewColor">Color for confirmed preview</param>
-    /// <param name="gridCellToWorld">Function to convert grid coordinates to world position</param>
-    public VisualIndicator(
-        Transform parent,
-        Material material,
-        float width,
-        float height,
-        Color defaultPreviewColor,
-        Color confirmedPreviewColor,
-        System.Func<int, int, float, Vector3> gridCellToWorld)
+    /// <param name="controller">Reference to the grid controller</param>
+    public VisualIndicator(GridCharacterController3D controller)
     {
-        this.indicatorMaterial = material;
-        this.lineWidth = width;
-        this.heightOffset = height;
-        this.defaultColor = defaultPreviewColor;
-        this.confirmedColor = confirmedPreviewColor;
-        this.gridToWorld = gridCellToWorld;
+        this.indicatorMaterial = controller.indicatorMaterial;
+        this.lineWidth = controller.indicatorWidth;
+        this.heightOffset = controller.indicatorHeight;
+        this.defaultColor = controller.defaultIndicatorColor;
+        this.confirmedColor = controller.confirmedIndicatorColor;
+        this.gridToWorld = controller.coordinateConverter.GridCellCenterWorld;
 
-        InitializeLineRenderer(parent);
+        InitializeLineRenderer(controller.transform);
     }
 
     /// <summary>
@@ -134,8 +128,6 @@ public class VisualIndicator
 
         // Show the preview
         indicatorObject.SetActive(true);
-
-        Debug.Log($"[VisualIndicator] Path shown with {path.Count} waypoints.");
     }
 
     /// <summary>

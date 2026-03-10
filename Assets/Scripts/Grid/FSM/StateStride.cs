@@ -9,8 +9,6 @@ public class StateStride : GridFSMState
     // reference to helper class
     GridCharacterController3D controller;
     public bool canceled { get; private set; } = false;
-
-    
     private Vector3Int startCell;
     private List<Vector3Int> path;
 
@@ -27,8 +25,7 @@ public class StateStride : GridFSMState
         canceled = false;
         startCell = controller.coordinateConverter.GetCharacterCell(character);
 
-        //Set active player for helper functions
-        controller.SetActivePlayer(character);
+        controller.isProcessingTurn = false;
 
         AIActionController ai = character.GetComponent<AIActionController>();
         if (ai != null) {
@@ -109,7 +106,7 @@ public class StateStride : GridFSMState
         // cancel stride when right clicking
         // if you are reading this and want to make another action, try to keep right click consistent for cancelling
         // I like it because its how the UI in Rimworld works and I quite enjoy that game :)
-        Debug.Log("[State_Stride] Stride cancelled");
+        //Debug.Log("[State_Stride] Stride cancelled");
         canceled = true;
         fsm.ChangeState(fsm.idleState);
 

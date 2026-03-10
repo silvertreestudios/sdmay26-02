@@ -59,7 +59,7 @@ public class PlayerActionController : ActionController
 
         if (Movements.Count > 0)
         {
-            Debug.Log("Invoking Stride action...");
+            //Debug.Log("Invoking Stride action...");
             TakeAction(Movements[0]);
         }
         else
@@ -77,7 +77,7 @@ public class PlayerActionController : ActionController
     {
         if (Actions.Count > 0)
         {
-            Debug.Log("Invoking Strike action...");
+            //Debug.Log("Invoking Strike action...");
             TakeAction(Actions[0]);
         }
     }

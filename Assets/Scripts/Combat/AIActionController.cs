@@ -7,7 +7,7 @@ using System;
 //TODO abstract AIActionConroller and make a subclass for mindless
 public abstract class AIActionController : ActionController
 {
-    protected GridCharacterController3D Controller => GridCharacterController3D.Instance;
+    protected GridCharacterController3D Controller => GridCharacterController3D.GetInstance();
     public GameObject bestTarget{get; protected set;}
     public List<Vector3Int> bestPath{get; protected set;}
     public Vector3Int selectedTile{get; protected set;}
