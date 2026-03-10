@@ -1,13 +1,15 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
     <Style src="project://database/Assets/UIStuff/CharacterCreation/CharacterCreation.uss?fileID=7433441132597879392&amp;guid=ab2c21ff1365a96489a5f75bb7e25c0f&amp;type=3#CharacterCreation" />
-    <ui:VisualElement name="Panel" class="panel">
+    <ui:VisualElement name="Panel" class="panel" style="justify-content: space-around; align-content: flex-start;">
         <ui:VisualElement name="ProfilePanel">
             <ui:TextField label="Ancestry" name="AncestryChoice" readonly="true" />
             <ui:TextField label="Heritage" name="HeritageChoice" readonly="true" />
             <ui:TextField label="Background" name="BackgroundChoice" readonly="true" />
             <ui:TextField label="Class" name="ClassChoice" readonly="true" />
+            <ui:TextField label="Subclass" name="Subclass" readonly="true" />
             <ui:IntegerField label="HP" value="0" name="HP" readonly="true" />
             <ui:IntegerField label="Speed" value="0" name="Speed" readonly="true" />
+            <ui:TextField label="Size" name="Size" readonly="true" />
             <ui:Foldout text="Attributes" name="Attributes">
                 <ui:IntegerField label="Strength" value="0" name="StrengthAttribute" readonly="true" />
                 <ui:IntegerField label="Dexterity" value="0" name="DexterityAttribute" readonly="true" />
@@ -23,9 +25,9 @@
                 <ui:TextField label="Will" name="Will" readonly="true" />
             </ui:Foldout>
         </ui:VisualElement>
-        <ui:VisualElement style="flex-grow: 1;">
+        <ui:VisualElement name="ProfilePanelCont" style="flex-grow: 0; flex-shrink: 1;">
             <ui:Foldout text="Attacks" name="ClassAttackFoldout">
-                <ui:TextField label="Simple Weapons" name="SimpleAttack" readonly="true" />
+                <ui:TextField label="Simple Weapons" name="SimpleAttack" readonly="true" max-length="-1" />
                 <ui:TextField label="Martial Weapons" name="MartialAttack" readonly="true" />
                 <ui:TextField label="Advanced Weapons" name="AdvancedAttack" readonly="true" />
                 <ui:TextField label="Unarmed Attack" name="UnarmedAttack" readonly="true" />
@@ -37,12 +39,12 @@
                 <ui:TextField label="All Armor" name="AllArmorDefense" readonly="true" />
             </ui:Foldout>
         </ui:VisualElement>
-        <ui:TextField label="Name" placeholder-text="Enter character&apos;s name" name="NameField" />
+        <ui:TextField label="Name" placeholder-text="Enter character&apos;s name" name="NameField" max-length="-1" />
         <ui:RadioButtonGroup label="Gender" name="Gender">
             <ui:RadioButton label="Male" name="Male" style="background-image: none;" />
             <ui:RadioButton label="Female" name="Female" />
         </ui:RadioButtonGroup>
-        <ui:TabView view-data-key="CharacterCreation" enabled="true" reorderable="false">
+        <ui:TabView view-data-key="CharacterCreation" enabled="true" reorderable="false" name="ChoiceTabs">
             <ui:Tab label="Ancestry" name="AncestryTab" view-data-key="AncestryTab">
                 <ui:RadioButtonGroup name="AncestryRadioButtonGroup">
                     <ui:RadioButton label="Elf" name="Elf" />
@@ -131,20 +133,24 @@
         </ui:TabView>
     </ui:VisualElement>
     <ui:Button text="Button" name="NotificationElement" enabled="true" style="display: none;" />
-    <ui:Button text="Finish" name="FinishCharacterCreationButton" />
-    <ui:VisualElement name="BottomPanel" style="flex-grow: 1;">
-        <ui:VisualElement name="AncestryDetails" enabled="true" style="flex-grow: 1; background-color: rgb(255, 0, 0);">
-            <ui:Label name="AncestryDescription" />
+    <ui:VisualElement name="BottomPanel" style="flex-grow: 1; flex-direction: row;">
+        <ui:Button text="Finish" name="FinishCharacterCreationButton" />
+        <ui:Button text="debug" name="jsondebug" />
+        <ui:Button text="Default Barbarian" name="DefaultBarbarianButton" />
+        <ui:VisualElement name="AncestryDetails" enabled="true" style="flex-grow: 1; background-color: rgba(55, 55, 55, 0);">
+            <ui:Label name="AncestryDescription" style="white-space: normal;" />
             <ui:Label name="AncestryBoostsFlaws" />
             <ui:Label name="AncestrySpecialAbilities" />
+        </ui:VisualElement>
+        <ui:VisualElement name="BackgroundDetails" style="flex-grow: 1; white-space: normal;">
             <ui:Label name="BackgroundDescriptionLabel" />
             <ui:Label name="BackgroundSkillLabel" />
             <ui:Label name="BackgroundSkillFeatLabel" />
+        </ui:VisualElement>
+        <ui:VisualElement name="ClassDetails" style="flex-grow: 1; white-space: normal;">
             <ui:Label name="ClassDescription" />
             <ui:Label name="ClassBoosts" />
             <ui:Label name="ClassSkills" />
-            <ui:Button text="debug" name="jsondebug" />
-            <ui:Button text="Default Barbarian" name="DefaultBarbarianButton" />
         </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>

@@ -174,6 +174,8 @@ public class CharacterCreationScript : MonoBehaviour
     TextField mediumArmorField;
     TextField allArmorField;
     TextField nameField;
+    TextField sizeField;
+    TextField subclassField;
     Toggle strengthToggle;
     Toggle dexterityToggle;
     Toggle constitutionToggle;
@@ -262,6 +264,8 @@ public class CharacterCreationScript : MonoBehaviour
         wisdomAttributeField = root.Q<IntegerField>("WisdomAttribute");
         charismaAttributeField = root.Q<IntegerField>("CharismaAttribute"); 
         nameField = root.Q<TextField>("NameField");
+        sizeField = root.Q<TextField>("Size");
+        subclassField = root.Q<TextField>("Subclass");
         notificationElement = root.Q<Button>("NotificationElement");
 
         //for json, assigning
@@ -329,6 +333,7 @@ public class CharacterCreationScript : MonoBehaviour
         Debug.Log(JsonUtility.ToJson(currentCharacter, true));
     }
 
+    //Note that this does not populate the display fields. TO DO
     void PopulateDefaultBarbarianJson()
     {
         currentCharacter.name = "Torgrim";
@@ -479,6 +484,7 @@ public class CharacterCreationScript : MonoBehaviour
         speedField.value = db.ancestries.Find(a => a.id == selectedAncestry).speed;
         currentCharacter.speed = speedField.value;
         currentCharacter.size = db.ancestries.Find(a => a.id == selectedAncestry).size;
+        sizeField.value = currentCharacter.size;
         PopulateHeritageButtons(selectedAncestry);
         PopulateAncestryFeatButtons(selectedAncestry);
         PopulateAncestryDescription(selectedAncestry);
@@ -749,6 +755,7 @@ public class CharacterCreationScript : MonoBehaviour
 
         string selectedSubclass = (subclassRadioButtonGroup[evt.newValue] as RadioButton).text; //for some reason .label doesn't work here but .text does
         currentCharacter.subclass = selectedSubclass;
+        subclassField.value = selectedSubclass;
     }
 
     void PopulateClassDescription(string className)
