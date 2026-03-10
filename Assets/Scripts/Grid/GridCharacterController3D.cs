@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Game.Creature;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -16,7 +17,6 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
 
     // Movement settings
     public float moveSpeed = 2f;
-    public int maxMovementDistance = 9;
 
     // Animation settings
     public float stepHeight;
@@ -199,8 +199,9 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
         Vector3Int startCell = coordinateConverter.GetCharacterCell(character);
         var pathResult = pathfinder.FindPath(startCell, targetCell);
 
+        int maxMoveDist = character.GetComponent<CreatureComponent>()?.speed ?? 0;
         if (!pathResult.found || pathResult.path == null || pathResult.path.Count < 2 ||
-            (maxMovementDistance > 0 && pathResult.path.Count - 1 > maxMovementDistance))
+            (maxMoveDist > 0 && pathResult.path.Count - 1 > maxMoveDist))
             return false;
 
         path = pathResult.path;

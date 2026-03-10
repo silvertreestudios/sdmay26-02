@@ -4,6 +4,7 @@ using Game.Creature;
 using NUnit.Framework;
 using System;
 using System.Collections;
+using UnityEngine.TextCore.Text;
 
 //TODO abstract AIActionConroller and make a subclass for mindless
 public class MindlessController : AIActionController
@@ -87,7 +88,8 @@ public class MindlessController : AIActionController
             return null;
 
         // Move towards the best target — select the furthest tile in path within movement range
-        HashSet<Vector3Int> reachableTiles = Controller.rangeHighlighter.CalculateReachableTiles(currentCell, Controller.maxMovementDistance);
+        int maxMoveDist = this.gameObject.GetComponent<CreatureComponent>()?.speed ?? 0;
+        HashSet<Vector3Int> reachableTiles = Controller.rangeHighlighter.CalculateReachableTiles(currentCell, maxMoveDist);
         int tileIndex = bestPath.FindLastIndex(tile => reachableTiles.Contains(tile));
 
         if (tileIndex < 0)

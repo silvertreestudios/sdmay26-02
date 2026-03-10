@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using Unity.VisualScripting;
+using Game.Creature;
 
 public class StateStride : GridFSMState
 {
@@ -43,7 +44,8 @@ public class StateStride : GridFSMState
         } else {
 
         //Highlight possible stride locations
-        controller.rangeHighlighter.UpdateHighlights(startCell, controller.maxMovementDistance);
+        int maxMoveDist = character.GetComponent<CreatureComponent>()?.speed ?? 0;
+        controller.rangeHighlighter.UpdateHighlights(startCell, maxMoveDist / 5);
         }
     }
 
