@@ -23,7 +23,7 @@ public class StateStride : GridFSMState
     {
         base.Enter(fsm);
         // Debug.Log("[State_Stride] Entered Stride State");
-        canceled = false;
+        canceled = true;
         startCell = controller.coordinateConverter.GetCharacterCell(character);
 
         controller.isProcessingTurn = false;
@@ -52,6 +52,7 @@ public class StateStride : GridFSMState
     //called by FSM machine once a state change is triggered
     public override bool Exit()
     {
+        Debug.Log("Canceled Stride");
         fsm.canceled = canceled;
         // Clear visual indicators
         controller.visualIndicator.Clear();
@@ -83,6 +84,7 @@ public class StateStride : GridFSMState
         // execute stride if a valid path is selected
         if (controller.visualIndicator.IsActive && controller.lastClickedCell == path[path.Count - 1])
         {
+            this.canceled = false;
             controller.isProcessingTurn = true;
             controller.rangeHighlighter.ClearHighlights();
             controller.visualIndicator.Clear();

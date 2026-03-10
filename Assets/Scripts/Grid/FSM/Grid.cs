@@ -23,10 +23,7 @@ public class Grid : GridAPI
             if (GridFSM.ChangeState(strideState))
             {
                 // wait until state is no longer Stride
-                while (GridFSM.currentState == strideState)
-                {
-                    yield return null;
-                }
+                yield return new WaitUntil(() => GridFSM.currentState != strideState);
                 // return cancelled status
                 canceled.Value = GridFSM.canceled;
             }
