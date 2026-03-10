@@ -287,10 +287,10 @@ public class GridRenderer3D : MonoBehaviour
     bool IsCellHoverable(Vector3Int cell)
     {
         if (gridMemory == null) return false;
-        
+
         // Check if cell is walkable (ground tiles)
         if (gridMemory.IsCellWalkable(cell)) return true;
-        
+
         // Check if cell is a door and door hovering is enabled
         if (allowDoorHover && gridMemory.GridInfo != null)
         {
@@ -302,7 +302,7 @@ public class GridRenderer3D : MonoBehaviour
                 return tileType == GridMemory.TileType.Door;
             }
         }
-        
+
         return false;
     }
 
@@ -323,7 +323,7 @@ public class GridRenderer3D : MonoBehaviour
         if (tile.type == GridMemory.TileType.Door)
         {
             bool isCurrentlyOpen = gridMemory.IsDoorOpen(x, z);
-            
+
             if (isCurrentlyOpen)
             {
                 // Close the door
