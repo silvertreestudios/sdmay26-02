@@ -226,15 +226,15 @@ public class GridMemory : IGridMemory
         if (position.x < 0 || position.x >= Width) return false;
         if (position.z < 0 || position.z >= Height) return false;
         var tile = GridInfo[position.x, GridY, position.z];
-        
+
         // Ground tiles are walkable if not occupied
         if (tile.type == TileType.Ground)
             return !tile.isOccupied;
-        
+
         // Open doors are walkable
         if (tile.type == TileType.Door)
             return HasStatus(position.x, position.z, TileStatus.DoorOpen) && !tile.isOccupied;
-        
+
         return false;
     }
 

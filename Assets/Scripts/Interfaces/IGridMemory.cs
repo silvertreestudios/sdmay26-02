@@ -31,4 +31,5 @@ public abstract class IGridMemory : SingletonMonoBehaviour<IGridMemory>
     public abstract bool IsDoorOpen(int x, int z);
     public abstract void ToggleDoor(int x, int z);
     public abstract void RemoveStatus(int x, int z, TileStatus statusToRemove);
+
 }
