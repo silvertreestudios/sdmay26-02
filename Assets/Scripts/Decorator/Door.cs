@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class Door : MonoBehaviour
 {
-    GameObject door;
+    public GameObject door;
     IGridMemory gridMemory;
     int gridX;
     int gridZ;
@@ -11,7 +11,7 @@ public class Door : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        door = gameObject;
+        // door = gameObject;
         gridMemory = IGridMemory.GetInstance();
         hasGridPosition = TryResolveGridPosition();
     }
@@ -73,25 +73,6 @@ public class Door : MonoBehaviour
 
     void SetDoorEnabled(bool enabled)
     {
-        if (door != gameObject)
-        {
-            if (door.activeSelf != enabled)
-            {
-                door.SetActive(enabled);
-            }
-            return;
-        }
-
-        Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
-        for (int i = 0; i < renderers.Length; i++)
-        {
-            renderers[i].enabled = enabled;
-        }
-
-        Collider[] colliders = GetComponentsInChildren<Collider>(true);
-        for (int i = 0; i < colliders.Length; i++)
-        {
-            colliders[i].enabled = enabled;
-        }
+        door.GetComponent<MeshRenderer>().enabled = enabled;
     }
 }
