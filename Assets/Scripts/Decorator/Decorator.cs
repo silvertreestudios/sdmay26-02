@@ -11,15 +11,15 @@ public class Decorator : MonoBehaviour
     private Tile[,] grid;
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     
-    [ExecuteInEditMode]
+    
     void Start()
     {
 
         dm = DecoratorMap.Instance;
-        //Debug.Log("DecoratorMap instance created");
+        Debug.Log("DecoratorMap instance created");
         dm.Initialize(IGridMemory.GetInstance());
         grid = dm.GetTileMap();
-        //Debug.Log($"Grid dimensions: {grid.GetLength(0)} x {grid.GetLength(1)}");
+        Debug.Log($"Grid dimensions: {grid.GetLength(0)} x {grid.GetLength(1)}");
 
         GameObject parentObject = new GameObject("DecoratedTiles");
 
