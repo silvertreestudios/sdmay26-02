@@ -435,9 +435,8 @@ public class CharacterCreationScript : MonoBehaviour
 
             if (value == null) //if a variable is null
             {
-                Debug.Log(field.Name + " is null");
                 notificationElement.style.display = DisplayStyle.Flex;
-                notificationElement.text = field.Name + " is null";
+                notificationElement.text = field.Name + " has not been assigned";
                 notificationElement.clicked += Disappear;
                 return false;
             }
