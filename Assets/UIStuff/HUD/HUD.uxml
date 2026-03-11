@@ -18,4 +18,5 @@
         </ui:VisualElement>
     </ui:VisualElement>
     <ui:VisualElement name="CardHolder" style="flex-grow: 1; align-items: flex-end; justify-content: center; flex-direction: row;" />
+    <ui:VisualElement name="CombatLogHolder" style="flex-grow: 1; align-items: flex-end; justify-content: center; flex-direction: row;" />
 </ui:UXML>
