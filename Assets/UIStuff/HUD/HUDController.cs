@@ -37,13 +37,15 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private static List<GameObject> Players;
     private static bool IsActive = false;
+
+    private CombatLogInterface combatLog;
     
 
     protected override void Awake() {
         base.Awake();
         //Debug.Log("Awake called");
         ui = GetComponent<UIDocument>().rootVisualElement;
-
+        combatLog = CombatLog.GetInstance();
         //Copiloy made this so I could point it to another UXML file for a template
         //I suspect it sucks
         //vvvvvvvvvvvvvvvvvv
@@ -85,11 +87,15 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         //####Player Queue Card Setup####
         cardHolder = ui.Q<VisualElement>("CardHolder");
         // fillPlayerCards(); // Fix: Let Update() handle the initial fill to avoid double execution
+
+
+
     }
 
     public static void Setup()
     {
         Players = CombatManagerInterface.GetInstance().GetCombatants();
+        
         IsActive = true;
     }
 
@@ -104,15 +110,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             needToUpdateCards = true;
         }
 
-        // Debug.Log("Update called");
-        // Debug.Log("HUD Update called");
-        // Update current player card (placeholder logic)
-        //updateCurrentPlayerCard();
-
-        // Update target card (placeholder logic)
-        //updateTargetCard();
-
-        // Update player queue cards if needed
         if (needToUpdateCards) {
             fillPlayerCards();
             needToUpdateCards = false;
@@ -158,7 +155,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
             cardInstance.Q<Label>("DESC").text = p.description;
 
-            Debug.Log($"Setting health bar for {p.name}: {p.hp}/{p.maxHp}");
+            
         }
     }
 
@@ -196,20 +193,20 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         GameObject g = CombatManager.GetInstance().WhosTurn();
         List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
         StrikeWeapon strikeWeaponAction = null;
-        Debug.Log("Available actions for current player: "+ acs.Count);
+        // Debug.Log("Available actions for current player: "+ acs.Count);
         foreach (var a in acs)
         {
             Debug.Log("Checking action: " + a);
             if (a is StrikeWeapon)
             {
-                Debug.Log("Found StrikeWeapon action: " + a);
+                // Debug.Log("Found StrikeWeapon action: " + a);
                 strikeWeaponAction = (StrikeWeapon)a;
                 // break;
             }
         }
         if (strikeWeaponAction == null)
         {
-            Debug.LogWarning("No StrikeWeapon action found for current player!");
+            // Debug.LogWarning("No StrikeWeapon action found for current player!");
             return;
         }
         g.GetComponent<ActionController>().TakeAction(strikeWeaponAction);
@@ -248,7 +245,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     public void Move()
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
-        // TODO: Check if is player
+        combatLog.Log("- " + g.name + " is moving.");
         g.GetComponent<PlayerActionController>().TestStride();
         //Debug.Log("Clicked Move button");
     }
@@ -259,13 +256,15 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         // TODO: Check if is player
         GridAPI.GetInstance().CancelCurrentAction();
         g.GetComponent<PlayerActionController>().EndTurn();
-       // Debug.Log("Clicked End Turn button");
+        combatLog.Log("- " + g.name + " ended their turn.");
     }
 
     public void CancelAction() {
         //Debug.Log("CancelAction called");
         //Debug.Log("Clicked Cancel Action button");
         GridAPI.GetInstance().CancelCurrentAction();
+        GameObject g = CombatManager.GetInstance().WhosTurn();
+        combatLog.Log("- " + g.name + " canceled their action.");
     }
 
     public void focusOnPlayer(int playerIndex) {
@@ -326,7 +325,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 var card = cardHolder.ElementAt(i);
                 CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
                 var healthBar = card.Q<ProgressBar>("HealthBar");
-                Debug.Log($"Setting health bar for {p.name}: {p.hp}/{p.maxHp}");
+                //Debug.Log($"Setting health bar for {p.name}: {p.hp}/{p.maxHp}");
 
 
                 healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
@@ -342,7 +341,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                     //card.style.borderBottomColor = Color.clear;
                     //card.style.borderBottomWidth = 0;
                     //card.style.scale = new StyleScale(new Scale(new Vector3(1f, 1f, 1))); // Normal scale for non-current player cards
-                    card.style.opacity = 0.5f; // Dim non-current player cards
+                    card.style.opacity = 0.3f; // Dim non-current player cards
                 }
                 if (p.hp <= 0) {
                     needToMoveCards = true; // Flag to move cards if a player is defeated

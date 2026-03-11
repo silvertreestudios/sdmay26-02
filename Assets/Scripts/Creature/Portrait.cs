@@ -31,12 +31,12 @@ public class Portrait : MonoBehaviour
     }
 
     void Awake() {
-        Debug.Log("Portrait Awake: Initializing RenderTexture and Camera");
+        //Debug.Log("Portrait Awake: Initializing RenderTexture and Camera");
         // Create individual RenderTexture with card dimensions
         individualRenderTexture = new RenderTexture(152, 114, 24);
         portraitCamera = GetComponentInChildren<Camera>();
         if (portraitCamera != null) {
-            Debug.Log("Found Camera");
+            //Debug.Log("Found Camera");
             portraitCamera.targetTexture = individualRenderTexture;
             // Adjust camera aspect ratio to match texture
             portraitCamera.aspect = 152f / 114f; // 1.6:1
@@ -48,10 +48,10 @@ public class Portrait : MonoBehaviour
     void Start() {
         // Render initial frame
         if (portraitCamera != null) {
-            Debug.Log("Portrait Start: Rendering initial frame");
+            //Debug.Log("Portrait Start: Rendering initial frame");
             GetPortraitSnapshot(); // Render initial frame to populate texture
         } else {
-            Debug.Log("START FAILURE");
+            //Debug.Log("START FAILURE");
         }
     }
 

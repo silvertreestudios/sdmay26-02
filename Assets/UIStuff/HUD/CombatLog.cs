@@ -32,7 +32,7 @@ public class CombatLog : CombatLogInterface
     void OnEnable()
     {
         // Find the holder and add the defined CombatLog UI
-        VisualElement logHolder = Ui.Q<VisualElement>("CombatLogHolder");
+        VisualElement logHolder = Ui.Q<VisualElement>("CombatLog");
         Debug.Log(logHolder);
         Debug.Log(CombatLogTemplate);
         var logList = CombatLogTemplate.Instantiate();
@@ -68,6 +68,10 @@ public class CombatLog : CombatLogInterface
         CurrentLogs = GetMessages();
         LogList.itemsSource = CurrentLogs;
         LogList.Rebuild();
+        // Scroll to bottom after refresh
+        if (LogList != null && CurrentLogs.Count > 0) {
+            LogList.ScrollToItem(CurrentLogs.Count - 1);
+        }
     }
 
     /// <summary>
@@ -76,8 +80,12 @@ public class CombatLog : CombatLogInterface
     /// <param name="message"></param>
     protected void UpdateLogList(string message)
     {
-        CurrentLogs.Add(message);
+        CurrentLogs.Add(timestamp() + message);
         LogList.RefreshItems();
+        // Scroll to the bottom
+        if (LogList != null) {
+            LogList.ScrollToItem(CurrentLogs.Count - 1);
+        }
     }
 
     [ContextMenu("Enable Dev Mode")]
@@ -197,5 +205,10 @@ public class CombatLog : CombatLogInterface
                 return false;
         }
         return true;
+    }
+
+    private string timestamp()
+    {
+        return DateTime.Now.ToString("(HH:mm:ss) ");
     }
 }
