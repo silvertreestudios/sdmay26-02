@@ -30,14 +30,14 @@ public class Portrait : MonoBehaviour
         return snapshot;
     }
 
-    void Awake() {
-        // Create individual RenderTexture for this portrait
-        individualRenderTexture = new RenderTexture(512, 512, 24);
-        portraitCamera = GetComponent<Camera>();
-        if (portraitCamera != null) {
-            portraitCamera.targetTexture = individualRenderTexture;
-        }
-    }
+    // void Awake() {
+    //     // Create individual RenderTexture for this portrait
+    //     individualRenderTexture = new RenderTexture(512, 512, 24);
+    //     portraitCamera = GetComponent<Camera>();
+    //     if (portraitCamera != null) {
+    //         portraitCamera.targetTexture = individualRenderTexture;
+    //     }
+    // }
 
     void Start() {
         // Render initial frame
