@@ -11,11 +11,6 @@ public class PlayerActionController : ActionController
         
         Stride strideAction = new Stride(1); // Cost of 1 action point
         Movements.Add(strideAction);
-
-        List<Dice> dices = new() { new Dice(1, 3, "Bludgeoning") };
-
-        Unarmed unarmed = new Unarmed(1, dices, new());
-        Actions.Add(unarmed);
     }
 
     /// <summary>
