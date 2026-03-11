@@ -163,6 +163,7 @@ namespace Game.Creature
                 else
                     Debug.LogWarning($"Ability '{a}' not found for {name}");
             }
+            Unarmed.AddUnarmedStrike(this.gameObject);
             StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject);
         }
 
@@ -293,16 +294,20 @@ namespace Game.Creature
             _hp = Mathf.Clamp(_hp, 0, _maxHp);
         }
 
-        public void GainTempHp(int tempHpAmount)
+        public void GainTempHp(int tempHpAmount, bool overrideExisting)
         {
             // TODO replace with UI prompt for player decision about which 
             if(_tempHp > 0)
             {
                 // UI prompt here
             }
-            if(tempHpAmount >_tempHp){
+            if(tempHpAmount >_tempHp || overrideExisting){
                 _tempHp += tempHpAmount;
             }
+        }
+        public void GainTempHp(int tempHpAmount)
+        {
+            GainTempHp(tempHpAmount, false);
         }
 
 

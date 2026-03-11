@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Game.Creature;
 using NUnit.Framework;
 using System;
+using Game.Strikes;
 
 //TODO abstract AIActionConroller and make a subclass for mindless
 public abstract class AIActionController : ActionController
@@ -17,11 +18,6 @@ public abstract class AIActionController : ActionController
         
         Stride strideAction = new Stride(1); // Cost of 1 action point
         Movements.Add(strideAction);
-
-        List<Dice> dices = new() { new Dice(1, 3, "Bludgeoning") };
-
-        Unarmed unarmed = new Unarmed(1, dices, new());
-        Actions.Add(unarmed);
     }
 
     /// <summary>
