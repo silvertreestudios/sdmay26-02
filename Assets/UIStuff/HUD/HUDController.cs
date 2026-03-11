@@ -46,6 +46,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         //Debug.Log("Awake called");
         ui = GetComponent<UIDocument>().rootVisualElement;
         combatLog = CombatLog.GetInstance();
+        combatLog.Log("Game Started. Combat Log Initialized.");
         //Copiloy made this so I could point it to another UXML file for a template
         //I suspect it sucks
         //vvvvvvvvvvvvvvvvvv
