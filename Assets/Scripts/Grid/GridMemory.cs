@@ -18,7 +18,6 @@ public class GridMemory : IGridMemory
         FireI,
         DoorOpen,
         DoorClosed,
-        Fogged
     }
 
     public struct TILE
