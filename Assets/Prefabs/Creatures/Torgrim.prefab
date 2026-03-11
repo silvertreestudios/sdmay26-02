@@ -40,7 +40,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1079329972185462574}
-  m_Mesh: {fileID: 0}
+  m_Mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
 --- !u!23 &8471576853671859961
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -191,6 +191,7 @@ GameObject:
   - component: {fileID: 1128913714509548194}
   - component: {fileID: 3414172674602671663}
   - component: {fileID: 419241797356606899}
+  - component: {fileID: 1026144878307307662}
   m_Layer: 6
   m_Name: Torgrim
   m_TagString: Untagged
@@ -227,7 +228,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Game.Creature.CreatureComponent
   _name: Torgrim
-  _level: 0
+  _level: -1
   _initiative: 2
   _speed: 20
   _hp: 22
@@ -337,6 +338,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Conditions
+--- !u!114 &1026144878307307662
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2629632462412872780}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8e71b0452ab057489cfcc5a10f4ebbc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Token
 --- !u!1 &2680205485064952543
 GameObject:
   m_ObjectHideFlags: 0
@@ -394,8 +407,8 @@ MonoBehaviour:
     Name: Kobold Warrior
   - mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
     Name: Goblin Warrior
-  - mesh: {fileID: 7240564204133861249, guid: f1a9de5bda18b48eb83ee4c127002d5d, type: 3}
-    Name: Togrim
+  - mesh: {fileID: 1788653840435757133, guid: a7f706461d0054e33b6747be52323a33, type: 3}
+    Name: Torgrim
   BaseOptions:
   - mesh: {fileID: 1431553746238890192, guid: 111aee36d4b234665ac7a1c809067fca, type: 3}
     level: 0

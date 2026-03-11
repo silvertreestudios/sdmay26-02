@@ -213,8 +213,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
-  _actionNames:
-  - Game.Strikes.StrikeWeapon
+  _actionNames: []
 --- !u!114 &1685312289907558816
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -398,6 +397,8 @@ MonoBehaviour:
     Name: Kobold Warrior
   - mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
     Name: Goblin Warrior
+  - mesh: {fileID: 1788653840435757133, guid: a7f706461d0054e33b6747be52323a33, type: 3}
+    Name: Torgrim
   BaseOptions:
   - mesh: {fileID: 1431553746238890192, guid: 111aee36d4b234665ac7a1c809067fca, type: 3}
     level: 0
