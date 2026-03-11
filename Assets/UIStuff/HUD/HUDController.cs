@@ -296,7 +296,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             var healthBar = card.Q<ProgressBar>("HealthBar");
             var portraitImage = card.Q<Image>("PortraitImage");
-            Debug.Log($"Updating card for {p.name} at index {i}");
+            // Debug.Log($"Updating card for {p.name} at index {i}");
             // // Get portrait snapshot and display it
             // Portrait portraitScript = Players[i].GetComponent<Portrait>();
             // if (portraitScript != null) {
@@ -305,7 +305,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             //         portraitImage.image = portraitSnapshot;
             //     }
             // }
-            Debug.Log($"Setting health bar for {p.name}: {p.hp}/{p.maxHp}");
+            // Debug.Log($"Setting health bar for {p.name}: {p.hp}/{p.maxHp}");
             healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
             healthBar.value = p.hp;
             healthBar.highValue = p.maxHp;
