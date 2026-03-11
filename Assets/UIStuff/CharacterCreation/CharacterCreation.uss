@@ -29,4 +29,25 @@
 }
 
 .unity-text-field {
+    font-size: 20px;
+}
+
+.unity-integer-field {
+    font-size: 20px;
+}
+
+.unity-foldout {
+    font-size: 20px;
+}
+
+.unity-radio-button {
+    font-size: 20px;
+}
+
+.unity-radio-button-group {
+    font-size: 20px;
+}
+
+.my-label {
+    font-size: 18px;
 }

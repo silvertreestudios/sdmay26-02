@@ -337,7 +337,7 @@ public class CharacterCreationScript : MonoBehaviour
     void PopulateDefaultBarbarianJson()
     {
         currentCharacter.name = "Torgrim";
-        currentCharacter.gender = "male";
+        currentCharacter.gender = "female";
         currentCharacter.ancestry = "Dwarf";
         currentCharacter.heritage = "Rock";
         currentCharacter.background = "Bandit";
@@ -365,7 +365,7 @@ public class CharacterCreationScript : MonoBehaviour
         currentCharacter.allArmor = "untrained";
         currentCharacter.ancestryFeat = "Mountain Strategy";
         currentCharacter.classFeat = "Raging Intimidation";
-        currentCharacter.subclass = "Giant Instinct";
+        currentCharacter.subclass = "Fury Instinct";
         currentCharacter.specialAbilities = new string[2];
         currentCharacter.specialAbilities[0] = "dark vision";
         currentCharacter.specialAbilities[1] = "clan dagger";
