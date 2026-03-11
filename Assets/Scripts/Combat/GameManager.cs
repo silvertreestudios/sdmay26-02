@@ -18,7 +18,6 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
 
     private IEnumerator StartCombat()
     {
-        GridCharacterController3D.Instance.Setup();
         CombatManagerInterface.GetInstance().StartCombat();
         HUDController.Setup();
         yield return null;

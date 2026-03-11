@@ -7,14 +7,14 @@ using System;
 //TODO abstract AIActionConroller and make a subclass for mindless
 public abstract class AIActionController : ActionController
 {
-    protected GridCharacterController3D Controller => GridCharacterController3D.Instance;
-    public GameObject bestTarget{get; protected set;}
-    public List<Vector3Int> bestPath{get; protected set;}
-    public Vector3Int selectedTile{get; protected set;}
+    protected GridCharacterController3D Controller => GridCharacterController3D.GetInstance();
+    public GameObject bestTarget { get; protected set; }
+    public List<Vector3Int> bestPath { get; protected set; }
+    public Vector3Int selectedTile { get; protected set; }
     protected void Awake()
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);
-        
+
         Stride strideAction = new Stride(1); // Cost of 1 action point
         Movements.Add(strideAction);
 
@@ -30,7 +30,7 @@ public abstract class AIActionController : ActionController
     public override void StartTurn()
     {
         base.StartTurn();
-     
+
     }
 
     // Changed from private to public so actions can call it
