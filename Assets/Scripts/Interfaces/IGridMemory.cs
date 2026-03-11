@@ -34,8 +34,6 @@ public abstract class IGridMemory : SingletonMonoBehaviour<IGridMemory>
     public abstract void ToggleDoor(int x, int z);
     public abstract void RemoveStatus(int x, int z, TileStatus statusToRemove);
     
-    public abstract bool IsCellSelectableTraversal(Vector3Int position);
-    public abstract bool IsCellSelectableAction(Vector3Int position);
     public abstract bool IsCellHoverable(Vector3Int position, bool allowDoorHover);
     public abstract void HandleCellClick(Vector3Int cell);
 
