@@ -145,7 +145,17 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
-            //Debug.Log("Added card for " + Players[i].name);
+            
+        var portraitImage = cardInstance.Q<Image>("PortraitImage");
+        // Get portrait snapshot and display it
+        Portrait portraitScript = Players[i].GetComponent<Portrait>();
+        if (portraitScript != null) {
+            Texture2D portraitSnapshot = portraitScript.GetPortraitSnapshot();
+            if (portraitSnapshot != null && portraitImage != null) {
+                portraitImage.image = portraitSnapshot;
+            }
+        }
+        Debug.Log($"Setting health bar for {p.name}: {p.hp}/{p.maxHp}");
         }
     }
 
@@ -313,7 +323,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 var card = cardHolder.ElementAt(i);
                 CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
                 var healthBar = card.Q<ProgressBar>("HealthBar");
-                var portraitImage = card.Q<Image>("PortraitImage");
+                // var portraitImage = card.Q<Image>("PortraitImage");
 
                 // Debug.Log($"Updating card for {p.name} at index {i}");
                 // // Get portrait snapshot and display it
@@ -324,40 +334,36 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 //         portraitImage.image = portraitSnapshot;
                 //     }
                 // }
-                // Debug.Log($"Setting health bar for {p.name}: {p.hp}/{p.maxHp}");
+                Debug.Log($"Setting health bar for {p.name}: {p.hp}/{p.maxHp}");
 
 
                 healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
                 healthBar.value = p.hp;
                 healthBar.highValue = p.maxHp;
-                try
-                {
-                    if (p == currentTurn) {
-                        card.style.scale = new StyleScale(new Scale(new Vector3(1.5f,1.5f,1))); // Scale up the current player's card
-                        card.style.opacity = 1f; // Full opacity for current player card
-                        card.style.borderBottomColor = Color.clear;
-                        card.style.borderBottomWidth = 50;
-                    } else {
-                        card.style.borderBottomColor = Color.clear;
-                        card.style.borderBottomWidth = 0;
-                        card.style.scale = new StyleScale(new Scale(new Vector3(1f, 1f, 1))); // Normal scale for non-current player cards
-                        card.style.opacity = 0.5f; // Dim non-current player cards
-                    }
-                    if (p.hp <= 0) {
-                        needToMoveCards = true; // Flag to move cards if a player is defeated
-                        return; // Exit early to avoid updating cards that may be removed
-                    }
-                    card.Q<Label>("AP").text = "AP: " + p.GetComponent<ActionController>().ActionPoints; // Update action points display
-                } catch (System.Exception e)
-                {
-                    Debug.LogError($"Error updating card for {p.name}: {e}");
+                
+                if (p == currentTurn) {
+                    card.style.scale = new StyleScale(new Scale(new Vector3(1.5f,1.5f,1))); // Scale up the current player's card
+                    card.style.opacity = 1f; // Full opacity for current player card
+                    card.style.borderBottomColor = Color.clear;
+                    card.style.borderBottomWidth = 50;
+                } else {
+                    card.style.borderBottomColor = Color.clear;
+                    card.style.borderBottomWidth = 0;
+                    card.style.scale = new StyleScale(new Scale(new Vector3(1f, 1f, 1))); // Normal scale for non-current player cards
+                    card.style.opacity = 0.5f; // Dim non-current player cards
                 }
+                if (p.hp <= 0) {
+                    needToMoveCards = true; // Flag to move cards if a player is defeated
+                    return; // Exit early to avoid updating cards that may be removed
+                }
+                card.Q<Label>("AP").text = "AP: " + p.GetComponent<ActionController>().ActionPoints; // Update action points display
+                
                 
             } catch (System.Exception e) {
                 Debug.LogError($"Error updating card: {e.Message}\n{e.StackTrace}");
             }
         }
-        Debug.Log("Finished updating player queue cards");
+        // Debug.Log("Finished updating player queue cards");
     }
 
     

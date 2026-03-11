@@ -30,19 +30,26 @@ public class Portrait : MonoBehaviour
         return snapshot;
     }
 
-    // void Awake() {
-    //     // Create individual RenderTexture for this portrait
-    //     individualRenderTexture = new RenderTexture(512, 512, 24);
-    //     portraitCamera = GetComponent<Camera>();
-    //     if (portraitCamera != null) {
-    //         portraitCamera.targetTexture = individualRenderTexture;
-    //     }
-    // }
+    void Awake() {
+        Debug.Log("Portrait Awake: Initializing RenderTexture and Camera");
+        // Create individual RenderTexture for this portrait
+        individualRenderTexture = new RenderTexture(512, 512, 24);
+        portraitCamera = GetComponentInChildren<Camera>();
+        if (portraitCamera != null) {
+            Debug.Log("Found Camera");
+            portraitCamera.targetTexture = individualRenderTexture;
+        } else {
+            Debug.LogError("No Camera found in children of Portrait!");
+        }
+    }
 
     void Start() {
         // Render initial frame
         if (portraitCamera != null) {
-            portraitCamera.Render();
+            Debug.Log("Portrait Start: Rendering initial frame");
+            GetPortraitSnapshot(); // Render initial frame to populate texture
+        } else {
+            Debug.Log("START FAILURE");
         }
     }
 
@@ -50,13 +57,6 @@ public class Portrait : MonoBehaviour
         if (individualRenderTexture != null) {
             individualRenderTexture.Release();
             Destroy(individualRenderTexture);
-        }
-    }
-
-    public void SetPortraitCameraEnabled(bool enabled) {
-        Camera portraitCamera = GetComponent<Camera>();
-        if (portraitCamera != null) {
-            portraitCamera.enabled = enabled;
         }
     }
 }
