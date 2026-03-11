@@ -49,7 +49,8 @@ MonoBehaviour:
   musicSource: {fileID: 312532475091746603}
   sfxSource: {fileID: 8709467138133525812}
   backgroundMusic: {fileID: 0}
-  onHitSFX: {fileID: 0}
+  onHitSFX: {fileID: 8300000, guid: c8419fa61a32d6e48a003497d5164966, type: 3}
+  onMissSFX: {fileID: 8300000, guid: c8ad9fb5932319343bd2f6a096753ea0, type: 3}
   ZombieAttackSFX: {fileID: 8300000, guid: 35c24263e176cf1408dd0513e9b62c95, type: 3}
   onDeathZombieSFX: {fileID: 8300000, guid: 8aaa890c7fb60504f8c7d6a2f663a4a9, type: 3}
   onDeathPlayerSFX: {fileID: 8300000, guid: 1d22b7f4fe5aace478ea736b1a569b4b, type: 3}
