@@ -135,7 +135,7 @@ public class GridRenderer3D : MonoBehaviour
                 Mathf.FloorToInt((hit.z - origin.y) / cellSize));
             // Inside bounds?
             bool inside = (uint)cell.x < (uint)width && (uint)cell.z < (uint)height;
-            bool canHover = inside && gridMemory != null && IsCellHoverable(cell);
+            bool canHover = inside && gridMemory != null && gridMemory.IsCellHoverable(cell, allowDoorHover);
 
             if (canHover && !cell.Equals(HoverCell)) { HoverCell = cell; HasHover = true; UpdateHover(); }
             else if (!canHover) HasHover = false;
@@ -145,7 +145,7 @@ public class GridRenderer3D : MonoBehaviour
         // Handle click on door tiles
         if (HasHover && Input.GetMouseButtonDown(0))
         {
-            HandleCellClick(HoverCell);
+            gridMemory.HandleCellClick(HoverCell);
         }
         // Keep all visuals pixel-consistent as the camera moves/zooms.
         UpdateHover();
@@ -278,58 +278,6 @@ public class GridRenderer3D : MonoBehaviour
             }
         }
 
-    }
-
-    bool IsCellHoverable(Vector3Int cell)
-    {
-        if (gridMemory == null) return false;
-        if (gridMemory.IsCellWalkable(cell)) return true;
-        if (allowDoorHover && gridMemory.GridInfo != null)
-        {
-            int x = cell.x;
-            int z = cell.z;
-            if (x >= 0 && x < width && z >= 0 && z < height)
-            {
-                var tileType = gridMemory.GridInfo[x, gridY, z].type;
-                return tileType == GridMemory.TileType.Door;
-            }
-        }
-        return false;
-    }
-
-
-    void HandleCellClick(Vector3Int cell)
-    {
-        if (gridMemory == null || gridMemory.GridInfo == null) return;
-
-        int x = cell.x;
-        int z = cell.z;
-
-        // Validate cell bounds
-        if (x < 0 || x >= width || z < 0 || z >= height) return;
-
-        var tile = gridMemory.GridInfo[x, gridY, z];
-
-        // If it's a door tile, toggle between open and closed
-        if (tile.type == GridMemory.TileType.Door)
-        {
-            bool isCurrentlyOpen = gridMemory.IsDoorOpen(x, z);
-
-            if (isCurrentlyOpen)
-            {
-                Debug.Log($"Door clicked at ({x}, {z}). Closing door.");
-                gridMemory.RemoveStatus(x, z, GridMemory.TileStatus.DoorOpen);
-                gridMemory.SetStatus(x, z, GridMemory.TileStatus.DoorClosed);
-                gridMemory.SetIsOccupied(x, z, true); // Closed doors block movement
-            }
-            else
-            {
-                Debug.Log($"Door clicked at ({x}, {z}). Opening door.");
-                gridMemory.RemoveStatus(x, z, GridMemory.TileStatus.DoorClosed);
-                gridMemory.SetStatus(x, z, GridMemory.TileStatus.DoorOpen);
-                gridMemory.SetIsOccupied(x, z, false); // Open doors allow movement
-            }
-        }
     }
 
     /// <summary>

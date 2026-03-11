@@ -33,6 +33,8 @@ public class GridMemory : IGridMemory
         public TileStatus[] status;
     }
 
+    private TeamRules teamRules => TeamRules.GetInstance();
+    private CombatManagerInterface combatManager => CombatManagerInterface.GetInstance();
     public override int Width { get; protected set; }
     public override int Height { get; protected set; }
     public override float CellSize { get; protected set; }
@@ -221,22 +223,110 @@ public class GridMemory : IGridMemory
         }
         return occupants;
     }
+
     public override bool IsCellWalkable(Vector3Int position)
     {
         if (GridInfo == null) return false;
+        // if x or z are out of bounds, return false
         if (position.x < 0 || position.x >= Width) return false;
         if (position.z < 0 || position.z >= Height) return false;
-        var tile = GridInfo[position.x, GridY, position.z];
-
-        // Ground tiles are walkable if not occupied
+        
+        TILE tile = GridInfo[position.x, GridY, position.z];
+        
+        // Ground tiles are walkable if not occupied or occupied by friendly
         if (tile.type == TileType.Ground)
-            return !tile.isOccupied;
-
-        // Open doors are walkable
+        {
+            if (!tile.isOccupied) return true;
+            
+            // Check if occupied by friendly unit
+            if (tile.occupant == null || combatManager == null || teamRules == null) return false;
+            
+            var currentTurn = combatManager.WhosTurn();
+            if (currentTurn == null) return false;
+            
+            var occupantTeam = tile.occupant.GetComponent<Team>();
+            var currentTeam = currentTurn.GetComponent<Team>();
+            
+            if (occupantTeam == null || currentTeam == null) return false;
+            if (string.IsNullOrEmpty(occupantTeam.Name) || string.IsNullOrEmpty(currentTeam.Name)) return false;
+            
+            try
+            {
+                return teamRules.IsFriendly(occupantTeam.Name, currentTeam.Name);
+            }
+            catch (System.Collections.Generic.KeyNotFoundException)
+            {
+                Debug.LogWarning($"Team not found: {occupantTeam.Name}, {currentTeam.Name}");
+                return false;
+            }
+        }
+        
+        // Open doors are walkable if not occupied
         if (tile.type == TileType.Door)
             return HasStatus(position.x, position.z, TileStatus.DoorOpen) && !tile.isOccupied;
-
+        
         return false;
+    }
+
+    public override bool IsCellSelectableTraversal(Vector3Int position)
+    {
+        if (GridInfo == null) return false;
+        // if x or z are out of bounds, return false
+        if (position.x < 0 || position.x >= Width) return false;
+        if (position.z < 0 || position.z >= Height) return false;
+        
+        TILE tile = GridInfo[position.x, GridY, position.z];
+        
+        // Can't select void tiles for traversal
+        if (tile.type == TileType.Void) return false;
+        // Can't select occupied tiles for traversal
+        if (tile.isOccupied) return false;
+        // Can select ground tiles
+        if (tile.type == TileType.Ground) return true;
+        // Can select open doors
+        return tile.type == TileType.Door && HasStatus(position.x, position.z, TileStatus.DoorOpen);
+    }
+
+    public override bool IsCellSelectableAction(Vector3Int position)
+    {
+        if (GridInfo == null) return false;
+        // if x or z are out of bounds, return false
+        if (position.x < 0 || position.x >= Width) return false;
+        if (position.z < 0 || position.z >= Height) return false;
+        
+        TILE tile = GridInfo[position.x, GridY, position.z];
+        // Can't select wall tiles for actions
+        return tile.type != TileType.Wall;
+    }
+
+    public override bool IsCellHoverable(Vector3Int position, bool allowDoorHover)
+    {
+        if (GridInfo == null) return false;
+        
+        // Check if cell is walkable (with all the safety checks inside)
+        if (IsCellWalkable(position)) return true;
+        
+        // Check if hovering over doors is allowed
+        if (!allowDoorHover) return false;
+        if (position.x < 0 || position.x >= Width) return false;
+        if (position.z < 0 || position.z >= Height) return false;
+        
+        return GridInfo[position.x, GridY, position.z].type == TileType.Door;
+    }
+
+    public override void HandleCellClick(Vector3Int cell)
+    {
+        if (GridInfo == null) return;
+        // Validate cell bounds
+        if (cell.x < 0 || cell.x >= Width) return;
+        if (cell.z < 0 || cell.z >= Height) return;
+
+        // If it's a door tile, toggle between open and closed
+        if (GridInfo[cell.x, GridY, cell.z].type == TileType.Door)
+        {
+            ToggleDoor(cell.x, cell.z);
+            Debug.Log($"Door clicked at ({cell.x}, {cell.z}). Door is now {(IsDoorOpen(cell.x, cell.z) ? "open" : "closed")}.");
+        }
     }
 
     public override IEnumerator TargetSelect(int range, CoroutineResult<GameObject> result)
