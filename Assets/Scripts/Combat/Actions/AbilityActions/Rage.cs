@@ -5,6 +5,9 @@ using System.Collections;
 using UnityEngine;
 using Unity.VisualScripting;
 using System.Diagnostics.Tracing;
+using System;
+
+namespace Game.AbilityActions{
 
 // TODO change to single frame entity action?
 [System.Serializable]
@@ -20,28 +23,39 @@ public class Rage : MultiFrameEntityAction
     public void UseRage(GameObject g)
     {
         Debug.Log(g + " is attempting to use Rage");
-        MFInvoke(g);
+        if (RageAllowed(g)){
+            // Apply THP from rage
+            AddRageTHP(g);
+            // Add listener to trigger bonus rage damage
+            OnStrikeEvent.AddListener((Tuple<Strike, GameObject> tuple) => { if (tuple.Item2 == g) { AddRageDamage(tuple.Item1); }});
+            MFInvoke(g);
+        }
     }
 
-    public void RageAllowed(GameObject g)
+    public bool RageAllowed(GameObject g)
     {
-        if (!g.GetComponent<Conditions>().Contains("Fatigued") && !g.GetComponent<Conditions>().Contains("Raging"))
-        {
-            //AddRageTHP(g);
-            //ac.ResetActionPointsEvent.AddListener((Ref<uint> points) => { points.Value -= tier; });
-            AddRageDamage(g);
+        // Check for conditions that would prevent raging, and return false if any are present
+        bool allowed =true;
+        if (g.GetComponent<Conditions>().Contains("Fatigued")){
+            allowed = false;
+            Debug.Log(g + " cannot Rage while Fatigued");
         }
+        if (g.GetComponent<Conditions>().Contains("Raging")){ // TODO Update to look for an actual sign of rage
+            allowed = false;
+            Debug.Log(g + " cannot Rage while Raging");
+        }
+        if(g.GetComponent<CreatureComponent>().equippedArmor != null && g.GetComponent<CreatureComponent>().equippedArmor.category == "heavy")
+        {
+            allowed = false;
+            Debug.Log(g + " cannot Rage while wearing heavy armor");
+        }
+        return allowed;
     }
 
     public void AddRageTHP(GameObject g)
     {
         ActionController ac = g.GetComponent<ActionController>();
         CreatureComponent cc = g.GetComponent<CreatureComponent>();
-        /*
-        g.addTHP(x);
-        OnEndRage.addListener( //Remove THP )
-        g.OnAddTHP.addListener(  //endRageRemoveListenerRemoveTHP )
-        */
         
         if (cc.tempHp > 0)
         {
@@ -62,53 +76,32 @@ public class Rage : MultiFrameEntityAction
         }
     }
 
-    public void AddRageDamage(GameObject g)
+
+    public void AddRageDamage(Strike action)
     {
-        /*
-        OnRageDamageBonus.addListener( //apply damage bonus to strikes )
-        OnEndRage.addListener( //Remove damage bonus from strikes )
-        */
-        // Add rage damage bonus to StrikeWeapon and Unarmed actions
+        // TODO make rageBonus not hardcoded
         int rageBonus = 2;
-        List <EntityAction> actions = g.GetComponent<ActionController>().GetActions();
-        foreach (var action in actions)
+
+        if (action.getTraits().Contains("agile") || action.getTraits().Contains("unarmed"))
         {
-            if(action is StrikeWeapon)
-            {
-                Debug.Log(g + " applying Rage bonus to " + ((StrikeWeapon)action).GetWeaponName());
-                if(((StrikeWeapon)action).GetWeapon().range == 0)
-                {
-                    // half bonus for agile/unarmed attacks
-                    if (((StrikeWeapon)action).GetWeapon().traits.Contains("agile")){
-                        DamageValue dmg = ((StrikeWeapon)action).GetStrike().FlatDamages[0];
-                        dmg.DamageAmount += rageBonus/2;
-                        ((StrikeWeapon)action).GetStrike().FlatDamages[0] = dmg;
-                    }
-                    // full bonus
-                    else{
-                        DamageValue dmg = ((StrikeWeapon)action).GetStrike().FlatDamages[0];
-                        dmg.DamageAmount += rageBonus;
-                        ((StrikeWeapon)action).GetStrike().FlatDamages[0] = dmg;
-                    }
-                }
-            }
-            else if (action is Unarmed)
-            {
-                Debug.Log(g + " applying Rage bonus to Unarmed");
-                // half bonus for agile/unarmed attacks
-                DamageValue dmg = ((Unarmed)action).GetStrike().FlatDamages[0];
-                dmg.DamageAmount += rageBonus/2;
-                ((Unarmed)action).GetStrike().FlatDamages[0] = dmg;
-            }
+            DamageValue dmg = action.FlatDamages[0];
+            dmg.DamageAmount = rageBonus/2;
+            action.FlatDamages.Add(dmg);  
+        }
+        else
+        {
+            //Debug.Log("Rage damage not applicable to this action");
+            DamageValue dmg = action.FlatDamages[0];
+            dmg.DamageAmount = rageBonus;
+            action.FlatDamages.Add(dmg);  
         }
     }
 
     protected override IEnumerator MFInvoke(GameObject g)
     {
         ActionController ac = g.GetComponent<ActionController>();
-
-       
-
         yield break;
     }
+}
+
 }

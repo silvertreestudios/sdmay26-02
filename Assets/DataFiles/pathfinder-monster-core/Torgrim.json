@@ -1,25 +1,25 @@
 {
-  "name": "Goblin Warrior",
-  "type": "npc",
+  "name": "Torgrim",
+  "type": "player",
   "system": {
     "abilities": {
       "cha": {
-        "mod": 1
+        "mod": 0
       },
       "con": {
         "mod": 1
       },
       "dex": {
-        "mod": 3
+        "mod": 2
       },
       "int": {
-        "mod": 0
+        "mod": 1
       },
       "str": {
-        "mod": 0
+        "mod": 4
       },
       "wis": {
-        "mod": -1
+        "mod": 1
       }
     },
     "attributes": {
@@ -32,13 +32,13 @@
       },
       "hp": {
         "details": "",
-        "max": 6,
+        "max": 22,
         "temp": 0,
-        "value": 6
+        "value": 22
       },
       "speed": {
         "otherSpeeds": [],
-        "value": 25
+        "value": 20
       }
     },
     "details": {
@@ -83,21 +83,21 @@
     "saves": {
       "fortitude": {
         "saveDetail": "",
-        "value": 5
+        "value": 4
       },
       "reflex": {
         "saveDetail": "",
-        "value": 7
+        "value": 4
       },
       "will": {
         "saveDetail": "",
-        "value": 3
+        "value": 2
       }
     },
     "skills": [
       {
-        "name": "acrobatics",
-        "value": 5
+        "name": "perception",
+        "value": 4
       },
       {
         "name": "athletics",
@@ -127,16 +127,9 @@
   },
   "equipment": [
     {
-      "name": "Dogslicer",
+      "name": "halberd",
       "type": "weapon",
       "hands": 1,
-      "category": "martial",
-      "quantity": 1
-    },
-    {
-      "name": "Shortbow",
-      "type": "weapon",
-      "hands": 0,
       "category": "martial",
       "quantity": 1
     },
@@ -148,122 +141,10 @@
       "quantity": 1,
       "acBonus": 1,
       "dexCap": 4
-    },
-    {
-      "name": "Arrows",
-      "type": "ammo",
-      "hands": null,
-      "category": null,
-      "quantity": 10
     }
   ],
-  "items": [
-    {
-      "name": "Dogslicer",
-      "type": "melee",
-      "system": {
-        "attack": {
-          "value": ""
-        },
-        "attackEffects": {
-          "custom": "",
-          "value": []
-        },
-        "bonus": {
-          "value": 7
-        },
-        "damageRolls": [
-          {
-            "damage": "1d6",
-            "damageType": "slashing"
-          }
-        ],
-        "description": {
-          "value": ""
-        },
-        "range": null,
-        "rules": [],
-        "slug": null,
-        "traits": {
-          "rarity": "common",
-          "value": [
-            "agile",
-            "backstabber",
-            "finesse"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Shortbow",
-      "type": "melee",
-      "system": {
-        "attack": {
-          "value": ""
-        },
-        "attackEffects": {
-          "custom": "",
-          "value": []
-        },
-        "bonus": {
-          "value": 7
-        },
-        "damageRolls": [
-          {
-            "damage": "1d6",
-            "damageType": "piercing"
-          }
-        ],
-        "description": {
-          "value": ""
-        },
-        "range": {
-          "increment": 60,
-          "max": null
-        },
-        "rules": [],
-        "slug": null,
-        "traits": {
-          "rarity": "common",
-          "value": [
-            "deadly-d10",
-            "reload-0"
-          ]
-        }
-      }
-    }
-  ],
-  "reactions": [
-    {
-      "name": "Goblin Scuttle",
-      "type": "action",
-      "system": {
-        "actionType": {
-          "value": "reaction"
-        },
-        "actions": {
-          "value": null
-        },
-        "category": "defensive",
-        "description": {
-          "value": "<p><strong>Trigger</strong> A goblin ally ends a move action adjacent to the goblin.</p>\n<hr />\n<p><strong>Effect</strong> The goblin warrior @UUID[Compendium.pf2e.actionspf2e.Item.Step]{Steps}.</p>"
-        },
-        "descriptionParagraphs": [
-          "Trigger: A goblin ally ends a move action adjacent to the goblin.",
-          "Effect: The goblin warrior {Steps}."
-        ],
-        "descriptionContext": [
-          "Compendium.pf2e.actionspf2e.Item.Step"
-        ],
-        "rules": [],
-        "slug": "",
-        "traits": {
-          "rarity": "common",
-          "value": []
-        }
-      }
-    }
-  ],
+  "items": [],
+  "reactions": [],
   "passives": [
       {
       "name": "Quick-Tempered",
@@ -277,10 +158,10 @@
         },
         "category": "interaction",
         "description": {
-          "value": "<p>This goblin has rage.  He is a very angry goblin. TEMP FOR TESTING.</p>"
+          "value": "<p>Barbarian rage. TEMP FOR TESTING.</p>"
         },
         "descriptionParagraphs": [
-          "This goblin has rage.  He is a very angry goblin. TEMP FOR TESTING."
+          "Barbarian rage. TEMP FOR TESTING."
         ],
         "descriptionContext": [],
         "rules": [],
@@ -296,15 +177,15 @@
   "weaponBonuses": [
     {
       "category": "unarmed",
-      "bonus": 4
+      "bonus": 2
     },
     {
       "category": "simple",
-      "bonus": 4
+      "bonus": 2
     },
     {
       "category": "martial",
-      "bonus": 4
+      "bonus": 2
     },
     {
       "category": "advanced",
@@ -318,7 +199,7 @@
     },
     {
       "category": "medium",
-      "bonus": 0
+      "bonus": 2
     },
     {
       "category": "heavy",
@@ -326,7 +207,16 @@
     }
   ],
   "playerOnlyStuff":[
-
+    {
+      "gender": "male",
+      "ancestry": "Dwarf",
+      "heritage": "Rock",
+      "background": "Bandit",
+      "className": "Barbarian",
+      "ancestryFeat": "Mountain Strategy",
+      "classFeat": "Raging Intimidation",
+      "subclass": "Giant Instinct"
+    }
   ],
   
    "Source": "packs/pathfinder-monster-core"

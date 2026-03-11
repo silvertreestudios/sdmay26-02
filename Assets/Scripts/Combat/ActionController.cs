@@ -109,4 +109,14 @@ public abstract class ActionController : MonoBehaviour
     {
         Actions.Remove(action);
     }
+
+    public string GetActionNames() // Temporary method for testing purposes to display available actions in log
+    {
+        string names = "";
+        for(int i = 0; i < Actions.Count; i++)
+        {
+            names += i+": "+Actions[i]+"   ";
+        }
+        return names;
+    }
 }

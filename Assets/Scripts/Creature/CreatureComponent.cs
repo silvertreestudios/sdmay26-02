@@ -163,6 +163,7 @@ namespace Game.Creature
                 else
                     Debug.LogWarning($"Ability '{a}' not found for {name}");
             }
+            Unarmed.AddUnarmedStrike(this.gameObject);
             StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject);
         }
 

@@ -381,7 +381,6 @@ namespace Game.Creature
             GameObject go = prefab != null ? UnityEngine.Object.Instantiate(prefab) : new GameObject(dto?.name ?? "Creature");
             var comp = go.GetComponent<CreatureComponent>() ?? go.AddComponent<CreatureComponent>();
             comp.ApplyFromDto(dto);
-            StrikeWeapon.WeaponStrikeAdderTEMP(go); // Temporary: add an arbitrary strike action based on a creature weapon for testing
             return go;
         }
 

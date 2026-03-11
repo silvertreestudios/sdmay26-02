@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Collections;
 using UnityEngine;
 
+namespace Game.Strikes
+{
+
 [System.Serializable]
 public class Unarmed : MultiFrameEntityAction
 {
@@ -27,7 +30,6 @@ public class Unarmed : MultiFrameEntityAction
         // Grid get target;
         CoroutineResult<GameObject> target = new();
         CoroutineResult<bool> canceled = new();
-        //yield return GridCharacterController3D.Instance.StrikeCoroutine(attacker, 2, target);
         yield return GridAPI.GetInstance().Strike(attacker, range, target, canceled);
         // I implemented a cancel refund for this action, let me know if it needs to change - Adam
         if(target.Value && !canceled.Value)
@@ -43,4 +45,18 @@ public class Unarmed : MultiFrameEntityAction
         if(ac)
             ac.IsTakingAction = false;
     }
+
+    // adds default unarmed strike to creature, called from action controller awake()
+    public static void AddUnarmedStrike(GameObject creature)
+    {
+        var comp = creature.GetComponent<CreatureComponent>();
+        List<Dice> damageDice = new() { new Dice(1, 3, "Bludgeoning") };
+        List<DamageValue> damageFlat = new() { new DamageValue("Bludgeoning", comp.strMod) };
+        Unarmed unarmedStrike = new Unarmed(1, damageDice, damageFlat);
+        creature.GetComponent<ActionController>().AddAction(unarmedStrike);
+        Debug.Log("Unarmed strike added to " + creature.name);
+    }
+
+}
+
 }
