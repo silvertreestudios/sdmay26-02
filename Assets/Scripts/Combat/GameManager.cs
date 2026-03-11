@@ -36,6 +36,13 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
 
     private void EndCombat(string winningTeam)
     {
+        StartCoroutine(EndCombatRoutine());
+    }
+
+    private IEnumerator EndCombatRoutine()
+    {
+        //temporary wait, delete once next level button is implemented
+        yield return new WaitForSeconds(3f);
         int nextSceneIndex = SceneManager.GetActiveScene().buildIndex + 1;
         if (nextSceneIndex < SceneManager.sceneCountInBuildSettings)
             SceneManager.LoadScene(nextSceneIndex);

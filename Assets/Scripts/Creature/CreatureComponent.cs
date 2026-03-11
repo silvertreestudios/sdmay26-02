@@ -284,7 +284,8 @@ namespace Game.Creature
                 Vector3Int cell = gridController.coordinateConverter.GetCharacterCell(gameObject);
                 gridMemory.ClearCreaturePosition(gameObject, cell);
             }
-
+            OnDeath.Invoke(gameObject); // Trigger the death event
+            
             gameObject.SetActive(false);
         }
 

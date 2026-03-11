@@ -67,6 +67,7 @@ public class Strike
 
         if (attackRoll.degree == DegreeOfSuccess.Success || attackRoll.degree == DegreeOfSuccess.CriticalSuccess)
         {
+            OnDamageDealt.Invoke(From);
             // Adds a new flat damage for the damage bonus, type matching the first damage type
             FlatDamages.Add(new DamageValue(Damages[0].damageType, damageBonus));
             List<DamageValue> damageValues = DamageRoller.RollDamage(Damages, FlatDamages);
@@ -80,6 +81,9 @@ public class Strike
                 log += "\n  " + d.DamageType + ": " + d.DamageAmount;
             }
             log += "\n  Total: " + damage;
+        } else {
+            OnAttackMiss.Invoke(From);
+            log += "\nAttack Missed!";
         }
         log += "\n";
         Debug.Log(log);
