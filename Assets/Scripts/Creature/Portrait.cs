@@ -21,10 +21,10 @@ public class Portrait : MonoBehaviour
             portraitCamera.enabled = false;
         }
         
-        // Capture snapshot
-        Texture2D snapshot = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+        // Capture snapshot at correct dimensions
+        Texture2D snapshot = new Texture2D(152, 114, TextureFormat.RGB24, false);
         RenderTexture.active = rt;
-        snapshot.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+        snapshot.ReadPixels(new Rect(0, 0, 152, 114), 0, 0);
         snapshot.Apply();
         RenderTexture.active = null;
         return snapshot;
@@ -32,12 +32,14 @@ public class Portrait : MonoBehaviour
 
     void Awake() {
         Debug.Log("Portrait Awake: Initializing RenderTexture and Camera");
-        // Create individual RenderTexture for this portrait
-        individualRenderTexture = new RenderTexture(512, 512, 24);
+        // Create individual RenderTexture with card dimensions
+        individualRenderTexture = new RenderTexture(152, 114, 24);
         portraitCamera = GetComponentInChildren<Camera>();
         if (portraitCamera != null) {
             Debug.Log("Found Camera");
             portraitCamera.targetTexture = individualRenderTexture;
+            // Adjust camera aspect ratio to match texture
+            portraitCamera.aspect = 152f / 114f; // 1.6:1
         } else {
             Debug.LogError("No Camera found in children of Portrait!");
         }
