@@ -87,7 +87,7 @@ public class MindlessController : AIActionController
         if (bestPath == null || bestPath.Count == 0)
             return null;
 
-        // Move towards the best target — select the furthest tile in path within movement range
+        // Move towards the best target â€” select the furthest tile in path within movement range
         int maxMoveDist = this.gameObject.GetComponent<CreatureComponent>()?.speed ?? 0;
         HashSet<Vector3Int> reachableTiles = Controller.rangeHighlighter.CalculateReachableTiles(currentCell, maxMoveDist);
         int tileIndex = bestPath.FindLastIndex(tile => reachableTiles.Contains(tile));

@@ -43,8 +43,6 @@ public class GridMemory : IGridMemory
 
     public TILE[,,] GridInfo { get; private set; }
 
-    // Delegate to check if a cell is selectable
-    public System.Func<Vector3Int, bool> IsCellSelectable { get; set; }
 
     public override void Initialize(int width, int height, int gridY, float cellSize, Vector3 origin, int[,] gridData)
     {
@@ -178,7 +176,7 @@ public class GridMemory : IGridMemory
         //make sure we are moving the right character
         if (token == null || GridInfo[startPosition.x, GridY, startPosition.z].occupant != token)
         {
-            Debug.Log("Failed to move creature from " + startPosition.ToString() + " to " + targetPosition.ToString());
+            Debug.LogWarning("Failed to move creature from " + startPosition.ToString() + " to " + targetPosition.ToString());
             return;
         }
         GridInfo[startPosition.x, GridY, startPosition.z].isOccupied = false;
@@ -192,7 +190,7 @@ public class GridMemory : IGridMemory
         //make sure we are placing a valid character and the tile is not already occupied
         if (token == null || GridInfo[spawnPosition.x, GridY, spawnPosition.z].isOccupied)
         {
-            Debug.Log("Failed to set creature position at " + spawnPosition.ToString());
+            Debug.LogWarning("Failed to set creature position at " + spawnPosition.ToString());
             return;
         }
         GridInfo[spawnPosition.x, GridY, spawnPosition.z].isOccupied = true;
@@ -204,7 +202,7 @@ public class GridMemory : IGridMemory
         //make sure we are clearing the right character
         if (token == null || GridInfo[position.x, GridY, position.z].occupant != token)
         {
-            Debug.Log("Failed to clear creature position at " + position.ToString());
+            Debug.LogWarning("Failed to clear creature position at " + position.ToString());
             return;
         }
         GridInfo[position.x, GridY, position.z].isOccupied = false;
@@ -329,6 +327,18 @@ public class GridMemory : IGridMemory
         }
     }
 
+    public override bool IsCellSelectableAction(Vector3Int position)
+    {
+        if (GridInfo == null) return false;
+        // if x or z are out of bounds, return false
+        if (position.x < 0 || position.x >= Width) return false;
+        if (position.z < 0 || position.z >= Height) return false;
+        // Check if the tile type allows selection
+        TILE tile = GridInfo[position.x, GridY, position.z];
+        if (tile.type == TileType.Wall) return false; // Can't select wall tiles for actions
+        //notibly you can select doors and void tiles in some edge cases
+        return true; // Allow selection of unoccupied tiles
+    }
     public override IEnumerator TargetSelect(int range, CoroutineResult<GameObject> result)
     {
         //return a selected monster if valid

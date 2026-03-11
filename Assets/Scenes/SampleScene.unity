@@ -595,9 +595,7 @@ MonoBehaviour:
   rangeHighlightHeightOffset: 0.05
   isProcessingTurn: 0
   currentCamera: {fileID: 0}
-  cancel: 0
   lastClickedCell: {x: 0, y: 0, z: 0}
-  showDebugInfo: 0
 --- !u!4 &719184870
 Transform:
   m_ObjectHideFlags: 0

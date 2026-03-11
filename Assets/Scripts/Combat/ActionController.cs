@@ -88,7 +88,7 @@ public abstract class ActionController : MonoBehaviour
             Debug.LogWarning("No action provided to TakeAction!");
             return;
         }
-        Debug.Log("Attempting to take action: " + action);
+        //Debug.Log("Attempting to take action: " + action);
         uint cost = action.ActionCost;
         if (!IsTurn || cost > ActionPoints)
             return;

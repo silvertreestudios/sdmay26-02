@@ -69,10 +69,7 @@ public class GridRenderer3D : MonoBehaviour
     // ---------- Unity lifecycle ----------
 
     // First-time setup; build everything once.
-    void Awake() { }
-
-    // Ensure ready when enabled; hide hover initially.
-    void OnEnable()
+    void Awake()
     {
         Init();
         FullRebuild();

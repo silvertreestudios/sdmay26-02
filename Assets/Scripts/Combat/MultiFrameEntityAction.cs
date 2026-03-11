@@ -7,7 +7,13 @@ public abstract class MultiFrameEntityAction : EntityAction
 
     public override void Invoke(GameObject target)
     {
-        CoroutineRunner.Run(MFInvoke(target));
+        CoroutineRunner.Run(MFInvokeWithEndCheck(target));
+    }
+
+    private IEnumerator MFInvokeWithEndCheck(GameObject target)
+    {
+        yield return CoroutineRunner.Run(MFInvoke(target));
+        CombatManager.GetInstance().CheckForEndOfGame();
     }
 
     protected abstract IEnumerator MFInvoke(GameObject target);

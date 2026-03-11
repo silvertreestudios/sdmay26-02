@@ -251,6 +251,7 @@ GameObject:
   - component: {fileID: 5489623171515365460}
   - component: {fileID: 5049490658535004338}
   - component: {fileID: 598170735464826064}
+  - component: {fileID: 595625853908541617}
   m_Layer: 6
   m_Name: kobold-warrior
   m_TagString: Untagged
@@ -417,3 +418,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Conditions
+--- !u!114 &595625853908541617
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8560756850187711930}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8e71b0452ab057489cfcc5a10f4ebbc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Token

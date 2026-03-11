@@ -4,7 +4,7 @@ using UnityEngine;
 [System.Serializable]
 public class TeamRules : SingletonMonoBehaviour<TeamRules>
 {
-    [SerializeField]
+    //[SerializeField]
     private List<string> TeamList = new();
 
     private Dictionary<string, List<string>> Friendly = new();
@@ -16,6 +16,10 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
     /// </summary>
     public void AddFriendlyTeam(string team)
     {
+        Friendly.Add(team, new());
+        Neutral.Add(team, new());
+        Hostile.Add(team, new());
+
         foreach (string t in TeamList)
             MutualFriendly(team, t);
 
@@ -27,6 +31,10 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
     /// </summary>
     public void AddNeutralTeam(string team)
     {
+        Friendly.Add(team, new());
+        Neutral.Add(team, new());
+        Hostile.Add(team, new());
+
         foreach (string t in TeamList)
             MutualNeutral(team, t);
 
@@ -38,6 +46,10 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
     /// </summary>
     public void AddHostileTeam(string team)
     {
+        Friendly.Add(team, new());
+        Neutral.Add(team, new());
+        Hostile.Add(team, new());
+
         foreach (string t in TeamList)
             MutualHostile(team, t);
 
@@ -67,12 +79,13 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
     }
 
     /// <summary>
-    /// Helper to find team
+    /// Returns true if team has been defined
     /// </summary>
-    protected List<string> Teams(GameObject g)
+    /// <param name="team">The team that may be defined</param>
+    /// <returns></returns>
+    public bool Contains(string team)
     {
-        List<string> list = new();
-        return list;
+        return TeamList.Contains(team);
     }
 
     /// <summary>
