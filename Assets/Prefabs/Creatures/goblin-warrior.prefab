@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 2092882040488812791}
   - component: {fileID: 8362074675100557896}
   - component: {fileID: 3138839757628200053}
+  - component: {fileID: 1814472614306634307}
   m_Layer: 6
   m_Name: goblin-warrior
   m_TagString: Untagged
@@ -166,6 +167,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Conditions
+--- !u!114 &1814472614306634307
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2886620269212729914}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8e71b0452ab057489cfcc5a10f4ebbc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Token
 --- !u!1 &4461432389202375196
 GameObject:
   m_ObjectHideFlags: 0

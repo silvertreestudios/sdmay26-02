@@ -79,6 +79,16 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
     }
 
     /// <summary>
+    /// Returns true if team has been defined
+    /// </summary>
+    /// <param name="team">The team that may be defined</param>
+    /// <returns></returns>
+    public bool Contains(string team)
+    {
+        return TeamList.Contains(team);
+    }
+
+    /// <summary>
     /// Makes team1 friendly to team2. Does not affect team2 defined relations
     /// </summary>
     public void OneWayFriendly(string team1, string team2)

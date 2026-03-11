@@ -10,9 +10,10 @@ GameObject:
   m_Component:
   - component: {fileID: 8641797328003948313}
   - component: {fileID: 7509527161798057004}
+  - component: {fileID: 661414100585141936}
   - component: {fileID: 1230489140210506536}
   - component: {fileID: 1621377164598422165}
-  - component: {fileID: 507985902987611829}
+  - component: {fileID: 8790794040289965405}
   m_Layer: 6
   m_Name: zombie-shambler
   m_TagString: Untagged
@@ -105,6 +106,20 @@ MonoBehaviour:
   _equipment: []
   _weaponsList: []
   _armorList: []
+--- !u!114 &661414100585141936
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1043235570026206525}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 52e9b306fa533c64ba72572bd127a099, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ActionController
+  <ActionPoints>k__BackingField: 0
+  _actionNames: []
 --- !u!114 &1230489140210506536
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -130,7 +145,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Conditions
---- !u!114 &507985902987611829
+--- !u!114 &8790794040289965405
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -139,11 +154,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 1043235570026206525}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 97518c29693e5e544b3fbdd1324b642d, type: 3}
+  m_Script: {fileID: 11500000, guid: b8e71b0452ab057489cfcc5a10f4ebbc, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::MindlessController
-  <ActionPoints>k__BackingField: 0
-  _actionNames: []
+  m_EditorClassIdentifier: Assembly-CSharp::Token
 --- !u!1 &1260192250810322083
 GameObject:
   m_ObjectHideFlags: 0
@@ -184,7 +197,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1260192250810322083}
-  m_Mesh: {fileID: -1306287401402662401, guid: d9e17dbadb98846ae8b04c9726f148e9, type: 3}
+  m_Mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
 --- !u!23 &5281836773456808635
 MeshRenderer:
   m_ObjectHideFlags: 0

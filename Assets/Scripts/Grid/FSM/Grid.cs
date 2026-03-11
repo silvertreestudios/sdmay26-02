@@ -17,17 +17,20 @@ public class Grid : GridAPI
     // contstruct stride
     public override IEnumerator Stride(GameObject character, CoroutineResult<bool> canceled)
     {
-
-        StateStride strideState = new StateStride(character, Controller);
-        if (GridFSM.ChangeState(strideState))
+        if (!GridFSM.isInTransition && GridFSM.currentState == GridFSM.idleState)
         {
-            // wait until state is no longer Stride
-            while (GridFSM.currentState == strideState)
+            StateStride strideState = new StateStride(character, Controller);
+            if (GridFSM.ChangeState(strideState))
             {
-                yield return null;
+                // wait until state is no longer Stride
+                yield return new WaitUntil(() => GridFSM.currentState != strideState);
+                // return cancelled status
+                canceled.Value = GridFSM.canceled;
             }
-            // return cancelled status
-            canceled.Value = GridFSM.canceled;
+            else
+            {
+                canceled.Value = true;
+            }
         }
         else
         {

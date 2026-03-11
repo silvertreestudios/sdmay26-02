@@ -102,6 +102,7 @@ GameObject:
   - component: {fileID: 2627365968489530025}
   - component: {fileID: 1685312289907558816}
   - component: {fileID: 7822092932797490492}
+  - component: {fileID: 2770557677952125797}
   m_Layer: 6
   m_Name: skeleton-guard
   m_TagString: Untagged
@@ -239,6 +240,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Conditions
+--- !u!114 &2770557677952125797
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5488967783477118630}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8e71b0452ab057489cfcc5a10f4ebbc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Token
 --- !u!1 &6643102022807808188
 GameObject:
   m_ObjectHideFlags: 0

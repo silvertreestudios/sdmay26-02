@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Game.Creature;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -6,14 +7,8 @@ using UnityEngine;
 
 public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterController3D>
 {
-
-    // Singleton instance
-
-
     // References to grid and prefabs set in inspector
     public GridMemory gridMemory;
-    public GameObject prefab;
-    public GameObject prefab2;
     public bool autoFindGrid = true;
     public GameObject rangeHighlightPrefab;
 
@@ -22,7 +17,6 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
 
     // Movement settings
     public float moveSpeed = 2f;
-    public int maxMovementDistance = 9;
 
     // Animation settings
     public float stepHeight;
@@ -64,14 +58,6 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
     // Input tracking
     public Vector3Int lastClickedCell;
 
-    void OnEnable()
-    {
-        // Auto-find grid if needed
-        if (autoFindGrid && !gridMemory)
-            gridMemory = FindAnyObjectByType<GridMemory>();
-
-    }
-
     void OnDisable()
     {
         // Clean up subsystems
@@ -82,8 +68,14 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
     /// <summary>
     /// Initializes the character controller and subsystems
     /// </summary>
-    public void Setup()
+    protected override void Awake()
     {
+        base.Awake();
+
+        // Auto-find grid if needed
+        if (autoFindGrid && !gridMemory)
+            gridMemory = FindAnyObjectByType<GridMemory>();
+
         if (gridMemory == null)
         {
             Debug.LogError("[GridCharacterController3D] gridMemory is null, cannot initialize!");
@@ -93,11 +85,6 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
         coordinateConverter = new GridCoordinateConverter(gridMemory);
         pathfinder = new GridPathfinder(gridMemory, allowDiagonalMovement, diagonalCost);
 
-        SpawnCharacters();
-
-        foreach (var character in characters)
-            tokenMovements[character] = new tokenMovement(character.transform, stepHeight, maxRotation, ptLerp, yLerp);
-
         visualIndicator = new VisualIndicator(this);
         rangeHighlighter = new MovementRange(this);
 
@@ -105,42 +92,13 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
         currentCamera = (renderer && renderer.targetCamera) ? renderer.targetCamera : Camera.main;
     }
 
+    #region Creature Placement
 
-    #region Character Spawning
-
-    void SpawnCharacters()
+    public void PlaceCreature(GameObject token)
     {
-        float yPos = gridMemory ? gridMemory.GridY + yDrawOffset : 0.001f;
-
-        if (prefab == null)
-        {
-            Debug.LogError("[GridCharacterController3D] prefab is not assigned in the Inspector!");
-            return;
-        }
-
-        SpawnCharacter(prefab, new Vector3(.5f, yPos, .5f), Color.white);
-        SpawnCharacter(prefab, new Vector3(1.5f, yPos, .5f), Color.white);
-
-
-        GameObject player2Prefab = prefab2 != null ? prefab2 : prefab;
-        SpawnCharacter(player2Prefab, new Vector3(18.5f, yPos, 1.5f), Color.red);
-        SpawnCharacter(player2Prefab, new Vector3(19.5f, yPos, 1.5f), Color.red);
-    }
-
-    private void SpawnCharacter(GameObject prefab, Vector3 position, Color color)
-    {
-        GameObject player = Instantiate(prefab);
-        player.name = name.Replace("Player", "Player ");
-        player.transform.position = position;
-        characters.Add(player);
-
-        var renderer = player.GetComponent<MeshRenderer>();
-        if (renderer && color != Color.white)
-        {
-            renderer.material.color = color;
-        }
-
-        gridMemory.SetCreaturePosition(player, coordinateConverter.GetCharacterCell(player));
+        characters.Add(token);
+        gridMemory.SetCreaturePosition(token, coordinateConverter.GetCharacterCell(token));
+        tokenMovements[token] = new tokenMovement(token.transform, stepHeight, maxRotation, ptLerp, yLerp);
     }
 
     void SnapToValidCell(GameObject obj)
@@ -241,8 +199,9 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
         Vector3Int startCell = coordinateConverter.GetCharacterCell(character);
         var pathResult = pathfinder.FindPath(startCell, targetCell);
 
+        int maxMoveDist = character.GetComponent<CreatureComponent>()?.speed ?? 0;
         if (!pathResult.found || pathResult.path == null || pathResult.path.Count < 2 ||
-            (maxMovementDistance > 0 && pathResult.path.Count - 1 > maxMovementDistance))
+            (maxMoveDist > 0 && pathResult.path.Count - 1 > maxMoveDist))
             return false;
 
         path = pathResult.path;

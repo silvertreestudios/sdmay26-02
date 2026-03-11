@@ -221,7 +221,6 @@ GameObject:
   m_Component:
   - component: {fileID: 410087041}
   - component: {fileID: 410087040}
-  - component: {fileID: 410087042}
   m_Layer: 0
   m_Name: Directional Light
   m_TagString: Untagged
@@ -309,18 +308,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 50, y: -30, z: 0}
---- !u!114 &410087042
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 410087039}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!1 &496164117
 GameObject:
   m_ObjectHideFlags: 0
@@ -433,6 +420,71 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 4aa4fbf62da816c4c8185c0305c74e09, type: 3}
+--- !u!1001 &526829278
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 5049490658535004338, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: <Name>k__BackingField
+      value: Kobolds
+      objectReference: {fileID: 0}
+    - target: {fileID: 7263924748281066437, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_Mesh
+      value: 
+      objectReference: {fileID: 1327527995072578448, guid: dc0e81157777e49e1bfb3447ea78273b, type: 3}
+    - target: {fileID: 7437372328704202929, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 7437372328704202929, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7437372328704202929, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 7437372328704202929, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7437372328704202929, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7437372328704202929, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7437372328704202929, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7437372328704202929, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7437372328704202929, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7437372328704202929, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8560756850187711930, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+      propertyPath: m_Name
+      value: kobold-warrior
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
 --- !u!1 &719184868
 GameObject:
   m_ObjectHideFlags: 0
@@ -463,8 +515,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GridCharacterController
   gridMemory: {fileID: 0}
-  prefab: {fileID: 2886620269212729914, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
-  prefab2: {fileID: 1043235570026206525, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
   autoFindGrid: 1
   rangeHighlightPrefab: {fileID: 8655392066640400182, guid: 100483f396e57a648934bd455608797d, type: 3}
   yDrawOffset: 0.001
@@ -543,9 +593,7 @@ MonoBehaviour:
   rangeHighlightHeightOffset: 0.05
   isProcessingTurn: 0
   currentCamera: {fileID: 0}
-  cancel: 0
   lastClickedCell: {x: 0, y: 0, z: 0}
-  showDebugInfo: 0
 --- !u!4 &719184870
 Transform:
   m_ObjectHideFlags: 0
@@ -570,7 +618,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 832575519}
-  - component: {fileID: 832575518}
   m_Layer: 0
   m_Name: Global Volume
   m_TagString: Untagged
@@ -578,18 +625,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &832575518
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 832575517}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 172515602e62fb746b5d573b38a5fe58, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!4 &832575519
 Transform:
   m_ObjectHideFlags: 0
@@ -811,6 +846,67 @@ Transform:
   m_Children: []
   m_Father: {fileID: 931978357}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1001 &1292210151
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 2886620269212729914, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: m_Name
+      value: goblin-warrior
+      objectReference: {fileID: 0}
+    - target: {fileID: 6168038074156405215, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 18.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 6168038074156405215, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6168038074156405215, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 1.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 6168038074156405215, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 6168038074156405215, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6168038074156405215, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6168038074156405215, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6168038074156405215, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6168038074156405215, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6168038074156405215, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8362074675100557896, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+      propertyPath: <Name>k__BackingField
+      value: Goblins
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -823,3 +919,5 @@ SceneRoots:
   - {fileID: 1011230628}
   - {fileID: 496164120}
   - {fileID: 513401157}
+  - {fileID: 1292210151}
+  - {fileID: 526829278}

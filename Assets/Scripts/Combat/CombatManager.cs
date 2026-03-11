@@ -74,22 +74,29 @@ public class CombatManager : CombatManagerInterface
         NextTurn();
     }
 
-    public override void NextTurn()
+    public override bool CheckForEndOfGame()
     {
         List<string> teams = new();
         // Check if a team has won yet.
-        foreach(var combatant in Combatants)
+        foreach (var combatant in Combatants)
         {
             string team = combatant.GetComponent<Team>().Name;
-            if(!teams.Contains(team))
+            if (!teams.Contains(team))
                 teams.Add(team);
         }
         if (teams.Count < 2)
         {
             Debug.Log("Team " + teams[0] + " wins!");
-            OnCombatEnd.Invoke();// Signal end
-            return;
+            OnCombatEnd.Invoke(teams[0]);// Signal end
+            return true;
         }
+        return false;
+    }
+
+    public override void NextTurn()
+    {
+        if(CheckForEndOfGame())
+            return;
         // Take the next turn.
         TurnStep e = TurnQueue[0];
         TurnQueue.RemoveAt(0);
