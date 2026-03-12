@@ -213,9 +213,14 @@ public class GridMemory : IGridMemory
         List<GameObject> occupants = new List<GameObject>();
         foreach (Vector3Int point in area)
         {
-            if (GridInfo[point.x, GridY, point.z].isOccupied && GridInfo[point.x, GridY, point.z].occupant != null)
+            TILE tile = GridInfo[point.x, GridY, point.z];
+           
+            if (tile.isOccupied && tile.occupant != null)
             {
-                occupants.Add(GridInfo[point.x, GridY, point.z].occupant);
+                if (tile.type == TileType.Ground || tile.type == TileType.Door)
+                {
+                    occupants.Add(tile.occupant);
+                }
             }
         }
         return occupants;
@@ -227,26 +232,26 @@ public class GridMemory : IGridMemory
         // if x or z are out of bounds, return false
         if (position.x < 0 || position.x >= Width) return false;
         if (position.z < 0 || position.z >= Height) return false;
-        
+
         TILE tile = GridInfo[position.x, GridY, position.z];
-        
+
         // Ground tiles are walkable if not occupied or occupied by friendly
         if (tile.type == TileType.Ground)
         {
             if (!tile.isOccupied) return true;
-            
+
             // Check if occupied by friendly unit
             if (tile.occupant == null || combatManager == null || teamRules == null) return false;
-            
+
             var currentTurn = combatManager.WhosTurn();
             if (currentTurn == null) return false;
-            
+
             var occupantTeam = tile.occupant.GetComponent<Team>();
             var currentTeam = currentTurn.GetComponent<Team>();
-            
+
             if (occupantTeam == null || currentTeam == null) return false;
             if (string.IsNullOrEmpty(occupantTeam.Name) || string.IsNullOrEmpty(currentTeam.Name)) return false;
-            
+
             try
             {
                 return teamRules.IsFriendly(occupantTeam.Name, currentTeam.Name);
@@ -257,11 +262,11 @@ public class GridMemory : IGridMemory
                 return false;
             }
         }
-        
+
         // Open doors are walkable if not occupied
         if (tile.type == TileType.Door)
             return HasStatus(position.x, position.z, TileStatus.DoorOpen) && !tile.isOccupied;
-        
+
         return false;
     }
 
@@ -271,9 +276,9 @@ public class GridMemory : IGridMemory
         // if x or z are out of bounds, return false
         if (position.x < 0 || position.x >= Width) return false;
         if (position.z < 0 || position.z >= Height) return false;
-        
+
         TILE tile = GridInfo[position.x, GridY, position.z];
-        
+
         // Can't select void tiles for traversal
         if (tile.type == TileType.Void) return false;
         // Can't select occupied tiles for traversal
@@ -290,7 +295,7 @@ public class GridMemory : IGridMemory
         // if x or z are out of bounds, return false
         if (position.x < 0 || position.x >= Width) return false;
         if (position.z < 0 || position.z >= Height) return false;
-        
+
         TILE tile = GridInfo[position.x, GridY, position.z];
         // Can't select wall tiles for actions
         return tile.type != TileType.Wall;
@@ -299,15 +304,15 @@ public class GridMemory : IGridMemory
     public override bool IsCellHoverable(Vector3Int position, bool allowDoorHover)
     {
         if (GridInfo == null) return false;
-        
+
         // Check if cell is walkable (with all the safety checks inside)
         if (IsCellWalkable(position)) return true;
-        
+
         // Check if hovering over doors is allowed
         if (!allowDoorHover) return false;
         if (position.x < 0 || position.x >= Width) return false;
         if (position.z < 0 || position.z >= Height) return false;
-        
+
         return GridInfo[position.x, GridY, position.z].type == TileType.Door;
     }
 

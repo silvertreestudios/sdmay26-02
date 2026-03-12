@@ -1,4 +1,3 @@
-using System;
 using System.Collections;
 using UnityEngine;
 
@@ -40,7 +39,7 @@ public class Grid : GridAPI
     // construct Strike
     public override IEnumerator Strike(GameObject attacker, int range, CoroutineResult<GameObject> target, CoroutineResult<bool> canceled)
     {
-        if(!GridFSM.isInTransition && GridFSM.currentState == GridFSM.idleState)
+        if (!GridFSM.isInTransition && GridFSM.currentState == GridFSM.idleState)
         {
             StateStrike strikeState = new StateStrike(attacker, range, Controller);
             if (GridFSM.ChangeState(strikeState))
@@ -53,11 +52,12 @@ public class Grid : GridAPI
                 target.Value = strikeState.target;
                 canceled.Value = GridFSM.canceled;
             }
-        } else
+        }
+        else
         {
             canceled.Value = true;
         }
-        
+
     }
     void Update()
     {
