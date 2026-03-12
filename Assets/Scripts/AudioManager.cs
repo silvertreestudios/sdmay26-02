@@ -48,13 +48,18 @@ public class AudioManager : SingletonMonoBehaviour<AudioManager>
     }
 
     //play damage sfx
-    void PlayDamageSFX(GameObject attacker)
+    void PlayDamageSFX(string type)
     {
-        string team = attacker.GetComponent<Team>()?.Name;
-        switch (team)
+        switch (type.ToLower())
         {
-            case "Zombies":
+            case "bludgeoning":
                 sfxSource.PlayOneShot(ZombieAttackSFX);
+                break;
+            case "slashing":
+                sfxSource.PlayOneShot(onHitSFX);
+                break;
+            case "piercing":
+                sfxSource.PlayOneShot(onHitSFX);
                 break;
             default:
                 sfxSource.PlayOneShot(onHitSFX);
@@ -72,12 +77,12 @@ public class AudioManager : SingletonMonoBehaviour<AudioManager>
     void PlayDeathSFX(GameObject deceased)
     {
         string team = deceased.GetComponent<Team>()?.Name;
-        switch (team)
+        switch (team?.ToLower())
         {
-            case "Players":
+            case "players":
                 sfxSource.PlayOneShot(onDeathPlayerSFX);
                 break;
-            case "Zombies":
+            case "zombies":
                 sfxSource.PlayOneShot(onDeathZombieSFX);
                 break;
             default:

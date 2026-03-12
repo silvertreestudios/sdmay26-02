@@ -19,7 +19,7 @@ public class OnGetReactions : UnityEvent<List<EntityAction>> {}
 public class OnStepEnd : StaticUnityEvent<OnStepEnd, Vector3> {}
 
 // <summary>Triggered upon a creature dealing damage, passes the attacker GameObject as a parameter</summary>
-public class OnDamageDealt : StaticUnityEvent<OnDamageDealt, GameObject> {}
+public class OnDamageDealt : StaticUnityEvent<OnDamageDealt, string> {}
 // <summaryTriggered upon a creature missing an attack, passes the attacker GameObject as a parameter</summary>
 public class OnAttackMiss : StaticUnityEvent<OnAttackMiss, GameObject> {}
 /// <summary>Triggered upon a creature's death, returns the GameObject that died</summary>

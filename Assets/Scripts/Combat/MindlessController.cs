@@ -28,6 +28,8 @@ public class MindlessController : AIActionController
             EntityAction action = MindlessDecision();
             if (action != null)
             {
+                //wait for half a second as to not spam attacks
+                yield return new WaitForSeconds(1f);
                 // yield return waits for the TakeAction coroutine to completely finish
                 TakeAction(action);
                 yield return new WaitUntil(() => !IsTakingAction); // Wait until the action is fully resolved before continuing
