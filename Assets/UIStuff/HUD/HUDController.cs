@@ -31,6 +31,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     //####Current Player Variables####
     private VisualElement currentPlayerCard;
     private ProgressBar currentPlayerHealthBar;
+    private ProgressBar currentPlayerThpBar;
 
     //####Target Variables####
     private VisualElement targetCard;
@@ -332,6 +333,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         currentPlayerHealthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
         currentPlayerHealthBar.value = p.hp;
         currentPlayerHealthBar.highValue = p.maxHp;
+
+        // Update THP bar
+        currentPlayerThpBar.title = "THP: " + p.tempHp + "/" + p.tempHp;
+        currentPlayerThpBar.value = p.tempHp;
+        currentPlayerThpBar.highValue = p.tempHp;
     }
 
     private void updateTargetCard() {
@@ -368,12 +374,16 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
                 var healthBar = card.Q<ProgressBar>("HealthBar");
                 //Debug.Log($"Setting health bar for {p.name}: {p.hp}/{p.maxHp}");
-
-
                 healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
                 healthBar.value = p.hp;
                 healthBar.highValue = p.maxHp;
-                
+
+                // Update TempHp bar
+                var thpBar = card.Q<ProgressBar>("TempHpBar");
+                thpBar.title = "THP: " + p.tempHp + "/" + p.tempHp;
+                thpBar.value = p.tempHp;
+                thpBar.highValue = p.tempHp;
+
                 if (p == currentTurn) {
                     //card.style.scale = new StyleScale(new Scale(new Vector3(1.5f,1.5f,1))); // Scale up the current player's card
                     card.style.opacity = 1f; // Full opacity for current player card
