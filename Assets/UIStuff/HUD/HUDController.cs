@@ -1,4 +1,3 @@
-
 using NUnit.Framework.Internal;
 using Unity.VisualScripting;
 using UnityEngine;
@@ -38,13 +37,16 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private static List<GameObject> Players;
     private static bool IsActive = false;
+
+    private CombatLogInterface combatLog;
     
 
     protected override void Awake() {
         base.Awake();
         //Debug.Log("Awake called");
         ui = GetComponent<UIDocument>().rootVisualElement;
-
+        combatLog = CombatLog.GetInstance();
+        combatLog.Log("Game Started. Combat Log Initialized.");
         //Copiloy made this so I could point it to another UXML file for a template
         //I suspect it sucks
         //vvvvvvvvvvvvvvvvvv
@@ -86,11 +88,15 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         //####Player Queue Card Setup####
         cardHolder = ui.Q<VisualElement>("CardHolder");
         // fillPlayerCards(); // Fix: Let Update() handle the initial fill to avoid double execution
+
+
+
     }
 
     public static void Setup()
     {
         Players = CombatManagerInterface.GetInstance().GetCombatants();
+        
         IsActive = true;
     }
 
@@ -105,15 +111,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             needToUpdateCards = true;
         }
 
-        // Debug.Log("Update called");
-        // Debug.Log("HUD Update called");
-        // Update current player card (placeholder logic)
-        //updateCurrentPlayerCard();
-
-        // Update target card (placeholder logic)
-        //updateTargetCard();
-
-        // Update player queue cards if needed
         if (needToUpdateCards) {
             fillPlayerCards();
             needToUpdateCards = false;
@@ -146,7 +143,20 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
-            //Debug.Log("Added card for " + Players[i].name);
+
+            var portraitImage = cardInstance.Q<Image>("PortraitImage");
+            // Get portrait snapshot and display it
+            Portrait portraitScript = Players[i].GetComponent<Portrait>();
+            if (portraitScript != null) {
+                Texture2D portraitSnapshot = portraitScript.GetPortraitSnapshot();
+                if (portraitSnapshot != null && portraitImage != null) {
+                    portraitImage.image = portraitSnapshot;
+                }
+            }
+
+            cardInstance.Q<Label>("DESC").text = p.description;
+
+            
         }
     }
 
@@ -184,20 +194,20 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         GameObject g = CombatManager.GetInstance().WhosTurn();
         List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
         StrikeWeapon strikeWeaponAction = null;
-        Debug.Log("Available actions for current player: "+ acs.Count);
+        // Debug.Log("Available actions for current player: "+ acs.Count);
         foreach (var a in acs)
         {
             Debug.Log("Checking action: " + a);
             if (a is StrikeWeapon)
             {
-                Debug.Log("Found StrikeWeapon action: " + a);
+                // Debug.Log("Found StrikeWeapon action: " + a);
                 strikeWeaponAction = (StrikeWeapon)a;
                 // break;
             }
         }
         if (strikeWeaponAction == null)
         {
-            Debug.LogWarning("No StrikeWeapon action found for current player!");
+            // Debug.LogWarning("No StrikeWeapon action found for current player!");
             return;
         }
         g.GetComponent<ActionController>().TakeAction(strikeWeaponAction);
@@ -236,7 +246,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     public void Move()
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
-        // TODO: Check if is player
+        combatLog.Log("- " + g.name + " is moving.");
         g.GetComponent<PlayerActionController>().TestStride();
         //Debug.Log("Clicked Move button");
     }
@@ -247,13 +257,15 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         // TODO: Check if is player
         GridAPI.GetInstance().CancelCurrentAction();
         g.GetComponent<PlayerActionController>().EndTurn();
-       // Debug.Log("Clicked End Turn button");
+        combatLog.Log("- " + g.name + " ended their turn.");
     }
 
     public void CancelAction() {
         //Debug.Log("CancelAction called");
         //Debug.Log("Clicked Cancel Action button");
         GridAPI.GetInstance().CancelCurrentAction();
+        GameObject g = CombatManager.GetInstance().WhosTurn();
+        combatLog.Log("- " + g.name + " canceled their action.");
     }
 
     public void focusOnPlayer(int playerIndex) {
@@ -290,32 +302,59 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     }
 
     private void updatePlayerQueueCards() {
-        // Logic to update player queue cards
-        // This is a placeholder implementation
         for (int i = 0; i < cardHolder.childCount; i++) {
-            var card = cardHolder.ElementAt(i);
-            CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
-            var healthBar = card.Q<ProgressBar>("HealthBar");
-            card.Q<Label>("Card_Name").text = p.name + " photo would go here"; // Update name in case it changes
-            healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
-            healthBar.value = p.hp;
-            healthBar.highValue = p.maxHp;
-            if (p == CombatManager.GetInstance().WhosTurn().GetComponent<CreatureComponent>()) {
-                card.style.scale = new StyleScale(new Scale(new Vector3(1.5f,1.5f,1))); // Scale up the current player's card
-                card.style.opacity = 1f; // Full opacity for current player card
-                card.style.borderBottomColor = Color.clear;
-                card.style.borderBottomWidth = 50;
-            } else {
-                card.style.borderBottomColor = Color.clear;
-                card.style.borderBottomWidth = 0;
-                card.style.scale = new StyleScale(new Scale(new Vector3(1f, 1f, 1))); // Normal scale for non-current player cards
-                card.style.opacity = 0.5f; // Dim non-current player cards
+            try {
+                // Safe check before calling WhosTurn
+                CombatManagerInterface cm = CombatManager.GetInstance();
+                if (cm == null) {
+                    Debug.LogWarning("CombatManager is null");
+                    continue;
+                }
+                
+                GameObject turnGO = cm.WhosTurn();
+                if (turnGO == null) {
+                    Debug.LogWarning("WhosTurn returned null");
+                    continue;
+                }
+                
+                CreatureComponent currentTurn = turnGO.GetComponent<CreatureComponent>();
+                if (currentTurn == null) {
+                    Debug.LogWarning($"No CreatureComponent on {turnGO.name}");
+                    continue;
+                }
+                
+                var card = cardHolder.ElementAt(i);
+                CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
+                var healthBar = card.Q<ProgressBar>("HealthBar");
+                //Debug.Log($"Setting health bar for {p.name}: {p.hp}/{p.maxHp}");
+
+
+                healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
+                healthBar.value = p.hp;
+                healthBar.highValue = p.maxHp;
+                
+                if (p == currentTurn) {
+                    //card.style.scale = new StyleScale(new Scale(new Vector3(1.5f,1.5f,1))); // Scale up the current player's card
+                    card.style.opacity = 1f; // Full opacity for current player card
+                    //card.style.borderBottomColor = Color.clear;
+                    //card.style.borderBottomWidth = 50;
+                } else {
+                    //card.style.borderBottomColor = Color.clear;
+                    //card.style.borderBottomWidth = 0;
+                    //card.style.scale = new StyleScale(new Scale(new Vector3(1f, 1f, 1))); // Normal scale for non-current player cards
+                    card.style.opacity = 0.3f; // Dim non-current player cards
+                }
+                if (p.hp <= 0) {
+                    needToMoveCards = true; // Flag to move cards if a player is defeated
+                    return; // Exit early to avoid updating cards that may be removed
+                }
+                //card.Q<Label>("AP").text = "AP: " + p.GetComponent<ActionController>().ActionPoints; // Update action points display
+                
+                
+            } catch (System.Exception e) {
+                Debug.LogError($"Error updating card: {e.Message}\n{e.StackTrace}");
             }
-            if (p.hp <= 0) {
-                needToMoveCards = true; // Flag to move cards if a player is defeated
-                return; // Exit early to avoid updating cards that may be removed
-            }
-            card.Q<Label>("AP").text = "AP: " + p.GetComponent<ActionController>().ActionPoints; // Update action points display
         }
+        // Debug.Log("Finished updating player queue cards");
     }
 }

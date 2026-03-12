@@ -82,7 +82,8 @@ public class Strike
             log += "\n  Total: " + damage;
         }
         log += "\n";
-        Debug.Log(log);
+        // Debug.Log(log);
+        CombatLog.GetInstance().Log(log);
     }
 
     public List<string> getTraits()
