@@ -153,22 +153,4 @@ public class Door : MonoBehaviour
     {
         return currentHP <= 0;
     }
-
-    // Get all occupants currently on this door tile
-    public List<GameObject> GetOccupantsOnDoor()
-    {
-        if (!hasGridPosition || gridMemory == null)
-        {
-            return new List<GameObject>();
-        }
-
-        List<Vector3Int> doorArea = new List<Vector3Int> { new Vector3Int(gridX, gridMemory.GridY, gridZ) };
-        return gridMemory.GetOccupantsInArea(doorArea);
-    }
-
-    // Check if there are any creatures blocking the door
-    public bool IsBlockedByOccupants()
-    {
-        return GetOccupantsOnDoor().Count > 0;
-    }
 }
