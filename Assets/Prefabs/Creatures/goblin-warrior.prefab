@@ -71,12 +71,16 @@ MonoBehaviour:
   - category: advanced
     bonus: 0
   _armorBonuses:
+  - category: unarmored
+    bonus: 2
   - category: light
     bonus: 2
   - category: medium
     bonus: 0
   - category: heavy
     bonus: 0
+  _weaknesses: []
+  _resistances: []
   _strMod: 0
   _dexMod: 3
   _conMod: 1
@@ -116,8 +120,7 @@ MonoBehaviour:
   - Shortbow
   _reactions:
   - Goblin Scuttle
-  _passives:
-  - Quick-Tempered
+  _passives: []
   _conditions: []
   _equipment:
   - Dogslicer

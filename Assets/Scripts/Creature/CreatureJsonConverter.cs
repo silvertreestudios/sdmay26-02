@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Collections.Generic;
 using Game.Strikes;
+// using System.Diagnostics;
 
 namespace Game.Creature
 {
@@ -45,8 +46,6 @@ namespace Game.Creature
         public DetailsDto details;
         public PerceptionDto perception;
         public SaveSetDto saves;
-        public WeaknessDto[] weaknesses;
-        public ResistanceDto[] resistances;
         public SkillDto[] skills; // now a typed array (importer produces this)
     }
     [Serializable]
@@ -59,7 +58,13 @@ namespace Game.Creature
     }
     [Serializable] public class LevelDto { public int value; }
 
-    [Serializable] public class AttributesDto { public AcDto ac; public HpDto hp; public SpeedDto speed; }
+    [Serializable] public class AttributesDto { 
+        public AcDto ac; 
+        public HpDto hp;
+        public SpeedDto speed; 
+        public WeaknessDto[] weaknesses;
+        public ResistanceDto[] resistances;
+    }
     [Serializable] public class AcDto { public string details; public int value; }
     [Serializable] public class HpDto { public string details; public int max; public int temp; public int value; }
     [Serializable] public class SpeedDto { public string[] otherSpeeds; public int value; }
@@ -207,19 +212,23 @@ namespace Game.Creature
             target.willSave = dto.system.saves?.will?.value ?? target.willSave;
 
             // Replace weaknesses/resistances lists
+            Debug.Log(target.name +" weaknesses and resistances from DTO:");
             if (target.weaknesses == null) target.weaknesses = new List<DamageValue>();
             target.weaknesses.Clear();
-            if (dto.system.weaknesses != null)
+            if (dto.system.attributes.weaknesses != null)
             {
-                foreach (var w in dto.system.weaknesses)
+                Debug.Log(target.name +" size " + dto.system.attributes.weaknesses.Length);
+                foreach (var w in dto.system.attributes.weaknesses){
                     target.weaknesses.Add(new DamageValue(w.type, w.value));
+                    Debug.Log(target.name + " weakness added: " + w.value + " " + w.type);
+                }
             }
 
             if (target.resistances == null) target.resistances = new List<DamageValue>();
             target.resistances.Clear();
-            if (dto.system.resistances != null)
+            if (dto.system.attributes.resistances != null)
             {
-                foreach (var r in dto.system.resistances)
+                foreach (var r in dto.system.attributes.resistances)
                     target.resistances.Add(new DamageValue(r.type, r.value));
             }
 
@@ -312,9 +321,9 @@ namespace Game.Creature
                     {
                         // For simplicity, assume the first armor in the list is equipped
                         target.equippedArmor = target.armor[0];
-                        Debug.Log($"CreatureDtoMapper: equipped armor set to {target.equippedArmor.name} with AC bonus {target.equippedArmor.acBonus}");
+                        // Debug.Log($"CreatureDtoMapper: equipped armor set to {target.equippedArmor.name} with AC bonus {target.equippedArmor.acBonus}");
                         target.calculateAC(); // Recalculate AC when armor is added
-                        Debug.Log($"CreatureDtoMapper: AC after equipping armor: {target.ac}");
+                        // Debug.Log($"CreatureDtoMapper: AC after equipping armor: {target.ac}");
                     }
                 }
             

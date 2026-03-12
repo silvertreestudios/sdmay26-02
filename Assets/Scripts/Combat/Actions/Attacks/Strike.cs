@@ -69,7 +69,7 @@ public class Strike
         {
             OnDamageDealt.Invoke(Damages[0].damageType);
             // Adds a new flat damage for the damage bonus, type matching the first damage type
-            FlatDamages.Add(new DamageValue(Damages[0].damageType, damageBonus));
+            // FlatDamages.Add(new DamageValue(Damages[0].damageType, damageBonus));
             List<DamageValue> damageValues = DamageRoller.RollDamage(Damages, FlatDamages);
             DamageRoller.EvaluateCriticalDamage(attackRoll.degree, damageValues);
             DamageRoller.ApplyWeaknessAndResistance(damageValues, to.weaknesses, to.resistances);

@@ -163,16 +163,12 @@ namespace Game.Creature
                 else
                     Debug.LogWarning($"Ability '{a}' not found for {name}");
             }
-            if(this.gameObject.GetComponent<ActionController>() != null)
-            {
+            if(this.gameObject.GetComponent<ActionController>() != null){
                 Unarmed.AddUnarmedStrike(this.gameObject);
                 StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject);
-            }
-            else
-            {
+            }else{
                 Debug.LogWarning($"No ActionController found on {name}, cannot add default strikes");
             }
-
         }
 
         void Update()
@@ -193,8 +189,10 @@ namespace Game.Creature
             {
                 for (int i = 0; i < _skills.Count; i++)
                 {
-                    if (string.Equals(_skills[i].skillName, key, System.StringComparison.OrdinalIgnoreCase))
-                        return _skills[i].skillMod;
+                    if (string.Equals(_skills[i].skillName, key, System.StringComparison.OrdinalIgnoreCase)){
+                        int mod = _skills[i].skillMod;
+                        return mod;
+                    }
                 }
             }
 
@@ -365,13 +363,15 @@ namespace Game.Creature
             {
                 // Add Dex modifier up to the armor's dex cap
                 _ac = 10 + _equippedArmor.acBonus + Mathf.Min(dexMod, _equippedArmor.dexCap);
-                _ac += armorBonuses.Find(b => b.category == _equippedArmor.category).bonus; // Add armor bonuses based on equipped armor group
-                Debug.Log($"Calculated AC with armor: 10 + {_equippedArmor.acBonus} (armor bonus) + {Mathf.Min(dexMod, _equippedArmor.dexCap)} (Dex modifier, capped) + {armorBonuses.Find(b => b.category == _equippedArmor.group).bonus} (armor proficiency bonus) = {_ac}");
-                Debug.Log($" _equippedArmor.group: {_equippedArmor.category}, armorBonuses: {string.Join(", ", armorBonuses.ConvertAll(b => $"{b.category}: {b.bonus}"))}");
+                int armorBonus = armorBonuses.Find(b => b.category == _equippedArmor.category).bonus; // Add armor bonuses based on equipped armor group
+                _ac += armorBonus;
+                // Debug.Log($"Calculated "+ name +" AC with armor: 10 + " + _equippedArmor.acBonus +" (armor bonus) + min(" + dexMod +" (dex mod) + " + _equippedArmor.dexCap +" (dex cap)) + " + armorBonus +" (armor proficiency bonus for " + _equippedArmor.category + " armor) = " + _ac);
+                // Debug.Log($" _equippedArmor.group: {_equippedArmor.category}, armorBonuses: {string.Join(", ", armorBonuses.ConvertAll(b => $"{b.category}: {b.bonus}"))}");
             }else{
                 // Unarmored AC calculation
                 // TODO: modify to include natural armor or other bonuses
                 _ac = 10 + dexMod; 
+                //_ac += armorBonuses.Find(b => b.category == "unarmored").bonus; // Add unarmored bonus if applicable
             }
         }
     }

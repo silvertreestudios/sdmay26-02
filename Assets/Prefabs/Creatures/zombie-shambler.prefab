@@ -243,12 +243,20 @@ MonoBehaviour:
   - category: advanced
     bonus: 0
   _armorBonuses:
+  - category: unarmored
+    bonus: 0
   - category: light
     bonus: 0
   - category: medium
     bonus: 0
   - category: heavy
     bonus: 0
+  _weaknesses:
+  - DamageType: vitality
+    DamageAmount: 5
+  - DamageType: slashing
+    DamageAmount: 5
+  _resistances: []
   _strMod: 3
   _dexMod: -2
   _conMod: 2

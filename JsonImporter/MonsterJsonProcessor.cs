@@ -524,6 +524,7 @@ namespace JsonImporter
 
         public static JArray inferArmorProficiencies(JArray equipment, JObject character)
         {
+            int unarmoredBonus = 0;
             int lightBonus = 0;
             int mediumBonus = 0;
             int heavyBonus = 0;
@@ -554,9 +555,15 @@ namespace JsonImporter
             // assume armor proficiencies scale downward
             mediumBonus = Math.Max(mediumBonus, heavyBonus);
             lightBonus = Math.Max(lightBonus, mediumBonus);
+            unarmoredBonus = Math.Max(unarmoredBonus, lightBonus);
 
             var profs = new JArray
             {
+                new JObject
+                {
+                    ["category"] = "unarmored",
+                    ["bonus"] = unarmoredBonus
+                },
                 new JObject
                 {
                     ["category"] = "light",

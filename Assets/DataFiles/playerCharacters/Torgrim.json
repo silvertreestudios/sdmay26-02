@@ -1,0 +1,238 @@
+{
+  "name": "Torgrim",
+  "type": "player",
+  "system": {
+    "abilities": {
+      "cha": {
+        "mod": 0
+      },
+      "con": {
+        "mod": 1
+      },
+      "dex": {
+        "mod": 2
+      },
+      "int": {
+        "mod": 1
+      },
+      "str": {
+        "mod": 4
+      },
+      "wis": {
+        "mod": 1
+      }
+    },
+    "attributes": {
+      "ac": {
+        "details": "",
+        "value": 16
+      },
+      "allSaves": {
+        "value": ""
+      },
+      "hp": {
+        "details": "",
+        "max": 22,
+        "temp": 0,
+        "value": 22
+      },
+      "speed": {
+        "otherSpeeds": [],
+        "value": 25
+      }
+    },
+    "details": {
+      "blurb": "",
+      "languages": {
+        "details": "",
+        "value": [
+          "common"
+        ]
+      },
+      "level": {
+        "value": 1
+      },
+      "privateNotes": "",
+      "publicNotes": "",
+      "publicNotesPlain": null,
+      "publicNotesParagraphs": [
+        "Our playtest player barbarian."
+      ],
+      "publication": {
+        "license": "ORC",
+        "remaster": true,
+        "title": "Player Core 2"
+      }
+    },
+    "initiative": {
+      "statistic": "perception"
+    },
+    "perception": {
+      "details": "",
+      "mod": 5,
+      "senses": [
+        {
+          "type": "darkvision"
+        }
+      ]
+    },
+    "resources": {},
+    "saves": {
+      "fortitude": {
+        "saveDetail": "",
+        "value": 6
+      },
+      "reflex": {
+        "saveDetail": "",
+        "value": 5
+      },
+      "will": {
+        "saveDetail": "",
+        "value": 6
+      }
+    },
+    "skills": [
+      {
+        "name": "perception",
+        "value": 5
+      }
+    ],
+    "traits": {
+      "rarity": "common",
+      "size": {
+        "value": "med"
+      },
+      "value": [
+        "human",
+        "humanoid"
+      ]
+    },
+    "weaknesses": [],
+    "resistances": []
+  },
+  "equipment": [
+    {
+      "name": "Greataxe",
+      "type": "weapon",
+      "hands": 2,
+      "category": "martial",
+      "quantity": 1
+    },
+    {
+      "name": "Scale-Mail",
+      "type": "armor",
+      "hands": 0,
+      "category": "medium",
+      "quantity": 1,
+      "acBonus": 3,
+      "dexCap": 2
+    }
+  ],
+  "items": [],
+  "reactions": [],
+  "passives": [
+    {
+      "name": "Quick-Tempered",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "passive"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "interaction",
+        "description": {
+            "value": "<p><strong>Trigger</strong> You roll initiative.</p>\n<p><strong>Requirements</strong> You are not @UUID[Compendium.pf2e.conditionitems.Item.Encumbered] or wearing heavy armor.</p><hr /><p>So long as you are able to move freely, your fury is instinctive and instantaneous. You @UUID[Compendium.pf2e.actionspf2e.Item.Rage].</p>"
+        },
+        "descriptionParagraphs": [
+          "TODO Quick Tempered Description"
+        ],
+        "descriptionContext": [],
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    },
+    {
+      "name": "Fury-Instinct",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "passive"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "interaction",
+        "description": {
+            "value": "<p>Your rage comes from a deep and purely personal well within you. You use your rage as you choose.</p>\n<p><strong>Instinct Ability—Unstoppable Frenzy</strong> Increase the additional damage from Rage from 2 to 3. You gain a bonus 1st-level barbarian feat.</p>\n<p><strong>Specialization Ability (7th)</strong> Increase the additional damage from Rage from 3 to 7. If you have greater weapon specialization, instead increase the additional damage from Rage to 13.</p>\n<p><strong>Raging Resistance (9th)</strong> You resist physical weapon damage, but not physical damage from other sources (such as unarmed attacks).</p>"
+        },
+        "descriptionParagraphs": [
+          "TODO Fury Instinct Description"
+        ],
+        "descriptionContext": [],
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    }
+  ],
+  "conditions": [],
+  "weaponBonuses": [
+    {
+      "category": "unarmed",
+      "bonus": 2
+    },
+    {
+      "category": "simple",
+      "bonus": 2
+    },
+    {
+      "category": "martial",
+      "bonus": 2
+    },
+    {
+      "category": "advanced",
+      "bonus": 0
+    }
+  ],
+  "armorBonuses": [
+    {
+      "category": "unarmored",
+      "bonus": 2
+    },
+    {
+      "category": "light",
+      "bonus": 2
+    },
+    {
+      "category": "medium",
+      "bonus": 2
+    },
+    {
+      "category": "heavy",
+      "bonus": 0
+    }
+  ],
+  "playerOnlyStuff":[
+    {
+      "gender": "female",
+      "ancestry": "Human",
+      "heritage": "...",
+      "background": "Bandit",
+      "className": "Barbarian",
+      "ancestryFeat": "...",
+      "classFeat": "Raging Intimidation",
+      "subclass": "Fury Instinct"
+    }
+  ],
+  
+   "Source": "packs/pathfinder-monster-core"
+}

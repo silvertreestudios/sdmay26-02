@@ -264,34 +264,7 @@
       }
     }
   ],
-  "passives": [
-      {
-      "name": "Quick-Tempered",
-      "type": "action",
-      "system": {
-        "actionType": {
-          "value": "passive"
-        },
-        "actions": {
-          "value": null
-        },
-        "category": "interaction",
-        "description": {
-          "value": "<p>This goblin has rage.  He is a very angry goblin. TEMP FOR TESTING.</p>"
-        },
-        "descriptionParagraphs": [
-          "This goblin has rage.  He is a very angry goblin. TEMP FOR TESTING."
-        ],
-        "descriptionContext": [],
-        "rules": [],
-        "slug": null,
-        "traits": {
-          "rarity": "common",
-          "value": []
-        }
-      }
-    }
-  ],
+  "passives": [],
   "conditions": [],
   "weaponBonuses": [
     {
@@ -313,6 +286,10 @@
   ],
   "armorBonuses": [
     {
+      "category": "unarmored",
+      "bonus": 2
+    },
+    {
       "category": "light",
       "bonus": 2
     },
@@ -325,9 +302,5 @@
       "bonus": 0
     }
   ],
-  "playerOnlyStuff":[
-
-  ],
-  
-   "Source": "packs/pathfinder-monster-core"
+  "Source": "packs/pathfinder-monster-core"
 }
