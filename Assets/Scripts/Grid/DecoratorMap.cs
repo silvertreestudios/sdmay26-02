@@ -67,6 +67,7 @@ public class DecoratorMap
                 GridMemory.TileType.Ground => Tile.Type.Walkable,  
                 GridMemory.TileType.Wall => Tile.Type.Wall,
                 GridMemory.TileType.Void => Tile.Type.Void,
+                GridMemory.TileType.Door => Tile.Type.Door,
                 _ => Tile.Type.Walkable  
             };
         }

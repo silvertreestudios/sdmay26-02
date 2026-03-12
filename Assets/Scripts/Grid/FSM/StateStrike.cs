@@ -13,7 +13,7 @@ public class StateStrike : GridFSMState
     private int range;
     private List<GameObject> occupantsInRange = new List<GameObject>();
     private Vector3Int startCell;
-    
+
 
     // compact constructor
     public StateStrike(GameObject character, int range, GridCharacterController3D controller)
@@ -32,23 +32,28 @@ public class StateStrike : GridFSMState
         startCell = controller.coordinateConverter.GetCharacterCell(character);
         controller.isProcessingTurn = false;
         AIActionController ai = character.GetComponent<AIActionController>();
-        if (ai != null) {
-            
-                // grab best target from the AI's controller, this should be set during its decision making process
-                if(ai.bestTarget == null)
-                {
-                    Debug.LogWarning("AI has no target, skipping strike");                    
-                } else {
-                    target = ai.bestTarget;
-                    Debug.Log($"[State_Strike] Target acquired: {target.name}");
-                }
+        if (ai != null)
+        {
+
+            // grab best target from the AI's controller, this should be set during its decision making process
+            if (ai.bestTarget == null)
+            {
+                Debug.LogWarning("AI has no target, skipping strike");
+            }
+            else
+            {
+                target = ai.bestTarget;
+                Debug.Log($"[State_Strike] Target acquired: {target.name}");
+            }
             this.fsm.ChangeState(this.fsm.idleState);
-        } else {
-        controller.rangeHighlighter.UpdateHighlights(startCell, range, showAttackRange: true);
-        //currently I am filtering out friendly targets in StrikeOccupantsInArea
-        //but this may not be 100% accurate to the pathfinder 2E rules
-        //TODO talk to Cole and Chris about this implementation
-        occupantsInRange = controller.StrikeOccupantsInArea(character, range);
+        }
+        else
+        {
+            controller.rangeHighlighter.UpdateHighlights(startCell, range, showAttackRange: true);
+            //currently I am filtering out friendly targets in StrikeOccupantsInArea
+            //but this may not be 100% accurate to the pathfinder 2E rules
+            //TODO talk to Cole and Chris about this implementation
+            occupantsInRange = controller.StrikeOccupantsInArea(character, range);
         }
 
     }
@@ -67,7 +72,8 @@ public class StateStrike : GridFSMState
             if (occupantsInCell.Count == 0)
             {
                 Debug.Log("[State_Strike] No occupants in the selected cell.");
-            } else
+            }
+            else
             {
                 selection = occupantsInCell[0];
                 Debug.Log($"[State_Strike] Target preview: {selection.name}");
@@ -97,6 +103,6 @@ public class StateStrike : GridFSMState
         canceled = true;
         fsm.ChangeState(fsm.idleState);
     }
-    
-    
+
+
 }

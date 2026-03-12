@@ -8,8 +8,8 @@ using UnityEngine.TextCore.Text;
 
 //TODO abstract AIActionConroller and make a subclass for mindless
 public class MindlessController : AIActionController
-{  
-    
+{
+
 
     /// <summary>
     /// Starts this creature's turn
@@ -44,10 +44,10 @@ public class MindlessController : AIActionController
     }
 
 
-    
 
-//TODO create a gridcharactercontorller3D api for this to use
-//TODO seriously we need a better way of accessing these calculation fucntions
+
+    //TODO create a gridcharactercontorller3D api for this to use
+    //TODO seriously we need a better way of accessing these calculation fucntions
     public EntityAction MindlessDecision()
     {
         // Reset persistent fields so stale paths from prior decisions don't affect this call

@@ -29,23 +29,28 @@ public class StateStride : GridFSMState
         controller.isProcessingTurn = false;
 
         AIActionController ai = character.GetComponent<AIActionController>();
-        if (ai != null) {
-            
-                controller.isProcessingTurn = true;
-                // grab best path from the AI's controller, this should be set during its decision making process
-                if(ai.bestPath == null || ai.bestPath.Count == 0)
-                {
-                    Debug.LogWarning("AI has no path to target, skipping movement");                    
-                    this.fsm.ChangeState(this.fsm.idleState);
-                } else {
-                    Debug.Log("starting AI stride movement, path length: " + ai.bestPath.Count);
-                    controller.StartCoroutine(ExecutePlayerMovement(ai.bestPath));
-                }
-        } else {
+        if (ai != null)
+        {
 
-        //Highlight possible stride locations
-        int maxMoveDist = character.GetComponent<CreatureComponent>()?.speed ?? 0;
-        controller.rangeHighlighter.UpdateHighlights(startCell, maxMoveDist / 5);
+            controller.isProcessingTurn = true;
+            // grab best path from the AI's controller, this should be set during its decision making process
+            if (ai.bestPath == null || ai.bestPath.Count == 0)
+            {
+                Debug.LogWarning("AI has no path to target, skipping movement");
+                this.fsm.ChangeState(this.fsm.idleState);
+            }
+            else
+            {
+                Debug.Log("starting AI stride movement, path length: " + ai.bestPath.Count);
+                controller.StartCoroutine(ExecutePlayerMovement(ai.bestPath));
+            }
+        }
+        else
+        {
+
+            //Highlight possible stride locations
+            int maxMoveDist = character.GetComponent<CreatureComponent>()?.speed ?? 0;
+            controller.rangeHighlighter.UpdateHighlights(startCell, maxMoveDist / 5);
         }
     }
 
@@ -64,17 +69,18 @@ public class StateStride : GridFSMState
         if (controller.isProcessingTurn) return; // Cannot select path while moving
 
         // check if clicked cell is valid stride location, then display preview of path
-        if(controller.TryValidateAndGetPath(controller.currentCamera, character, out List<Vector3Int> path))
+        if (controller.TryValidateAndGetPath(controller.currentCamera, character, out List<Vector3Int> path))
         {
             this.path = path;
             controller.visualIndicator.ShowPath(path, false);
             controller.lastClickedCell = path[path.Count - 1];
-        } else
+        }
+        else
         {
             // invalid cell, make it impossible to execute stride
             controller.lastClickedCell = Vector3Int.zero;
         }
-        
+
     }
 
     public override void DoubleLeftclick()
@@ -88,7 +94,7 @@ public class StateStride : GridFSMState
             controller.isProcessingTurn = true;
             controller.rangeHighlighter.ClearHighlights();
             controller.visualIndicator.Clear();
-            
+
             // movement tracking is handled by character controller, not sure if this is the best design choice
             // could maybe cause issues if multiply actions try to read the movement information without cleaning up
             controller.StartCoroutine(ExecutePlayerMovement(path));
@@ -115,5 +121,5 @@ public class StateStride : GridFSMState
         fsm.ChangeState(fsm.idleState);
 
     }
-    
+
 }

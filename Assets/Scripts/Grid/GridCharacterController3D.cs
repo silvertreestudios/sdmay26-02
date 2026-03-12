@@ -157,7 +157,7 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
         // filter out occupants that are in freindly standing witht the active player
         foreach (GameObject occupant in allOccupants.ToArray())
         {
-            if(TeamRules.GetInstance().IsFriendly(token.GetComponent<Team>().Name, occupant.GetComponent<Team>().Name ))
+            if (TeamRules.GetInstance().IsFriendly(token.GetComponent<Team>().Name, occupant.GetComponent<Team>().Name))
             {
                 allOccupants.Remove(occupant);
             }
@@ -247,7 +247,7 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
     /// </summary>
     public IEnumerator ExecuteMovementInternal(GameObject actor, ITokenMovement movement, List<Vector3Int> path)
     {
-        
+
         movement.setPath(path);
         yield return new WaitForSeconds(0.3f);
         movement.start();

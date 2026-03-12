@@ -167,7 +167,7 @@ namespace Game.Creature
                 Unarmed.AddUnarmedStrike(this.gameObject);
                 StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject);
             }else{
-                Debug.LogError($"No ActionController found on {name}, cannot add default strikes");
+                Debug.LogWarning($"No ActionController found on {name}, cannot add default strikes");
             }
         }
 

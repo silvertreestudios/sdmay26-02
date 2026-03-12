@@ -1,0 +1,88 @@
+{
+  "ancestries": [
+    {
+      "id": "Elf",
+      "description": "Elves are tall, long-lived people with a strong tradition of art and magic.",
+      "attributeBoost": ["Dexterity", "Intelligence"],
+      "attributeFlaw": "Constitution",
+      "hp": 6,
+      "speed": 30,
+      "ancestryFeat": ["Ancestral Longevity", "Elven Weapon Familiarity", "Forlorn", "Nimble Elf", "Otherwordly Magic", "Unwavering Mien"],
+      "heritage": ["Ancient", "Arctic", "Carvern", "Seer", "Whisper", "Woodland"],
+      "size": "medium",
+      "languages": ["Common", "Elven"],
+      "traits": ["Elf", "Humanoid"],
+      "specialAbilities": ["low light vision"]
+    },
+        {
+      "id": "Goblin",
+      "description": "Goblins are a short, scrappy, energetic people who have spent millennia maligned and feared.",
+      "attributeBoost": ["Dexterity", "Charisma"],
+      "attributeFlaw": "Wisdom",
+      "hp": 6,
+      "speed": 25,
+      "ancestryFeat": ["Burn It!", "City Scavenger", "Goblin Scuttle", "Goblin Song", "Goblin Weapon Familiarity", "Junk Tinker", "Rough Rider", "Very Sneaky"],
+      "heritage": ["Charhide", "Irongut", "Razortooth", "Snow", "Unbreakable"],
+      "size": "small",
+      "languages": ["Common", "Goblin"],
+      "traits": ["Goblin", "Humanoid"],
+      "specialAbilities": ["darkvision"]
+    },
+        {
+      "id": "Dwarf",
+      "description": "Dwarves are a short, stocky people who are often stubborn, fierce, and devoted.",
+      "attributeBoost": ["Constitution", "Wisdom"],
+      "attributeFlaw": "Charisma",
+      "hp": 10,
+      "speed": 20,
+      "ancestryFeat": ["Dwarven Doughtiness", "Dwarven Weapon Familiarity", "Mountain Strategy", "Rock Runner", "Stonemason's Eye", "Unburdended Iron"],
+      "heritage": ["Ancient-Blooded", "Death Warden", "Forge", "Rock", "Strong-Blooded"],
+      "size": "medium",
+      "languages": ["Common", "Dwarven"],
+      "traits": ["Dwarf", "Humanoid"],
+      "specialAbilities": ["darkvision", "clan dagger"]
+    },
+        {
+      "id": "Halfling",
+      "description": "Halfings are a short, resilient people who exhibit remarkable curiosity and humor.",
+      "attributeBoost": ["Dexterity", "Wisdom"],
+      "attributeFlaw": "Strength",
+      "hp": 6,
+      "speed": 25,
+      "ancestryFeat": ["Distracting Shadows", "Folksy Patter", "Halfling Luck", "Prairie Rider", "Sure Feed", "Titan Slinger", "Unfettered Halfling", "Watchful Halfling", "Halfling Weapon Familiarity"],
+      "heritage": ["Gusty", "Hillock", "Nomadic", "Twilight", "Wildwood"],
+      "size": "small",
+      "languages": ["Common", "Halfling"],
+      "traits": ["Halfling", "Humanoid"],
+      "specialAbilities": ["Keen Eyes"]
+    },
+        {
+      "id": "Leshy",
+      "description": "Leshies are immortal nature spirits placed in small plant bodies, seeking to experience the world.",
+      "attributeBoost": ["Constitution", "Wisdom"],
+      "attributeFlaw": "Intelligence",
+      "hp": 8,
+      "speed": 25,
+      "ancestryFeat": ["Grasping Reach", "Harmlessly Cute", "Leshy Superstition", "Seedpod", "Shadow of the Wilds", "Undaunted"],
+      "heritage": ["Cactus", "Fruit", "Fungus", "Gourd", "Leaf", "Lotus", "Root", "Seaweed", "Vine"],
+      "size": "small",
+      "languages": ["Common", "Fey"],
+      "traits": ["Leshy", "Plant"],
+      "specialAbilities": ["low light vision", "plant nourishment"]
+    },
+        {
+      "id": "Gnome",
+      "description": "Gnomes are a short and hardy folk, with an unquenchable curiosity and eccentric habits.",
+      "attributeBoost": ["Constitution", "Charisma"],
+      "attributeFlaw": "Strength",
+      "hp": 8,
+      "speed": 25,
+      "ancestryFeat": ["Animal Accomplice", "Animal Elocutionist", "Fey Fellowship", "First World Magic", "Gnome Obsession", "Gnome Weapon Familiarity", "Illusion Sense", "Razzle-Dazzle"],
+      "heritage": ["Chameleon", "Fey-touched", "Sensate", "Umbral", "Wellspring"],
+      "size": "small",
+      "languages": ["Common", "Fey", "Gnomish"],
+      "traits": ["Gnome", "Humanoid"],
+      "specialAbilities": ["low light vision"]
+    }
+  ]
+}

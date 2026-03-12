@@ -319,6 +319,7 @@ GameObject:
   - component: {fileID: 496164120}
   - component: {fileID: 496164119}
   - component: {fileID: 496164118}
+  - component: {fileID: 496164121}
   m_Layer: 5
   m_Name: UIDocument
   m_TagString: Untagged
@@ -376,6 +377,19 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &496164121
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 496164117}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bce23a17573f7584c925b3a38e969568, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CombatLog
+  CombatLogTemplate: {fileID: 9197481963319205126, guid: 6c3d4028bf59d6c4a8bf8e89b6ceaa19, type: 3}
 --- !u!1 &501650472
 GameObject:
   m_ObjectHideFlags: 0
@@ -519,7 +533,6 @@ MonoBehaviour:
   rangeHighlightPrefab: {fileID: 8655392066640400182, guid: 100483f396e57a648934bd455608797d, type: 3}
   yDrawOffset: 0.001
   moveSpeed: 2
-  maxMovementDistance: 9
   stepHeight: 0.75
   maxRotation: 15
   ptLerp:
@@ -782,9 +795,11 @@ MonoBehaviour:
   targetCamera: {fileID: 330585545}
   groundTile: {fileID: 8655392066640400182, guid: 3f7c432155dd1e6479137e98bfe10a88, type: 3}
   wallTile: {fileID: 0}
+  doorTile: {fileID: 8655392066640400182, guid: 353a23f293c1f2b41a554a3cf9937815, type: 3}
   cellFillColor: {r: 0.07, g: 0.1, b: 0.16, a: 0.8}
   lineThicknessPixels: 2
   drawHoverCell: 1
+  allowDoorHover: 1
   selectTile: {fileID: 8655392066640400182, guid: c11e75bfdf06f9a45bede66aa651e15b, type: 3}
   gridMemory: {fileID: 1017992991}
 --- !u!114 &1017992991
@@ -812,6 +827,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Decorator
   Wall: {fileID: 859475984645203476, guid: 9af2d97d2899147188c1fda5db7f582d, type: 3}
+  Door: {fileID: 293821393534743461, guid: db327e8a9a28a467b982760380ed2e49, type: 3}
   Grass: {fileID: 2100000, guid: 7a47896aba2194a958a93efc3ddfa65c, type: 2}
   Dirt: {fileID: 2100000, guid: 0c2e168b6a5cd49b4b686aa20b18bcae, type: 2}
   GrassBillboard: {fileID: 2100000, guid: 8916f3238190349c9825afa9bc46ea8b, type: 2}
