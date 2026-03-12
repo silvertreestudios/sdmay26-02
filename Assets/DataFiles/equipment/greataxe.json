@@ -1,0 +1,34 @@
+{
+  "type": "weapon",
+  "name": "Greataxe",
+  "group": "axe",
+  "category": "martial",
+  "hands": 2,
+  "damageDice": 1,
+  "damageDie": "12",
+  "damageType": "slashing",
+  "description": [
+    "This large battle axe is too heavy to wield with only one hand. Many greataxes incorporate two blades, and they are often \"bearded,\" having a hook at the bottom to increase the strength of their chopping power."
+  ],
+  "traits": [
+    "sweep"
+  ],
+  "materialType": null,
+  "materialGrade": null,
+  "price_GP": 2.0,
+  "range": null,
+  "reload": null,
+  "ammo": null,
+  "bulk": 2,
+  "size": "med",
+  "baseItem": "greataxe",
+  "bonus": 0,
+  "bonusDamage": 0,
+  "splashDamage": 0,
+  "publication": {
+    "license": "ORC",
+    "remaster": true,
+    "title": "Pathfinder Player Core"
+  },
+  "Source": "packs/equipment"
+}

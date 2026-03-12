@@ -158,12 +158,26 @@ MonoBehaviour:
   - category: advanced
     bonus: 0
   _armorBonuses:
+  - category: unarmored
+    bonus: 0
   - category: light
     bonus: 0
   - category: medium
     bonus: 0
   - category: heavy
     bonus: 0
+  _weaknesses: []
+  _resistances:
+  - DamageType: cold
+    DamageAmount: 5
+  - DamageType: electricity
+    DamageAmount: 5
+  - DamageType: fire
+    DamageAmount: 5
+  - DamageType: piercing
+    DamageAmount: 5
+  - DamageType: slashing
+    DamageAmount: 5
   _strMod: 2
   _dexMod: 4
   _conMod: 0
@@ -213,8 +227,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
-  _actionNames:
-  - Game.Strikes.StrikeWeapon
+  _actionNames: []
 --- !u!114 &1685312289907558816
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -40,7 +40,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1079329972185462574}
-  m_Mesh: {fileID: 0}
+  m_Mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
 --- !u!23 &8471576853671859961
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -191,6 +191,7 @@ GameObject:
   - component: {fileID: 1128913714509548194}
   - component: {fileID: 3414172674602671663}
   - component: {fileID: 419241797356606899}
+  - component: {fileID: 8901463538183410874}
   m_Layer: 6
   m_Name: Torgrim
   m_TagString: Untagged
@@ -227,13 +228,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Game.Creature.CreatureComponent
   _name: Torgrim
-  _level: 0
-  _initiative: 2
-  _speed: 20
+  _level: 1
+  _initiative: 5
+  _speed: 25
   _hp: 22
   _maxHp: 22
   _tempHp: 0
-  _ac: 15
+  _ac: 17
   _attackBonus: 7
   _damageBonus: 4
   _weaponBonuses:
@@ -246,58 +247,43 @@ MonoBehaviour:
   - category: advanced
     bonus: 0
   _armorBonuses:
+  - category: unarmored
+    bonus: 2
   - category: light
     bonus: 2
   - category: medium
     bonus: 2
   - category: heavy
     bonus: 0
+  _weaknesses: []
+  _resistances: []
   _strMod: 4
   _dexMod: 2
   _conMod: 1
   _intMod: 1
   _wisMod: 1
   _chaMod: 0
-  _fortitudeSave: 4
-  _reflexSave: 4
-  _willSave: 2
+  _fortitudeSave: 6
+  _reflexSave: 5
+  _willSave: 6
   _allSaves: 0
   _skills:
   - skillName: perception
-    skillMod: 4
-  - skillName: athletics
-    skillMod: 2
-  - skillName: nature
-    skillMod: 1
-  - skillName: stealth
     skillMod: 5
-  _description: "The frontline fighters of goblin tribes prefer to fight in large
-    groups\u2014especially when they can outnumber their foes at least three to one.\n\nThese
-    small humanoids typically have green or gray skin and large heads with wide ears.
-    While some goblins are civilized and have worked hard to be considered upstanding
-    members of humanoid communities, many are impetuous and vicious creatures who
-    delight in wreaking havoc. These goblins think nothing of slaughtering livestock,
-    stealing, or burning down a building purely for momentary delight. They revel
-    in playing malicious tricks on taller humanoids, whom they call \"longshanks.\"\n\nGoblins
-    are superstitious, with an intense awe of magic and a fascination with fire;
-    goblins who master magic or fire earn great respect from their kin. Most other
-    humanoids find it difficult to understand goblins' outlook: they hate canines
-    but eagerly share their lairs with so-called \"goblin dogs,\" they fearlessly
-    attack larger creatures but are terrified of horses, and they despise vegetables
-    yet consider pickles a delicacy. To a goblin, of course, these are all perfectly
-    sensible life choices."
+  _description: Our playtest player barbarian.
   _actions: []
   _reactions: []
   _passives:
   - Quick-Tempered
+  - Fury-Instinct
   _conditions: []
   _equipment:
-  - halberd
-  - Leather Armor
+  - Greataxe
+  - Scale-Mail
   _weaponsList:
-  - Halberd
+  - Greataxe
   _armorList:
-  - Leather Armor
+  - Scale Mail
 --- !u!114 &1128913714509548194
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -337,6 +323,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Conditions
+--- !u!114 &8901463538183410874
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2629632462412872780}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8e71b0452ab057489cfcc5a10f4ebbc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Token
 --- !u!1 &2680205485064952543
 GameObject:
   m_ObjectHideFlags: 0
@@ -394,8 +392,6 @@ MonoBehaviour:
     Name: Kobold Warrior
   - mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
     Name: Goblin Warrior
-  - mesh: {fileID: 7240564204133861249, guid: f1a9de5bda18b48eb83ee4c127002d5d, type: 3}
-    Name: Togrim
   BaseOptions:
   - mesh: {fileID: 1431553746238890192, guid: 111aee36d4b234665ac7a1c809067fca, type: 3}
     level: 0

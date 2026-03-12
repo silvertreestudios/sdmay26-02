@@ -1,0 +1,26 @@
+{
+  "type": "armor",
+  "name": "Scale Mail",
+  "category": "medium",
+  "price_GP": 4.0,
+  "acBonus": 3,
+  "dexCap": 2,
+  "checkPenalty": -2,
+  "speedPenalty": -5,
+  "strengthRequirement": 2,
+  "description": [
+    "Scale mail consists of many metal scales sewn onto a reinforced leather backing, often in the form of a long shirt that protects the torso, arms, and legs."
+  ],
+  "bulk": 2.0,
+  "group": "composite",
+  "armorTraits": [],
+  "runes": [],
+  "materialType": null,
+  "materialGrade": null,
+  "publication": {
+    "license": "ORC",
+    "remaster": true,
+    "title": "Pathfinder Player Core"
+  },
+  "Source": "packs/equipment"
+}

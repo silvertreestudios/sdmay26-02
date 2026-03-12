@@ -78,7 +78,7 @@ public class StrikeWeapon : MultiFrameEntityAction
     public StrikeWeapon(uint cost, EquipmentWeapon weapon, GameObject creature) :base(cost)
     {
         int flatDamageBonus = creature.GetComponent<CreatureComponent>().damageBonus;
-        flatDamageBonus += creature.GetComponent<CreatureComponent>().strMod;
+        // flatDamageBonus += creature.GetComponent<CreatureComponent>().strMod;
         Weapon = weapon;
         weaponName = weapon.name;
         List<Dice> damageList = new List<Dice>();

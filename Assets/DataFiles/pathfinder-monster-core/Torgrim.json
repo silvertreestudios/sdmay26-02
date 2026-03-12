@@ -38,7 +38,7 @@
       },
       "speed": {
         "otherSpeeds": [],
-        "value": 20
+        "value": 25
       }
     },
     "details": {
@@ -46,25 +46,22 @@
       "languages": {
         "details": "",
         "value": [
-          "goblin",
           "common"
         ]
       },
       "level": {
-        "value": -1
+        "value": 1
       },
       "privateNotes": "",
-      "publicNotes": "<p>The frontline fighters of goblin tribes prefer to fight in large groups—especially when they can outnumber their foes at least three to one.</p>\n<hr />\n<p>These small humanoids typically have green or gray skin and large heads with wide ears. While some goblins are civilized and have worked hard to be considered upstanding members of humanoid communities, many are impetuous and vicious creatures who delight in wreaking havoc. These goblins think nothing of slaughtering livestock, stealing, or burning down a building purely for momentary delight. They revel in playing malicious tricks on taller humanoids, whom they call \"longshanks.\"</p>\n<p>Goblins are superstitious, with an intense awe of magic and a fascination with fire; goblins who master magic or fire earn great respect from their kin. Most other humanoids find it difficult to understand goblins' outlook: they hate canines but eagerly share their lairs with so-called \"goblin dogs,\" they fearlessly attack larger creatures but are terrified of horses, and they despise vegetables yet consider pickles a delicacy. To a goblin, of course, these are all perfectly sensible life choices.</p>",
+      "publicNotes": "",
       "publicNotesPlain": null,
       "publicNotesParagraphs": [
-        "The frontline fighters of goblin tribes prefer to fight in large groups—especially when they can outnumber their foes at least three to one.",
-        "These small humanoids typically have green or gray skin and large heads with wide ears. While some goblins are civilized and have worked hard to be considered upstanding members of humanoid communities, many are impetuous and vicious creatures who delight in wreaking havoc. These goblins think nothing of slaughtering livestock, stealing, or burning down a building purely for momentary delight. They revel in playing malicious tricks on taller humanoids, whom they call \"longshanks.\"",
-        "Goblins are superstitious, with an intense awe of magic and a fascination with fire; goblins who master magic or fire earn great respect from their kin. Most other humanoids find it difficult to understand goblins' outlook: they hate canines but eagerly share their lairs with so-called \"goblin dogs,\" they fearlessly attack larger creatures but are terrified of horses, and they despise vegetables yet consider pickles a delicacy. To a goblin, of course, these are all perfectly sensible life choices."
+        "Our playtest player barbarian."
       ],
       "publication": {
         "license": "ORC",
         "remaster": true,
-        "title": "Pathfinder Monster Core"
+        "title": "Player Core 2"
       }
     },
     "initiative": {
@@ -72,7 +69,7 @@
     },
     "perception": {
       "details": "",
-      "mod": 2,
+      "mod": 5,
       "senses": [
         {
           "type": "darkvision"
@@ -83,42 +80,30 @@
     "saves": {
       "fortitude": {
         "saveDetail": "",
-        "value": 4
+        "value": 6
       },
       "reflex": {
         "saveDetail": "",
-        "value": 4
+        "value": 5
       },
       "will": {
         "saveDetail": "",
-        "value": 2
+        "value": 6
       }
     },
     "skills": [
       {
         "name": "perception",
-        "value": 4
-      },
-      {
-        "name": "athletics",
-        "value": 2
-      },
-      {
-        "name": "nature",
-        "value": 1
-      },
-      {
-        "name": "stealth",
         "value": 5
       }
     ],
     "traits": {
       "rarity": "common",
       "size": {
-        "value": "sm"
+        "value": "med"
       },
       "value": [
-        "goblin",
+        "human",
         "humanoid"
       ]
     },
@@ -127,26 +112,26 @@
   },
   "equipment": [
     {
-      "name": "halberd",
+      "name": "Greataxe",
       "type": "weapon",
-      "hands": 1,
+      "hands": 2,
       "category": "martial",
       "quantity": 1
     },
     {
-      "name": "Leather Armor",
+      "name": "Scale-Mail",
       "type": "armor",
       "hands": 0,
-      "category": "light",
+      "category": "medium",
       "quantity": 1,
-      "acBonus": 1,
-      "dexCap": 4
+      "acBonus": 3,
+      "dexCap": 2
     }
   ],
   "items": [],
   "reactions": [],
   "passives": [
-      {
+    {
       "name": "Quick-Tempered",
       "type": "action",
       "system": {
@@ -158,10 +143,36 @@
         },
         "category": "interaction",
         "description": {
-          "value": "<p>Barbarian rage. TEMP FOR TESTING.</p>"
+            "value": "<p><strong>Trigger</strong> You roll initiative.</p>\n<p><strong>Requirements</strong> You are not @UUID[Compendium.pf2e.conditionitems.Item.Encumbered] or wearing heavy armor.</p><hr /><p>So long as you are able to move freely, your fury is instinctive and instantaneous. You @UUID[Compendium.pf2e.actionspf2e.Item.Rage].</p>"
         },
         "descriptionParagraphs": [
-          "Barbarian rage. TEMP FOR TESTING."
+          "TODO Quick Tempered Description"
+        ],
+        "descriptionContext": [],
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    },
+    {
+      "name": "Fury-Instinct",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "passive"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "interaction",
+        "description": {
+            "value": "<p>Your rage comes from a deep and purely personal well within you. You use your rage as you choose.</p>\n<p><strong>Instinct Ability—Unstoppable Frenzy</strong> Increase the additional damage from Rage from 2 to 3. You gain a bonus 1st-level barbarian feat.</p>\n<p><strong>Specialization Ability (7th)</strong> Increase the additional damage from Rage from 3 to 7. If you have greater weapon specialization, instead increase the additional damage from Rage to 13.</p>\n<p><strong>Raging Resistance (9th)</strong> You resist physical weapon damage, but not physical damage from other sources (such as unarmed attacks).</p>"
+        },
+        "descriptionParagraphs": [
+          "TODO Fury Instinct Description"
         ],
         "descriptionContext": [],
         "rules": [],
@@ -194,6 +205,10 @@
   ],
   "armorBonuses": [
     {
+      "category": "unarmored",
+      "bonus": 2
+    },
+    {
       "category": "light",
       "bonus": 2
     },
@@ -208,14 +223,14 @@
   ],
   "playerOnlyStuff":[
     {
-      "gender": "male",
-      "ancestry": "Dwarf",
-      "heritage": "Rock",
+      "gender": "female",
+      "ancestry": "Human",
+      "heritage": "...",
       "background": "Bandit",
       "className": "Barbarian",
-      "ancestryFeat": "Mountain Strategy",
+      "ancestryFeat": "...",
       "classFeat": "Raging Intimidation",
-      "subclass": "Giant Instinct"
+      "subclass": "Fury Instinct"
     }
   ],
   

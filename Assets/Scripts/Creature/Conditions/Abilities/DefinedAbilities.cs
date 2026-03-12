@@ -57,6 +57,13 @@ public static class DefinedAbilities
         rageAction.UseRage(g);
     });
 
+    private static Ability FuryInstinct = new("Fury-Instinct", (GameObject g) =>
+    {
+        // On combat start, IF conditions met, instantly use rage with no action point cost
+        Debug.Log("Applying Fury-Instinct to " + g.name);
+        // Currently handled in Rage
+    });
+
     /// <summary>
     /// Keep last in file, needs to be initialized after all referenced abilities
     /// </summary>
@@ -64,6 +71,7 @@ public static class DefinedAbilities
     {
         {"Slow", Slow },
         {"Quick-Tempered", QuickTempered},
+        {"Fury-Instinct", FuryInstinct }
     };
 
 }

@@ -358,6 +358,10 @@
   ],
   "armorBonuses": [
     {
+      "category": "unarmored",
+      "bonus": 0
+    },
+    {
       "category": "light",
       "bonus": 0
     },

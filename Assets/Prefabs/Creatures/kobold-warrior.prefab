@@ -307,12 +307,16 @@ MonoBehaviour:
   - category: advanced
     bonus: 0
   _armorBonuses:
+  - category: unarmored
+    bonus: 2
   - category: light
     bonus: 2
   - category: medium
     bonus: 0
   - category: heavy
     bonus: 0
+  _weaknesses: []
+  _resistances: []
   _strMod: 1
   _dexMod: 3
   _conMod: -1
@@ -391,8 +395,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ActionController
   <ActionPoints>k__BackingField: 0
-  _actionNames:
-  - Game.Strikes.StrikeWeapon
+  _actionNames: []
 --- !u!114 &5049490658535004338
 MonoBehaviour:
   m_ObjectHideFlags: 0

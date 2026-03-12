@@ -1,12 +1,13 @@
 using UnityEngine;
-using System;
+//using System;
 using System.Collections.Generic;
+// using System.Diagnostics;
 
 namespace Game.Creature
 {
 
     // Tuple for damage type and amount
-    public struct DamageValue
+    [System.Serializable] public struct DamageValue
     {
         public string DamageType;
         public int DamageAmount;
@@ -34,10 +35,10 @@ namespace Game.Creature
         public static List<DamageValue> RollDamage(List<Dice> damageRolls, List<DamageValue> damageFlats){
             List<DamageValue> damageInstances = new List<DamageValue>();
             string log = "\n  Damage: ";
-
+            log += "\n  Rolled ";
             foreach (Dice dice in damageRolls){
                 DamageValue damageValue = new DamageValue(dice.damageType, dice.Roll());
-                log += "Rolled "+dice.numberOfDice+"d"+dice.sidesPerDie+": "+damageValue.DamageAmount+" " + damageValue.DamageType + ", ";
+                log += " "+dice.numberOfDice+"d"+dice.sidesPerDie+": "+damageValue.DamageAmount+" " + damageValue.DamageType + ", ";
                 // Group damage by type (string comparison)
                 if (damageInstances.Exists(di => di.DamageType == damageValue.DamageType)){
                     int idx = damageInstances.FindIndex(di => di.DamageType == damageValue.DamageType);
@@ -49,11 +50,11 @@ namespace Game.Creature
                     damageInstances.Add(damageValue);
                 }
             }
-            log+='\n';
+            log += "\n  Flats: ";
             // For each flat damage in damageFlats...
             foreach (DamageValue damageFlat in damageFlats){
                 // Group damage by type (string comparison)
-                log += "Flats:   + " + damageFlat.DamageAmount + " " + damageFlat.DamageType + ", ";
+                log += " "+damageFlat.DamageAmount + " " + damageFlat.DamageType + ", ";
                 if (damageInstances.Exists(di => di.DamageType == damageFlat.DamageType)){
                     int idx = damageInstances.FindIndex(di => di.DamageType == damageFlat.DamageType);
                     var existingInstance = damageInstances[idx];
@@ -97,6 +98,7 @@ namespace Game.Creature
             {
                 var inc = incoming[i];
                 if (weaknesses.Exists(di => di.DamageType == inc.DamageType)){
+                    //Debug.Log(""+inc.DamageAmount+" "+inc.DamageType+" incoming, applying weaknesses:");
                     var existingInstance = weaknesses.Find(di => di.DamageType == inc.DamageType);
                     inc.DamageAmount += existingInstance.DamageAmount;
                 }
