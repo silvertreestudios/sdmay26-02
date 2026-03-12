@@ -423,7 +423,7 @@ public class CharacterCreationScript : MonoBehaviour
         //change scene to gameplay
         if (ready)
         {
-            SceneManager.LoadScene("SampleScene");
+            SceneManager.LoadScene("Level1");
         }
     }
 
