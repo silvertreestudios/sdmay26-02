@@ -117,10 +117,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             return;
         List<GameObject> currentCombatants = CombatManagerInterface.GetInstance().GetCombatants();
         if (Players == null || HaveCombatantsChanged(currentCombatants)) {
-            // Quich reshuffle
-            GameObject a = currentCombatants[currentCombatants.Count - 1];
-            currentCombatants.Remove(a);
-            currentCombatants.Insert(0, a);
             Players = currentCombatants;
             needToUpdateCards = true;
         }
@@ -237,7 +233,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
         else
         {
-            Debug.Log("Here");
             GameObject g = CombatManager.GetInstance().WhosTurn();
             List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
             StrikeWeapon strikeWeaponAction = null;
