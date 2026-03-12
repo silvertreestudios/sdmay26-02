@@ -2,7 +2,7 @@
     <Style src="project://database/Assets/UIStuff/HUD/HUD.uss?fileID=7433441132597879392&amp;guid=7bce28169aab53a4c97f829107456fc8&amp;type=3#HUD" />
     <ui:VisualElement name="UpperArea" style="flex-grow: 1; flex-direction: row; align-items: flex-start; visibility: visible; height: 30%; justify-content: space-between; align-self: stretch; flex-shrink: 0; align-content: auto;">
         <ui:VisualElement name="Panel" style="flex-grow: 1; flex-shrink: 1; visibility: visible; flex-direction: row; justify-content: flex-start; align-items: flex-start; align-content: auto; width: 0;">
-            <ui:VisualElement name="BasicButtonContainer" style="flex-grow: 0; align-self: flex-start; align-content: auto; justify-content: flex-start; align-items: stretch; flex-shrink: 1;">
+            <ui:VisualElement name="BasicButtonContainer" style="flex-grow: 1; align-self: flex-start; align-content: auto; justify-content: flex-start; align-items: stretch; flex-shrink: 0;">
                 <ui:Button text="Unarmed Strike" name="StrikeButton" class="unity-button-hover" />
                 <ui:Button text="Strike Weapon" name="StrikeWeaponButton" class="unity-button-hover" />
                 <ui:Button text="Move" name="MoveButton" class="unity-button-hover" />
