@@ -4,7 +4,7 @@ using UnityEngine;
 [System.Serializable]
 public class TeamRules : SingletonMonoBehaviour<TeamRules>
 {
-    [SerializeField]
+    //[SerializeField]
     private List<string> TeamList = new();
 
     private Dictionary<string, List<string>> Friendly = new();
@@ -76,6 +76,16 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
         // Add/overwrite in correct dictionary
         if(!target[team1].Contains(team2))
             target[team1].Add(team2);
+    }
+
+    /// <summary>
+    /// Returns true if team has been defined
+    /// </summary>
+    /// <param name="team">The team that may be defined</param>
+    /// <returns></returns>
+    public bool Contains(string team)
+    {
+        return TeamList.Contains(team);
     }
 
     /// <summary>

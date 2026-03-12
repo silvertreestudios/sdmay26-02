@@ -4,6 +4,7 @@ using UnityEngine;
 public class Decorator : MonoBehaviour
 {
     public GameObject Wall; // Assign this in the Inspector
+    public GameObject Door; // Assign this in the Inspector
     public Material Grass; 
     public Material Dirt;
     public Material GrassBillboard;
@@ -11,7 +12,7 @@ public class Decorator : MonoBehaviour
     private Tile[,] grid;
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     
-    [ExecuteInEditMode]
+    
     void Start()
     {
 
@@ -55,6 +56,11 @@ public class Decorator : MonoBehaviour
                     {
                         Debug.LogWarning("Wall prefab not assigned in Decorator script.");
                     }
+                    break;
+                case Tile.Type.Door:
+                    DrawQuad(tile, Color.blue, Dirt);
+                    GameObject doorPrefab = Instantiate(Door, tile.WorldPosition, Quaternion.identity, parentObject.transform);
+                    doorPrefab.name = $"Door_{tile.GridPosition.x}_{tile.GridPosition.z}";
                     break;
             }
         }

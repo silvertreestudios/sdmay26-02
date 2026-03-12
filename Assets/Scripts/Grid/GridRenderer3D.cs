@@ -24,6 +24,7 @@ public class GridRenderer3D : MonoBehaviour
     // refrence to tile prefab
     [SerializeField] private GameObject groundTile;
     [SerializeField] private GameObject wallTile;
+    [SerializeField] private GameObject doorTile;
 
     [Header("Appearance")]
     // Color of each cell quad.
@@ -34,6 +35,8 @@ public class GridRenderer3D : MonoBehaviour
     [Header("Hover/Click")]
     // Whether to draw hover visual.
     public bool drawHoverCell = true;
+    // Allow hovering over door tiles
+    public bool allowDoorHover = true;
 
     // True when mouse ray hits grid and cell is inside bounds.
     public bool HasHover { get; private set; }
@@ -50,9 +53,6 @@ public class GridRenderer3D : MonoBehaviour
     // Buckets for grid, overlay/hover.
     Transform _gridRoot, _overlayRoot;
 
-    // ---------- Sprite references ----------
-    // One SR per cell.
-    // readonly List<SpriteRenderer> _cells = new();
     //trying to use plane meshes instead of sprites so we dont have to deal with the camera. this will also makes textures easier. pysics will also be easier
     readonly List<MeshRenderer> _cells = new();
     readonly List<MeshRenderer> _walls = new();
@@ -69,10 +69,7 @@ public class GridRenderer3D : MonoBehaviour
     // ---------- Unity lifecycle ----------
 
     // First-time setup; build everything once.
-    void Awake() { }
-
-    // Ensure ready when enabled; hide hover initially.
-    void OnEnable()
+    void Awake()
     {
         Init();
         FullRebuild();
@@ -121,7 +118,6 @@ public class GridRenderer3D : MonoBehaviour
 
         // Keep plane at Y=gridY and rotated onto XZ each frame.
         if (_plane) { _plane.position = new Vector3(0, gridY, 0); _plane.localEulerAngles = new Vector3(90, 0, 0); }
-
         // Build a ray from the mouse to find the hit on the grid plane.
         var ray = cam.ScreenPointToRay(InputCompat.MousePositionScreen());
         var plane = new Plane(Vector3.up, new Vector3(0f, gridY, 0f));
@@ -136,13 +132,18 @@ public class GridRenderer3D : MonoBehaviour
                 Mathf.FloorToInt((hit.z - origin.y) / cellSize));
             // Inside bounds?
             bool inside = (uint)cell.x < (uint)width && (uint)cell.z < (uint)height;
-            bool canHover = inside && gridMemory != null && gridMemory.IsCellWalkable(cell);
+            bool canHover = inside && gridMemory != null && gridMemory.IsCellHoverable(cell, allowDoorHover);
 
             if (canHover && !cell.Equals(HoverCell)) { HoverCell = cell; HasHover = true; UpdateHover(); }
             else if (!canHover) HasHover = false;
         }
         else HasHover = false;
 
+        // Handle click on door tiles
+        if (HasHover && Input.GetMouseButtonDown(0))
+        {
+            gridMemory.HandleCellClick(HoverCell);
+        }
         // Keep all visuals pixel-consistent as the camera moves/zooms.
         UpdateHover();
     }
@@ -162,7 +163,6 @@ public class GridRenderer3D : MonoBehaviour
             if (!_plane) { _plane = new GameObject("PlaneXZ").transform; _plane.SetParent(transform, false); }
             // make sure plane is at correct position and rotation
             _gridRoot = GetOrMake(_plane, "Grid");
-
             _overlayRoot = GetOrMake(_plane, "Overlay");
         }
 
@@ -196,8 +196,7 @@ public class GridRenderer3D : MonoBehaviour
     }
 
     /// <summary>
-    /// Remove old grid SRs, create per-cell SRs.
-    /// </summary>
+    /// Remove old grid SRs, create per-cell SRs
     void RebuildGrid()
     {
         int width = 0;

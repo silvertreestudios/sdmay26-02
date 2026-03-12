@@ -11,11 +11,6 @@ public class PlayerActionController : ActionController
         
         Stride strideAction = new Stride(1); // Cost of 1 action point
         Movements.Add(strideAction);
-
-        List<Dice> dices = new() { new Dice(1, 3, "Bludgeoning") };
-
-        Unarmed unarmed = new Unarmed(1, dices, new());
-        Actions.Add(unarmed);
     }
 
     /// <summary>
@@ -59,7 +54,7 @@ public class PlayerActionController : ActionController
 
         if (Movements.Count > 0)
         {
-            Debug.Log("Invoking Stride action...");
+            //Debug.Log("Invoking Stride action...");
             TakeAction(Movements[0]);
         }
         else
@@ -77,7 +72,7 @@ public class PlayerActionController : ActionController
     {
         if (Actions.Count > 0)
         {
-            Debug.Log("Invoking Strike action...");
+            //Debug.Log("Invoking Strike action...");
             TakeAction(Actions[0]);
         }
     }

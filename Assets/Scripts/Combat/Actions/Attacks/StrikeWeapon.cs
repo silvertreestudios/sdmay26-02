@@ -15,6 +15,7 @@ public class StrikeWeapon : MultiFrameEntityAction
     public string weaponName;
 
 
+
     // Auto add strike actions based on equipped weapons
     public void WeaponStrikeAdder(GameObject creature)
     {
@@ -46,7 +47,7 @@ public class StrikeWeapon : MultiFrameEntityAction
             {
                 StrikeWeapon strikeWeaponAction = new StrikeWeapon(1, weapon, creature);
                 creature.GetComponent<ActionController>().AddAction(strikeWeaponAction);
-                Debug.Log("WeaponStrikeAdderTEMP added StrikeWeapon action for " + weapon.name + " to " + creature.name);
+                //Debug.Log("WeaponStrikeAdderTEMP added StrikeWeapon action for " + weapon.name + " to " + creature.name);
                 break;
             }
         }
@@ -95,10 +96,12 @@ public class StrikeWeapon : MultiFrameEntityAction
             range += 1; // extend range for reach weapon
         }
         Strike = new Strike(damageList, flatDamageList);
+        Strike.Traits = Weapon.traits;
     }
 
     protected override IEnumerator MFInvoke(GameObject attacker)
     {
+        
         ActionController ac = attacker.GetComponent<ActionController>();
         // Grid get target;
         CoroutineResult<GameObject> target = new();
@@ -108,7 +111,7 @@ public class StrikeWeapon : MultiFrameEntityAction
         // I implemented a cancel refund for this action, let me know if it needs to change - Adam
         if(target.Value && !canceled.Value)
         {
-            Debug.Log(attacker + " Striking " + target.Value +" with " + Weapon.name);
+            CombatLog.GetInstance().Log("- " + attacker.name + " strikes " + target.Value.name + " with " + weaponName + ".");
             // TODO: need to modify strike/damage to account for character abilities, weapons traits, etc
             Strike.Damage(attacker, target.Value);
             if (ac)

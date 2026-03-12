@@ -33,10 +33,11 @@ namespace Game.Creature
         // Roll damage based on list of Dice
         public static List<DamageValue> RollDamage(List<Dice> damageRolls, List<DamageValue> damageFlats){
             List<DamageValue> damageInstances = new List<DamageValue>();
+            string log = "\n  Damage: ";
 
-            // For each dice in damageRolls...
             foreach (Dice dice in damageRolls){
                 DamageValue damageValue = new DamageValue(dice.damageType, dice.Roll());
+                log += "Rolled "+dice.numberOfDice+"d"+dice.sidesPerDie+": "+damageValue.DamageAmount+" " + damageValue.DamageType + ", ";
                 // Group damage by type (string comparison)
                 if (damageInstances.Exists(di => di.DamageType == damageValue.DamageType)){
                     int idx = damageInstances.FindIndex(di => di.DamageType == damageValue.DamageType);
@@ -48,9 +49,11 @@ namespace Game.Creature
                     damageInstances.Add(damageValue);
                 }
             }
+            log+='\n';
             // For each flat damage in damageFlats...
             foreach (DamageValue damageFlat in damageFlats){
                 // Group damage by type (string comparison)
+                log += "Flats:   + " + damageFlat.DamageAmount + " " + damageFlat.DamageType + ", ";
                 if (damageInstances.Exists(di => di.DamageType == damageFlat.DamageType)){
                     int idx = damageInstances.FindIndex(di => di.DamageType == damageFlat.DamageType);
                     var existingInstance = damageInstances[idx];
@@ -62,6 +65,9 @@ namespace Game.Creature
                 }
             }
             // TODO: append traits list?
+
+            log += "\n";
+            Debug.Log(log);
             return damageInstances;
         }
 

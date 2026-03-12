@@ -7,7 +7,8 @@ public class Tile
         Walkable,
         Ground,
         Void,
-        Wall
+        Wall,
+        Door
     }
     public Type TileType { get; private set; }
     public Vector3 WorldPosition { get; private set; }

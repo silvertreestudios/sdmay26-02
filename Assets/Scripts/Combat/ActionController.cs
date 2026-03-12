@@ -88,7 +88,7 @@ public abstract class ActionController : MonoBehaviour
             Debug.LogWarning("No action provided to TakeAction!");
             return;
         }
-        Debug.Log("Attempting to take action: " + action);
+        //Debug.Log("Attempting to take action: " + action);
         uint cost = action.ActionCost;
         if (!IsTurn || cost > ActionPoints)
             return;
@@ -108,5 +108,15 @@ public abstract class ActionController : MonoBehaviour
     public void RemoveAction(EntityAction action)
     {
         Actions.Remove(action);
+    }
+
+    public string GetActionNames() // Temporary method for testing purposes to display available actions in log
+    {
+        string names = "";
+        for(int i = 0; i < Actions.Count; i++)
+        {
+            names += i+": "+Actions[i]+"   ";
+        }
+        return names;
     }
 }
