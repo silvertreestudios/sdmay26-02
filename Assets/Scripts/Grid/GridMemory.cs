@@ -220,7 +220,7 @@ public class GridMemory : IGridMemory
            
             if (tile.isOccupied && tile.occupant != null)
             {
-                if (tile.type == TileType.Ground || tile.type == TileType.Door)
+                if (tile.type == TileType.Ground)
                 {
                     occupants.Add(tile.occupant);
                     Debug.Log($"Added occupant: {tile.occupant.name}");

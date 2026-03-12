@@ -53,7 +53,7 @@ public class Unarmed : MultiFrameEntityAction
         List<Dice> damageDice = new() { new Dice(1, 3, "Bludgeoning") };
         List<DamageValue> damageFlat = new() { new DamageValue("Bludgeoning", comp.strMod) };
         Unarmed unarmedStrike = new Unarmed(1, damageDice, damageFlat);
-        creature.GetComponent<ActionController>().AddAction(unarmedStrike);
+        creature.GetComponent<ActionController>()?.AddAction(unarmedStrike);
         Debug.Log("Unarmed strike added to " + creature.name);
     }
 

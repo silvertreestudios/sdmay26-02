@@ -62,14 +62,20 @@ PrefabInstance:
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: b9684b6e35e4b46adac844004ddb1538, type: 3}
       insertIndex: -1
-      addedObject: {fileID: 3866470555639847543}
+      addedObject: {fileID: -1281073725131889327}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: b9684b6e35e4b46adac844004ddb1538, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 5047063856680567482}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: b9684b6e35e4b46adac844004ddb1538, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 8483423470978196813}
   m_SourcePrefab: {fileID: 100100000, guid: b9684b6e35e4b46adac844004ddb1538, type: 3}
 --- !u!1 &293821393534743461 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: b9684b6e35e4b46adac844004ddb1538, type: 3}
   m_PrefabInstance: {fileID: 635769310526131956}
   m_PrefabAsset: {fileID: 0}
---- !u!114 &3866470555639847543
+--- !u!114 &-1281073725131889327
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -78,12 +84,62 @@ MonoBehaviour:
   m_GameObject: {fileID: 293821393534743461}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 748cd53ca51ff4663a4876a5f6c341fc, type: 3}
+  m_Script: {fileID: 11500000, guid: ab40f563b33ddbb4d910714452a24c99, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: '::'
-  door: {fileID: 1790960466073459737}
---- !u!1 &1790960466073459737 stripped
-GameObject:
-  m_CorrespondingSourceObject: {fileID: -8068073526183931155, guid: b9684b6e35e4b46adac844004ddb1538, type: 3}
-  m_PrefabInstance: {fileID: 635769310526131956}
+  m_EditorClassIdentifier: Assembly-CSharp::Game.Creature.CreatureComponent
+  _name: Door
+  _level: 0
+  _initiative: 0
+  _speed: 0
+  _hp: 1
+  _maxHp: 1
+  _tempHp: 0
+  _ac: 0
+  _attackBonus: 0
+  _damageBonus: 0
+  _weaponBonuses: []
+  _armorBonuses: []
+  _strMod: 0
+  _dexMod: 0
+  _conMod: 0
+  _intMod: 0
+  _wisMod: 0
+  _chaMod: 0
+  _fortitudeSave: 0
+  _reflexSave: 0
+  _willSave: 0
+  _allSaves: 0
+  _skills: []
+  _description: 
+  _actions: []
+  _reactions: []
+  _passives: []
+  _conditions: []
+  _equipment: []
+  _weaponsList: []
+  _armorList: []
+--- !u!114 &5047063856680567482
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 293821393534743461}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8e71b0452ab057489cfcc5a10f4ebbc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Token
+--- !u!114 &8483423470978196813
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 293821393534743461}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Team
+  <Name>k__BackingField: 
