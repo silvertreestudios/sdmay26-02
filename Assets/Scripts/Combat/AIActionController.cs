@@ -81,4 +81,30 @@ public abstract class AIActionController : ActionController
         }
     }
 
+    public EntityAction BestStrike()
+    {
+        EntityAction bestStrike = null;
+        float bestDamage = 0;
+        foreach(EntityAction action in Actions)
+        {
+            float damage = 0;
+            if (action is Unarmed)
+            {
+                Unarmed unarmedAction = action as Unarmed;
+                damage = unarmedAction.GetStrike().GetAvgDmg();
+            }
+            else if (action is StrikeWeapon)
+            {
+                StrikeWeapon strikeWeaponAction = action as StrikeWeapon;
+                damage = strikeWeaponAction.GetStrike().GetAvgDmg();
+            }
+            if (damage > bestDamage)
+            {
+                bestDamage = damage;
+                bestStrike = action;
+            }
+        }
+        return bestStrike;
+    }
+
 }

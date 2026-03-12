@@ -103,6 +103,20 @@ public class Strike
         }
         return "Strike Action: " + Damages.Count + " damage rolls, " + FlatDamages.Count + " flat damages, Traits: " + traits;
     }
+
+    public float GetAvgDmg()
+    {
+        float avg = 0;
+        foreach (Dice dice in Damages)
+        {
+            avg += dice.numberOfDice * ((float)dice.sidesPerDie + 1) / 2; // average roll of a die is (sides+1)/2
+        }
+        foreach (DamageValue damageValue in FlatDamages)
+        {
+            avg += damageValue.DamageAmount;
+        }
+        return avg;
+    }
 }
 
 public class OnStrikeEvent : StaticUnityEvent<OnStrikeEvent, Tuple<Strike, GameObject>>{ }
