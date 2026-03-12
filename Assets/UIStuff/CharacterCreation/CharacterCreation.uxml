@@ -1,5 +1,5 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
-    <Style src="project://database/Assets/UIStuff/CharacterCreation/CharacterCreation.uss?fileID=7433441132597879392&amp;guid=ab2c21ff1365a96489a5f75bb7e25c0f&amp;type=3#CharacterCreation" />
+    <Style src="project://database/Assets/UIStuff/CharacterCreation/CharacterCreation.uss?fileID=7433441132597879392&amp;guid=ab2c21ff1365a96489a5f75bb7e25c0f&amp;type=3" />
     <ui:VisualElement name="Panel" class="panel" style="justify-content: space-around; align-content: flex-start;" />
     <ui:VisualElement name="HeaderPanel" style="flex-grow: 1; flex-direction: row; flex-wrap: nowrap; align-items: flex-start; justify-content: center;">
         <ui:TextField label="Name" placeholder-text="Enter character&apos;s name" name="NameField" max-length="-1" />
@@ -10,15 +10,19 @@
     </ui:VisualElement>
     <ui:VisualElement name="MainPanel" style="flex-grow: 1; flex-direction: row;">
         <ui:VisualElement name="LeftPanel" style="flex-grow: 1; flex-shrink: 0; width: auto; flex-direction: column;">
-            <ui:VisualElement name="ProfilePanel" style="flex-wrap: wrap; align-self: flex-start; align-items: stretch; flex-direction: column;">
-                <ui:TextField label="Ancestry" name="AncestryChoice" readonly="true" style="width: 340px;" />
-                <ui:TextField label="Heritage" name="HeritageChoice" readonly="true" />
-                <ui:TextField label="Background" name="BackgroundChoice" readonly="true" />
-                <ui:TextField label="Class" name="ClassChoice" readonly="true" />
-                <ui:TextField label="Subclass" name="Subclass" readonly="true" />
-                <ui:IntegerField label="HP" value="0" name="HP" readonly="true" />
-                <ui:IntegerField label="Speed" value="0" name="Speed" readonly="true" />
-                <ui:TextField label="Size" name="Size" readonly="true" />
+            <ui:VisualElement name="ProfilePanel" style="flex-wrap: nowrap; align-self: flex-start; align-items: stretch; flex-direction: row;">
+                <ui:VisualElement name="SubProfile1" style="flex-grow: 1;">
+                    <ui:TextField label="Ancestry" name="AncestryChoice" readonly="true" style="width: 340px;" />
+                    <ui:TextField label="Heritage" name="HeritageChoice" readonly="true" />
+                    <ui:TextField label="Background" name="BackgroundChoice" readonly="true" />
+                    <ui:TextField label="Subclass" name="Subclass" readonly="true" />
+                    <ui:TextField label="Class" name="ClassChoice" readonly="true" />
+                </ui:VisualElement>
+                <ui:VisualElement name="SubProfile2" style="flex-grow: 1;">
+                    <ui:IntegerField label="HP" value="0" name="HP" readonly="true" />
+                    <ui:IntegerField label="Speed" value="0" name="Speed" readonly="true" />
+                    <ui:TextField label="Size" name="Size" readonly="true" />
+                </ui:VisualElement>
                 <ui:Foldout text="Attributes" name="Attributes">
                     <ui:IntegerField label="Strength" value="0" name="StrengthAttribute" readonly="true" />
                     <ui:IntegerField label="Dexterity" value="0" name="DexterityAttribute" readonly="true" />
@@ -52,6 +56,7 @@
         <ui:VisualElement name="RightPanel" style="flex-grow: 1; align-items: flex-end; align-self: auto; align-content: auto; flex-wrap: nowrap; flex-shrink: 1; justify-content: flex-start;">
             <ui:TabView view-data-key="CharacterCreation" enabled="true" reorderable="false" name="ChoiceTabs" style="flex-wrap: nowrap; flex-direction: column; align-items: stretch; justify-content: flex-start; align-self: center;">
                 <ui:Tab label="Ancestry" name="AncestryTab" view-data-key="AncestryTab">
+                    <ui:Label name="AncestryContent" text="Your people and your culture" class="tab-content" />
                     <ui:RadioButtonGroup name="AncestryRadioButtonGroup">
                         <ui:RadioButton label="Elf" name="Elf" />
                         <ui:RadioButton label="Gnome" name="Gnome" />
@@ -60,18 +65,17 @@
                         <ui:RadioButton label="Goblin" name="Goblin" />
                         <ui:RadioButton label="Leshy" name="Leshy" />
                     </ui:RadioButtonGroup>
-                    <ui:Label name="AncestryContent" text="Ancestry is your people and your culture" class="tab-content" />
                     <ui:TabView name="NestedAncestryChoices">
                         <ui:Tab label="Heritage" name="HeritageTab" view-data-key="HeritageTab">
-                            <ui:Label text="Your heritage is a sub-race" name="HeritageContent" class="tab-content" />
+                            <ui:Label text="Sub-species that grants extra abilities" name="HeritageContent" class="tab-content" style="flex-wrap: nowrap;" />
                             <ui:RadioButtonGroup name="HeritageRadioButtonGroup" />
                         </ui:Tab>
                         <ui:Tab label="Ancestry Feats" name="AncestryFeatsTab">
-                            <ui:Label text="Feats provide special benefits" name="AncestryFeatsContent" class="tab-content" />
+                            <ui:Label text="A special ability" name="AncestryFeatsContent" class="tab-content" />
                             <ui:RadioButtonGroup name="AncestryFeatsRadioButtonGroup" />
                         </ui:Tab>
                         <ui:Tab label="Free Boost" name="FreeAttributeBoostTab">
-                            <ui:Label text="Pick a free attribute boost" name="FreeBoostLabel" />
+                            <ui:Label text="Pick a free attribute boost" name="FreeBoostLabel" class="tab-content" />
                             <ui:RadioButtonGroup name="FreeBoostRadioButtonGroup">
                                 <ui:RadioButton label="Strength" name="StrengthAttributeRadio" />
                                 <ui:RadioButton label="Dexterity" name="DexterityAttributeRadio" />
@@ -84,7 +88,7 @@
                     </ui:TabView>
                 </ui:Tab>
                 <ui:Tab label="Background" name="BackgroundTab" view-data-key="BackgroundTab">
-                    <ui:Label text="Background is your former occupation" name="BackgroundContent" class="tab-content" />
+                    <ui:Label text="Your former occupation" name="BackgroundContent" class="tab-content" />
                     <ui:RadioButtonGroup name="BackgroundRadioButtonGroup">
                         <ui:RadioButton label="Acolyte" name="AcolyteRadioButton" />
                         <ui:RadioButton label="Bandit" name="BanditRadioButton" />
@@ -92,11 +96,11 @@
                     </ui:RadioButtonGroup>
                     <ui:TabView name="NestedBackgroundChoices">
                         <ui:Tab label="Boost Choice" name="BoostChoices">
-                            <ui:Label text="Pick a background boost" name="BackgroundBoostChoiceLabel" />
+                            <ui:Label text="Pick a background boost" name="BackgroundBoostChoiceLabel" class="tab-content" />
                             <ui:RadioButtonGroup name="BackgroundBoostChoiceRadioButtonGroup" />
                         </ui:Tab>
                         <ui:Tab label="Free Boost" name="BackgroundFreeBoost">
-                            <ui:Label text="Free Boost for Background" name="BackgroundFreeBoostLabel" />
+                            <ui:Label text="Free Boost for Background" name="BackgroundFreeBoostLabel" class="tab-content" />
                             <ui:RadioButtonGroup name="BackgroundFreeBoostRadioGroup">
                                 <ui:RadioButton label="Strength" name="BackgroundStrength" />
                                 <ui:RadioButton label="Dexterity" name="BackgroundDexterity" />
@@ -109,8 +113,8 @@
                     </ui:TabView>
                 </ui:Tab>
                 <ui:Tab label="Class" name="ClassTab" view-data-key="ClassTab">
-                    <ui:Label text="Class is your style" name="ClassContent" class="tab-content" />
-                    <ui:RadioButtonGroup label="Radio Button Group" name="ClassesRadioButtonGroup">
+                    <ui:Label text="Your fighting style" name="ClassContent" class="tab-content" />
+                    <ui:RadioButtonGroup name="ClassesRadioButtonGroup">
                         <ui:RadioButton label="Fighter" name="FighterRadioButton" />
                         <ui:RadioButton label="Cleric" name="ClericRadioButton" />
                         <ui:RadioButton label="Rogue" name="RogueRadioButton" />
@@ -119,16 +123,17 @@
                     </ui:RadioButtonGroup>
                     <ui:TabView name="NestedClassChoices">
                         <ui:Tab label="Class Feats" name="ClassFeats">
-                            <ui:Label text="These are the class feats" name="ClassFeatsContent" class="tab-content" />
-                            <ui:RadioButtonGroup label="Radio Button Group" name="ClassFeatsRadioButtonGroup" />
+                            <ui:Label text="Choose another ability" name="ClassFeatsContent" class="tab-content" />
+                            <ui:RadioButtonGroup name="ClassFeatsRadioButtonGroup" />
                         </ui:Tab>
                         <ui:Tab label="SubClass" name="SubClass">
-                            <ui:RadioButtonGroup label="Radio Button Group" name="SubClassRadioButtonGroup" />
+                            <ui:Label text="Customize class playstyle" name="SubClassContent" class="tab-content" />
+                            <ui:RadioButtonGroup name="SubClassRadioButtonGroup" />
                         </ui:Tab>
                     </ui:TabView>
                 </ui:Tab>
                 <ui:Tab label="Final Boosts" name="FinalBoosts">
-                    <ui:Label text="you get 4 final boosts. you must apply each one to a different modifier" name="FinalBoostLabel" />
+                    <ui:Label text="Pick 4 final boosts. &#10;Apply each one to a different modifier" name="FinalBoostLabel" class="tab-content" />
                     <ui:Toggle label="Strength" name="StrengthToggle" />
                     <ui:Toggle label="Dexterity" name="DexterityToggle" />
                     <ui:Toggle label="Constitution" name="ConstitutionToggle" />
@@ -139,16 +144,16 @@
             </ui:TabView>
         </ui:VisualElement>
     </ui:VisualElement>
-    <ui:VisualElement name="BottomPanel" style="flex-grow: 1; flex-direction: row; align-items: flex-start; justify-content: space-around; align-content: stretch; align-self: auto; flex-wrap: wrap; flex-shrink: 0;">
-        <ui:VisualElement name="ButtonRow" style="flex-grow: 0; align-items: flex-start; align-self: auto; align-content: auto; flex-shrink: 1;">
+    <ui:VisualElement name="BottomPanel" style="flex-grow: 1; flex-direction: row; align-items: flex-start; justify-content: space-around; align-content: stretch; align-self: auto; flex-wrap: wrap; flex-shrink: 0; height: 250px;">
+        <ui:VisualElement name="ButtonRow" style="flex-grow: 0; align-items: center; align-self: center; align-content: auto; flex-shrink: 1;">
+            <ui:Button text="Button" name="NotificationElement" enabled="true" style="display: none; background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/warningButtonBackground.png?fileID=2800000&amp;guid=35d389134524e474fa6b05b28a050b13&amp;type=3#warningButtonBackground&quot;);" />
             <ui:Button text="Finish" name="FinishCharacterCreationButton" />
             <ui:Button text="debug" name="jsondebug" />
             <ui:Button text="Default Barbarian" name="DefaultBarbarianButton" />
-            <ui:Button text="Button" name="NotificationElement" enabled="true" style="display: none; background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/warningButtonBackground.png?fileID=2800000&amp;guid=35d389134524e474fa6b05b28a050b13&amp;type=3#warningButtonBackground&quot;);" />
         </ui:VisualElement>
-        <ui:VisualElement name="DescriptionRow" style="flex-grow: 1; flex-direction: row; justify-content: center;">
-            <ui:VisualElement name="AncestryDetails" enabled="true" style="flex-grow: 1; background-color: rgba(55, 55, 55, 0);">
-                <ui:Label name="AncestryDescription" class="my-label" style="white-space: normal;" />
+        <ui:VisualElement name="DescriptionRow" style="flex-grow: 1; flex-direction: row; justify-content: center; flex-shrink: 1; flex-wrap: nowrap; align-self: stretch;">
+            <ui:VisualElement name="AncestryDetails" enabled="true" style="flex-grow: 1; background-color: rgba(0, 0, 0, 0); align-self: auto;">
+                <ui:Label name="AncestryDescription" class="my-label" style="white-space: normal; color: rgb(218, 165, 32); -unity-text-align: upper-left;" />
                 <ui:Label name="AncestryBoostsFlaws" class="my-label" style="white-space: normal;" />
                 <ui:Label name="AncestrySpecialAbilities" class="my-label" style="white-space: normal;" />
             </ui:VisualElement>
