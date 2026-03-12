@@ -14,12 +14,12 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
 
     private void OnEnable()
     {
-        OnCombatEnd.AddListener(EndCombat);
+        OnCombatEnd.AddListener(NextLevel);
     }
 
     private void OnDisable()
     {
-        OnCombatEnd.RemoveListener(EndCombat);
+        OnCombatEnd.RemoveListener(NextLevel);
     }
 
     private void Start()
@@ -33,13 +33,13 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
         yield return null;
     }
 
-    private void EndCombat(string winningTeam)
+    private void NextLevel(string winningTeam)
     {
         if (winningTeam.ToLower() == "players")
         {
             //Debug.Log("Players win!");
             //next level
-            StartCoroutine(NextLevelRoutine());
+            OnNextLevelRequest.Invoke(true);
             //invoke win sfx
         }
         else
@@ -50,15 +50,6 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             StartCoroutine(ResetSceneRoutine());
         }
         
-    }
-
-    private IEnumerator NextLevelRoutine()
-    {
-        //temporary wait, delete once next level button is implemented
-        yield return new WaitForSeconds(3f);
-        int nextSceneIndex = SceneManager.GetActiveScene().buildIndex + 1;
-        if (nextSceneIndex < SceneManager.sceneCountInBuildSettings)
-            SceneManager.LoadScene(nextSceneIndex);
     }
 
     private IEnumerator ResetSceneRoutine()

@@ -65,6 +65,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private void OnEnable() {
         //Debug.Log("OnEnable called");
         //####Button Setup####
+        OnNextLevelRequest.AddListener(ToggleNextLevelButton);
         strikeButton = ui.Q<Button>("StrikeButton");
         strikeButton.clicked += Strike;
 
@@ -97,6 +98,17 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
 
 
+    }
+
+    private void OnDisable() {
+        //Debug.Log("OnDisable called");
+        OnNextLevelRequest.RemoveListener(ToggleNextLevelButton);
+        strikeButton.clicked -= Strike;
+        strikeWeaponButtton.clicked -= StrikeWeapon;
+        moveButton.clicked -= Move;
+        endTurnButton.clicked -= EndTurn;
+        cancelActionButton.clicked -= CancelAction;
+        nextLevelButton.clicked -= NextLevel;
     }
 
     public void EnableUi()
@@ -272,7 +284,12 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     
     public void NextLevel() {
         //put logic here to load next level, for now just log it
+        
+        ToggleNextLevelButton(false);
         combatLog.Log("- Proceeding to next level...");
+        int nextSceneIndex = SceneManager.GetActiveScene().buildIndex + 1;
+        if (nextSceneIndex < SceneManager.sceneCountInBuildSettings)
+            SceneManager.LoadScene(nextSceneIndex);
     }
 
     //used to toggle next level button visibility when player wins combat, can be called from combat manager
