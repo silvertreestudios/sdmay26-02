@@ -112,7 +112,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     public void EnableUi()
     {
-        combatLog.Log("- Combat Started!");
+        
         this.enabled = true;
     }
 
@@ -178,7 +178,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
             cardInstance.Q<Label>("DESC").text = p.description;
 
-            combatLog.Log($"- {p.name} entered combat with {p.hp} HP.");
+            
         }
     }
 
