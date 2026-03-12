@@ -1,0 +1,27 @@
+:root {
+}
+
+.unity-progress-bar{
+    width: 100%;
+    /* height: 100%; */
+    justify-content: left;
+    font-size: 14px;
+    color: white;
+}
+
+.unity-progress-bar__container {
+    width: 100%;
+    /* height: 100%; */
+    flex-grow: 1;
+    align-self: center;
+}
+
+.unity-progress-bar__background {
+    background-color: rgb(68, 24, 13);
+    border-color: rgb(68, 24, 13);
+}
+
+.unity-progress-bar__progress {
+    background-color: rgba(5, 158, 5, 1);
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+}

@@ -1,0 +1,13 @@
+:root {
+
+}
+
+#CombatLog {
+    --unity-item-height: 50px;
+}
+
+#CombatLog > * {
+    padding: 5px;
+    font-size: 20px;
+    overflow: wrap;
+}

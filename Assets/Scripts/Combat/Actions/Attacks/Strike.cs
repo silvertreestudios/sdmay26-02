@@ -86,7 +86,8 @@ public class Strike
             log += "\nAttack Missed!";
         }
         log += "\n";
-        Debug.Log(log);
+        // Debug.Log(log);
+        CombatLog.GetInstance().Log(log);
     }
 
     public List<string> getTraits()

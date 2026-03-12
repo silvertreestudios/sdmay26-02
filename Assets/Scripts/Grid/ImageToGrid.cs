@@ -17,9 +17,10 @@ public class ImageToGrid
         if (img == null) return null;
         grid = new int[img.width, img.height];
         
-        Color32 black = new Color32(0, 0, 0, 255);      // #000000
-        Color32 yellow = new Color32(255, 255, 0, 255); // #FFFF00
-        
+        Color32 black = new Color32(0, 0, 0, 255);      // #000000 - black for ground
+        Color32 yellow = new Color32(255, 255, 0, 255); // #FFFF00 - yellow for walls
+        Color32 brown = new Color32(165, 42, 42, 255); // #A52A2A - brown for doors
+
         for (int i = 0; i < img.width; i++)
         {
             for (int j = 0; j < img.height; j++)
@@ -28,11 +29,15 @@ public class ImageToGrid
 
                 if (pixel.r == black.r && pixel.g == black.g && pixel.b == black.b)
                 {
-                    grid[i, j] = 1; //ground
+                    grid[i, j] = 1; // ground
                 }
                 else if (pixel.r == yellow.r && pixel.g == yellow.g && pixel.b == yellow.b)
                 {
-                    grid[i, j] = 2; //wall
+                    grid[i, j] = 2; // wall
+                }
+                else if (pixel.r == brown.r && pixel.g == brown.g && pixel.b == brown.b)
+                {
+                    grid[i, j] = 3; // door
                 }
                 else
                 {
