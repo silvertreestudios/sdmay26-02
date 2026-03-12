@@ -38,6 +38,8 @@ public class AudioManager : SingletonMonoBehaviour<AudioManager>
     void Start()
     {
         musicSource.clip = backgroundMusic;
+        // Set the music to loop
+        musicSource.loop = true;
         musicSource.Play();
     }
     //play step sfx
