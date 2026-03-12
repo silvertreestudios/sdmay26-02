@@ -300,6 +300,14 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
     }
 
+    // toggles visibility of temp HP bar on player cards based on/off whether they have TempHp
+    public void ToggleTempHpBar(CreatureComponent cc, ProgressBar bar) {
+        if(cc != null && cc.tempHp > 0)
+            bar.style.visibility = Visibility.Visible;
+        else
+            bar.style.visibility = Visibility.Hidden;
+    }
+
     public void CancelAction() {
         //Debug.Log("CancelAction called");
         //Debug.Log("Clicked Cancel Action button");
@@ -380,9 +388,10 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
                 // Update TempHp bar
                 var thpBar = card.Q<ProgressBar>("TempHpBar");
-                thpBar.title = "THP: " + p.tempHp + "/" + p.tempHp;
+                thpBar.title = "Temp HP: " + p.tempHp + "/" + p.tempHp;
                 thpBar.value = p.tempHp;
                 thpBar.highValue = p.tempHp;
+                ToggleTempHpBar(p, thpBar);
 
                 if (p == currentTurn) {
                     //card.style.scale = new StyleScale(new Scale(new Vector3(1.5f,1.5f,1))); // Scale up the current player's card
