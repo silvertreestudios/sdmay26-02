@@ -9,6 +9,7 @@ public class Door : MonoBehaviour
     private int currentHP;
 
     IGridMemory gridMemory;
+    GridCoordinateConverter coordinateConverter;
     int gridX;
     int gridZ;
     bool hasGridPosition;
