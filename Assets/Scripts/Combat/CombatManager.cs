@@ -63,6 +63,10 @@ public class CombatManager : CombatManagerInterface
         List<GameObject> list = new();
         foreach (var c in TurnQueue)
             list.Add(c.Player.gameObject);
+
+        GameObject a = list[list.Count - 1];
+        list.Remove(a);
+        list.Insert(0, a);
         return list;
     }
 

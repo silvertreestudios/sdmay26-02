@@ -48,6 +48,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         ui = GetComponent<UIDocument>().rootVisualElement;
         combatLog = CombatLog.GetInstance();
         combatLog.Log("Game Started. Combat Log Initialized.");
+        Debug.Log("Listener");
+        OnCombatStart.AddListener(() => { EnableUi(); Setup(); });
         //Copiloy made this so I could point it to another UXML file for a template
         //I suspect it sucks
         //vvvvvvvvvvvvvvvvvv
@@ -55,8 +57,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             * Load the UXML file as a VisualTreeAsset
             * Note: This only works in the Editor. For builds, you would need to use Resources.Load or Addressables.
             */
-        #if UNITY_EDITOR
-                playerCardTemplate = UnityEditor.AssetDatabase.LoadAssetAtPath<VisualTreeAsset>("Assets/UIStuff/HUD/Player_Card_Template.uxml");
+#if UNITY_EDITOR
+        playerCardTemplate = UnityEditor.AssetDatabase.LoadAssetAtPath<VisualTreeAsset>("Assets/UIStuff/HUD/Player_Card_Template.uxml");
         #endif
     }
 
@@ -97,6 +99,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     }
 
+    public void EnableUi()
+    {
+        this.enabled = true;
+    }
+
     public static void Setup()
     {
         Players = CombatManagerInterface.GetInstance().GetCombatants();
@@ -108,7 +115,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     {
         if (!IsActive)
             return;
-
         List<GameObject> currentCombatants = CombatManagerInterface.GetInstance().GetCombatants();
         if (Players == null || HaveCombatantsChanged(currentCombatants)) {
             Players = currentCombatants;
