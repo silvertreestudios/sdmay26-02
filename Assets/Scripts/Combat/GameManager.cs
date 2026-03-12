@@ -19,7 +19,6 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
     private IEnumerator StartCombat()
     {
         CombatManagerInterface.GetInstance().StartCombat();
-        HUDController.Setup();
         yield return null;
     }
 }
