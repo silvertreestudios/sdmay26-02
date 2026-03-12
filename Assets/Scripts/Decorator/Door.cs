@@ -13,6 +13,7 @@ public class Door : MonoBehaviour
     int gridX;
     int gridZ;
     bool hasGridPosition;
+    bool isRegistered = false;
 
     void Start()
     {

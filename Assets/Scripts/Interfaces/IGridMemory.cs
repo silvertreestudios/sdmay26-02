@@ -36,4 +36,5 @@ public abstract class IGridMemory : SingletonMonoBehaviour<IGridMemory>
     public abstract bool IsCellHoverable(Vector3Int position, bool allowDoorHover);
     public abstract void HandleCellClick(Vector3Int cell);
 
+
 }
