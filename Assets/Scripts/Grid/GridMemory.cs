@@ -318,11 +318,10 @@ public class GridMemory : IGridMemory
         if (cell.x < 0 || cell.x >= Width) return;
         if (cell.z < 0 || cell.z >= Height) return;
 
-        // If it's a door tile, toggle between open and closed
+        // Doors can no longer be toggled by clicking - they must be struck
         if (GridInfo[cell.x, GridY, cell.z].type == TileType.Door)
         {
-            ToggleDoor(cell.x, cell.z);
-            Debug.Log($"Door clicked at ({cell.x}, {cell.z}). Door is now {(IsDoorOpen(cell.x, cell.z) ? "open" : "closed")}.");
+            Debug.Log($"Door at ({cell.x}, {cell.z}) must be attacked to open it.");
         }
     }
 
