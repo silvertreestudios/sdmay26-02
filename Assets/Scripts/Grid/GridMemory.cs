@@ -227,7 +227,6 @@ public class GridMemory : IGridMemory
                 }
             }
         }
-        
         Debug.Log($"GetOccupantsInArea: Found {occupants.Count} total occupants");
         return occupants;
     }
