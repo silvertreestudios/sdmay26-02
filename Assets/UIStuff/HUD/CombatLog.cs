@@ -33,13 +33,9 @@ public class CombatLog : CombatLogInterface
     {
         // Find the holder and add the defined CombatLog UI
         VisualElement logHolder = Ui.Q<VisualElement>("CombatLog");
-        Debug.Log(logHolder);
-        Debug.Log(CombatLogTemplate);
         var logList = CombatLogTemplate.Instantiate();
         logHolder.Add(logList);
         LogList = logList.Q<ListView>("CombatLog");
-        Debug.Log(LogList);
-
 
         CurrentLogs = new List<string>();
 
