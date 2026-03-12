@@ -67,8 +67,9 @@ public class Strike
 
         if (attackRoll.degree == DegreeOfSuccess.Success || attackRoll.degree == DegreeOfSuccess.CriticalSuccess)
         {
+            OnDamageDealt.Invoke(Damages[0].damageType);
             // Adds a new flat damage for the damage bonus, type matching the first damage type
-            FlatDamages.Add(new DamageValue(Damages[0].damageType, damageBonus));
+            // FlatDamages.Add(new DamageValue(Damages[0].damageType, damageBonus));
             List<DamageValue> damageValues = DamageRoller.RollDamage(Damages, FlatDamages);
             DamageRoller.EvaluateCriticalDamage(attackRoll.degree, damageValues);
             DamageRoller.ApplyWeaknessAndResistance(damageValues, to.weaknesses, to.resistances);
@@ -80,9 +81,13 @@ public class Strike
                 log += "\n  " + d.DamageType + ": " + d.DamageAmount;
             }
             log += "\n  Total: " + damage;
+        } else {
+            OnAttackMiss.Invoke(From);
+            log += "\nAttack Missed!";
         }
         log += "\n";
-        Debug.Log(log);
+        // Debug.Log(log);
+        CombatLog.GetInstance().Log(log);
     }
 
     public List<string> getTraits()
@@ -97,6 +102,20 @@ public class Strike
             traits += trait + " ";
         }
         return "Strike Action: " + Damages.Count + " damage rolls, " + FlatDamages.Count + " flat damages, Traits: " + traits;
+    }
+
+    public float GetAvgDmg()
+    {
+        float avg = 0;
+        foreach (Dice dice in Damages)
+        {
+            avg += dice.numberOfDice * ((float)dice.sidesPerDie + 1) / 2; // average roll of a die is (sides+1)/2
+        }
+        foreach (DamageValue damageValue in FlatDamages)
+        {
+            avg += damageValue.DamageAmount;
+        }
+        return avg;
     }
 }
 

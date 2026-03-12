@@ -57,6 +57,25 @@ public static class DefinedAbilities
         rageAction.UseRage(g);
     });
 
+    private static Ability FuryInstinct = new("Fury-Instinct", (GameObject g) =>
+    {
+        // On combat start, IF conditions met, instantly use rage with no action point cost
+        Debug.Log("Applying Fury-Instinct to " + g.name);
+        // Currently handled in Rage
+    });
+
+    private static Ability ZombieFist = new("Zombie-Fist", (GameObject g) =>
+    {
+        // On combat start, IF conditions met, add unarmed strike with 1d6 bludgeoning damage instead of 1d4
+        // TODO add grapple and move from passives
+        CreatureComponent cc = g.GetComponent<CreatureComponent>();
+        List<Dice> damageDice = new() { new Dice(1, 6, "Bludgeoning") };
+        List<DamageValue> damageFlat = new() { new DamageValue("Bludgeoning", cc.strMod) };
+        Unarmed unarmedStrike = new Unarmed(1, damageDice, damageFlat);
+        g.GetComponent<ActionController>().AddAction(unarmedStrike);
+        Debug.Log("Zombie-Fist added to " + g.name);
+    });
+
     /// <summary>
     /// Keep last in file, needs to be initialized after all referenced abilities
     /// </summary>
@@ -64,6 +83,8 @@ public static class DefinedAbilities
     {
         {"Slow", Slow },
         {"Quick-Tempered", QuickTempered},
+        {"Fury-Instinct", FuryInstinct },
+        {"Zombie-Fist", ZombieFist }
     };
 
 }

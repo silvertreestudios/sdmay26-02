@@ -1,6 +1,7 @@
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 using Game.Creature;
@@ -19,10 +20,15 @@ public static class CreaturePrefabImporter
 
         // Restrict import to the pathfinder-monster-core subfolder only
         string monsterCoreRoot = Path.Combine(dataRoot, "pathfinder-monster-core");
-        if (!Directory.Exists(monsterCoreRoot))
-        {
-            Debug.LogWarning($"CreaturePrefabImporter: monster core directory not found: {monsterCoreRoot}. No prefabs will be created.");
-            return;
+        string playerCoreRoot = Path.Combine(dataRoot, "playerCharacters");
+
+        List<string> creatureJsonPaths = new() { monsterCoreRoot, playerCoreRoot };
+        foreach (var path in creatureJsonPaths) {
+            if (!Directory.Exists(path))
+            {
+                Debug.LogWarning($"CreaturePrefabImporter: directory not found: {path}. No prefabs will be created from this path.");
+                creatureJsonPaths.Remove(path);
+            }
         }
 
         // Try to locate a template prefab named "EmptyCreature" anywhere in the project
@@ -48,8 +54,12 @@ public static class CreaturePrefabImporter
 
         
         // Only enumerate JSON files under DataFiles/pathfinder-monster-core
-        var jsonFiles = Directory.GetFiles(monsterCoreRoot, "*.json", SearchOption.AllDirectories)
+        var jsonFiles = new List<string>();
+        foreach (var root in creatureJsonPaths) {
+            var rootFiles = Directory.GetFiles(root, "*.json", SearchOption.AllDirectories)
                                  .OrderBy(f => f).ToArray();
+            jsonFiles.AddRange(rootFiles);
+        }
 
         // Reflection setup: try to find SaveAsPrefabAssetAsVariant method if available
         MethodInfo saveVariantMethod = typeof(PrefabUtility).GetMethod("SaveAsPrefabAssetAsVariant", BindingFlags.Public | BindingFlags.Static);
@@ -90,7 +100,7 @@ public static class CreaturePrefabImporter
                 }
                 else
                 {
-                    // No variant API available (or no template) — save as a normal prefab.
+                    // No variant API available (or no template) ï¿½ save as a normal prefab.
                     PrefabUtility.SaveAsPrefabAssetAndConnect(go, prefabPath, InteractionMode.UserAction);
                 }
 
@@ -105,6 +115,6 @@ public static class CreaturePrefabImporter
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
-        Debug.Log($"CreaturePrefabImporter: imported {success}/{jsonFiles.Length} creature(s) to {prefabFolder}");
+        Debug.Log($"CreaturePrefabImporter: imported {success}/{jsonFiles.Count} creature(s) to {prefabFolder}");
     }
 }

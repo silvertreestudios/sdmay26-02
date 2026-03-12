@@ -15,6 +15,7 @@ public class StrikeWeapon : MultiFrameEntityAction
     public string weaponName;
 
 
+
     // Auto add strike actions based on equipped weapons
     public void WeaponStrikeAdder(GameObject creature)
     {
@@ -78,7 +79,7 @@ public class StrikeWeapon : MultiFrameEntityAction
     public StrikeWeapon(uint cost, EquipmentWeapon weapon, GameObject creature) :base(cost)
     {
         int flatDamageBonus = creature.GetComponent<CreatureComponent>().damageBonus;
-        flatDamageBonus += creature.GetComponent<CreatureComponent>().strMod;
+        // flatDamageBonus += creature.GetComponent<CreatureComponent>().strMod;
         Weapon = weapon;
         weaponName = weapon.name;
         List<Dice> damageList = new List<Dice>();
@@ -110,7 +111,7 @@ public class StrikeWeapon : MultiFrameEntityAction
         // I implemented a cancel refund for this action, let me know if it needs to change - Adam
         if(target.Value && !canceled.Value)
         {
-            Debug.Log(attacker + " Striking " + target.Value +" with " + Weapon.name);
+            CombatLog.GetInstance().Log("- " + attacker.name + " strikes " + target.Value.name + " with " + weaponName + ".");
             // TODO: need to modify strike/damage to account for character abilities, weapons traits, etc
             Strike.Damage(attacker, target.Value);
             if (ac)

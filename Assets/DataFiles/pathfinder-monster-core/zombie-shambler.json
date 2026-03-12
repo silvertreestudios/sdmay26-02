@@ -335,6 +335,46 @@
           "value": []
         }
       }
+    },
+    {
+      "name": "Zombie-Fist",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "passive"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "defensive",
+        "description": {
+          "value": "TEMP substitute to active fist action"
+        },
+        "descriptionParagraphs": [
+          "TEMP substitute to active fist action"
+        ],
+        "descriptionContext": [
+          "PF2E.NPC.Abilities.Glossary.NegativeHealing"
+        ],
+        "publication": {
+          "license": "ORC",
+          "remaster": true,
+          "title": "Pathfinder Monster Core"
+        },
+        "rules": [
+          {
+            "key": "ActiveEffectLike",
+            "mode": "override",
+            "path": "system.attributes.hp.negativeHealing",
+            "value": true
+          }
+        ],
+        "slug": "void-healing",
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
     }
   ],
   "conditions": [],
@@ -357,6 +397,10 @@
     }
   ],
   "armorBonuses": [
+    {
+      "category": "unarmored",
+      "bonus": 0
+    },
     {
       "category": "light",
       "bonus": 0

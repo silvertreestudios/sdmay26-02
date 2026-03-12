@@ -35,7 +35,7 @@ public class MainMenuControl : MonoBehaviour
     }
 
     public void LoadGame() {
-        SceneManager.LoadScene("HomebaseScene");
+        SceneManager.LoadScene("Level1");
     }
 
     public void Options() {

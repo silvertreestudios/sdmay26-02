@@ -107,16 +107,18 @@ namespace JsonImporter
         {
             // "packs/spells/cantrip/",
             // "packs/spells/1st-rank/",
-            "packs/equipment/longsword.json",
-            "packs/equipment/scimitar.json",
-            "packs/equipment/dogslicer.json",
-            "packs/equipment/shortbow.json",
-            "packs/equipment/sling.json",
-            "packs/equipment/spear.json",
-            "packs/equipment/halberd.json",
+            // "packs/equipment/longsword.json",
+            // "packs/equipment/scimitar.json",
+            // "packs/equipment/dogslicer.json",
+            // "packs/equipment/shortbow.json",
+            // "packs/equipment/sling.json",
+            // "packs/equipment/spear.json",
+            // "packs/equipment/halberd.json",
+            // "packs/equipment/greataxe.json",
             // "packs/equipment/leather-armor.json",
             // "packs/equipment/breastplate.json",
             // "packs/equipment/padded-armor.json",
+            // "packs/equipment/scale-mail.json",
             // "packs/pathfinder-monster-core/goblin-warrior.json",
             // "packs/pathfinder-monster-core/zombie-shambler.json",
             // "packs/pathfinder-monster-core/skeleton-guard.json",
@@ -130,7 +132,11 @@ namespace JsonImporter
             // "packs/classes/barbarian.json",
             // "packs/iconics/valeros-level-1.json",
             // "packs/feats/class/shared-class-feats/reactive-shield.json"
-            "packs/actions/rage.json"
+            // "packs/actions/rage.json",
+            // "packs/actions/quick-tempered.json",
+            // "packs/classfeatures/fury-instinct.json"
+            "packs/backgrounds/bandit.json",
+            "packs/feats/class/barbarian/raging-intimidation.json",
         };
 
         public const bool requireRemaster = true; // or false, as needed

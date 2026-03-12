@@ -6,6 +6,7 @@ using UnityEngine;
 using Unity.VisualScripting;
 using System.Diagnostics.Tracing;
 using System;
+//using System.Diagnostics;
 
 namespace Game.AbilityActions{
 
@@ -14,6 +15,7 @@ namespace Game.AbilityActions{
 public class Rage : MultiFrameEntityAction
 {
     List<string> Traits = new List<string> {"barbarian", "concentrate", "emotion", "mental"};
+    int rageBonus = 2;
     
     public Rage(uint cost) : base(cost)
     {
@@ -24,6 +26,8 @@ public class Rage : MultiFrameEntityAction
     {
         Debug.Log(g + " is attempting to use Rage");
         if (RageAllowed(g)){
+            // Check for rage modifying abilities
+            if (g.GetComponent<CreatureComponent>().passives.Contains("Fury-Instinct")) rageBonus = 3;
             // Apply THP from rage
             AddRageTHP(g);
             // Add listener to trigger bonus rage damage
@@ -80,7 +84,8 @@ public class Rage : MultiFrameEntityAction
     public void AddRageDamage(Strike action)
     {
         // TODO make rageBonus not hardcoded
-        int rageBonus = 2;
+        // int rageBonus = 2;
+        Debug.Log("Adding Rage damage to strike");
 
         if (action.getTraits().Contains("agile") || action.getTraits().Contains("unarmed"))
         {

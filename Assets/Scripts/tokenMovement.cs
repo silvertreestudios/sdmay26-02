@@ -160,6 +160,8 @@ public class tokenMovement : ITokenMovement
         // If the jump is complete
         if (time >= 1.0f)
         {
+            //trigger step audio
+            OnStepEnd.Invoke(objectTransform.position);            
             //snap to final position
             objectTransform.position = end;
             current_jump_point = end;

@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using UnityEngine.Events;
+using Game.Creature;
 
 public class CombatManager : CombatManagerInterface
 {
@@ -60,18 +61,59 @@ public class CombatManager : CombatManagerInterface
     public override List<GameObject> GetCombatants()
     {
         List<GameObject> list = new();
-        foreach (var c in Combatants)
-            list.Add(c.gameObject);
+        foreach (var c in TurnQueue)
+            list.Add(c.Player.gameObject);
+
+        GameObject a = list[list.Count - 1];
+        list.Remove(a);
+        list.Insert(0, a);
         return list;
     }
 
     [ContextMenu("StartCombat")]
     public override void StartCombat()
     {
+        RollInitiative();
         OnCombatStart.Invoke();
         //Debug.Log("Start Combat.");
 
         NextTurn();
+    }
+
+    /// <summary>
+    /// Helper to order inititives.
+    /// </summary>
+    private void RollInitiative()
+    {
+        List<ActionController> turnOrder = new();
+        List<uint> initiatives = new();
+        
+        // Insert all AC's in sorted turnOrder
+        foreach (ActionController ac in Combatants) 
+        {
+            // Attempt to insert
+            int i;
+            uint initiative = ac.GetInitiative();
+            for (i = 0; i < turnOrder.Count; i++)
+            {
+                if (initiatives[i] < initiative)
+                {
+                    initiatives.Insert(i, initiative);
+                    turnOrder.Insert(i, ac);
+                    break;
+                }
+            }
+            // If no insertion, insert at end
+            if(i == initiatives.Count)
+            {
+                initiatives.Add(initiative);
+                turnOrder.Add(ac);
+            }
+        }
+        // Clear TurnQueue and add by initiative
+        TurnQueue.Clear();
+        foreach(ActionController ac in turnOrder)
+            TurnQueue.Add(new TurnStep(ac));
     }
 
     public override bool CheckForEndOfGame()
