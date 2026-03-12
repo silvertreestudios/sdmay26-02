@@ -130,6 +130,14 @@ public class CombatManager : CombatManagerInterface
         {
             Debug.Log("Team " + teams[0] + " wins!");
             OnCombatEnd.Invoke(teams[0]);// Signal end
+            if (teams[0].ToLower() == "players")
+            {
+                OnCombatOutcome.Invoke(true);
+            }
+            else
+            {
+                OnCombatOutcome.Invoke(false);
+            }
             return true;
         }
         return false;

@@ -25,6 +25,7 @@ public class AudioManager : SingletonMonoBehaviour<AudioManager>
         OnDamageDealt.AddListener(PlayDamageSFX);
         OnDeath.AddListener(PlayDeathSFX);
         OnAttackMiss.AddListener(PlayMissSFX);
+        OnCombatOutcome.AddListener(PlayWinLoseSFX);
     }
     void OnDisable()
     {
@@ -33,6 +34,7 @@ public class AudioManager : SingletonMonoBehaviour<AudioManager>
         OnDamageDealt.RemoveListener(PlayDamageSFX);   
         OnDeath.RemoveListener(PlayDeathSFX);
         OnAttackMiss.RemoveListener(PlayMissSFX);
+        OnCombatOutcome.RemoveListener(PlayWinLoseSFX);
     }
 
     void Start()
@@ -91,6 +93,18 @@ public class AudioManager : SingletonMonoBehaviour<AudioManager>
                 Debug.LogWarning("[AudioManager] Unknown team: " + team);
                 sfxSource.PlayOneShot(onDeathPlayerSFX);
                 break;
+        }
+    }
+
+    void PlayWinLoseSFX(bool playerWon)
+    {
+        if (playerWon)
+        {
+            sfxSource.PlayOneShot(onWinSFX);
+        }
+        else
+        {
+            sfxSource.PlayOneShot(onLoseSFX);
         }
     }
 

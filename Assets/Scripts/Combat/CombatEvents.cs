@@ -19,3 +19,6 @@ public class OnNextTurn : StaticUnityEvent<OnNextTurn, GameObject> {}
 
 /// <summary>Triggered upon a new combatant joining combat</summary>
 public class OnCombatantJoin : StaticUnityEvent<OnCombatantJoin, GameObject> {}
+
+/// <summary>Triggered upon a victory or defeat </summary>
+public class OnCombatOutcome : StaticUnityEvent<OnCombatOutcome, bool> {}

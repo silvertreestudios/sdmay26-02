@@ -55,8 +55,8 @@ MonoBehaviour:
   onDeathZombieSFX: {fileID: 8300000, guid: 8aaa890c7fb60504f8c7d6a2f663a4a9, type: 3}
   onDeathPlayerSFX: {fileID: 8300000, guid: 1d22b7f4fe5aace478ea736b1a569b4b, type: 3}
   onMoveSFX: {fileID: 8300000, guid: 6dfbb68d823f5f34aa28dd9764ee6cf1, type: 3}
-  onWinSFX: {fileID: 0}
-  onLoseSFX: {fileID: 0}
+  onWinSFX: {fileID: 8300000, guid: 091be47b202cb054d899df2223daae4b, type: 3}
+  onLoseSFX: {fileID: 8300000, guid: 5ab6db5db39394e4e8cf4c08e2a581fe, type: 3}
 --- !u!1 &5882555310095175149
 GameObject:
   m_ObjectHideFlags: 0
