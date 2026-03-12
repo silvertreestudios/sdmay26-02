@@ -62,7 +62,7 @@ public class MovementRange
     public bool IsCellReachable(Vector3Int cell) => currentReachableTiles.Contains(cell);
 
     // main method to update highlights based on current position and range,
-    // can show either movement range or attack range with line of sight info
+    // can show either movement range or attack range with line of sight info.
     public void UpdateHighlights(Vector3Int startCell, int maxRange, bool showAttackRange = false)
     {
         ClearHighlights();

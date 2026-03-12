@@ -4,7 +4,7 @@ using System.Collections.Generic;
 public class GridFSM : FiniteStateMachine<GridFSMState>
 {
 
-    
+
     //public idle to the states themselves can set the FSM back to idle upon exiting, may change this to be handled by the API
     public StateIdle idleState { get; private set; } = new StateIdle();
     public bool canceled = false;
@@ -31,9 +31,9 @@ public class GridFSM : FiniteStateMachine<GridFSMState>
             timeSinceLastClick = 0f;
             lastClickTime = 0f;
             return true;
-        } 
+        }
         return false;
-        
+
     }
 
     //copilot added this, it is needed for the AI to change states properly because of how fast it acts
@@ -46,7 +46,7 @@ public class GridFSM : FiniteStateMachine<GridFSMState>
     // Update is called once per frame
     public void FSMUpdate(GridCharacterController3D controller)
     {
-        
+
         // if (currentState != null && !isInTransition)
         // {
         //     currentState.StateUpdate();
@@ -55,10 +55,11 @@ public class GridFSM : FiniteStateMachine<GridFSMState>
         if (InputCompat.LeftClickDown())
         {
             lastClickTime = Time.time;
-            if(timeSinceLastClick <= controller.doubleClickTime)
+            if (timeSinceLastClick <= controller.doubleClickTime)
             {
                 currentState.DoubleLeftclick();
-            } else
+            }
+            else
             {
                 currentState.Leftclick();
             }
@@ -78,5 +79,5 @@ public class GridFSM : FiniteStateMachine<GridFSMState>
         // }
     }
 
-    
+
 }
