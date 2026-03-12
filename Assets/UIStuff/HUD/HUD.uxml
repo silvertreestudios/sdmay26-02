@@ -11,6 +11,7 @@
             </ui:VisualElement>
             <ui:Label text="Select Stride:&#10;-Left click on highlighted cell to preview path&#10;-Double click to traverse path&#10;-Right click or press the Cancel button to cancel the action&#10;&#10;Select Unarmed Strike or &lt;Weapon&gt;:&#10;-Left click on highlighted cell with enemy to attack&#10;-Right click or press the Cancel button to cancel the action&#10;&#10;Select End Turn&#10;-Ends the current creature&apos;s turn&#10;&#10;Select Cancel&#10;-Cancels the current action in progress" name="Label" style="-unity-text-outline-color: rgb(255, 165, 0); color: rgb(255, 165, 0); font-size: 18px;" />
         </ui:VisualElement>
+        <ui:Button text="Next Level" name="NextLevelButton" selectable="true" style="visibility: hidden;" />
         <ui:VisualElement style="flex-grow: 1; flex-shrink: 0; width: -16%; height: 100%;" />
         <ui:VisualElement name="CombatLog" style="flex-grow: 0; background-color: rgb(132, 132, 132); visibility: visible; flex-shrink: 0; height: 436px; align-self: stretch; width: 378px; align-items: flex-start; flex-direction: column; justify-content: flex-start;" />
     </ui:VisualElement>
