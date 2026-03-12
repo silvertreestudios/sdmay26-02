@@ -36,15 +36,36 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
 
     private void EndCombat(string winningTeam)
     {
-        StartCoroutine(EndCombatRoutine());
+        if (winningTeam.ToLower() == "players")
+        {
+            //Debug.Log("Players win!");
+            //next level
+            StartCoroutine(NextLevelRoutine());
+            //invoke win sfx
+        }
+        else
+        {
+            //Debug.Log("You lose NEEEEEEEERRRRRRD!");
+            //invoke lose sfx
+            //reset scene
+            StartCoroutine(ResetSceneRoutine());
+        }
+        
     }
 
-    private IEnumerator EndCombatRoutine()
+    private IEnumerator NextLevelRoutine()
     {
         //temporary wait, delete once next level button is implemented
         yield return new WaitForSeconds(3f);
         int nextSceneIndex = SceneManager.GetActiveScene().buildIndex + 1;
         if (nextSceneIndex < SceneManager.sceneCountInBuildSettings)
             SceneManager.LoadScene(nextSceneIndex);
+    }
+
+    private IEnumerator ResetSceneRoutine()
+    {
+        //temporary wait, delete once retry button is implemented
+        yield return new WaitForSeconds(3f);
+        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 }

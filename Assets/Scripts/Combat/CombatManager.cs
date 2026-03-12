@@ -61,8 +61,8 @@ public class CombatManager : CombatManagerInterface
     public override List<GameObject> GetCombatants()
     {
         List<GameObject> list = new();
-        foreach (var c in Combatants)
-            list.Add(c.gameObject);
+        foreach (var c in TurnQueue)
+            list.Add(c.Player.gameObject);
         return list;
     }
 

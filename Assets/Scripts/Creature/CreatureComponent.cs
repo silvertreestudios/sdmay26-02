@@ -163,8 +163,16 @@ namespace Game.Creature
                 else
                     Debug.LogWarning($"Ability '{a}' not found for {name}");
             }
-            Unarmed.AddUnarmedStrike(this.gameObject);
-            StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject);
+            if(this.gameObject.GetComponent<ActionController>() != null)
+            {
+                Unarmed.AddUnarmedStrike(this.gameObject);
+                StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject);
+            }
+            else
+            {
+                Debug.LogWarning($"No ActionController found on {name}, cannot add default strikes");
+            }
+
         }
 
         void Update()
