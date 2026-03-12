@@ -1,0 +1,39 @@
+{ 
+    "playerCharacter": [
+        {
+            "name": "none",
+            "gender": "none",
+            "ancestry": "none",
+            "heritage": "none",
+            "background": "none",
+            "className": "none",
+            "hp": "0",
+            "speed": "0",
+            "size": "0",
+            "strength": "0",
+            "dexterity": "0",
+            "constitution": "0",
+            "intelligence": "0",
+            "wisdom": "0",
+            "charisma": "0",
+            "perception": "none",
+            "fortitude": "none",
+            "reflex": "none",
+            "will": "none",
+            "simpleWeapons": "none",
+            "martialWeapons": "none",
+            "advancedWeapons": "none",
+            "unarmedAttack": "none",
+            "unarmored": "none",
+            "lightArmor": "none",
+            "mediumArmor": "none",
+            "allArmor": "none",
+            "ancestryFeat": "none",
+            "classFeat": "none",
+            "subclass": "none",
+            "specialAbilities": ["none"],
+            "weapon": "none",
+            "armor": "none"
+        }
+    ]
+}

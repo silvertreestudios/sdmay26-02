@@ -15,6 +15,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     public Button moveButton;
     public Button endTurnButton;
     public Button strikeWeaponButtton; // for testing, will need to be generated based on equipped weapons in the future
+    public Button nextLevelButton;
 
 
     //####Player Queue Card Variables####   
@@ -78,6 +79,9 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
         cancelActionButton = ui.Q<Button>("CancelActionButton");
         cancelActionButton.clicked += CancelAction;
+
+        nextLevelButton = ui.Q<Button>("NextLevelButton");
+        nextLevelButton.clicked += NextLevel;
 
         // //####Player Queue Card Setup####
         // currentPlayerCard = ui.Q<VisualElement>("CurrentPlayerInfo");
@@ -270,6 +274,18 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         g.GetComponent<PlayerActionController>().EndTurn();
         combatLog.Log("- " + g.name + " ended their turn.");
     }
+    
+    public void NextLevel() {
+        //put logic here to load next level, for now just log it
+        combatLog.Log("- Proceeding to next level...");
+    }
+
+    //used to toggle next level button visibility when player wins combat, can be called from combat manager
+    public void ToggleNextLevelButton(bool show) {
+        if (nextLevelButton != null) {
+            nextLevelButton.style.visibility = show ? Visibility.Visible : Visibility.Hidden;
+        }
+    }
 
     public void CancelAction() {
         //Debug.Log("CancelAction called");
@@ -295,6 +311,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         // Placeholder logic, always return false for now
         return false;
     }
+
+
 
     private void updateCurrentPlayerCard() {
         // Debug.Log("updateCurrentPlayerCard called");
