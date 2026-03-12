@@ -211,18 +211,24 @@ public class GridMemory : IGridMemory
     public override List<GameObject> GetOccupantsInArea(List<Vector3Int> area)
     {
         List<GameObject> occupants = new List<GameObject>();
+        Debug.Log($"GetOccupantsInArea: Checking {area.Count} positions");
+         
         foreach (Vector3Int point in area)
         {
             TILE tile = GridInfo[point.x, GridY, point.z];
+            Debug.Log($"Position ({point.x}, {point.z}): isOccupied={tile.isOccupied}, type={tile.type}, hasOccupant={tile.occupant != null}");
            
             if (tile.isOccupied && tile.occupant != null)
             {
                 if (tile.type == TileType.Ground || tile.type == TileType.Door)
                 {
                     occupants.Add(tile.occupant);
+                    Debug.Log($"Added occupant: {tile.occupant.name}");
                 }
             }
         }
+        
+        Debug.Log($"GetOccupantsInArea: Found {occupants.Count} total occupants");
         return occupants;
     }
 
