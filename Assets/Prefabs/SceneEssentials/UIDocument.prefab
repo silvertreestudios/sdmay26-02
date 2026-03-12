@@ -69,6 +69,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 19ad426f5072cd64ea9e809ff0f2966d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HUDController
+  playerCardTemplate: {fileID: 9197481963319205126, guid: 16cb4c3c00a8a4a798933578a469e4f4, type: 3}
 --- !u!114 &60518341255468260
 MonoBehaviour:
   m_ObjectHideFlags: 0

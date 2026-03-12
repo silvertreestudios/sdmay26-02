@@ -1,7 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
-using UnityEditor.Experimental.GraphView;
+
 using UnityEngineInternal;
 
 public class Stride : MultiFrameEntityAction

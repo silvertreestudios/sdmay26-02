@@ -20,6 +20,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     //####Player Queue Card Variables####   
     private VisualElement cardHolder; 
+    [SerializeField]
     private VisualTreeAsset playerCardTemplate;
     private bool needToUpdateCards = true;
     private bool needToMoveCards = false;
@@ -58,9 +59,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             * Load the UXML file as a VisualTreeAsset
             * Note: This only works in the Editor. For builds, you would need to use Resources.Load or Addressables.
             */
-#if UNITY_EDITOR
-        playerCardTemplate = UnityEditor.AssetDatabase.LoadAssetAtPath<VisualTreeAsset>("Assets/UIStuff/HUD/Player_Card_Template.uxml");
-        #endif
     }
 
     private void OnEnable() {
@@ -114,6 +112,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     public void EnableUi()
     {
+        combatLog.Log("- Combat Started!");
         this.enabled = true;
     }
 
@@ -179,7 +178,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
             cardInstance.Q<Label>("DESC").text = p.description;
 
-            
+            combatLog.Log($"- {p.name} entered combat with {p.hp} HP.");
         }
     }
 
