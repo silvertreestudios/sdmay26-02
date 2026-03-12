@@ -10,7 +10,7 @@ public class Tile
         Wall,
         Door
     }
-    public Type TileType { get; private set; }
+    public Type TileType { get; set; }
     public Vector3 WorldPosition { get; private set; }
     public Vector3Int GridPosition { get; private set; }
 

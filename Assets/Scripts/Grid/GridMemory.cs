@@ -87,7 +87,7 @@ public class GridMemory : IGridMemory
                         x = x,
                         z = z,
                         type = tileType,
-                        isOccupied = gridData[x, z] == 2 || gridData[x, z] == 3, // Walls and closed doors are occupied
+                        isOccupied = gridData[x, z] == 2, // Walls are occupied
                         status = initialStatus
                     };
                 }
@@ -220,7 +220,7 @@ public class GridMemory : IGridMemory
            
             if (tile.isOccupied && tile.occupant != null)
             {
-                if (tile.type == TileType.Ground)
+                if (tile.type == TileType.Ground || tile.type == TileType.Door)
                 {
                     occupants.Add(tile.occupant);
                     Debug.Log($"Added occupant: {tile.occupant.name}");
