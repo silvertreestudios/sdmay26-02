@@ -1,0 +1,275 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &643034907562709418
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1142766109529394435}
+  - component: {fileID: 4574568237961120023}
+  m_Layer: 0
+  m_Name: Armory
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1142766109529394435
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 643034907562709418}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &4574568237961120023
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 643034907562709418}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8847ceb9b510e4c499d06f502a95bee7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Game.Creature.Armory
+  weapons:
+  - name: Dogslicer
+    type: weapon
+    group: sword
+    category: martial
+    hands: 1
+    damage:
+      numberOfDice: 1
+      sidesPerDie: 6
+      damageType: slashing
+    description: 
+    traits:
+    - agile
+    - backstabber
+    - finesse
+    - goblin
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 0
+  - name: Greataxe
+    type: weapon
+    group: axe
+    category: martial
+    hands: 2
+    damage:
+      numberOfDice: 1
+      sidesPerDie: 12
+      damageType: slashing
+    description: 
+    traits:
+    - sweep
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 2
+  - name: Halberd
+    type: weapon
+    group: polearm
+    category: martial
+    hands: 2
+    damage:
+      numberOfDice: 1
+      sidesPerDie: 10
+      damageType: piercing
+    description: 
+    traits:
+    - reach
+    - versatile-s
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 2
+  - name: Longsword
+    type: weapon
+    group: sword
+    category: martial
+    hands: 1
+    damage:
+      numberOfDice: 1
+      sidesPerDie: 8
+      damageType: slashing
+    description: 
+    traits:
+    - versatile-p
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 1
+  - name: Scimitar
+    type: weapon
+    group: sword
+    category: martial
+    hands: 1
+    damage:
+      numberOfDice: 1
+      sidesPerDie: 6
+      damageType: slashing
+    description: 
+    traits:
+    - forceful
+    - sweep
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 1
+  - name: Shortbow
+    type: weapon
+    group: bow
+    category: martial
+    hands: 2
+    damage:
+      numberOfDice: 1
+      sidesPerDie: 6
+      damageType: piercing
+    description: 
+    traits:
+    - deadly-d10
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 60
+    ammo: arrows
+    bulk: 1
+  - name: Sling
+    type: weapon
+    group: sling
+    category: simple
+    hands: 1
+    damage:
+      numberOfDice: 1
+      sidesPerDie: 6
+      damageType: bludgeoning
+    description: 
+    traits:
+    - propulsive
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 50
+    ammo: sling-bullets
+    bulk: 0
+  - name: Spear
+    type: weapon
+    group: spear
+    category: simple
+    hands: 1
+    damage:
+      numberOfDice: 1
+      sidesPerDie: 6
+      damageType: piercing
+    description: 
+    traits:
+    - monk
+    - thrown-20
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 1
+  armors:
+  - name: Breastplate
+    type: armor
+    category: medium
+    price: 0
+    acBonus: 4
+    dexCap: 1
+    checkPenalty: -2
+    speedPenalty: -5
+    strengthRequirement: 3
+    description: 
+    bulk: 2
+    group: plate
+    armorTraits: []
+  - name: Leather Armor
+    type: armor
+    category: light
+    price: 0
+    acBonus: 1
+    dexCap: 4
+    checkPenalty: -1
+    speedPenalty: 0
+    strengthRequirement: 0
+    description: 
+    bulk: 1
+    group: leather
+    armorTraits: []
+  - name: Padded Armor
+    type: armor
+    category: light
+    price: 0
+    acBonus: 1
+    dexCap: 3
+    checkPenalty: 0
+    speedPenalty: 0
+    strengthRequirement: 0
+    description: 
+    bulk: 0.1
+    group: cloth
+    armorTraits:
+    - comfort
+  - name: Scale Mail
+    type: armor
+    category: medium
+    price: 0
+    acBonus: 3
+    dexCap: 2
+    checkPenalty: -2
+    speedPenalty: -5
+    strengthRequirement: 2
+    description: 
+    bulk: 2
+    group: composite
+    armorTraits: []
+  weaponsCount: 8
+  armorsCount: 4
+  weaponNames:
+  - Dogslicer
+  - Greataxe
+  - Halberd
+  - Longsword
+  - Scimitar
+  - Shortbow
+  - Sling
+  - Spear
+  armorNames:
+  - Breastplate
+  - Leather Armor
+  - Padded Armor
+  - Scale Mail

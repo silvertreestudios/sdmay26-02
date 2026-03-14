@@ -41,6 +41,7 @@ namespace Game.Creature
     }
 
     // Class for rolling dice of given number and sides
+    [System.Serializable]
     public class Dice{
         public int numberOfDice;
         public int sidesPerDie;
