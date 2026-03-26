@@ -35,13 +35,13 @@ public class ViewModel : TokenMeshSelection
         
 
         // Mesh switching logic, switch every 2 sec 
-        meshTimer += Time.deltaTime;
-        if (meshTimer >= 2f && TokenOptions.Length > 0)
-        {
-            meshTimer = 0f;
-            Debug.Log("Switching mesh to: " + TokenOptions[currentMeshIndex].Name);
-            setMeshName(TokenOptions[currentMeshIndex].Name);
-            currentMeshIndex = (currentMeshIndex + 1) % TokenOptions.Length;
-        }
+        // meshTimer += Time.deltaTime;
+        // if (meshTimer >= 2f && TokenOptions.Length > 0)
+        // {
+        //     meshTimer = 0f;
+        //     Debug.Log("Switching mesh to: " + TokenOptions[currentMeshIndex].Name);
+        //     setMeshName(TokenOptions[currentMeshIndex].Name);
+        //     currentMeshIndex = (currentMeshIndex + 1) % TokenOptions.Length;
+        // }
     }
 }

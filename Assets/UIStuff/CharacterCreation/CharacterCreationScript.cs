@@ -127,6 +127,7 @@ public class AttributeContributions
 //Inherits from class `MonoBehaviour`. This makes it attachable to a game object as a component.
 public class CharacterCreationScript : MonoBehaviour
 {
+    [SerializeField] private ViewModel characterClassModel; //this is the spinning model in the middle (refer to ViewModel.cs)
 
     RadioButtonGroup ancestryRadioButtonGroup;
     RadioButtonGroup heritageRadioButtonGroup;
@@ -279,6 +280,9 @@ public class CharacterCreationScript : MonoBehaviour
         currentCharacter = new PlayerCharacter();
         //currentCharacter.ancestry = "elf";
         jsonFile3 = JsonUtility.ToJson(currentCharacter);
+
+        characterClassModel = FindObjectOfType<ViewModel>(); //instanciate to the ViewModel in the scene
+        characterClassModel.setMeshName("default"); //default to default cloaked person
 
         //small enough that I'm keeping as a dictionary for now
         backgroundDescriptionByBackground = new Dictionary<string, List<string>>()
@@ -653,6 +657,8 @@ public class CharacterCreationScript : MonoBehaviour
         PopulateClassDescription(selectedClass);
 
         classChoiceField.value = selectedClass;
+
+        characterClassModel.setMeshName(selectedClass); //sets the spinning model according to the class
 
         classHP = 0;
         classHP = db2.classes.Find(a => a.id == selectedClass).hp;

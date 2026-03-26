@@ -310,11 +310,13 @@ MonoBehaviour:
   - mesh: {fileID: 2062057373995680016, guid: 1f3145ef5adf748ebabf3114a16d1d0c, type: 3}
     Name: Cleric
   - mesh: {fileID: -7846104960446044805, guid: 62fbe19d90a224ceb8fc2061571fb0e2, type: 3}
-    Name: Female Druid
+    Name: Sorcerer
   - mesh: {fileID: -3487786043712524156, guid: 5e6a7860c2f3d46e6ab7afa6182b80b6, type: 3}
-    Name: Foot Knight
+    Name: Fighter
   - mesh: {fileID: -6485565095996508320, guid: b3c6b2fdc866c46a5960e6d306e36637, type: 3}
-    Name: Ranger Archer
+    Name: Rogue
+  - mesh: {fileID: 1788653840435757133, guid: a7f706461d0054e33b6747be52323a33, type: 3}
+    Name: Barbarian
   BaseOptions:
   - mesh: {fileID: 1431553746238890192, guid: 111aee36d4b234665ac7a1c809067fca, type: 3}
     level: 0
@@ -358,7 +360,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 8702933331957744273}
-  m_Mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
+  m_Mesh: {fileID: 7240564204133861249, guid: f1a9de5bda18b48eb83ee4c127002d5d, type: 3}
 --- !u!23 &3809631225244301513
 MeshRenderer:
   m_ObjectHideFlags: 0
