@@ -1,23 +1,40 @@
-﻿using UnityEngine;
+using UnityEngine;
+using UnityEngine.Events;
 
-public class Tile
+namespace GridPrivate
 {
-    public enum Type
+    [System.Serializable]
+    public class Tile
     {
-        Walkable,
-        Ground,
-        Void,
-        Wall,
-        Door
-    }
-    public Type TileType { get; set; }
-    public Vector3 WorldPosition { get; private set; }
-    public Vector3Int GridPosition { get; private set; }
+        /// <summary>
+        /// Event called upon token entering this tile
+        /// </summary>
+        public UnityEvent<GameObject, Vector3Int> OnEnterTile { get; protected set; } = new();
 
-    public Tile(Type type, Vector3 worldPosition, Vector3Int gridPosition)
-    {
-        TileType = type;
-        WorldPosition = worldPosition;
-        GridPosition = gridPosition;
+        /// <summary>
+        /// Event called upon token exiting this tile
+        /// </summary>
+        public UnityEvent<GameObject, Vector3Int> OnExitTile { get; protected set; } = new();
+
+        public GameObject Occupant { get; set; }
+
+        public bool IsObstructing { get; protected set; }
+
+        /// <summary>
+        /// Returns true if the given token can stride
+        /// on this cell
+        /// </summary>
+        /// <param name="token"></param>
+        /// <returns></returns>
+        public bool CanStrideOn(GameObject token)
+        {
+            if (Occupant == null)
+                return true;
+            Team team = Occupant.GetComponent<Team>();
+            Team team2 = token.GetComponent<Team>();
+            if (team && team2 && TeamRules.GetInstance().IsFriendly(team.Name, team2.Name))
+                return true;
+            return false;
+        }
     }
 }

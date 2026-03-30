@@ -1,7 +1,7 @@
 using System.Collections;
 using UnityEngine;
 
-public class Grid : GridAPI
+public class OldGrid : GridAPIFSM
 {
     GridFSM GridFSM = new GridFSM();
     // cancel current action

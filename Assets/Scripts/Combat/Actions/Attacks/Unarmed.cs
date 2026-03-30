@@ -30,7 +30,7 @@ public class Unarmed : MultiFrameEntityAction
         // Grid get target;
         CoroutineResult<GameObject> target = new();
         CoroutineResult<bool> canceled = new();
-        yield return GridAPI.GetInstance().Strike(attacker, range, target, canceled);
+        yield return GridAPIFSM.GetInstance().Strike(attacker, range, target, canceled);
         // I implemented a cancel refund for this action, let me know if it needs to change - Adam
         if(target.Value && !canceled.Value)
         {

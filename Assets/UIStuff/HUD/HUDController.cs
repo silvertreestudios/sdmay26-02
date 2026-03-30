@@ -277,7 +277,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        GridAPI.GetInstance().CancelCurrentAction();
+        GridAPIFSM.GetInstance().CancelCurrentAction();
         g.GetComponent<PlayerActionController>().EndTurn();
         combatLog.Log("- " + g.name + " ended their turn.");
     }
@@ -310,7 +310,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     public void CancelAction() {
         //Debug.Log("CancelAction called");
         //Debug.Log("Clicked Cancel Action button");
-        GridAPI.GetInstance().CancelCurrentAction();
+        GridAPIFSM.GetInstance().CancelCurrentAction();
         GameObject g = CombatManager.GetInstance().WhosTurn();
         combatLog.Log("- " + g.name + " canceled their action.");
     }

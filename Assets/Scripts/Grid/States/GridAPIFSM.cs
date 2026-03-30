@@ -2,7 +2,7 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
 
-public abstract class GridAPI : SingletonMonoBehaviour<GridAPI>
+public abstract class GridAPIFSM : SingletonMonoBehaviour<GridAPIFSM>
 {
     // set dependencies
     protected GridCharacterController3D Controller => GridCharacterController3D.GetInstance();
