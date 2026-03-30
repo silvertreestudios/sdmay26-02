@@ -39,14 +39,26 @@ namespace GridPrivate
 
         private void Awake()
         {
+            HoverPool = new(HoverPrefab);
             RangePool = new(RangePrefab);
             GridAPIPrivate grid = GetComponent<GridAPIPrivate>();
             Tiles = grid.GetTiles();
 
-            OnHover.AddListener((Vector3Int location) =>
+            OnHover.AddListener((List<Vector3Int> locations) =>
             {
-                GameObject hover = HoverPool.GetObject();
-                hover.transform.position = new Vector3(location.x, location.y + 0.003f, location.z);
+                while(HoverList.Count > 0)
+                {
+                    int index = HoverList.Count - 1;
+                    GameObject h = HoverList[index];
+                    h.SetActive(false);
+                    HoverList.RemoveAt(index);
+                }
+                foreach(Vector3Int location in locations)
+                {
+                    GameObject hover = HoverPool.GetObject();
+                    HoverList.Add(hover);
+                    hover.transform.position = new Vector3(location.x, location.y + 0.003f, location.z);
+                }
             });
             OnHoverEnd.AddListener(() => {foreach (GameObject g in RangeList) g.SetActive(false); });
             OnHighlightRange.AddListener(ShowRange);
@@ -68,14 +80,12 @@ namespace GridPrivate
                 Vector3 hit = ray.GetPoint(t);
                 // Convert world to integer cell indices.
                 Vector3Int cell = Vector3Int.RoundToInt(hit);
-                Debug.Log(Tiles.GetLength(0) + ", " + Tiles.GetLength(1));
                 if (
                     cell.x < Tiles.GetLength(0) && cell.x >= 0 &&
-                    cell.z < Tiles.GetLength(1) && cell.z >= 0 &&
-                    Tiles[cell.x, cell.z] != null
+                    cell.z < Tiles.GetLength(1) && cell.z >= 0
                 ) {
                     Hover = cell;
-                    OnHover.Invoke(cell);
+                    OnHover.Invoke(new List<Vector3Int> { cell });
                     return;
                 }
             }

@@ -94,5 +94,19 @@ namespace GridPrivate
         {
             return Tiles;
         }
+
+        public bool PlaceToken(GameObject token)
+        {
+            Vector3Int cell = Vector3Int.RoundToInt(token.transform.position);
+            if(Tiles.GetLength(0) > cell.x && Tiles.GetLength(1) > cell.z)
+            {
+                Tile t = Tiles[cell.x, cell.z];
+                if (t == null)
+                    return false;
+                t.Occupant = token;
+                return true;
+            }
+            return false;
+        }
     }
 }

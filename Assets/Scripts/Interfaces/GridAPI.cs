@@ -34,5 +34,12 @@ namespace GridPrivate
         /// </summary>
         /// <returns></returns>
         public Tile[,] GetTiles();
+
+        /// <summary>
+        /// Adds a token to the map
+        /// </summary>
+        /// <param name="token"></param>
+        /// <returns>true if successfully added</returns>
+        public bool PlaceToken(GameObject token);
     }
 }

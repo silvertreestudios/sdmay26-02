@@ -4,7 +4,7 @@ using UnityEngine;
 namespace GridPrivate
 {
     /// <summary>Triggered on hover</summary>
-    public class OnHover : StaticUnityEvent<OnHover, Vector3Int> { }
+    public class OnHover : StaticUnityEvent<OnHover, List<Vector3Int>> { }
     /// <summary>Triggered on no hover</summary>
     public class OnHoverEnd : StaticUnityEvent<OnHover> { }
     /// <summary>Triggered to highlight range</summary>
