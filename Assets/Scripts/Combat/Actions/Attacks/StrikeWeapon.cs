@@ -42,8 +42,8 @@ public class StrikeWeapon : MultiFrameEntityAction
         List<string> weaponsList = creature.GetComponent<CreatureComponent>().weaponsList;
         foreach(string weaponName in weaponsList)
         {
-            // EquipmentWeapon weapon = DataFileInterface.GetWeapon(weaponName);
-            EquipmentWeapon weapon = Armory.GetInstance().GetWeapon(weaponName); // Bypass DataFileInterface
+            EquipmentWeapon weapon = DataFileInterface.GetWeapon(weaponName);
+            //EquipmentWeapon weapon = Armory.GetInstance().GetWeapon(weaponName); // Bypass DataFileInterface
             if (weapon.range == null || weapon.range == 0)
             {
                 StrikeWeapon strikeWeaponAction = new StrikeWeapon(1, weapon, creature);

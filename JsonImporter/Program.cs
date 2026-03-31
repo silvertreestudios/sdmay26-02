@@ -96,7 +96,7 @@ namespace JsonImporter
         public const string targetDir = "packs";
 
         // Local root directory to save imported files.
-        public static readonly string localRoot = Path.Combine(ComputeLocalRoot(), "Assets", "DataFiles");
+        public static readonly string localRoot = Path.Combine(ComputeLocalRoot(), "Assets", "Resources", "DataFiles");
 
         // GitHub Personal Access Token is now loaded at runtime from gitToken.txt (populated into this field by Program.Main)
         public static string token = "";
