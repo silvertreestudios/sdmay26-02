@@ -14,7 +14,7 @@ public class ViewModel : TokenMeshSelection
     
     protected new void Start()
     {
-        base.Start(); 
+        base.Start();
         rotate = true; 
         rotationSpeed = 20f;
     }

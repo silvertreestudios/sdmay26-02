@@ -302,7 +302,7 @@ public class CharacterCreationScript : MonoBehaviour
         attributes.Add("Charisma", new AttributeContributions());
 
         jsonDebug.clicked += PrintJson; //FOR DEBUGGING THE PLAYERCHARACTER JSON
-        defaultBarbarian.clicked += PopulateDefaultBarbarianJson;
+        defaultBarbarian.clicked += PopulateDefaultBarbarianJsonAndUI;
         finishCharacterCreation.clicked += FinishCreation;
 
         nameField.RegisterValueChangedCallback(OnNameChanged);
@@ -337,44 +337,122 @@ public class CharacterCreationScript : MonoBehaviour
         Debug.Log(JsonUtility.ToJson(currentCharacter, true));
     }
 
-    //Note that this does not populate the display fields. TO DO
-    void PopulateDefaultBarbarianJson()
+    void PopulateDefaultBarbarianJsonAndUI()
     {
-        currentCharacter.name = "Torgrim";
-        currentCharacter.gender = "female";
-        currentCharacter.ancestry = "Dwarf";
-        currentCharacter.heritage = "Rock";
-        currentCharacter.background = "Bandit";
-        currentCharacter.className = "Barbarian";
-        currentCharacter.hp = 22;
-        currentCharacter.speed = 20;
-        currentCharacter.size = "medium";
-        currentCharacter.strength = 4;
-        currentCharacter.dexterity = 2;
-        currentCharacter.constitution = 1;
-        currentCharacter.intelligence = 1;
-        currentCharacter.wisdom = 1;
-        currentCharacter.charisma = 0;
-        currentCharacter.perception = "expert";
-        currentCharacter.fortitude = "expert";
-        currentCharacter.reflex = "trained";
-        currentCharacter.will = "expert";
-        currentCharacter.simpleWeapons = "trained";
-        currentCharacter.martialWeapons = "trained";
-        currentCharacter.advancedWeapons = "untrained";
-        currentCharacter.unarmedAttack = "trained";
-        currentCharacter.unarmored = "trained";
-        currentCharacter.lightArmor = "trained";
-        currentCharacter.mediumArmor = "trained";
-        currentCharacter.allArmor = "untrained";
-        currentCharacter.ancestryFeat = "Mountain Strategy";
-        currentCharacter.classFeat = "Raging Intimidation";
-        currentCharacter.subclass = "Fury Instinct";
-        currentCharacter.specialAbilities = new string[2];
-        currentCharacter.specialAbilities[0] = "dark vision";
-        currentCharacter.specialAbilities[1] = "clan dagger";
-        currentCharacter.weapon = "Great Axe";
-        currentCharacter.armor = "Scalemail";
+        currentCharacter = CreateDefaultBarbarian();
+        UpdateUIFromCharacter(currentCharacter);
+
+        jsonFile3 = JsonUtility.ToJson(currentCharacter); //added this to see if refreshing the json helps, no change so can probably delete later
+
+        Debug.Log(currentCharacter.strength + " should be 4"); //so strength is 4, but the json and display fields are not
+    }
+
+    //makes a default barbarian as a PlayerCharacter object for the json
+    PlayerCharacter CreateDefaultBarbarian()
+    {
+        return new PlayerCharacter
+        {
+            name = "Torgrim",
+            gender = "female",
+            ancestry = "Dwarf",
+            heritage = "Rock",
+            background = "Bandit",
+            className = "Barbarian",
+
+            hp = 22,
+            speed = 20,
+            size = "medium",
+
+            strength = 4,
+            dexterity = 2,
+            constitution = 1,
+            intelligence = 1,
+            wisdom = 1,
+            charisma = 0,
+
+            perception = "expert",
+            fortitude = "expert",
+            reflex = "trained",
+            will = "expert",
+
+            simpleWeapons = "trained",
+            martialWeapons = "trained",
+            advancedWeapons = "untrained",
+            unarmedAttack = "trained",
+
+            unarmored = "trained",
+            lightArmor = "trained",
+            mediumArmor = "trained",
+            allArmor = "untrained",
+
+            ancestryFeat = "Mountain Strategy",
+            classFeat = "Raging Intimidation",
+            subclass = "Fury Instinct",
+
+            specialAbilities = new string[] { "dark vision", "clan dagger" },
+
+            weapon = "Great Axe",
+            armor = "Scalemail"
+        };
+    }
+
+    //uses the default barbarian PlayerCharacter object to populate the UI display fields
+    void UpdateUIFromCharacter(PlayerCharacter c)
+    {
+        nameField.value = c.name;
+
+        genderRadioButtonGroup.value = c.gender == "male" ? 0 : 1;
+
+        //ancestryRadioButtonGroup.value = 2;
+        ancestryRadioButtonGroup.SetValueWithoutNotify(2);
+        ancestryChoiceField.value = c.ancestry;
+
+        //heritageRadioButtonGroup.value = 3;
+        heritageRadioButtonGroup.SetValueWithoutNotify(3);
+        heritageChoiceField.value = c.heritage;
+
+        //backgroundRadioButtonGroup.value = 1;
+        backgroundRadioButtonGroup.SetValueWithoutNotify(1);
+        backgroundChoiceField.value = c.background;
+
+        //classesRadioButtonGroup.value = 4;
+        classesRadioButtonGroup.SetValueWithoutNotify(4);
+        classChoiceField.value = c.className;
+
+        hpField.value = c.hp;
+        speedField.value = c.speed;
+        sizeField.value = c.size;
+
+        strengthAttributeField.value = c.strength;
+        dexterityAttributeField.value = c.dexterity;
+        constitutionAttributeField.value = c.constitution;
+        intelligenceAttributeField.value = c.intelligence;
+        wisdomAttributeField.value = c.wisdom;
+        charismaAttributeField.value = c.charisma;
+
+        perceptionField.value = c.perception;
+        fortitudeField.value = c.fortitude;
+        reflexField.value = c.reflex;
+        willField.value = c.will;
+
+        simpleWeaponsField.value = c.simpleWeapons;
+        martialWeaponsField.value = c.martialWeapons;
+        advancedWeaponsField.value = c.advancedWeapons;
+        unarmedAttackField.value = c.unarmedAttack;
+
+        unarmoredDefenseField.value = c.unarmored;
+        lightArmorField.value = c.lightArmor;
+        mediumArmorField.value = c.mediumArmor;
+        allArmorField.value = c.allArmor;
+
+        //had to use SetValueWithoutNotify for the RadioButtonGroups because setting the value was triggering an event 
+        //ancestryFeatsRadioButtonGroup.value = 2;
+        ancestryFeatsRadioButtonGroup.SetValueWithoutNotify(2);
+        //classFeatsRadioButtonGroup.value = 4;
+        classFeatsRadioButtonGroup.SetValueWithoutNotify(4);
+        //subclassRadioButtonGroup.value = 2;
+        subclassRadioButtonGroup.SetValueWithoutNotify(2);
+        subclassField.value = c.subclass;
     }
 
     void FinishCreation()
