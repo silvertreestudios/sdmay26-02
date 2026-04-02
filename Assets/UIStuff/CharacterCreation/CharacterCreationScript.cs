@@ -282,7 +282,6 @@ public class CharacterCreationScript : MonoBehaviour
         jsonFile3 = JsonUtility.ToJson(currentCharacter);
 
         characterClassModel = FindObjectOfType<ViewModel>(); //instanciate to the ViewModel in the scene
-        characterClassModel.setMeshName("default"); //default to default cloaked person
 
         //small enough that I'm keeping as a dictionary for now
         backgroundDescriptionByBackground = new Dictionary<string, List<string>>()
@@ -399,25 +398,30 @@ public class CharacterCreationScript : MonoBehaviour
     //uses the default barbarian PlayerCharacter object to populate the UI display fields
     void UpdateUIFromCharacter(PlayerCharacter c)
     {
+        characterClassModel.setMeshName("Barbarian");
+
         nameField.value = c.name;
 
         genderRadioButtonGroup.value = c.gender == "male" ? 0 : 1;
 
-        //ancestryRadioButtonGroup.value = 2;
         ancestryRadioButtonGroup.SetValueWithoutNotify(2);
         ancestryChoiceField.value = c.ancestry;
+        PopulateAncestryDescription(c.ancestry);
+        PopulateAncestryFeatButtons(c.ancestry);
 
-        //heritageRadioButtonGroup.value = 3;
+        PopulateHeritageButtons(c.ancestry);
         heritageRadioButtonGroup.SetValueWithoutNotify(3);
         heritageChoiceField.value = c.heritage;
 
-        //backgroundRadioButtonGroup.value = 1;
         backgroundRadioButtonGroup.SetValueWithoutNotify(1);
         backgroundChoiceField.value = c.background;
+        PopulateBackgroundInfo(c.background);
 
-        //classesRadioButtonGroup.value = 4;
         classesRadioButtonGroup.SetValueWithoutNotify(4);
         classChoiceField.value = c.className;
+        PopulateClassDescription(c.className);
+        PopulateClassFeatButtons(c.className);
+        PopulateSubclassButtons(c.className);
 
         hpField.value = c.hp;
         speedField.value = c.speed;
@@ -445,12 +449,9 @@ public class CharacterCreationScript : MonoBehaviour
         mediumArmorField.value = c.mediumArmor;
         allArmorField.value = c.allArmor;
 
-        //had to use SetValueWithoutNotify for the RadioButtonGroups because setting the value was triggering an event 
-        //ancestryFeatsRadioButtonGroup.value = 2;
+        //had to use SetValueWithoutNotify for the RadioButtonGroups because setting the value was triggering an event and causing errors
         ancestryFeatsRadioButtonGroup.SetValueWithoutNotify(2);
-        //classFeatsRadioButtonGroup.value = 4;
         classFeatsRadioButtonGroup.SetValueWithoutNotify(4);
-        //subclassRadioButtonGroup.value = 2;
         subclassRadioButtonGroup.SetValueWithoutNotify(2);
         subclassField.value = c.subclass;
     }
@@ -666,17 +667,15 @@ public class CharacterCreationScript : MonoBehaviour
         backgroundChoiceField.value = selectedBackground;
 
         currentCharacter.background = selectedBackground;
+
+        //when background is changed, also reset the background boosts
+        ClearBackgroundContributions();
+        RefreshAttributeFields();
     }
 
     void PopulateBackgroundInfo(string background)
     {
-        //skill -> red box
-        //skill feat -> red box
-
         backgroundBoostChoiceRadioButtonGroup.Clear();
-        //when background is changed, also reset the background boosts
-        ClearBackgroundContributions();
-        RefreshAttributeFields();
 
         if (!backgroundDescriptionByBackground.TryGetValue(background, out var backgroundBoost))
             return;
@@ -737,6 +736,7 @@ public class CharacterCreationScript : MonoBehaviour
         classChoiceField.value = selectedClass;
 
         characterClassModel.setMeshName(selectedClass); //sets the spinning model according to the class
+        Debug.Log("setMeshName called with: " + selectedClass);
 
         classHP = 0;
         classHP = db2.classes.Find(a => a.id == selectedClass).hp;
