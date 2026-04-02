@@ -177,6 +177,8 @@ public class CharacterCreationScript : MonoBehaviour
     TextField nameField;
     TextField sizeField;
     TextField subclassField;
+    TextField ancestryFeatField;
+    TextField classFeatField;
     Toggle strengthToggle;
     Toggle dexterityToggle;
     Toggle constitutionToggle;
@@ -267,6 +269,8 @@ public class CharacterCreationScript : MonoBehaviour
         nameField = root.Q<TextField>("NameField");
         sizeField = root.Q<TextField>("Size");
         subclassField = root.Q<TextField>("Subclass");
+        ancestryFeatField = root.Q<TextField>("AncestryFeatField");
+        classFeatField = root.Q<TextField>("ClassFeatField");
         notificationElement = root.Q<Button>("NotificationElement");
 
         //for json, assigning
@@ -645,6 +649,7 @@ public class CharacterCreationScript : MonoBehaviour
         }
 
         string selectedAncestryFeat = (ancestryFeatsRadioButtonGroup[evt.newValue] as RadioButton).text; //for some reason .label doesn't work here but .text does
+        ancestryFeatField.value = selectedAncestryFeat;
         currentCharacter.ancestryFeat = selectedAncestryFeat;
     }
 
@@ -809,6 +814,7 @@ public class CharacterCreationScript : MonoBehaviour
         }
 
         string selectedClassFeat = (classFeatsRadioButtonGroup[evt.newValue] as RadioButton).text; //for some reason .label doesn't work here but .text does
+        classFeatField.value = selectedClassFeat;
         currentCharacter.classFeat = selectedClassFeat;
     }
 
