@@ -128,6 +128,7 @@ public class AttributeContributions
 public class CharacterCreationScript : MonoBehaviour
 {
     [SerializeField] private ViewModel characterClassModel; //this is the spinning model in the middle (refer to ViewModel.cs)
+    private TutorialManager tutorial;
 
     RadioButtonGroup ancestryRadioButtonGroup;
     RadioButtonGroup heritageRadioButtonGroup;
@@ -149,6 +150,7 @@ public class CharacterCreationScript : MonoBehaviour
     Label classDescriptionLabel;
     Label classBoostsLabel;
     Label classSkillsLabel;
+    Label tooltip; //made dynamically!
     Button notificationElement;
     TextField ancestryChoiceField;
     TextField heritageChoiceField;
@@ -188,6 +190,13 @@ public class CharacterCreationScript : MonoBehaviour
     Button jsonDebug;
     Button defaultBarbarian;
     Button finishCharacterCreation;
+    Tab ancestryTab;
+    Tab backgroundTab;
+    Tab classTab;
+    VisualElement ancestryTabHeader;
+    VisualElement backgroundTabHeader;
+    VisualElement classTabHeader;
+    VisualElement leftInfoPanel;
     Dictionary<string, List<string>> backgroundDescriptionByBackground;
     List<Toggle> toggles;
     List<string> attributeKeysForToggles; //the index of the List<Toggle> matches the index of List<string> attributeKey
@@ -272,6 +281,13 @@ public class CharacterCreationScript : MonoBehaviour
         ancestryFeatField = root.Q<TextField>("AncestryFeatField");
         classFeatField = root.Q<TextField>("ClassFeatField");
         notificationElement = root.Q<Button>("NotificationElement");
+        ancestryTab = root.Q<Tab>("AncestryTab");
+        ancestryTabHeader = ancestryTab.tabHeader;
+        backgroundTab = root.Q<Tab>("BackgroundTab");
+        backgroundTabHeader = backgroundTab.tabHeader;
+        classTab = root.Q<Tab>("ClassTab");
+        classTabHeader = classTab.tabHeader;
+        leftInfoPanel = root.Q<VisualElement>("LeftPanel");
 
         //for json, assigning
         jsonFile = Resources.Load<TextAsset>("Data/ancestry");
@@ -308,6 +324,21 @@ public class CharacterCreationScript : MonoBehaviour
         defaultBarbarian.clicked += PopulateDefaultBarbarianJsonAndUI;
         finishCharacterCreation.clicked += FinishCreation;
 
+        CreateTooltip(root);
+
+        //TESTING. Would be cleaner as a separate function...
+        tutorial = new TutorialManager(root);
+        tutorial.AddStep(root, "Welcome to the character creation tutorial! Click next to get started.");
+        tutorial.AddStep(ancestryTabHeader, "First, select your ancestry. This determines blah blah");
+        tutorial.AddStep(ancestryTab, "Your ancestry gives you different heritage and ancestry feat options. Be sure to choose a free boost as well!");
+        tutorial.AddStep(backgroundTabHeader, "Next, choose your background.");
+        tutorial.AddStep(classTabHeader, "Then, select your class.");
+        tutorial.AddStep(nameField, "Don't forget to give your character a name!");
+        tutorial.AddStep(leftInfoPanel, "As you build your character, you can see the details of your choices here.");
+        tutorial.AddStep(finishCharacterCreation, "Once you're happy with your character, click here to finish and start your adventure!");
+        tutorial.AddStep(defaultBarbarian, "If you want to skip the work and get to playing, click here to populate the character creation with a default barbarian build.");
+        tutorial.StartTutorial();
+
         nameField.RegisterValueChangedCallback(OnNameChanged);
         genderRadioButtonGroup.RegisterValueChangedCallback(OnGenderChanged);
 
@@ -333,6 +364,20 @@ public class CharacterCreationScript : MonoBehaviour
                 HandleToggleChanged(toggle, evt.newValue);
             });
         }
+    }
+
+    //Continuously called. OnEnable only happens once
+    void Update()
+    {
+        //update tooltip text for hpField in case classHP or ancestryHP has changed
+        HoverOverElement(hpField, "HP from class: " + classHP + "\nHP from ancestry: " + ancestryHP);
+        HoverOverElement(strengthAttributeField, "Breakdown:\nAncestry: " + attributes["Strength"].ancestry + "\nAncestry Free Choice: " + attributes["Strength"].ancestryFreeChoice + "\nBackground: " + attributes["Strength"].background + "\nBackground Free Choice: " + attributes["Strength"].backgroundFreeChoice + "\nClass: " + attributes["Strength"].className + "\nFree Choice: " + attributes["Strength"].freeChoice);
+        HoverOverElement(dexterityAttributeField, "Breakdown:\nAncestry: " + attributes["Dexterity"].ancestry + "\nAncestry Free Choice: " + attributes["Dexterity"].ancestryFreeChoice + "\nBackground: " + attributes["Dexterity"].background + "\nBackground Free Choice: " + attributes["Dexterity"].backgroundFreeChoice + "\nClass: " + attributes["Dexterity"].className + "\nFree Choice: " + attributes["Dexterity"].freeChoice);
+        HoverOverElement(constitutionAttributeField, "Breakdown:\nAncestry: " + attributes["Constitution"].ancestry + "\nAncestry Free Choice: " + attributes["Constitution"].ancestryFreeChoice + "\nBackground: " + attributes["Constitution"].background + "\nBackground Free Choice: " + attributes["Constitution"].backgroundFreeChoice + "\nClass: " + attributes["Constitution"].className + "\nFree Choice: " + attributes["Constitution"].freeChoice);
+        HoverOverElement(intelligenceAttributeField, "Breakdown:\nAncestry: " + attributes["Intelligence"].ancestry + "\nAncestry Free Choice: " + attributes["Intelligence"].ancestryFreeChoice + "\nBackground: " + attributes["Intelligence"].background + "\nBackground Free Choice: " + attributes["Intelligence"].backgroundFreeChoice + "\nClass: " + attributes["Intelligence"].className + "\nFree Choice: " + attributes["Intelligence"].freeChoice);
+        HoverOverElement(wisdomAttributeField, "Breakdown:\nAncestry: " + attributes["Wisdom"].ancestry + "\nAncestry Free Choice: " + attributes["Wisdom"].ancestryFreeChoice + "\nBackground: " + attributes["Wisdom"].background + "\nBackground Free Choice: " + attributes["Wisdom"].backgroundFreeChoice + "\nClass: " + attributes["Wisdom"].className + "\nFree Choice: " + attributes["Wisdom"].freeChoice);
+        HoverOverElement(charismaAttributeField, "Breakdown:\nAncestry: " + attributes["Charisma"].ancestry + "\nAncestry Free Choice: " + attributes["Charisma"].ancestryFreeChoice + "\nBackground: " + attributes["Charisma"].background + "\nBackground Free Choice: " + attributes["Charisma"].backgroundFreeChoice + "\nClass: " + attributes["Charisma"].className + "\nFree Choice: " + attributes["Charisma"].freeChoice);
+
     }
 
     void PrintJson()
@@ -980,5 +1025,45 @@ public class CharacterCreationScript : MonoBehaviour
         currentCharacter.charisma = charismaAttributeField.value;
 
         // Debug.Log(JsonUtility.ToJson(currentCharacter, true));
+    }
+
+    //dynamically make Tooltip element rather than try to place it somewhere in the UXML
+    void CreateTooltip(VisualElement root)
+    {
+        tooltip = new Label();
+        tooltip.style.position = Position.Absolute;
+        tooltip.style.backgroundColor = new Color(0, 0, 0, 0.8f);
+        tooltip.style.color = Color.white;
+        tooltip.style.paddingLeft = 5;
+        tooltip.style.paddingRight = 5;
+        tooltip.style.paddingTop = 3;
+        tooltip.style.paddingBottom = 3;
+        tooltip.style.display = DisplayStyle.None;
+
+        root.Add(tooltip);
+    }
+
+    void HoverOverElement(VisualElement element, string tooltipText)
+    {
+
+        //on hover
+        element.RegisterCallback<MouseEnterEvent>(evt =>
+        {
+            tooltip.text = tooltipText;
+            tooltip.style.display = DisplayStyle.Flex;
+        });
+
+        //then when mouse leaves the element
+        element.RegisterCallback<MouseLeaveEvent>(evt =>
+        {
+            tooltip.style.display = DisplayStyle.None;
+        });
+
+        //tooltip follows mouse
+        element.RegisterCallback<MouseMoveEvent>(evt =>
+        {
+            tooltip.style.left = evt.mousePosition.x + 10;
+            tooltip.style.top = evt.mousePosition.y + 10;
+        });
     }
 }
