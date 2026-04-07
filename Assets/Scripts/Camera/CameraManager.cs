@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 //using System.Numerics;
 using Unity.VisualScripting;
@@ -33,6 +34,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
     void Awake()
     {
+        base.Awake();
         moveAction = InputSystem.actions.FindAction("MoveCamera");
         zoomAction = InputSystem.actions.FindAction("ZoomCamera");
         rotateAction = InputSystem.actions.FindAction("RotateCamera");
@@ -155,6 +157,41 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
             sum += pos;
         }
         return sum / positions.Length;
+    }
+
+    public void PanToTarget(GameObject target)
+    {
+        if (target == null) return;
+        StartCoroutine(PanToTargetRoutine(target));
+    }
+
+    private IEnumerator PanToTargetRoutine(GameObject target)
+    {
+        float panDuration = 0.5f;
+        float trackDuration = 1f;
+        Vector3 offset = mainCamera.transform.position - GetCameraLookAtPosition();
+
+        // Pan to target over 0.5 seconds
+        float elapsed = 0f;
+        while (elapsed < panDuration)
+        {
+            if (target == null) yield break;
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / panDuration);
+            Vector3 desiredPosition = target.transform.position + offset;
+            mainCamera.transform.position = Vector3.Lerp(mainCamera.transform.position, desiredPosition, t);
+            yield return null;
+        }
+
+        // Track target for 1 second
+        elapsed = 0f;
+        while (elapsed < trackDuration)
+        {
+            if (target == null) yield break;
+            elapsed += Time.deltaTime;
+            mainCamera.transform.position = target.transform.position + offset;
+            yield return null;
+        }
     }
 
     public void FocusOnCombatants()

@@ -10,7 +10,7 @@
     background-color: rgba(86, 92, 68, 0.2);
     color: rgb(233, 196, 140);
     font-size: 25px;
-    transition-duration: 1.5s;
+    transition-duration: 1s;
     transition-property: background-color, color, font-size;
 }
 

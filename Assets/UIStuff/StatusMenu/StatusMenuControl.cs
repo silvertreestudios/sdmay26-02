@@ -48,6 +48,7 @@ public class StatusMenuControl : MonoBehaviour
     }
 
     private bool isPaused = false;
+    private StatusType currentStatus = StatusType.Paused;
 
     private void Update()
     {
@@ -70,15 +71,21 @@ public class StatusMenuControl : MonoBehaviour
         {
             case StatusType.YouWin:
                 statusLabel.text = "You Win";
+                statusLabel.style.color = new UnityEngine.UIElements.StyleColor(UnityEngine.Color.green);
+                newGameButton.text = "Next Level";
                 break;
             case StatusType.YouLose:
                 statusLabel.text = "You Lose";
+                statusLabel.style.color = new UnityEngine.UIElements.StyleColor(UnityEngine.Color.red);
+                newGameButton.text = "New Game";
                 break;
             case StatusType.Paused:
                 statusLabel.text = "Paused";
+                newGameButton.text = "New Game";
                 break;
         }
 
+        currentStatus = status;
         isPaused = status == StatusType.Paused;
         if (isPaused) Time.timeScale = 0f;
         ui.style.display = DisplayStyle.Flex;
@@ -94,7 +101,16 @@ public class StatusMenuControl : MonoBehaviour
     public void NewGame()
     {
         Time.timeScale = 1f;
-        SceneManager.LoadScene("CharacterCreationScene");
+        if (currentStatus == StatusType.YouWin)
+        {
+            int nextSceneIndex = SceneManager.GetActiveScene().buildIndex + 1;
+            if (nextSceneIndex < SceneManager.sceneCountInBuildSettings)
+                SceneManager.LoadScene(nextSceneIndex);
+        }
+        else
+        {
+            SceneManager.LoadScene("CharacterCreationScene");
+        }
     }
 
     public void RestartLevel()

@@ -23,7 +23,11 @@ public class TokenMeshSelection : MonoBehaviour
         // Only update in editor when values change and object is in a scene
         if (gameObject.scene.IsValid())
         {
-            UpdateTokenMesh();
+            UnityEditor.EditorApplication.delayCall += () =>
+            {
+                if (this != null && gameObject != null)
+                    UpdateTokenMesh();
+            };
         }
     }
     #endif
