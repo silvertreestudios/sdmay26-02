@@ -15,11 +15,13 @@
 
 .combat_log_background {
     transition-duration: 3s;
-    background-color: rgba(209, 209, 209, 0);
+    /* background-color: rgba(209, 209, 209, 0); */
+    background-color: rgba(0, 0, 0, 0);
 }
 
 .combat_log_background:hover {
-    background-color: rgba(209, 209, 209, 1);
+    /* background-color: rgba(209, 209, 209, 1); */
+    background-color: rgba(0, 0, 0, 0);
     transition-duration: 0.5s;
 }
 

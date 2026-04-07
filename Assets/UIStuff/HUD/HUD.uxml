@@ -13,7 +13,7 @@
         </ui:VisualElement>
         <ui:Button text="Next Level" name="NextLevelButton" selectable="true" style="visibility: hidden;" />
         <ui:VisualElement style="flex-grow: 1; flex-shrink: 0; width: -16%; height: 100%;" />
-        <ui:VisualElement name="CombatLog" class="combat_log_background" style="flex-grow: 0; visibility: visible; flex-shrink: 0; height: 436px; align-self: stretch; width: 378px; align-items: flex-start; flex-direction: column; justify-content: flex-start;" />
+        <ui:VisualElement name="CombatLog" class="combat_log_background" style="flex-grow: 0; visibility: visible; flex-shrink: 0; height: 550px; align-self: stretch; width: 500px; align-items: flex-start; flex-direction: column; justify-content: flex-start;" />
     </ui:VisualElement>
     <ui:VisualElement name="CardHolder" style="flex-grow: 1; align-items: flex-end; justify-content: center; flex-direction: row;" />
 </ui:UXML>

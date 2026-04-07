@@ -30,6 +30,8 @@ public class StatusMenuControl : MonoBehaviour
 
         quitGameButton = ui.Q<Button>("QuitGameButton");
         quitGameButton.clicked += QuitGame;
+
+        OnCombatOutcome.AddListener(OnCombatOutcomeHandler);
     }
 
     private void OnDestroy()
@@ -37,6 +39,12 @@ public class StatusMenuControl : MonoBehaviour
         if (newGameButton != null) newGameButton.clicked -= NewGame;
         if (restartLevelButton != null) restartLevelButton.clicked -= RestartLevel;
         if (quitGameButton != null) quitGameButton.clicked -= QuitGame;
+        OnCombatOutcome.RemoveListener(OnCombatOutcomeHandler);
+    }
+
+    private void OnCombatOutcomeHandler(bool playerWon)
+    {
+        Show(playerWon ? StatusType.YouWin : StatusType.YouLose);
     }
 
     private bool isPaused = false;

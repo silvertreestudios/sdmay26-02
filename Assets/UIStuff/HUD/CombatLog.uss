@@ -7,17 +7,17 @@
 }
 
 #CombatLog .unity-list-view__item {
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(86, 92, 68, 0.2);
     color: rgb(233, 196, 140);
-    font-size: 20px;
-    transition-duration: 0.5s;
+    font-size: 25px;
+    transition-duration: 1.5s;
     transition-property: background-color, color, font-size;
 }
 
 #CombatLog .unity-list-view__item:hover {
-    background-color: rgba(190, 21, 21, 1);
-    color: rgb(255, 255, 255);
+    background-color: rgb(86, 92, 68);
+    color: rgb(233, 196, 140);
     font-size: 25px;
-    transition-duration: 0.5s;
+    transition-duraton: 0.5s;
     transition-property: background-color, color, font-size;
 }
