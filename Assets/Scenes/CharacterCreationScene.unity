@@ -244,6 +244,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e942b9d83fff57840bef847d1a8469d0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
+  characterClassModel: {fileID: 0}
 --- !u!1 &1319578096
 GameObject:
   m_ObjectHideFlags: 0
@@ -441,9 +442,17 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 3312765401456921741, guid: 029c0471d8ad54eb4a7242044d97f7dd, type: 3}
+      propertyPath: m_Mesh
+      value: 
+      objectReference: {fileID: 7240564204133861249, guid: f1a9de5bda18b48eb83ee4c127002d5d, type: 3}
     - target: {fileID: 4250615070516425197, guid: 029c0471d8ad54eb4a7242044d97f7dd, type: 3}
       propertyPath: m_Name
       value: ViewModel
+      objectReference: {fileID: 0}
+    - target: {fileID: 6819483576359709902, guid: 029c0471d8ad54eb4a7242044d97f7dd, type: 3}
+      propertyPath: _name
+      value: Wizard
       objectReference: {fileID: 0}
     - target: {fileID: 6933968513404160077, guid: 029c0471d8ad54eb4a7242044d97f7dd, type: 3}
       propertyPath: m_LocalPosition.x
