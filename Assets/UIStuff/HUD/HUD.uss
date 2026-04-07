@@ -13,8 +13,23 @@
     transition-duration: 0.5s;
 }
 
+.combat_log_background {
+    transition-duration: 3s;
+    background-color: rgba(209, 209, 209, 0);
+}
 
+.combat_log_background:hover {
+    background-color: rgba(209, 209, 209, 1);
+    transition-duration: 0.5s;
+}
 
+.combat_log_text {
+    opacity: 0.5;
+    transition-duration: 0.5s;
+}
 
-
-
+.combat_log_text:hover {
+    opacity: 1;
+    text-color: rgb(233, 196, 140);
+    transition-duration: 0.5s;
+}

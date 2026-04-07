@@ -1,7 +1,7 @@
 <ui:UXML xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" noNamespaceSchemaLocation="../../../UIElementsSchema/UIElements.xsd" editor-extension-mode="False">
     <Style src="project://database/Assets/UIStuff/HUD/HUD.uss?fileID=7433441132597879392&amp;guid=7bce28169aab53a4c97f829107456fc8&amp;type=3#HUD" />
     <ui:VisualElement name="UpperArea" style="flex-grow: 1; flex-direction: row; align-items: flex-start; visibility: visible; height: 30%; justify-content: space-between; align-self: stretch; flex-shrink: 0; align-content: auto;">
-        <ui:VisualElement name="Panel" style="flex-grow: 1; flex-shrink: 1; visibility: visible; flex-direction: row; justify-content: flex-start; align-items: flex-start; align-content: auto; width: 0;">
+        <ui:VisualElement name="Panel" style="flex-grow: 1; flex-shrink: 1; visibility: visible; flex-direction: row; justify-content: flex-start; align-items: flex-start; align-content: auto; width: 0; background-color: rgb(209, 209, 209);">
             <ui:VisualElement name="BasicButtonContainer" style="flex-grow: 1; align-self: flex-start; align-content: auto; justify-content: flex-start; align-items: stretch; flex-shrink: 0;">
                 <ui:Button text="Unarmed Strike" name="StrikeButton" class="unity-button-hover" />
                 <ui:Button text="Strike Weapon" name="StrikeWeaponButton" class="unity-button-hover" />
@@ -9,11 +9,11 @@
                 <ui:Button text="End Turn" name="EndTurnButton" class="unity-button-hover" />
                 <ui:Button text="Cancel" name="CancelActionButton" style="align-items: auto; align-self: auto; align-content: auto;" />
             </ui:VisualElement>
-            <ui:Label text="Select Stride:&#10;-Left click on highlighted cell to preview path&#10;-Double click to traverse path&#10;-Right click or press the Cancel button to cancel the action&#10;&#10;Select Unarmed Strike or &lt;Weapon&gt;:&#10;-Left click on highlighted cell with enemy to attack&#10;-Right click or press the Cancel button to cancel the action&#10;&#10;Select End Turn&#10;-Ends the current creature&apos;s turn&#10;&#10;Select Cancel&#10;-Cancels the current action in progress" name="Label" style="-unity-text-outline-color: rgb(255, 165, 0); color: rgb(255, 165, 0); font-size: 18px;" />
+            <ui:Label text="Select Stride:&#10;-Left click on highlighted cell to preview path&#10;-Double click to traverse path&#10;-Right click or press the Cancel button to cancel the action&#10;&#10;Select Unarmed Strike or &lt;Weapon&gt;:&#10;-Left click on highlighted cell with enemy to attack&#10;-Right click or press the Cancel button to cancel the action&#10;&#10;Select End Turn&#10;-Ends the current creature&apos;s turn&#10;&#10;Select Cancel&#10;-Cancels the current action in progress" name="Label" style="-unity-text-outline-color: rgb(0, 0, 0); color: rgb(0, 0, 0); font-size: 18px; flex-wrap: wrap; white-space: pre-wrap; height: 100%; width: 385px; flex-grow: 1; -unity-text-align: upper-left; -unity-font-style: bold;" />
         </ui:VisualElement>
         <ui:Button text="Next Level" name="NextLevelButton" selectable="true" style="visibility: hidden;" />
         <ui:VisualElement style="flex-grow: 1; flex-shrink: 0; width: -16%; height: 100%;" />
-        <ui:VisualElement name="CombatLog" style="flex-grow: 0; background-color: rgb(132, 132, 132); visibility: visible; flex-shrink: 0; height: 436px; align-self: stretch; width: 378px; align-items: flex-start; flex-direction: column; justify-content: flex-start;" />
+        <ui:VisualElement name="CombatLog" class="combat_log_background" style="flex-grow: 0; visibility: visible; flex-shrink: 0; height: 436px; align-self: stretch; width: 378px; align-items: flex-start; flex-direction: column; justify-content: flex-start;" />
     </ui:VisualElement>
     <ui:VisualElement name="CardHolder" style="flex-grow: 1; align-items: flex-end; justify-content: center; flex-direction: row;" />
 </ui:UXML>

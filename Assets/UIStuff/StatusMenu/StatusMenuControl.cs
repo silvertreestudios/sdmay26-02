@@ -18,7 +18,7 @@ public class StatusMenuControl : MonoBehaviour
         ui.style.display = DisplayStyle.None;
     }
 
-    private void OnEnable()
+    private void Start()
     {
         statusLabel = ui.Q<Label>("StatusLabel");
 
@@ -32,11 +32,11 @@ public class StatusMenuControl : MonoBehaviour
         quitGameButton.clicked += QuitGame;
     }
 
-    private void OnDisable()
+    private void OnDestroy()
     {
-        newGameButton.clicked -= NewGame;
-        restartLevelButton.clicked -= RestartLevel;
-        quitGameButton.clicked -= QuitGame;
+        if (newGameButton != null) newGameButton.clicked -= NewGame;
+        if (restartLevelButton != null) restartLevelButton.clicked -= RestartLevel;
+        if (quitGameButton != null) quitGameButton.clicked -= QuitGame;
     }
 
     private bool isPaused = false;
