@@ -129,7 +129,6 @@ public class CharacterCreationScript : MonoBehaviour
 {
     [SerializeField] private ViewModel characterClassModel; //this is the spinning model in the middle (refer to ViewModel.cs)
     private TutorialManager tutorial;
-
     RadioButtonGroup ancestryRadioButtonGroup;
     RadioButtonGroup heritageRadioButtonGroup;
     RadioButtonGroup ancestryFeatsRadioButtonGroup;
@@ -193,10 +192,14 @@ public class CharacterCreationScript : MonoBehaviour
     Tab ancestryTab;
     Tab backgroundTab;
     Tab classTab;
+    Tab finalBoostsTab;
     VisualElement ancestryTabHeader;
     VisualElement backgroundTabHeader;
     VisualElement classTabHeader;
+    VisualElement finalBoostsTabHeader;
     VisualElement leftInfoPanel;
+    Foldout attackDropdownMenu;
+    Foldout defenseDropdownMenu;
     Dictionary<string, List<string>> backgroundDescriptionByBackground;
     List<Toggle> toggles;
     List<string> attributeKeysForToggles; //the index of the List<Toggle> matches the index of List<string> attributeKey
@@ -287,7 +290,11 @@ public class CharacterCreationScript : MonoBehaviour
         backgroundTabHeader = backgroundTab.tabHeader;
         classTab = root.Q<Tab>("ClassTab");
         classTabHeader = classTab.tabHeader;
+        finalBoostsTab = root.Q<Tab>("FinalBoosts");
+        finalBoostsTabHeader = finalBoostsTab.tabHeader;
         leftInfoPanel = root.Q<VisualElement>("LeftPanel");
+        attackDropdownMenu = root.Q<Foldout>("ClassAttackFoldout");
+        defenseDropdownMenu = root.Q<Foldout>("ClassDefenseFoldout");
 
         //for json, assigning
         jsonFile = Resources.Load<TextAsset>("Data/ancestry");
@@ -330,11 +337,12 @@ public class CharacterCreationScript : MonoBehaviour
         tutorial = new TutorialManager(root);
         tutorial.AddStep(root, "Welcome to the character creation tutorial! Click next to get started.");
         tutorial.AddStep(ancestryTabHeader, "First, select your ancestry. This determines blah blah");
-        tutorial.AddStep(ancestryTab, "Your ancestry gives you different heritage and ancestry feat options. Be sure to choose a free boost as well!");
+        tutorial.AddStep(ancestryTab, "Your ancestry gives you different heritage and ancestry feat options. \nBe sure to choose a free boost as well!");
         tutorial.AddStep(backgroundTabHeader, "Next, choose your background.");
-        tutorial.AddStep(classTabHeader, "Then, select your class.");
+        tutorial.AddStep(classTabHeader, "Then, select your class. You can choose a subclass and class feat as well.");
+        tutorial.AddStep(finalBoostsTabHeader, "Finally, assign your free attribute boosts. You can only choose 4, so choose wisely!");
         tutorial.AddStep(nameField, "Don't forget to give your character a name!");
-        tutorial.AddStep(leftInfoPanel, "As you build your character, you can see the details of your choices here.");
+        tutorial.AddStep(leftInfoPanel, "As you build your character, you can see the details of your choices here. Hover over a field to see more info.");
         tutorial.AddStep(finishCharacterCreation, "Once you're happy with your character, click here to finish and start your adventure!");
         tutorial.AddStep(defaultBarbarian, "If you want to skip the work and get to playing, click here to populate the character creation with a default barbarian build.");
         tutorial.StartTutorial();
@@ -370,7 +378,7 @@ public class CharacterCreationScript : MonoBehaviour
     void Update()
     {
         //update tooltip text for hpField in case classHP or ancestryHP has changed
-        HoverOverElement(hpField, "HP from class: " + classHP + "\nHP from ancestry: " + ancestryHP);
+        HoverOverElement(hpField, "Health \nHP from class: " + classHP + "\nHP from ancestry: " + ancestryHP);
         HoverOverElement(strengthAttributeField, "Breakdown:\nAncestry: " + attributes["Strength"].ancestry + "\nAncestry Free Choice: " + attributes["Strength"].ancestryFreeChoice + "\nBackground: " + attributes["Strength"].background + "\nBackground Free Choice: " + attributes["Strength"].backgroundFreeChoice + "\nClass: " + attributes["Strength"].className + "\nFree Choice: " + attributes["Strength"].freeChoice);
         HoverOverElement(dexterityAttributeField, "Breakdown:\nAncestry: " + attributes["Dexterity"].ancestry + "\nAncestry Free Choice: " + attributes["Dexterity"].ancestryFreeChoice + "\nBackground: " + attributes["Dexterity"].background + "\nBackground Free Choice: " + attributes["Dexterity"].backgroundFreeChoice + "\nClass: " + attributes["Dexterity"].className + "\nFree Choice: " + attributes["Dexterity"].freeChoice);
         HoverOverElement(constitutionAttributeField, "Breakdown:\nAncestry: " + attributes["Constitution"].ancestry + "\nAncestry Free Choice: " + attributes["Constitution"].ancestryFreeChoice + "\nBackground: " + attributes["Constitution"].background + "\nBackground Free Choice: " + attributes["Constitution"].backgroundFreeChoice + "\nClass: " + attributes["Constitution"].className + "\nFree Choice: " + attributes["Constitution"].freeChoice);
@@ -378,6 +386,16 @@ public class CharacterCreationScript : MonoBehaviour
         HoverOverElement(wisdomAttributeField, "Breakdown:\nAncestry: " + attributes["Wisdom"].ancestry + "\nAncestry Free Choice: " + attributes["Wisdom"].ancestryFreeChoice + "\nBackground: " + attributes["Wisdom"].background + "\nBackground Free Choice: " + attributes["Wisdom"].backgroundFreeChoice + "\nClass: " + attributes["Wisdom"].className + "\nFree Choice: " + attributes["Wisdom"].freeChoice);
         HoverOverElement(charismaAttributeField, "Breakdown:\nAncestry: " + attributes["Charisma"].ancestry + "\nAncestry Free Choice: " + attributes["Charisma"].ancestryFreeChoice + "\nBackground: " + attributes["Charisma"].background + "\nBackground Free Choice: " + attributes["Charisma"].backgroundFreeChoice + "\nClass: " + attributes["Charisma"].className + "\nFree Choice: " + attributes["Charisma"].freeChoice);
 
+        HoverOverElement(sizeField, "Size is determined by ancestry. May be Small or Medium.");
+        HoverOverElement(speedField, "Speed is determined by ancestry. It is how far you can move in one action.");
+        HoverOverElement(perceptionField, "Perception is a measure of how aware your character is of their surroundings. It is determined by class.");
+        HoverOverElement(fortitudeField, "Fortitude is a measure of your character's physical toughness and resilience. It is determined by class.");
+        HoverOverElement(reflexField, "Reflex is a measure of your character's agility and quickness. It is determined by class.");
+        HoverOverElement(willField, "Will is a measure of your character's mental fortitude and determination. It is determined by class.");
+        HoverOverElement(attackDropdownMenu, "Proficiency with various weapon types. Determined by class.");
+        HoverOverElement(defenseDropdownMenu, "Proficiency with different armor types and unarmored defense. Determined by class.");
+
+        //attributes? others?
     }
 
     void PrintJson()

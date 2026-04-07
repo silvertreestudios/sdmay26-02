@@ -48,6 +48,8 @@ public class TutorialManager //note that this is not MonoBehaviour!
         panel.style.borderBottomRightRadius = 5;
         panel.style.borderTopLeftRadius = 5;
         panel.style.borderTopRightRadius = 5;
+        panel.style.maxWidth = 300;
+        panel.style.maxHeight = 200; //maxes keep the panel from stretching off screen with long text
 
         //"spotlight" highlight around the target element
         highlight = new VisualElement();
@@ -63,6 +65,8 @@ public class TutorialManager //note that this is not MonoBehaviour!
         highlight.style.backgroundColor = new Color(1, 1, 0, 0.1f);
 
         textLabel = new Label();
+        textLabel.style.whiteSpace = WhiteSpace.Normal;
+        textLabel.style.flexWrap = Wrap.Wrap; //allows text to wrap within the panel, helpful for long text also
 
         nextButton = new Button(NextStep) { text = "Next" };
         skipButton = new Button(EndTutorial) { text = "Skip" };
@@ -105,32 +109,66 @@ public class TutorialManager //note that this is not MonoBehaviour!
             float panelWidth = panel.resolvedStyle.width;
             float panelHeight = panel.resolvedStyle.height;
 
-            float x = bounds.xMax + 10; //default: right side
-            float y = bounds.yMin;
+            float padding = 10f;
 
-            //flip horizontally if overflowing right
-            if (x + panelWidth > rootBounds.width)
+            //make highlight rectangle
+            Rect highlightRect = new Rect(
+                bounds.xMin - 4,
+                bounds.yMin - 4,
+                bounds.width + 8,
+                bounds.height + 8
+            );
+
+            //"candidate positions" (options to prevent the tutorial box from going off screen or overlapping the highlight)
+            List<Vector2> candidates = new List<Vector2>()
             {
-                x = bounds.xMin - panelWidth - 10; //move to left side
+                //right
+                new Vector2(bounds.xMax + padding, bounds.yMin),
+
+                //left
+                new Vector2(bounds.xMin - panelWidth - padding, bounds.yMin),
+
+                //below
+                new Vector2(bounds.xMin, bounds.yMax + padding),
+
+                //above
+                new Vector2(bounds.xMin, bounds.yMin - panelHeight - padding)
+            };
+
+            Vector2 chosen = candidates[0]; //fallback in case all candidates are bad
+
+            //pick the first candidate that doesn't overlap the highlight and is fully on screen
+            foreach (var pos in candidates)
+            {
+                Rect panelRect = new Rect(pos.x, pos.y, panelWidth, panelHeight);
+
+                bool overlapsHighlight = panelRect.Overlaps(highlightRect);
+
+                bool insideScreen =
+                    pos.x >= 0 &&
+                    pos.y >= 0 &&
+                    pos.x + panelWidth <= rootBounds.width &&
+                    pos.y + panelHeight <= rootBounds.height;
+
+                if (!overlapsHighlight && insideScreen)
+                {
+                    chosen = pos;
+                    break;
+                }
             }
 
-            //flip vertically if overflowing bottom
-            if (y + panelHeight > rootBounds.height)
-            {
-                y = rootBounds.height - panelHeight - 10;
-            }
-
-            //clamp to screen bounds just in case
-            x = Mathf.Clamp(x, 10, rootBounds.width - panelWidth - 10);
-            y = Mathf.Clamp(y, 10, rootBounds.height - panelHeight - 10);
+            //clamp to screen just in case
+            float x = Mathf.Clamp(chosen.x, padding, rootBounds.width - panelWidth - padding);
+            float y = Mathf.Clamp(chosen.y, padding, rootBounds.height - panelHeight - padding);
 
             panel.style.left = x;
             panel.style.top = y;
 
-            highlight.style.left = bounds.xMin - 4;
-            highlight.style.top = bounds.yMin - 4;
-            highlight.style.width = bounds.width + 8;
-            highlight.style.height = bounds.height + 8;
+            //highlight positioning
+            highlight.style.left = highlightRect.x;
+            highlight.style.top = highlightRect.y;
+            highlight.style.width = highlightRect.width;
+            highlight.style.height = highlightRect.height;
 
             textLabel.text = step.message;
         });
