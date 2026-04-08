@@ -2,6 +2,8 @@ using UnityEngine;
 
 public abstract class EntityAction
 {
+    // Done by Ryan Meyer 04/07/2026
+    public abstract string ActionName { get; }
     public uint ActionCost { get; }
 
     public EntityAction(uint cost)

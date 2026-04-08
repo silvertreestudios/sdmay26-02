@@ -6,6 +6,8 @@ using UnityEngineInternal;
 
 public class Stride : MultiFrameEntityAction
 {
+    // Done by Ryan Meyer 04/07/2026
+    public override string ActionName => "Stride";
     public Stride(uint cost) : base(cost)
     {
         

@@ -1,0 +1,14 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/UIStuff/SettingsMenu/SettingsMenu.uss" />
+    <ui:VisualElement name="Overlay" style="flex-grow: 1; width: 100%; height: 100%; align-items: center; justify-content: center; flex-direction: column; background-color: rgba(0, 0, 0, 0.6);">
+        <ui:VisualElement name="Panel" style="align-items: flex-start; justify-content: flex-start; flex-direction: column; background-color: rgb(86, 92, 68); padding-top: 40px; padding-bottom: 40px; padding-left: 60px; padding-right: 60px; border-top-left-radius: 20px; border-top-right-radius: 20px; border-bottom-right-radius: 20px; border-bottom-left-radius: 20px; width: 75%; height: 75%;">
+            <ui:Label text="Settings" name="SettingsTitle" style="-unity-font-definition: resource('Metamorphous-Regular SDF'); font-size: 80px; color: rgb(236, 200, 144); background-color: rgb(62, 18, 15); border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; margin-bottom: 15px; padding-left: 30px; padding-right: 30px; padding-top: 10px; padding-bottom: 10px;" />
+            <ui:VisualElement name="SettingsContent" style="flex-grow: 1; width: 100%; background-color: rgb(66, 72, 50); border-top-left-radius: 8px; border-top-right-radius: 8px; border-bottom-right-radius: 8px; border-bottom-left-radius: 8px; padding-top: 16px; padding-bottom: 16px; padding-left: 16px; padding-right: 16px;">
+                <ui:Label text="Settings go here" name="SettingsPlaceholder" style="color: rgb(236, 200, 144); font-size: 36px;" />
+            </ui:VisualElement>
+            <ui:VisualElement name="BackButtonContainer" style="width: 100%; align-items: flex-end;">
+                <ui:Button text="Back" name="BackButton" style="width: 200px;" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>
