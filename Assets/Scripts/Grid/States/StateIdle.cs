@@ -1,18 +1,18 @@
 using Unity.VisualScripting;
 using UnityEngine;
 
-public class StateIdle : GridFSMState
+namespace GridPrivate
 {
-    public override bool Exit()
+    public class StateIdle : GridFSMState
     {
-        return true;
-    }
-    public override void Leftclick()
-    {
-        
-    }
-    public override void Rightclick()
-    {
-        
+        public override void Enter()
+        {
+            
+        }
+        public override bool Exit()
+        {
+            return true;
+        }
+       
     }
 }

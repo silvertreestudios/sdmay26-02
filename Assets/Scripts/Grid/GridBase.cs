@@ -80,9 +80,13 @@ namespace GridPrivate
             }
         }
 
+        /// <summary>
+        /// wrapper for stride state, tranistions FSM to stride
+        /// </summary>
         public override IEnumerator Stride(GameObject character)
         {
-            throw new System.NotImplementedException();
+
+            yield return null;
         }
 
         public override IEnumerator GetStrikeTarget(GameObject attacker, int range, CoroutineResult<GameObject> target)

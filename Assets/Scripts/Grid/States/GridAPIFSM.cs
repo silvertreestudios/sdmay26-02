@@ -2,18 +2,22 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
 
-public abstract class GridAPIFSM : SingletonMonoBehaviour<GridAPIFSM>
+namespace GridPublic
 {
-    // set dependencies
-    protected GridCharacterController3D Controller => GridCharacterController3D.GetInstance();
+    public abstract class GridAPIFSM : SingletonMonoBehaviour<GridAPIFSM>
+    {
+        // set dependencies
+        // we should not be using gridcharactercontroller 3d anymore
+        //protected GridCharacterController3D Controller => GridCharacterController3D.GetInstance();
 
 
-    // cancel current action
-    public abstract void CancelCurrentAction();
+        // cancel current action
+        public abstract void CancelCurrentAction();
 
-    // contstruct stride
-    public abstract IEnumerator Stride(GameObject character, CoroutineResult<bool> canceled);
-    // construct Strike
-    public abstract IEnumerator Strike(GameObject attacker, int range, CoroutineResult<GameObject> target, CoroutineResult<bool> canceled);
+        // contstruct stride
+        public abstract IEnumerator Stride(GameObject character, CoroutineResult<bool> canceled);
+        // construct Strike
+        public abstract IEnumerator Strike(GameObject attacker, int range, CoroutineResult<GameObject> target, CoroutineResult<bool> canceled);
 
+    }
 }

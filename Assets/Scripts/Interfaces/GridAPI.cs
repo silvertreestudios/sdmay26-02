@@ -41,5 +41,10 @@ namespace GridPrivate
         /// <param name="token"></param>
         /// <returns>true if successfully added</returns>
         public bool PlaceToken(GameObject token);
+        /// <summary>
+        /// Removes a token from the map
+        /// </summary>
+        /// <param name="token"></param>
+        public void RemoveToken(GameObject token);
     }
 }
