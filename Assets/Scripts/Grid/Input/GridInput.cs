@@ -6,22 +6,9 @@ using static UnityEditor.FilePathAttribute;
 
 namespace GridPrivate
 {
-    [RequireComponent(typeof(Map))]
+    [RequireComponent(typeof(GridAPIPrivate))]
     public class GridInput : MonoBehaviour
     {
-        // Hover fields
-        [SerializeField]
-        protected GameObject HoverPrefab;    // Prefab
-        protected GameObjectPool HoverPool;  // Prefab acquisition
-        protected List<GameObject> HoverList = new();// Used List
-
-        // Range fields
-        [SerializeField]
-        protected GameObject RangePrefab;    // Prefab
-        protected GameObjectPool RangePool;  // Prefab acquisition
-        protected List<GameObject> RangeList = new();// Used List
-
-
         protected Tile[,] Tiles;
 
         protected Vector3Int? Hover;
@@ -39,30 +26,8 @@ namespace GridPrivate
 
         private void Awake()
         {
-            HoverPool = new(HoverPrefab);
-            RangePool = new(RangePrefab);
             GridAPIPrivate grid = GetComponent<GridAPIPrivate>();
             Tiles = grid.GetTiles();
-
-            OnHover.AddListener((List<Vector3Int> locations) =>
-            {
-                while(HoverList.Count > 0)
-                {
-                    int index = HoverList.Count - 1;
-                    GameObject h = HoverList[index];
-                    h.SetActive(false);
-                    HoverList.RemoveAt(index);
-                }
-                foreach(Vector3Int location in locations)
-                {
-                    GameObject hover = HoverPool.GetObject();
-                    HoverList.Add(hover);
-                    hover.transform.position = new Vector3(location.x, location.y + 0.003f, location.z);
-                }
-            });
-            OnHoverEnd.AddListener(() => {foreach (GameObject g in RangeList) g.SetActive(false); });
-            OnHighlightRange.AddListener(ShowRange);
-            OnCancelAction.AddListener(ClearRange);
         }
 
         void Update()
@@ -91,24 +56,6 @@ namespace GridPrivate
             }
             OnHoverEnd.Invoke();
             Hover = null;
-        }
-
-        void ShowRange(List<Vector3Int> inRange)
-        {
-            foreach(Vector3Int tile in inRange)
-            {
-                GameObject g = RangePool.GetObject();
-                RangeList.Add(g);
-                g.transform.position = tile;
-            }
-        }
-
-        void ClearRange()
-        {
-            foreach(GameObject g in RangeList)
-            {
-                g.SetActive(false);
-            }
         }
     }
 }

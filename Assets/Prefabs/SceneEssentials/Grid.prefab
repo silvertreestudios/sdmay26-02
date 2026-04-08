@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 8186661924205834862}
   - component: {fileID: 4680215030041954131}
   - component: {fileID: 855444430254580328}
+  - component: {fileID: 1822279502085929403}
   m_Layer: 0
   m_Name: Grid
   m_TagString: Untagged
@@ -58,7 +59,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c7faf117d248d954ca5a0da08fd7eefd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MapGenerator
-  ImageMap: {fileID: 0}
+  ImageMap: {fileID: 2800000, guid: 9418ab1b870b6984594a70f9322d2b97, type: 3}
   spacing: 1
   Settings:
     TileDefinitions:
@@ -98,3 +99,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f6035678cd457f844a1ffebcd6ae1559, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GridInput
+  HoverPrefab: {fileID: 8655392066640400182, guid: c11e75bfdf06f9a45bede66aa651e15b, type: 3}
+  RangePrefab: {fileID: 8655392066640400182, guid: 100483f396e57a648934bd455608797d, type: 3}
+--- !u!114 &1822279502085929403
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8046027799161636309}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: eb7c1d0ae7d5cd34bbadf4f08eaa075a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::GridVisuals

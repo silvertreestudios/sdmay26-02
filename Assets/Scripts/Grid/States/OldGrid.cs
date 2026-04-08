@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 
+/*
 public class OldGrid : GridAPIFSM
 {
     GridFSM GridFSM = new GridFSM();
@@ -70,3 +71,4 @@ public class OldGrid : GridAPIFSM
     }
 
 }
+*/

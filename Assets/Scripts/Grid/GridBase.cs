@@ -41,15 +41,7 @@ namespace GridPrivate
             Pathfinder = new Dijkstra(Tiles);
         }
 
-        /// <summary>
-        /// Places a token in the grid if a tile exists there
-        /// and its unoccupied. Token should be as close to
-        /// grid aligned as possible
-        /// </summary>
-        /// <param name="token"></param>
-        /// <param name="position"></param>
-        /// <returns>True if placed</returns>
-        public bool TryPlaceToken(GameObject token)
+        public bool PlaceToken(GameObject token)
         {
             // Token cannot exist in multiple positions
             if (Tokens.ContainsKey(token))
@@ -97,20 +89,6 @@ namespace GridPrivate
         public Tile[,] GetTiles()
         {
             return Tiles;
-        }
-
-        public bool PlaceToken(GameObject token)
-        {
-            Vector3Int cell = Vector3Int.RoundToInt(token.transform.position);
-            if(Tiles.GetLength(0) > cell.x && Tiles.GetLength(1) > cell.z)
-            {
-                Tile t = Tiles[cell.x, cell.z];
-                if (t == null)
-                    return false;
-                t.Occupant = token;
-                return true;
-            }
-            return false;
         }
     }
 }
