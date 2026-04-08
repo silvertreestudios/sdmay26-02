@@ -268,7 +268,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     public void Move()
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
-        combatLog.Log("- " + g.name + " is moving.");
+        // combatLog.Log("- " + g.name + " is moving.");
         g.GetComponent<PlayerActionController>().TestStride();
         //Debug.Log("Clicked Move button");
     }
@@ -279,7 +279,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         // TODO: Check if is player
         GridAPI.GetInstance().CancelCurrentAction();
         g.GetComponent<PlayerActionController>().EndTurn();
-        combatLog.Log("- " + g.name + " ended their turn.");
+        // combatLog.Log("- " + g.name + " ended their turn.");
     }
     
     public void NextLevel() {
