@@ -6,6 +6,14 @@
     font-size: 36px;
     color: rgb(233, 196, 140);
     background-color: rgb(68, 24, 13);
+    border-color: rgb(233, 196, 140);
+    border-width: 4px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .unity-button:hover {
@@ -13,8 +21,72 @@
     transition-duration: 0.5s;
 }
 
+/* 2-column button grid */
+.btn-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
 
+/* Reduced font size for long button labels (> 10 characters) */
+.btn-small-text {
+    font-size: 24px;
+}
 
+/* Action buttons - burnt orange */
+.btn-action {
+    background-color: rgb(180, 80, 20);
+    width: 50%;
+    flex-grow: 0;
+    flex-shrink: 0;
+}
+.btn-action:hover {
+    background-color: rgb(210, 110, 40);
+    transition-duration: 0.5s;
+}
 
+/* Movement buttons - navy blue */
+.btn-movement {
+    background-color: rgb(30, 60, 140);
+    width: 50%;
+    flex-grow: 0;
+    flex-shrink: 0;
+}
+.btn-movement:hover {
+    background-color: rgb(50, 90, 180);
+    transition-duration: 0.5s;
+}
 
+/* General HUD buttons - green */
+.btn-general {
+    background-color: rgb(40, 110, 50);
+    width: 50%;
+    flex-grow: 0;
+    flex-shrink: 0;
+}
+.btn-general:hover {
+    background-color: rgb(60, 150, 70);
+    transition-duration: 0.5s;
+}
 
+.combat_log_background {
+    transition-duration: 3s;
+    /* background-color: rgba(209, 209, 209, 0); */
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.combat_log_background:hover {
+    /* background-color: rgba(209, 209, 209, 1); */
+    background-color: rgba(0, 0, 0, 0);
+    transition-duration: 0.5s;
+}
+
+.combat_log_text {
+    opacity: 0.5;
+    transition-duration: 0.5s;
+}
+
+.combat_log_text:hover {
+    opacity: 1;
+    text-color: rgb(233, 196, 140);
+    transition-duration: 0.5s;
+}

@@ -21,7 +21,7 @@ Material:
   stringTagMap:
     RenderType: Transparent
   disabledShaderPasses: []
-  m_LockedProperties: 
+  m_LockedProperties: _Glossiness
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:

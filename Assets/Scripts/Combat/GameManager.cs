@@ -47,7 +47,7 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             //Debug.Log("You lose NEEEEEEEERRRRRRD!");
             //invoke lose sfx
             //reset scene
-            StartCoroutine(ResetSceneRoutine());
+            //StartCoroutine(ResetSceneRoutine());
         }
         
     }
