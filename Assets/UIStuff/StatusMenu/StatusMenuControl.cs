@@ -11,7 +11,7 @@ public class StatusMenuControl : MonoBehaviour
     private Label statusLabel;
     private Button newGameButton;
     private Button restartLevelButton;
-    private Button quitGameButton;
+    private Button mainMenuButton;
     private Button settingsButton;
 
     private void Awake()
@@ -30,8 +30,8 @@ public class StatusMenuControl : MonoBehaviour
         restartLevelButton = ui.Q<Button>("RestartLevelButton");
         restartLevelButton.clicked += RestartLevel;
 
-        quitGameButton = ui.Q<Button>("QuitGameButton");
-        quitGameButton.clicked += QuitGame;
+        mainMenuButton = ui.Q<Button>("MainMenuButton");
+        mainMenuButton.clicked += ReturnToMainMenu;
 
         settingsButton = ui.Q<Button>("SettingsButton");
         settingsButton.clicked += OpenSettings;
@@ -43,7 +43,7 @@ public class StatusMenuControl : MonoBehaviour
     {
         if (newGameButton != null) newGameButton.clicked -= NewGame;
         if (restartLevelButton != null) restartLevelButton.clicked -= RestartLevel;
-        if (quitGameButton != null) quitGameButton.clicked -= QuitGame;
+        if (mainMenuButton != null) mainMenuButton.clicked -= ReturnToMainMenu;
         if (settingsButton != null) settingsButton.clicked -= OpenSettings;
         OnCombatOutcome.RemoveListener(OnCombatOutcomeHandler);
     }
@@ -127,10 +127,10 @@ public class StatusMenuControl : MonoBehaviour
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
-    public void QuitGame()
+    public void ReturnToMainMenu()
     {
-        Application.Quit();
-        Debug.Log("Clicked Quit Game button");
+        Time.timeScale = 1f;
+        SceneManager.LoadScene("MainMenuScene");
     }
 
     public void OpenSettings()
