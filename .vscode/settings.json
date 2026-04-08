@@ -66,5 +66,12 @@
     "explorer.fileNesting.patterns": {
         "*.sln": "*.csproj"
     },
-    "dotnet.defaultSolution": "sdmay26-02.sln"
+    "dotnet.defaultSolution": "sdmay26-02.sln",
+    "ridiculousCoding.blips": false,
+    "ridiculousCoding.enableStatusBar": false,
+    "ridiculousCoding.explosions": false,
+    "ridiculousCoding.fireworks": false,
+    "ridiculousCoding.sound": false,
+    "ridiculousCoding.shake": false,
+    "ridiculousCoding.chars": false
 }

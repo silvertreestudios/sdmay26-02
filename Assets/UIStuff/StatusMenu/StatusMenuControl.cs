@@ -7,10 +7,12 @@ public class StatusMenuControl : MonoBehaviour
     public enum StatusType { Paused, YouWin, YouLose }
 
     public VisualElement ui;
+    [SerializeField] private SettingsMenuControl settingsMenuControl;
     private Label statusLabel;
     private Button newGameButton;
     private Button restartLevelButton;
     private Button quitGameButton;
+    private Button settingsButton;
 
     private void Awake()
     {
@@ -31,6 +33,9 @@ public class StatusMenuControl : MonoBehaviour
         quitGameButton = ui.Q<Button>("QuitGameButton");
         quitGameButton.clicked += QuitGame;
 
+        settingsButton = ui.Q<Button>("SettingsButton");
+        settingsButton.clicked += OpenSettings;
+
         OnCombatOutcome.AddListener(OnCombatOutcomeHandler);
     }
 
@@ -39,6 +44,7 @@ public class StatusMenuControl : MonoBehaviour
         if (newGameButton != null) newGameButton.clicked -= NewGame;
         if (restartLevelButton != null) restartLevelButton.clicked -= RestartLevel;
         if (quitGameButton != null) quitGameButton.clicked -= QuitGame;
+        if (settingsButton != null) settingsButton.clicked -= OpenSettings;
         OnCombatOutcome.RemoveListener(OnCombatOutcomeHandler);
     }
 
@@ -54,14 +60,16 @@ public class StatusMenuControl : MonoBehaviour
     {
         if (Input.GetKeyDown(KeyCode.Escape))
         {
+            if (settingsMenuControl != null && settingsMenuControl.IsOpen)
+            {
+                settingsMenuControl.Close();
+                return;
+            }
+
             if (isPaused)
-            {
                 Hide();
-            }
             else
-            {
                 Show(StatusType.Paused);
-            }
         }
     }
 
@@ -123,5 +131,14 @@ public class StatusMenuControl : MonoBehaviour
     {
         Application.Quit();
         Debug.Log("Clicked Quit Game button");
+    }
+
+    public void OpenSettings()
+    {
+        if (settingsMenuControl != null)
+        {
+            ui.style.display = DisplayStyle.None;
+            settingsMenuControl.Open(onClose: () => Show(currentStatus));
+        }
     }
 }

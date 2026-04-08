@@ -6,6 +6,7 @@
             <ui:Button text="New Game" name="NewGameButton" />
             <ui:Button text="Restart Level" name="RestartLevelButton" />
             <ui:Button text="Quit Game" name="QuitGameButton" />
+            <ui:Button text="Settings" name="SettingsButton" />
         </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>

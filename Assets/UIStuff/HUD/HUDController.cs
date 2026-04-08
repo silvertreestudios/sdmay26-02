@@ -11,10 +11,12 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 {
 
     public VisualElement ui;
-    public Button moveButton;
     public Button endTurnButton;
     public Button nextLevelButton;
-    private VisualElement actionButtonContainer;
+    private VisualElement buttonGrid;
+    private Toggle autoCameraToggle;
+    private bool autoCameraEnabled = true;
+    private bool wasFollowing = false;
 
 
     //####Player Queue Card Variables####   
@@ -66,16 +68,30 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         //####Button Setup####
         OnNextLevelRequest.AddListener(ToggleNextLevelButton);
 
-        actionButtonContainer = ui.Q<VisualElement>("ActionButtonContainer");
+        buttonGrid = ui.Q<VisualElement>("ButtonGrid");
 
-        moveButton = ui.Q<Button>("MoveButton");
-        moveButton.clicked += Move;
+        autoCameraToggle = ui.Q<Toggle>("AutoCameraToggle");
+        autoCameraToggle.SetValueWithoutNotify(true);
+        autoCameraToggle.RegisterValueChangedCallback(evt =>
+        {
+            autoCameraEnabled = evt.newValue;
+            if (autoCameraEnabled)
+            {
+                GameObject current = CombatManager.GetInstance().WhosTurn();
+                if (current != null)
+                    CameraManager.GetInstance().PanToTarget(current, followIndefinitely: true);
+            }
+        });
 
-        endTurnButton = ui.Q<Button>("EndTurnButton");
-        endTurnButton.clicked += EndTurn;
+        endTurnButton = new Button(EndTurn);
+        endTurnButton.name = "EndTurnButton";
+        endTurnButton.text = "End Turn";
+        endTurnButton.AddToClassList("btn-general");
 
-        cancelActionButton = ui.Q<Button>("CancelActionButton");
-        cancelActionButton.clicked += CancelAction;
+        cancelActionButton = new Button(CancelAction);
+        cancelActionButton.name = "CancelActionButton";
+        cancelActionButton.text = "Cancel";
+        cancelActionButton.AddToClassList("btn-general");
 
         nextLevelButton = ui.Q<Button>("NextLevelButton");
         nextLevelButton.clicked += NextLevel;
@@ -87,6 +103,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         // //####Target Card Setup####
         // targetCard = ui.Q<VisualElement>("TargetInfo");
         // targetHealthBar = targetCard.Q<ProgressBar>("HealthBar");
+
+
 
         //####Player Queue Card Setup####
         cardHolder = ui.Q<VisualElement>("CardHolder");
@@ -100,9 +118,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         //Debug.Log("OnDisable called");
         OnNextLevelRequest.RemoveListener(ToggleNextLevelButton);
         OnNextTurn.RemoveListener(OnTurnChanged);
-        moveButton.clicked -= Move;
-        endTurnButton.clicked -= EndTurn;
-        cancelActionButton.clicked -= CancelAction;
         nextLevelButton.clicked -= NextLevel;
     }
 
@@ -137,11 +152,17 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             needToUpdateCards = false;
         }
 
+        bool isFollowing = CameraManager.GetInstance().IsFollowing;
+        if (autoCameraEnabled && wasFollowing && !isFollowing)
+        {
+            autoCameraEnabled = false;
+            autoCameraToggle.SetValueWithoutNotify(false);
+        }
+        wasFollowing = isFollowing;
+
         bool actionRunning = isActionRunning();
-        foreach (var child in actionButtonContainer.Children())
+        foreach (var child in buttonGrid.Children())
             child.SetEnabled(!actionRunning);
-        moveButton.SetEnabled(!actionRunning);
-        endTurnButton.SetEnabled(!actionRunning);
 
         // Highlight the current player's card
         
@@ -204,45 +225,128 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     {
         ActionController ac = turnTaker.GetComponent<ActionController>();
         if (ac == null) return;
-        List<EntityAction> actions = ac.GetActions();
-        string log = turnTaker.name + " available actions (" + actions.Count + "): ";
-        foreach (EntityAction a in actions)
-            log += "[" + a.ActionName + "] ";
-        Debug.Log(log);
-        BuildActionButtons(turnTaker, actions);
+
+        // Only generate action buttons for player-controlled creatures
+        bool isPlayer = turnTaker.GetComponent<PlayerActionController>() != null;
+
+        if (isPlayer)
+        {
+            List<EntityAction> actions = ac.GetActions();
+            string log = turnTaker.name + " available actions (" + actions.Count + "): ";
+            foreach (EntityAction a in actions)
+                log += "[" + a.ActionName + "] ";
+            Debug.Log(log);
+            BuildActionButtons(turnTaker, actions);
+            BuildMovementButtons(turnTaker, ac.GetMovements());
+        }
+        else
+        {
+            ClearAllRows();
+        }
+
+        if (autoCameraEnabled)
+            CameraManager.GetInstance().PanToTarget(turnTaker, followIndefinitely: true);
+    }
+
+    private void ClearAllRows()
+    {
+        buttonGrid.Query<VisualElement>(className: "btn-row").ForEach(r => r.RemoveFromHierarchy());
+    }
+
+    private void AddButtonToGrid(string label, string colorClass, System.Action onClick = null)
+    {
+        var rows = buttonGrid.Query<VisualElement>(className: "btn-row").ToList();
+        VisualElement row = null;
+        if (rows.Count > 0 && rows[rows.Count - 1].childCount < 2)
+            row = rows[rows.Count - 1];
+
+        if (row == null)
+        {
+            row = new VisualElement();
+            row.AddToClassList("btn-row");
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignSelf = Align.Stretch;
+            buttonGrid.Add(row);
+        }
+
+        Button btn = onClick != null ? new Button(onClick) : new Button();
+        btn.text = label;
+        btn.AddToClassList(colorClass);
+        if (label.Length > 10)
+            btn.AddToClassList("btn-small-text");
+        btn.style.width = new StyleLength(new Length(50, LengthUnit.Percent));
+        btn.style.flexGrow = 0;
+        row.Add(btn);
+    }
+
+    private void AddGeneralButtons()
+    {
+        endTurnButton.style.width = new StyleLength(new Length(50, LengthUnit.Percent));
+        cancelActionButton.style.width = new StyleLength(new Length(50, LengthUnit.Percent));
+
+        var rows = buttonGrid.Query<VisualElement>(className: "btn-row").ToList();
+        VisualElement row = null;
+        if (rows.Count > 0 && rows[rows.Count - 1].childCount < 2)
+            row = rows[rows.Count - 1];
+
+        if (row == null)
+        {
+            row = new VisualElement();
+            row.AddToClassList("btn-row");
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignSelf = Align.Stretch;
+            buttonGrid.Add(row);
+        }
+
+        row.Add(endTurnButton);
+
+        // Cancel goes in next slot
+        rows = buttonGrid.Query<VisualElement>(className: "btn-row").ToList();
+        row = rows[rows.Count - 1].childCount < 2 ? rows[rows.Count - 1] : null;
+        if (row == null)
+        {
+            row = new VisualElement();
+            row.AddToClassList("btn-row");
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignSelf = Align.Stretch;
+            buttonGrid.Add(row);
+        }
+        row.Add(cancelActionButton);
     }
 
     private void BuildActionButtons(GameObject turnTaker, List<EntityAction> actions)
     {
-        actionButtonContainer.Clear();
+        ClearAllRows();
         foreach (EntityAction action in actions)
         {
             EntityAction captured = action;
-            Button btn = new Button(() =>
-            {
-                turnTaker.GetComponent<ActionController>().TakeAction(captured);
-            });
-            btn.text = captured.ActionName;
-            btn.AddToClassList("unity-button-hover");
-            actionButtonContainer.Add(btn);
+            AddButtonToGrid(captured.ActionName, "btn-action",
+                () => turnTaker.GetComponent<ActionController>().TakeAction(captured));
         }
     }
 
-    public void Move()
+    private void BuildMovementButtons(GameObject turnTaker, List<EntityAction> movements)
     {
-        GameObject g = CombatManager.GetInstance().WhosTurn();
-        PlayerActionController pac = g.GetComponent<PlayerActionController>();
-        if (pac == null) return;
-        combatLog.Log("- " + g.name + " is moving.");
-        pac.TestStride();
+        foreach (EntityAction movement in movements)
+        {
+            EntityAction captured = movement;
+            AddButtonToGrid(captured.ActionName, "btn-movement",
+                () => turnTaker.GetComponent<ActionController>().TakeAction(captured));
+        }
+        // DEBUG: test buttons to verify grid layout
+        for (int i = 1; i <= 5; i++)
+            AddButtonToGrid("Test - " + i, "btn-action");
+
+        AddGeneralButtons();
     }
 
     public void EndTurn()
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
-        // TODO: Check if is player
+        PlayerActionController pac = g.GetComponent<PlayerActionController>();
+        if (pac == null) return;
         GridAPI.GetInstance().CancelCurrentAction();
-        g.GetComponent<PlayerActionController>().EndTurn();
+        pac.EndTurn();
         combatLog.Log("- " + g.name + " ended their turn.");
     }
     
