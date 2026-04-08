@@ -182,6 +182,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
 
+            bool isPlayerControlled = Players[i].GetComponent<PlayerActionController>() != null;
+            if (isPlayerControlled)
+            {
+                cardInstance.Q<VisualElement>("Card").style.backgroundColor =
+                    new StyleColor(new Color(86f / 255f, 92f / 255f, 68f / 255f, 1f));
+            }
+
             var portraitImage = cardInstance.Q<Image>("PortraitImage");
             // Get portrait snapshot and display it
             Portrait portraitScript = Players[i].GetComponent<Portrait>();
