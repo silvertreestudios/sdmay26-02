@@ -1,0 +1,25 @@
+:root {
+}
+
+.unity-button {
+    width: 400px;
+    height: 75px;
+    font-size: 36px;
+    background-color: rgb(68, 24, 13);
+    color: rgb(233, 196, 140);
+    -unity-text-outline-color: rgb(57, 16, 19);
+    -unity-text-outline-width: 0;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+.unity-button:hover {
+    background-color: rgb(122, 62, 46);
+    transition-duration: 0.5s;
+}
+
+.unity-label {
+    -unity-font-definition: resource("Metamorphous-Regular SDF");
+    font-size: 80px;
+}

@@ -169,6 +169,8 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     public void PanToTarget(GameObject target, bool followIndefinitely = false)
     {
         if (target == null) return;
+        if (mainCamera == null) getCamera();
+        if (mainCamera == null) return;
         if (currentPanRoutine != null) StopCoroutine(currentPanRoutine);
         currentPanRoutine = StartCoroutine(PanToTargetRoutine(target, followIndefinitely));
     }

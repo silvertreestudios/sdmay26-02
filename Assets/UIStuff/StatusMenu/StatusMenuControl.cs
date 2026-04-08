@@ -8,11 +8,13 @@ public class StatusMenuControl : MonoBehaviour
 
     public VisualElement ui;
     [SerializeField] private SettingsMenuControl settingsMenuControl;
+    [SerializeField] private HowToPlayMenuControl howToPlayMenuControl;
     private Label statusLabel;
     private Button newGameButton;
     private Button restartLevelButton;
     private Button mainMenuButton;
     private Button settingsButton;
+    private Button howToPlayButton;
 
     private void Awake()
     {
@@ -36,6 +38,9 @@ public class StatusMenuControl : MonoBehaviour
         settingsButton = ui.Q<Button>("SettingsButton");
         settingsButton.clicked += OpenSettings;
 
+        howToPlayButton = ui.Q<Button>("HowToPlayButton");
+        howToPlayButton.clicked += OpenHowToPlay;
+
         OnCombatOutcome.AddListener(OnCombatOutcomeHandler);
     }
 
@@ -45,6 +50,7 @@ public class StatusMenuControl : MonoBehaviour
         if (restartLevelButton != null) restartLevelButton.clicked -= RestartLevel;
         if (mainMenuButton != null) mainMenuButton.clicked -= ReturnToMainMenu;
         if (settingsButton != null) settingsButton.clicked -= OpenSettings;
+        if (howToPlayButton != null) howToPlayButton.clicked -= OpenHowToPlay;
         OnCombatOutcome.RemoveListener(OnCombatOutcomeHandler);
     }
 
@@ -63,6 +69,12 @@ public class StatusMenuControl : MonoBehaviour
             if (settingsMenuControl != null && settingsMenuControl.IsOpen)
             {
                 settingsMenuControl.Close();
+                return;
+            }
+
+            if (howToPlayMenuControl != null && howToPlayMenuControl.IsOpen)
+            {
+                howToPlayMenuControl.Close();
                 return;
             }
 
@@ -139,6 +151,15 @@ public class StatusMenuControl : MonoBehaviour
         {
             ui.style.display = DisplayStyle.None;
             settingsMenuControl.Open(onClose: () => Show(currentStatus));
+        }
+    }
+
+    public void OpenHowToPlay()
+    {
+        if (howToPlayMenuControl != null)
+        {
+            ui.style.display = DisplayStyle.None;
+            howToPlayMenuControl.Open(onClose: () => Show(currentStatus));
         }
     }
 }
