@@ -36,6 +36,7 @@ public class Unarmed : MultiFrameEntityAction
         // I implemented a cancel refund for this action, let me know if it needs to change - Adam
         if(target.Value && !canceled.Value)
         {
+            CombatLog.GetInstance().Log("- " + attacker.name + " attacks " + target.Value.name + " with unarmed strike.");
             Debug.Log(attacker + " Striking " + target.Value);
             Strike.Damage(attacker, target.Value);
             if (ac)

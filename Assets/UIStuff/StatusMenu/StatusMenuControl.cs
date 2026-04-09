@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
@@ -8,11 +9,13 @@ public class StatusMenuControl : MonoBehaviour
 
     public VisualElement ui;
     [SerializeField] private SettingsMenuControl settingsMenuControl;
+    [SerializeField] private HowToPlayMenuControl howToPlayMenuControl;
     private Label statusLabel;
     private Button newGameButton;
     private Button restartLevelButton;
-    private Button quitGameButton;
+    private Button mainMenuButton;
     private Button settingsButton;
+    private Button howToPlayButton;
 
     private void Awake()
     {
@@ -30,11 +33,14 @@ public class StatusMenuControl : MonoBehaviour
         restartLevelButton = ui.Q<Button>("RestartLevelButton");
         restartLevelButton.clicked += RestartLevel;
 
-        quitGameButton = ui.Q<Button>("QuitGameButton");
-        quitGameButton.clicked += QuitGame;
+        mainMenuButton = ui.Q<Button>("MainMenuButton");
+        mainMenuButton.clicked += ReturnToMainMenu;
 
         settingsButton = ui.Q<Button>("SettingsButton");
         settingsButton.clicked += OpenSettings;
+
+        howToPlayButton = ui.Q<Button>("HowToPlayButton");
+        howToPlayButton.clicked += OpenHowToPlay;
 
         OnCombatOutcome.AddListener(OnCombatOutcomeHandler);
     }
@@ -43,14 +49,21 @@ public class StatusMenuControl : MonoBehaviour
     {
         if (newGameButton != null) newGameButton.clicked -= NewGame;
         if (restartLevelButton != null) restartLevelButton.clicked -= RestartLevel;
-        if (quitGameButton != null) quitGameButton.clicked -= QuitGame;
+        if (mainMenuButton != null) mainMenuButton.clicked -= ReturnToMainMenu;
         if (settingsButton != null) settingsButton.clicked -= OpenSettings;
+        if (howToPlayButton != null) howToPlayButton.clicked -= OpenHowToPlay;
         OnCombatOutcome.RemoveListener(OnCombatOutcomeHandler);
     }
 
     private void OnCombatOutcomeHandler(bool playerWon)
     {
-        Show(playerWon ? StatusType.YouWin : StatusType.YouLose);
+        StartCoroutine(ShowAfterDelay(playerWon ? StatusType.YouWin : StatusType.YouLose, 1f));
+    }
+
+    private IEnumerator ShowAfterDelay(StatusType status, float delay)
+    {
+        yield return new WaitForSecondsRealtime(delay);
+        Show(status);
     }
 
     private bool isPaused = false;
@@ -63,6 +76,12 @@ public class StatusMenuControl : MonoBehaviour
             if (settingsMenuControl != null && settingsMenuControl.IsOpen)
             {
                 settingsMenuControl.Close();
+                return;
+            }
+
+            if (howToPlayMenuControl != null && howToPlayMenuControl.IsOpen)
+            {
+                howToPlayMenuControl.Close();
                 return;
             }
 
@@ -127,10 +146,10 @@ public class StatusMenuControl : MonoBehaviour
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
-    public void QuitGame()
+    public void ReturnToMainMenu()
     {
-        Application.Quit();
-        Debug.Log("Clicked Quit Game button");
+        Time.timeScale = 1f;
+        SceneManager.LoadScene("MainMenuScene");
     }
 
     public void OpenSettings()
@@ -139,6 +158,15 @@ public class StatusMenuControl : MonoBehaviour
         {
             ui.style.display = DisplayStyle.None;
             settingsMenuControl.Open(onClose: () => Show(currentStatus));
+        }
+    }
+
+    public void OpenHowToPlay()
+    {
+        if (howToPlayMenuControl != null)
+        {
+            ui.style.display = DisplayStyle.None;
+            howToPlayMenuControl.Open(onClose: () => Show(currentStatus));
         }
     }
 }

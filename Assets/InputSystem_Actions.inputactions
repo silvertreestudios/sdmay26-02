@@ -104,6 +104,15 @@
                     "processors": "",
                     "interactions": "",
                     "initialStateCheck": true
+                },
+                {
+                    "name": "ToggleAutoCamera",
+                    "type": "Button",
+                    "id": "9ab2a7fe-7597-4d2b-ad60-dc156a9197c0",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
                 }
             ],
             "bindings": [
@@ -601,6 +610,17 @@
                     "action": "RotateCamera",
                     "isComposite": false,
                     "isPartOfComposite": true
+                },
+                {
+                    "name": "",
+                    "id": "0da0bda4-3997-463d-a4ac-c25d36947e68",
+                    "path": "<Keyboard>/c",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "ToggleAutoCamera",
+                    "isComposite": false,
+                    "isPartOfComposite": false
                 }
             ]
         },

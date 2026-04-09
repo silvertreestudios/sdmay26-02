@@ -1,11 +1,11 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
     <Style src="project://database/Assets/UIStuff/MainMenu/MainMenu.uss?fileID=7433441132597879392&amp;guid=8e82ad040e85c5744b146f41098b4652&amp;type=3#MainMenu" />
     <ui:VisualElement name="Panel" style="flex-grow: 1; width: 100%; height: 100%; background-color: rgb(85, 107, 47); align-items: center; justify-content: center; align-content: auto; flex-direction: column; flex-shrink: 1; flex-basis: auto; flex-wrap: nowrap; background-image: url(&quot;project://database/Assets/UIStuff/MainMenu/FlameBackground.jpg?fileID=2800000&amp;guid=af8dc1d3d3311dc4db5cc4c580b7ef05&amp;type=3#FlameBackground&quot;);">
-        <ui:Label text="Game Title" name="Title" style="-unity-font-definition: resource('Metamorphous-Regular SDF'); font-size: 120px; background-color: rgb(62, 18, 15); color: rgb(236, 200, 144); -unity-font-style: normal; border-top-left-radius: 20px; border-top-right-radius: 20px; border-bottom-right-radius: 20px; border-bottom-left-radius: 20px;" />
+        <ui:Label text="Game Title" name="Title" style="-unity-font-definition: resource(&apos;Metamorphous-Regular SDF&apos;); font-size: 120px; background-color: rgb(62, 18, 15); color: rgb(236, 200, 144); -unity-font-style: normal; border-top-left-radius: 20px; border-top-right-radius: 20px; border-bottom-right-radius: 20px; border-bottom-left-radius: 20px;" />
         <ui:GroupBox name="BoxForButtons" style="width: 500px; background-color: rgb(86, 92, 68); align-content: auto; align-self: auto; justify-content: center; align-items: center; height: 400px;">
             <ui:Button text="New Game" name="NewGameButton" style="align-items: auto; width: 400px; align-content: auto; height: 75px;" />
             <ui:Button text="Load Game" name="LoadGameButton" />
-            <ui:Button text="Options" name="OptionsButton" />
+            <ui:Button text="Settings" name="OptionsButton" selectable="true" />
             <ui:Button text="Exit" name="ExitButton" />
         </ui:GroupBox>
     </ui:VisualElement>

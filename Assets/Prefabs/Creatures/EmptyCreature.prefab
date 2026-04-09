@@ -361,7 +361,7 @@ Camera:
   m_Enabled: 0
   serializedVersion: 2
   m_ClearFlags: 2
-  m_BackGroundColor: {r: 0.64705884, g: 0.16470589, b: 0.16470589, a: 0}
+  m_BackGroundColor: {r: 0.3920879, g: 0.6391643, b: 0.8396226, a: 1}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
   m_FOVAxisMode: 0
@@ -467,6 +467,8 @@ MonoBehaviour:
     Name: Foot Knight
   - mesh: {fileID: -6485565095996508320, guid: b3c6b2fdc866c46a5960e6d306e36637, type: 3}
     Name: Ranger Archer
+  - mesh: {fileID: 1788653840435757133, guid: a7f706461d0054e33b6747be52323a33, type: 3}
+    Name: Torgrim
   BaseOptions:
   - mesh: {fileID: 1431553746238890192, guid: 111aee36d4b234665ac7a1c809067fca, type: 3}
     level: 0
