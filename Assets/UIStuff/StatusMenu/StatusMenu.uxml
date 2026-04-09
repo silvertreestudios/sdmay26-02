@@ -5,8 +5,9 @@
             <ui:Label text="Paused" name="StatusLabel" style="-unity-font-definition: resource('Metamorphous-Regular SDF'); font-size: 80px; color: rgb(236, 200, 144); background-color: rgb(62, 18, 15); border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; margin-bottom: 30px; padding-left: 30px; padding-right: 30px; padding-top: 10px; padding-bottom: 10px;" />
             <ui:Button text="New Game" name="NewGameButton" />
             <ui:Button text="Restart Level" name="RestartLevelButton" />
-            <ui:Button text="Quit Game" name="QuitGameButton" />
+            <ui:Button text="Main Menu" name="MainMenuButton" />
             <ui:Button text="Settings" name="SettingsButton" />
+            <ui:Button text="How to Play" name="HowToPlayButton" />
         </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>
