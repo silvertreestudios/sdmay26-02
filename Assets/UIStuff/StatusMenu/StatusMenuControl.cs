@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
@@ -56,7 +57,13 @@ public class StatusMenuControl : MonoBehaviour
 
     private void OnCombatOutcomeHandler(bool playerWon)
     {
-        Show(playerWon ? StatusType.YouWin : StatusType.YouLose);
+        StartCoroutine(ShowAfterDelay(playerWon ? StatusType.YouWin : StatusType.YouLose, 1f));
+    }
+
+    private IEnumerator ShowAfterDelay(StatusType status, float delay)
+    {
+        yield return new WaitForSecondsRealtime(delay);
+        Show(status);
     }
 
     private bool isPaused = false;
