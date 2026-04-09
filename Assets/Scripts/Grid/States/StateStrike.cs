@@ -59,12 +59,11 @@ namespace GridPrivate
             }
 
         }
-        public override bool Exit()
+        public override void Exit()
         {
             fsm.canceled = canceled;
             occupantsInRange.Clear();
             controller.rangeHighlighter.ClearHighlights();
-            return true;
         }
         public override void Leftclick()
         {

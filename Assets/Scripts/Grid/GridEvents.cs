@@ -9,4 +9,9 @@ namespace GridPrivate
     public class OnHoverEnd : StaticUnityEvent<OnHover> { }
     /// <summary>Triggered to highlight range</summary>
     public class OnHighlightRange : StaticUnityEvent<OnHighlightRange, List<Vector3Int>> { }
+    /// <summary>Triggered on end highlight range</summary>
+    public class OnHighlightRangeEnd : StaticUnityEvent<OnHighlightRangeEnd> { }
+
+    /// <summary>Triggered on succesful action Cancelation</summary>
+    public class OnActionCancel : StaticUnityEvent<OnActionCancel> { }
 }

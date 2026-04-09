@@ -108,7 +108,7 @@ public class StrikeWeapon : MultiFrameEntityAction
         CoroutineResult<GameObject> target = new();
         CoroutineResult<bool> canceled = new();
         //yield return GridCharacterController3D.Instance.StrikeCoroutine(attacker, 2, target);
-        yield return GridAPIFSM.GetInstance().Strike(attacker, range, target, canceled);
+        yield return null;// GridAPIFSM.GetInstance().Strike(attacker, range, target, canceled);
         // I implemented a cancel refund for this action, let me know if it needs to change - Adam
         if(target.Value && !canceled.Value)
         {

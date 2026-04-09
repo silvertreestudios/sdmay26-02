@@ -99,8 +99,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f6035678cd457f844a1ffebcd6ae1559, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GridInput
-  HoverPrefab: {fileID: 8655392066640400182, guid: c11e75bfdf06f9a45bede66aa651e15b, type: 3}
-  RangePrefab: {fileID: 8655392066640400182, guid: 100483f396e57a648934bd455608797d, type: 3}
 --- !u!114 &1822279502085929403
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -113,3 +111,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eb7c1d0ae7d5cd34bbadf4f08eaa075a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GridVisuals
+  HoverPrefab: {fileID: 8655392066640400182, guid: c11e75bfdf06f9a45bede66aa651e15b, type: 3}
+  RangePrefab: {fileID: 8655392066640400182, guid: 100483f396e57a648934bd455608797d, type: 3}

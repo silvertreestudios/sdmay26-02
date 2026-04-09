@@ -36,15 +36,25 @@ namespace GridPrivate
         public Tile[,] GetTiles();
 
         /// <summary>
-        /// Adds a token to the map
+        /// Returns the Pathfinder for the grid
         /// </summary>
-        /// <param name="token"></param>
-        /// <returns>true if successfully added</returns>
-        public bool PlaceToken(GameObject token);
+        /// <returns></returns>
+        public IPathfinder GetPathfinder();
+
         /// <summary>
-        /// Removes a token from the map
+        /// Places a token on the board. DO NOT USE FOR MOVEMENT
+        /// ONLY USE FOR PLACING TOKENS INITIALLY
         /// </summary>
         /// <param name="token"></param>
-        public void RemoveToken(GameObject token);
+        /// <returns></returns>
+        public bool AddToken(GameObject token);
+
+        /// <summary>
+        /// Removes a token from the board. DO NOT USE FOR MOVEMENT
+        /// ONLY USE FOR REMOVING A TOKEN COMPLETELY FROM THE BOARD.
+        /// </summary>
+        /// <param name="token"></param>
+        /// <returns></returns>
+        public bool DestroyToken(GameObject token);
     }
 }

@@ -6,6 +6,7 @@ using UnityEngine.UIElements;
 using Game.Creature;
 using Game.Strikes;
 using System.Collections.Generic;
+using UniversalEvents;
 
 public class HUDController : SingletonMonoBehaviour<HUDController>
 {
@@ -269,7 +270,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
         combatLog.Log("- " + g.name + " is moving.");
-        g.GetComponent<PlayerActionController>().TestStride();
+        g.GetComponent<PlayerActionController>()?.TestStride();
         //Debug.Log("Clicked Move button");
     }
 
@@ -277,7 +278,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
         // TODO: Check if is player
-        GridAPIFSM.GetInstance().CancelCurrentAction();
         g.GetComponent<PlayerActionController>().EndTurn();
         combatLog.Log("- " + g.name + " ended their turn.");
     }
@@ -308,9 +308,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     }
 
     public void CancelAction() {
-        //Debug.Log("CancelAction called");
-        //Debug.Log("Clicked Cancel Action button");
-        GridAPIFSM.GetInstance().CancelCurrentAction();
+        UniversalEvents.OnCancel.Invoke();
         GameObject g = CombatManager.GetInstance().WhosTurn();
         combatLog.Log("- " + g.name + " canceled their action.");
     }

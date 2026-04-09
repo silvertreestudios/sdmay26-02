@@ -9,16 +9,18 @@ namespace GridPrivate
         /// <summary>
         /// Pathfinds from start to end. Call Search and find if many calls may be needed
         /// </summary>
+        /// <param name="pathfinder">the token pathfinding. Can be null.</param>
         /// <param name="start"></param>
         /// <param name="end"></param>
         /// <returns></returns>
-        public List<PathNode> Pathfind(Vector3Int start, Vector3Int end);
+        public List<PathNode> Pathfind(GameObject pathfinder, Vector3Int start, Vector3Int end);
 
         /// <summary>
         /// Runs Dijkstras from the given start point for rapid querying
         /// </summary>
+        /// <param name="pathfinder">the token pathfinding. Can be null.</param>
         /// <param name="start">of search</param>
-        public void Search(Vector3Int start);
+        public void Search(GameObject pathfinder, Vector3Int start);
 
         /// <summary>
         /// Returns the list of PathNodes to a given point
@@ -32,10 +34,11 @@ namespace GridPrivate
         /// Returns the list of locations in range from position
         /// Only use after Search
         /// </summary>
+        /// <param name="pathfinder">the token pathfinding. Can be null.</param>
         /// <param name="start"></param>
         /// <param name="range"></param>
         /// <returns></returns>
-        public List<Vector3Int> InRange(Vector3Int start, float range);
+        public List<Vector3Int> InRange(GameObject pathfinder, Vector3Int start, float range);
     }
 
 

@@ -11,8 +11,13 @@ namespace GridPrivate
     {
         public TileType[,] GridData {get; set;}
         protected Tile[,] Tiles;
-        protected Dictionary<GameObject, Vector3Int> Tokens = new();
         IPathfinder Pathfinder;
+        GridFSM fsm = new GridFSM();
+
+        public IPathfinder GetPathfinder()
+        {
+            return Pathfinder;
+        }
 
         protected override void Awake()
         {
@@ -41,35 +46,24 @@ namespace GridPrivate
             Pathfinder = new Dijkstra(Tiles);
         }
 
-        public bool PlaceToken(GameObject token)
+        public bool AddToken(GameObject token)
         {
-            // Token cannot exist in multiple positions
-            if (Tokens.ContainsKey(token))
-                return false;
             Vector3Int position = Vector3Int.RoundToInt(token.transform.position);
             Tile tile = Tiles[position.x, position.z];
-            if(tile == null || tile.Occupant != null)
+            if(tile == null || tile.Occupants.Count > 0)
                 return false;
-            tile.Occupant = token;
-            Tokens.Add(token, position);
-            tile.OnEnterTile.Invoke(token, position);
+            tile.Occupants.Add(token);
             return true;
         }
 
-        /// <summary>
-        /// Removes a token from the grid
-        /// </summary>
-        /// <param name="token"></param>
-        public void RemoveToken(GameObject token) 
+        public bool DestroyToken(GameObject token)
         {
-            Vector3Int position;
-            if(Tokens.TryGetValue(token, out position))
-            {
-                Tile tile = Tiles[position.x, position.z];
-                tile.Occupant = null;
-                Tokens.Remove(token);
-                tile.OnExitTile.Invoke(token, position);
-            }
+            Vector3Int position = Vector3Int.RoundToInt(token.transform.position);
+            Tile tile = Tiles[position.x, position.z];
+            if (tile == null || tile.Occupants.Count > 0)
+                return false;
+            tile.Occupants.Remove(token);
+            return true;
         }
 
         /// <summary>
@@ -77,8 +71,7 @@ namespace GridPrivate
         /// </summary>
         public override IEnumerator Stride(GameObject character)
         {
-
-            yield return null;
+            yield return fsm.ChangeState(new StateStride(character));
         }
 
         public override IEnumerator GetStrikeTarget(GameObject attacker, int range, CoroutineResult<GameObject> target)

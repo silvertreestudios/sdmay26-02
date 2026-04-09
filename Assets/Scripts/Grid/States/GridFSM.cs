@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using UniversalEvents;
 
 namespace GridPrivate
 {
@@ -10,41 +11,28 @@ namespace GridPrivate
 
         //public idle to the states themselves can set the FSM back to idle upon exiting, may change this to be handled by the API
         public StateIdle idleState { get; private set; } = new StateIdle();
-        public bool isProcessingTurn = false; // flag to indicate if we are currently processing a turn, used to prevent input during movement
         public bool canceled = false;
 
         private float timeSinceLastClick = 0f;
         private float lastClickTime = 0f;
+        private GridFSMState QueuedState = null;
 
         public GridFSM()
         {
             currentState = idleState;
+            OnCancel.AddListener(() => ChangeState(new StateIdle()));
         }
 
         public override bool ChangeState(GridFSMState newState)
         {
-            if (isInTransition)
+            if (QueuedState != null && newState is StateIdle)
             {
-                // If we are already transitioning, queue the state change to happen next frame
-                GridCharacterController3D.GetInstance().StartCoroutine(DelayedChangeState(newState));
-                return true;
+                newState = QueuedState;
+                QueuedState = null;
             }
-
-            if (base.ChangeState(newState))
-            {
-                timeSinceLastClick = 0f;
-                lastClickTime = 0f;
-                return true;
-            }
-            return false;
-
-        }
-
-        //copilot added this, it is needed for the AI to change states properly because of how fast it acts
-        private IEnumerator DelayedChangeState(GridFSMState newState)
-        {
-            yield return new WaitUntil(() => !isInTransition);
-            ChangeState(newState);
+            if (!currentState.canCancel)
+                return false;
+            return base.ChangeState(newState);
         }
 
         // Update is called once per frame

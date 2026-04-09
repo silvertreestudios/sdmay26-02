@@ -63,6 +63,8 @@ MonoBehaviour:
   _damageBonus: 0
   _weaponBonuses: []
   _armorBonuses: []
+  _weaknesses: []
+  _resistances: []
   _strMod: 0
   _dexMod: 3
   _conMod: 1
@@ -104,13 +106,67 @@ MonoBehaviour:
   _reactions: []
   _passives: []
   _conditions: []
+  _equippedArmor:
+    name: 
+    type: 
+    category: 
+    price: 0
+    acBonus: 0
+    dexCap: 0
+    checkPenalty: 0
+    speedPenalty: 0
+    strengthRequirement: 0
+    description: 
+    bulk: 0
+    group: 
+    armorTraits: []
+  _equippedRightHand:
+    name: 
+    type: 
+    group: 
+    category: 
+    hands: 0
+    damage:
+      numberOfDice: 0
+      sidesPerDie: 0
+      damageType: 
+    description: 
+    traits: []
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 0
+  _equippedLeftHand:
+    name: 
+    type: 
+    group: 
+    category: 
+    hands: 0
+    damage:
+      numberOfDice: 0
+      sidesPerDie: 0
+      damageType: 
+    description: 
+    traits: []
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 0
   _equipment:
   - Dogslicer
   - Shortbow
   - Leather Armor
   - Arrows
   _weaponsList: []
+  _weapons: []
   _armorList: []
+  _armor: []
 --- !u!114 &-2800045436435895595
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -14,10 +14,7 @@ public class FiniteStateMachine <T> where T : IFSMState<T>
     public virtual bool ChangeState(T newState)
     {
         if (isInTransition)
-        {
-            //Debug.LogWarning("[FiniteStateMachine] Attempted to change state while already in transition.");
             return false;
-        }
 
         StateTransition(newState);
         return true;

@@ -1,3 +1,5 @@
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 
@@ -9,14 +11,14 @@ namespace GridPrivate
         /// <summary>
         /// Event called upon token entering this tile
         /// </summary>
-        public UnityEvent<GameObject, Vector3Int> OnEnterTile { get; protected set; } = new();
+        public EventCoroutine<(GameObject, Vector3Int)> OnEnterTile { get; protected set; } = new();
 
         /// <summary>
         /// Event called upon token exiting this tile
         /// </summary>
-        public UnityEvent<GameObject, Vector3Int> OnExitTile { get; protected set; } = new();
+        public EventCoroutine<(GameObject, Vector3Int)> OnExitTile { get; protected set; } = new();
 
-        public GameObject Occupant { get; set; }
+        public List<GameObject> Occupants { get; protected set; } = new();
 
         public bool IsObstructing { get; protected set; }
 
@@ -28,13 +30,45 @@ namespace GridPrivate
         /// <returns></returns>
         public bool CanStrideOn(GameObject token)
         {
-            if (Occupant == null)
+            if (Occupants == null)
                 return true;
-            Team team = Occupant.GetComponent<Team>();
-            Team team2 = token.GetComponent<Team>();
-            if (team && team2 && TeamRules.GetInstance().IsFriendly(team.Name, team2.Name))
-                return true;
+            foreach (GameObject occupant in Occupants)
+            {
+                Team team = occupant.GetComponent<Team>();
+                Team team2 = token.GetComponent<Team>();
+                if (team && team2 && TeamRules.GetInstance().IsFriendly(team.Name, team2.Name))
+                    return true;
+            }
             return false;
+        }
+
+        /// <summary>
+        /// Places a token on this tile
+        /// </summary>
+        /// <param name="token"></param>
+        /// <returns></returns>
+        public IEnumerator PlaceToken(GameObject token)
+        {
+            Occupants.Add(token);
+            yield return OnEnterTile.Invoke((
+                token, 
+                Vector3Int.RoundToInt(token.transform.position)
+            ));
+        }
+
+        /// <summary>
+        /// Attempts to remove a token from this tile
+        /// </summary>
+        /// <param name="token"></param>
+        /// <param name="prevented"></param>
+        /// <returns></returns>
+        public IEnumerator RemoveToken(GameObject token, Ref<bool> prevented)
+        {
+            // Viva RUST, the most vastly superior programming language with good formatting
+            yield return OnExitTile.Invoke((
+                token, 
+                Vector3Int.RoundToInt(token.transform.position)
+            ));
         }
     }
 }

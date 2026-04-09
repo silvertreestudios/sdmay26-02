@@ -98,7 +98,7 @@ public class GridCharacterController3D : SingletonMonoBehaviour<GridCharacterCon
     {
         characters.Add(token);
         gridMemory.SetCreaturePosition(token, coordinateConverter.GetCharacterCell(token));
-        tokenMovements[token] = new tokenMovement(token.transform, stepHeight, maxRotation, ptLerp, yLerp);
+        tokenMovements[token] = new TokenMovement(token.transform, stepHeight, maxRotation, ptLerp, yLerp);
     }
 
     void SnapToValidCell(GameObject obj)

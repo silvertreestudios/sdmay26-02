@@ -14,21 +14,22 @@ namespace GridPrivate
         protected Dictionary<Vector3Int, PathNode> Locations = new();
         protected Dictionary<Vector3Int, Neighbors> NeighborCache = new();
         protected Heap<PathNode> Heap = new(PathNode.Cmp, PathNode.Eq);
+        protected List<PathNode> Distances = new();
         protected Tile[,] Tiles;
 
-        protected bool Searched = false;
+        protected Vector3Int? Searched = null;
 
         public Dijkstra(Tile[,] tiles)
         {
             Tiles = tiles;
         }
 
-        public List<PathNode> Pathfind(Vector3Int start, Vector3Int end)
+        public List<PathNode> Pathfind(GameObject pathfinder, Vector3Int start, Vector3Int end)
         {
             Locations.Clear();
             Heap.Clear();
-            Searched = false;
-            GameObject pathfinder = Tiles[start.x, start.z].Occupant;
+            Distances.Clear();
+            Searched = null;
 
             // Initialize heap
             Heap.Push( new PathNode( 0.0f, start));
@@ -49,12 +50,12 @@ namespace GridPrivate
             return null;
         }
 
-        public void Search(Vector3Int start)
+        public void Search(GameObject pathfinder, Vector3Int start)
         {
             Locations.Clear();
             Heap.Clear();
-            Searched = true;
-            GameObject pathfinder = Tiles[start.x, start.z].Occupant;
+            Distances.Clear();
+            Searched = start;
 
             // Initialize heap
             Heap.Push(new PathNode(0.0f, start));
@@ -62,13 +63,14 @@ namespace GridPrivate
             while (Heap.Count() > 0)
             {
                 PathNode path = Heap.Pop();
+                Distances.Add(path);
                 ExploreNeighbors(path, pathfinder);
             }
         }
 
         public List<PathNode> Find(Vector3Int end)
         {
-            if (!Searched)
+            if (Searched == null)
             {
                 Debug.LogError("Attempting \"Find\" before a \"Search\" is not valid. \n" +
                     "Call Pathfind for a single request, call Search then Find to request number of times.");
@@ -81,13 +83,19 @@ namespace GridPrivate
 
         }
 
-        public List<Vector3Int> InRange(Vector3Int start, float distance)
+        public List<Vector3Int> InRange(GameObject pathfinder, Vector3Int start, float distance)
         {
             List<Vector3Int> inRange = new();
+            if (Searched == start)
+            {
+                int i = 0;
+                while (i < Distances.Count && Distances[i].Dist < distance)
+                    inRange.Add(Distances[i++].Location);
+                return inRange;
+            }
             Locations.Clear();
             Heap.Clear();
-            Searched = false;
-            GameObject pathfinder = Tiles[start.x, start.z].Occupant;
+            Searched = null;
 
             // Initialize heap
             Heap.Push(new PathNode(0.0f, start));
@@ -116,11 +124,20 @@ namespace GridPrivate
             {
                 neighborOffsets = new();
                 // Cache neighbors
-                for (int i = 0; i < OFFSETS.Length; i++) 
+                for (int i = 0; i < OFFSETS.Length; i++)
                 {
                     Vector3Int offset = OFFSETS[i];
                     // Only 2d for now
-                    if (offset.y != 0 || Tiles[offset.x, offset.z] == null)
+                    int x = offset.x + path.Location.x;
+                    int z = offset.z + path.Location.z;
+                    if (
+                        offset.y != 0 || (
+                        x < 0 ||
+                        z < 0 ||
+                        x >= Tiles.GetLength(0) ||
+                        z >= Tiles.GetLength(1) ||
+                        Tiles[x, z] == null)
+                    )
                         continue;
                     neighbors |= (Neighbors)(1 << i);
                     neighborOffsets.Add(i);
@@ -128,14 +145,16 @@ namespace GridPrivate
                 NeighborCache.Add(path.Location, neighbors);
             }
             else
+            {
                 neighborOffsets = GetNeighborOffsets(neighbors);
+            }
 
             // Filter to accessible
             for(int i = 0; i < neighborOffsets.Count; i++)
             {
                 Vector3Int cell = path.Location + OFFSETS[neighborOffsets[i]];
                 Tile tile = Tiles[cell.x, cell.z];
-                if (tile == null || !tile.CanStrideOn(pathfinder))
+                if (tile == null || (pathfinder != null && !tile.CanStrideOn(pathfinder)))
                     neighborOffsets.RemoveAt(i);
             }
             RemoveUnusableDiagonals(neighborOffsets);
@@ -148,17 +167,21 @@ namespace GridPrivate
                 float distTo = NEIGHBOR_DISTANCE[offset] + path.Dist;
                 PathNode newPath = new PathNode(distTo, cell, path);
                 PathNode existing;
-                if( Locations.TryGetValue(cell, out existing)) {
+                if (Locations.TryGetValue(cell, out existing))
+                {
                     // Replace
                     if (existing.Dist >= distTo)
                     {
                         Heap.Replace(existing, newPath);
                         Locations.Remove(cell);
+                        Locations.Add(cell, newPath);
                     }
                 }
                 else
+                {
                     Heap.Push(newPath);
-                Locations.Add(cell, newPath);
+                    Locations.Add(cell, newPath);
+                }
             }
         }
 

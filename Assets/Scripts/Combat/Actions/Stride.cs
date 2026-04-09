@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections;
 
 using UnityEngineInternal;
+using GridPublic;
 
 public class Stride : MultiFrameEntityAction
 {
@@ -16,7 +17,7 @@ public class Stride : MultiFrameEntityAction
         ActionController ac = target.GetComponent<ActionController>();
         CoroutineResult<bool> canceled = new();
         //yield return GridCharacterController3D.Instance.StrideCoroutine(target, canceled);
-        yield return GridAPIFSM.GetInstance().Stride(target, canceled);
+        yield return GridAPI.GetInstance().Stride(target);
         if (!canceled.Value)
         {
             if (ac)

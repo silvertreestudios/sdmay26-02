@@ -4,7 +4,7 @@ using System.Collections;
 using UnityEngine.Animations;
 using System;
 
-public class tokenMovement : ITokenMovement
+public class TokenMovement : MonoBehaviour, ITokenMovement
 {
     // Jump points for the piece to move between
     public float stepHeight;
@@ -30,7 +30,7 @@ public class tokenMovement : ITokenMovement
     private bool isDone = true;
 
 
-    public tokenMovement(Transform objectTransform, float stepHeight, float maxRotation, AnimationCurve ptLerp, AnimationCurve yLerp)
+    public TokenMovement(Transform objectTransform, float stepHeight, float maxRotation, AnimationCurve ptLerp, AnimationCurve yLerp)
     {
         this.objectTransform = objectTransform;
         this.stepHeight = stepHeight;
