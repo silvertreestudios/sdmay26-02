@@ -190,7 +190,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 "Zombies" => new Color(120f / 255f, 50f / 255f, 160f / 255f, 1f), // purple
                 "Goblins" => new Color(85f  / 255f, 120f / 255f, 40f  / 255f, 1f), // sickly green
                 _         => Players[i].GetComponent<PlayerActionController>() != null
-                             ? new Color(86f / 255f, 92f / 255f, 68f / 255f, 1f)      // player green
+                             ? new Color(28 / 255f, 114 / 255f, 135 / 255f, 1f)      // player green
                              : new Color(166f / 255f, 49f / 255f, 49f / 255f, 1f)  // default red
             };
             cardInstance.Q<VisualElement>("Card").style.backgroundColor = new StyleColor(cardColor);
