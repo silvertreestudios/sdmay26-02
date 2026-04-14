@@ -296,6 +296,7 @@ namespace Game.Creature
                 gridMemory.ClearCreaturePosition(gameObject, cell);
             }
             OnDeath.Invoke(gameObject); // Trigger the death event
+            CombatLog.GetInstance().Log("- " + this.gameObject.name + " was defeated!");
             
             gameObject.SetActive(false);
         }
