@@ -9,6 +9,8 @@ namespace Game.Strikes
 [System.Serializable]
 public class Unarmed : MultiFrameEntityAction
 {
+    // Done by Ryan Meyer 04/07/2026
+    public override string ActionName => "Unarmed Strike";
     private Strike Strike;
     private int range = 1; // default range of 1 tile
     
@@ -34,6 +36,7 @@ public class Unarmed : MultiFrameEntityAction
         // I implemented a cancel refund for this action, let me know if it needs to change - Adam
         if(target.Value && !canceled.Value)
         {
+            CombatLog.GetInstance().Log("- " + attacker.name + " attacks " + target.Value.name + " with unarmed strike.");
             Debug.Log(attacker + " Striking " + target.Value);
             Strike.Damage(attacker, target.Value);
             if (ac)

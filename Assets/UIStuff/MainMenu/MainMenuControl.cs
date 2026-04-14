@@ -7,6 +7,7 @@ public class MainMenuControl : MonoBehaviour
 {
 
     public VisualElement ui;
+    [SerializeField] private SettingsMenuControl settingsMenuControl;
     public Button newGameButton;
     public Button loadGameButton;
     public Button optionsButton;
@@ -39,7 +40,8 @@ public class MainMenuControl : MonoBehaviour
     }
 
     public void Options() {
-        Debug.Log("Clicked Options button");
+        if (settingsMenuControl != null)
+            settingsMenuControl.Open();
     }
 
     public void Exit() {

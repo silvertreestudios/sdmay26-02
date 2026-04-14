@@ -53,7 +53,7 @@ public class CombatLog : CombatLogInterface
         LogList.makeItem = makeItem;
         LogList.bindItem = bindItem;
         LogList.itemsSource = CurrentLogs;
-        LogList.selectionType = SelectionType.Multiple;
+        LogList.selectionType = SelectionType.None;
     }
 
     /// <summary>

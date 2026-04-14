@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 //using System.Numerics;
 using Unity.VisualScripting;
@@ -30,9 +31,12 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     private float currentRotationVelocity = 0f; // Add this
     
     private CombatManager combatManager;
+    private GameObject followTarget;
+    public bool IsFollowing => followTarget != null;
 
     void Awake()
     {
+        base.Awake();
         moveAction = InputSystem.actions.FindAction("MoveCamera");
         zoomAction = InputSystem.actions.FindAction("ZoomCamera");
         rotateAction = InputSystem.actions.FindAction("RotateCamera");
@@ -77,6 +81,8 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     private void HandleCameraMovement()
     {
         moveInput = moveAction.ReadValue<Vector2>();
+        if (moveInput.magnitude > 0.01f && IsFollowing)
+            StopFollowing();
         Vector3 forward = mainCamera.transform.forward;
         Vector3 right = mainCamera.transform.right;
         forward.y = 0;
@@ -124,7 +130,8 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         float zoomScale = Mathf.InverseLerp(minCamearYLimit, maxCameraYLimit, mainCamera.transform.position.y);
         
         float rotationAmount = currentRotationVelocity * cameraRotationSpeed * Time.deltaTime * (0.5f + zoomScale);
-        mainCamera.transform.RotateAround(GetCameraLookAtPosition(), Vector3.up, rotationAmount);
+        Vector3 orbitCenter = followTarget != null ? followTarget.transform.position : GetCameraLookAtPosition();
+        mainCamera.transform.RotateAround(orbitCenter, Vector3.up, rotationAmount);
     }
 
 
@@ -155,6 +162,76 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
             sum += pos;
         }
         return sum / positions.Length;
+    }
+
+    private Coroutine currentPanRoutine;
+
+    public void PanToTarget(GameObject target, bool followIndefinitely = false)
+    {
+        if (target == null) return;
+        if (mainCamera == null) getCamera();
+        if (mainCamera == null) return;
+        if (currentPanRoutine != null) StopCoroutine(currentPanRoutine);
+        currentPanRoutine = StartCoroutine(PanToTargetRoutine(target, followIndefinitely));
+    }
+
+    public void StopFollowing()
+    {
+        if (currentPanRoutine != null)
+        {
+            StopCoroutine(currentPanRoutine);
+            currentPanRoutine = null;
+        }
+        followTarget = null;
+    }
+
+    private IEnumerator PanToTargetRoutine(GameObject target, bool followIndefinitely)
+    {
+        float panDuration = 0.5f;
+        Vector3 offset = mainCamera.transform.position - GetCameraLookAtPosition();
+
+        // Pan to target over 0.5 seconds, preserving camera Y
+        float elapsed = 0f;
+        while (elapsed < panDuration)
+        {
+            if (target == null) yield break;
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / panDuration);
+            Vector3 desiredPosition = target.transform.position + offset;
+            desiredPosition.y = mainCamera.transform.position.y;
+            mainCamera.transform.position = Vector3.Lerp(mainCamera.transform.position, desiredPosition, t);
+            yield return null;
+        }
+
+        if (followIndefinitely)
+        {
+            // Follow indefinitely - track target delta (X/Z only) so orbiting still works
+            followTarget = target;
+            Vector3 lastTargetPos = target.transform.position;
+            while (true)
+            {
+                if (target == null) { followTarget = null; yield break; }
+                Vector3 delta = target.transform.position - lastTargetPos;
+                delta.y = 0;
+                mainCamera.transform.position += delta;
+                lastTargetPos = target.transform.position;
+                yield return null;
+            }
+        }
+        else
+        {
+            // Track target for 1 second then stop (X/Z only)
+            elapsed = 0f;
+            while (elapsed < 1f)
+            {
+                if (target == null) yield break;
+                elapsed += Time.deltaTime;
+                Vector3 desiredPosition = target.transform.position + offset;
+                desiredPosition.y = mainCamera.transform.position.y;
+                mainCamera.transform.position = desiredPosition;
+                yield return null;
+            }
+        }
     }
 
     public void FocusOnCombatants()

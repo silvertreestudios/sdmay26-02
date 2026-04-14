@@ -163,6 +163,11 @@ namespace Game.Creature
                 else
                     Debug.LogWarning($"Ability '{a}' not found for {name}");
             }
+        }
+
+        void Start()
+        {
+            // Moved from Awake to Start to ensure Armory singleton is initialized first
             if(this.gameObject.GetComponent<ActionController>() != null){
                 Unarmed.AddUnarmedStrike(this.gameObject);
                 StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject);

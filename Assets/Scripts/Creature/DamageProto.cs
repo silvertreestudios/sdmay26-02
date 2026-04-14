@@ -34,11 +34,12 @@ namespace Game.Creature
         // Roll damage based on list of Dice
         public static List<DamageValue> RollDamage(List<Dice> damageRolls, List<DamageValue> damageFlats){
             List<DamageValue> damageInstances = new List<DamageValue>();
-            string log = "\n  Damage: ";
+            string log = "  Damage: ";
             log += "\n  Rolled ";
             foreach (Dice dice in damageRolls){
                 DamageValue damageValue = new DamageValue(dice.damageType, dice.Roll());
-                log += " "+dice.numberOfDice+"d"+dice.sidesPerDie+": "+damageValue.DamageAmount+" " + damageValue.DamageType + ", ";
+                string damageTypeCapitalized = char.ToUpper(damageValue.DamageType[0]) + damageValue.DamageType.Substring(1);
+                log += " "+dice.numberOfDice+"d"+dice.sidesPerDie+": "+damageValue.DamageAmount+" " + damageTypeCapitalized + ", ";
                 // Group damage by type (string comparison)
                 if (damageInstances.Exists(di => di.DamageType == damageValue.DamageType)){
                     int idx = damageInstances.FindIndex(di => di.DamageType == damageValue.DamageType);
@@ -49,12 +50,14 @@ namespace Game.Creature
                 else{
                     damageInstances.Add(damageValue);
                 }
+
             }
-            log += "\n  Flats: ";
+            log += "\n       ";
             // For each flat damage in damageFlats...
             foreach (DamageValue damageFlat in damageFlats){
                 // Group damage by type (string comparison)
-                log += " "+damageFlat.DamageAmount + " " + damageFlat.DamageType + ", ";
+                string damageTypeCapitalized = char.ToUpper(damageFlat.DamageType[0]) + damageFlat.DamageType.Substring(1);
+                log += " +"+damageFlat.DamageAmount + " " + damageTypeCapitalized + ", ";
                 if (damageInstances.Exists(di => di.DamageType == damageFlat.DamageType)){
                     int idx = damageInstances.FindIndex(di => di.DamageType == damageFlat.DamageType);
                     var existingInstance = damageInstances[idx];
@@ -67,8 +70,8 @@ namespace Game.Creature
             }
             // TODO: append traits list?
 
-            log += "\n";
             Debug.Log(log);
+            CombatLog.GetInstance().Log(log);
             return damageInstances;
         }
 
@@ -77,6 +80,7 @@ namespace Game.Creature
             foreach (DamageValue dv in damageValues){
                 totalDamage += dv.DamageAmount;
             }
+            CombatLog.GetInstance().Log("  Total: " + totalDamage +" Damage!");
             return totalDamage;
         }
 
@@ -89,6 +93,7 @@ namespace Game.Creature
                     damageValues[i] = dv;
                 }
             }
+            CombatLog.GetInstance().Log("  x2 for Critical Hit!");
         }
 
         // Called by creature receiving damage via TakeDamage
@@ -101,10 +106,12 @@ namespace Game.Creature
                     //Debug.Log(""+inc.DamageAmount+" "+inc.DamageType+" incoming, applying weaknesses:");
                     var existingInstance = weaknesses.Find(di => di.DamageType == inc.DamageType);
                     inc.DamageAmount += existingInstance.DamageAmount;
+                    CombatLog.GetInstance().Log("  +" + existingInstance.DamageAmount + " " + char.ToUpper(existingInstance.DamageType[0]) + existingInstance.DamageType.Substring(1) + " for weakness!");
                 }
                 if (resistances.Exists(di => di.DamageType == inc.DamageType)){
                     var existingInstance = resistances.Find(di => di.DamageType == inc.DamageType);
                     inc.DamageAmount -= existingInstance.DamageAmount;
+                    CombatLog.GetInstance().Log("  -" + existingInstance.DamageAmount + " " + char.ToUpper(existingInstance.DamageType[0]) + existingInstance.DamageType.Substring(1) + " for resistance!");
                 }
                 if (inc.DamageAmount < 0) inc.DamageAmount = 0;
                 incoming[i] = inc;

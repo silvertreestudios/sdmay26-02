@@ -3,11 +3,21 @@
 }
 
 #CombatLog {
-    --unity-item-height: 50px;
+    --unity-item-height: 50;
 }
 
-#CombatLog > * {
-    padding: 5px;
-    font-size: 20px;
-    overflow: wrap;
+#CombatLog .unity-list-view__item {
+    background-color: rgba(86, 92, 68, 0.2);
+    color: rgb(233, 196, 140);
+    font-size: 25px;
+    transition-duration: 1s;
+    transition-property: background-color, color, font-size;
+}
+
+#CombatLog .unity-list-view__item:hover {
+    background-color: rgb(86, 92, 68);
+    color: rgb(233, 196, 140);
+    font-size: 25px;
+    transition-duraton: 0.5s;
+    transition-property: background-color, color, font-size;
 }

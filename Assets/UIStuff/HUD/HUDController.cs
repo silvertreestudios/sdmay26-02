@@ -1,21 +1,27 @@
 using NUnit.Framework.Internal;
 using Unity.VisualScripting;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using Game.Creature;
 using Game.Strikes;
+using System.Collections;
 using System.Collections.Generic;
 
 public class HUDController : SingletonMonoBehaviour<HUDController>
 {
 
     public VisualElement ui;
-    public Button strikeButton;
-    public Button moveButton;
     public Button endTurnButton;
-    public Button strikeWeaponButtton; // for testing, will need to be generated based on equipped weapons in the future
     public Button nextLevelButton;
+    private VisualElement buttonGrid;
+    private VisualElement panel;
+    private InputAction toggleAutoCameraAction;
+    private bool autoCameraEnabled = true;
+    private bool wasFollowing = false;
+    private Coroutine slideCoroutine;
+    private const float SlideDuration = 0.4f;
 
 
     //####Player Queue Card Variables####   
@@ -52,6 +58,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         combatLog.Log("Game Started. Combat Log Initialized.");
         Debug.Log("Listener");
         OnCombatStart.AddListener(() => { EnableUi(); Setup(); });
+        OnNextTurn.AddListener(OnTurnChanged);
         //Copiloy made this so I could point it to another UXML file for a template
         //I suspect it sucks
         //vvvvvvvvvvvvvvvvvv
@@ -65,23 +72,27 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         //Debug.Log("OnEnable called");
         //####Button Setup####
         OnNextLevelRequest.AddListener(ToggleNextLevelButton);
-        strikeButton = ui.Q<Button>("StrikeButton");
-        strikeButton.clicked += Strike;
 
-        strikeWeaponButtton = ui.Q<Button>("StrikeWeaponButton");
-        strikeWeaponButtton.clicked += StrikeWeapon;
+        buttonGrid = ui.Q<VisualElement>("ButtonGrid");
+        panel = ui.Q<VisualElement>("Panel");
 
-        moveButton = ui.Q<Button>("MoveButton");
-        moveButton.clicked += Move;
+        toggleAutoCameraAction = InputSystem.actions.FindAction("ToggleAutoCamera");
+        if (toggleAutoCameraAction != null)
+            toggleAutoCameraAction.performed += OnToggleAutoCamera;
 
-        endTurnButton = ui.Q<Button>("EndTurnButton");
-        endTurnButton.clicked += EndTurn;
+        endTurnButton = new Button(EndTurn);
+        endTurnButton.name = "EndTurnButton";
+        endTurnButton.text = "End Turn";
+        endTurnButton.AddToClassList("btn-general");
 
-        cancelActionButton = ui.Q<Button>("CancelActionButton");
-        cancelActionButton.clicked += CancelAction;
+        cancelActionButton = new Button(CancelAction);
+        cancelActionButton.name = "CancelActionButton";
+        cancelActionButton.text = "Cancel";
+        cancelActionButton.AddToClassList("btn-general");
 
         nextLevelButton = ui.Q<Button>("NextLevelButton");
-        nextLevelButton.clicked += NextLevel;
+        if (nextLevelButton != null)
+            nextLevelButton.clicked += NextLevel;
 
         // //####Player Queue Card Setup####
         // currentPlayerCard = ui.Q<VisualElement>("CurrentPlayerInfo");
@@ -90,6 +101,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         // //####Target Card Setup####
         // targetCard = ui.Q<VisualElement>("TargetInfo");
         // targetHealthBar = targetCard.Q<ProgressBar>("HealthBar");
+
+
 
         //####Player Queue Card Setup####
         cardHolder = ui.Q<VisualElement>("CardHolder");
@@ -102,12 +115,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private void OnDisable() {
         //Debug.Log("OnDisable called");
         OnNextLevelRequest.RemoveListener(ToggleNextLevelButton);
-        strikeButton.clicked -= Strike;
-        strikeWeaponButtton.clicked -= StrikeWeapon;
-        moveButton.clicked -= Move;
-        endTurnButton.clicked -= EndTurn;
-        cancelActionButton.clicked -= CancelAction;
-        nextLevelButton.clicked -= NextLevel;
+        OnNextTurn.RemoveListener(OnTurnChanged);
+        if (nextLevelButton != null)
+            nextLevelButton.clicked -= NextLevel;
+        if (toggleAutoCameraAction != null)
+            toggleAutoCameraAction.performed -= OnToggleAutoCamera;
     }
 
     public void EnableUi()
@@ -128,8 +140,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         if (!IsActive)
             return;
         List<GameObject> currentCombatants = CombatManagerInterface.GetInstance().GetCombatants();
-        if (Players == null || HaveCombatantsChanged(currentCombatants)) {
+        if (Players == null) {
             Players = currentCombatants;
+            needToUpdateCards = true;
+        } else if (HaveCombatantsChanged(currentCombatants)) {
+            Players.RemoveAll(p => !currentCombatants.Contains(p));
             needToUpdateCards = true;
         }
 
@@ -138,15 +153,17 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             needToUpdateCards = false;
         }
 
-        if (isActionRunning()){
-            strikeButton.SetEnabled(false);
-            moveButton.SetEnabled(false);
-            endTurnButton.SetEnabled(false);
-        } else {
-            strikeButton.SetEnabled(true);
-            moveButton.SetEnabled(true);
-            endTurnButton.SetEnabled(true);
+        bool isFollowing = CameraManager.GetInstance().IsFollowing;
+        if (autoCameraEnabled && wasFollowing && !isFollowing)
+        {
+            autoCameraEnabled = false;
+            combatLog.Log("Auto camera disabled.");
         }
+        wasFollowing = isFollowing;
+
+        bool actionRunning = isActionRunning();
+        foreach (var child in buttonGrid.Children())
+            child.SetEnabled(!actionRunning);
 
         // Highlight the current player's card
         
@@ -157,14 +174,26 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     // Card Logic attempt by Ryan
     private void fillPlayerCards() {
-        cardHolder.Clear(); // Fix: Clear existing cards before adding new ones
-        if (Players == null) {
+        if (cardHolder == null || Players == null) {
             return;
         }
+        cardHolder.Clear();
         for (int i = 0; i < Players.Count; i++) {
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
+
+            Team team = Players[i].GetComponent<Team>();
+            string teamName = team != null ? team.Name : "";
+            Color cardColor = teamName switch
+            {
+                "Zombies" => new Color(120f / 255f, 50f / 255f, 160f / 255f, 0.65f), // purple
+                "Goblins" => new Color(85f  / 255f, 120f / 255f, 40f  / 255f, 0.65f), // sickly green
+                _         => Players[i].GetComponent<PlayerActionController>() != null
+                             ? new Color(86f / 255f, 92f / 255f, 68f / 255f, 1f)      // player green
+                             : new Color(166f / 255f, 49f / 255f, 49f / 255f, 0.65f)  // default red
+            };
+            cardInstance.Q<VisualElement>("Card").style.backgroundColor = new StyleColor(cardColor);
 
             var portraitImage = cardInstance.Q<Image>("PortraitImage");
             // Get portrait snapshot and display it
@@ -178,7 +207,12 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
             cardInstance.Q<Label>("DESC").text = p.description;
 
-            
+            // Pan camera to player when card is clicked
+            GameObject captured = Players[i];
+            cardInstance.Q<VisualElement>("Card").RegisterCallback<ClickEvent>(evt =>
+            {
+                CameraManager.GetInstance().PanToTarget(captured);
+            });
         }
     }
 
@@ -190,9 +224,9 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         if (Players.Count != currentCombatants.Count)
             return true;
 
-        for (int i = 0; i < Players.Count; i++)
+        foreach (GameObject p in Players)
         {
-            if (Players[i] != currentCombatants[i])
+            if (!currentCombatants.Contains(p))
                 return true;
         }
 
@@ -200,86 +234,188 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     }
 
 
-    public void Strike() {
-        //Debug.Log("Strike called");
-        GameObject g = CombatManager.GetInstance().WhosTurn();
-        // TODO: Check if is player
-        g.GetComponent<PlayerActionController>().TestStrike();
-        //Debug.Log("Clicked Strike button");
-        //for testing, have strike do damage to next player
-        // players[(currentPlayerIndex + 1) % players.Length].TakeDamage(10);
-    }
-
-    // Testing function for StrikeWeapon action
-    public void StrikeWeapon() {
-        //Debug.Log("Strike Weapon called");
-        GameObject g = CombatManager.GetInstance().WhosTurn();
-        List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
-        StrikeWeapon strikeWeaponAction = null;
-        // Debug.Log("Available actions for current player: "+ acs.Count);
-        foreach (var a in acs)
-        {
-            Debug.Log("Checking action: " + a);
-            if (a is StrikeWeapon)
-            {
-                // Debug.Log("Found StrikeWeapon action: " + a);
-                strikeWeaponAction = (StrikeWeapon)a;
-                // break;
-            }
-        }
-        if (strikeWeaponAction == null)
-        {
-            // Debug.LogWarning("No StrikeWeapon action found for current player!");
-            return;
-        }
-        g.GetComponent<ActionController>().TakeAction(strikeWeaponAction);
-        //Debug.Log("Clicked Strike Weapon button");
-    }
-
-    public void SetStrikeWeaponText(string weaponName)
+    private void OnToggleAutoCamera(InputAction.CallbackContext context)
     {
-        if (strikeWeaponButtton != null && !string.IsNullOrEmpty(weaponName))
+        autoCameraEnabled = !autoCameraEnabled;
+        if (autoCameraEnabled)
         {
-            //ui.Q<Button>("StrikeWeaponButton").text = weaponName;
-            strikeWeaponButtton.text = weaponName;
+            GameObject current = CombatManager.GetInstance().WhosTurn();
+            if (current != null)
+                CameraManager.GetInstance().PanToTarget(current, followIndefinitely: true);
+            combatLog.Log("Auto camera enabled.");
         }
         else
         {
-            GameObject g = CombatManager.GetInstance().WhosTurn();
-            List<EntityAction> acs = g.GetComponent<ActionController>().GetActions();
-            StrikeWeapon strikeWeaponAction = null;
-            //Debug.Log("Available actions for current player: "+ acs.Count);
-            foreach (var a in acs)
-            {
-                //Debug.Log("Checking action: " + a);
-                if (a is StrikeWeapon)
-                {
-                    //Debug.Log("Found StrikeWeapon action: " + a);
-                    strikeWeaponAction = (StrikeWeapon)a;
-                    strikeWeaponButtton.text = strikeWeaponAction.GetWeaponName();
-                    return;
-                }
-            }
-            strikeWeaponButtton.text = "N/A";
+            CameraManager.GetInstance().StopFollowing();
+            combatLog.Log("Auto camera disabled.");
         }
-        
     }
 
-    public void Move()
+    private void OnTurnChanged(GameObject turnTaker)
     {
-        GameObject g = CombatManager.GetInstance().WhosTurn();
-        combatLog.Log("- " + g.name + " is moving.");
-        g.GetComponent<PlayerActionController>().TestStride();
-        //Debug.Log("Clicked Move button");
+        ActionController ac = turnTaker.GetComponent<ActionController>();
+        if (ac == null) return;
+
+        if (slideCoroutine != null) StopCoroutine(slideCoroutine);
+        slideCoroutine = StartCoroutine(TurnTransitionRoutine(turnTaker, ac));
+    }
+
+    private IEnumerator TurnTransitionRoutine(GameObject turnTaker, ActionController ac)
+    {
+        bool isPlayer = turnTaker.GetComponent<PlayerActionController>() != null;
+
+        // Slide out first
+        yield return StartCoroutine(SlideOut());
+
+        // Swap buttons while panel is hidden
+        ClearAllRows();
+        if (isPlayer)
+        {
+            List<EntityAction> actions = ac.GetActions();
+            string log = turnTaker.name + " available actions (" + actions.Count + "): ";
+            foreach (EntityAction a in actions)
+                log += "[" + a.ActionName + "] ";
+            Debug.Log(log);
+            BuildActionButtons(turnTaker, actions);
+            BuildMovementButtons(turnTaker, ac.GetMovements());
+        }
+
+        // Slide back in for player turns only
+        if (isPlayer)
+            yield return StartCoroutine(SlideIn());
+
+        if (autoCameraEnabled)
+            CameraManager.GetInstance().PanToTarget(turnTaker, followIndefinitely: true);
+    }
+
+    private IEnumerator SlideOut()
+    {
+        if (panel == null) yield break;
+        float elapsed = 0f;
+        while (elapsed < SlideDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / SlideDuration));
+            panel.style.translate = new StyleTranslate(new Translate(new Length(-100f * t, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
+            yield return null;
+        }
+        panel.style.translate = new StyleTranslate(new Translate(new Length(-100f, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
+    }
+
+    private IEnumerator SlideIn()
+    {
+        if (panel == null) yield break;
+        float elapsed = 0f;
+        while (elapsed < SlideDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / SlideDuration));
+            panel.style.translate = new StyleTranslate(new Translate(new Length(-100f * (1f - t), LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
+            yield return null;
+        }
+        panel.style.translate = new StyleTranslate(new Translate(new Length(0, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
+    }
+
+    private void ClearAllRows()
+    {
+        buttonGrid.Query<VisualElement>(className: "btn-row").ForEach(r => r.RemoveFromHierarchy());
+    }
+
+    private void AddButtonToGrid(string label, string colorClass, System.Action onClick = null)
+    {
+        var rows = buttonGrid.Query<VisualElement>(className: "btn-row").ToList();
+        VisualElement row = null;
+        if (rows.Count > 0 && rows[rows.Count - 1].childCount < 2)
+            row = rows[rows.Count - 1];
+
+        if (row == null)
+        {
+            row = new VisualElement();
+            row.AddToClassList("btn-row");
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignSelf = Align.Stretch;
+            buttonGrid.Add(row);
+        }
+
+        Button btn = onClick != null ? new Button(onClick) : new Button();
+        btn.text = label;
+        btn.AddToClassList(colorClass);
+        if (label.Length > 10)
+            btn.AddToClassList("btn-small-text");
+        btn.style.width = new StyleLength(new Length(50, LengthUnit.Percent));
+        btn.style.flexGrow = 0;
+        row.Add(btn);
+    }
+
+    private void AddGeneralButtons()
+    {
+        endTurnButton.style.width = new StyleLength(new Length(50, LengthUnit.Percent));
+        cancelActionButton.style.width = new StyleLength(new Length(50, LengthUnit.Percent));
+
+        var rows = buttonGrid.Query<VisualElement>(className: "btn-row").ToList();
+        VisualElement row = null;
+        if (rows.Count > 0 && rows[rows.Count - 1].childCount < 2)
+            row = rows[rows.Count - 1];
+
+        if (row == null)
+        {
+            row = new VisualElement();
+            row.AddToClassList("btn-row");
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignSelf = Align.Stretch;
+            buttonGrid.Add(row);
+        }
+
+        row.Add(endTurnButton);
+
+        // Cancel goes in next slot
+        rows = buttonGrid.Query<VisualElement>(className: "btn-row").ToList();
+        row = rows[rows.Count - 1].childCount < 2 ? rows[rows.Count - 1] : null;
+        if (row == null)
+        {
+            row = new VisualElement();
+            row.AddToClassList("btn-row");
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignSelf = Align.Stretch;
+            buttonGrid.Add(row);
+        }
+        row.Add(cancelActionButton);
+    }
+
+    private void BuildActionButtons(GameObject turnTaker, List<EntityAction> actions)
+    {
+        ClearAllRows();
+        foreach (EntityAction action in actions)
+        {
+            EntityAction captured = action;
+            AddButtonToGrid(captured.ActionName, "btn-action",
+                () => turnTaker.GetComponent<ActionController>().TakeAction(captured));
+        }
+    }
+
+    private void BuildMovementButtons(GameObject turnTaker, List<EntityAction> movements)
+    {
+        foreach (EntityAction movement in movements)
+        {
+            EntityAction captured = movement;
+            AddButtonToGrid(captured.ActionName, "btn-movement",
+                () => turnTaker.GetComponent<ActionController>().TakeAction(captured));
+        }
+        // DEBUG: test buttons to verify grid layout
+        for (int i = 1; i <= 5; i++)
+            AddButtonToGrid("Test - " + i, "btn-action");
+
+        AddGeneralButtons();
     }
 
     public void EndTurn()
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
-        // TODO: Check if is player
+        PlayerActionController pac = g.GetComponent<PlayerActionController>();
+        if (pac == null) return;
         GridAPI.GetInstance().CancelCurrentAction();
-        g.GetComponent<PlayerActionController>().EndTurn();
-        combatLog.Log("- " + g.name + " ended their turn.");
+        pac.EndTurn();
+        // combatLog.Log("- " + g.name + " ended their turn.");
     }
     
     public void NextLevel() {
@@ -299,13 +435,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
     }
 
-    // toggles visibility of temp HP bar on player cards based on/off whether they have TempHp
-    public void ToggleTempHpBar(CreatureComponent cc, ProgressBar bar) {
-        if(cc != null && cc.tempHp > 0)
-            bar.style.visibility = Visibility.Visible;
-        else
-            bar.style.visibility = Visibility.Hidden;
-    }
+    // Commented out for now - ToggleTempHpBar
+    // public void ToggleTempHpBar(CreatureComponent cc, ProgressBar bar) {
+    //     if(cc != null && cc.tempHp > 0)
+    //         bar.style.visibility = Visibility.Visible;
+    //     else
+    //         bar.style.visibility = Visibility.Hidden;
+    // }
 
     public void CancelAction() {
         //Debug.Log("CancelAction called");
@@ -356,6 +492,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     }
 
     private void updatePlayerQueueCards() {
+        if (cardHolder == null || Players == null) return;
         for (int i = 0; i < cardHolder.childCount; i++) {
             try {
                 // Safe check before calling WhosTurn
@@ -385,29 +522,26 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 healthBar.value = p.hp;
                 healthBar.highValue = p.maxHp;
 
-                // Update TempHp bar
-                var thpBar = card.Q<ProgressBar>("TempHpBar");
-                thpBar.title = "Temp HP: " + p.tempHp + "/" + p.tempHp;
-                thpBar.value = p.tempHp;
-                thpBar.highValue = p.tempHp;
-                ToggleTempHpBar(p, thpBar);
+                // Commented out for now - TempHp bar
+                // var thpBar = card.Q<ProgressBar>("TempHpBar");
+                // thpBar.title = "Temp HP: " + p.tempHp + "/" + p.tempHp;
+                // thpBar.value = p.tempHp;
+                // thpBar.highValue = p.tempHp;
+                // ToggleTempHpBar(p, thpBar);
 
+                VisualElement cardVE = card.Q<VisualElement>("Card");
                 if (p == currentTurn) {
-                    //card.style.scale = new StyleScale(new Scale(new Vector3(1.5f,1.5f,1))); // Scale up the current player's card
-                    card.style.opacity = 1f; // Full opacity for current player card
-                    //card.style.borderBottomColor = Color.clear;
-                    //card.style.borderBottomWidth = 50;
+                    // card.style.opacity = 1f;
+                    cardVE.RemoveFromClassList("card-inactive");
                 } else {
-                    //card.style.borderBottomColor = Color.clear;
-                    //card.style.borderBottomWidth = 0;
-                    //card.style.scale = new StyleScale(new Scale(new Vector3(1f, 1f, 1))); // Normal scale for non-current player cards
-                    card.style.opacity = 0.3f; // Dim non-current player cards
+                    // card.style.opacity = 0.5f;
+                    cardVE.AddToClassList("card-inactive");
                 }
                 if (p.hp <= 0) {
                     needToMoveCards = true; // Flag to move cards if a player is defeated
                     return; // Exit early to avoid updating cards that may be removed
                 }
-                //card.Q<Label>("AP").text = "AP: " + p.GetComponent<ActionController>().ActionPoints; // Update action points display
+                card.Q<Label>("DESC").text = "AP: " + p.GetComponent<ActionController>().ActionPoints;
                 
                 
             } catch (System.Exception e) {

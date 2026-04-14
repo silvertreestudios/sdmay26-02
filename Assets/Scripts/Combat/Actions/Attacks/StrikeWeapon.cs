@@ -9,6 +9,8 @@ namespace Game.Strikes
 [System.Serializable]
 public class StrikeWeapon : MultiFrameEntityAction
 {
+    // Done by Ryan Meyer 04/07/2026
+    public override string ActionName => GetWeaponName();
     private Strike Strike;
     private EquipmentWeapon Weapon;
     private int range =1; // default range of 1 tile
@@ -42,8 +44,8 @@ public class StrikeWeapon : MultiFrameEntityAction
         List<string> weaponsList = creature.GetComponent<CreatureComponent>().weaponsList;
         foreach(string weaponName in weaponsList)
         {
-            // EquipmentWeapon weapon = DataFileInterface.GetWeapon(weaponName);
-            EquipmentWeapon weapon = Armory.GetInstance().GetWeapon(weaponName); // Bypass DataFileInterface
+            EquipmentWeapon weapon = DataFileInterface.GetWeapon(weaponName);
+            //EquipmentWeapon weapon = Armory.GetInstance().GetWeapon(weaponName); // Bypass DataFileInterface
             if (weapon.range == null || weapon.range == 0)
             {
                 StrikeWeapon strikeWeaponAction = new StrikeWeapon(1, weapon, creature);

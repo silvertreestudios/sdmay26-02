@@ -212,18 +212,19 @@ namespace Game.Creature
             target.willSave = dto.system.saves?.will?.value ?? target.willSave;
 
             // Replace weaknesses/resistances lists
-            Debug.Log(target.name +" weaknesses and resistances from DTO:");
+            // Debug.Log(target.name +" weaknesses and resistances from DTO:");
+            // Weaknesses
             if (target.weaknesses == null) target.weaknesses = new List<DamageValue>();
             target.weaknesses.Clear();
             if (dto.system.attributes.weaknesses != null)
             {
-                Debug.Log(target.name +" size " + dto.system.attributes.weaknesses.Length);
+                // Debug.Log(target.name +" size " + dto.system.attributes.weaknesses.Length);
                 foreach (var w in dto.system.attributes.weaknesses){
                     target.weaknesses.Add(new DamageValue(w.type, w.value));
-                    Debug.Log(target.name + " weakness added: " + w.value + " " + w.type);
+                    // Debug.Log(target.name + " weakness added: " + w.value + " " + w.type);
                 }
             }
-
+            // Resistances
             if (target.resistances == null) target.resistances = new List<DamageValue>();
             target.resistances.Clear();
             if (dto.system.attributes.resistances != null)
@@ -264,12 +265,6 @@ namespace Game.Creature
             }
 
             // Equipment
-            // TODO use equipment names from creature JSON as args to look up actual Equipment items from datafiles
-            //      -Done for weapons
-            //      -TODO armor
-            // TODO use equipment names from creature JSON as args to look up actual Equipment items from datafiles
-            //      -Done for weapons
-            //      -TODO armor
             if (target.equipment == null) target.equipment = new List<string>();
             target.equipment.Clear();
             if (dto.equipment != null)
@@ -327,7 +322,6 @@ namespace Game.Creature
                     }
                 }
             
-
             // Conditions
             if (target.conditions == null) target.conditions = new List<string>();
             target.conditions.Clear();
@@ -366,24 +360,38 @@ namespace Game.Creature
     // --- Converter helper: parse, map, instantiate ---
     public static class CreatureJsonConverter
     {
-        // Create from a file path. Optional prefab to instantiate (if null, plain GameObject is used)
+        // Create from a resource path. Optional prefab to instantiate (if null, plain GameObject is used)
         public static GameObject CreateFromFile(string jsonFilePath, GameObject prefab = null)
         {
-            if (string.IsNullOrEmpty(jsonFilePath) || !File.Exists(jsonFilePath))
+            if (string.IsNullOrEmpty(jsonFilePath))
             {
-                Debug.LogError($"CreatureJsonConverter: file not found: {jsonFilePath}");
+                Debug.LogError("CreatureJsonConverter: empty creature resource path");
                 return null;
             }
 
-            string json = File.ReadAllText(jsonFilePath);
+            // Accept either a plain Resources path (Datafiles/foo) or a full asset path (Assets/Resources/Datafiles/foo.json)
+            string resourcePath = jsonFilePath.Replace('\\', '/').Trim();
+            const string resourcesPrefix = "Assets/Resources/";
+            if (resourcePath.StartsWith(resourcesPrefix, StringComparison.OrdinalIgnoreCase))
+                resourcePath = resourcePath.Substring(resourcesPrefix.Length);
+            if (resourcePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                resourcePath = resourcePath.Substring(0, resourcePath.Length - 5);
+
+            TextAsset creatureAsset = Resources.Load<TextAsset>(resourcePath);
+            if (creatureAsset == null)
+            {
+                Debug.LogError($"CreatureJsonConverter: creature not found in Resources at '{resourcePath}'");
+                return null;
+            }
+
             CreatureDto dto = null;
             try
             {
-                dto = JsonUtility.FromJson<CreatureDto>(json);
+                dto = JsonUtility.FromJson<CreatureDto>(creatureAsset.text);
             }
             catch (Exception ex)
             {
-                Debug.LogError($"CreatureJsonConverter: failed to parse JSON: {ex.Message}");
+                Debug.LogError($"CreatureJsonConverter: failed to parse creature JSON at Resources/{resourcePath}: {ex.Message}");
                 return null;
             }
 
@@ -393,159 +401,135 @@ namespace Game.Creature
             return go;
         }
 
-        // Create by name: searches Assets/DataFiles for a matching filename (without extension)
+        // Create by name from Resources/Datafiles
         public static GameObject CreateByName(string creatureName, GameObject prefab = null)
         {
             if (string.IsNullOrEmpty(creatureName)) return null;
-            string rootDirectory = Path.Combine(Application.dataPath, "DataFiles");
-            if (!Directory.Exists(rootDirectory))
+
+            string normalizedName = NormalizeFilename(creatureName);
+            string[] candidatePaths =
             {
-                Debug.LogWarning($"CreatureJsonConverter: DataFiles directory not found: {rootDirectory}");
-                return null;
+                $"Datafiles/{creatureName}",
+                $"Datafiles/{normalizedName}"
+            };
+
+            foreach (string resourcePath in candidatePaths.Distinct())
+            {
+                TextAsset creatureAsset = Resources.Load<TextAsset>(resourcePath);
+                if (creatureAsset != null)
+                    return CreateFromFile(resourcePath, prefab);
             }
 
-            var files = Directory.GetFiles(rootDirectory, "*.json", SearchOption.AllDirectories);
-            var match = files.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).Equals(creatureName, StringComparison.OrdinalIgnoreCase));
-            if (match == null)
-            {
-                Debug.LogWarning($"CreatureJsonConverter: creature not found: {creatureName}");
-                return null;
-            }
-
-            return CreateFromFile(match, prefab);
+            Debug.LogWarning($"CreatureJsonConverter: creature not found in Resources/Datafiles: {creatureName}");
+            return null;
         }
 
         // Get EquipmentWeapon by name from DataFiles/equipment
         public static EquipmentWeapon GetWeaponByName(string weaponName)
         {
-            // Debug.Log($"CreatureJsonConverter: looking up weapon: {weaponName}");
             if (string.IsNullOrEmpty(weaponName)) return null;
-            NormalizeFilename(weaponName);
-            string rootDirectory = Path.Combine(Application.dataPath, "DataFiles/equipment");
-            if (!Directory.Exists(rootDirectory))
+            string normalizedWeaponName = NormalizeFilename(weaponName);
+            string resourcePath = $"Datafiles/Equipment/{normalizedWeaponName}";
+            TextAsset weaponAsset = Resources.Load<TextAsset>(resourcePath);
+
+            if (weaponAsset == null)
             {
-                Debug.LogWarning($"CreatureJsonConverter: DataFiles directory not found: {rootDirectory}");
-                return null;
-            }
-            var files = Directory.GetFiles(rootDirectory, "*.json", SearchOption.AllDirectories);
-            files = files.Where(f => Path.GetFileNameWithoutExtension(f).Equals(weaponName, StringComparison.OrdinalIgnoreCase)).ToArray();
-            if (files.Length > 1)
-                Debug.LogWarning($"Mutliple instances found for : {weaponName}");
-            else if (files.Length == 0)
-            {
-                Debug.LogWarning($"CreatureJsonConverter: weapon not found: {weaponName}");
+                Debug.LogWarning($"CreatureJsonConverter: weapon not found in Resources at '{resourcePath}'");
                 return null;
             }
 
-            foreach (var file in files)
+            WeaponDto dto = null;
+            try
             {
-                string json = File.ReadAllText(file);
-                WeaponDto dto = null;
-                try
-                {
-                    dto = JsonUtility.FromJson<WeaponDto>(json);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"CreatureJsonConverter: failed to parse JSON in {file}: {ex.Message}");
-                    continue;
-                }
-                EquipmentWeapon weapon = new EquipmentWeapon();
-                weapon.name = dto.name;
-                weapon.type = dto.type;
-                weapon.group = dto.group;   
-                weapon.category = dto.category;
-                weapon.hands = dto.hands;
-                weapon.damage = new Dice(dto.damageDice, dto.damageDie, dto.damageType);
-                weapon.description = dto.description;
-                weapon.traits = dto.traits;
-                weapon.materialType = dto.materialType;
-                weapon.materialGrade = dto.materialGrade;
-                weapon.runes = dto.runes;
-                weapon.price = double.TryParse(dto.price, out double priceValue) ? priceValue : 0.0; // Handle parsing price string to double
-                weapon.range = dto.range;
-                weapon.ammo = dto.ammo;
-                weapon.bulk = dto.bulk;
-                return weapon;
+                dto = JsonUtility.FromJson<WeaponDto>(weaponAsset.text);
             }
-            return null;
+            catch (Exception ex)
+            {
+                Debug.LogError($"CreatureJsonConverter: failed to parse weapon JSON at Resources/{resourcePath}: {ex.Message}");
+                return null;
+            }
+
+            EquipmentWeapon weapon = new EquipmentWeapon();
+            weapon.name = dto.name;
+            weapon.type = dto.type;
+            weapon.group = dto.group;
+            weapon.category = dto.category;
+            weapon.hands = dto.hands;
+            weapon.damage = new Dice(dto.damageDice, dto.damageDie, dto.damageType);
+            weapon.description = dto.description;
+            weapon.traits = dto.traits;
+            weapon.materialType = dto.materialType;
+            weapon.materialGrade = dto.materialGrade;
+            weapon.runes = dto.runes;
+            weapon.price = double.TryParse(dto.price, out double priceValue) ? priceValue : 0.0; // Handle parsing price string to double
+            weapon.range = dto.range;
+            weapon.ammo = dto.ammo;
+            weapon.bulk = dto.bulk;
+            return weapon;
         }
 
         public static EquipmentArmor GetArmorByName(string armorName)
         {
-            // Similar implementation to GetWeaponByName, but for EquipmentArmor
-            // Debug.Log($"CreatureJsonConverter: looking up weapon: {armorName}");
             if (string.IsNullOrEmpty(armorName)) return null;
             armorName = NormalizeFilename(armorName);
-            string rootDirectory = Path.Combine(Application.dataPath, "DataFiles/equipment");
-            if (!Directory.Exists(rootDirectory))
+
+            string resourcePath = $"Datafiles/Equipment/{armorName}";
+            TextAsset armorAsset = Resources.Load<TextAsset>(resourcePath);
+
+            if (armorAsset == null)
             {
-                Debug.LogWarning($"CreatureJsonConverter: DataFiles directory not found: {rootDirectory}");
-                return null;
-            }
-            var files = Directory.GetFiles(rootDirectory, "*.json", SearchOption.AllDirectories);
-            files = files.Where(f => Path.GetFileNameWithoutExtension(f).Equals(armorName, StringComparison.OrdinalIgnoreCase)).ToArray();
-            if (files.Length > 1)
-                Debug.LogWarning($"Mutliple instances found for : {armorName}");
-            else if (files.Length == 0)
-            {
-                Debug.LogWarning($"CreatureJsonConverter: armor not found: {armorName}");
+                Debug.LogWarning($"CreatureJsonConverter: armor not found in Resources at '{resourcePath}'");
                 return null;
             }
 
-            foreach (var file in files)
+            ArmorDto dto = null;
+            try
             {
-                string json = File.ReadAllText(file);
-                ArmorDto dto = null;
-                try
-                {
-                    dto = JsonUtility.FromJson<ArmorDto>(json);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"CreatureJsonConverter: failed to parse JSON in {file}: {ex.Message}");
-                    continue;
-                }
-                EquipmentArmor armor = new EquipmentArmor();
-                armor.name = dto.name;
-                armor.type = dto.type; 
-                armor.category = dto.category;
-                armor.price = dto.price;
-                armor.acBonus = dto.acBonus;    
-                armor.dexCap = dto.dexCap;
-                armor.checkPenalty = dto.checkPenalty;
-                armor.speedPenalty = dto.speedPenalty;
-                armor.strengthRequirement = dto.strengthRequirement;
-                armor.description = dto.description;
-                armor.bulk = dto.bulk;
-                armor.group = dto.group;
-                armor.armorTraits = dto.armorTraits;
-                return armor;
+                dto = JsonUtility.FromJson<ArmorDto>(armorAsset.text);
             }
-            return null;
+            catch (Exception ex)
+            {
+                Debug.LogError($"CreatureJsonConverter: failed to parse armor JSON at Resources/{resourcePath}: {ex.Message}");
+                return null;
+            }
+
+            EquipmentArmor armor = new EquipmentArmor();
+            armor.name = dto.name;
+            armor.type = dto.type;
+            armor.category = dto.category;
+            armor.price = dto.price;
+            armor.acBonus = dto.acBonus;
+            armor.dexCap = dto.dexCap;
+            armor.checkPenalty = dto.checkPenalty;
+            armor.speedPenalty = dto.speedPenalty;
+            armor.strengthRequirement = dto.strengthRequirement;
+            armor.description = dto.description;
+            armor.bulk = dto.bulk;
+            armor.group = dto.group;
+            armor.armorTraits = dto.armorTraits;
+            return armor;
         }
 
         public static List<EquipmentWeapon> GetAllWeapons()
         {
-            string rootDirectory = Path.Combine(Application.dataPath, "DataFiles/equipment");
-            if (!Directory.Exists(rootDirectory))
+            TextAsset[] assets = Resources.LoadAll<TextAsset>("Datafiles/Equipment");
+            if (assets == null || assets.Length == 0)
             {
-                Debug.LogWarning($"CreatureJsonConverter: DataFiles directory not found: {rootDirectory}");
+                Debug.LogWarning("CreatureJsonConverter: no equipment assets found in Resources/Datafiles/Equipment");
                 return new List<EquipmentWeapon>();
             }
-            var files = Directory.GetFiles(rootDirectory, "*.json", SearchOption.AllDirectories);
+
             List<EquipmentWeapon> weapons = new List<EquipmentWeapon>();
-            foreach (var file in files)
+            foreach (var asset in assets)
             {
-                string json = File.ReadAllText(file);
                 WeaponDto dto = null;
                 try
                 {
-                    dto = JsonUtility.FromJson<WeaponDto>(json);
+                    dto = JsonUtility.FromJson<WeaponDto>(asset.text);
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"CreatureJsonConverter: failed to parse JSON in {file}: {ex.Message}");
+                    Debug.LogError($"CreatureJsonConverter: failed to parse weapon JSON in Resources asset '{asset.name}': {ex.Message}");
                     continue;
                 }
                 if (dto.type=="weapon")
@@ -574,25 +558,24 @@ namespace Game.Creature
 
         public static List<EquipmentArmor> GetAllArmors()
         {
-            string rootDirectory = Path.Combine(Application.dataPath, "DataFiles/equipment");
-            if (!Directory.Exists(rootDirectory))
+            TextAsset[] assets = Resources.LoadAll<TextAsset>("Datafiles/Equipment");
+            if (assets == null || assets.Length == 0)
             {
-                Debug.LogWarning($"CreatureJsonConverter: DataFiles directory not found: {rootDirectory}");
+                Debug.LogWarning("CreatureJsonConverter: no equipment assets found in Resources/Datafiles/Equipment");
                 return new List<EquipmentArmor>();
             }
-            var files = Directory.GetFiles(rootDirectory, "*.json", SearchOption.AllDirectories);
+
             List<EquipmentArmor> armors = new List<EquipmentArmor>();
-            foreach (var file in files)
+            foreach (var asset in assets)
             {
-                string json = File.ReadAllText(file);
                 ArmorDto dto = null;
                 try
                 {
-                    dto = JsonUtility.FromJson<ArmorDto>(json);
+                    dto = JsonUtility.FromJson<ArmorDto>(asset.text);
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"CreatureJsonConverter: failed to parse JSON in {file}: {ex.Message}");
+                    Debug.LogError($"CreatureJsonConverter: failed to parse armor JSON in Resources asset '{asset.name}': {ex.Message}");
                     continue;
                 }
                 if (dto.type=="armor")
