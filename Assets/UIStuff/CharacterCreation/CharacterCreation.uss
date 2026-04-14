@@ -10,49 +10,84 @@
 }
 
 .unity-tab__header {
-    background-color: rgb(229, 223, 223);
+    background-color: rgb(68, 24, 13);
+    color: rgb(233, 196, 140);
     -unity-font-style: bold;
     font-size: 14px;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
 .unity-tab__header:checked {
-    background-color: rgb(173, 166, 166);
+    background-color: rgb(122, 62, 46);
 }
 
 .tab-content {
-    background-color: rgb(255, 255, 255);
+    background-color: rgb(216, 195, 134);
+    color: rgb(1, 43, 13);
     font-size: 20px;
+    -unity-font-style: bold;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
 .unity-tab__header-underline {
     opacity: 0;
 }
 
+.unity-text-field__input {
+    background-color: rgb(216, 195, 134); /*box color*/
+    color: rgb(1, 43, 13); /*text color*/
+}
+
+.unity-integer-field__input {
+    background-color: rgb(216, 195, 134); /*box color*/
+    color: rgb(1, 43, 13); /*text color*/
+}
+
 .unity-text-field {
+    background-color: rgb(1, 43, 13);
+    color: rgb(216, 195, 134);
     font-size: 20px;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
 .unity-integer-field {
+    background-color: rgb(1, 43, 13);
+    color: rgb(216, 195, 134);
     font-size: 20px;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
 .unity-foldout {
     font-size: 20px;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
 .unity-radio-button {
     font-size: 20px;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
 .unity-radio-button-group {
     font-size: 20px;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
 .my-label {
     font-size: 18px;
     color: rgb(218, 165, 32);
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
 .unity-button {
     font-size: 16px;
+    background-color: rgb(68, 24, 13);
+    color: rgb(233, 196, 140);
+    -unity-text-outline-color: rgb(57, 16, 19);
+    -unity-text-outline-width: 0;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+}
+
+.unity-button:hover {
+    background-color: rgb(122, 62, 46);
+    transition-duration: 0.5s;
 }
