@@ -63,6 +63,16 @@
     -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
+/*SET WIDTH BUT FEEL FREE TO ADJUST AS NEEDED*/
+#ChoiceTabs {
+    width: 475px;
+}
+
+.unity-radio-button-group {
+    font-size: 20px;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+}
+
 /*horizontal radio buttons rather than vertical */
 .unity-radio-button-group__container{
     flex-direction: row; /* or row-reverse*/
@@ -78,6 +88,8 @@
 .unity-radio-button__label {
     margin-top: 4px; /* Space between icon and text */
     -unity-text-align: middle-center;
+
+    align-self: center;
 }
 
 .unity-radio-button {
@@ -89,16 +101,46 @@
 }
 
 .unity-radio-button__checkmark-background {
-    background-image: url('project:/Assets/UIStuff/CharacterCreation/goblin.png'); /*turn this into a resource once done*/
     -unity-background-scale-mode: scale-to-fit;
 
     width: 50px;
     height: 50px;
 }
 
-.unity-radio-button-group {
-    font-size: 20px;
-    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+#Elf .unity-radio-button__checkmark-background {
+    background-image: resource("Icons/elf");
+}
+
+#Gnome .unity-radio-button__checkmark-background {
+    background-image: resource("Icons/gnome");
+}
+
+#Goblin .unity-radio-button__checkmark-background {
+    background-image: resource("Icons/goblin");
+}
+
+#Leshy .unity-radio-button__checkmark-background {
+    background-image: resource("Icons/leshy");
+}
+
+#Dwarf .unity-radio-button__checkmark-background {
+    background-image: resource("Icons/dwarf");
+}
+
+#Halfling .unity-radio-button__checkmark-background {
+    background-image: resource("Icons/halfling");
+}
+
+#AcolyteRadioButton .unity-radio-button__checkmark-background {
+    background-image: resource("Icons/acolyte");
+}
+
+#BanditRadioButton .unity-radio-button__checkmark-background {
+    background-image: resource("Icons/bandit");
+}
+
+#CookRadioButton .unity-radio-button__checkmark-background {
+    background-image: resource("Icons/cook");
 }
 
 .my-label {
