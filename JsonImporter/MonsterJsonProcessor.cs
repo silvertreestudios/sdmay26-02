@@ -372,6 +372,7 @@ namespace JsonImporter
             }
 
             // extract and convert publicNotes HTML -> plain + paragraphs
+            // TODO rename publicNotes and publicNotesParagraphs?
             var detailsObj = obj["system"]?["details"] as JObject;
             if (detailsObj != null && detailsObj["publicNotes"] != null)
             {
@@ -387,25 +388,85 @@ namespace JsonImporter
                 // remove existing properties and insert immediately after publicNotes (existing logic)
                 detailsObj.Property("publicNotesPlain")?.Remove();
                 detailsObj.Property("publicNotesParagraphs")?.Remove();
+                // remove privateNotes since it is an empty field in every file we've seen
+                detailsObj.Property("privateNotes")?.Remove();             
                 var publicNotesProp = detailsObj.Property("publicNotes");
                 if (publicNotesProp != null)
                 {
                     publicNotesProp.AddAfterSelf(new JProperty("publicNotesParagraphs", paragraphs));
-                    publicNotesProp.AddAfterSelf(new JProperty("publicNotesPlain", plain));
+                    //publicNotesProp.AddAfterSelf(new JProperty("publicNotesPlain", plain));
                 }
                 else
                 {
-                    detailsObj["publicNotesPlain"] = plain;
+                    //detailsObj["publicNotesPlain"] = plain;
                     detailsObj["publicNotesParagraphs"] = paragraphs;
                 }
             }
 
-            // Ensure weaknesses/resistances exist as arrays (empty if not present)
+            // Promote nested attribute arrays into the top-level system fields.
             if (systemObj != null)
             {
-                if (systemObj["weaknesses"] == null) systemObj["weaknesses"] = new JArray();
-                if (systemObj["resistances"] == null) systemObj["resistances"] = new JArray();
+                var attributesObj = systemObj["attributes"] as JObject;
+                var immunitiesArr = new JArray();
+                if (systemObj["attributes"]?["immunities"] is JArray sourceImmunities)
+                {
+                    foreach (var immunity in sourceImmunities)
+                    {
+                        immunitiesArr.Add(immunity.DeepClone());
+                    }
+                }
+                else if (systemObj["immunities"] is JArray existingImmunities)
+                {
+                    foreach (var immunity in existingImmunities)
+                    {
+                        immunitiesArr.Add(immunity.DeepClone());
+                    }
+                }
+
+                var weaknessesArr = new JArray();
+                if (systemObj["attributes"]?["weaknesses"] is JArray sourceWeaknesses)
+                {
+                    foreach (var weakness in sourceWeaknesses)
+                    {
+                        weaknessesArr.Add(weakness.DeepClone());
+                    }
+                }
+                else if (systemObj["weaknesses"] is JArray existingWeaknesses)
+                {
+                    foreach (var weakness in existingWeaknesses)
+                    {
+                        weaknessesArr.Add(weakness.DeepClone());
+                    }
+                }
+
+                var resistancesArr = new JArray();
+                if (systemObj["attributes"]?["resistances"] is JArray sourceResistances)
+                {
+                    foreach (var resistance in sourceResistances)
+                    {
+                        resistancesArr.Add(resistance.DeepClone());
+                    }
+                }
+                else if (systemObj["resistances"] is JArray existingResistances)
+                {
+                    foreach (var resistance in existingResistances)
+                    {
+                        resistancesArr.Add(resistance.DeepClone());
+                    }
+                }
+
+                systemObj["immunities"] = immunitiesArr;
+                systemObj["weaknesses"] = weaknessesArr;
+                systemObj["resistances"] = resistancesArr;
+
+                attributesObj?.Property("immunities")?.Remove();
+                attributesObj?.Property("weaknesses")?.Remove();
+                attributesObj?.Property("resistances")?.Remove();
             }
+            
+            
+
+
 
             JArray weaponProfs = InferProficiencies(orderedItems, equipmentArr, obj);
             JArray armorProfs = inferArmorProficiencies(equipmentArr, obj);
