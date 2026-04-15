@@ -56,11 +56,11 @@
                 </ui:Foldout>
             </ui:VisualElement>
         </ui:VisualElement>
-        <ui:VisualElement name="RightPanel" style="flex-grow: 1; align-items: flex-end; align-self: auto; align-content: auto; flex-wrap: nowrap; flex-shrink: 1; justify-content: flex-start;">
-            <ui:TabView view-data-key="CharacterCreation" enabled="true" reorderable="false" name="ChoiceTabs" style="flex-wrap: nowrap; flex-direction: column; align-items: stretch; justify-content: flex-start; align-self: center;">
-                <ui:Tab label="Ancestry" name="AncestryTab" view-data-key="AncestryTab">
+        <ui:VisualElement name="RightPanel" style="flex-grow: 0; align-items: flex-end; align-self: flex-start; align-content: auto; flex-wrap: nowrap; flex-shrink: 1; justify-content: flex-start; min-width: 0;">
+            <ui:TabView view-data-key="CharacterCreation" enabled="true" reorderable="false" name="ChoiceTabs" style="flex-wrap: nowrap; flex-direction: column; align-items: stretch; justify-content: flex-start; align-self: flex-end;">
+                <ui:Tab label="Ancestry" name="AncestryTab" view-data-key="AncestryTab" style="flex-wrap: nowrap;">
                     <ui:Label name="AncestryContent" text="Your people and your culture" class="tab-content" />
-                    <ui:RadioButtonGroup name="AncestryRadioButtonGroup">
+                    <ui:RadioButtonGroup name="AncestryRadioButtonGroup" style="flex-direction: row; flex-wrap: nowrap; justify-content: flex-start; flex-grow: 1; align-self: auto; align-content: auto;">
                         <ui:RadioButton label="Elf" name="Elf" />
                         <ui:RadioButton label="Gnome" name="Gnome" />
                         <ui:RadioButton label="Dwarf" name="Dwarf" />

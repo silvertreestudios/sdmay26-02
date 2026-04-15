@@ -27,6 +27,7 @@
     font-size: 20px;
     -unity-font-style: bold;
     -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+    /* align-self: flex-end; */
 }
 
 .unity-tab__header-underline {
@@ -62,9 +63,37 @@
     -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
+/*horizontal radio buttons rather than vertical */
+.unity-radio-button-group__container{
+    flex-direction: row; /* or row-reverse*/
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+.unity-radio-button__input {
+    flex-direction: column;
+    align-items: center; /* Centers both the icon and text */
+}
+
+.unity-radio-button__label {
+    margin-top: 4px; /* Space between icon and text */
+    -unity-text-align: middle-center;
+}
+
 .unity-radio-button {
     font-size: 20px;
     -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+    flex-direction: column-reverse; 
+
+    width: 25%; 
+}
+
+.unity-radio-button__checkmark-background {
+    background-image: url('project:/Assets/UIStuff/CharacterCreation/goblin.png'); /*turn this into a resource once done*/
+    -unity-background-scale-mode: scale-to-fit;
+
+    width: 50px;
+    height: 50px;
 }
 
 .unity-radio-button-group {
