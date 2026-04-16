@@ -13,7 +13,7 @@
     background-color: rgb(68, 24, 13);
     color: rgb(233, 196, 140);
     -unity-font-style: bold;
-    font-size: 14px;
+    font-size: 20px;
     -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
@@ -37,11 +37,19 @@
 .unity-text-field__input {
     background-color: rgb(216, 195, 134); /*box color*/
     color: rgb(1, 43, 13); /*text color*/
+
+    /*keeps the text field from slightly stretching upon populating*/
+    padding-top: 0;
+    padding-bottom: 0;
 }
 
 .unity-integer-field__input {
     background-color: rgb(216, 195, 134); /*box color*/
     color: rgb(1, 43, 13); /*text color*/
+
+    /*keeps the text field from slightly stretching upon populating*/
+    padding-top: 0;
+    padding-bottom: 0;
 }
 
 .unity-text-field {
@@ -65,7 +73,7 @@
 
 /*SET WIDTH BUT FEEL FREE TO ADJUST AS NEEDED*/
 #ChoiceTabs {
-    width: 475px;
+    width: 530px;
 }
 
 .unity-radio-button-group {
