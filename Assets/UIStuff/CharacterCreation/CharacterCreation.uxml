@@ -60,13 +60,13 @@
             <ui:TabView view-data-key="CharacterCreation" enabled="true" reorderable="false" name="ChoiceTabs" style="flex-wrap: nowrap; flex-direction: column; align-items: stretch; justify-content: flex-start; align-self: flex-end;">
                 <ui:Tab label="Ancestry" name="AncestryTab" view-data-key="AncestryTab" style="flex-wrap: nowrap;">
                     <ui:Label name="AncestryContent" text="Your people and your culture" class="tab-content" />
-                    <ui:RadioButtonGroup name="AncestryRadioButtonGroup" style="flex-direction: row; flex-wrap: wrap; justify-content: flex-start; align-self: auto; align-content: auto;">
-                        <ui:RadioButton label="Elf" name="Elf" style="background-image: none;" />
-                        <ui:RadioButton label="Gnome" name="Gnome" />
-                        <ui:RadioButton label="Dwarf" name="Dwarf" />
-                        <ui:RadioButton label="Halfling" name="Halfling" />
-                        <ui:RadioButton label="Goblin" name="Goblin" />
-                        <ui:RadioButton label="Leshy" name="Leshy" />
+                    <ui:RadioButtonGroup name="AncestryRadioButtonGroup" class="icon-radio-button" style="flex-direction: row; flex-wrap: wrap; justify-content: flex-start; align-self: auto; align-content: auto;">
+                        <ui:RadioButton label="Elf" name="Elf" class="icon-radio-button" style="background-image: none;" />
+                        <ui:RadioButton label="Gnome" name="Gnome" class="icon-radio-button" />
+                        <ui:RadioButton label="Dwarf" name="Dwarf" class="icon-radio-button" />
+                        <ui:RadioButton label="Halfling" name="Halfling" class="icon-radio-button" />
+                        <ui:RadioButton label="Goblin" name="Goblin" class="icon-radio-button" />
+                        <ui:RadioButton label="Leshy" name="Leshy" class="icon-radio-button" />
                     </ui:RadioButtonGroup>
                     <ui:TabView name="NestedAncestryChoices">
                         <ui:Tab label="Heritage" name="HeritageTab" view-data-key="HeritageTab">
@@ -92,10 +92,10 @@
                 </ui:Tab>
                 <ui:Tab label="Background" name="BackgroundTab" view-data-key="BackgroundTab">
                     <ui:Label text="Your former occupation" name="BackgroundContent" class="tab-content" />
-                    <ui:RadioButtonGroup name="BackgroundRadioButtonGroup">
-                        <ui:RadioButton label="Acolyte" name="AcolyteRadioButton" />
-                        <ui:RadioButton label="Bandit" name="BanditRadioButton" />
-                        <ui:RadioButton label="Cook" name="CookRadioButton" />
+                    <ui:RadioButtonGroup name="BackgroundRadioButtonGroup" class="icon-radio-button">
+                        <ui:RadioButton label="Acolyte" name="AcolyteRadioButton" class="icon-radio-button" />
+                        <ui:RadioButton label="Bandit" name="BanditRadioButton" class="icon-radio-button" />
+                        <ui:RadioButton label="Cook" name="CookRadioButton" class="icon-radio-button" />
                     </ui:RadioButtonGroup>
                     <ui:TabView name="NestedBackgroundChoices">
                         <ui:Tab label="Boost Choice" name="BoostChoices">
@@ -117,12 +117,12 @@
                 </ui:Tab>
                 <ui:Tab label="Class" name="ClassTab" view-data-key="ClassTab">
                     <ui:Label text="Your fighting style" name="ClassContent" class="tab-content" />
-                    <ui:RadioButtonGroup name="ClassesRadioButtonGroup">
-                        <ui:RadioButton label="Fighter" name="FighterRadioButton" />
-                        <ui:RadioButton label="Cleric" name="ClericRadioButton" />
-                        <ui:RadioButton label="Rogue" name="RogueRadioButton" />
-                        <ui:RadioButton label="Sorcerer" name="SorcererRadioButton" />
-                        <ui:RadioButton label="Barbarian" name="BarbarianRadioButton" />
+                    <ui:RadioButtonGroup name="ClassesRadioButtonGroup" class="icon-radio-button">
+                        <ui:RadioButton label="Fighter" name="FighterRadioButton" class="icon-radio-button" />
+                        <ui:RadioButton label="Cleric" name="ClericRadioButton" class="icon-radio-button" />
+                        <ui:RadioButton label="Rogue" name="RogueRadioButton" class="icon-radio-button" />
+                        <ui:RadioButton label="Sorcerer" name="SorcererRadioButton" class="icon-radio-button" />
+                        <ui:RadioButton label="Barbarian" name="BarbarianRadioButton" class="icon-radio-button" />
                     </ui:RadioButtonGroup>
                     <ui:TabView name="NestedClassChoices">
                         <ui:Tab label="Class Feats" name="ClassFeats">

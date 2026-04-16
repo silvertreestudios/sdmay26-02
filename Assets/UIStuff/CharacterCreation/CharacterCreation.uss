@@ -14,7 +14,7 @@
     color: rgb(233, 196, 140);
     -unity-font-style: bold;
     font-size: 20px;
-    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
 .unity-tab__header:checked {
@@ -26,8 +26,7 @@
     color: rgb(1, 43, 13);
     font-size: 20px;
     -unity-font-style: bold;
-    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
-    /* align-self: flex-end; */
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
 .unity-tab__header-underline {
@@ -35,19 +34,15 @@
 }
 
 .unity-text-field__input {
-    background-color: rgb(216, 195, 134); /*box color*/
-    color: rgb(1, 43, 13); /*text color*/
-
-    /*keeps the text field from slightly stretching upon populating*/
+    background-color: rgb(216, 195, 134);
+    color: rgb(1, 43, 13);
     padding-top: 0;
     padding-bottom: 0;
 }
 
 .unity-integer-field__input {
-    background-color: rgb(216, 195, 134); /*box color*/
-    color: rgb(1, 43, 13); /*text color*/
-
-    /*keeps the text field from slightly stretching upon populating*/
+    background-color: rgb(216, 195, 134);
+    color: rgb(1, 43, 13);
     padding-top: 0;
     padding-bottom: 0;
 }
@@ -56,105 +51,129 @@
     background-color: rgb(1, 43, 13);
     color: rgb(216, 195, 134);
     font-size: 20px;
-    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
 .unity-integer-field {
     background-color: rgb(1, 43, 13);
     color: rgb(216, 195, 134);
     font-size: 20px;
-    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
 .unity-foldout {
     font-size: 20px;
-    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
-/*SET WIDTH BUT FEEL FREE TO ADJUST AS NEEDED*/
 #ChoiceTabs {
     width: 530px;
 }
 
 .unity-radio-button-group {
     font-size: 20px;
-    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
-/*horizontal radio buttons rather than vertical */
-.unity-radio-button-group__container{
-    flex-direction: row; /* or row-reverse*/
+.unity-radio-button-group.icon-radio-button .unity-radio-button-group__container {
+    flex-direction: row;
     flex-wrap: wrap;
     width: 100%;
 }
 
-.unity-radio-button__input {
+.unity-radio-button.icon-radio-button .unity-radio-button__input {
     flex-direction: column;
-    align-items: center; /* Centers both the icon and text */
+    align-items: center;
 }
 
-.unity-radio-button__label {
-    margin-top: 4px; /* Space between icon and text */
+.unity-radio-button.icon-radio-button .unity-radio-button__label {
+    margin-top: 4px;
     -unity-text-align: middle-center;
-
     align-self: center;
 }
 
-.unity-radio-button {
+.unity-radio-button.icon-radio-button {
     font-size: 20px;
-    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
-    flex-direction: column-reverse; 
-
-    width: 25%; 
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+    flex-direction: column-reverse;
+    width: 25%;
 }
 
-.unity-radio-button__checkmark-background {
-    -unity-background-scale-mode: scale-to-fit;
+.unity-radio-button.icon-radio-button:checked .unity-radio-button__checkmark {
+    width: 0;
+    height: 0;
+}
 
+.unity-radio-button.icon-radio-button:checked .unity-radio-button__checkmark-background {
+    -unity-background-image-tint-color: rgb(255, 215, 0);
+}
+
+.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    -unity-background-scale-mode: scale-to-fit;
     width: 50px;
     height: 50px;
 }
 
-#Elf .unity-radio-button__checkmark-background {
-    background-image: resource("Icons/elf");
+#Elf.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/elf');
 }
 
-#Gnome .unity-radio-button__checkmark-background {
-    background-image: resource("Icons/gnome");
+#Gnome.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/gnome');
 }
 
-#Goblin .unity-radio-button__checkmark-background {
-    background-image: resource("Icons/goblin");
+#Goblin.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/goblin');
 }
 
-#Leshy .unity-radio-button__checkmark-background {
-    background-image: resource("Icons/leshy");
+#Leshy.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/leshy');
 }
 
-#Dwarf .unity-radio-button__checkmark-background {
-    background-image: resource("Icons/dwarf");
+#Dwarf.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/dwarf');
 }
 
-#Halfling .unity-radio-button__checkmark-background {
-    background-image: resource("Icons/halfling");
+#Halfling.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/halfling');
 }
 
-#AcolyteRadioButton .unity-radio-button__checkmark-background {
-    background-image: resource("Icons/acolyte");
+#AcolyteRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/acolyte');
 }
 
-#BanditRadioButton .unity-radio-button__checkmark-background {
-    background-image: resource("Icons/bandit");
+#BanditRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/bandit');
 }
 
-#CookRadioButton .unity-radio-button__checkmark-background {
-    background-image: resource("Icons/cook");
+#CookRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/cook');
+}
+
+#FighterRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/fighter');
+}
+
+#RogueRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/rogue');
+}
+
+#BarbarianRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/barbarian');
+}
+
+#ClericRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/cleric');
+}
+
+#SorcererRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/sorcerer');
 }
 
 .my-label {
     font-size: 18px;
     color: rgb(218, 165, 32);
-    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
 .unity-button {
@@ -163,10 +182,13 @@
     color: rgb(233, 196, 140);
     -unity-text-outline-color: rgb(57, 16, 19);
     -unity-text-outline-width: 0;
-    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
 .unity-button:hover {
     background-color: rgb(122, 62, 46);
     transition-duration: 0.5s;
+}
+
+.icon-radio-button {
 }
