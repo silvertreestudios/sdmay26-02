@@ -56,17 +56,17 @@
                 </ui:Foldout>
             </ui:VisualElement>
         </ui:VisualElement>
-        <ui:VisualElement name="RightPanel" style="flex-grow: 0; align-items: flex-end; align-self: flex-start; align-content: auto; flex-wrap: nowrap; flex-shrink: 1; justify-content: flex-start; min-width: 0;">
+        <ui:VisualElement name="RightPanel" style="flex-grow: 0; align-items: flex-end; align-self: stretch; align-content: auto; flex-wrap: nowrap; flex-shrink: 1; justify-content: flex-start; min-width: 0; background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/boardstiledv1.png?fileID=2800000&amp;guid=f5359e44823f41f42b895e7135766042&amp;type=3#boardstiledv1&quot;);">
             <ui:TabView view-data-key="CharacterCreation" enabled="true" reorderable="false" name="ChoiceTabs" style="flex-wrap: nowrap; flex-direction: column; align-items: stretch; justify-content: flex-start; align-self: flex-end;">
                 <ui:Tab label="Ancestry" name="AncestryTab" view-data-key="AncestryTab" style="flex-wrap: nowrap;">
                     <ui:Label name="AncestryContent" text="Your people and your culture" class="tab-content" />
-                    <ui:RadioButtonGroup name="AncestryRadioButtonGroup" class="icon-radio-button" style="flex-direction: row; flex-wrap: wrap; justify-content: flex-start; align-self: auto; align-content: auto;">
-                        <ui:RadioButton label="Elf" name="Elf" class="icon-radio-button" style="background-image: none;" />
-                        <ui:RadioButton label="Gnome" name="Gnome" class="icon-radio-button" />
-                        <ui:RadioButton label="Dwarf" name="Dwarf" class="icon-radio-button" />
-                        <ui:RadioButton label="Halfling" name="Halfling" class="icon-radio-button" />
-                        <ui:RadioButton label="Goblin" name="Goblin" class="icon-radio-button" />
-                        <ui:RadioButton label="Leshy" name="Leshy" class="icon-radio-button" />
+                    <ui:RadioButtonGroup name="AncestryRadioButtonGroup" class="icon-radio-button" style="flex-direction: row; flex-wrap: wrap; justify-content: flex-start; align-self: auto; align-content: auto; background-image: none;">
+                        <ui:RadioButton label="Elf" name="Elf" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
+                        <ui:RadioButton label="Gnome" name="Gnome" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
+                        <ui:RadioButton label="Dwarf" name="Dwarf" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
+                        <ui:RadioButton label="Halfling" name="Halfling" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
+                        <ui:RadioButton label="Goblin" name="Goblin" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
+                        <ui:RadioButton label="Leshy" name="Leshy" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
                     </ui:RadioButtonGroup>
                     <ui:TabView name="NestedAncestryChoices">
                         <ui:Tab label="Heritage" name="HeritageTab" view-data-key="HeritageTab">
