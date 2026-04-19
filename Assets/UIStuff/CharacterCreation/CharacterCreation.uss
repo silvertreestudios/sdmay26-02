@@ -97,8 +97,7 @@
     -unity-font-definition: resource('TitilliumWeb-Regular SDF');
     flex-direction: column-reverse;
     width: 25%;
-
-    margin-left: 85px; /*I added this to push the special radio buttons to the right. This did shift it into 2 columns*/
+    margin-left: 85px;
 }
 
 .unity-radio-button.icon-radio-button:checked .unity-radio-button__checkmark {
@@ -193,4 +192,18 @@
 }
 
 .icon-radio-button {
+}
+
+.centered-textfield {
+    flex-direction: column;
+    align-items: center;
+}
+
+.centered-textfield > .unity-base-field__label {
+    unity-text-align: middle-center;
+    margin-bottom: 4px;
+}
+
+.centered-textfield > .unity-base-field__input {
+    width: 100%;
 }

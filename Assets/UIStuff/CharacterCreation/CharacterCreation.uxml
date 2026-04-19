@@ -1,7 +1,14 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
     <Style src="project://database/Assets/UIStuff/CharacterCreation/CharacterCreation.uss?fileID=7433441132597879392&amp;guid=ab2c21ff1365a96489a5f75bb7e25c0f&amp;type=3#CharacterCreation" />
-    <ui:VisualElement name="HeaderPanel" style="flex-grow: 1; flex-direction: row; flex-wrap: nowrap; align-items: flex-start; justify-content: center;">
-        <ui:TextField label="Name" placeholder-text="Enter character&apos;s name" name="NameField" max-length="-1" />
+    <ui:VisualElement name="HeaderPanel" style="flex-grow: 0; flex-direction: row; flex-wrap: nowrap; align-items: flex-start; justify-content: flex-start;">
+        <ui:VisualElement style="flex-grow: 1; flex-direction: row;">
+            <ui:TextField label="Ancestry" name="AncestryChoice" readonly="true" class="centered-textfield" style="width: auto; display: flex;" />
+            <ui:TextField label="Heritage" name="HeritageChoice" readonly="true" value="-" class="centered-textfield" />
+            <ui:TextField label="Class" name="ClassChoice" readonly="true" class="centered-textfield" style="display: flex;" />
+            <ui:TextField label="Subclass" name="Subclass" readonly="true" class="centered-textfield" />
+            <ui:TextField label="Background" name="BackgroundChoice" readonly="true" class="centered-textfield" />
+        </ui:VisualElement>
+        <ui:TextField label="Name" placeholder-text="Enter character&apos;s name" name="NameField" max-length="-1" class="centered-textfield" style="display: flex;" />
         <ui:RadioButtonGroup label="Gender" name="Gender">
             <ui:RadioButton label="Male" name="Male" style="background-image: none;" />
             <ui:RadioButton label="Female" name="Female" />
@@ -9,51 +16,65 @@
     </ui:VisualElement>
     <ui:VisualElement name="MainPanel" style="flex-grow: 1; flex-direction: row; flex-wrap: nowrap; flex-shrink: 1; justify-content: flex-start; align-content: flex-start;">
         <ui:VisualElement name="LeftPanel" style="flex-grow: 1; flex-shrink: 1; width: auto; flex-direction: column; align-items: flex-start;">
-            <ui:VisualElement name="ProfilePanel" style="flex-wrap: nowrap; align-self: flex-start; align-items: stretch; flex-direction: row; flex-grow: 0;">
-                <ui:VisualElement name="SubProfile1" style="flex-grow: 1;">
-                    <ui:TextField label="Ancestry" name="AncestryChoice" readonly="true" style="width: 340px;" />
-                    <ui:TextField label="Heritage" name="HeritageChoice" readonly="true" />
-                    <ui:TextField label="Background" name="BackgroundChoice" readonly="true" />
-                    <ui:TextField label="Subclass" name="Subclass" readonly="true" />
-                    <ui:TextField label="Class" name="ClassChoice" readonly="true" />
+            <ui:Foldout text="Foldout">
+                <ui:VisualElement style="flex-grow: 1; flex-direction: row;">
+                    <ui:VisualElement name="ProfilePanel" style="flex-wrap: nowrap; align-self: flex-start; align-items: stretch; flex-direction: column; flex-grow: 0;">
+                        <ui:VisualElement style="flex-grow: 1; flex-direction: row;">
+                            <ui:IntegerField label="Strength" value="0" name="StrengthAttribute" readonly="true" class="centered-textfield" />
+                            <ui:IntegerField label="Dexterity" value="0" name="DexterityAttribute" readonly="true" class="centered-textfield" />
+                            <ui:IntegerField label="Constitution" value="0" name="ConstitutionAttribute" readonly="true" class="centered-textfield" />
+                        </ui:VisualElement>
+                        <ui:VisualElement style="flex-grow: 1; flex-direction: row;">
+                            <ui:IntegerField label="Wisdom" value="0" name="WisdomAttribute" readonly="true" class="centered-textfield" />
+                            <ui:IntegerField label="Charisma" value="0" name="CharismaAttribute" readonly="true" class="centered-textfield" />
+                            <ui:IntegerField label="Intelligence" value="0" name="IntelligenceAttribute" readonly="true" class="centered-textfield" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement style="flex-grow: 0; flex-direction: row;">
+                        <ui:VisualElement class="heart-container" style="flex-grow: 0; width: 100px; height: 100px; background-image: resource(&apos;Icons/heart&apos;); justify-content: center; align-self: center; align-content: auto; align-items: center;">
+                            <ui:Label text="Label" name="HP" style="width: auto; height: auto; color: rgb(255, 250, 250);" />
+                        </ui:VisualElement>
+                        <ui:VisualElement style="flex-grow: 0; background-image: resource(&apos;Icons/Size&apos;); align-content: auto; align-items: auto; justify-content: center; flex-shrink: 0; width: 100px; height: 100px; align-self: center;">
+                            <ui:Label text="Size" emoji-fallback-support="true" name="Size" style="align-content: auto; align-self: center; justify-content: flex-start; align-items: auto; font-size: 20px;" />
+                        </ui:VisualElement>
+                        <ui:VisualElement style="flex-grow: 0; font-size: 20px; background-image: resource(&apos;Icons/speed&apos;); width: 100px; flex-shrink: 0; align-items: center; align-content: auto; justify-content: flex-start; height: 100px; align-self: center;">
+                            <ui:Label text="Speed" name="Speed" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
                 </ui:VisualElement>
-                <ui:VisualElement name="SubProfile2" style="flex-grow: 0; flex-shrink: 0; flex-wrap: nowrap;">
-                    <ui:IntegerField label="HP" value="0" name="HP" readonly="true" />
-                    <ui:IntegerField label="Speed" value="0" name="Speed" readonly="true" />
-                    <ui:TextField label="Size" name="Size" readonly="true" style="width: 250px;" />
-                    <ui:Foldout text="Attributes" name="Attributes" style="flex-wrap: nowrap; width: auto; height: auto; flex-shrink: 0;">
-                        <ui:IntegerField label="Strength" value="0" name="StrengthAttribute" readonly="true" />
-                        <ui:IntegerField label="Dexterity" value="0" name="DexterityAttribute" readonly="true" />
-                        <ui:IntegerField label="Constitution" value="0" name="ConstitutionAttribute" readonly="true" />
-                        <ui:IntegerField label="Intelligence" value="0" name="IntelligenceAttribute" readonly="true" />
-                        <ui:IntegerField label="Wisdom" value="0" name="WisdomAttribute" readonly="true" />
-                        <ui:IntegerField label="Charisma" value="0" name="CharismaAttribute" readonly="true" />
+            </ui:Foldout>
+            <ui:VisualElement name="SubProfile2" style="flex-grow: 0; flex-shrink: 0; flex-wrap: nowrap; display: none;">
+                <ui:IntegerField label="HP" value="0" name="HP" readonly="true" />
+                <ui:TextField label="Size" name="Size" readonly="true" style="width: 250px;" />
+                <ui:IntegerField label="Speed" value="0" name="Speed" readonly="true" />
+            </ui:VisualElement>
+            <ui:VisualElement name="ProfilePanelCont" style="flex-grow: 1; flex-shrink: 0; flex-wrap: nowrap; flex-direction: row; align-items: stretch;">
+                <ui:VisualElement style="flex-grow: 0;">
+                    <ui:Foldout text="Attacks" name="ClassAttackFoldout" style="flex-shrink: 1;">
+                        <ui:TextField label="Simple Weapons" name="SimpleAttack" readonly="true" max-length="-1" style="width: 315px; flex-shrink: 1;" />
+                        <ui:TextField label="Martial Weapons" name="MartialAttack" readonly="true" style="width: auto;" />
+                        <ui:TextField label="Advanced Weapons" name="AdvancedAttack" readonly="true" />
+                        <ui:TextField label="Unarmed Attack" name="UnarmedAttack" readonly="true" />
+                    </ui:Foldout>
+                    <ui:Foldout text="Defense" name="ClassDefenseFoldout" style="flex-shrink: 0;">
+                        <ui:TextField label="Unarmored" name="UnarmoredDefense" readonly="true" />
+                        <ui:TextField label="Light Armor" name="LightArmorDefense" readonly="true" />
+                        <ui:TextField label="Medium Armor" name="MediumArmorDefense" readonly="true" />
+                        <ui:TextField label="All Armor" name="AllArmorDefense" readonly="true" />
                     </ui:Foldout>
                 </ui:VisualElement>
-                <ui:Foldout text="Saving Throws" name="SavingThrows">
-                    <ui:TextField label="Perception" name="Perception" readonly="true" style="width: 250px;" />
-                    <ui:TextField label="Fortitude" name="Fortitude" readonly="true" />
-                    <ui:TextField label="Reflex" name="Reflex" readonly="true" />
-                    <ui:TextField label="Will" name="Will" readonly="true" />
-                </ui:Foldout>
-                <ui:VisualElement name="SubProfile3" style="flex-grow: 1; flex-shrink: 1;">
-                    <ui:TextField label="Ancestry Feat" readonly="true" name="AncestryFeatField" style="flex-shrink: 0; flex-grow: 0; width: 340px;" />
-                    <ui:TextField label="Class Feat" readonly="true" name="ClassFeatField" />
+                <ui:VisualElement style="flex-grow: 0;">
+                    <ui:Foldout text="Saving Throws" name="SavingThrows">
+                        <ui:TextField label="Perception" name="Perception" readonly="true" style="width: auto;" />
+                        <ui:TextField label="Fortitude" name="Fortitude" readonly="true" />
+                        <ui:TextField label="Reflex" name="Reflex" readonly="true" />
+                        <ui:TextField label="Will" name="Will" readonly="true" />
+                    </ui:Foldout>
+                    <ui:Foldout text="Foldout">
+                        <ui:TextField label="Ancestry Feat" readonly="true" name="AncestryFeatField" style="flex-shrink: 0; flex-grow: 0; width: 340px;" />
+                        <ui:TextField label="Class Feat" readonly="true" name="ClassFeatField" />
+                    </ui:Foldout>
                 </ui:VisualElement>
-            </ui:VisualElement>
-            <ui:VisualElement name="ProfilePanelCont" style="flex-grow: 1; flex-shrink: 0; flex-wrap: nowrap; flex-direction: column; align-items: stretch;">
-                <ui:Foldout text="Attacks" name="ClassAttackFoldout" style="flex-shrink: 0;">
-                    <ui:TextField label="Simple Weapons" name="SimpleAttack" readonly="true" max-length="-1" style="width: 315px;" />
-                    <ui:TextField label="Martial Weapons" name="MartialAttack" readonly="true" style="width: auto;" />
-                    <ui:TextField label="Advanced Weapons" name="AdvancedAttack" readonly="true" />
-                    <ui:TextField label="Unarmed Attack" name="UnarmedAttack" readonly="true" />
-                </ui:Foldout>
-                <ui:Foldout text="Defense" name="ClassDefenseFoldout" style="flex-shrink: 0;">
-                    <ui:TextField label="Unarmored" name="UnarmoredDefense" readonly="true" />
-                    <ui:TextField label="Light Armor" name="LightArmorDefense" readonly="true" />
-                    <ui:TextField label="Medium Armor" name="MediumArmorDefense" readonly="true" />
-                    <ui:TextField label="All Armor" name="AllArmorDefense" readonly="true" />
-                </ui:Foldout>
             </ui:VisualElement>
         </ui:VisualElement>
         <ui:VisualElement name="RightPanel" style="flex-grow: 0; align-items: flex-end; align-self: stretch; align-content: auto; flex-wrap: nowrap; flex-shrink: 1; justify-content: flex-start; min-width: 0; background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/boardstiledv1.png?fileID=2800000&amp;guid=f5359e44823f41f42b895e7135766042&amp;type=3#boardstiledv1&quot;);">

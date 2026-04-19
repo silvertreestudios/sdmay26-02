@@ -155,8 +155,8 @@ public class CharacterCreationScript : MonoBehaviour
     TextField heritageChoiceField;
     TextField backgroundChoiceField;
     TextField classChoiceField;
-    IntegerField hpField;
-    IntegerField speedField;
+    Label hpField;
+    Label speedField;
     IntegerField strengthAttributeField;
     IntegerField dexterityAttributeField;
     IntegerField constitutionAttributeField;
@@ -176,7 +176,7 @@ public class CharacterCreationScript : MonoBehaviour
     TextField mediumArmorField;
     TextField allArmorField;
     TextField nameField;
-    TextField sizeField;
+    Label sizeField;
     TextField subclassField;
     TextField ancestryFeatField;
     TextField classFeatField;
@@ -243,8 +243,8 @@ public class CharacterCreationScript : MonoBehaviour
         ancestrySpecialAbilitiesLabel = root.Q<Label>("AncestrySpecialAbilities");
         ancestryChoiceField = root.Q<TextField>("AncestryChoice");
         heritageChoiceField = root.Q<TextField>("HeritageChoice");
-        hpField = root.Q<IntegerField>("HP");
-        speedField = root.Q<IntegerField>("Speed");
+        hpField = root.Q<Label>("HP");
+        speedField = root.Q<Label>("Speed");
         subclassRadioButtonGroup = root.Q<RadioButtonGroup>("SubClassRadioButtonGroup");
         classDescriptionLabel = root.Q<Label>("ClassDescription");
         classBoostsLabel = root.Q<Label>("ClassBoosts");
@@ -279,7 +279,7 @@ public class CharacterCreationScript : MonoBehaviour
         wisdomAttributeField = root.Q<IntegerField>("WisdomAttribute");
         charismaAttributeField = root.Q<IntegerField>("CharismaAttribute"); 
         nameField = root.Q<TextField>("NameField");
-        sizeField = root.Q<TextField>("Size");
+        sizeField = root.Q<Label>("Size");
         subclassField = root.Q<TextField>("Subclass");
         ancestryFeatField = root.Q<TextField>("AncestryFeatField");
         classFeatField = root.Q<TextField>("ClassFeatField");
@@ -490,9 +490,9 @@ public class CharacterCreationScript : MonoBehaviour
         PopulateClassFeatButtons(c.className);
         PopulateSubclassButtons(c.className);
 
-        hpField.value = c.hp;
-        speedField.value = c.speed;
-        sizeField.value = c.size;
+        hpField.text = c.hp.ToString();
+        speedField.text = c.speed.ToString();
+        sizeField.text = c.size;
 
         strengthAttributeField.value = c.strength;
         dexterityAttributeField.value = c.dexterity;
@@ -621,8 +621,8 @@ public class CharacterCreationScript : MonoBehaviour
         ancestryChoiceField.value = selectedAncestry;
         currentCharacter.ancestry = selectedAncestry; //send to PlayerCharacter json
         ancestryHP = db.ancestries.Find(a => a.id == selectedAncestry).hp;
-        hpField.value = classHP + ancestryHP; //add ancestry hp to other hp
-        currentCharacter.hp = hpField.value;
+        hpField.text = (classHP + ancestryHP).ToString(); //add ancestry hp to other hp
+        currentCharacter.hp = int.Parse(hpField.text);
 
         Ancestry selectedAncestryObj = db.ancestries.Find(a => a.id == selectedAncestry); //make an ancestry object
         List<string> boosts = new List<string>(selectedAncestryObj.attributeBoost); //make a list of that ancestry's boosts
@@ -631,10 +631,10 @@ public class CharacterCreationScript : MonoBehaviour
         ApplyAncestryFlaw(db.ancestries.Find(a => a.id == selectedAncestry).attributeFlaw);
         RefreshAttributeFields();
 
-        speedField.value = db.ancestries.Find(a => a.id == selectedAncestry).speed;
-        currentCharacter.speed = speedField.value;
+        speedField.text = db.ancestries.Find(a => a.id == selectedAncestry).speed.ToString();
+        currentCharacter.speed = int.Parse(speedField.text);
         currentCharacter.size = db.ancestries.Find(a => a.id == selectedAncestry).size;
-        sizeField.value = currentCharacter.size;
+        sizeField.text = currentCharacter.size;
         PopulateHeritageButtons(selectedAncestry);
         PopulateAncestryFeatButtons(selectedAncestry);
         PopulateAncestryDescription(selectedAncestry);
@@ -808,9 +808,9 @@ public class CharacterCreationScript : MonoBehaviour
 
         classHP = 0;
         classHP = db2.classes.Find(a => a.id == selectedClass).hp;
-        hpField.value = ancestryHP + classHP; //add class hp to total hp
+        hpField.text = (ancestryHP + classHP).ToString(); //add class hp to total hp
 
-        currentCharacter.hp = hpField.value;
+        currentCharacter.hp = int.Parse(hpField.text);
 
         simpleWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.simpleWeapons;
         martialWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.martialWeapons;
