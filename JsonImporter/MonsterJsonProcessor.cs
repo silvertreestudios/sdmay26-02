@@ -22,17 +22,17 @@ namespace JsonImporter
             obj.Remove("_id");
             obj.Remove("img");
 
-            // Prepare arrays for items and equipment
-            var newItemsArr = new JArray();
+            // Prepare arrays for actions and equipment
+            var newActionsArr = new JArray();
             var equipmentArr = new JArray();
             var conditionsArr = new JArray();
             var reactionsArr = new JArray();
             var passivesArr = new JArray();
             //? var reactionsArr = new JArray();
 
-            if (obj["items"] is JArray itemsArr)
+            if (obj["items"] is JArray actionsArr)
             {
-                foreach (var item in itemsArr.OfType<JObject>())
+                foreach (var item in actionsArr.OfType<JObject>())
                 {
                     // create a readily-available clone of the item's system for branches that need it
                     var clonedSystem = item["system"] != null ? item["system"].DeepClone() as JObject : null;
@@ -202,7 +202,7 @@ namespace JsonImporter
                             // Note: systemRaw is dropped per your instruction
                         };
 
-                        newItemsArr.Add(newItem);
+                        newActionsArr.Add(newItem);
                     }
                     else if (type == "action")
                     {
@@ -275,7 +275,7 @@ namespace JsonImporter
                         }
                         else
                         {
-                            newItemsArr.Add(newItem);
+                            newActionsArr.Add(newItem);
                         }
                     }
                     else
@@ -331,15 +331,15 @@ namespace JsonImporter
                             }
                         }
 
-                        newItemsArr.Add(cloned ?? item);
+                        newActionsArr.Add(cloned ?? item);
                     }
                 }
             }
 
-            // Reorder items so melee/ranged (weapons) come first � convenient when consumer
-            // picks the "first" item for attack-related values.
-            var orderedItems = new JArray(
-                newItemsArr
+            // Reorder actions so melee/ranged (weapons) come first � convenient when consumer
+            // picks the "first" action for attack-related values.
+            var orderedActions = new JArray(
+                newActionsArr
                     .OfType<JObject>()
                     .OrderByDescending(o =>
                     {
@@ -595,7 +595,7 @@ namespace JsonImporter
                 }
             }
             
-            JObject weaponProfs = InferProficiencies(orderedItems, equipmentArr, obj);
+            JObject weaponProfs = InferProficiencies(orderedActions, equipmentArr, obj);
             JObject armorProfs = inferArmorProficiencies(equipmentArr, obj);
             // Build the output object in the specified order and include Source if present
             var output = new JObject
@@ -604,7 +604,7 @@ namespace JsonImporter
                 ["type"] = obj["type"],
                 ["system"] = obj["system"],
                 ["equipment"] = equipmentArr,
-                ["items"] = orderedItems,
+                ["actions"] = orderedActions,
                 ["reactions"] = reactionsArr,
                 ["passives"] = passivesArr,
                 ["conditions"] = conditionsArr,

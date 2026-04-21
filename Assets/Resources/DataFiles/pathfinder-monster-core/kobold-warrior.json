@@ -113,7 +113,7 @@
       "quantity": 20
     }
   ],
-  "items": [
+  "actions": [
     {
       "name": "Spear",
       "type": "melee",

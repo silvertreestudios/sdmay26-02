@@ -112,7 +112,7 @@
     "resistances": []
   },
   "equipment": [],
-  "items": [
+  "actions": [
     {
       "name": "Fist",
       "type": "melee",

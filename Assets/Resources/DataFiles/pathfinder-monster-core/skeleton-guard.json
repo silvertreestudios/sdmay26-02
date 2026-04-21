@@ -147,7 +147,7 @@
       "quantity": 20
     }
   ],
-  "items": [
+  "actions": [
     {
       "name": "Scimitar",
       "type": "melee",
