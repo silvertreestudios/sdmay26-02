@@ -401,10 +401,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             AddButtonToGrid(captured.ActionName, "btn-movement",
                 () => turnTaker.GetComponent<ActionController>().TakeAction(captured));
         }
-        // DEBUG: test buttons to verify grid layout
-        for (int i = 1; i <= 5; i++)
-            AddButtonToGrid("Test - " + i, "btn-action");
-
         AddGeneralButtons();
     }
 
@@ -425,7 +421,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         combatLog.Log("- Proceeding to next level...");
         int nextSceneIndex = SceneManager.GetActiveScene().buildIndex + 1;
         if (nextSceneIndex < SceneManager.sceneCountInBuildSettings)
-            SceneManager.LoadScene(nextSceneIndex);
+            SceneTransitionManager.FadeAndLoad(nextSceneIndex);
     }
 
     //used to toggle next level button visibility when player wins combat, can be called from combat manager
