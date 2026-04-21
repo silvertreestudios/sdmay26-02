@@ -20,7 +20,14 @@ namespace GridPublic
         /// <param name="range">of the strike</param>
         /// <param name="target">selected target in range, null if none</param>
         /// <returns></returns>
-        public abstract IEnumerator GetStrikeTarget(GameObject attacker, int range, CoroutineResult<GameObject> target);
+        public abstract IEnumerator GetStrikeTarget(GameObject attacker, float range, CoroutineResult<GameObject> target);
+
+        /// <summary>
+        /// Destroys a gameobject from the grid
+        /// </summary>
+        /// <param name="token">Token to remove</param>
+        /// <returns></returns>
+        public abstract bool DestroyToken(GameObject token);
     }
 }
 

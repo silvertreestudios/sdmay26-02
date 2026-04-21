@@ -2,18 +2,17 @@ using UnityEngine;
 using System.Collections.Generic;
 using Game.Creature;
 using GridPublic;
+using System.Collections;
 
 namespace GridPrivate
 {
     public class StateStride : GridFSMState
     {
+        protected GridFSM Fsm;
         // target character
-        GameObject character;
-        // reference to helper class
-        // i dont think we need this anymore
-        //GridCharacterController3D controller;
+        protected GameObject Character;
         protected GridAPIPrivate GridAPI = (GridAPIPrivate)GridPublic.GridAPI.GetInstance();
-        protected IPathfinder IPathfinder;
+        protected IPathfinder Pathfinder;
         protected Tile[,] Tiles;
         protected Vector3Int StartPosition;
         protected Vector3Int CurrentPosition;
@@ -22,9 +21,10 @@ namespace GridPrivate
         protected float MaxMoveDist;
 
         // compact constructor
-        public StateStride(GameObject character)
+        public StateStride(GameObject character, GridFSM fsm)
         {
-            this.character = character;
+            this.Character = character;
+            Fsm = fsm;
         }
         //return false if enter was unsuccessfull, true otherwise
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
@@ -32,43 +32,45 @@ namespace GridPrivate
             base.Enter(fsm);
             canCancel = true;
             Tiles = GridAPI.GetTiles();
-            StartPosition = Vector3Int.RoundToInt(character.transform.position);
-            IPathfinder = GridAPI.GetPathfinder();
-            IPathfinder.Search(character, StartPosition);
-            MaxMoveDist = 0.2f * character.GetComponent<CreatureComponent>()?.speed ?? 0;
+            StartPosition = Vector3Int.RoundToInt(Character.transform.position);
+            Pathfinder = GridAPI.GetPathfinder();
+            Pathfinder.Search(Character, StartPosition);
+            MaxMoveDist = 0.2f * Character.GetComponent<CreatureComponent>()?.speed ?? 0;
 
-            AIActionController ai = character.GetComponent<AIActionController>();
+            AIActionController ai = Character.GetComponent<AIActionController>();
             if (ai != null)
             {
-
-                //controller.isProcessingTurn = true;
                 // grab best path from the AI's controller, this should be set during its decision making process
-                if (ai.bestPath == null || ai.bestPath.Count == 0)
+                if (ai.BestPath == null || ai.BestPath.Count == 0)
                 {
                     Debug.LogWarning("AI has no path to target, skipping movement");
-                    this.fsm.ChangeState(this.fsm.idleState);
+                    this.fsm.ChangeState(this.fsm.IdleState);
                 }
                 else
                 {
-                    Debug.Log("starting AI stride movement, path length: " + ai.bestPath.Count);
-                    //TODO update mindless controller to utilize new pathfinding system
-                    //CoroutineRunner.Run(ExecutePlayerMovement(ai.bestPath));
-
-                    ////////////////////////////////////////////////////////////////////////////////////////
+                    Debug.Log("starting AI stride movement, path length: " + ai.BestPath.Count);
+                    Path = ai.BestPath;
+                    Leftclick();
                 }
             }
             else
             {
                 //highlight tiles
-                List<Vector3Int> toHighlight = IPathfinder.InRange(character, StartPosition, MaxMoveDist);
+                List<Vector3Int> toHighlight = Pathfinder.InRange(Character, StartPosition, MaxMoveDist);
+                toHighlight.Remove(Vector3Int.RoundToInt(Character.transform.position));
                 OnHighlightRange.Invoke(toHighlight);
+                OnHover.AddListener(HighlightPath);
+                OnHoverEnd.AddListener(HideHighlightPath);
             }
         }
 
         //called by FSM machine once a state change is triggered
         public override void Exit()
         {
+            HideHighlightPath();
             OnHighlightRangeEnd.Invoke();
+            OnHover.RemoveListener(HighlightPath);
+            OnHoverEnd.RemoveListener(HideHighlightPath);
         }
         
         // highlight the path just by hovering over in range tiles, clear if not hovering over valid tiles
@@ -77,12 +79,12 @@ namespace GridPrivate
             if (Path != null && canCancel)
             {
                 canCancel = false;
-
-                int i = 0;
-                while (Path[i++].Dist < MaxMoveDist)
-                {
+                // Remove Path highlight changes
+                OnHover.RemoveListener(HighlightPath);
+                OnHoverEnd.RemoveListener(HideHighlightPath);
+                OnHighlightRangeEnd.Invoke();
+                // Execute the path
                 CoroutineRunner.Run(ExecutePlayerMovement(Path));
-                }
             }
         }
 
@@ -92,39 +94,69 @@ namespace GridPrivate
             UniversalEvents.OnCancel.Invoke();
         }
 
-        public override void StateUpdate()
+        protected void HighlightPath(List<Vector3Int> hover)
         {
-            if(!canCancel)return;
-            //TODO implement hover path highlights here
+            this.Path = null;
+            if (hover == null) return;
+            if (hover.Count == 0)
+            {
+                // Previewing an empty path clears it
+                OnPreviewPath.Invoke(new());
+                return;
+            }
+            Vector3Int end = hover[0];
+
+            // Abandon path if target is occupied
+            Tile tile = Tiles[end.x, end.z];
+            if (tile != null && tile.Occupants.Count > 0)
+            {
+                Path = null;
+                OnPreviewPath.Invoke(new());
+                return;
+            }
+            // Assemble the paths into just Vector3Int
+            Path = Pathfinder.Find(end);
+            List<Vector3Int> visits = new();
+            foreach (PathNode node in Path)
+            {
+                if (node.Dist > MaxMoveDist)
+                    break;
+                visits.Add(node.Location);
+            }
+            OnPreviewPath.Invoke(visits);
         }
 
-        private System.Collections.IEnumerator ExecutePlayerMovement(List<PathNode> path)
+        protected void HideHighlightPath()
         {
-            TokenMovement movement = character.GetComponent<TokenMovement>();
+            // Previewing an empty path effectively hides it
+            OnPreviewPath.Invoke(new());
+        }
 
-            int i = 0;
-            PathNode step = path[0];
-            while ( step.Dist < MaxMoveDist)
+        protected IEnumerator ExecutePlayerMovement(List<PathNode> path)
+        {
+            TokenMovement movement = TokenMovement.GetInstance();
+
+            int i = 1;
+            PathNode step;
+            while (i < Path.Count && (step = path[i++]) != null && step.Dist < MaxMoveDist)
             {
                 // Remove from tile
-                Tile tile = Tiles[step.Location.x, step.Location.z];
+                CurrentPosition = Vector3Int.RoundToInt(Character.transform.position);
+                Tile tile = Tiles[CurrentPosition.x, CurrentPosition.z];
                 Ref<bool> prevented = new(false);
-                yield return tile.RemoveToken(character, prevented);
+                yield return tile.RemoveToken(Character, prevented);
                 if (prevented.Value)
                     break;
 
                 // Move to new tile
-                movement.setPoint(step.Location);
-                movement.start();
-                yield return Movement.update();
+                yield return movement.Hop(Character.transform, step.Location);
 
                 // Add to tile
-                CurrentPosition = Vector3Int.RoundToInt(character.transform.position);
-                tile.PlaceToken(character);
-
-                step = ++i < path.Count? path[i]: null;
+                tile = Tiles[step.Location.x, step.Location.z];
+                yield return tile.PlaceToken(Character);
             }
-            Exit();
+            canCancel = true;
+            Fsm.ChangeState(new StateIdle());
         }
     }
 }

@@ -30,11 +30,15 @@ namespace GridPrivate
             Heap.Clear();
             Distances.Clear();
             Searched = null;
+            // Unpathable
+            if ((end.x >= Tiles.GetLength(0)) || (end.z >= Tiles.GetLength(1)) || end.x < 0 || end.z < 0)
+                return new();
 
             // Initialize heap
             Heap.Push( new PathNode( 0.0f, start));
+            Locations.Add(start, new PathNode(0.0f, start));
 
-            while(Heap.Count() > 0)
+            while (Heap.Count() > 0)
             {
                 PathNode path = Heap.Pop();
                 if (path.Location == end)
@@ -59,10 +63,33 @@ namespace GridPrivate
 
             // Initialize heap
             Heap.Push(new PathNode(0.0f, start));
+            Locations.Add(start, new PathNode(0.0f, start));
 
             while (Heap.Count() > 0)
             {
                 PathNode path = Heap.Pop();
+                Distances.Add(path);
+                ExploreNeighbors(path, pathfinder);
+            }
+        }
+
+        public void Search(GameObject pathfinder, Vector3Int start, float range)
+        {
+            Locations.Clear();
+            Heap.Clear();
+            Distances.Clear();
+            Searched = start;
+            float maxCellDist = range / 5.0f;
+
+            // Initialize heap
+            Heap.Push(new PathNode(0.0f, start));
+            Locations.Add(start, new PathNode(0.0f, start));
+
+            while (Heap.Count() > 0)
+            {
+                PathNode path = Heap.Pop();
+                if (path.Dist > maxCellDist)
+                    break;
                 Distances.Add(path);
                 ExploreNeighbors(path, pathfinder);
             }
@@ -76,20 +103,24 @@ namespace GridPrivate
                     "Call Pathfind for a single request, call Search then Find to request number of times.");
                 return null;
             }
+            // Unpathable
+            if ((end.x >= Tiles.GetLength(0)) || (end.z >= Tiles.GetLength(1)) || end.x < 0 || end.z < 0)
+                return new();
             PathNode path;
             if (Locations.TryGetValue(end, out path))
                 return TracePath(path);
-            return null;
+            return new();
 
         }
 
         public List<Vector3Int> InRange(GameObject pathfinder, Vector3Int start, float distance)
         {
             List<Vector3Int> inRange = new();
+            Debug.Log("start search: " + Searched + " " + start);
             if (Searched == start)
             {
                 int i = 0;
-                while (i < Distances.Count && Distances[i].Dist < distance)
+                while (i < Distances.Count && Distances[i].Dist <= distance)
                     inRange.Add(Distances[i++].Location);
                 return inRange;
             }
@@ -98,10 +129,13 @@ namespace GridPrivate
             Searched = null;
 
             // Initialize heap
+            Debug.Log("start search");
             Heap.Push(new PathNode(0.0f, start));
+            Locations.Add(start, new PathNode(0.0f, start));
 
             while (Heap.Count() > 0)
             {
+                Debug.Log("Range Search");
                 PathNode path = Heap.Pop();
                 if (path.Dist > distance)
                     return inRange;
@@ -110,6 +144,52 @@ namespace GridPrivate
                 ExploreNeighbors(path, pathfinder);
             }
             return inRange;
+        }
+
+        public List<Vector3Int> CalculateEmination(Vector3Int start, float range)
+        {
+            List<Vector3Int> rangeTiles = new List<Vector3Int>();
+            int _range = (int)(range * 0.2f);
+            // Range of 1 represents melee attack - only adjacent tiles
+            if (_range == 1)
+            {
+                // Include all adjacent tiles (cardinal directions)
+                foreach (var dir in Directions)
+                {
+                    Vector3Int adjacent = start + dir;
+                    if (adjacent.x >= 0 && adjacent.z >= 0 && adjacent.x < Tiles.GetLength(0) && adjacent.z < Tiles.GetLength(1))
+                    {
+                        rangeTiles.Add(adjacent);
+                    }
+                }
+            }
+            else
+            {
+                float maxRangeSquared = _range * _range;
+                // iterate over square area around the start cell, but only include tiles within the circular radius
+                for (int x = -_range; x <= _range; x++)
+                {
+                    for (int z = -_range; z <= _range; z++)
+                    {
+                        // Skip the starting cell
+                        if (x == 0 && z == 0)
+                            continue;
+
+                        Vector3Int candidate = new Vector3Int(start.x + x, start.y, start.z + z);
+
+                        // Check bounds first
+                        if (candidate.x < 0 || candidate.z < 0 || candidate.x >= Tiles.GetLength(0) || candidate.z >= Tiles.GetLength(1))
+                            continue;
+
+                        float distanceSquared = x * x + z * z;
+                        if (distanceSquared <= maxRangeSquared)
+                        {
+                            rangeTiles.Add(candidate);
+                        }
+                    }
+                }
+            }
+            return rangeTiles;
         }
 
         /// <summary>
@@ -155,7 +235,7 @@ namespace GridPrivate
                 Vector3Int cell = path.Location + OFFSETS[neighborOffsets[i]];
                 Tile tile = Tiles[cell.x, cell.z];
                 if (tile == null || (pathfinder != null && !tile.CanStrideOn(pathfinder)))
-                    neighborOffsets.RemoveAt(i);
+                    neighborOffsets.RemoveAt(i--);
             }
             RemoveUnusableDiagonals(neighborOffsets);
 
@@ -204,28 +284,25 @@ namespace GridPrivate
         /// <param name="neighbors"></param>
         protected void RemoveUnusableDiagonals(List<int> neighbors)
         {
-            for (int i = 0; i < neighbors.Count; i++)
+            if (!neighbors.Contains(0)) // X
             {
-                switch (neighbors[i])
-                {
-                    case 10: // X  Z
-                        if (!neighbors.Contains(0) || !neighbors.Contains(4))
-                            neighbors.RemoveAt(i);
-                        break;
-                    case 11: // X -Z
-                        if (!neighbors.Contains(0) || !neighbors.Contains(5))
-                            neighbors.RemoveAt(i);
-                        break;
-                    case 12: //-X  Z
-                        if (!neighbors.Contains(1) || !neighbors.Contains(4))
-                            neighbors.RemoveAt(i);
-                        break;
-                    case 13: //-X -Z
-                        if (!neighbors.Contains(1) || !neighbors.Contains(5))
-                            neighbors.RemoveAt(i);
-                        break;
-                    default: continue;// Cardinal and 3D fallthrough
-                }
+                neighbors.Remove(10); // X Z
+                neighbors.Remove(11); // X-Z
+            }
+            if (!neighbors.Contains(1)) // Z
+            {
+                neighbors.Remove(12); //-X Z
+                neighbors.Remove(13); //-X-Z
+            }
+            if (!neighbors.Contains(4)) //-X
+            {
+                neighbors.Remove(10); // X Z
+                neighbors.Remove(12); //-X Z
+            }
+            if (!neighbors.Contains(5)) //-Z
+            {
+                neighbors.Remove(11); // X-Z
+                neighbors.Remove(13); //-X-Z
             }
         }
 
@@ -367,6 +444,19 @@ namespace GridPrivate
             new Vector3Int(-1,  1, -1),
             new Vector3Int(-1, -1,  1),
             new Vector3Int(-1, -1, -1),
+        };
+
+        private static readonly Vector3Int[] Directions = new[]
+        {
+            new Vector3Int(1, 0, 0),
+            new Vector3Int(-1, 0, 0),
+            new Vector3Int(0, 0, 1),
+            new Vector3Int(0, 0, -1),
+
+            new Vector3Int(1, 0, 1),
+            new Vector3Int(-1, 0, 1),
+            new Vector3Int(1, 0, -1),
+            new Vector3Int(-1, 0, -1)
         };
 
         private static readonly float[] NEIGHBOR_DISTANCE = BuildDistances();

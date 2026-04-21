@@ -2,6 +2,7 @@ using System.Collections;
 using UnityEngine;
 using GridPublic;
 using System.Collections.Generic;
+using UnityEngine.TextCore.Text;
 
 namespace GridPrivate
 {
@@ -12,7 +13,7 @@ namespace GridPrivate
         public TileType[,] GridData {get; set;}
         protected Tile[,] Tiles;
         IPathfinder Pathfinder;
-        GridFSM fsm = new GridFSM();
+        GridFSM Fsm = new GridFSM();
 
         public IPathfinder GetPathfinder()
         {
@@ -46,6 +47,11 @@ namespace GridPrivate
             Pathfinder = new Dijkstra(Tiles);
         }
 
+        public void Update()
+        {
+            Fsm.InputUpdate();
+        }
+
         public bool AddToken(GameObject token)
         {
             Vector3Int position = Vector3Int.RoundToInt(token.transform.position);
@@ -56,7 +62,7 @@ namespace GridPrivate
             return true;
         }
 
-        public bool DestroyToken(GameObject token)
+        public override bool DestroyToken(GameObject token)
         {
             Vector3Int position = Vector3Int.RoundToInt(token.transform.position);
             Tile tile = Tiles[position.x, position.z];
@@ -71,12 +77,14 @@ namespace GridPrivate
         /// </summary>
         public override IEnumerator Stride(GameObject character)
         {
-            yield return fsm.ChangeState(new StateStride(character));
+            if (Fsm.ChangeState(new StateStride(character, Fsm)))
+                yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 
-        public override IEnumerator GetStrikeTarget(GameObject attacker, int range, CoroutineResult<GameObject> target)
+        public override IEnumerator GetStrikeTarget(GameObject attacker, float range, CoroutineResult<GameObject> target)
         {
-            throw new System.NotImplementedException();
+            if (Fsm.ChangeState(new StateStrike(attacker, range, target, Fsm)))
+                yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 
         public Tile[,] GetTiles()

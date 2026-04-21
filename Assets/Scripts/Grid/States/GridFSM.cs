@@ -7,19 +7,15 @@ namespace GridPrivate
 {
     public class GridFSM : FiniteStateMachine<GridFSMState>
     {
+        public StateIdle IdleState { get; private set; } = new StateIdle();
 
-
-        //public idle to the states themselves can set the FSM back to idle upon exiting, may change this to be handled by the API
-        public StateIdle idleState { get; private set; } = new StateIdle();
-        public bool canceled = false;
-
-        private float timeSinceLastClick = 0f;
-        private float lastClickTime = 0f;
+        private float TimeSinceLastClick = 0f;
+        private float LastClickTime = 0f;
         private GridFSMState QueuedState = null;
 
         public GridFSM()
         {
-            currentState = idleState;
+            CurrentState = IdleState;
             OnCancel.AddListener(() => ChangeState(new StateIdle()));
         }
 
@@ -30,47 +26,32 @@ namespace GridPrivate
                 newState = QueuedState;
                 QueuedState = null;
             }
-            if (!currentState.canCancel)
+            if (!CurrentState.canCancel)
                 return false;
             return base.ChangeState(newState);
         }
 
         // Update is called once per frame
-        public void FSMUpdate(GridCharacterController3D controller)
+        public void InputUpdate()
         {
-
-            // if (currentState != null && !isInTransition)
-            // {
-            //     currentState.StateUpdate();
-            // }
-            timeSinceLastClick = Time.time - lastClickTime;
+            TimeSinceLastClick = Time.time - LastClickTime;
             if (InputCompat.LeftClickDown())
             {
-                lastClickTime = Time.time;
-                if (timeSinceLastClick <= controller.doubleClickTime)
+                LastClickTime = Time.time;
+                if (TimeSinceLastClick <= 0.5)
                 {
-                    currentState.DoubleLeftclick();
+                    CurrentState.DoubleLeftclick();
                 }
                 else
                 {
-                    currentState.Leftclick();
+                    CurrentState.Leftclick();
                 }
             }
 
             if (InputCompat.RightClickDown())
             {
-                currentState.Rightclick();
+                CurrentState.Rightclick();
             }
         }
-
-        public void FSMFixedUpdate()
-        {
-            // if (currentState != null && !isInTransition)
-            // {
-            //     currentState.FixedStateUpdate();
-            // }
-        }
-
-
     }
 }

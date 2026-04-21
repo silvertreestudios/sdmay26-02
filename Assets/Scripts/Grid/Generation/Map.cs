@@ -1,5 +1,6 @@
 using GridPrivate;
 using System;
+using UnityEditor;
 using UnityEngine;
 
 [ExecuteAlways]
@@ -20,6 +21,8 @@ public class Map : MonoBehaviour
     void OnValidate()
     {
         #if UNITY_EDITOR
+        if (UnityEditor.PrefabUtility.IsPartOfPrefabAsset(this))
+            return;
         // Defer the rebuild to avoid "DestroyImmediate is not permitted during OnValidate"
         UnityEditor.EditorApplication.delayCall += () =>
         {
@@ -38,8 +41,8 @@ public class Map : MonoBehaviour
     {
         if (ImageMap == null) return;
 
+        Settings.ResetCache();
         ClearChildren();
-
         GetMapData();
 
 
@@ -55,7 +58,10 @@ public class Map : MonoBehaviour
                 Vector3 pos = new Vector3(x * spacing, 0, z * spacing);
                 if (prefab != null)
                 {
-                    GameObject obj = Instantiate(prefab, pos, prefab.transform.rotation, transform);
+                    GameObject obj = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+                    obj.transform.position = pos;
+                    obj.transform.rotation = prefab.transform.rotation;
+                    obj.transform.parent = transform;
                     obj.GetComponent<IOnGridGeneration>()?.OnGeneration(new Vector3Int(x,0,z), GridData);
                 }
 

@@ -14,9 +14,9 @@ namespace GridPrivate
         public EventCoroutine<(GameObject, Vector3Int)> OnEnterTile { get; protected set; } = new();
 
         /// <summary>
-        /// Event called upon token exiting this tile
+        /// Event called upon token exiting this tile. Location and prevented exit.
         /// </summary>
-        public EventCoroutine<(GameObject, Vector3Int)> OnExitTile { get; protected set; } = new();
+        public EventCoroutine<(GameObject, Vector3Int, Ref<bool>)> OnExitTile { get; protected set; } = new();
 
         public List<GameObject> Occupants { get; protected set; } = new();
 
@@ -30,7 +30,7 @@ namespace GridPrivate
         /// <returns></returns>
         public bool CanStrideOn(GameObject token)
         {
-            if (Occupants == null)
+            if (Occupants.Count == 0)
                 return true;
             foreach (GameObject occupant in Occupants)
             {
@@ -67,8 +67,11 @@ namespace GridPrivate
             // Viva RUST, the most vastly superior programming language with good formatting
             yield return OnExitTile.Invoke((
                 token, 
-                Vector3Int.RoundToInt(token.transform.position)
+                Vector3Int.RoundToInt(token.transform.position),
+                prevented
             ));
+            if(!prevented.Value)
+                Occupants.Remove(token);
         }
     }
 }

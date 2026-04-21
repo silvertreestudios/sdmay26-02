@@ -27,18 +27,26 @@ namespace GridPrivate
         /// Only use after Search
         /// </summary>
         /// <param name="end"></param>
-        /// <returns>null if Search was not called prior or if not found</returns>
+        /// <returns>null if Search was not called prior, empty on no available path</returns>
         public List<PathNode> Find(Vector3Int end);
 
         /// <summary>
         /// Returns the list of locations in range from position
-        /// Only use after Search
+        /// Usable after Search
         /// </summary>
         /// <param name="pathfinder">the token pathfinding. Can be null.</param>
         /// <param name="start"></param>
         /// <param name="range"></param>
         /// <returns></returns>
         public List<Vector3Int> InRange(GameObject pathfinder, Vector3Int start, float range);
+
+        /// <summary>
+        /// files the list of cells in an emitation
+        /// </summary>
+        /// <param name="start">start of the emination</param>
+        /// <param name="range">of the emination (ft)</param>
+        /// <returns></returns>
+        public List<Vector3Int> CalculateEmination(Vector3Int start, float range);
     }
 
 

@@ -1,110 +1,102 @@
 using UnityEngine;
 using System.Collections.Generic;
+using Game.Creature;
 
 namespace GridPrivate
 {
     public class StateStrike : GridFSMState
     {
+        protected GridFSM Fsm;
         // target character
-        GameObject character;
-        // reference to helper class
-        GridCharacterController3D controller;
-        private GameObject selection = null;
-        public GameObject target { get; private set; } = null;
-        public bool canceled { get; private set; } = false;
-        private int range;
-        private List<GameObject> occupantsInRange = new List<GameObject>();
-        private Vector3Int startCell;
+        GameObject Character;
+        CoroutineResult<GameObject> Selection;
+        protected GridAPIPrivate GridAPI = (GridAPIPrivate)GridPublic.GridAPI.GetInstance();
+        protected IPathfinder Pathfinder;
+        protected Tile[,] Tiles;
+        protected List<GameObject> OccupantsInRange = new List<GameObject>();
+        protected Vector3Int HoverCell;
+        protected float Range;
+        protected Vector3Int StartPosition;
 
 
         // compact constructor
-        public StateStrike(GameObject character, int range, GridCharacterController3D controller)
+        public StateStrike(GameObject character, float range, CoroutineResult<GameObject> selection, GridFSM fsm)
         {
-            this.controller = controller;
-            this.character = character;
-            this.range = range;
+            Fsm = fsm;
+            Character = character;
+            Selection = selection;
+            Tiles = GridAPI.GetTiles();
+            StartPosition = Vector3Int.RoundToInt(Character.transform.position);
+            Pathfinder = GridAPI.GetPathfinder();
+            Pathfinder.Search(Character, StartPosition);
+            Range = range;
         }
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
         {
+            Debug.Log("Enter");
             base.Enter(fsm);
-            target = null;
-            selection = null;
-            canceled = false;
-            occupantsInRange.Clear();
-            startCell = controller.coordinateConverter.GetCharacterCell(character);
-            controller.isProcessingTurn = false;
-            AIActionController ai = character.GetComponent<AIActionController>();
+            canCancel = true;
+            OccupantsInRange.Clear();
+            AIActionController ai = Character.GetComponent<AIActionController>();
             if (ai != null)
             {
 
                 // grab best target from the AI's controller, this should be set during its decision making process
-                if (ai.bestTarget == null)
-                {
+                if (ai.BestTarget == null)
                     Debug.LogWarning("AI has no target, skipping strike");
-                }
                 else
-                {
-                    target = ai.bestTarget;
-                    Debug.Log($"[State_Strike] Target acquired: {target.name}");
-                }
-                this.fsm.ChangeState(this.fsm.idleState);
+                    Selection.Value = ai.BestTarget;
+                this.fsm.ChangeState(this.fsm.IdleState);
             }
             else
             {
-                controller.rangeHighlighter.UpdateHighlights(startCell, range, showAttackRange: true);
-                //currently I am filtering out friendly targets in StrikeOccupantsInArea
-                //but this may not be 100% accurate to the pathfinder 2E rules
-                //TODO talk to Cole and Chris about this implementation
-                occupantsInRange = controller.StrikeOccupantsInArea(character, range);
-            }
+                List<Vector3Int> inRange = Pathfinder.CalculateEmination(StartPosition, Range);
+                OnHighlightRange.Invoke(inRange);
+                OnHover.AddListener(Hover);
 
+                foreach(Vector3Int cell in inRange)
+                {
+                    Tile tile = Tiles[cell.x, cell.z];
+                    if (tile != null)
+                    {
+                        foreach(GameObject occupant in tile.Occupants)
+                            OccupantsInRange.Add(occupant);
+                    }
+                }
+                OccupantsInRange.Remove(Character);
+            }
         }
+
         public override void Exit()
         {
-            fsm.canceled = canceled;
-            occupantsInRange.Clear();
-            controller.rangeHighlighter.ClearHighlights();
+            OccupantsInRange.Clear();
+            OnHover.RemoveListener(Hover);
+            OnHighlightRangeEnd.Invoke();
         }
         public override void Leftclick()
         {
-            if (controller.TryGetClickedCell(controller.currentCamera, out Vector3Int targetCell))
+            Tile tile = Tiles[HoverCell.x, HoverCell.z];
+            Debug.Log("Tile: " + HoverCell + " " + (tile != null));
+            if (tile != null)
             {
-                List<GameObject> occupantsInCell = controller.gridMemory.GetOccupantsInArea(new List<Vector3Int> { targetCell });
-                if (occupantsInCell.Count == 0)
-                {
-                    Debug.Log("[State_Strike] No occupants in the selected cell.");
-                }
-                else
-                {
-                    selection = occupantsInCell[0];
-                    Debug.Log($"[State_Strike] Target preview: {selection.name}");
-                }
+                Debug.Log("Count: " + tile.Occupants.Count);
+                if (tile.Occupants.Count > 0)
+                    Selection.Value = tile.Occupants[0];
+
+                fsm.ChangeState(fsm.IdleState);
             }
         }
 
-        public override void DoubleLeftclick()
-        {
-            if (occupantsInRange.Contains(selection))
-            {
-                target = selection;
-                //Debug.Log($"[State_Strike] Target confirmed: {target.name}");
-                fsm.ChangeState(fsm.idleState);
-            }
-            else
-            {
-                Debug.Log("[State_Strike] Selected an invalid target.");
-            }
-        }
         public override void Rightclick()
         {
-            // cancel action when right clicking
-            //Debug.Log("[State_Strike] Action cancelled");
-            selection = null;
-            target = null;
-            canceled = true;
-            fsm.ChangeState(fsm.idleState);
+            if (!canCancel) return;
+            UniversalEvents.OnCancel.Invoke();
         }
 
-
+        protected void Hover(List<Vector3Int> hoverList)
+        {
+            if (hoverList.Count > 0)
+                HoverCell = hoverList[0];
+        }
     }
 }

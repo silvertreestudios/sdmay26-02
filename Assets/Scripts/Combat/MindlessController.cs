@@ -5,10 +5,15 @@ using NUnit.Framework;
 using System;
 using System.Collections;
 using UnityEngine.TextCore.Text;
+using GridPrivate;
 
 //TODO abstract AIActionConroller and make a subclass for mindless
 public class MindlessController : AIActionController
 {
+    protected GridAPIPrivate GridAPI;
+    protected IPathfinder Pathfinder;
+    protected Tile[,] Tiles;
+
     private static readonly Vector3Int[] CardinalDirections = new[]
     {
         new Vector3Int(1, 0, 0),
@@ -21,13 +26,18 @@ public class MindlessController : AIActionController
         new Vector3Int(-1, 0, -1)
     };
 
-
-
     /// <summary>
     /// Starts this creature's turn
     /// </summary>
     public override void StartTurn()
     {
+        if(GridAPI == null)
+        {
+            GridAPI = (GridAPIPrivate)GridPublic.GridAPI.GetInstance();
+            Tiles = GridAPI.GetTiles();
+            Pathfinder = GridAPI.GetPathfinder();
+        }
+
         base.StartTurn();
         StartCoroutine(ExecuteTurnSequence());
     }
@@ -64,62 +74,78 @@ public class MindlessController : AIActionController
     //TODO seriously we need a better way of accessing these calculation fucntions
     public EntityAction MindlessDecision()
     {
+        Debug.Log("Mindless Decision");
         // Reset persistent fields so stale paths from prior decisions don't affect this call
-        bestPath = null;
-        bestTarget = null;
+        BestPath = null;
+        BestTarget = null;
 
-        Vector3Int currentCell = Controller.coordinateConverter.GetCharacterCell(this.gameObject);
+        Vector3Int currentCell = Vector3Int.RoundToInt(transform.position);
+        Pathfinder.Search(null, currentCell);
         string myTeam = this.gameObject.GetComponent<Team>().Name;
         float minDistance = float.MaxValue;
 
         foreach (GameObject target in CombatManagerInterface.GetInstance().GetCombatants())
         {
+            Debug.Log("Target Check");
             if (target == this.gameObject || TeamRules.GetInstance().IsFriendly(myTeam, target.GetComponent<Team>().Name))
                 continue;
 
-            Vector3Int targetCell = Controller.coordinateConverter.GetCharacterCell(target);
-            if (!Controller.TryValidateAndGetPathAI(currentCell, targetCell, out var pathResult, ignoreTargetOccupancy: true))
+            Vector3Int targetCell = Vector3Int.RoundToInt(target.transform.position);
+            List<PathNode> path = Pathfinder.Find(targetCell);
+            Debug.Log("Target: " + (path == null) + " " + path.Count);
+            if (path == null || path.Count < 2)
                 continue;
 
+            Debug.Log("Target: " + path.Count);
             // Subtract 2 to exclude the starting and ending cells
-            if (pathResult?.Count > 0 && pathResult.Count - 2 < minDistance)
+            if (path.Count > 0 && path.Count - 2 < minDistance)
             {
-                minDistance = pathResult.Count - 2;
-                pathResult.RemoveAt(pathResult.Count - 1);
-                bestPath = pathResult;
-                bestTarget = target;
+                minDistance = path.Count - 2;
+                path.RemoveAt(path.Count - 1);
+                BestPath = path;
+                BestTarget = target;
             }
         }
 
+        Debug.Log("Mindless Attack Check");
         // Attack if best target is in strike range
-        if (Controller.StrikeOccupantsInArea(this.gameObject, 1).Contains(bestTarget))
+        List<Vector3Int> inRange = Pathfinder.CalculateEmination(currentCell, 5.0f);
+        foreach (Vector3Int cell in inRange)
         {
-            selectedTile = Controller.coordinateConverter.GetCharacterCell(bestTarget);
-            return BestStrike();
+            if (Tiles[cell.x, cell.z] != null && Tiles[cell.x, cell.z].Occupants.Contains(BestTarget))
+            {
+                Debug.Log("Move towards best target");
+                SelectedTile = cell;
+                return BestStrike();
+            }
         }
 
-        if (bestPath == null || bestPath.Count == 0)
+        Debug.Log("BestPath: " + (BestPath == null));
+        if (BestPath == null || BestPath.Count == 0)
             return null;
 
+        Debug.Log("Move towards best target");
         // Move towards the best target — select the furthest tile in path within movement range
         int maxMoveDist = this.gameObject.GetComponent<CreatureComponent>()?.speed ?? 0;
-        HashSet<Vector3Int> reachableTiles = Controller.rangeHighlighter.CalculateReachableTiles(currentCell, maxMoveDist / 5);
-        int tileIndex = bestPath.FindLastIndex(tile => reachableTiles.Contains(tile));
+        List<Vector3Int> reachableTiles = Pathfinder.InRange(this.gameObject, currentCell, maxMoveDist / 5);
+        int tileIndex = BestPath.FindLastIndex(tile => reachableTiles.Contains(tile.Location));
 
+        Debug.Log("Check if alternet path");
         if (tileIndex < 0)
         {
             // Direct path is fully blocked by a teammate — try an unoccupied neighboring tile of the target
-            Vector3Int targetCellAlt = Controller.coordinateConverter.GetCharacterCell(bestTarget);
-            List<Vector3Int> altPath = FindAlternativeApproachPath(currentCell, targetCellAlt, reachableTiles);
+            Vector3Int targetCellAlt = Vector3Int.RoundToInt(BestTarget.transform.position);
+            List<PathNode> altPath = FindAlternativeApproachPath(currentCell, targetCellAlt, reachableTiles);
             if (altPath == null || altPath.Count == 0)
                 return null;
-            selectedTile = altPath[altPath.Count - 1];
-            bestPath = altPath;
+            SelectedTile = altPath[altPath.Count - 1].Location;
+            BestPath = altPath;
             return Movements[0];
         }
 
-        selectedTile = bestPath[tileIndex];
-        bestPath = bestPath.GetRange(0, tileIndex + 1);
+        Debug.Log("Setting path");
+        SelectedTile = BestPath[tileIndex].Location;
+        BestPath = BestPath.GetRange(0, tileIndex + 1);
         return Movements[0];
     }
 
@@ -127,9 +153,9 @@ public class MindlessController : AIActionController
     /// When the direct path to a target is blocked by a teammate, finds the shortest path to
     /// an unoccupied cardinal neighbor of the target that the AI can make progress toward.
     /// </summary>
-    private List<Vector3Int> FindAlternativeApproachPath(Vector3Int from, Vector3Int targetCell, HashSet<Vector3Int> reachableTiles)
+    private List<PathNode> FindAlternativeApproachPath(Vector3Int from, Vector3Int targetCell, List<Vector3Int> reachableTiles)
     {
-        List<Vector3Int> bestAltPath = null;
+        List<PathNode> bestAltPath = null;
         int bestAltDist = int.MaxValue;
 
         foreach (var dir in CardinalDirections)
@@ -138,12 +164,20 @@ public class MindlessController : AIActionController
             if (altDest == from) continue;
 
             // Only consider tiles that are unoccupied and valid to land on
-            if (!Controller.gridMemory.IsCellSelectableTraversal(altDest)) continue;
+            if (
+                altDest.x < 0 || 
+                altDest.z < 0 || 
+                altDest.x >= Tiles.GetLength(0) || 
+                altDest.z >= Tiles.GetLength(1) ||
+                Tiles[altDest.x, altDest.z] == null ||
+                Tiles[altDest.x, altDest.z].Occupants.Count > 0
+            ) continue;
 
-            if (!Controller.TryValidateAndGetPathAI(from, altDest, out var altPath))
+            List<PathNode> altPath = Pathfinder.Find(altDest);
+            if (altPath == null || altPath.Count < 2)
                 continue;
 
-            int idx = altPath.FindLastIndex(tile => reachableTiles.Contains(tile));
+            int idx = altPath.FindLastIndex(tile => reachableTiles.Contains(tile.Location));
             if (idx < 1) continue; // Need at least one step of forward progress
 
             if (altPath.Count < bestAltDist)

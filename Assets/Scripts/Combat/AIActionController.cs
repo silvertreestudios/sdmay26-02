@@ -4,14 +4,15 @@ using Game.Creature;
 using NUnit.Framework;
 using System;
 using Game.Strikes;
+using GridPrivate;
 
 //TODO abstract AIActionConroller and make a subclass for mindless
 public abstract class AIActionController : ActionController
 {
     protected GridCharacterController3D Controller => GridCharacterController3D.GetInstance();
-    public GameObject bestTarget { get; protected set; }
-    public List<Vector3Int> bestPath { get; protected set; }
-    public Vector3Int selectedTile { get; protected set; }
+    public GameObject BestTarget { get; protected set; }
+    public List<PathNode> BestPath { get; protected set; }
+    public Vector3Int SelectedTile { get; protected set; }
     protected void Awake()
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);

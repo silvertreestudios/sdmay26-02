@@ -44,6 +44,11 @@ namespace GridPrivate
             return GetInfo(pixel).Item1;
         }
 
+        public void ResetCache()
+        {
+            FastAccess = null;
+        }
+
         protected (TileType, GameObject, Material) GetInfo(Color32 color)
         {
             // Construct fast access if necessary

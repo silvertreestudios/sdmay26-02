@@ -17,7 +17,7 @@ public class DecoratorMap
         }
     }
 
-    private Tile[,] tileMap;
+    private TileOld[,] tileMap;
     private IGridMemory gridMemory;
 
     // private constructor to enforce singleton pattern
@@ -34,7 +34,7 @@ public class DecoratorMap
         if (gridMemory == null) return;
 
         // create 2d array matching grid dimensions
-        tileMap = new Tile[gridMemory.Width, gridMemory.Height];
+        tileMap = new TileOld[gridMemory.Width, gridMemory.Height];
 
         for (int z = 0; z < gridMemory.Height; z++)
         {
@@ -49,13 +49,13 @@ public class DecoratorMap
                 );
 
                 // map gridmemory tiletype to tile.type
-                Tile.Type tileType = ConvertTileType(x, z);
-                tileMap[x, z] = new Tile(tileType, worldPos, gridPos);
+                TileOld.Type tileType = ConvertTileType(x, z);
+                tileMap[x, z] = new TileOld(tileType, worldPos, gridPos);
             }
         }
     }
 
-    private Tile.Type ConvertTileType(int x, int z)
+    private TileOld.Type ConvertTileType(int x, int z)
     {
         // cast to concrete type to access gridinfo
         if (gridMemory is GridMemory gridMem)
@@ -64,24 +64,24 @@ public class DecoratorMap
             // convert between enum types using switch expression
             return tile.type switch
             {
-                GridMemory.TileType.Ground => Tile.Type.Walkable,  
-                GridMemory.TileType.Wall => Tile.Type.Wall,
-                GridMemory.TileType.Void => Tile.Type.Void,
-                GridMemory.TileType.Door => Tile.Type.Door,
-                _ => Tile.Type.Walkable  
+                GridMemory.TileType.Ground => TileOld.Type.Walkable,  
+                GridMemory.TileType.Wall => TileOld.Type.Wall,
+                GridMemory.TileType.Void => TileOld.Type.Void,
+                GridMemory.TileType.Door => TileOld.Type.Door,
+                _ => TileOld.Type.Walkable  
             };
         }
-        return Tile.Type.Ground;
+        return TileOld.Type.Ground;
     }
 
     // returns 2d array of tiles with type and world position
-    public Tile[,] GetTileMap()
+    public TileOld[,] GetTileMap()
     {
         return tileMap;
     }
 
     // returns single tile at grid coordinates
-    public Tile GetTile(int x, int z)
+    public TileOld GetTile(int x, int z)
     {
         // bounds checking before array access
         if (tileMap == null || x < 0 || x >= gridMemory.Width || z < 0 || z >= gridMemory.Height)
@@ -90,7 +90,7 @@ public class DecoratorMap
     }
 
     // returns single tile at grid position vector
-    public Tile GetTile(Vector3Int gridPosition)
+    public TileOld GetTile(Vector3Int gridPosition)
     {
         return GetTile(gridPosition.x, gridPosition.z);
     }

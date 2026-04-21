@@ -1,6 +1,6 @@
 ﻿using UnityEngine;
 
-public class Tile
+public class TileOld
 {
     public enum Type
     {
@@ -14,7 +14,7 @@ public class Tile
     public Vector3 WorldPosition { get; private set; }
     public Vector3Int GridPosition { get; private set; }
 
-    public Tile(Type type, Vector3 worldPosition, Vector3Int gridPosition)
+    public TileOld(Type type, Vector3 worldPosition, Vector3Int gridPosition)
     {
         TileType = type;
         WorldPosition = worldPosition;

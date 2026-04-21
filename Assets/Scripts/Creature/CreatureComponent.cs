@@ -2,6 +2,7 @@ using Game.Creature;
 using System.Collections.Generic;
 using UnityEngine;
 using Game.Strikes;
+using GridPublic;
 
 namespace Game.Creature
 {
@@ -283,13 +284,7 @@ namespace Game.Creature
             if (ac != null && CombatManagerInterface.GetInstance() != null)
                 CombatManagerInterface.GetInstance().Remove(ac);
 
-            var gridController = GridCharacterController3D.GetInstance();
-            var gridMemory = IGridMemory.GetInstance();
-            if (gridController != null && gridMemory != null)
-            {
-                Vector3Int cell = gridController.coordinateConverter.GetCharacterCell(gameObject);
-                gridMemory.ClearCreaturePosition(gameObject, cell);
-            }
+            GridAPI.GetInstance().DestroyToken(this.gameObject);
             OnDeath.Invoke(gameObject); // Trigger the death event
             
             gameObject.SetActive(false);

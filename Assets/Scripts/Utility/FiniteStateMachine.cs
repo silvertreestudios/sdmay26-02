@@ -4,16 +4,16 @@ using System.Collections.Generic;
 public class FiniteStateMachine <T> where T : IFSMState<T>
 {
 
-    public T currentState { get; protected set;}
-    protected T previousState;
+    public T CurrentState { get; protected set;}
+    protected T PreviousState;
     //public idle to the states themselves can set the FSM back to idle upon exiting, may change this to be handled by the API
-    public bool isInTransition { get; private set; } = false;
+    public bool IsInTransition { get; private set; } = false;
 
     // change to new state and indicate if canceling
     // if a state is canceled, that tells the action controller to refund the cost of the action
     public virtual bool ChangeState(T newState)
     {
-        if (isInTransition)
+        if (IsInTransition)
             return false;
 
         StateTransition(newState);
@@ -22,22 +22,22 @@ public class FiniteStateMachine <T> where T : IFSMState<T>
 
     protected void StateTransition(T newState)
     {
-        isInTransition = true;
-        if (currentState != null)currentState.Exit();
+        IsInTransition = true;
+        if (CurrentState != null)CurrentState.Exit();
         //Debug.Log($"[FiniteStateMachine] Exited state: {currentState?.GetType().Name}");
         
-        previousState = currentState;
-        currentState = newState;
+        PreviousState = CurrentState;
+        CurrentState = newState;
 
-        if(currentState != null) currentState.Enter(this);
+        if(CurrentState != null) CurrentState.Enter(this);
 
-        isInTransition = false;
+        IsInTransition = false;
         //Debug.Log($"[FiniteStateMachine] Entered state: {currentState?.GetType().Name}");
     }
 
     public void RevertState()
     {
-        if (previousState != null) ChangeState(previousState);
+        if (PreviousState != null) ChangeState(PreviousState);
         //else Debug.LogWarning("[FiniteStateMachine] No previous state to revert to.");
     }
 
