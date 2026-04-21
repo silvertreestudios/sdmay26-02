@@ -3,104 +3,35 @@
   "type": "npc",
   "system": {
     "abilities": {
-      "cha": {
-        "mod": 0
-      },
-      "con": {
-        "mod": 0
-      },
-      "dex": {
-        "mod": 4
-      },
-      "int": {
-        "mod": -5
-      },
-      "str": {
-        "mod": 2
-      },
-      "wis": {
-        "mod": 0
-      }
+      "str": 2,
+      "dex": 4,
+      "con": 0,
+      "int": -5,
+      "wis": 0,
+      "cha": 0
     },
     "attributes": {
-      "ac": {
-        "details": "",
-        "value": 16
-      },
-      "allSaves": {
-        "value": ""
-      },
+      "ac": 16,
+      "allSaves": 0,
       "hp": {
         "details": "void healing",
         "max": 4,
         "temp": 0,
         "value": 4
       },
-      "immunities": [
+      "speed": [
         {
-          "exceptions": [],
-          "type": "death-effects"
-        },
-        {
-          "exceptions": [],
-          "type": "disease"
-        },
-        {
-          "exceptions": [],
-          "type": "paralyzed"
-        },
-        {
-          "exceptions": [],
-          "type": "poison"
-        },
-        {
-          "exceptions": [],
-          "type": "unconscious"
-        },
-        {
-          "exceptions": [],
-          "type": "bleed"
+          "value": 25
         }
-      ],
-      "resistances": [
-        {
-          "type": "cold",
-          "value": 5
-        },
-        {
-          "type": "electricity",
-          "value": 5
-        },
-        {
-          "type": "fire",
-          "value": 5
-        },
-        {
-          "type": "piercing",
-          "value": 5
-        },
-        {
-          "type": "slashing",
-          "value": 5
-        }
-      ],
-      "speed": {
-        "otherSpeeds": [],
-        "value": 25
-      }
+      ]
     },
     "details": {
-      "blurb": "",
       "languages": {
         "details": "",
         "value": []
       },
-      "level": {
-        "value": -1
-      },
-      "privateNotes": "",
+      "level": -1,
       "publicNotes": "<p>The most common skeletal minions are mere guardians.</p>\n<hr />\n<p>Animated skeletons are among the most common types of undead.</p>",
-      "publicNotesPlain": null,
       "publicNotesParagraphs": [
         "The most common skeletal minions are mere guardians.",
         "Animated skeletons are among the most common types of undead."
@@ -125,34 +56,17 @@
     },
     "resources": {},
     "saves": {
-      "fortitude": {
-        "saveDetail": "",
-        "value": 2
-      },
-      "reflex": {
-        "saveDetail": "",
-        "value": 8
-      },
-      "will": {
-        "saveDetail": "",
-        "value": 2
-      }
+      "fortitude": 2,
+      "reflex": 8,
+      "will": 2
     },
-    "skills": [
-      {
-        "name": "acrobatics",
-        "value": 6
-      },
-      {
-        "name": "athletics",
-        "value": 3
-      }
-    ],
+    "skills": {
+      "acrobatics": 6,
+      "athletics": 3
+    },
     "traits": {
       "rarity": "common",
-      "size": {
-        "value": "med"
-      },
+      "size": "med",
       "value": [
         "mindless",
         "skeleton",
@@ -160,8 +74,55 @@
         "unholy"
       ]
     },
+    "immunities": [
+      {
+        "exceptions": [],
+        "type": "death-effects"
+      },
+      {
+        "exceptions": [],
+        "type": "disease"
+      },
+      {
+        "exceptions": [],
+        "type": "paralyzed"
+      },
+      {
+        "exceptions": [],
+        "type": "poison"
+      },
+      {
+        "exceptions": [],
+        "type": "unconscious"
+      },
+      {
+        "exceptions": [],
+        "type": "bleed"
+      }
+    ],
     "weaknesses": [],
-    "resistances": []
+    "resistances": [
+      {
+        "type": "cold",
+        "value": 5
+      },
+      {
+        "type": "electricity",
+        "value": 5
+      },
+      {
+        "type": "fire",
+        "value": 5
+      },
+      {
+        "type": "piercing",
+        "value": 5
+      },
+      {
+        "type": "slashing",
+        "value": 5
+      }
+    ]
   },
   "equipment": [
     {
@@ -338,41 +299,18 @@
     }
   ],
   "conditions": [],
-  "weaponBonuses": [
-    {
-      "category": "unarmed",
-      "bonus": 2
-    },
-    {
-      "category": "simple",
-      "bonus": 2
-    },
-    {
-      "category": "martial",
-      "bonus": 2
-    },
-    {
-      "category": "advanced",
-      "bonus": 0
-    }
-  ],
-  "armorBonuses": [
-    {
-      "category": "unarmored",
-      "bonus": 0
-    },
-    {
-      "category": "light",
-      "bonus": 0
-    },
-    {
-      "category": "medium",
-      "bonus": 0
-    },
-    {
-      "category": "heavy",
-      "bonus": 0
-    }
-  ],
+  "weaponBonuses": {
+    "unarmed": 2,
+    "simple": 2,
+    "martial": 2,
+    "advanced": 0
+  },
+  "armorBonuses": {
+    "unarmored": 0,
+    "light": 0,
+    "medium": 0,
+    "heavy": 0
+  },
+  "playerOnlyStuff": [],
   "Source": "packs/pathfinder-monster-core"
 }

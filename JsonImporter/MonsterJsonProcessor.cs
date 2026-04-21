@@ -348,11 +348,11 @@ namespace JsonImporter
                     })
             );
 
-            // Reformat skills into an array (name + base) when skills is an object
+            // Reformat skills into a flat object map: { "acrobatics": 5, ... }
             var systemObj = obj["system"] as JObject;
             if (systemObj != null && systemObj["skills"] is JObject skillsObj)
             {
-                var skillsArray = new JArray();
+                var flattenedSkills = new JObject();
                 foreach (var prop in skillsObj.Properties())
                 {
                     var valObj = prop.Value as JObject;
@@ -361,19 +361,103 @@ namespace JsonImporter
                     {
                         baseVal = valObj["base"]?.Value<int?>() ?? valObj["mod"]?.Value<int?>() ?? valObj["value"]?.Value<int?>() ?? 0;
                     }
-                    var skillEntry = new JObject
-                    {
-                        ["name"] = prop.Name,
-                        ["value"] = baseVal // changed from "base" to "value" to avoid syntax issues with C# keywords
-                    };
-                    skillsArray.Add(skillEntry);
+                    flattenedSkills[prop.Name] = baseVal;
                 }
-                systemObj["skills"] = skillsArray;
+                systemObj["skills"] = flattenedSkills;
             }
 
-            // extract and convert publicNotes HTML -> plain + paragraphs
-            // TODO rename publicNotes and publicNotesParagraphs?
+            // Reformat speed into a unified array where base speed stays as { value: n }
+            // and special movement modes become single-key objects like { Swim: n }.
+            var attributesForSpeed = systemObj?["attributes"] as JObject;
+            if (attributesForSpeed != null && attributesForSpeed["speed"] is JObject speedObj)
+            {
+                var speedEntries = new JArray();
+
+                var baseSpeedToken = speedObj["value"] ?? speedObj["base"];
+                if (baseSpeedToken != null)
+                {
+                    speedEntries.Add(new JObject
+                    {
+                        ["value"] = GetIntValue(baseSpeedToken)
+                    });
+                }
+
+                if (speedObj["otherSpeeds"] is JArray otherSpeeds)
+                {
+                    foreach (var entry in otherSpeeds.OfType<JObject>())
+                    {
+                        var type = entry["type"]?.ToString();
+                        if (string.IsNullOrWhiteSpace(type))
+                            continue;
+
+                        var movementName = char.ToUpperInvariant(type[0]) + type.Substring(1);
+                        speedEntries.Add(new JObject
+                        {
+                            [movementName] = GetIntValue(entry["value"])
+                        });
+                    }
+                }
+
+                attributesForSpeed["speed"] = speedEntries;
+            }
+
+            // Reformat abilities from { str: { mod: 4 }, ... } to { str: 4, ... }
+            if (systemObj != null && systemObj["abilities"] is JObject abilitiesObj)
+            {
+                var abilityOrder = new[] { "str", "dex", "con", "int", "wis", "cha" };
+                var flattenedAbilities = new JObject();
+
+                foreach (var ability in abilityOrder)
+                {
+                    var token = abilitiesObj[ability];
+                    if (token == null)
+                        continue;
+
+                    if (token is JObject abilityObj)
+                    {
+                        int value = abilityObj["mod"]?.Value<int?>()
+                            ?? abilityObj["value"]?.Value<int?>()
+                            ?? 0;
+                        flattenedAbilities[ability] = value;
+                    }
+                    else if (token.Type == JTokenType.Integer || token.Type == JTokenType.Float)
+                    {
+                        flattenedAbilities[ability] = token.DeepClone();
+                    }
+                    else
+                    {
+                        flattenedAbilities[ability] = token;
+                    }
+                }
+
+                foreach (var prop in abilitiesObj.Properties())
+                {
+                    if (flattenedAbilities[prop.Name] == null)
+                    {
+                        flattenedAbilities[prop.Name] = prop.Value.DeepClone();
+                    }
+                }
+
+                systemObj["abilities"] = flattenedAbilities;
+            }
+
+            // Flatten details and normalize publicNotes HTML into paragraphs.
             var detailsObj = obj["system"]?["details"] as JObject;
+            if (detailsObj != null)
+            {
+                detailsObj.Property("blurb")?.Remove();
+
+                var levelToken = detailsObj["level"];
+                if (levelToken is JObject levelObj)
+                {
+                    detailsObj["level"] = GetIntValue(levelObj["value"], GetIntValue(levelObj["base"], GetIntValue(levelObj["mod"])));
+                }
+                else if (levelToken != null)
+                {
+                    detailsObj["level"] = GetIntValue(levelToken);
+                }
+            }
+
             if (detailsObj != null && detailsObj["publicNotes"] != null)
             {
                 var publicNotesToken = detailsObj["publicNotes"];
@@ -406,7 +490,40 @@ namespace JsonImporter
             // Promote nested attribute arrays into the top-level system fields.
             if (systemObj != null)
             {
+                var savesObj = systemObj["saves"] as JObject;
+                if (savesObj != null)
+                {
+                    foreach (var key in new[] { "fortitude", "reflex", "will" })
+                    {
+                        var token = savesObj[key];
+                        if (token is JObject tokenObj)
+                        {
+                            savesObj[key] = GetIntValue(tokenObj["value"], GetIntValue(tokenObj["base"], GetIntValue(tokenObj["mod"])));
+                        }
+                        else if (token != null)
+                        {
+                            savesObj[key] = GetIntValue(token);
+                        }
+                    }
+                }
+
                 var attributesObj = systemObj["attributes"] as JObject;
+                if (attributesObj != null)
+                {
+                    foreach (var key in new[] { "ac", "allSaves" })
+                    {
+                        var token = attributesObj[key];
+                        if (token is JObject tokenObj)
+                        {
+                            attributesObj[key] = GetIntValue(tokenObj["value"], GetIntValue(tokenObj["base"], GetIntValue(tokenObj["mod"])));
+                        }
+                        else if (token != null)
+                        {
+                            attributesObj[key] = GetIntValue(token);
+                        }
+                    }
+                }
+
                 var immunitiesArr = new JArray();
                 if (systemObj["attributes"]?["immunities"] is JArray sourceImmunities)
                 {
@@ -463,13 +580,23 @@ namespace JsonImporter
                 attributesObj?.Property("weaknesses")?.Remove();
                 attributesObj?.Property("resistances")?.Remove();
             }
+
+            var traitsObj = systemObj?["traits"] as JObject;
+            if (traitsObj != null)
+            {
+                var sizeToken = traitsObj["size"];
+                if (sizeToken is JObject sizeObj)
+                {
+                    traitsObj["size"] = sizeObj["value"]?.ToString() ?? sizeObj["base"]?.ToString() ?? sizeObj["mod"]?.ToString() ?? string.Empty;
+                }
+                else if (sizeToken != null)
+                {
+                    traitsObj["size"] = sizeToken.ToString();
+                }
+            }
             
-            
-
-
-
-            JArray weaponProfs = InferProficiencies(orderedItems, equipmentArr, obj);
-            JArray armorProfs = inferArmorProficiencies(equipmentArr, obj);
+            JObject weaponProfs = InferProficiencies(orderedItems, equipmentArr, obj);
+            JObject armorProfs = inferArmorProficiencies(equipmentArr, obj);
             // Build the output object in the specified order and include Source if present
             var output = new JObject
             {
@@ -482,7 +609,8 @@ namespace JsonImporter
                 ["passives"] = passivesArr,
                 ["conditions"] = conditionsArr,
                 ["weaponBonuses"] = weaponProfs,
-                ["armorBonuses"] = armorProfs
+                ["armorBonuses"] = armorProfs,
+                ["playerOnlyStuff"] = new JArray()
             };
 
             // Preserve Source if it existed in the original file (some JSON uses capital "Source")
@@ -509,8 +637,50 @@ namespace JsonImporter
             return input.Substring(start + 1, end - start - 1);
         }
 
+        private static int GetIntValue(JToken? token, int defaultValue = 0)
+        {
+            if (token == null)
+                return defaultValue;
+
+            if (token.Type == JTokenType.Integer || token.Type == JTokenType.Float)
+                return token.Value<int>();
+
+            var text = token.ToString();
+            return int.TryParse(text, out int parsed) ? parsed : defaultValue;
+        }
+
+        private static int GetAbilityModifier(JObject character, string abilityKey)
+        {
+            var abilityToken = character["system"]?["abilities"]?[abilityKey];
+            if (abilityToken == null)
+                return 0;
+
+            if (abilityToken.Type == JTokenType.Integer || abilityToken.Type == JTokenType.Float)
+                return abilityToken.Value<int>();
+
+            if (abilityToken is JObject abilityObj)
+                return GetIntValue(abilityObj["mod"], GetIntValue(abilityObj["value"]));
+
+            return 0;
+        }
+
+        private static int GetAttributeValue(JObject character, string attributeKey)
+        {
+            var attributeToken = character["system"]?["attributes"]?[attributeKey];
+            if (attributeToken == null)
+                return 0;
+
+            if (attributeToken.Type == JTokenType.Integer || attributeToken.Type == JTokenType.Float)
+                return attributeToken.Value<int>();
+
+            if (attributeToken is JObject attributeObj)
+                return GetIntValue(attributeObj["value"], GetIntValue(attributeObj["base"], GetIntValue(attributeObj["mod"])));
+
+            return 0;
+        }
+
         // Rough method for inferring monster weapon proficiencies based on their action bonuses
-        public static JArray InferProficiencies(JArray actions, JArray equipment, JObject character)
+        public static JObject InferProficiencies(JArray actions, JArray equipment, JObject character)
         {
             int unarmedBonus = 0;
             int simpleBonus = 0;
@@ -533,8 +703,8 @@ namespace JsonImporter
                             // get item attack bonus, weapon's category, and character's str/dex mods
                             int bonus = action["system"]?["bonus"]?["value"]?.Value<int>() ?? 0;
                             string category = equip["category"]?.ToString() ?? "";
-                            int strMod= character["system"]?["abilities"]?["str"]?["mod"]?.Value<int>() ?? 0;
-                            int dexMod= character["system"]?["abilities"]?["dex"]?["mod"]?.Value<int>() ?? 0;
+                            int strMod = GetAbilityModifier(character, "str");
+                            int dexMod = GetAbilityModifier(character, "dex");
                             // assume creature uses weapons better for their stats
                             // TODO retrieve weapon traits to check for finesse or ranged, etc. instead of assuming based on higher mod
                             int proficiency = bonus - Math.Max(strMod, dexMod);
@@ -556,34 +726,18 @@ namespace JsonImporter
             simpleBonus = Math.Max(simpleBonus, martialBonus);
             unarmedBonus = Math.Max(unarmedBonus, simpleBonus);
 
-            // assign values
-            var profs = new JArray
+            // assign values as flattened object
+            var profs = new JObject
             {
-                new JObject
-                {
-                    ["category"] = "unarmed",
-                    ["bonus"] = unarmedBonus
-                },
-                new JObject
-                {
-                    ["category"] = "simple",
-                    ["bonus"] = simpleBonus
-                },
-                new JObject
-                {
-                    ["category"] = "martial",
-                    ["bonus"] = martialBonus
-                },
-                new JObject
-                {
-                    ["category"] = "advanced",
-                    ["bonus"] = advancedBonus
-                }
+                ["unarmed"] = unarmedBonus,
+                ["simple"] = simpleBonus,
+                ["martial"] = martialBonus,
+                ["advanced"] = advancedBonus
             };
             return profs;
         }
 
-        public static JArray inferArmorProficiencies(JArray equipment, JObject character)
+        public static JObject inferArmorProficiencies(JArray equipment, JObject character)
         {
             int unarmoredBonus = 0;
             int lightBonus = 0;
@@ -598,9 +752,9 @@ namespace JsonImporter
                     string category = equip["category"]?.ToString() ?? "";
                     int acBonus = equip["acBonus"]?.Value<int>() ?? 0;
                     int dexCap = equip["dexCap"]?.Value<int>() ?? 0;
-                    int ac = character["system"]?["attributes"]?["ac"]?["value"]?.Value<int>() ?? 0;
-                    int dexMod = character["system"]?["abilities"]?["dex"]?["mod"]?.Value<int>() ?? 0;
-                    int level = character["system"]?["details"]?["level"]?["value"]?.Value<int>() ?? 0;
+                    int ac = GetAttributeValue(character, "ac");
+                    int dexMod = GetAbilityModifier(character, "dex");
+                    int level = GetIntValue(character["system"]?["details"]?["level"]);
 
                     int prof = ac - 10 -acBonus - Math.Min(dexMod, dexCap);
 
@@ -618,28 +772,12 @@ namespace JsonImporter
             lightBonus = Math.Max(lightBonus, mediumBonus);
             unarmoredBonus = Math.Max(unarmoredBonus, lightBonus);
 
-            var profs = new JArray
+            var profs = new JObject
             {
-                new JObject
-                {
-                    ["category"] = "unarmored",
-                    ["bonus"] = unarmoredBonus
-                },
-                new JObject
-                {
-                    ["category"] = "light",
-                    ["bonus"] = lightBonus
-                },
-                new JObject
-                {
-                    ["category"] = "medium",
-                    ["bonus"] = mediumBonus
-                },
-                new JObject
-                {
-                    ["category"] = "heavy",
-                    ["bonus"] = heavyBonus
-                }
+                ["unarmored"] = unarmoredBonus,
+                ["light"] = lightBonus,
+                ["medium"] = mediumBonus,
+                ["heavy"] = heavyBonus
             };
             return profs;
         }

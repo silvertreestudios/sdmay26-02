@@ -11,7 +11,7 @@ public static class CreaturePrefabImporter
     [MenuItem("Tools/Creatures/Import JSON to Prefabs")]
     public static void ImportCreaturesToPrefabs()
     {
-        string dataRoot = Path.Combine(Application.dataPath, "DataFiles");
+        string dataRoot = Path.Combine(Application.dataPath, "Resources", "DataFiles");
         if (!Directory.Exists(dataRoot))
         {
             Debug.LogError($"CreaturePrefabImporter: DataFiles directory not found: {dataRoot}");
@@ -23,7 +23,7 @@ public static class CreaturePrefabImporter
         string playerCoreRoot = Path.Combine(dataRoot, "playerCharacters");
 
         List<string> creatureJsonPaths = new() { monsterCoreRoot, playerCoreRoot };
-        foreach (var path in creatureJsonPaths) {
+        foreach (var path in creatureJsonPaths.ToList()) {
             if (!Directory.Exists(path))
             {
                 Debug.LogWarning($"CreaturePrefabImporter: directory not found: {path}. No prefabs will be created from this path.");
@@ -64,21 +64,45 @@ public static class CreaturePrefabImporter
         // Reflection setup: try to find SaveAsPrefabAssetAsVariant method if available
         MethodInfo saveVariantMethod = typeof(PrefabUtility).GetMethod("SaveAsPrefabAssetAsVariant", BindingFlags.Public | BindingFlags.Static);
 
-        int success = 0;
+        int created = 0;
+        int updated = 0;
         foreach (var file in jsonFiles)
         {
             try
             {
+                string resourceJsonPath = ToResourcesRelativePath(file);
+                if (string.IsNullOrEmpty(resourceJsonPath))
+                {
+                    Debug.LogWarning($"CreaturePrefabImporter: could not convert file path to Resources-relative path: {file}");
+                    continue;
+                }
+
                 // Use the template prefab if found; otherwise converter will create a plain GameObject
-                GameObject go = CreatureJsonConverter.CreateFromFile(file, templatePrefab);
+                GameObject go = CreatureJsonConverter.CreateFromFile(resourceJsonPath, templatePrefab);
                 if (go == null)
                 {
-                    Debug.LogWarning($"CreaturePrefabImporter: converter returned null for {file}");
+                    Debug.LogWarning($"CreaturePrefabImporter: converter returned null for {resourceJsonPath} (source: {file})");
                     continue;
                 }
 
                 string baseName = Path.GetFileNameWithoutExtension(file);
                 string prefabPath = $"{prefabFolder}/{baseName}.prefab";
+                var existingPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+
+                if (existingPrefab != null)
+                {
+                    if (UpdateCreatureComponentOnExistingPrefab(prefabPath, go))
+                    {
+                        updated++;
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"CreaturePrefabImporter: failed to update CreatureComponent for existing prefab at {prefabPath}");
+                    }
+
+                    Object.DestroyImmediate(go);
+                    continue;
+                }
 
                 // If we have a template prefab and runtime supports creating a variant, call it via reflection.
                 if (templatePrefab != null && saveVariantMethod != null)
@@ -105,7 +129,7 @@ public static class CreaturePrefabImporter
                 }
 
                 Object.DestroyImmediate(go);
-                success++;
+                created++;
             }
             catch (System.Exception ex)
             {
@@ -115,6 +139,62 @@ public static class CreaturePrefabImporter
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
-        Debug.Log($"CreaturePrefabImporter: imported {success}/{jsonFiles.Count} creature(s) to {prefabFolder}");
+        Debug.Log($"CreaturePrefabImporter: processed {jsonFiles.Count} creature(s). Created: {created}, Updated: {updated} in {prefabFolder}");
+    }
+
+    private static string ToResourcesRelativePath(string filePath)
+    {
+        if (string.IsNullOrEmpty(filePath))
+            return null;
+
+        string normalized = filePath.Replace('\\', '/');
+        const string marker = "/Assets/Resources/";
+        int markerIndex = normalized.IndexOf(marker, System.StringComparison.OrdinalIgnoreCase);
+        if (markerIndex >= 0)
+            return normalized.Substring(markerIndex + marker.Length);
+
+        const string projectRelativePrefix = "Assets/Resources/";
+        if (normalized.StartsWith(projectRelativePrefix, System.StringComparison.OrdinalIgnoreCase))
+            return normalized.Substring(projectRelativePrefix.Length);
+
+        return null;
+    }
+
+    private static bool UpdateCreatureComponentOnExistingPrefab(string prefabPath, GameObject sourceObject)
+    {
+        var sourceComponent = sourceObject.GetComponent<CreatureComponent>();
+        if (sourceComponent == null)
+        {
+            Debug.LogWarning($"CreaturePrefabImporter: source object has no CreatureComponent for {prefabPath}");
+            return false;
+        }
+
+        GameObject prefabContents = null;
+        try
+        {
+            prefabContents = PrefabUtility.LoadPrefabContents(prefabPath);
+            var targetComponent = prefabContents.GetComponent<CreatureComponent>();
+            if (targetComponent == null)
+            {
+                targetComponent = prefabContents.AddComponent<CreatureComponent>();
+            }
+
+            // Copy only the component's serialized fields so existing prefab structure remains unchanged.
+            EditorUtility.CopySerialized(sourceComponent, targetComponent);
+            PrefabUtility.SaveAsPrefabAsset(prefabContents, prefabPath);
+            return true;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"CreaturePrefabImporter: error updating prefab {prefabPath}: {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            if (prefabContents != null)
+            {
+                PrefabUtility.UnloadPrefabContents(prefabContents);
+            }
+        }
     }
 }
