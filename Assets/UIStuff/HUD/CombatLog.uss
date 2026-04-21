@@ -10,6 +10,10 @@
     background-color: rgba(86, 92, 68, 0.2);
     color: rgb(233, 196, 140);
     font-size: 25px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    padding-left: 10px;
+    padding-right: 10px;
     transition-duration: 1s;
     transition-property: background-color, color, font-size;
 }

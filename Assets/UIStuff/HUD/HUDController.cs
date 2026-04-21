@@ -20,7 +20,22 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private InputAction toggleAutoCameraAction;
     private bool autoCameraEnabled = true;
     private bool wasFollowing = false;
+    public static bool IsPointerOverLog { get; private set; }
     private Coroutine slideCoroutine;
+    private Coroutine logSlideCoroutine;
+    private Button logToggleButton;
+    private VisualElement combatLogElement;
+    private VisualElement combatLogWrapper;
+    private VisualElement resizeHandle;
+    private bool logVisible = true;
+    private bool isResizing = false;
+    private float resizeStartY;
+    private float resizeStartHeight;
+    private const float LogWidth = 500f;
+    private const float LogMinHeight = 150f;
+    private const float LogMaxHeight = 800f;
+    private const string LogHeightKey = "CombatLogHeight";
+    private const float LogHeightDefault = 550f;
     private const float SlideDuration = 0.4f;
 
 
@@ -108,8 +123,31 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         cardHolder = ui.Q<VisualElement>("CardHolder");
         // fillPlayerCards(); // Fix: Let Update() handle the initial fill to avoid double execution
 
+        //####Combat Log Toggle####
+        combatLogElement = ui.Q<VisualElement>("CombatLog");
+        combatLogElement.RegisterCallback<MouseEnterEvent>(_ => IsPointerOverLog = true);
+        combatLogElement.RegisterCallback<MouseLeaveEvent>(_ => IsPointerOverLog = false);
+        combatLogWrapper = ui.Q<VisualElement>("CombatLogWrapper");
+        logToggleButton = ui.Q<Button>("LogToggleButton");
+        if (logToggleButton != null)
+            logToggleButton.clicked += ToggleLog;
 
+        resizeHandle = ui.Q<VisualElement>("ResizeHandle");
+        if (resizeHandle != null)
+        {
+            resizeHandle.RegisterCallback<PointerDownEvent>(OnResizeStart);
+            resizeHandle.RegisterCallback<PointerMoveEvent>(OnResizeMove);
+            resizeHandle.RegisterCallback<PointerUpEvent>(OnResizeEnd);
+        }
+        combatLogElement.style.height = PlayerPrefs.GetFloat(LogHeightKey, LogHeightDefault);
 
+        logVisible = false;
+        if (logToggleButton != null) logToggleButton.text = "◀";
+        if (combatLogWrapper != null)
+            combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(LogWidth, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
+
+        SettingsMenuControl.OnLogOpacityChanged += ApplyLogOpacity;
+        ApplyLogOpacity(PlayerPrefs.GetFloat(SettingsMenuControl.LogOpacityKey, SettingsMenuControl.LogOpacityDefault));
     }
 
     private void OnDisable() {
@@ -120,6 +158,16 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             nextLevelButton.clicked -= NextLevel;
         if (toggleAutoCameraAction != null)
             toggleAutoCameraAction.performed -= OnToggleAutoCamera;
+        if (logToggleButton != null)
+            logToggleButton.clicked -= ToggleLog;
+        if (resizeHandle != null)
+        {
+            resizeHandle.UnregisterCallback<PointerDownEvent>(OnResizeStart);
+            resizeHandle.UnregisterCallback<PointerMoveEvent>(OnResizeMove);
+            resizeHandle.UnregisterCallback<PointerUpEvent>(OnResizeEnd);
+        }
+        IsPointerOverLog = false;
+        SettingsMenuControl.OnLogOpacityChanged -= ApplyLogOpacity;
     }
 
     public void EnableUi()
@@ -314,6 +362,77 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             yield return null;
         }
         panel.style.translate = new StyleTranslate(new Translate(new Length(0, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
+    }
+
+    private void OnResizeStart(PointerDownEvent e)
+    {
+        isResizing = true;
+        resizeStartY = e.position.y;
+        resizeStartHeight = combatLogElement.resolvedStyle.height;
+        resizeHandle.CapturePointer(e.pointerId);
+        e.StopPropagation();
+    }
+
+    private void OnResizeMove(PointerMoveEvent e)
+    {
+        if (!isResizing) return;
+        float delta = e.position.y - resizeStartY;
+        combatLogElement.style.height = Mathf.Clamp(resizeStartHeight + delta, LogMinHeight, LogMaxHeight);
+        e.StopPropagation();
+    }
+
+    private void OnResizeEnd(PointerUpEvent e)
+    {
+        if (!isResizing) return;
+        isResizing = false;
+        resizeHandle.ReleasePointer(e.pointerId);
+        PlayerPrefs.SetFloat(LogHeightKey, combatLogElement.resolvedStyle.height);
+        e.StopPropagation();
+    }
+
+    private void ApplyLogOpacity(float opacity)
+    {
+        var color = new StyleColor(new Color(86f / 255f, 92f / 255f, 68f / 255f, opacity));
+        if (combatLogElement != null)
+            combatLogElement.style.backgroundColor = color;
+        if (logToggleButton != null)
+            logToggleButton.style.backgroundColor = color;
+    }
+
+    private void ToggleLog()
+    {
+        if (logSlideCoroutine != null) StopCoroutine(logSlideCoroutine);
+        logVisible = !logVisible;
+        logToggleButton.text = logVisible ? "▶" : "◀";
+        logSlideCoroutine = StartCoroutine(logVisible ? LogSlideIn() : LogSlideOut());
+    }
+
+    private IEnumerator LogSlideOut()
+    {
+        if (combatLogWrapper == null) yield break;
+        float elapsed = 0f;
+        while (elapsed < SlideDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / SlideDuration));
+            combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(LogWidth * t, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
+            yield return null;
+        }
+        combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(LogWidth, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
+    }
+
+    private IEnumerator LogSlideIn()
+    {
+        if (combatLogWrapper == null) yield break;
+        float elapsed = 0f;
+        while (elapsed < SlideDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / SlideDuration));
+            combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(LogWidth * (1f - t), LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
+            yield return null;
+        }
+        combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(0, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
     }
 
     private void ClearAllRows()

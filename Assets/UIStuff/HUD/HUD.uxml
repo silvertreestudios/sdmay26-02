@@ -7,7 +7,14 @@
             </ui:VisualElement>
         </ui:VisualElement>
         <ui:VisualElement style="flex-grow: 1; flex-shrink: 0; width: -16%; height: 100%;" />
-        <ui:VisualElement name="CombatLog" class="combat_log_background" style="flex-grow: 0; visibility: visible; flex-shrink: 0; height: 550px; align-self: stretch; width: 500px; align-items: flex-start; flex-direction: column; justify-content: flex-start;" />
+        <ui:VisualElement name="CombatLogWrapper" style="flex-direction: row; align-items: flex-start; flex-shrink: 0;">
+            <ui:Button name="LogToggleButton" text="▶" style="width: 28px; height: 60px; font-size: 16px; padding: 0; border-top-left-radius: 8px; border-bottom-left-radius: 8px; border-top-right-radius: 0; border-bottom-right-radius: 0; background-color: rgba(86, 92, 68, 0.6);" />
+            <ui:VisualElement name="CombatLog" class="combat_log_background" style="flex-grow: 0; visibility: visible; flex-shrink: 0; height: 550px; align-self: stretch; width: 500px; align-items: flex-start; flex-direction: column; justify-content: flex-start;">
+                <ui:VisualElement name="ResizeHandle">
+                    <ui:Label text="•••" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
     </ui:VisualElement>
     <ui:VisualElement name="CardHolder" style="flex-grow: 1; align-items: flex-end; justify-content: center; flex-direction: row; overflow: visible;" />
 </ui:UXML>

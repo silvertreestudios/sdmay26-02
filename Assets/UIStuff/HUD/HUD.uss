@@ -1,4 +1,9 @@
 :root {
+    --combat-log-border-color: rgb(233, 196, 140);
+    --combat-log-border-width: 2px;
+    --combat-log-toggle-border-color: rgb(233, 196, 140);
+    --combat-log-toggle-border-width: 2px;
+    --combat-log-toggle-offset: 20px;
 }
 
 .unity-button {
@@ -71,24 +76,58 @@
 }
 
 .combat_log_background {
-    transition-duration: 3s;
-    /* background-color: rgba(209, 209, 209, 0); */
-    background-color: rgba(0, 0, 0, 0);
+    background-color: rgba(86, 92, 68, 0.35);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    border-width: var(--combat-log-border-width);
+    border-color: var(--combat-log-border-color);
+}
+
+#LogToggleButton {
+    border-top-width: var(--combat-log-toggle-border-width);
+    border-bottom-width: var(--combat-log-toggle-border-width);
+    border-left-width: var(--combat-log-toggle-border-width);
+    border-right-width: 0;
+    border-color: var(--combat-log-toggle-border-color);
+    margin-top: var(--combat-log-toggle-offset);
 }
 
 .combat_log_background:hover {
-    /* background-color: rgba(209, 209, 209, 1); */
-    background-color: rgba(0, 0, 0, 0);
-    transition-duration: 0.5s;
+    background-color: rgba(86, 92, 68, 0.35);
 }
 
 .combat_log_text {
-    opacity: 0.5;
     transition-duration: 0.5s;
 }
 
 .combat_log_text:hover {
-    opacity: 1;
     text-color: rgb(233, 196, 140);
     transition-duration: 0.5s;
+}
+
+#ResizeHandle {
+    position: absolute;
+    bottom: 0;
+    z-index: 100;
+    left: 50%;
+    width: 120px;
+    margin-left: -60px;
+    height: 30px;
+    translate: 0 50%;
+    background-color: rgb(62, 18, 15);
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
+    align-items: center;
+    justify-content: center;
+}
+
+
+#ResizeHandle > .unity-label {
+    color: rgb(180, 120, 80);
+    font-size: 30px;
+    -unity-text-align: middle-center;
 }

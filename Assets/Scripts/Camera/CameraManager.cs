@@ -103,6 +103,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
     private void HandleCameraZoom()
     {
+        if (HUDController.IsPointerOverLog) return;
         zoomInput = zoomAction.ReadValue<Vector2>();
         if (invertZoom)
         {
