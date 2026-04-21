@@ -85,8 +85,8 @@ namespace Game.Creature
 
         [Header("Equipment")]
         [SerializeField] private EquipmentArmor _equippedArmor;
-        [SerializeField] private EquipmentWeapon _equippedRightHand;
-        [SerializeField] private EquipmentWeapon _equippedLeftHand;
+        [SerializeField] private EquipmentWeapon _equippedRightHand = null;
+        [SerializeField] private EquipmentWeapon _equippedLeftHand = null;
         [SerializeField] private List<string> _equipment = new List<string>();
         [SerializeField] private List<string> _weaponsList = new List<string>(); // Temp to display _weapons in inspector
         [SerializeField] private List<EquipmentWeapon> _weapons = new List<EquipmentWeapon>();
@@ -170,7 +170,7 @@ namespace Game.Creature
             // Moved from Awake to Start to ensure Armory singleton is initialized first
             if(this.gameObject.GetComponent<ActionController>() != null){
                 Unarmed.AddUnarmedStrike(this.gameObject);
-                StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject);
+                StrikeWeapon.WeaponStrikeAdderAutomatic(this.gameObject);
             }else{
                 Debug.LogWarning($"No ActionController found on {name}, cannot add default strikes");
             }
@@ -353,19 +353,38 @@ namespace Game.Creature
         {
             _equippedRightHand = null;
         }
+
+        // Helper: check if left hand has a valid equipped weapon
+        public bool HasEquippedLeftWeapon()
+        {
+            return _equippedLeftHand != null && 
+                   !string.IsNullOrWhiteSpace(_equippedLeftHand.name) && 
+                   _equippedLeftHand.damage != null;
+        }
+
+        // Helper: check if right hand has a valid equipped weapon
+        public bool HasEquippedRightWeapon()
+        {
+            return _equippedRightHand != null && 
+                   !string.IsNullOrWhiteSpace(_equippedRightHand.name) && 
+                   _equippedRightHand.damage != null;
+        }
+
         public void equipArmor(EquipmentArmor armor)
         {
             if (armor == null) return;
             _equippedArmor = armor;
         }
+
         public void unequipArmor()
         {
             _equippedArmor = null;
         }
+
         public void calculateAC()
         {
             // If armor is equipped
-            if (_equippedArmor != null)
+            if (_equippedArmor != null && !string.IsNullOrWhiteSpace(_equippedArmor.name))
             {
                 // Add Dex modifier up to the armor's dex cap
                 _ac = 10 + _equippedArmor.acBonus + Mathf.Min(dexMod, _equippedArmor.dexCap);
@@ -376,7 +395,7 @@ namespace Game.Creature
             }else{
                 // Unarmored AC calculation
                 // TODO: modify to include natural armor or other bonuses
-                _ac = 10 + dexMod; 
+                _ac = 10 + dexMod + armorBonuses.Find(b => b.category == "unarmored").bonus; 
                 //_ac += armorBonuses.Find(b => b.category == "unarmored").bonus; // Add unarmored bonus if applicable
             }
         }

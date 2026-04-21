@@ -19,7 +19,7 @@ namespace Game.Creature
         public SystemDto system;
         public WeaponBonusesDto weaponBonuses;
         public ArmorBonusesDto armorBonuses;
-        public ItemDto[] items;
+        public ItemDto[] actions;
         public object[] playerOnlyStuff;
         public ItemDto[] reactions;
         public ItemDto[] passives;
@@ -51,13 +51,12 @@ namespace Game.Creature
     }
 
     [Serializable] public class AttributesDto { 
-        public AcDto ac; 
+        public int ac;
         public HpDto hp;
         public SpeedEntryDto[] speed;
         public WeaknessDto[] weaknesses;
         public ResistanceDto[] resistances;
     }
-    [Serializable] public class AcDto { public string details; public int value; }
     [Serializable] public class HpDto { public string details; public int max; public int temp; public int value; }
     [Serializable] public class SpeedEntryDto { public string type; public int value; }
 
@@ -152,15 +151,16 @@ namespace Game.Creature
             target.maxHp = dto.system.attributes?.hp?.max ?? target.maxHp;
             target.tempHp = dto.system.attributes?.hp?.temp ?? target.tempHp;
 
-            target.ac = dto.system.attributes?.ac?.value ?? target.ac;
+            if (dto.system.attributes?.ac > 0)
+                target.ac = dto.system.attributes.ac;
             target.speed = GetBaseSpeed(dto.system.attributes?.speed, target.speed);
 
             // Initiative: use perception.mod if present
             target.initiative = dto.system.perception?.mod ?? target.initiative;
 
-            // Attack bonus from first item if present // Temporary
-            target.attackBonus = dto.items != null && dto.items.Length > 0
-                ? dto.items[0]?.system?.bonus?.value ?? target.attackBonus
+            // Attack bonus from first action if present // Temporary
+            target.attackBonus = dto.actions != null && dto.actions.Length > 0
+                ? dto.actions[0]?.system?.bonus?.value ?? target.attackBonus
                 : target.attackBonus;
 
             // TODO: temporary, damage bonus directly from str mod 
@@ -226,12 +226,12 @@ namespace Game.Creature
                     target.resistances.Add(new DamageValue(r.type, r.value));
             }
 
-            // Actions - Standard (store item names)
+            // Actions - Standard (store action names)
             if (target.actions == null) target.actions = new List<string>();
             target.actions.Clear();
-            if (dto.items != null)
+            if (dto.actions != null)
             {
-                foreach (var it in dto.items)
+                foreach (var it in dto.actions)
                     if (!string.IsNullOrEmpty(it?.name))
                         target.actions.Add(it.name);
             }

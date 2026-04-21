@@ -65,6 +65,7 @@ public static class CreaturePrefabImporter
         MethodInfo saveVariantMethod = typeof(PrefabUtility).GetMethod("SaveAsPrefabAssetAsVariant", BindingFlags.Public | BindingFlags.Static);
 
         int created = 0;
+        int skipped = 0;
         int updated = 0;
         foreach (var file in jsonFiles)
         {
@@ -91,9 +92,14 @@ public static class CreaturePrefabImporter
 
                 if (existingPrefab != null)
                 {
-                    if (UpdateCreatureComponentOnExistingPrefab(prefabPath, go))
+                    int updateResult = UpdateCreatureComponentOnExistingPrefab(prefabPath, go);
+                    if (updateResult == 1)
                     {
                         updated++;
+                    }
+                    else if (updateResult == 0)
+                    {
+                        skipped++;
                     }
                     else
                     {
@@ -139,7 +145,7 @@ public static class CreaturePrefabImporter
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
-        Debug.Log($"CreaturePrefabImporter: processed {jsonFiles.Count} creature(s). Created: {created}, Updated: {updated} in {prefabFolder}");
+        Debug.Log($"CreaturePrefabImporter: processed {jsonFiles.Count} creature(s). Created: {created}, Updated: {updated}, Skipped: {skipped} in {prefabFolder}");
     }
 
     private static string ToResourcesRelativePath(string filePath)
@@ -160,13 +166,13 @@ public static class CreaturePrefabImporter
         return null;
     }
 
-    private static bool UpdateCreatureComponentOnExistingPrefab(string prefabPath, GameObject sourceObject)
+    private static int UpdateCreatureComponentOnExistingPrefab(string prefabPath, GameObject sourceObject)
     {
         var sourceComponent = sourceObject.GetComponent<CreatureComponent>();
         if (sourceComponent == null)
         {
             Debug.LogWarning($"CreaturePrefabImporter: source object has no CreatureComponent for {prefabPath}");
-            return false;
+            return -1;
         }
 
         GameObject prefabContents = null;
@@ -179,15 +185,22 @@ public static class CreaturePrefabImporter
                 targetComponent = prefabContents.AddComponent<CreatureComponent>();
             }
 
+            // Compare serialized data; only update if different
+            if (AreCreatureComponentsIdentical(sourceComponent, targetComponent))
+            {
+                // Debug.Log($"CreaturePrefabImporter: CreatureComponent unchanged for {prefabPath}, skipping update");
+                return 0;
+            }
+
             // Copy only the component's serialized fields so existing prefab structure remains unchanged.
             EditorUtility.CopySerialized(sourceComponent, targetComponent);
             PrefabUtility.SaveAsPrefabAsset(prefabContents, prefabPath);
-            return true;
+            return 1;
         }
         catch (System.Exception ex)
         {
             Debug.LogError($"CreaturePrefabImporter: error updating prefab {prefabPath}: {ex.Message}");
-            return false;
+            return -1;
         }
         finally
         {
@@ -196,5 +209,13 @@ public static class CreaturePrefabImporter
                 PrefabUtility.UnloadPrefabContents(prefabContents);
             }
         }
+    }
+
+    private static bool AreCreatureComponentsIdentical(CreatureComponent source, CreatureComponent target)
+    {
+        // Serialize both components and compare the JSON representations
+        string sourceJson = JsonUtility.ToJson(source, false);
+        string targetJson = JsonUtility.ToJson(target, false);
+        return sourceJson == targetJson;
     }
 }
