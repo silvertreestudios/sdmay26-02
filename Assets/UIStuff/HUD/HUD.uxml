@@ -17,4 +17,12 @@
         </ui:VisualElement>
     </ui:VisualElement>
     <ui:VisualElement name="CardHolder" style="flex-grow: 1; align-items: flex-end; justify-content: center; flex-direction: row; overflow: visible;" />
+    <ui:VisualElement name="SpeedControlBar" style="position: absolute; top: 2px; left: 0; right: 0; flex-direction: column; align-items: center; z-index: 10;">
+        <ui:VisualElement name="SpeedButtonsBox" class="speed_bar_background" style="flex-direction: row; justify-content: center; align-items: center; padding-top: 6px; padding-bottom: 6px; padding-left: 8px; padding-right: 8px;">
+            <ui:Button name="PauseButton" text="||" class="btn-speed btn-speed--pause" />
+            <ui:Button name="Speed2xButton" text="▶▶" class="btn-speed" />
+            <ui:Button name="Speed3xButton" text="▶▶▶" class="btn-speed" />
+        </ui:VisualElement>
+        <ui:Button name="SpeedToggleButton" text="▲" class="btn-speed-toggle" />
+    </ui:VisualElement>
 </ui:UXML>

@@ -131,3 +131,49 @@
     font-size: 30px;
     -unity-text-align: middle-center;
 }
+
+.speed_bar_background {
+    background-color: rgb(86, 92, 68);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    border-width: 2px;
+    border-color: rgb(233, 196, 140);
+}
+
+.btn-speed-toggle {
+    width: 60px;
+    height: 22px;
+    font-size: 14px;
+    background-color: rgb(62, 18, 15);
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    border-top-width: 0;
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-bottom-width: 2px;
+    border-color: rgb(233, 196, 140);
+    margin: 0;
+    padding: 0;
+}
+
+.btn-speed--pause {
+    -unity-font-style: bold;
+}
+
+.btn-speed {
+    width: 70px;
+    height: 50px;
+    font-size: 20px;
+    background-color: rgb(68, 24, 13);
+    margin-left: 4px;
+    margin-right: 4px;
+}
+
+.btn-speed--active {
+    background-color: rgb(180, 80, 20);
+    border-color: rgb(255, 220, 100);
+}

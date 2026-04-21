@@ -24,6 +24,12 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private Coroutine slideCoroutine;
     private Coroutine logSlideCoroutine;
     private Button logToggleButton;
+    private Button pauseButton;
+    private Button speed2xButton;
+    private Button speed3xButton;
+    private Button speedToggleButton;
+    private VisualElement speedButtonsBox;
+    private bool speedBarVisible = true;
     private VisualElement combatLogElement;
     private VisualElement combatLogWrapper;
     private VisualElement resizeHandle;
@@ -132,6 +138,16 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         if (logToggleButton != null)
             logToggleButton.clicked += ToggleLog;
 
+        pauseButton      = ui.Q<Button>("PauseButton");
+        speed2xButton    = ui.Q<Button>("Speed2xButton");
+        speed3xButton    = ui.Q<Button>("Speed3xButton");
+        speedToggleButton = ui.Q<Button>("SpeedToggleButton");
+        speedButtonsBox  = ui.Q<VisualElement>("SpeedButtonsBox");
+        if (pauseButton != null)       pauseButton.clicked       += OnPauseClicked;
+        if (speed2xButton != null)     speed2xButton.clicked     += OnSpeed2xClicked;
+        if (speed3xButton != null)     speed3xButton.clicked     += OnSpeed3xClicked;
+        if (speedToggleButton != null) speedToggleButton.clicked += ToggleSpeedBar;
+
         resizeHandle = ui.Q<VisualElement>("ResizeHandle");
         if (resizeHandle != null)
         {
@@ -160,6 +176,10 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             toggleAutoCameraAction.performed -= OnToggleAutoCamera;
         if (logToggleButton != null)
             logToggleButton.clicked -= ToggleLog;
+        if (pauseButton != null)       pauseButton.clicked       -= OnPauseClicked;
+        if (speed2xButton != null)     speed2xButton.clicked     -= OnSpeed2xClicked;
+        if (speed3xButton != null)     speed3xButton.clicked     -= OnSpeed3xClicked;
+        if (speedToggleButton != null) speedToggleButton.clicked -= ToggleSpeedBar;
         if (resizeHandle != null)
         {
             resizeHandle.UnregisterCallback<PointerDownEvent>(OnResizeStart);
@@ -397,6 +417,39 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             combatLogElement.style.backgroundColor = color;
         if (logToggleButton != null)
             logToggleButton.style.backgroundColor = color;
+    }
+
+    private void ToggleSpeedBar()
+    {
+        speedBarVisible = !speedBarVisible;
+        if (speedButtonsBox != null)
+            speedButtonsBox.style.display = speedBarVisible ? DisplayStyle.Flex : DisplayStyle.None;
+        if (speedToggleButton != null)
+            speedToggleButton.text = speedBarVisible ? "▲" : "▼";
+    }
+
+    private void OnPauseClicked()   => ToggleSpeed(0f);
+    private void OnSpeed2xClicked() => ToggleSpeed(2f);
+    private void OnSpeed3xClicked() => ToggleSpeed(3f);
+
+    private void ToggleSpeed(float speed)
+    {
+        Time.timeScale = (Time.timeScale == speed) ? 1f : speed;
+        UpdateSpeedButtons();
+    }
+
+    private void UpdateSpeedButtons()
+    {
+        SetSpeedActive(pauseButton,   Time.timeScale == 0f);
+        SetSpeedActive(speed2xButton, Time.timeScale == 2f);
+        SetSpeedActive(speed3xButton, Time.timeScale == 3f);
+    }
+
+    private void SetSpeedActive(Button btn, bool active)
+    {
+        if (btn == null) return;
+        if (active) btn.AddToClassList("btn-speed--active");
+        else        btn.RemoveFromClassList("btn-speed--active");
     }
 
     private void ToggleLog()

@@ -92,13 +92,13 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         
         float accelerationRate = moveInput.magnitude > 0.01f ? cameraMovementAcceleration : cameraMovementDeceleration;
         
-        currentVelocity = Vector2.Lerp(currentVelocity, moveInput, accelerationRate * Time.deltaTime);
+        currentVelocity = Vector2.Lerp(currentVelocity, moveInput, accelerationRate * Time.unscaledDeltaTime);
 
         // Scale speed based on camera height
         float zoomScale = Mathf.InverseLerp(minCamearYLimit, maxCameraYLimit, mainCamera.transform.position.y);
-        
+
         Vector3 moveDirection = right * currentVelocity.x + forward * currentVelocity.y;
-        mainCamera.transform.Translate(moveDirection * cameraMoveSpeed * Time.deltaTime * (0.5f + zoomScale), Space.World);
+        mainCamera.transform.Translate(moveDirection * cameraMoveSpeed * Time.unscaledDeltaTime * (0.5f + zoomScale), Space.World);
     }
 
     private void HandleCameraZoom()
@@ -109,7 +109,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         {
             zoomInput.y = -zoomInput.y;
         }
-        float zoomAmount = zoomInput.y * cameraZoomSpeed * Time.deltaTime;
+        float zoomAmount = zoomInput.y * cameraZoomSpeed * Time.unscaledDeltaTime;
         Vector3 newPosition = mainCamera.transform.position + mainCamera.transform.forward * zoomAmount;
 
         if (newPosition.y < minCamearYLimit || newPosition.y > maxCameraYLimit)
@@ -125,12 +125,12 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
         float accelerationRate = rotateInput.magnitude > 0.01f ? cameraMovementAcceleration : cameraMovementDeceleration;
         
-        currentRotationVelocity = Mathf.Lerp(currentRotationVelocity, rotateInput.x, accelerationRate * Time.deltaTime);
+        currentRotationVelocity = Mathf.Lerp(currentRotationVelocity, rotateInput.x, accelerationRate * Time.unscaledDeltaTime);
 
         // Scale rotation based on camera height
         float zoomScale = Mathf.InverseLerp(minCamearYLimit, maxCameraYLimit, mainCamera.transform.position.y);
-        
-        float rotationAmount = currentRotationVelocity * cameraRotationSpeed * Time.deltaTime * (0.5f + zoomScale);
+
+        float rotationAmount = currentRotationVelocity * cameraRotationSpeed * Time.unscaledDeltaTime * (0.5f + zoomScale);
         Vector3 orbitCenter = followTarget != null ? followTarget.transform.position : GetCameraLookAtPosition();
         mainCamera.transform.RotateAround(orbitCenter, Vector3.up, rotationAmount);
     }
@@ -196,7 +196,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         while (elapsed < panDuration)
         {
             if (target == null) yield break;
-            elapsed += Time.deltaTime;
+            elapsed += Time.unscaledDeltaTime;
             float t = Mathf.Clamp01(elapsed / panDuration);
             Vector3 desiredPosition = target.transform.position + offset;
             desiredPosition.y = mainCamera.transform.position.y;
@@ -226,7 +226,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
             while (elapsed < 1f)
             {
                 if (target == null) yield break;
-                elapsed += Time.deltaTime;
+                elapsed += Time.unscaledDeltaTime;
                 Vector3 desiredPosition = target.transform.position + offset;
                 desiredPosition.y = mainCamera.transform.position.y;
                 mainCamera.transform.position = desiredPosition;

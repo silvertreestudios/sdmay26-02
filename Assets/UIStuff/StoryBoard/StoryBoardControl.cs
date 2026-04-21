@@ -22,10 +22,11 @@ public class StoryBoardControl : MonoBehaviour
         if (jsonAsset == null) return;
 
         StoryBoardData data = JsonUtility.FromJson<StoryBoardData>(jsonAsset.text);
-        string message = data.GetMessage(sceneName);
-        if (message == null) return;
+        StoryEntry entry = data.GetEntry(sceneName);
+        if (entry == null) return;
 
-        ui.Q<Label>("StoryText").text = message;
+        ui.Q<Label>("StoryBoardTitle").text = entry.Title;
+        ui.Q<Label>("StoryText").text = entry.Message;
 
         continueButton = ui.Q<Button>("ContinueButton");
         continueButton.clicked += Close;
@@ -53,13 +54,20 @@ public class StoryBoardControl : MonoBehaviour
     }
 
     [System.Serializable]
+    private class StoryEntry
+    {
+        public string Title;
+        public string Message;
+    }
+
+    [System.Serializable]
     private class StoryBoardData
     {
-        public string Level1;
-        public string Level2;
-        public string Level3;
+        public StoryEntry Level1;
+        public StoryEntry Level2;
+        public StoryEntry Level3;
 
-        public string GetMessage(string sceneName) => sceneName switch
+        public StoryEntry GetEntry(string sceneName) => sceneName switch
         {
             "Level1" => Level1,
             "Level2" => Level2,
