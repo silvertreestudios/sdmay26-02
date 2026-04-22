@@ -313,6 +313,12 @@ namespace Game.Creature
             GainTempHp(tempHpAmount, false);
         }
 
+        public int GetInitative()
+        {
+            // initiative is populated by perception by default, this should account for modifications to perception as well as initiative-specific bonuses
+            return Mathf.Max(initiative, GetSkillMod("perception", 0));
+        }
+
 
         // ? Instead of disallowing equipping, unequip the other weapon?
         public void equipWeaponLeft(EquipmentWeapon weapon)
