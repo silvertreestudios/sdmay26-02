@@ -86,6 +86,7 @@ namespace Game.Creature
 
         public static void EvaluateCriticalDamage(DegreeOfSuccess attackRoll, List<DamageValue> damageValues){
             if (attackRoll == DegreeOfSuccess.CriticalSuccess){
+                CombatLog.GetInstance().Log("  x2 for Critical Hit!");
                 for (int i = 0; i < damageValues.Count; i++)
                 {
                     var dv = damageValues[i];
@@ -93,7 +94,6 @@ namespace Game.Creature
                     damageValues[i] = dv;
                 }
             }
-            CombatLog.GetInstance().Log("  x2 for Critical Hit!");
         }
 
         // Called by creature receiving damage via TakeDamage

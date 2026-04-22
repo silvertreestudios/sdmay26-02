@@ -52,7 +52,15 @@ public class Strike
         // Get Data
         CreatureComponent from = From.GetComponent<CreatureComponent>();
         CreatureComponent to = To.GetComponent<CreatureComponent>();
-        uint penalty = 5 * (From.GetComponent<ActionController>()?.StrikePenalty ?? 0);
+        uint penalty = From.GetComponent<ActionController>()?.StrikePenalty ?? 0;
+        if (this.Traits.Contains("agile"))
+        {
+            penalty *= 4;
+        }
+        else
+        {
+            penalty *= 5;
+        }
 
         // TODO calculate actual bonuses
         int attackBonus = from.attackBonus;
