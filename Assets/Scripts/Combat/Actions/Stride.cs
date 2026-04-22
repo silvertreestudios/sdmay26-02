@@ -18,6 +18,7 @@ public class Stride : MultiFrameEntityAction
         ActionController ac = target.GetComponent<ActionController>();
         CoroutineResult<bool> canceled = new();
         //yield return GridCharacterController3D.Instance.StrideCoroutine(target, canceled);
+        CombatLog.GetInstance().Log("- " + target.name + " used Stride");
         yield return GridAPI.GetInstance().Stride(target, canceled);
         if (!canceled.Value)
         {

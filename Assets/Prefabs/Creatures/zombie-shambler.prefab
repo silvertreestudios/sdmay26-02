@@ -182,11 +182,11 @@ GameObject:
   m_Component:
   - component: {fileID: 5821593739516632169}
   - component: {fileID: 5018826596497094127}
-  - component: {fileID: 5667832065868101686}
   - component: {fileID: 7837854870448240000}
   - component: {fileID: 976595591721033048}
   - component: {fileID: 8358983145816155159}
   - component: {fileID: 4625716989416228891}
+  - component: {fileID: 3531867058761319939}
   m_Layer: 6
   m_Name: zombie-shambler
   m_TagString: Untagged
@@ -343,20 +343,6 @@ MonoBehaviour:
   _weapons: []
   _armorList: []
   _armor: []
---- !u!114 &5667832065868101686
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7005988303118988967}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 52e9b306fa533c64ba72572bd127a099, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ActionController
-  <ActionPoints>k__BackingField: 0
-  _actionNames: []
 --- !u!114 &7837854870448240000
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -406,6 +392,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b7abd518a3f004508b6611b61ca45c9a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
+--- !u!114 &3531867058761319939
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7005988303118988967}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 97518c29693e5e544b3fbdd1324b642d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MindlessController
+  <ActionPoints>k__BackingField: 0
+  _actionNames: []
 --- !u!1 &9029256349591893677
 GameObject:
   m_ObjectHideFlags: 0

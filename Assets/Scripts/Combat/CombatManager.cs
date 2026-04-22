@@ -110,6 +110,14 @@ public class CombatManager : CombatManagerInterface
                 turnOrder.Add(ac);
             }
         }
+        // Show initiative order in Combat Log 
+        string log = "Initiative Order:\n";
+        for (int i = 0; i < turnOrder.Count; i++)        {
+            log +="  " +(i + 1) + ". " + turnOrder[i].gameObject.name + " (Initiative: " + initiatives[i] + ")\n";
+        }
+        CombatLog.GetInstance().Log(log);
+
+
         // Clear TurnQueue and add by initiative
         TurnQueue.Clear();
         foreach(ActionController ac in turnOrder)

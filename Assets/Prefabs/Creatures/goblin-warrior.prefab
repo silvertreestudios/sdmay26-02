@@ -10,11 +10,11 @@ GameObject:
   m_Component:
   - component: {fileID: 6168038074156405215}
   - component: {fileID: 3557282407119985219}
-  - component: {fileID: 2092882040488812791}
   - component: {fileID: 8362074675100557896}
   - component: {fileID: 3138839757628200053}
   - component: {fileID: 1814472614306634307}
   - component: {fileID: 493511163745459160}
+  - component: {fileID: 8095653491008622650}
   m_Layer: 6
   m_Name: goblin-warrior
   m_TagString: Untagged
@@ -240,20 +240,6 @@ MonoBehaviour:
     bulk: 1
     group: leather
     armorTraits: []
---- !u!114 &2092882040488812791
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2886620269212729914}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 52e9b306fa533c64ba72572bd127a099, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ActionController
-  <ActionPoints>k__BackingField: 0
-  _actionNames: []
 --- !u!114 &8362074675100557896
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -303,6 +289,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b7abd518a3f004508b6611b61ca45c9a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
+--- !u!114 &8095653491008622650
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2886620269212729914}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 97518c29693e5e544b3fbdd1324b642d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MindlessController
+  <ActionPoints>k__BackingField: 0
+  _actionNames: []
 --- !u!1 &4461432389202375196
 GameObject:
   m_ObjectHideFlags: 0
