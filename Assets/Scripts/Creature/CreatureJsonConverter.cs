@@ -40,6 +40,8 @@ namespace Game.Creature
         public PerceptionDto perception;
         public SaveSetDto saves;
         public List<SkillValue> skills;
+        public WeaknessDto[] weaknesses;
+        public ResistanceDto[] resistances;
     }
     [Serializable]
     public class DetailsDto
@@ -207,13 +209,16 @@ namespace Game.Creature
 
             // Replace weaknesses/resistances lists
             // Debug.Log(target.name +" weaknesses and resistances from DTO:");
+            var weaknessEntries = dto.system.weaknesses ?? dto.system.attributes?.weaknesses;
+            var resistanceEntries = dto.system.resistances ?? dto.system.attributes?.resistances;
+
             // Weaknesses
             if (target.weaknesses == null) target.weaknesses = new List<DamageValue>();
             target.weaknesses.Clear();
-            if (dto.system.attributes.weaknesses != null)
+            if (weaknessEntries != null)
             {
-                // Debug.Log(target.name +" size " + dto.system.attributes.weaknesses.Length);
-                foreach (var w in dto.system.attributes.weaknesses){
+                // Debug.Log(target.name +" size " + weaknessEntries.Length);
+                foreach (var w in weaknessEntries){
                     target.weaknesses.Add(new DamageValue(w.type, w.value));
                     // Debug.Log(target.name + " weakness added: " + w.value + " " + w.type);
                 }
@@ -221,9 +226,9 @@ namespace Game.Creature
             // Resistances
             if (target.resistances == null) target.resistances = new List<DamageValue>();
             target.resistances.Clear();
-            if (dto.system.attributes.resistances != null)
+            if (resistanceEntries != null)
             {
-                foreach (var r in dto.system.attributes.resistances)
+                foreach (var r in resistanceEntries)
                     target.resistances.Add(new DamageValue(r.type, r.value));
             }
 
