@@ -559,7 +559,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         if (pac == null) return;
         GridAPI.GetInstance().CancelCurrentAction();
         pac.EndTurn();
-        combatLog.Log("- " + g.name + " ended their turn.");
     }
     
     public void NextLevel() {
