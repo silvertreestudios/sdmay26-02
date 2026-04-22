@@ -14,7 +14,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     public VisualElement ui;
     public Button endTurnButton;
-    public Button nextLevelButton;
     private VisualElement buttonGrid;
     private VisualElement panel;
     private InputAction toggleAutoCameraAction;
@@ -30,6 +29,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private Button speedToggleButton;
     private VisualElement speedButtonsBox;
     private bool speedBarVisible = true;
+    private ActionController currentTurnAC;
+    private Dictionary<Button, uint> buttonCostMap = new();
+    private Button selectedActionButton;
+    private Color selectedButtonBaseColor;
+    private const float GlowSpeed = 3f;
     private VisualElement combatLogElement;
     private VisualElement combatLogWrapper;
     private VisualElement resizeHandle;
@@ -94,7 +98,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private void OnEnable() {
         //Debug.Log("OnEnable called");
         //####Button Setup####
-        OnNextLevelRequest.AddListener(ToggleNextLevelButton);
+
 
         buttonGrid = ui.Q<VisualElement>("ButtonGrid");
         panel = ui.Q<VisualElement>("Panel");
@@ -111,11 +115,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         cancelActionButton = new Button(CancelAction);
         cancelActionButton.name = "CancelActionButton";
         cancelActionButton.text = "Cancel";
-        cancelActionButton.AddToClassList("btn-general");
+        cancelActionButton.AddToClassList("btn-cancel");
 
-        nextLevelButton = ui.Q<Button>("NextLevelButton");
-        if (nextLevelButton != null)
-            nextLevelButton.clicked += NextLevel;
 
         // //####Player Queue Card Setup####
         // currentPlayerCard = ui.Q<VisualElement>("CurrentPlayerInfo");
@@ -157,7 +158,9 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             resizeHandle.RegisterCallback<PointerMoveEvent>(OnResizeMove);
             resizeHandle.RegisterCallback<PointerUpEvent>(OnResizeEnd);
         }
-        combatLogElement.style.height = PlayerPrefs.GetFloat(LogHeightKey, LogHeightDefault);
+        float savedHeight = PlayerPrefs.GetFloat(LogHeightKey, LogHeightDefault);
+        combatLogElement.style.height = Mathf.Clamp(savedHeight, LogMinHeight, LogMaxHeight);
+        combatLogElement.RegisterCallback<GeometryChangedEvent>(ClampLogHeightToScreen);
 
         logVisible = true;
         if (logToggleButton != null) logToggleButton.text = "▶";
@@ -170,10 +173,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private void OnDisable() {
         //Debug.Log("OnDisable called");
-        OnNextLevelRequest.RemoveListener(ToggleNextLevelButton);
         OnNextTurn.RemoveListener(OnTurnChanged);
-        if (nextLevelButton != null)
-            nextLevelButton.clicked -= NextLevel;
         if (toggleAutoCameraAction != null)
             toggleAutoCameraAction.performed -= OnToggleAutoCamera;
         if (logToggleButton != null)
@@ -234,6 +234,28 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         bool actionRunning = isActionRunning();
         foreach (var child in buttonGrid.Children())
             child.SetEnabled(!actionRunning);
+
+        bool idle = GridAPI.GetInstance().IsIdle();
+        bool moving = GridAPI.GetInstance().IsMoving();
+        cancelActionButton.style.display = (idle || moving) ? DisplayStyle.None : DisplayStyle.Flex;
+        if (idle && selectedActionButton != null)
+            SetSelectedButton(null);
+
+        if (selectedActionButton != null)
+        {
+            float t = (Mathf.Sin(Time.unscaledTime * GlowSpeed) + 1f) / 2f;
+            Color bright = new Color(
+                Mathf.Min(selectedButtonBaseColor.r * 1.8f, 1f),
+                Mathf.Min(selectedButtonBaseColor.g * 1.8f, 1f),
+                Mathf.Min(selectedButtonBaseColor.b * 1.8f, 1f), 1f);
+            selectedActionButton.style.backgroundColor = new StyleColor(Color.Lerp(selectedButtonBaseColor, bright, t));
+        }
+
+        if (currentTurnAC != null)
+        {
+            foreach (var (btn, cost) in buttonCostMap)
+                btn.style.display = cost > currentTurnAC.ActionPoints ? DisplayStyle.None : DisplayStyle.Flex;
+        }
 
         // Highlight the current player's card
         
@@ -333,6 +355,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private IEnumerator TurnTransitionRoutine(GameObject turnTaker, ActionController ac)
     {
         bool isPlayer = turnTaker.GetComponent<PlayerActionController>() != null;
+        currentTurnAC = isPlayer ? ac : null;
 
         // Slide out first
         yield return StartCoroutine(Slide(false));
@@ -387,7 +410,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     {
         if (!isResizing) return;
         float delta = e.position.y - resizeStartY;
-        combatLogElement.style.height = Mathf.Clamp(resizeStartHeight + delta, LogMinHeight, LogMaxHeight);
+        combatLogElement.style.height = Mathf.Clamp(resizeStartHeight + delta, LogMinHeight, GetSafeMaxLogHeight());
         e.StopPropagation();
     }
 
@@ -398,6 +421,31 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         resizeHandle.ReleasePointer(e.pointerId);
         PlayerPrefs.SetFloat(LogHeightKey, combatLogElement.resolvedStyle.height);
         e.StopPropagation();
+    }
+
+    private float GetSafeMaxLogHeight()
+    {
+        if (cardHolder == null || combatLogElement == null) return LogMaxHeight;
+        float available = cardHolder.worldBound.yMin - combatLogElement.worldBound.yMin - 30f;
+        return Mathf.Min(LogMaxHeight, Mathf.Max(LogMinHeight, available));
+    }
+
+    private void ClampLogHeightToScreen(GeometryChangedEvent e)
+    {
+        combatLogElement.UnregisterCallback<GeometryChangedEvent>(ClampLogHeightToScreen);
+        float safeMax = GetSafeMaxLogHeight();
+        float current = combatLogElement.resolvedStyle.height;
+        if (current > safeMax)
+            combatLogElement.style.height = safeMax;
+    }
+
+    [ContextMenu("Reset Combat Log Height")]
+    private void ResetLogHeight()
+    {
+        PlayerPrefs.DeleteKey(LogHeightKey);
+        PlayerPrefs.Save();
+        if (combatLogElement != null)
+            combatLogElement.style.height = LogHeightDefault;
     }
 
     private void ApplyLogOpacity(float opacity)
@@ -464,12 +512,25 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(endX, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
     }
 
+    private static readonly Color ActionButtonColor   = new Color(180/255f,  80/255f,  20/255f, 1f);
+    private static readonly Color MovementButtonColor = new Color( 30/255f,  60/255f, 140/255f, 1f);
+
+    private void SetSelectedButton(Button btn, Color baseColor = default)
+    {
+        if (selectedActionButton != null)
+            selectedActionButton.style.backgroundColor = StyleKeyword.Null;
+        selectedActionButton = btn;
+        selectedButtonBaseColor = baseColor;
+    }
+
     private void ClearAllRows()
     {
+        selectedActionButton = null;
+        buttonCostMap.Clear();
         buttonGrid.Query<VisualElement>(className: "btn-row").ForEach(r => r.RemoveFromHierarchy());
     }
 
-    private void AddButtonToGrid(string label, string colorClass, System.Action onClick = null)
+    private Button AddButtonToGrid(string label, string colorClass, System.Action onClick = null)
     {
         var rows = buttonGrid.Query<VisualElement>(className: "btn-row").ToList();
         VisualElement row = null;
@@ -493,6 +554,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         btn.style.width = new StyleLength(new Length(50, LengthUnit.Percent));
         btn.style.flexGrow = 0;
         row.Add(btn);
+        return btn;
     }
 
     private void AddGeneralButtons()
@@ -536,8 +598,15 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         foreach (EntityAction action in actions)
         {
             EntityAction captured = action;
-            AddButtonToGrid(captured.ActionName, "btn-action",
-                () => turnTaker.GetComponent<ActionController>().TakeAction(captured));
+            Button btn = AddButtonToGrid(captured.ActionName, "btn-action");
+            buttonCostMap[btn] = captured.ActionCost;
+            btn.clicked += () =>
+            {
+                if (!GridAPI.GetInstance().IsIdle())
+                    GridAPI.GetInstance().CancelCurrentAction();
+                SetSelectedButton(btn, ActionButtonColor);
+                turnTaker.GetComponent<ActionController>().TakeAction(captured);
+            };
         }
     }
 
@@ -546,8 +615,15 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         foreach (EntityAction movement in movements)
         {
             EntityAction captured = movement;
-            AddButtonToGrid(captured.ActionName, "btn-movement",
-                () => turnTaker.GetComponent<ActionController>().TakeAction(captured));
+            Button btn = AddButtonToGrid(captured.ActionName, "btn-movement");
+            buttonCostMap[btn] = captured.ActionCost;
+            btn.clicked += () =>
+            {
+                if (!GridAPI.GetInstance().IsIdle())
+                    GridAPI.GetInstance().CancelCurrentAction();
+                SetSelectedButton(btn, MovementButtonColor);
+                turnTaker.GetComponent<ActionController>().TakeAction(captured);
+            };
         }
         AddGeneralButtons();
     }
@@ -562,22 +638,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         combatLog.Log("- " + g.name + " ended their turn.");
     }
     
-    public void NextLevel() {
-        //put logic here to load next level, for now just log it
-        
-        ToggleNextLevelButton(false);
-        combatLog.Log("- Proceeding to next level...");
-        int nextSceneIndex = SceneManager.GetActiveScene().buildIndex + 1;
-        if (nextSceneIndex < SceneManager.sceneCountInBuildSettings)
-            SceneTransitionManager.FadeAndLoad(nextSceneIndex);
-    }
-
-    //used to toggle next level button visibility when player wins combat, can be called from combat manager
-    public void ToggleNextLevelButton(bool show) {
-        if (nextLevelButton != null) {
-            nextLevelButton.style.visibility = show ? Visibility.Visible : Visibility.Hidden;
-        }
-    }
 
     // Commented out for now - ToggleTempHpBar
     // public void ToggleTempHpBar(CreatureComponent cc, ProgressBar bar) {

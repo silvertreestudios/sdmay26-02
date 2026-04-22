@@ -4,6 +4,9 @@ using UnityEngine;
 public class Grid : GridAPI
 {
     GridFSM GridFSM = new GridFSM();
+    public override bool IsIdle() => !GridFSM.isInTransition && GridFSM.currentState == GridFSM.idleState;
+    public override bool IsMoving() => Controller.isProcessingTurn;
+
     // cancel current action
     public override void CancelCurrentAction()
     {
