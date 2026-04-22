@@ -132,24 +132,24 @@ public class StatusMenuControl : MonoBehaviour
         {
             int nextSceneIndex = SceneManager.GetActiveScene().buildIndex + 1;
             if (nextSceneIndex < SceneManager.sceneCountInBuildSettings)
-                SceneManager.LoadScene(nextSceneIndex);
+                SceneTransitionManager.FadeAndLoad(nextSceneIndex);
         }
         else
         {
-            SceneManager.LoadScene("CharacterCreationScene");
+            SceneTransitionManager.FadeAndLoad("CharacterCreationScene");
         }
     }
 
     public void RestartLevel()
     {
         Time.timeScale = 1f;
-        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        SceneTransitionManager.FadeAndLoad(SceneManager.GetActiveScene().buildIndex);
     }
 
     public void ReturnToMainMenu()
     {
         Time.timeScale = 1f;
-        SceneManager.LoadScene("MainMenuScene");
+        SceneTransitionManager.FadeAndLoad("MainMenuScene");
     }
 
     public void OpenSettings()
