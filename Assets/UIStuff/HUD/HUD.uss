@@ -75,6 +75,18 @@
     transition-duration: 0.5s;
 }
 
+
+.btn-cancel {
+    background-color: rgb(140, 25, 15);
+    width: 50%;
+    flex-grow: 0;
+    flex-shrink: 0;
+}
+.btn-cancel:hover {
+    background-color: rgb(180, 40, 25);
+    transition-duration: 0.5s;
+}
+
 .combat_log_background {
     padding-bottom: 15px;
     background-color: rgba(86, 92, 68, 0.35);
@@ -115,6 +127,14 @@
 .combat_log_text:hover {
     text-color: rgb(233, 196, 140);
     transition-duration: 0.5s;
+}
+
+#UpperArea {
+    overflow: visible;
+}
+
+#CombatLogWrapper {
+    overflow: visible;
 }
 
 #ResizeHandle {
