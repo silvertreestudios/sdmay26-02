@@ -1,0 +1,14 @@
+{
+  "Level1": {
+    "Title": "The First Stand",
+    "Message": "The dead walk again. A horde of undead has overrun the outer village, and your party stands as the last line of defense. Steel your nerves — this is only the beginning."
+  },
+  "Level2": {
+    "Title": "Into the Ruins",
+    "Message": "You pushed them back, but the threat grows. Goblin scouts have been spotted moving through the ruins, emboldened by the chaos. Root them out before they rally."
+  },
+  "Level3": {
+    "Title": "The Final Descent",
+    "Message": "The source of the corruption lies ahead. One final stand. Whatever awaits you in the depths, you face it together. There is no retreat."
+  }
+}

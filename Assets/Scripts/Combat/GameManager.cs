@@ -56,6 +56,6 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
     {
         //temporary wait, delete once retry button is implemented
         yield return new WaitForSeconds(3f);
-        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        SceneTransitionManager.FadeAndLoad(SceneManager.GetActiveScene().buildIndex);
     }
 }
