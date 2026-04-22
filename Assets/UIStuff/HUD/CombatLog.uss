@@ -6,6 +6,10 @@
     --unity-item-height: 50;
 }
 
+#CombatLog > .unity-scroller--vertical {
+    display: none;
+}
+
 #CombatLog .unity-list-view__item {
     background-color: rgba(86, 92, 68, 0.2);
     color: rgb(233, 196, 140);

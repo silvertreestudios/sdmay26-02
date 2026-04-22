@@ -37,12 +37,14 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private bool isResizing = false;
     private float resizeStartY;
     private float resizeStartHeight;
-    private const float LogWidth = 500f;
+
     private const float LogMinHeight = 150f;
     private const float LogMaxHeight = 800f;
     private const string LogHeightKey = "CombatLogHeight";
     private const float LogHeightDefault = 550f;
     private const float SlideDuration = 0.4f;
+    private const float LogHiddenPercent = 80f;
+    private const float PanelHiddenPercent = 80f;
 
 
     //####Player Queue Card Variables####   
@@ -157,10 +159,10 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
         combatLogElement.style.height = PlayerPrefs.GetFloat(LogHeightKey, LogHeightDefault);
 
-        logVisible = false;
-        if (logToggleButton != null) logToggleButton.text = "◀";
+        logVisible = true;
+        if (logToggleButton != null) logToggleButton.text = "▶";
         if (combatLogWrapper != null)
-            combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(LogWidth, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
+            combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(0, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
 
         SettingsMenuControl.OnLogOpacityChanged += ApplyLogOpacity;
         ApplyLogOpacity(PlayerPrefs.GetFloat(SettingsMenuControl.LogOpacityKey, SettingsMenuControl.LogOpacityDefault));
@@ -333,7 +335,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         bool isPlayer = turnTaker.GetComponent<PlayerActionController>() != null;
 
         // Slide out first
-        yield return StartCoroutine(SlideOut());
+        yield return StartCoroutine(Slide(false));
 
         // Swap buttons while panel is hidden
         ClearAllRows();
@@ -350,38 +352,26 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
         // Slide back in for player turns only
         if (isPlayer)
-            yield return StartCoroutine(SlideIn());
+            yield return StartCoroutine(Slide(true));
 
         if (autoCameraEnabled)
             CameraManager.GetInstance().PanToTarget(turnTaker, followIndefinitely: true);
     }
 
-    private IEnumerator SlideOut()
+    private IEnumerator Slide(bool visible)
     {
         if (panel == null) yield break;
+        float startX = visible ? -PanelHiddenPercent : 0f;
+        float endX   = visible ? 0f : -PanelHiddenPercent;
         float elapsed = 0f;
         while (elapsed < SlideDuration)
         {
             elapsed += Time.deltaTime;
             float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / SlideDuration));
-            panel.style.translate = new StyleTranslate(new Translate(new Length(-100f * t, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
+            panel.style.translate = new StyleTranslate(new Translate(new Length(Mathf.Lerp(startX, endX, t), LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
             yield return null;
         }
-        panel.style.translate = new StyleTranslate(new Translate(new Length(-100f, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
-    }
-
-    private IEnumerator SlideIn()
-    {
-        if (panel == null) yield break;
-        float elapsed = 0f;
-        while (elapsed < SlideDuration)
-        {
-            elapsed += Time.deltaTime;
-            float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / SlideDuration));
-            panel.style.translate = new StyleTranslate(new Translate(new Length(-100f * (1f - t), LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
-            yield return null;
-        }
-        panel.style.translate = new StyleTranslate(new Translate(new Length(0, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
+        panel.style.translate = new StyleTranslate(new Translate(new Length(endX, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
     }
 
     private void OnResizeStart(PointerDownEvent e)
@@ -415,8 +405,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         var color = new StyleColor(new Color(86f / 255f, 92f / 255f, 68f / 255f, opacity));
         if (combatLogElement != null)
             combatLogElement.style.backgroundColor = color;
-        if (logToggleButton != null)
-            logToggleButton.style.backgroundColor = color;
     }
 
     private void ToggleSpeedBar()
@@ -457,35 +445,23 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         if (logSlideCoroutine != null) StopCoroutine(logSlideCoroutine);
         logVisible = !logVisible;
         logToggleButton.text = logVisible ? "▶" : "◀";
-        logSlideCoroutine = StartCoroutine(logVisible ? LogSlideIn() : LogSlideOut());
+        logSlideCoroutine = StartCoroutine(LogSlide(logVisible));
     }
 
-    private IEnumerator LogSlideOut()
+    private IEnumerator LogSlide(bool visible)
     {
         if (combatLogWrapper == null) yield break;
+        float startX = visible ? LogHiddenPercent : 0f;
+        float endX   = visible ? 0f : LogHiddenPercent;
         float elapsed = 0f;
         while (elapsed < SlideDuration)
         {
             elapsed += Time.deltaTime;
             float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / SlideDuration));
-            combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(LogWidth * t, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
+            combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(Mathf.Lerp(startX, endX, t), LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
             yield return null;
         }
-        combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(LogWidth, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
-    }
-
-    private IEnumerator LogSlideIn()
-    {
-        if (combatLogWrapper == null) yield break;
-        float elapsed = 0f;
-        while (elapsed < SlideDuration)
-        {
-            elapsed += Time.deltaTime;
-            float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / SlideDuration));
-            combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(LogWidth * (1f - t), LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
-            yield return null;
-        }
-        combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(0, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
+        combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(endX, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
     }
 
     private void ClearAllRows()
@@ -661,27 +637,15 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private void updatePlayerQueueCards() {
         if (cardHolder == null || Players == null) return;
+        CombatManagerInterface cm = CombatManager.GetInstance();
+        if (cm == null) { Debug.LogWarning("CombatManager is null"); return; }
+        GameObject turnGO = cm.WhosTurn();
+        if (turnGO == null) { Debug.LogWarning("WhosTurn returned null"); return; }
+        CreatureComponent currentTurn = turnGO.GetComponent<CreatureComponent>();
+        if (currentTurn == null) { Debug.LogWarning($"No CreatureComponent on {turnGO.name}"); return; }
+
         for (int i = 0; i < cardHolder.childCount; i++) {
             try {
-                // Safe check before calling WhosTurn
-                CombatManagerInterface cm = CombatManager.GetInstance();
-                if (cm == null) {
-                    Debug.LogWarning("CombatManager is null");
-                    continue;
-                }
-                
-                GameObject turnGO = cm.WhosTurn();
-                if (turnGO == null) {
-                    Debug.LogWarning("WhosTurn returned null");
-                    continue;
-                }
-                
-                CreatureComponent currentTurn = turnGO.GetComponent<CreatureComponent>();
-                if (currentTurn == null) {
-                    Debug.LogWarning($"No CreatureComponent on {turnGO.name}");
-                    continue;
-                }
-                
                 var card = cardHolder.ElementAt(i);
                 CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
                 var healthBar = card.Q<ProgressBar>("HealthBar");
