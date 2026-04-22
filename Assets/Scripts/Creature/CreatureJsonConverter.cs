@@ -19,14 +19,14 @@ namespace Game.Creature
         public SystemDto system;
         public WeaponBonusesDto weaponBonuses;
         public ArmorBonusesDto armorBonuses;
-        public ItemDto[] actions;
+        public ActionDto[] actions;
         public object[] playerOnlyStuff;
-        public ItemDto[] reactions;
-        public ItemDto[] passives;
+        public ActionDto[] reactions;
+        public ActionDto[] passives;
         public EquipmentDto[] equipment;
         public WeaponDto[] weapons;
         public ArmorDto[] armor;
-        public ConditionsDto[] conditions;
+        // public ConditionsDto[] conditions;
         public string Source;
     }
 
@@ -66,8 +66,8 @@ namespace Game.Creature
     [Serializable] public class WeaknessDto { public string type; public int value; }
     [Serializable] public class ResistanceDto { public string type; public int value; }
 
-    // Item DTOs
-    [Serializable] public class ItemDto { public string name; public string type; public ItemSystemDto system; }
+    // Action DTOs
+    [Serializable] public class ActionDto { public string name; public string type; public ItemSystemDto system; }
     // TODO variants for reactions and passives as needed
     // [Serializable] public class ReactionDto { public string name; public string description; }
     // [Serializable] public class PassiveDto { public string name; public string description; }
@@ -132,7 +132,8 @@ namespace Game.Creature
     }
 
     // Conditions DTOs TODO
-    [Serializable] public class ConditionsDto { public string name; public string source; }
+    // conditions commented out for time being here and in CreatureComponent
+    // [Serializable] public class ConditionsDto { public string name; public string source; }
 
 
     // --- Mapping extension (apply DTO -> CreatureComponent) ---
@@ -316,14 +317,14 @@ namespace Game.Creature
                 }
             
             // Conditions
-            if (target.conditions == null) target.conditions = new List<string>();
-            target.conditions.Clear();
-            if (dto.conditions != null)
-            {
-                foreach (var c in dto.conditions)
-                    if (!string.IsNullOrEmpty(c?.name))
-                        target.conditions.Add(c.name);
-            }
+            // if (target.conditions == null) target.conditions = new List<string>();
+            // target.conditions.Clear();
+            // if (dto.conditions != null)
+            // {
+            //     foreach (var c in dto.conditions)
+            //         if (!string.IsNullOrEmpty(c?.name))
+            //             target.conditions.Add(c.name);
+            // }
 
             // Skills: only include keys actually present in the JSON skills object
             target.skills.Clear();

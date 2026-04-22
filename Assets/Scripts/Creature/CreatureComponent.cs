@@ -6,15 +6,6 @@ using Game.Strikes;
 namespace Game.Creature
 {
 
-    // TODO temp location 
-    [System.Serializable]
-    public struct Condition
-    {
-        // Just condition name for now, but left as struct 
-        public string name;   // name of the condition
-        // public string source; // gameObject ID of GO that applied the condition
-    }
-
     [System.Serializable] public struct SkillValue { public string skillName; public int skillMod; }
 
     [System.Serializable] public struct WeaponBonus { public string category; public int bonus; }
@@ -25,7 +16,6 @@ namespace Game.Creature
     // Extension as a Unity MonoBehaviour
     public class CreatureComponent : MonoBehaviour 
     {
-        // TODO: derive equipment proficiencies?
 
         // Basic stats
         [Header("Basic Stats")]
@@ -33,7 +23,7 @@ namespace Game.Creature
         [SerializeField] private int _level;
         [SerializeField] private int _initiative;
         [SerializeField] private int _speed;
-        // TODO other movement type speeds
+        // TODO fields for other movement type/speeds
 
         // Combat stats
         // [Header("Combat")]
@@ -47,12 +37,8 @@ namespace Game.Creature
         [SerializeField] private List<ArmorBonus> _armorBonuses = new List<ArmorBonus>();
         [SerializeField] private List<DamageValue> _weaknesses = new List<DamageValue>();
         [SerializeField] private List<DamageValue> _resistances = new List<DamageValue>();
-        // hash map or alternative get for modifications?
-        // handle conditions/modifiers in CreatureComponent
-        // hash map or alternative get for modifications?
-        // handle conditions/modifiers in CreatureComponent
 
-        // Example for ability modifiers
+        // Ability modifiers
         [Header("Ability Modifiers")]
         [SerializeField] private int _strMod;
         [SerializeField] private int _dexMod;
@@ -61,7 +47,7 @@ namespace Game.Creature
         [SerializeField] private int _wisMod;
         [SerializeField] private int _chaMod;
 
-        // saves
+        // Saves
         [Header("Saves")]
         [SerializeField] private int _fortitudeSave;
         [SerializeField] private int _reflexSave;
@@ -79,9 +65,9 @@ namespace Game.Creature
         [SerializeField] private List<string> _reactions = new List<string>(); // reactions
         [SerializeField] private List<string> _passives = new List<string>(); // abilities that don't require an action
 
-        [Header("Conditions")]
-        [SerializeField] private List<string> _conditions = new List<string>();
-
+        // Conditions - commented out until used, uncomment getter/setter and serialized field if needed
+        // [Header("Conditions")]
+        // [SerializeField] private List<string> _conditions = new List<string>();
 
         [Header("Equipment")]
         [SerializeField] private EquipmentArmor _equippedArmor;
@@ -126,7 +112,7 @@ namespace Game.Creature
         public List<string> actions { get => _actions; set => _actions = value ?? new List<string>(); }
         public List<string> reactions { get => _reactions; set => _reactions = value ?? new List<string>(); }
         public List<string> passives { get => _passives; set => _passives = value ?? new List<string>(); }
-        public List<string> conditions { get => _conditions; set => _conditions = value ?? new List<string>(); }
+        // public List<string> conditions { get => _conditions; set => _conditions = value ?? new List<string>(); }
 
 
         // TODO: properly implement
@@ -140,7 +126,7 @@ namespace Game.Creature
         public List<EquipmentArmor> armor { get => _armor; set => _armor = value ?? new List<EquipmentArmor>(); }
 
 
-        // TODO: properly implement        
+        // Other attributes
         public List<string> traits { get; set; } = new List<string>();
         public string size { get; set; }
         public List<string> languages { get; set; } = new List<string>();
@@ -153,8 +139,12 @@ namespace Game.Creature
 
         void Awake()
         {
+        }
+
+        void Start()
+        {
             // Initialization code here
-            // TODO create method to run check against action/ability lists to populate additional scripts
+            // Apply passive abilities
             foreach (var a in passives)
             {
                 var ability = DefinedAbilities.TryGet(a);
@@ -163,11 +153,8 @@ namespace Game.Creature
                 else
                     Debug.LogWarning($"Ability '{a}' not found for {name}");
             }
-        }
 
-        void Start()
-        {
-            // Moved from Awake to Start to ensure Armory singleton is initialized first
+            // Add initial strike actions
             if(this.gameObject.GetComponent<ActionController>() != null){
                 Unarmed.AddUnarmedStrike(this.gameObject);
                 StrikeWeapon.WeaponStrikeAdderAutomatic(this.gameObject);
@@ -189,7 +176,7 @@ namespace Game.Creature
             if (string.IsNullOrWhiteSpace(skillName)) return defaultValue;
             string key = skillName.Trim();
 
-            // Check explicit skill entries first
+            // Check explicit proficient skill entries first
             if (_skills != null)
             {
                 for (int i = 0; i < _skills.Count; i++)
@@ -201,7 +188,7 @@ namespace Game.Creature
                 }
             }
 
-            // Map skill names to ability modifiers.
+            // Map skill names to ability modifiers, returns corresponding ability modifier.
             switch (key.ToLowerInvariant())
             {
                 // Strength
@@ -215,7 +202,7 @@ namespace Game.Creature
                 case "sleight":
                 case "acro":
                     return dexMod;
-                // Constitution N/A
+                // Constitution - No Skills
                 // Intelligence
                 case "arcana":
                 case "history":
@@ -244,10 +231,13 @@ namespace Game.Creature
             }
         }
 
+        // Method for applying damage to a creature
+        // accounts for certain steps of damaging calculation that are best managed by the defender
         public void TakeDamage(List<DamageValue> damageValues, D20Result attackRoll)
         {
-            // TODO : call function to apply resistances, immunities, vulnerabilities against damageValues
+            // Applies crit damage if needed
             DamageRoller.EvaluateCriticalDamage(attackRoll.degree, damageValues);
+            // Applies weaknesses and resistances
             DamageRoller.ApplyWeaknessAndResistance(damageValues, _weaknesses, _resistances);
             int damage = DamageRoller.SumDamage(damageValues);
 
@@ -259,7 +249,7 @@ namespace Game.Creature
                 _tempHp -= used;
                 remaining -= used;
             }
-
+            // apply HP loss
             _hp -= remaining;
             _hp = Mathf.Max(0, _hp);
             if (_hp == 0)
