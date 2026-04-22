@@ -76,6 +76,7 @@
 }
 
 .combat_log_background {
+    padding-bottom: 15px;
     background-color: rgba(86, 92, 68, 0.35);
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
