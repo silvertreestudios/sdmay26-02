@@ -74,7 +74,6 @@ public class MindlessController : AIActionController
     //TODO seriously we need a better way of accessing these calculation fucntions
     public EntityAction MindlessDecision()
     {
-        Debug.Log("Mindless Decision");
         // Reset persistent fields so stale paths from prior decisions don't affect this call
         BestPath = null;
         BestTarget = null;
@@ -86,17 +85,14 @@ public class MindlessController : AIActionController
 
         foreach (GameObject target in CombatManagerInterface.GetInstance().GetCombatants())
         {
-            Debug.Log("Target Check");
             if (target == this.gameObject || TeamRules.GetInstance().IsFriendly(myTeam, target.GetComponent<Team>().Name))
                 continue;
 
             Vector3Int targetCell = Vector3Int.RoundToInt(target.transform.position);
             List<PathNode> path = Pathfinder.Find(targetCell);
-            Debug.Log("Target: " + (path == null) + " " + path.Count);
             if (path == null || path.Count < 2)
                 continue;
 
-            Debug.Log("Target: " + path.Count);
             // Subtract 2 to exclude the starting and ending cells
             if (path.Count > 0 && path.Count - 2 < minDistance)
             {
@@ -107,30 +103,44 @@ public class MindlessController : AIActionController
             }
         }
 
-        Debug.Log("Mindless Attack Check");
         // Attack if best target is in strike range
         List<Vector3Int> inRange = Pathfinder.CalculateEmination(currentCell, 5.0f);
         foreach (Vector3Int cell in inRange)
         {
             if (Tiles[cell.x, cell.z] != null && Tiles[cell.x, cell.z].Occupants.Contains(BestTarget))
             {
-                Debug.Log("Move towards best target");
                 SelectedTile = cell;
                 return BestStrike();
             }
         }
 
-        Debug.Log("BestPath: " + (BestPath == null));
         if (BestPath == null || BestPath.Count == 0)
             return null;
 
-        Debug.Log("Move towards best target");
         // Move towards the best target — select the furthest tile in path within movement range
         int maxMoveDist = this.gameObject.GetComponent<CreatureComponent>()?.speed ?? 0;
-        List<Vector3Int> reachableTiles = Pathfinder.InRange(this.gameObject, currentCell, maxMoveDist / 5);
+        List<Vector3Int> reachableTiles = new();
+        // Get cells within distance
+        for(int i = 0; i <= BestPath.Count; i++)
+        {
+            if (i >= BestPath.Count || BestPath[i].Dist > maxMoveDist / 5)
+                break;
+            else
+                reachableTiles.Add(BestPath[i].Location);
+        }
+        // Remove Occupied cells from the end of the path
+        int cellIndex = reachableTiles.Count - 1;
+        while (cellIndex >= 0)
+        {
+            Vector3Int cell = reachableTiles[cellIndex];
+            if (Tiles[cell.x, cell.z].Occupants.Count > 0)
+                reachableTiles.RemoveAt(cellIndex);
+            else
+                break;
+            cellIndex--;
+        }
         int tileIndex = BestPath.FindLastIndex(tile => reachableTiles.Contains(tile.Location));
 
-        Debug.Log("Check if alternet path");
         if (tileIndex < 0)
         {
             // Direct path is fully blocked by a teammate — try an unoccupied neighboring tile of the target
@@ -143,7 +153,6 @@ public class MindlessController : AIActionController
             return Movements[0];
         }
 
-        Debug.Log("Setting path");
         SelectedTile = BestPath[tileIndex].Location;
         BestPath = BestPath.GetRange(0, tileIndex + 1);
         return Movements[0];

@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using Game.Creature;
+using System.Collections;
 
 namespace GridPrivate
 {
@@ -33,7 +34,6 @@ namespace GridPrivate
         }
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
         {
-            Debug.Log("Enter");
             base.Enter(fsm);
             canCancel = true;
             OccupantsInRange.Clear();
@@ -46,7 +46,7 @@ namespace GridPrivate
                     Debug.LogWarning("AI has no target, skipping strike");
                 else
                     Selection.Value = ai.BestTarget;
-                this.fsm.ChangeState(this.fsm.IdleState);
+                CoroutineRunner.Run(ChangeToIdle()); // Used because you shouldn't transition from enter()
             }
             else
             {
@@ -97,6 +97,17 @@ namespace GridPrivate
         {
             if (hoverList.Count > 0)
                 HoverCell = hoverList[0];
+        }
+
+        /// <summary>
+        /// Used to transition to idle after a frame
+        /// Necessary to change state from state.Enter
+        /// </summary>
+        /// <returns></returns>
+        protected IEnumerator ChangeToIdle()
+        {
+            yield return null; // wait a frame
+            fsm.ChangeState(this.fsm.IdleState);
         }
     }
 }

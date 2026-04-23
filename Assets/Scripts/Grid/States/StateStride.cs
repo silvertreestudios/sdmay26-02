@@ -48,7 +48,6 @@ namespace GridPrivate
                 }
                 else
                 {
-                    Debug.Log("starting AI stride movement, path length: " + ai.BestPath.Count);
                     Path = ai.BestPath;
                     Leftclick();
                 }

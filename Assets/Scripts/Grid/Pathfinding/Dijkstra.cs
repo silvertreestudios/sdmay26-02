@@ -116,7 +116,6 @@ namespace GridPrivate
         public List<Vector3Int> InRange(GameObject pathfinder, Vector3Int start, float distance)
         {
             List<Vector3Int> inRange = new();
-            Debug.Log("start search: " + Searched + " " + start);
             if (Searched == start)
             {
                 int i = 0;

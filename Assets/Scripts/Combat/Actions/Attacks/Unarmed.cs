@@ -34,7 +34,6 @@ public class Unarmed : MultiFrameEntityAction
 
         if(target.Value)
         {
-            Debug.Log(attacker + " Striking " + target.Value);
             Strike.Damage(attacker, target.Value);
             if (ac)
             {
