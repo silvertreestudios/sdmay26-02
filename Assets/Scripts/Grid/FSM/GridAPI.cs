@@ -8,6 +8,9 @@ public abstract class GridAPI : SingletonMonoBehaviour<GridAPI>
     protected GridCharacterController3D Controller => GridCharacterController3D.GetInstance();
 
 
+    public abstract bool IsIdle();
+    public abstract bool IsMoving();
+
     // cancel current action
     public abstract void CancelCurrentAction();
 

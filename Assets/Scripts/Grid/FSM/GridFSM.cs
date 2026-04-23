@@ -51,10 +51,10 @@ public class GridFSM : FiniteStateMachine<GridFSMState>
         // {
         //     currentState.StateUpdate();
         // }
-        timeSinceLastClick = Time.time - lastClickTime;
+        timeSinceLastClick = Time.unscaledTime - lastClickTime;
         if (InputCompat.LeftClickDown())
         {
-            lastClickTime = Time.time;
+            lastClickTime = Time.unscaledTime;
             if (timeSinceLastClick <= controller.doubleClickTime)
             {
                 currentState.DoubleLeftclick();
