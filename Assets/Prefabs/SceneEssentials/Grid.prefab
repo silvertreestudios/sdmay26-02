@@ -13,7 +13,7 @@ GameObject:
   - component: {fileID: 4680215030041954131}
   - component: {fileID: 855444430254580328}
   - component: {fileID: 1822279502085929403}
-  - component: {fileID: -763786255550215818}
+  - component: {fileID: 2328881485120049778}
   m_Layer: 0
   m_Name: Grid
   m_TagString: Untagged
@@ -117,7 +117,7 @@ MonoBehaviour:
   LineMaterial: {fileID: 0}
   LineWidth: 0
   LineColor: {r: 0, g: 0, b: 0, a: 0}
---- !u!114 &-763786255550215818
+--- !u!114 &2328881485120049778
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -128,10 +128,10 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 7589ca45bffac4582896851d2bca76a8, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::TokenMovement
-  stepHeight: 1
-  maxRotation: 90
-  ptLerp:
+  m_EditorClassIdentifier: Assembly-CSharp::GridPrivate.TokenMovement
+  StepHeight: 1
+  MaxRotation: 0.6
+  PtLerp:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
@@ -155,7 +155,7 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  yLerp:
+  YLerp:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
@@ -166,16 +166,26 @@ MonoBehaviour:
       tangentMode: 0
       weightedMode: 0
       inWeight: 0
-      outWeight: 0
+      outWeight: 0.29547817
     - serializedVersion: 3
-      time: 1
-      value: 1
-      inSlope: 0
-      outSlope: 0
+      time: 0.65
+      value: 0.85
+      inSlope: -0.4335062
+      outSlope: -0.4335062
       tangentMode: 0
       weightedMode: 0
-      inWeight: 0
+      inWeight: 0.48404598
+      outWeight: 0.33333334
+    - serializedVersion: 3
+      time: 1
+      value: 0
+      inSlope: -0.0782779
+      outSlope: -0.0782779
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 1
       outWeight: 0
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+  JumpTime: 0.6
