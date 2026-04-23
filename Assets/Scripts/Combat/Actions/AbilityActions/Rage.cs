@@ -14,6 +14,8 @@ namespace Game.AbilityActions{
 [System.Serializable]
 public class Rage : MultiFrameEntityAction
 {
+    // Done by Ryan Meyer 04/07/2026
+    public override string ActionName => "Rage";
     List<string> Traits = new List<string> {"barbarian", "concentrate", "emotion", "mental"};
     int rageBonus = 2;
     

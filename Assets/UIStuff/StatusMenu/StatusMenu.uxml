@@ -1,0 +1,13 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/UIStuff/StatusMenu/StatusMenu.uss" />
+    <ui:VisualElement name="Overlay" style="flex-grow: 1; width: 100%; height: 100%; align-items: center; justify-content: center; flex-direction: column; background-color: rgba(0, 0, 0, 0.6);">
+        <ui:VisualElement name="Panel" style="align-items: center; justify-content: center; flex-direction: column; background-color: rgb(86, 92, 68); padding-top: 40px; padding-bottom: 40px; padding-left: 60px; padding-right: 60px; border-top-left-radius: 20px; border-top-right-radius: 20px; border-bottom-right-radius: 20px; border-bottom-left-radius: 20px;">
+            <ui:Label text="Paused" name="StatusLabel" style="-unity-font-definition: resource('Metamorphous-Regular SDF'); font-size: 80px; color: rgb(236, 200, 144); background-color: rgb(62, 18, 15); border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; margin-bottom: 30px; padding-left: 30px; padding-right: 30px; padding-top: 10px; padding-bottom: 10px;" />
+            <ui:Button text="New Game" name="NewGameButton" />
+            <ui:Button text="Restart Level" name="RestartLevelButton" />
+            <ui:Button text="Main Menu" name="MainMenuButton" />
+            <ui:Button text="Settings" name="SettingsButton" />
+            <ui:Button text="How to Play" name="HowToPlayButton" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

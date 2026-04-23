@@ -7,6 +7,7 @@ public class MainMenuControl : MonoBehaviour
 {
 
     public VisualElement ui;
+    [SerializeField] private SettingsMenuControl settingsMenuControl;
     public Button newGameButton;
     public Button loadGameButton;
     public Button optionsButton;
@@ -31,15 +32,16 @@ public class MainMenuControl : MonoBehaviour
     }
 
     public void NewGame() {
-        SceneManager.LoadScene("CharacterCreationScene");
+        SceneTransitionManager.FadeAndLoad("CharacterCreationScene");
     }
 
     public void LoadGame() {
-        SceneManager.LoadScene("Level1");
+        SceneTransitionManager.FadeAndLoad("Level1");
     }
 
     public void Options() {
-        Debug.Log("Clicked Options button");
+        if (settingsMenuControl != null)
+            settingsMenuControl.Open();
     }
 
     public void Exit() {

@@ -37,6 +37,9 @@ public class CombatLog : CombatLogInterface
         logHolder.Add(logList);
         LogList = logList.Q<ListView>("CombatLog");
 
+        VisualElement resizeHandle = logHolder.Q<VisualElement>("ResizeHandle");
+        if (resizeHandle != null) { logHolder.Remove(resizeHandle); logHolder.Add(resizeHandle); }
+
         CurrentLogs = new List<string>();
 
         // This is a lamba expression that returns the new visual element for an item
@@ -53,7 +56,7 @@ public class CombatLog : CombatLogInterface
         LogList.makeItem = makeItem;
         LogList.bindItem = bindItem;
         LogList.itemsSource = CurrentLogs;
-        LogList.selectionType = SelectionType.Multiple;
+        LogList.selectionType = SelectionType.None;
     }
 
     /// <summary>

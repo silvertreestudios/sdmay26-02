@@ -1,0 +1,316 @@
+{
+  "name": "Skeleton Guard",
+  "type": "npc",
+  "system": {
+    "abilities": {
+      "str": 2,
+      "dex": 4,
+      "con": 0,
+      "int": -5,
+      "wis": 0,
+      "cha": 0
+    },
+    "attributes": {
+      "ac": 16,
+      "allSaves": 0,
+      "hp": {
+        "details": "void healing",
+        "max": 4,
+        "temp": 0,
+        "value": 4
+      },
+      "speed": [
+        {
+          "value": 25
+        }
+      ]
+    },
+    "details": {
+      "languages": {
+        "details": "",
+        "value": []
+      },
+      "level": -1,
+      "publicNotes": "<p>The most common skeletal minions are mere guardians.</p>\n<hr />\n<p>Animated skeletons are among the most common types of undead.</p>",
+      "publicNotesParagraphs": [
+        "The most common skeletal minions are mere guardians.",
+        "Animated skeletons are among the most common types of undead."
+      ],
+      "publication": {
+        "license": "ORC",
+        "remaster": true,
+        "title": "Pathfinder Monster Core"
+      }
+    },
+    "initiative": {
+      "statistic": "perception"
+    },
+    "perception": {
+      "details": "",
+      "mod": 2,
+      "senses": [
+        {
+          "type": "darkvision"
+        }
+      ]
+    },
+    "resources": {},
+    "saves": {
+      "fortitude": 2,
+      "reflex": 8,
+      "will": 2
+    },
+    "skills": {
+      "acrobatics": 6,
+      "athletics": 3
+    },
+    "traits": {
+      "rarity": "common",
+      "size": "med",
+      "value": [
+        "mindless",
+        "skeleton",
+        "undead",
+        "unholy"
+      ]
+    },
+    "immunities": [
+      {
+        "exceptions": [],
+        "type": "death-effects"
+      },
+      {
+        "exceptions": [],
+        "type": "disease"
+      },
+      {
+        "exceptions": [],
+        "type": "paralyzed"
+      },
+      {
+        "exceptions": [],
+        "type": "poison"
+      },
+      {
+        "exceptions": [],
+        "type": "unconscious"
+      },
+      {
+        "exceptions": [],
+        "type": "bleed"
+      }
+    ],
+    "weaknesses": [],
+    "resistances": [
+      {
+        "type": "cold",
+        "value": 5
+      },
+      {
+        "type": "electricity",
+        "value": 5
+      },
+      {
+        "type": "fire",
+        "value": 5
+      },
+      {
+        "type": "piercing",
+        "value": 5
+      },
+      {
+        "type": "slashing",
+        "value": 5
+      }
+    ]
+  },
+  "equipment": [
+    {
+      "name": "Shortbow",
+      "type": "weapon",
+      "hands": 0,
+      "category": "martial",
+      "quantity": 1
+    },
+    {
+      "name": "Scimitar",
+      "type": "weapon",
+      "hands": 1,
+      "category": "martial",
+      "quantity": 1
+    },
+    {
+      "name": "Arrows",
+      "type": "ammo",
+      "hands": null,
+      "category": null,
+      "quantity": 20
+    }
+  ],
+  "actions": [
+    {
+      "name": "Scimitar",
+      "type": "melee",
+      "system": {
+        "attack": {
+          "value": ""
+        },
+        "attackEffects": {
+          "value": []
+        },
+        "bonus": {
+          "value": 6
+        },
+        "damageRolls": [
+          {
+            "damage": "1d6+2",
+            "damageType": "slashing"
+          }
+        ],
+        "description": {
+          "value": ""
+        },
+        "range": null,
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": [
+            "forceful",
+            "sweep"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Claw",
+      "type": "melee",
+      "system": {
+        "attack": {
+          "value": ""
+        },
+        "attackEffects": {
+          "value": []
+        },
+        "bonus": {
+          "value": 6
+        },
+        "damageRolls": [
+          {
+            "damage": "1d4+2",
+            "damageType": "slashing"
+          }
+        ],
+        "description": {
+          "value": ""
+        },
+        "range": null,
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": [
+            "agile",
+            "finesse",
+            "unarmed"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shortbow",
+      "type": "melee",
+      "system": {
+        "attack": {
+          "value": ""
+        },
+        "attackEffects": {
+          "value": []
+        },
+        "bonus": {
+          "value": 6
+        },
+        "damageRolls": [
+          {
+            "damage": "1d6",
+            "damageType": "piercing"
+          }
+        ],
+        "description": {
+          "value": ""
+        },
+        "range": {
+          "increment": 60,
+          "max": null
+        },
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": [
+            "deadly-d10",
+            "reload-0"
+          ]
+        }
+      }
+    }
+  ],
+  "reactions": [],
+  "passives": [
+    {
+      "name": "Void Healing",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "passive"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "defensive",
+        "description": {
+          "value": "<p>@Localize[PF2E.NPC.Abilities.Glossary.NegativeHealing]</p>"
+        },
+        "descriptionParagraphs": [
+          "{NegativeHealing}"
+        ],
+        "descriptionContext": [
+          "PF2E.NPC.Abilities.Glossary.NegativeHealing"
+        ],
+        "publication": {
+          "license": "ORC",
+          "remaster": true,
+          "title": "Pathfinder Monster Core"
+        },
+        "rules": [
+          {
+            "key": "ActiveEffectLike",
+            "mode": "override",
+            "path": "system.attributes.hp.negativeHealing",
+            "value": true
+          }
+        ],
+        "slug": "void-healing",
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    }
+  ],
+  "conditions": [],
+  "weaponBonuses": {
+    "unarmed": 2,
+    "simple": 2,
+    "martial": 2,
+    "advanced": 0
+  },
+  "armorBonuses": {
+    "unarmored": 0,
+    "light": 0,
+    "medium": 0,
+    "heavy": 0
+  },
+  "playerOnlyStuff": [],
+  "Source": "packs/pathfinder-monster-core"
+}

@@ -127,7 +127,8 @@ public class AttributeContributions
 //Inherits from class `MonoBehaviour`. This makes it attachable to a game object as a component.
 public class CharacterCreationScript : MonoBehaviour
 {
-
+    [SerializeField] private ViewModel characterClassModel; //this is the spinning model in the middle (refer to ViewModel.cs)
+    private TutorialManager tutorial;
     RadioButtonGroup ancestryRadioButtonGroup;
     RadioButtonGroup heritageRadioButtonGroup;
     RadioButtonGroup ancestryFeatsRadioButtonGroup;
@@ -148,6 +149,7 @@ public class CharacterCreationScript : MonoBehaviour
     Label classDescriptionLabel;
     Label classBoostsLabel;
     Label classSkillsLabel;
+    Label tooltip; //made dynamically!
     Button notificationElement;
     TextField ancestryChoiceField;
     TextField heritageChoiceField;
@@ -176,6 +178,8 @@ public class CharacterCreationScript : MonoBehaviour
     TextField nameField;
     TextField sizeField;
     TextField subclassField;
+    TextField ancestryFeatField;
+    TextField classFeatField;
     Toggle strengthToggle;
     Toggle dexterityToggle;
     Toggle constitutionToggle;
@@ -185,6 +189,17 @@ public class CharacterCreationScript : MonoBehaviour
     Button jsonDebug;
     Button defaultBarbarian;
     Button finishCharacterCreation;
+    Tab ancestryTab;
+    Tab backgroundTab;
+    Tab classTab;
+    Tab finalBoostsTab;
+    VisualElement ancestryTabHeader;
+    VisualElement backgroundTabHeader;
+    VisualElement classTabHeader;
+    VisualElement finalBoostsTabHeader;
+    VisualElement leftInfoPanel;
+    Foldout attackDropdownMenu;
+    Foldout defenseDropdownMenu;
     Dictionary<string, List<string>> backgroundDescriptionByBackground;
     List<Toggle> toggles;
     List<string> attributeKeysForToggles; //the index of the List<Toggle> matches the index of List<string> attributeKey
@@ -266,7 +281,20 @@ public class CharacterCreationScript : MonoBehaviour
         nameField = root.Q<TextField>("NameField");
         sizeField = root.Q<TextField>("Size");
         subclassField = root.Q<TextField>("Subclass");
+        ancestryFeatField = root.Q<TextField>("AncestryFeatField");
+        classFeatField = root.Q<TextField>("ClassFeatField");
         notificationElement = root.Q<Button>("NotificationElement");
+        ancestryTab = root.Q<Tab>("AncestryTab");
+        ancestryTabHeader = ancestryTab.tabHeader;
+        backgroundTab = root.Q<Tab>("BackgroundTab");
+        backgroundTabHeader = backgroundTab.tabHeader;
+        classTab = root.Q<Tab>("ClassTab");
+        classTabHeader = classTab.tabHeader;
+        finalBoostsTab = root.Q<Tab>("FinalBoosts");
+        finalBoostsTabHeader = finalBoostsTab.tabHeader;
+        leftInfoPanel = root.Q<VisualElement>("LeftPanel");
+        attackDropdownMenu = root.Q<Foldout>("ClassAttackFoldout");
+        defenseDropdownMenu = root.Q<Foldout>("ClassDefenseFoldout");
 
         //for json, assigning
         jsonFile = Resources.Load<TextAsset>("Data/ancestry");
@@ -279,6 +307,8 @@ public class CharacterCreationScript : MonoBehaviour
         currentCharacter = new PlayerCharacter();
         //currentCharacter.ancestry = "elf";
         jsonFile3 = JsonUtility.ToJson(currentCharacter);
+
+        characterClassModel = FindObjectOfType<ViewModel>(); //instanciate to the ViewModel in the scene
 
         //small enough that I'm keeping as a dictionary for now
         backgroundDescriptionByBackground = new Dictionary<string, List<string>>()
@@ -298,8 +328,24 @@ public class CharacterCreationScript : MonoBehaviour
         attributes.Add("Charisma", new AttributeContributions());
 
         jsonDebug.clicked += PrintJson; //FOR DEBUGGING THE PLAYERCHARACTER JSON
-        defaultBarbarian.clicked += PopulateDefaultBarbarianJson;
+        defaultBarbarian.clicked += PopulateDefaultBarbarianJsonAndUI;
         finishCharacterCreation.clicked += FinishCreation;
+
+        CreateTooltip(root);
+
+        //TESTING. Would be cleaner as a separate function...
+        tutorial = new TutorialManager(root);
+        tutorial.AddStep(root, "Welcome to the character creation tutorial! Click next to get started.");
+        tutorial.AddStep(ancestryTabHeader, "First, select your ancestry. This determines blah blah");
+        tutorial.AddStep(ancestryTab, "Your ancestry gives you different heritage and ancestry feat options. \nBe sure to choose a free boost as well!");
+        tutorial.AddStep(backgroundTabHeader, "Next, choose your background.");
+        tutorial.AddStep(classTabHeader, "Then, select your class. You can choose a subclass and class feat as well.");
+        tutorial.AddStep(finalBoostsTabHeader, "Finally, assign your free attribute boosts. You can only choose 4, so choose wisely!");
+        tutorial.AddStep(nameField, "Don't forget to give your character a name!");
+        tutorial.AddStep(leftInfoPanel, "As you build your character, you can see the details of your choices here. Hover over a field to see more info.");
+        tutorial.AddStep(finishCharacterCreation, "Once you're happy with your character, click here to finish and start your adventure!");
+        tutorial.AddStep(defaultBarbarian, "If you want to skip the work and get to playing, click here to populate the character creation with a default barbarian build.");
+        tutorial.StartTutorial();
 
         nameField.RegisterValueChangedCallback(OnNameChanged);
         genderRadioButtonGroup.RegisterValueChangedCallback(OnGenderChanged);
@@ -328,49 +374,153 @@ public class CharacterCreationScript : MonoBehaviour
         }
     }
 
+    //Continuously called. OnEnable only happens once
+    void Update()
+    {
+        //update tooltip text for hpField in case classHP or ancestryHP has changed
+        HoverOverElement(hpField, "Health \nHP from class: " + classHP + "\nHP from ancestry: " + ancestryHP);
+        HoverOverElement(strengthAttributeField, "Breakdown:\nAncestry: " + attributes["Strength"].ancestry + "\nAncestry Free Choice: " + attributes["Strength"].ancestryFreeChoice + "\nBackground: " + attributes["Strength"].background + "\nBackground Free Choice: " + attributes["Strength"].backgroundFreeChoice + "\nClass: " + attributes["Strength"].className + "\nFree Choice: " + attributes["Strength"].freeChoice);
+        HoverOverElement(dexterityAttributeField, "Breakdown:\nAncestry: " + attributes["Dexterity"].ancestry + "\nAncestry Free Choice: " + attributes["Dexterity"].ancestryFreeChoice + "\nBackground: " + attributes["Dexterity"].background + "\nBackground Free Choice: " + attributes["Dexterity"].backgroundFreeChoice + "\nClass: " + attributes["Dexterity"].className + "\nFree Choice: " + attributes["Dexterity"].freeChoice);
+        HoverOverElement(constitutionAttributeField, "Breakdown:\nAncestry: " + attributes["Constitution"].ancestry + "\nAncestry Free Choice: " + attributes["Constitution"].ancestryFreeChoice + "\nBackground: " + attributes["Constitution"].background + "\nBackground Free Choice: " + attributes["Constitution"].backgroundFreeChoice + "\nClass: " + attributes["Constitution"].className + "\nFree Choice: " + attributes["Constitution"].freeChoice);
+        HoverOverElement(intelligenceAttributeField, "Breakdown:\nAncestry: " + attributes["Intelligence"].ancestry + "\nAncestry Free Choice: " + attributes["Intelligence"].ancestryFreeChoice + "\nBackground: " + attributes["Intelligence"].background + "\nBackground Free Choice: " + attributes["Intelligence"].backgroundFreeChoice + "\nClass: " + attributes["Intelligence"].className + "\nFree Choice: " + attributes["Intelligence"].freeChoice);
+        HoverOverElement(wisdomAttributeField, "Breakdown:\nAncestry: " + attributes["Wisdom"].ancestry + "\nAncestry Free Choice: " + attributes["Wisdom"].ancestryFreeChoice + "\nBackground: " + attributes["Wisdom"].background + "\nBackground Free Choice: " + attributes["Wisdom"].backgroundFreeChoice + "\nClass: " + attributes["Wisdom"].className + "\nFree Choice: " + attributes["Wisdom"].freeChoice);
+        HoverOverElement(charismaAttributeField, "Breakdown:\nAncestry: " + attributes["Charisma"].ancestry + "\nAncestry Free Choice: " + attributes["Charisma"].ancestryFreeChoice + "\nBackground: " + attributes["Charisma"].background + "\nBackground Free Choice: " + attributes["Charisma"].backgroundFreeChoice + "\nClass: " + attributes["Charisma"].className + "\nFree Choice: " + attributes["Charisma"].freeChoice);
+
+        HoverOverElement(sizeField, "Size is determined by ancestry. May be Small or Medium.");
+        HoverOverElement(speedField, "Speed is determined by ancestry. It is how far you can move in one action.");
+        HoverOverElement(perceptionField, "Perception is a measure of how aware your character is of their surroundings. It is determined by class.");
+        HoverOverElement(fortitudeField, "Fortitude is a measure of your character's physical toughness and resilience. It is determined by class.");
+        HoverOverElement(reflexField, "Reflex is a measure of your character's agility and quickness. It is determined by class.");
+        HoverOverElement(willField, "Will is a measure of your character's mental fortitude and determination. It is determined by class.");
+        HoverOverElement(attackDropdownMenu, "Proficiency with various weapon types. Determined by class.");
+        HoverOverElement(defenseDropdownMenu, "Proficiency with different armor types and unarmored defense. Determined by class.");
+
+        //attributes? others?
+    }
+
     void PrintJson()
     {
         Debug.Log(JsonUtility.ToJson(currentCharacter, true));
     }
 
-    //Note that this does not populate the display fields. TO DO
-    void PopulateDefaultBarbarianJson()
+    void PopulateDefaultBarbarianJsonAndUI()
     {
-        currentCharacter.name = "Torgrim";
-        currentCharacter.gender = "female";
-        currentCharacter.ancestry = "Dwarf";
-        currentCharacter.heritage = "Rock";
-        currentCharacter.background = "Bandit";
-        currentCharacter.className = "Barbarian";
-        currentCharacter.hp = 22;
-        currentCharacter.speed = 20;
-        currentCharacter.size = "medium";
-        currentCharacter.strength = 4;
-        currentCharacter.dexterity = 2;
-        currentCharacter.constitution = 1;
-        currentCharacter.intelligence = 1;
-        currentCharacter.wisdom = 1;
-        currentCharacter.charisma = 0;
-        currentCharacter.perception = "expert";
-        currentCharacter.fortitude = "expert";
-        currentCharacter.reflex = "trained";
-        currentCharacter.will = "expert";
-        currentCharacter.simpleWeapons = "trained";
-        currentCharacter.martialWeapons = "trained";
-        currentCharacter.advancedWeapons = "untrained";
-        currentCharacter.unarmedAttack = "trained";
-        currentCharacter.unarmored = "trained";
-        currentCharacter.lightArmor = "trained";
-        currentCharacter.mediumArmor = "trained";
-        currentCharacter.allArmor = "untrained";
-        currentCharacter.ancestryFeat = "Mountain Strategy";
-        currentCharacter.classFeat = "Raging Intimidation";
-        currentCharacter.subclass = "Fury Instinct";
-        currentCharacter.specialAbilities = new string[2];
-        currentCharacter.specialAbilities[0] = "dark vision";
-        currentCharacter.specialAbilities[1] = "clan dagger";
-        currentCharacter.weapon = "Great Axe";
-        currentCharacter.armor = "Scalemail";
+        currentCharacter = CreateDefaultBarbarian();
+        UpdateUIFromCharacter(currentCharacter);
+
+        jsonFile3 = JsonUtility.ToJson(currentCharacter); //added this to see if refreshing the json helps, no change so can probably delete later
+
+        Debug.Log(currentCharacter.strength + " should be 4"); //so strength is 4, but the json and display fields are not
+    }
+
+    //makes a default barbarian as a PlayerCharacter object for the json
+    PlayerCharacter CreateDefaultBarbarian()
+    {
+        return new PlayerCharacter
+        {
+            name = "Torgrim",
+            gender = "female",
+            ancestry = "Dwarf",
+            heritage = "Rock",
+            background = "Bandit",
+            className = "Barbarian",
+
+            hp = 22,
+            speed = 20,
+            size = "medium",
+
+            strength = 4,
+            dexterity = 2,
+            constitution = 1,
+            intelligence = 1,
+            wisdom = 1,
+            charisma = 0,
+
+            perception = "expert",
+            fortitude = "expert",
+            reflex = "trained",
+            will = "expert",
+
+            simpleWeapons = "trained",
+            martialWeapons = "trained",
+            advancedWeapons = "untrained",
+            unarmedAttack = "trained",
+
+            unarmored = "trained",
+            lightArmor = "trained",
+            mediumArmor = "trained",
+            allArmor = "untrained",
+
+            ancestryFeat = "Mountain Strategy",
+            classFeat = "Raging Intimidation",
+            subclass = "Fury Instinct",
+
+            specialAbilities = new string[] { "dark vision", "clan dagger" },
+
+            weapon = "Great Axe",
+            armor = "Scalemail"
+        };
+    }
+
+    //uses the default barbarian PlayerCharacter object to populate the UI display fields
+    void UpdateUIFromCharacter(PlayerCharacter c)
+    {
+        characterClassModel.setMeshName("Barbarian");
+
+        nameField.value = c.name;
+
+        genderRadioButtonGroup.value = c.gender == "male" ? 0 : 1;
+
+        ancestryRadioButtonGroup.SetValueWithoutNotify(2);
+        ancestryChoiceField.value = c.ancestry;
+        PopulateAncestryDescription(c.ancestry);
+        PopulateAncestryFeatButtons(c.ancestry);
+
+        PopulateHeritageButtons(c.ancestry);
+        heritageRadioButtonGroup.SetValueWithoutNotify(3);
+        heritageChoiceField.value = c.heritage;
+
+        backgroundRadioButtonGroup.SetValueWithoutNotify(1);
+        backgroundChoiceField.value = c.background;
+        PopulateBackgroundInfo(c.background);
+
+        classesRadioButtonGroup.SetValueWithoutNotify(4);
+        classChoiceField.value = c.className;
+        PopulateClassDescription(c.className);
+        PopulateClassFeatButtons(c.className);
+        PopulateSubclassButtons(c.className);
+
+        hpField.value = c.hp;
+        speedField.value = c.speed;
+        sizeField.value = c.size;
+
+        strengthAttributeField.value = c.strength;
+        dexterityAttributeField.value = c.dexterity;
+        constitutionAttributeField.value = c.constitution;
+        intelligenceAttributeField.value = c.intelligence;
+        wisdomAttributeField.value = c.wisdom;
+        charismaAttributeField.value = c.charisma;
+
+        perceptionField.value = c.perception;
+        fortitudeField.value = c.fortitude;
+        reflexField.value = c.reflex;
+        willField.value = c.will;
+
+        simpleWeaponsField.value = c.simpleWeapons;
+        martialWeaponsField.value = c.martialWeapons;
+        advancedWeaponsField.value = c.advancedWeapons;
+        unarmedAttackField.value = c.unarmedAttack;
+
+        unarmoredDefenseField.value = c.unarmored;
+        lightArmorField.value = c.lightArmor;
+        mediumArmorField.value = c.mediumArmor;
+        allArmorField.value = c.allArmor;
+
+        //had to use SetValueWithoutNotify for the RadioButtonGroups because setting the value was triggering an event and causing errors
+        ancestryFeatsRadioButtonGroup.SetValueWithoutNotify(2);
+        classFeatsRadioButtonGroup.SetValueWithoutNotify(4);
+        subclassRadioButtonGroup.SetValueWithoutNotify(2);
+        subclassField.value = c.subclass;
     }
 
     void FinishCreation()
@@ -423,7 +573,7 @@ public class CharacterCreationScript : MonoBehaviour
         //change scene to gameplay
         if (ready)
         {
-            SceneManager.LoadScene("Level1");
+            SceneTransitionManager.FadeAndLoad("Level1");
         }
     }
 
@@ -562,6 +712,7 @@ public class CharacterCreationScript : MonoBehaviour
         }
 
         string selectedAncestryFeat = (ancestryFeatsRadioButtonGroup[evt.newValue] as RadioButton).text; //for some reason .label doesn't work here but .text does
+        ancestryFeatField.value = selectedAncestryFeat;
         currentCharacter.ancestryFeat = selectedAncestryFeat;
     }
 
@@ -584,17 +735,15 @@ public class CharacterCreationScript : MonoBehaviour
         backgroundChoiceField.value = selectedBackground;
 
         currentCharacter.background = selectedBackground;
+
+        //when background is changed, also reset the background boosts
+        ClearBackgroundContributions();
+        RefreshAttributeFields();
     }
 
     void PopulateBackgroundInfo(string background)
     {
-        //skill -> red box
-        //skill feat -> red box
-
         backgroundBoostChoiceRadioButtonGroup.Clear();
-        //when background is changed, also reset the background boosts
-        ClearBackgroundContributions();
-        RefreshAttributeFields();
 
         if (!backgroundDescriptionByBackground.TryGetValue(background, out var backgroundBoost))
             return;
@@ -653,6 +802,9 @@ public class CharacterCreationScript : MonoBehaviour
         PopulateClassDescription(selectedClass);
 
         classChoiceField.value = selectedClass;
+
+        characterClassModel.setMeshName(selectedClass); //sets the spinning model according to the class
+        Debug.Log("setMeshName called with: " + selectedClass);
 
         classHP = 0;
         classHP = db2.classes.Find(a => a.id == selectedClass).hp;
@@ -725,6 +877,7 @@ public class CharacterCreationScript : MonoBehaviour
         }
 
         string selectedClassFeat = (classFeatsRadioButtonGroup[evt.newValue] as RadioButton).text; //for some reason .label doesn't work here but .text does
+        classFeatField.value = selectedClassFeat;
         currentCharacter.classFeat = selectedClassFeat;
     }
 
@@ -890,5 +1043,45 @@ public class CharacterCreationScript : MonoBehaviour
         currentCharacter.charisma = charismaAttributeField.value;
 
         // Debug.Log(JsonUtility.ToJson(currentCharacter, true));
+    }
+
+    //dynamically make Tooltip element rather than try to place it somewhere in the UXML
+    void CreateTooltip(VisualElement root)
+    {
+        tooltip = new Label();
+        tooltip.style.position = Position.Absolute;
+        tooltip.style.backgroundColor = new Color(0, 0, 0, 0.8f);
+        tooltip.style.color = Color.white;
+        tooltip.style.paddingLeft = 5;
+        tooltip.style.paddingRight = 5;
+        tooltip.style.paddingTop = 3;
+        tooltip.style.paddingBottom = 3;
+        tooltip.style.display = DisplayStyle.None;
+
+        root.Add(tooltip);
+    }
+
+    void HoverOverElement(VisualElement element, string tooltipText)
+    {
+
+        //on hover
+        element.RegisterCallback<MouseEnterEvent>(evt =>
+        {
+            tooltip.text = tooltipText;
+            tooltip.style.display = DisplayStyle.Flex;
+        });
+
+        //then when mouse leaves the element
+        element.RegisterCallback<MouseLeaveEvent>(evt =>
+        {
+            tooltip.style.display = DisplayStyle.None;
+        });
+
+        //tooltip follows mouse
+        element.RegisterCallback<MouseMoveEvent>(evt =>
+        {
+            tooltip.style.left = evt.mousePosition.x + 10;
+            tooltip.style.top = evt.mousePosition.y + 10;
+        });
     }
 }

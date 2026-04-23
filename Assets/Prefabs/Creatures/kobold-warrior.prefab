@@ -42,7 +42,7 @@ Camera:
   m_Enabled: 0
   serializedVersion: 2
   m_ClearFlags: 2
-  m_BackGroundColor: {r: 0.64705884, g: 0.16470589, b: 0.16470589, a: 0}
+  m_BackGroundColor: {r: 0.3920879, g: 0.6391643, b: 0.8396226, a: 1}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
   m_FOVAxisMode: 0
@@ -318,6 +318,14 @@ MonoBehaviour:
     Name: Kobold Warrior
   - mesh: {fileID: 4457131221485059392, guid: 6f7fffc5186504143a8932f051c4fd7c, type: 3}
     Name: Goblin Warrior
+  - mesh: {fileID: 2062057373995680016, guid: 1f3145ef5adf748ebabf3114a16d1d0c, type: 3}
+    Name: Cleric
+  - mesh: {fileID: -7846104960446044805, guid: 62fbe19d90a224ceb8fc2061571fb0e2, type: 3}
+    Name: Female Druid
+  - mesh: {fileID: -3487786043712524156, guid: 5e6a7860c2f3d46e6ab7afa6182b80b6, type: 3}
+    Name: Foot Knight
+  - mesh: {fileID: -6485565095996508320, guid: b3c6b2fdc866c46a5960e6d306e36637, type: 3}
+    Name: Ranger Archer
   - mesh: {fileID: 1788653840435757133, guid: a7f706461d0054e33b6747be52323a33, type: 3}
     Name: Torgrim
   BaseOptions:
@@ -333,11 +341,11 @@ GameObject:
   m_Component:
   - component: {fileID: 7437372328704202929}
   - component: {fileID: 8914976665182790947}
-  - component: {fileID: 5489623171515365460}
   - component: {fileID: 5049490658535004338}
   - component: {fileID: 598170735464826064}
   - component: {fileID: 595625853908541617}
   - component: {fileID: 7176228834526781552}
+  - component: {fileID: 3506466034673221079}
   m_Layer: 6
   m_Name: kobold-warrior
   m_TagString: Untagged
@@ -459,6 +467,58 @@ MonoBehaviour:
   _passives:
   - Sneak Attack
   _conditions: []
+  _equippedArmor:
+    name: Leather Armor
+    type: armor
+    category: light
+    price: 0
+    acBonus: 1
+    dexCap: 4
+    checkPenalty: -1
+    speedPenalty: 0
+    strengthRequirement: 0
+    description: 
+    bulk: 1
+    group: leather
+    armorTraits: []
+  _equippedRightHand:
+    name: 
+    type: 
+    group: 
+    category: 
+    hands: 0
+    damage:
+      numberOfDice: 0
+      sidesPerDie: 0
+      damageType: 
+    description: 
+    traits: []
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 0
+  _equippedLeftHand:
+    name: 
+    type: 
+    group: 
+    category: 
+    hands: 0
+    damage:
+      numberOfDice: 0
+      sidesPerDie: 0
+      damageType: 
+    description: 
+    traits: []
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 0
   _equipment:
   - Sling
   - Spear
@@ -467,22 +527,62 @@ MonoBehaviour:
   _weaponsList:
   - Sling
   - Spear
+  _weapons:
+  - name: Sling
+    type: weapon
+    group: sling
+    category: simple
+    hands: 1
+    damage:
+      numberOfDice: 1
+      sidesPerDie: 6
+      damageType: bludgeoning
+    description: 
+    traits:
+    - propulsive
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 50
+    ammo: sling-bullets
+    bulk: 0
+  - name: Spear
+    type: weapon
+    group: spear
+    category: simple
+    hands: 1
+    damage:
+      numberOfDice: 1
+      sidesPerDie: 6
+      damageType: piercing
+    description: 
+    traits:
+    - monk
+    - thrown-20
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 1
   _armorList:
   - Leather Armor
---- !u!114 &5489623171515365460
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8560756850187711930}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 52e9b306fa533c64ba72572bd127a099, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ActionController
-  <ActionPoints>k__BackingField: 0
-  _actionNames: []
+  _armor:
+  - name: Leather Armor
+    type: armor
+    category: light
+    price: 0
+    acBonus: 1
+    dexCap: 4
+    checkPenalty: -1
+    speedPenalty: 0
+    strengthRequirement: 0
+    description: 
+    bulk: 1
+    group: leather
+    armorTraits: []
 --- !u!114 &5049490658535004338
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -532,3 +632,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b7abd518a3f004508b6611b61ca45c9a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
+--- !u!114 &3506466034673221079
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8560756850187711930}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 97518c29693e5e544b3fbdd1324b642d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MindlessController
+  <ActionPoints>k__BackingField: 0
+  _actionNames: []

@@ -64,7 +64,8 @@ public class Decorator : MonoBehaviour
                     break;
             }
         }
-        VisualizePerlinNoise(0.55f, 0.05f, null);
+        // Was an attempt to add grass textures to the map using perlin noise 
+        //VisualizePerlinNoise(0.55f, 0.05f, null);
     }
 
     private void DrawQuad(TileOld tile, Material mat)

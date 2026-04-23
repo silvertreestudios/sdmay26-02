@@ -7,15 +7,6 @@ using GridPublic;
 namespace Game.Creature
 {
 
-    // TODO temp location 
-    [System.Serializable]
-    public struct Condition
-    {
-        // Just condition name for now, but left as struct 
-        public string name;   // name of the condition
-        // public string source; // gameObject ID of GO that applied the condition
-    }
-
     [System.Serializable] public struct SkillValue { public string skillName; public int skillMod; }
 
     [System.Serializable] public struct WeaponBonus { public string category; public int bonus; }
@@ -26,7 +17,6 @@ namespace Game.Creature
     // Extension as a Unity MonoBehaviour
     public class CreatureComponent : MonoBehaviour 
     {
-        // TODO: derive equipment proficiencies?
 
         // Basic stats
         [Header("Basic Stats")]
@@ -34,7 +24,7 @@ namespace Game.Creature
         [SerializeField] private int _level;
         [SerializeField] private int _initiative;
         [SerializeField] private int _speed;
-        // TODO other movement type speeds
+        // TODO fields for other movement type/speeds
 
         // Combat stats
         // [Header("Combat")]
@@ -48,12 +38,8 @@ namespace Game.Creature
         [SerializeField] private List<ArmorBonus> _armorBonuses = new List<ArmorBonus>();
         [SerializeField] private List<DamageValue> _weaknesses = new List<DamageValue>();
         [SerializeField] private List<DamageValue> _resistances = new List<DamageValue>();
-        // hash map or alternative get for modifications?
-        // handle conditions/modifiers in CreatureComponent
-        // hash map or alternative get for modifications?
-        // handle conditions/modifiers in CreatureComponent
 
-        // Example for ability modifiers
+        // Ability modifiers
         [Header("Ability Modifiers")]
         [SerializeField] private int _strMod;
         [SerializeField] private int _dexMod;
@@ -62,7 +48,7 @@ namespace Game.Creature
         [SerializeField] private int _wisMod;
         [SerializeField] private int _chaMod;
 
-        // saves
+        // Saves
         [Header("Saves")]
         [SerializeField] private int _fortitudeSave;
         [SerializeField] private int _reflexSave;
@@ -80,14 +66,14 @@ namespace Game.Creature
         [SerializeField] private List<string> _reactions = new List<string>(); // reactions
         [SerializeField] private List<string> _passives = new List<string>(); // abilities that don't require an action
 
-        [Header("Conditions")]
-        [SerializeField] private List<string> _conditions = new List<string>();
-
+        // Conditions - commented out until used, uncomment getter/setter and serialized field if needed
+        // [Header("Conditions")]
+        // [SerializeField] private List<string> _conditions = new List<string>();
 
         [Header("Equipment")]
         [SerializeField] private EquipmentArmor _equippedArmor;
-        [SerializeField] private EquipmentWeapon _equippedRightHand;
-        [SerializeField] private EquipmentWeapon _equippedLeftHand;
+        [SerializeField] private EquipmentWeapon _equippedRightHand = null;
+        [SerializeField] private EquipmentWeapon _equippedLeftHand = null;
         [SerializeField] private List<string> _equipment = new List<string>();
         [SerializeField] private List<string> _weaponsList = new List<string>(); // Temp to display _weapons in inspector
         [SerializeField] private List<EquipmentWeapon> _weapons = new List<EquipmentWeapon>();
@@ -127,7 +113,7 @@ namespace Game.Creature
         public List<string> actions { get => _actions; set => _actions = value ?? new List<string>(); }
         public List<string> reactions { get => _reactions; set => _reactions = value ?? new List<string>(); }
         public List<string> passives { get => _passives; set => _passives = value ?? new List<string>(); }
-        public List<string> conditions { get => _conditions; set => _conditions = value ?? new List<string>(); }
+        // public List<string> conditions { get => _conditions; set => _conditions = value ?? new List<string>(); }
 
 
         // TODO: properly implement
@@ -141,7 +127,7 @@ namespace Game.Creature
         public List<EquipmentArmor> armor { get => _armor; set => _armor = value ?? new List<EquipmentArmor>(); }
 
 
-        // TODO: properly implement        
+        // Other attributes
         public List<string> traits { get; set; } = new List<string>();
         public string size { get; set; }
         public List<string> languages { get; set; } = new List<string>();
@@ -154,8 +140,12 @@ namespace Game.Creature
 
         void Awake()
         {
+        }
+
+        void Start()
+        {
             // Initialization code here
-            // TODO create method to run check against action/ability lists to populate additional scripts
+            // Apply passive abilities
             foreach (var a in passives)
             {
                 var ability = DefinedAbilities.TryGet(a);
@@ -164,9 +154,11 @@ namespace Game.Creature
                 else
                     Debug.LogWarning($"Ability '{a}' not found for {name}");
             }
+
+            // Add initial strike actions
             if(this.gameObject.GetComponent<ActionController>() != null){
                 Unarmed.AddUnarmedStrike(this.gameObject);
-                StrikeWeapon.WeaponStrikeAdderTEMP(this.gameObject);
+                StrikeWeapon.WeaponStrikeAdderAutomatic(this.gameObject);
             }else{
                 Debug.LogWarning($"No ActionController found on {name}, cannot add default strikes");
             }
@@ -185,7 +177,7 @@ namespace Game.Creature
             if (string.IsNullOrWhiteSpace(skillName)) return defaultValue;
             string key = skillName.Trim();
 
-            // Check explicit skill entries first
+            // Check explicit proficient skill entries first
             if (_skills != null)
             {
                 for (int i = 0; i < _skills.Count; i++)
@@ -197,7 +189,7 @@ namespace Game.Creature
                 }
             }
 
-            // Map skill names to ability modifiers.
+            // Map skill names to ability modifiers, returns corresponding ability modifier.
             switch (key.ToLowerInvariant())
             {
                 // Strength
@@ -211,7 +203,7 @@ namespace Game.Creature
                 case "sleight":
                 case "acro":
                     return dexMod;
-                // Constitution N/A
+                // Constitution - No Skills
                 // Intelligence
                 case "arcana":
                 case "history":
@@ -240,10 +232,13 @@ namespace Game.Creature
             }
         }
 
+        // Method for applying damage to a creature
+        // accounts for certain steps of damaging calculation that are best managed by the defender
         public void TakeDamage(List<DamageValue> damageValues, D20Result attackRoll)
         {
-            // TODO : call function to apply resistances, immunities, vulnerabilities against damageValues
+            // Applies crit damage if needed
             DamageRoller.EvaluateCriticalDamage(attackRoll.degree, damageValues);
+            // Applies weaknesses and resistances
             DamageRoller.ApplyWeaknessAndResistance(damageValues, _weaknesses, _resistances);
             int damage = DamageRoller.SumDamage(damageValues);
 
@@ -255,7 +250,7 @@ namespace Game.Creature
                 _tempHp -= used;
                 remaining -= used;
             }
-
+            // apply HP loss
             _hp -= remaining;
             _hp = Mathf.Max(0, _hp);
             if (_hp == 0)
@@ -286,6 +281,7 @@ namespace Game.Creature
 
             GridAPI.GetInstance().DestroyToken(this.gameObject);
             OnDeath.Invoke(gameObject); // Trigger the death event
+            CombatLog.GetInstance().Log("- " + this.gameObject.name + " was defeated!");
             
             gameObject.SetActive(false);
         }
@@ -310,6 +306,12 @@ namespace Game.Creature
         public void GainTempHp(int tempHpAmount)
         {
             GainTempHp(tempHpAmount, false);
+        }
+
+        public int GetInitative()
+        {
+            // initiative is populated by perception by default, this should account for modifications to perception as well as initiative-specific bonuses
+            return Mathf.Max(initiative, GetSkillMod("perception", 0));
         }
 
 
@@ -342,19 +344,38 @@ namespace Game.Creature
         {
             _equippedRightHand = null;
         }
+
+        // Helper: check if left hand has a valid equipped weapon
+        public bool HasEquippedLeftWeapon()
+        {
+            return _equippedLeftHand != null && 
+                   !string.IsNullOrWhiteSpace(_equippedLeftHand.name) && 
+                   _equippedLeftHand.damage != null;
+        }
+
+        // Helper: check if right hand has a valid equipped weapon
+        public bool HasEquippedRightWeapon()
+        {
+            return _equippedRightHand != null && 
+                   !string.IsNullOrWhiteSpace(_equippedRightHand.name) && 
+                   _equippedRightHand.damage != null;
+        }
+
         public void equipArmor(EquipmentArmor armor)
         {
             if (armor == null) return;
             _equippedArmor = armor;
         }
+
         public void unequipArmor()
         {
             _equippedArmor = null;
         }
+
         public void calculateAC()
         {
             // If armor is equipped
-            if (_equippedArmor != null)
+            if (_equippedArmor != null && !string.IsNullOrWhiteSpace(_equippedArmor.name))
             {
                 // Add Dex modifier up to the armor's dex cap
                 _ac = 10 + _equippedArmor.acBonus + Mathf.Min(dexMod, _equippedArmor.dexCap);
@@ -365,7 +386,7 @@ namespace Game.Creature
             }else{
                 // Unarmored AC calculation
                 // TODO: modify to include natural armor or other bonuses
-                _ac = 10 + dexMod; 
+                _ac = 10 + dexMod + armorBonuses.Find(b => b.category == "unarmored").bonus; 
                 //_ac += armorBonuses.Find(b => b.category == "unarmored").bonus; // Add unarmored bonus if applicable
             }
         }

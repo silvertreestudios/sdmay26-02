@@ -38,7 +38,6 @@ public abstract class ActionController : MonoBehaviour
         ResetActionPointsEvent.Invoke(newActionPoints);
         ActionPoints = newActionPoints.Value;
         StrikePenalty = 0;
-        HUDController.GetInstance().SetStrikeWeaponText("");
     }
 
     public abstract void EndTurn();
@@ -98,7 +97,7 @@ public abstract class ActionController : MonoBehaviour
 
     public uint GetInitiative()
     {
-        int initiativeBonus = this.gameObject.GetComponent<CreatureComponent>().GetSkillMod("perception", 0);
+        int initiativeBonus = this.gameObject.GetComponent<CreatureComponent>().GetInitative();
         uint roll = (uint)Random.Range(1, 20);
         Debug.Log(this.gameObject.name + " rolled initiative: " + roll +" +"+ initiativeBonus +" = " + (roll + initiativeBonus));
         roll += (uint)initiativeBonus;

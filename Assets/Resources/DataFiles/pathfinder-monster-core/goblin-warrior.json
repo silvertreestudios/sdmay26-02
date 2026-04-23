@@ -1,0 +1,240 @@
+{
+  "name": "Goblin Warrior",
+  "type": "npc",
+  "system": {
+    "abilities": {
+      "str": 0,
+      "dex": 3,
+      "con": 1,
+      "int": 0,
+      "wis": -1,
+      "cha": 1
+    },
+    "attributes": {
+      "ac": 16,
+      "allSaves": 0,
+      "hp": {
+        "details": "",
+        "max": 6,
+        "temp": 0,
+        "value": 6
+      },
+      "speed": [
+        {
+          "value": 25
+        }
+      ]
+    },
+    "details": {
+      "languages": {
+        "details": "",
+        "value": [
+          "goblin",
+          "common"
+        ]
+      },
+      "level": -1,
+      "publicNotes": "<p>The frontline fighters of goblin tribes prefer to fight in large groups—especially when they can outnumber their foes at least three to one.</p>\n<hr />\n<p>These small humanoids typically have green or gray skin and large heads with wide ears. While some goblins are civilized and have worked hard to be considered upstanding members of humanoid communities, many are impetuous and vicious creatures who delight in wreaking havoc. These goblins think nothing of slaughtering livestock, stealing, or burning down a building purely for momentary delight. They revel in playing malicious tricks on taller humanoids, whom they call \"longshanks.\"</p>\n<p>Goblins are superstitious, with an intense awe of magic and a fascination with fire; goblins who master magic or fire earn great respect from their kin. Most other humanoids find it difficult to understand goblins' outlook: they hate canines but eagerly share their lairs with so-called \"goblin dogs,\" they fearlessly attack larger creatures but are terrified of horses, and they despise vegetables yet consider pickles a delicacy. To a goblin, of course, these are all perfectly sensible life choices.</p>",
+      "publicNotesParagraphs": [
+        "The frontline fighters of goblin tribes prefer to fight in large groups—especially when they can outnumber their foes at least three to one.",
+        "These small humanoids typically have green or gray skin and large heads with wide ears. While some goblins are civilized and have worked hard to be considered upstanding members of humanoid communities, many are impetuous and vicious creatures who delight in wreaking havoc. These goblins think nothing of slaughtering livestock, stealing, or burning down a building purely for momentary delight. They revel in playing malicious tricks on taller humanoids, whom they call \"longshanks.\"",
+        "Goblins are superstitious, with an intense awe of magic and a fascination with fire; goblins who master magic or fire earn great respect from their kin. Most other humanoids find it difficult to understand goblins' outlook: they hate canines but eagerly share their lairs with so-called \"goblin dogs,\" they fearlessly attack larger creatures but are terrified of horses, and they despise vegetables yet consider pickles a delicacy. To a goblin, of course, these are all perfectly sensible life choices."
+      ],
+      "publication": {
+        "license": "ORC",
+        "remaster": true,
+        "title": "Pathfinder Monster Core"
+      }
+    },
+    "initiative": {
+      "statistic": "perception"
+    },
+    "perception": {
+      "details": "",
+      "mod": 2,
+      "senses": [
+        {
+          "type": "darkvision"
+        }
+      ]
+    },
+    "resources": {},
+    "saves": {
+      "fortitude": 5,
+      "reflex": 7,
+      "will": 3
+    },
+    "skills": {
+      "acrobatics": 5,
+      "athletics": 2,
+      "nature": 1,
+      "stealth": 5
+    },
+    "traits": {
+      "rarity": "common",
+      "size": "sm",
+      "value": [
+        "goblin",
+        "humanoid"
+      ]
+    },
+    "immunities": [],
+    "weaknesses": [],
+    "resistances": []
+  },
+  "equipment": [
+    {
+      "name": "Dogslicer",
+      "type": "weapon",
+      "hands": 1,
+      "category": "martial",
+      "quantity": 1
+    },
+    {
+      "name": "Shortbow",
+      "type": "weapon",
+      "hands": 0,
+      "category": "martial",
+      "quantity": 1
+    },
+    {
+      "name": "Leather Armor",
+      "type": "armor",
+      "hands": 0,
+      "category": "light",
+      "quantity": 1,
+      "acBonus": 1,
+      "dexCap": 4
+    },
+    {
+      "name": "Arrows",
+      "type": "ammo",
+      "hands": null,
+      "category": null,
+      "quantity": 10
+    }
+  ],
+  "actions": [
+    {
+      "name": "Dogslicer",
+      "type": "melee",
+      "system": {
+        "attack": {
+          "value": ""
+        },
+        "attackEffects": {
+          "custom": "",
+          "value": []
+        },
+        "bonus": {
+          "value": 7
+        },
+        "damageRolls": [
+          {
+            "damage": "1d6",
+            "damageType": "slashing"
+          }
+        ],
+        "description": {
+          "value": ""
+        },
+        "range": null,
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": [
+            "agile",
+            "backstabber",
+            "finesse"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shortbow",
+      "type": "melee",
+      "system": {
+        "attack": {
+          "value": ""
+        },
+        "attackEffects": {
+          "custom": "",
+          "value": []
+        },
+        "bonus": {
+          "value": 7
+        },
+        "damageRolls": [
+          {
+            "damage": "1d6",
+            "damageType": "piercing"
+          }
+        ],
+        "description": {
+          "value": ""
+        },
+        "range": {
+          "increment": 60,
+          "max": null
+        },
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": [
+            "deadly-d10",
+            "reload-0"
+          ]
+        }
+      }
+    }
+  ],
+  "reactions": [
+    {
+      "name": "Goblin Scuttle",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "reaction"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "defensive",
+        "description": {
+          "value": "<p><strong>Trigger</strong> A goblin ally ends a move action adjacent to the goblin.</p>\n<hr />\n<p><strong>Effect</strong> The goblin warrior @UUID[Compendium.pf2e.actionspf2e.Item.Step]{Steps}.</p>"
+        },
+        "descriptionParagraphs": [
+          "Trigger: A goblin ally ends a move action adjacent to the goblin.",
+          "Effect: The goblin warrior {Steps}."
+        ],
+        "descriptionContext": [
+          "Compendium.pf2e.actionspf2e.Item.Step"
+        ],
+        "rules": [],
+        "slug": "",
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    }
+  ],
+  "passives": [],
+  "conditions": [],
+  "weaponBonuses": {
+    "unarmed": 4,
+    "simple": 4,
+    "martial": 4,
+    "advanced": 0
+  },
+  "armorBonuses": {
+    "unarmored": 2,
+    "light": 2,
+    "medium": 0,
+    "heavy": 0
+  },
+  "playerOnlyStuff": [],
+  "Source": "packs/pathfinder-monster-core"
+}

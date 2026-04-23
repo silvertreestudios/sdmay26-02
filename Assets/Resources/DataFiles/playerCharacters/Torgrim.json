@@ -1,0 +1,179 @@
+{
+  "name": "Torgrim",
+  "type": "player",
+  "system": {
+    "abilities": {
+      "str": 4,
+      "dex": 2,
+      "con": 1,
+      "int": 1,
+      "wis": 1,
+      "cha": 0
+    },
+    "attributes": {
+      "ac": 16,
+      "allSaves": 0,
+      "hp": {
+        "details": "",
+        "max": 22,
+        "temp": 0,
+        "value": 22
+      },
+      "speed": [
+        {
+          "value": 25
+        }
+      ]
+    },
+    "details": {
+      "languages": {
+        "details": "",
+        "value": [
+          "common"
+        ]
+      },
+      "level": 1,
+      "publicNotes": "Our playtest player barbarian.",
+      "publicNotesParagraphs": [
+        "Our playtest player barbarian."
+      ],
+      "publication": {
+        "license": "ORC",
+        "remaster": true,
+        "title": "Player Core 2"
+      }
+    },
+    "initiative": {
+      "statistic": "perception"
+    },
+    "perception": {
+      "details": "",
+      "mod": 5,
+      "senses": [
+        {
+          "type": "darkvision"
+        }
+      ]
+    },
+    "resources": {},
+    "saves": {
+      "fortitude": 6,
+      "reflex": 5,
+      "will": 6
+    },
+    "skills": {
+      "perception": 5
+    },
+    "traits": {
+      "rarity": "common",
+      "size": "med",
+      "value": [
+        "human",
+        "humanoid"
+      ]
+    },
+    "immunities": [],
+    "weaknesses": [],
+    "resistances": []
+  },
+  "equipment": [
+    {
+      "name": "Greataxe",
+      "type": "weapon",
+      "hands": 2,
+      "category": "martial",
+      "quantity": 1
+    },
+    {
+      "name": "Scale-Mail",
+      "type": "armor",
+      "hands": 0,
+      "category": "medium",
+      "quantity": 1,
+      "acBonus": 3,
+      "dexCap": 2
+    }
+  ],
+  "actions": [],
+  "reactions": [],
+  "passives": [
+    {
+      "name": "Quick-Tempered",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "passive"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "interaction",
+        "description": {
+          "value": "<p><strong>Trigger</strong> You roll initiative.</p>\n<p><strong>Requirements</strong> You are not @UUID[Compendium.pf2e.conditionitems.Item.Encumbered] or wearing heavy armor.</p><hr /><p>So long as you are able to move freely, your fury is instinctive and instantaneous. You @UUID[Compendium.pf2e.actionspf2e.Item.Rage].</p>"
+        },
+        "descriptionParagraphs": [
+          "TODO Quick Tempered Description"
+        ],
+        "descriptionContext": [],
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    },
+    {
+      "name": "Fury-Instinct",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "passive"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "interaction",
+        "description": {
+          "value": "<p>Your rage comes from a deep and purely personal well within you. You use your rage as you choose.</p>\n<p><strong>Instinct Ability—Unstoppable Frenzy</strong> Increase the additional damage from Rage from 2 to 3. You gain a bonus 1st-level barbarian feat.</p>\n<p><strong>Specialization Ability (7th)</strong> Increase the additional damage from Rage from 3 to 7. If you have greater weapon specialization, instead increase the additional damage from Rage to 13.</p>\n<p><strong>Raging Resistance (9th)</strong> You resist physical weapon damage, but not physical damage from other sources (such as unarmed attacks).</p>"
+        },
+        "descriptionParagraphs": [
+          "TODO Fury Instinct Description"
+        ],
+        "descriptionContext": [],
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    }
+  ],
+  "conditions": [],
+  "weaponBonuses": {
+    "unarmed": 2,
+    "simple": 2,
+    "martial": 2,
+    "advanced": 0
+  },
+  "armorBonuses": {
+    "unarmored": 2,
+    "light": 2,
+    "medium": 2,
+    "heavy": 0
+  },
+  "playerOnlyStuff": [
+    {
+      "gender": "female",
+      "ancestry": "Human",
+      "heritage": "...",
+      "background": "Bandit",
+      "className": "Barbarian",
+      "ancestryFeat": "...",
+      "classFeat": "Raging Intimidation",
+      "subclass": "Fury Instinct"
+    }
+  ],
+  "Source": "packs/pathfinder-monster-core"
+}

@@ -10,6 +10,8 @@ namespace Game.Strikes
 [System.Serializable]
 public class Unarmed : MultiFrameEntityAction
 {
+    // Done by Ryan Meyer 04/07/2026
+    public override string ActionName => "Unarmed Strike";
     private Strike Strike;
     private int range = 1; // default range of 1 tile
     
@@ -34,6 +36,8 @@ public class Unarmed : MultiFrameEntityAction
 
         if(target.Value)
         {
+            CombatLog.GetInstance().Log("- " + attacker.name + " attacks " + target.Value.name + " with unarmed strike.");
+            Debug.Log(attacker + " Striking " + target.Value);
             Strike.Damage(attacker, target.Value);
             if (ac)
             {
@@ -53,6 +57,7 @@ public class Unarmed : MultiFrameEntityAction
         List<DamageValue> damageFlat = new() { new DamageValue("Bludgeoning", comp.strMod) };
         Unarmed unarmedStrike = new Unarmed(1, damageDice, damageFlat);
         creature.GetComponent<ActionController>()?.AddAction(unarmedStrike);
+        creature.GetComponent<CreatureComponent>()?.actions.Add("Unarmed Strike");
         Debug.Log("Unarmed strike added to " + creature.name);
     }
 

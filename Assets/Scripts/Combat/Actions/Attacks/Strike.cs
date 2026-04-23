@@ -52,7 +52,15 @@ public class Strike
         // Get Data
         CreatureComponent from = From.GetComponent<CreatureComponent>();
         CreatureComponent to = To.GetComponent<CreatureComponent>();
-        uint penalty = 5 * (From.GetComponent<ActionController>()?.StrikePenalty ?? 0);
+        uint penalty = From.GetComponent<ActionController>()?.StrikePenalty ?? 0;
+        if (this.Traits.Contains("agile"))
+        {
+            penalty *= 4;
+        }
+        else
+        {
+            penalty *= 5;
+        }
 
         // TODO calculate actual bonuses
         int attackBonus = from.attackBonus;
@@ -64,9 +72,11 @@ public class Strike
         string log = "Attack:\n  AC: " + to.ac + "\n  Attack Roll: " + attackRoll.total
             + " (" + attackRoll.roll + " + " + attackBonus + " - " + penalty + ")"
             + "\n  Result: " + attackRoll.degree;
+        
 
         if (attackRoll.degree == DegreeOfSuccess.Success || attackRoll.degree == DegreeOfSuccess.CriticalSuccess)
         {
+            CombatLog.GetInstance().Log(log);
             OnDamageDealt.Invoke(Damages[0].damageType);
             // Adds a new flat damage for the damage bonus, type matching the first damage type
             // FlatDamages.Add(new DamageValue(Damages[0].damageType, damageBonus));
@@ -75,19 +85,15 @@ public class Strike
             DamageRoller.ApplyWeaknessAndResistance(damageValues, to.weaknesses, to.resistances);
             uint damage = (uint)DamageRoller.SumDamage(damageValues);
             to.TakeDamage(damage);
-            log += "\nDamage Dealt: ";
-            foreach (var d in damageValues)
-            {
-                log += "\n  " + d.DamageType + ": " + d.DamageAmount;
-            }
-            log += "\n  Total: " + damage;
+            //log += "\nDamage Dealt: ";
         } else {
             OnAttackMiss.Invoke(From);
             log += "\nAttack Missed!";
+            CombatLog.GetInstance().Log(log);
         }
-        log += "\n";
+        // log += "\n";
         // Debug.Log(log);
-        CombatLog.GetInstance().Log(log);
+        // CombatLog.GetInstance().Log(log);
     }
 
     public List<string> getTraits()
