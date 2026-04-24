@@ -25,7 +25,6 @@
     background-color: rgb(216, 195, 134);
     color: rgb(1, 43, 13);
     font-size: 20px;
-    -unity-font-style: bold;
     -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
@@ -38,6 +37,7 @@
     color: rgb(1, 43, 13);
     padding-top: 0;
     padding-bottom: 0;
+    -unity-font-style: normal;
 }
 
 .unity-integer-field__input {
@@ -45,6 +45,7 @@
     color: rgb(1, 43, 13);
     padding-top: 0;
     padding-bottom: 0;
+    -unity-font-style: normal;
 }
 
 .unity-text-field {
@@ -52,6 +53,7 @@
     color: rgb(216, 195, 134);
     font-size: 20px;
     -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+    -unity-font-style: bold;
 }
 
 .unity-integer-field {
@@ -59,11 +61,13 @@
     color: rgb(216, 195, 134);
     font-size: 20px;
     -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+    -unity-font-style: bold;
 }
 
 .unity-foldout {
     font-size: 20px;
     -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+    -unity-font-style: bold;
 }
 
 #ChoiceTabs {
@@ -178,7 +182,7 @@
 }
 
 .unity-button {
-    font-size: 16px;
+    font-size: 20px;
     background-color: rgb(68, 24, 13);
     color: rgb(233, 196, 140);
     -unity-text-outline-color: rgb(57, 16, 19);
@@ -194,16 +198,68 @@
 .icon-radio-button {
 }
 
+.secondary-radio-button {
+    font-size: 20px;
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+    background-color: rgb(216, 195, 134);
+}
+
 .centered-textfield {
     flex-direction: column;
     align-items: center;
 }
 
 .centered-textfield > .unity-base-field__label {
-    unity-text-align: middle-center;
+    -unity-text-align: middle-center; /*could turn this off?*/
     margin-bottom: 4px;
 }
 
 .centered-textfield > .unity-base-field__input {
     width: 100%;
+}
+
+/*hide the arrow buttons on the scroll bar*/
+.unity-scroller__low-button,
+.unity-scroller__high-button {
+    display: none;
+}
+
+/* Scrollbar track */
+.unity-scroll-view__vertical-scroller {
+    width: 6px;
+    background-color: rgba(255, 255, 255, 0.05); /* subtle track */
+    border-radius: 3px;
+}
+
+/* Draggable handle */
+.unity-scroller__slider {
+    background-color: rgba(255, 255, 255, 0.25);
+    border-radius: 3px;
+}
+
+/* Hover effect */
+.unity-scroller__slider:hover {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.detail-card {
+    flex-grow: 1;
+    flex-basis: 0;
+    min-width: 0;
+
+    margin-left: 6px;
+    margin-right: 6px;
+
+    padding: 10px;
+
+    background-color: rgba(20, 14, 10, 0.85); /* dark parchment tone */
+    
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-width: 1px;
+    border-right-width: 1px;
+
+    border-color: #c89b3c; /* gold accent */
+
+    border-radius: 6px;
 }
