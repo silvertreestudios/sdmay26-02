@@ -62,6 +62,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     //####Cancel Action Button####
     private Button cancelActionButton;
+    private bool canCancelAction = true;
     
     //####Current Player Variables####
     private VisualElement currentPlayerCard;
@@ -87,6 +88,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         Debug.Log("Listener");
         OnCombatStart.AddListener(() => { EnableUi(); Setup(); });
         OnNextTurn.AddListener(OnTurnChanged);
+        OnActionConfirm.AddListener(() => canCancelAction = false);
+        OnActionComplete.AddListener(() => canCancelAction = true);
         //Copiloy made this so I could point it to another UXML file for a template
         //I suspect it sucks
         //vvvvvvvvvvvvvvvvvv
@@ -236,11 +239,14 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         foreach (var child in buttonGrid.Children())
             child.SetEnabled(!actionRunning);
 
-        bool idle = GridAPI.GetInstance().IsIdle();
-        bool moving = GridAPI.GetInstance().IsMoving();
-        cancelActionButton.style.display = (idle || moving) ? DisplayStyle.None : DisplayStyle.Flex;
-        if (idle && selectedActionButton != null)
-            SetSelectedButton(null);
+        if(currentTurnAC != null)
+        {
+            cancelActionButton.style.display = (currentTurnAC.IsTakingAction && canCancelAction)? 
+                DisplayStyle.Flex: 
+                DisplayStyle.None;
+            if (!currentTurnAC.IsTakingAction && selectedActionButton != null)
+                SetSelectedButton(null);
+        }
 
         if (selectedActionButton != null)
         {
@@ -603,8 +609,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             buttonCostMap[btn] = captured.ActionCost;
             btn.clicked += () =>
             {
-                if (!GridAPI.GetInstance().IsIdle())
-                    GridAPI.GetInstance().CancelCurrentAction();
+                UniversalEvents.OnCancel.Invoke();
                 SetSelectedButton(btn, ActionButtonColor);
                 turnTaker.GetComponent<ActionController>().TakeAction(captured);
             };
@@ -620,8 +625,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             buttonCostMap[btn] = captured.ActionCost;
             btn.clicked += () =>
             {
-                if (!GridAPI.GetInstance().IsIdle())
-                    GridAPI.GetInstance().CancelCurrentAction();
+                UniversalEvents.OnCancel.Invoke();
                 SetSelectedButton(btn, MovementButtonColor);
                 turnTaker.GetComponent<ActionController>().TakeAction(captured);
             };
@@ -634,7 +638,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         GameObject g = CombatManager.GetInstance().WhosTurn();
         PlayerActionController pac = g.GetComponent<PlayerActionController>();
         if (pac == null) return;
-        GridAPI.GetInstance().CancelCurrentAction();
+        UniversalEvents.OnCancel.Invoke();
         pac.EndTurn();
         combatLog.Log("- " + g.name + " ended their turn.");
     }
@@ -649,6 +653,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     // }
 
     public void CancelAction() {
+        Debug.Log("here I am");
         UniversalEvents.OnCancel.Invoke();
         GameObject g = CombatManager.GetInstance().WhosTurn();
         combatLog.Log("- " + g.name + " canceled their action.");

@@ -64,9 +64,10 @@ namespace GridPrivate
 
         public override bool DestroyToken(GameObject token)
         {
+            Debug.Log("Destroying: " + token);
             Vector3Int position = Vector3Int.RoundToInt(token.transform.position);
             Tile tile = Tiles[position.x, position.z];
-            if (tile == null || tile.Occupants.Count > 0)
+            if (tile == null || tile.Occupants.Count == 0)
                 return false;
             tile.Occupants.Remove(token);
             return true;

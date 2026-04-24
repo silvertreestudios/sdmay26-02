@@ -16,7 +16,11 @@ namespace GridPrivate
         public GridFSM()
         {
             CurrentState = IdleState;
-            OnCancel.AddListener(() => ChangeState(new StateIdle()));
+            OnCancel.AddListener(() => {
+                Debug.Log("Action Cancel");
+                if (ChangeState(new StateIdle()))
+                    OnActionCancel.Invoke();
+            });
         }
 
         public override bool ChangeState(GridFSMState newState)

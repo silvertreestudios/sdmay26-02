@@ -66,10 +66,10 @@ namespace GridPrivate
         //called by FSM machine once a state change is triggered
         public override void Exit()
         {
-            HideHighlightPath();
             OnHighlightRangeEnd.Invoke();
             OnHover.RemoveListener(HighlightPath);
             OnHoverEnd.RemoveListener(HideHighlightPath);
+            OnActionComplete.Invoke();
         }
         
         // highlight the path just by hovering over in range tiles, clear if not hovering over valid tiles
@@ -77,11 +77,13 @@ namespace GridPrivate
         {
             if (Path != null && canCancel)
             {
+                OnActionConfirm.Invoke();
                 canCancel = false;
                 // Remove Path highlight changes
                 OnHover.RemoveListener(HighlightPath);
                 OnHoverEnd.RemoveListener(HideHighlightPath);
                 OnHighlightRangeEnd.Invoke();
+                HideHighlightPath();
                 // Execute the path
                 CoroutineRunner.Run(ExecutePlayerMovement(Path));
             }

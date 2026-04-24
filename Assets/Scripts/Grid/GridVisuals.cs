@@ -47,7 +47,7 @@ namespace GridPrivate
             OnHoverEnd.AddListener(() => HoverPool.Clear());
             OnHighlightRange.AddListener((List<Vector3Int> locations) => ClearAndShow(locations, RangePool, RangeOffset));
             OnHighlightRangeEnd.AddListener(() => RangePool.Clear());
-            OnCancelAction.AddListener(() => RangePool.Clear());
+            OnActionCancel.AddListener(() => RangePool.Clear());
 
             LineRenderer = this.gameObject.AddComponent<LineRenderer>();
             LineRenderer.material = (LineMaterial != null)?

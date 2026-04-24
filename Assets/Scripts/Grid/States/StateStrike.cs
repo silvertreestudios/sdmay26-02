@@ -72,14 +72,14 @@ namespace GridPrivate
             OccupantsInRange.Clear();
             OnHover.RemoveListener(Hover);
             OnHighlightRangeEnd.Invoke();
+            OnActionComplete.Invoke();
         }
         public override void Leftclick()
         {
             Tile tile = Tiles[HoverCell.x, HoverCell.z];
-            Debug.Log("Tile: " + HoverCell + " " + (tile != null));
             if (tile != null)
             {
-                Debug.Log("Count: " + tile.Occupants.Count);
+                OnActionConfirm.Invoke();
                 if (tile.Occupants.Count > 0)
                     Selection.Value = tile.Occupants[0];
 

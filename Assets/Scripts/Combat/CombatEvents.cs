@@ -22,3 +22,12 @@ public class OnCombatantJoin : StaticUnityEvent<OnCombatantJoin, GameObject> {}
 
 /// <summary>Triggered upon a victory or defeat </summary>
 public class OnCombatOutcome : StaticUnityEvent<OnCombatOutcome, bool> {}
+
+/// <summary>UI Triggered Event for selecting an action </summary>
+public class OnActionSelect : StaticUnityEvent<OnActionSelect, EntityAction> { }
+
+/// <summary>UI Triggered upon action confirmation (no longer able to cancel action) </summary>
+public class OnActionConfirm : StaticUnityEvent<OnActionConfirm> { }
+
+/// <summary>UI Triggered upon action completion </summary>
+public class OnActionComplete : StaticUnityEvent<OnActionComplete> { }

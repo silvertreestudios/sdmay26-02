@@ -29,5 +29,3 @@ public class OnDamageDealt : StaticUnityEvent<OnDamageDealt, string> {}
 public class OnAttackMiss : StaticUnityEvent<OnAttackMiss, GameObject> {}
 /// <summary>Triggered upon a creature's death, returns the GameObject that died</summary>
 public class OnDeath : StaticUnityEvent<OnDeath, GameObject> { }
-/// <summary>Triggered upon action cancelation</summary>
-public class OnCancelAction : StaticUnityEvent<OnCancelAction> { }
