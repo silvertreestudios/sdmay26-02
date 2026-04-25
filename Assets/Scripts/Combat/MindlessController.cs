@@ -119,16 +119,10 @@ public class MindlessController : AIActionController
 
         // Move towards the best target — select the furthest tile in path within movement range
         int maxMoveDist = this.gameObject.GetComponent<CreatureComponent>()?.speed ?? 0;
-        List<Vector3Int> reachableTiles = new();
+
         // Get cells within distance
-        for(int i = 0; i <= BestPath.Count; i++)
-        {
-            if (i >= BestPath.Count || BestPath[i].Dist > maxMoveDist / 5)
-                break;
-            else
-                reachableTiles.Add(BestPath[i].Location);
-        }
-        // Remove Occupied cells from the end of the path
+        List<Vector3Int> reachableTiles = GetReachableCells(maxMoveDist, BestPath);
+
         int cellIndex = reachableTiles.Count - 1;
         while (cellIndex >= 0)
         {
@@ -145,7 +139,7 @@ public class MindlessController : AIActionController
         {
             // Direct path is fully blocked by a teammate — try an unoccupied neighboring tile of the target
             Vector3Int targetCellAlt = Vector3Int.RoundToInt(BestTarget.transform.position);
-            List<PathNode> altPath = FindAlternativeApproachPath(currentCell, targetCellAlt, reachableTiles);
+            List<PathNode> altPath = FindAlternativeApproachPath(currentCell, targetCellAlt);
             if (altPath == null || altPath.Count == 0)
                 return null;
             SelectedTile = altPath[altPath.Count - 1].Location;
@@ -162,10 +156,11 @@ public class MindlessController : AIActionController
     /// When the direct path to a target is blocked by a teammate, finds the shortest path to
     /// an unoccupied cardinal neighbor of the target that the AI can make progress toward.
     /// </summary>
-    private List<PathNode> FindAlternativeApproachPath(Vector3Int from, Vector3Int targetCell, List<Vector3Int> reachableTiles)
+    private List<PathNode> FindAlternativeApproachPath(Vector3Int from, Vector3Int targetCell)
     {
         List<PathNode> bestAltPath = null;
         int bestAltDist = int.MaxValue;
+        int maxMoveDist = this.gameObject.GetComponent<CreatureComponent>()?.speed ?? 0;
 
         foreach (var dir in CardinalDirections)
         {
@@ -186,16 +181,35 @@ public class MindlessController : AIActionController
             if (altPath == null || altPath.Count < 2)
                 continue;
 
-            int idx = altPath.FindLastIndex(tile => reachableTiles.Contains(tile.Location));
-            if (idx < 1) continue; // Need at least one step of forward progress
+            List<Vector3Int> altReachable = GetReachableCells(maxMoveDist, altPath);
+            
+            if (altReachable.Count < 1) continue; // Need at least one step of forward progress
 
             if (altPath.Count < bestAltDist)
             {
                 bestAltDist = altPath.Count;
-                bestAltPath = altPath.GetRange(0, idx + 1);
+                bestAltPath = altPath.GetRange(0, altReachable.Count);
             }
         }
 
         return bestAltPath;
     }
+
+    /// <summary> 
+    /// Returns the list of cells in the path that are within movement range. Assumes each step in the path is 5ft.
+    /// </summary> 
+    private List<Vector3Int> GetReachableCells(int maxMoveDist, List<PathNode> Path)
+    {
+        List<Vector3Int> reachableCells = new();
+        for(int i = 0; i < Path.Count; i++)
+        {
+            if (Path[i].Dist <= maxMoveDist / 5)
+                reachableCells.Add(Path[i].Location);
+            else
+                break;
+        }
+        return reachableCells;
+    }
+
+
 }

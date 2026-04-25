@@ -22,7 +22,6 @@ namespace TestsState
             // Load the MainMenu scene - add it to Build Settings first!
             SceneManager.LoadScene("UnitTestingScene");
             yield return new WaitUntil(() => SceneManager.GetActiveScene().name == "UnitTestingScene");
-            yield return new WaitForSeconds(0.5f);
         }
         
         //TODO test that moving works
