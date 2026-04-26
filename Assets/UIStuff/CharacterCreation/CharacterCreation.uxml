@@ -53,27 +53,27 @@
                 <ui:VisualElement style="flex-grow: 0;">
                     <ui:Foldout text="Attacks" name="ClassAttackFoldout" style="flex-shrink: 1;">
                         <ui:TextField label="Simple Weapons" name="SimpleAttack" readonly="true" max-length="-1" placeholder-text="not selected" style="width: 315px; flex-shrink: 1;" />
-                        <ui:TextField label="Martial Weapons" name="MartialAttack" readonly="true" style="width: auto;" />
-                        <ui:TextField label="Advanced Weapons" name="AdvancedAttack" readonly="true" />
-                        <ui:TextField label="Unarmed Attack" name="UnarmedAttack" readonly="true" />
+                        <ui:TextField label="Martial Weapons" name="MartialAttack" readonly="true" placeholder-text="not selected" style="width: auto;" />
+                        <ui:TextField label="Advanced Weapons" name="AdvancedAttack" readonly="true" placeholder-text="not selected" />
+                        <ui:TextField label="Unarmed Attack" name="UnarmedAttack" readonly="true" placeholder-text="not selected" />
                     </ui:Foldout>
                     <ui:Foldout text="Defense" name="ClassDefenseFoldout" style="flex-shrink: 0;">
-                        <ui:TextField label="Unarmored" name="UnarmoredDefense" readonly="true" />
-                        <ui:TextField label="Light Armor" name="LightArmorDefense" readonly="true" />
-                        <ui:TextField label="Medium Armor" name="MediumArmorDefense" readonly="true" />
-                        <ui:TextField label="All Armor" name="AllArmorDefense" readonly="true" />
+                        <ui:TextField label="Unarmored" name="UnarmoredDefense" readonly="true" placeholder-text="not selected" hide-placeholder-on-focus="false" />
+                        <ui:TextField label="Light Armor" name="LightArmorDefense" readonly="true" placeholder-text="not selected" />
+                        <ui:TextField label="Medium Armor" name="MediumArmorDefense" readonly="true" placeholder-text="not selected" />
+                        <ui:TextField label="All Armor" name="AllArmorDefense" readonly="true" placeholder-text="not selected" />
                     </ui:Foldout>
                 </ui:VisualElement>
                 <ui:VisualElement style="flex-grow: 0;">
                     <ui:Foldout text="Saving Throws" name="SavingThrows">
-                        <ui:TextField label="Perception" name="Perception" readonly="true" style="width: auto;" />
-                        <ui:TextField label="Fortitude" name="Fortitude" readonly="true" />
-                        <ui:TextField label="Reflex" name="Reflex" readonly="true" />
-                        <ui:TextField label="Will" name="Will" readonly="true" />
+                        <ui:TextField label="Perception" name="Perception" readonly="true" placeholder-text="not selected" style="width: auto;" />
+                        <ui:TextField label="Fortitude" name="Fortitude" readonly="true" placeholder-text="not selected" />
+                        <ui:TextField label="Reflex" name="Reflex" readonly="true" placeholder-text="not selected" />
+                        <ui:TextField label="Will" name="Will" readonly="true" placeholder-text="not selected" />
                     </ui:Foldout>
                     <ui:Foldout text="Feats">
-                        <ui:TextField label="Ancestry Feat" readonly="true" name="AncestryFeatField" style="flex-shrink: 0; flex-grow: 0; width: 340px;" />
-                        <ui:TextField label="Class Feat" readonly="true" name="ClassFeatField" />
+                        <ui:TextField label="Ancestry Feat" readonly="true" name="AncestryFeatField" placeholder-text="not selected" style="flex-shrink: 0; flex-grow: 0; width: 340px;" />
+                        <ui:TextField label="Class Feat" readonly="true" name="ClassFeatField" placeholder-text="not selected" />
                     </ui:Foldout>
                 </ui:VisualElement>
             </ui:VisualElement>

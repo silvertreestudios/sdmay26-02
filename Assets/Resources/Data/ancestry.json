@@ -9,10 +9,10 @@
       "speed": 30,
       "ancestryFeat": ["Ancestral Longevity", "Elven Weapon Familiarity", "Forlorn", "Nimble Elf", "Otherwordly Magic", "Unwavering Mien"],
       "heritage": ["Ancient", "Arctic", "Carvern", "Seer", "Whisper", "Woodland"],
-      "size": "medium",
+      "size": "Medium",
       "languages": ["Common", "Elven"],
       "traits": ["Elf", "Humanoid"],
-      "specialAbilities": ["low light vision"]
+      "specialAbilities": ["Low Light Vision"]
     },
         {
       "id": "Goblin",
@@ -23,10 +23,10 @@
       "speed": 25,
       "ancestryFeat": ["Burn It!", "City Scavenger", "Goblin Scuttle", "Goblin Song", "Goblin Weapon Familiarity", "Junk Tinker", "Rough Rider", "Very Sneaky"],
       "heritage": ["Charhide", "Irongut", "Razortooth", "Snow", "Unbreakable"],
-      "size": "small",
+      "size": "Small",
       "languages": ["Common", "Goblin"],
       "traits": ["Goblin", "Humanoid"],
-      "specialAbilities": ["darkvision"]
+      "specialAbilities": ["Darkvision"]
     },
         {
       "id": "Dwarf",
@@ -37,10 +37,10 @@
       "speed": 20,
       "ancestryFeat": ["Dwarven Doughtiness", "Dwarven Weapon Familiarity", "Mountain Strategy", "Rock Runner", "Stonemason's Eye", "Unburdended Iron"],
       "heritage": ["Ancient-Blooded", "Death Warden", "Forge", "Rock", "Strong-Blooded"],
-      "size": "medium",
+      "size": "Medium",
       "languages": ["Common", "Dwarven"],
       "traits": ["Dwarf", "Humanoid"],
-      "specialAbilities": ["darkvision", "clan dagger"]
+      "specialAbilities": ["Darkvision", "Clan Dagger"]
     },
         {
       "id": "Halfling",
@@ -51,7 +51,7 @@
       "speed": 25,
       "ancestryFeat": ["Distracting Shadows", "Folksy Patter", "Halfling Luck", "Prairie Rider", "Sure Feed", "Titan Slinger", "Unfettered Halfling", "Watchful Halfling", "Halfling Weapon Familiarity"],
       "heritage": ["Gusty", "Hillock", "Nomadic", "Twilight", "Wildwood"],
-      "size": "small",
+      "size": "Small",
       "languages": ["Common", "Halfling"],
       "traits": ["Halfling", "Humanoid"],
       "specialAbilities": ["Keen Eyes"]
@@ -65,10 +65,10 @@
       "speed": 25,
       "ancestryFeat": ["Grasping Reach", "Harmlessly Cute", "Leshy Superstition", "Seedpod", "Shadow of the Wilds", "Undaunted"],
       "heritage": ["Cactus", "Fruit", "Fungus", "Gourd", "Leaf", "Lotus", "Root", "Seaweed", "Vine"],
-      "size": "small",
+      "size": "Small",
       "languages": ["Common", "Fey"],
       "traits": ["Leshy", "Plant"],
-      "specialAbilities": ["low light vision", "plant nourishment"]
+      "specialAbilities": ["Low Light Vision", "Plant Nourishment"]
     },
         {
       "id": "Gnome",
@@ -79,10 +79,10 @@
       "speed": 25,
       "ancestryFeat": ["Animal Accomplice", "Animal Elocutionist", "Fey Fellowship", "First World Magic", "Gnome Obsession", "Gnome Weapon Familiarity", "Illusion Sense", "Razzle-Dazzle"],
       "heritage": ["Chameleon", "Fey-touched", "Sensate", "Umbral", "Wellspring"],
-      "size": "small",
+      "size": "Small",
       "languages": ["Common", "Fey", "Gnomish"],
       "traits": ["Gnome", "Humanoid"],
-      "specialAbilities": ["low light vision"]
+      "specialAbilities": ["Low Light Vision"]
     }
   ]
 }
