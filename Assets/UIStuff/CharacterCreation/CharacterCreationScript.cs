@@ -679,7 +679,7 @@ public class CharacterCreationScript : MonoBehaviour
                 text = heritage
             };
 
-            rb.AddToClassList("secondary-radio-button"); //add custom class for styling
+            rb.AddToClassList("pill-radio"); //add custom class for styling
             heritageRadioButtonGroup.Add(rb);
         }
 
@@ -699,7 +699,7 @@ public class CharacterCreationScript : MonoBehaviour
             {
                 text = ancestryFeat
             };
-            rb.AddToClassList("secondary-radio-button"); //add custom class for styling
+            rb.AddToClassList("pill-radio"); //add custom class for styling
             ancestryFeatsRadioButtonGroup.Add(rb);
         }
 
@@ -766,9 +766,9 @@ public class CharacterCreationScript : MonoBehaviour
             text = backgroundDescriptionByBackground[background][2]
         };
 
-        rb.AddToClassList("secondary-radio-button"); //add custom class for styling
+        rb.AddToClassList("pill-radio"); //add custom class for styling
         backgroundBoostChoiceRadioButtonGroup.Add(rb);
-        rb2.AddToClassList("secondary-radio-button"); //add custom class for styling
+        rb2.AddToClassList("pill-radio"); //add custom class for styling
         backgroundBoostChoiceRadioButtonGroup.Add(rb2);
 
     }
@@ -867,7 +867,7 @@ public class CharacterCreationScript : MonoBehaviour
             {
                 text = classFeat
             };
-            rb.AddToClassList("secondary-radio-button");
+            rb.AddToClassList("pill-radio"); //add custom class for styling
             classFeatsRadioButtonGroup.Add(rb);
         }
 
@@ -898,7 +898,7 @@ public class CharacterCreationScript : MonoBehaviour
             {
                 text = subclass
             };
-            rb.AddToClassList("secondary-radio-button");
+            rb.AddToClassList("pill-radio");
             subclassRadioButtonGroup.Add(rb);
         }
 

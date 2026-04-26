@@ -106,12 +106,12 @@
                         <ui:Tab label="Free Boost" name="FreeAttributeBoostTab">
                             <ui:Label text="Pick a free attribute boost" name="FreeBoostLabel" class="tab-content" />
                             <ui:RadioButtonGroup name="FreeBoostRadioButtonGroup">
-                                <ui:RadioButton label="Strength" name="StrengthAttributeRadio" class="secondary-radio-button" />
-                                <ui:RadioButton label="Dexterity" name="DexterityAttributeRadio" class="secondary-radio-button" />
-                                <ui:RadioButton label="Constitution" name="ConstitutionAttributeRadio" class="secondary-radio-button" />
-                                <ui:RadioButton label="Intelligence" name="IntelligenceAttributeRadio" class="secondary-radio-button" />
-                                <ui:RadioButton label="Wisdom" name="WisdomAttributeRadio" class="secondary-radio-button" />
-                                <ui:RadioButton label="Charisma" name="CharismaAttributeRadio" class="secondary-radio-button" />
+                                <ui:RadioButton label="Strength" name="StrengthAttributeRadio" class="pill-radio" style="-unity-text-align: upper-center;" />
+                                <ui:RadioButton label="Dexterity" name="DexterityAttributeRadio" class="pill-radio" style="-unity-text-align: upper-center;" />
+                                <ui:RadioButton label="Constitution" name="ConstitutionAttributeRadio" class="pill-radio" style="-unity-text-align: upper-center;" />
+                                <ui:RadioButton label="Intelligence" name="IntelligenceAttributeRadio" class="pill-radio" style="-unity-text-align: upper-center;" />
+                                <ui:RadioButton label="Wisdom" name="WisdomAttributeRadio" class="pill-radio" style="-unity-text-align: upper-center;" />
+                                <ui:RadioButton label="Charisma" name="CharismaAttributeRadio" class="pill-radio" style="-unity-text-align: upper-center;" />
                             </ui:RadioButtonGroup>
                         </ui:Tab>
                     </ui:TabView>
@@ -119,9 +119,9 @@
                 <ui:Tab label="Background" name="BackgroundTab" view-data-key="BackgroundTab">
                     <ui:Label text="Your former occupation" name="BackgroundContent" class="tab-content" />
                     <ui:RadioButtonGroup name="BackgroundRadioButtonGroup" class="icon-radio-button">
-                        <ui:RadioButton label="Acolyte" name="AcolyteRadioButton" class="icon-radio-button" />
-                        <ui:RadioButton label="Bandit" name="BanditRadioButton" class="icon-radio-button" />
-                        <ui:RadioButton label="Cook" name="CookRadioButton" class="icon-radio-button" />
+                        <ui:RadioButton label="Acolyte" name="AcolyteRadioButton" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
+                        <ui:RadioButton label="Bandit" name="BanditRadioButton" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
+                        <ui:RadioButton label="Cook" name="CookRadioButton" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
                     </ui:RadioButtonGroup>
                     <ui:TabView name="NestedBackgroundChoices">
                         <ui:Tab label="Boost Choice" name="BoostChoices">
@@ -131,12 +131,12 @@
                         <ui:Tab label="Free Boost" name="BackgroundFreeBoost">
                             <ui:Label text="Free Boost for Background" name="BackgroundFreeBoostLabel" class="tab-content" />
                             <ui:RadioButtonGroup name="BackgroundFreeBoostRadioGroup">
-                                <ui:RadioButton label="Strength" name="BackgroundStrength" class="secondary-radio-button" />
-                                <ui:RadioButton label="Dexterity" name="BackgroundDexterity" class="secondary-radio-button" />
-                                <ui:RadioButton label="Constitution" name="BackgroundConstitution" class="secondary-radio-button" />
-                                <ui:RadioButton label="Intelligence" name="BackgroundIntelligence" class="secondary-radio-button" />
-                                <ui:RadioButton label="Wisdom" name="BackgroundWisdom" class="secondary-radio-button" />
-                                <ui:RadioButton label="Charisma" name="BackgroundCharisma" class="secondary-radio-button" />
+                                <ui:RadioButton label="Strength" name="BackgroundStrength" class="pill-radio" style="-unity-text-align: upper-center;" />
+                                <ui:RadioButton label="Dexterity" name="BackgroundDexterity" class="pill-radio" style="-unity-text-align: upper-center;" />
+                                <ui:RadioButton label="Constitution" name="BackgroundConstitution" class="pill-radio" style="-unity-text-align: upper-center;" />
+                                <ui:RadioButton label="Intelligence" name="BackgroundIntelligence" class="pill-radio" style="-unity-text-align: upper-center;" />
+                                <ui:RadioButton label="Wisdom" name="BackgroundWisdom" class="pill-radio" style="-unity-text-align: upper-center;" />
+                                <ui:RadioButton label="Charisma" name="BackgroundCharisma" class="pill-radio" style="-unity-text-align: upper-center;" />
                             </ui:RadioButtonGroup>
                         </ui:Tab>
                     </ui:TabView>
@@ -144,11 +144,11 @@
                 <ui:Tab label="Class" name="ClassTab" view-data-key="ClassTab">
                     <ui:Label text="Your fighting style" name="ClassContent" class="tab-content" />
                     <ui:RadioButtonGroup name="ClassesRadioButtonGroup" class="icon-radio-button">
-                        <ui:RadioButton label="Fighter" name="FighterRadioButton" class="icon-radio-button" />
-                        <ui:RadioButton label="Cleric" name="ClericRadioButton" class="icon-radio-button" />
-                        <ui:RadioButton label="Rogue" name="RogueRadioButton" class="icon-radio-button" />
-                        <ui:RadioButton label="Sorcerer" name="SorcererRadioButton" class="icon-radio-button" />
-                        <ui:RadioButton label="Barbarian" name="BarbarianRadioButton" class="icon-radio-button" />
+                        <ui:RadioButton label="Fighter" name="FighterRadioButton" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
+                        <ui:RadioButton label="Cleric" name="ClericRadioButton" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
+                        <ui:RadioButton label="Rogue" name="RogueRadioButton" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
+                        <ui:RadioButton label="Sorcerer" name="SorcererRadioButton" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
+                        <ui:RadioButton label="Barbarian" name="BarbarianRadioButton" class="icon-radio-button" style="background-image: url(&quot;project://database/Assets/UIStuff/CharacterCreation/Parchment.jpg?fileID=2800000&amp;guid=e27ae5b6334de39409709e23faaca9c3&amp;type=3#Parchment&quot;);" />
                     </ui:RadioButtonGroup>
                     <ui:TabView name="NestedClassChoices">
                         <ui:Tab label="Class Feats" name="ClassFeats">
@@ -167,12 +167,14 @@
                 </ui:Tab>
                 <ui:Tab label="Final Boosts" name="FinalBoosts">
                     <ui:Label text="Pick 4 final boosts. &#10;Apply each one to a different modifier" name="FinalBoostLabel" class="tab-content" />
-                    <ui:Toggle label="Strength" name="StrengthToggle" />
-                    <ui:Toggle label="Dexterity" name="DexterityToggle" />
-                    <ui:Toggle label="Constitution" name="ConstitutionToggle" />
-                    <ui:Toggle label="Intelligence" name="IntelligenceToggle" />
-                    <ui:Toggle label="Wisdom" name="WisdomToggle" />
-                    <ui:Toggle label="Charisma" name="CharismaToggle" />
+                    <ui:VisualElement style="flex-grow: 1; align-self: center; align-content: center;">
+                        <ui:Toggle label="Strength" name="StrengthToggle" class="pill-toggle" />
+                        <ui:Toggle label="Dexterity" name="DexterityToggle" class="pill-toggle" />
+                        <ui:Toggle label="Constitution" name="ConstitutionToggle" class="pill-toggle" />
+                        <ui:Toggle label="Intelligence" name="IntelligenceToggle" class="pill-toggle" />
+                        <ui:Toggle label="Wisdom" name="WisdomToggle" class="pill-toggle" />
+                        <ui:Toggle label="Charisma" name="CharismaToggle" class="pill-toggle" />
+                    </ui:VisualElement>
                 </ui:Tab>
             </ui:TabView>
         </ui:VisualElement>

@@ -198,10 +198,91 @@
 .icon-radio-button {
 }
 
-.secondary-radio-button {
-    font-size: 20px;
+#HeritageRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#AncestryFeatsRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#BackgroundBoostChoiceRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#ClassFeatsRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#SubClassRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#FreeBoostRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#BackgroundFreeBoostRadioGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.pill-radio {
+    align-self: flex-start;
+    flex-grow: 0;
+    width: auto;
+    padding: 6px 14px;
+    margin-bottom: 6px;
+    border-radius: 999px;
+    background-color: rgba(25, 18, 12, 0.9);
+    border-width: 1px;
+    border-color: rgb(200, 155, 60);
+    color: rgb(240, 230, 200);
+}
+
+.pill-radio .unity-radio-button__checkmark {
+    display: none;
+}
+
+.pill-radio .unity-radio-button__checkmark-background {
+    display: none;
+}
+
+.pill-radio:hover {
+    background-color: rgba(40, 28, 18, 0.95);
+    border-color: rgb(230, 193, 90);
+}
+
+.pill-radio:checked {
+    background-color: rgb(200, 155, 60);
+    border-color: rgb(240, 210, 122);
+    color: rgb(40, 30, 10);
+}
+
+.pill-toggle {
+    align-self: flex-start;
+    flex-grow: 0;
+    width: auto;
+    padding: 6px 14px;
+    margin-bottom: 6px;
+    background-color: rgba(25, 18, 12, 0.9);
+    border-width: 1px;
+    border-color: rgb(200, 155, 60);
+    color: rgb(240, 230, 200);
     -unity-font-definition: resource('TitilliumWeb-Regular SDF');
-    background-color: rgb(216, 195, 134);
+    font-size: 20px;
+}
+
+.pill-toggle:checked {
+    background-color: rgb(200, 155, 60);
+    border-color: rgb(240, 210, 122);
+    color: rgb(40, 30, 10);
 }
 
 .centered-textfield {
@@ -210,7 +291,7 @@
 }
 
 .centered-textfield > .unity-base-field__label {
-    -unity-text-align: middle-center; /*could turn this off?*/
+    -unity-text-align: middle-center;
     margin-bottom: 4px;
 }
 
@@ -218,26 +299,25 @@
     width: 100%;
 }
 
-/*hide the arrow buttons on the scroll bar*/
-.unity-scroller__low-button,
+.unity-scroller__low-button {
+    display: none;
+}
+
 .unity-scroller__high-button {
     display: none;
 }
 
-/* Scrollbar track */
 .unity-scroll-view__vertical-scroller {
     width: 6px;
-    background-color: rgba(255, 255, 255, 0.05); /* subtle track */
+    background-color: rgba(255, 255, 255, 0.05);
     border-radius: 3px;
 }
 
-/* Draggable handle */
 .unity-scroller__slider {
     background-color: rgba(255, 255, 255, 0.25);
     border-radius: 3px;
 }
 
-/* Hover effect */
 .unity-scroller__slider:hover {
     background-color: rgba(255, 255, 255, 0.5);
 }
@@ -246,20 +326,14 @@
     flex-grow: 1;
     flex-basis: 0;
     min-width: 0;
-
     margin-left: 6px;
     margin-right: 6px;
-
     padding: 10px;
-
-    background-color: rgba(20, 14, 10, 0.85); /* dark parchment tone */
-    
+    background-color: rgba(20, 14, 10, 0.85);
     border-top-width: 2px;
     border-bottom-width: 2px;
     border-left-width: 1px;
     border-right-width: 1px;
-
-    border-color: #c89b3c; /* gold accent */
-
+    border-color: rgb(200, 155, 60);
     border-radius: 6px;
 }
