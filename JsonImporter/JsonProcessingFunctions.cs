@@ -5,6 +5,19 @@ namespace JsonImporter
 {
     public static class JsonProcessingFunctions
     {
+        /*
+        This class contains helper functions for processing specific types of assets.
+        Processing includes:
+            - Extracting relevant fields from the original JSON structure
+            - Transforming or reformatting data as needed for our game's data model
+            - Removing unnecessary or redundant fields to reduce file size and complexity
+            - Handling special cases or inconsistencies in the source data
+        Processing function for creatures/monsters is located in MonsterJsonProcessor.cs due to its complexity and size.
+        
+        Be sure to thoroughly test that any change to json structure/format does not break existing systems that utilize those files.
+
+        */
+
         public static string ProcessWeaponJson(string jsonContent)
         {
             var input = JObject.Parse(jsonContent);

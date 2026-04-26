@@ -3,92 +3,35 @@
   "type": "npc",
   "system": {
     "abilities": {
-      "cha": {
-        "mod": -2
-      },
-      "con": {
-        "mod": 2
-      },
-      "dex": {
-        "mod": -2
-      },
-      "int": {
-        "mod": -5
-      },
-      "str": {
-        "mod": 3
-      },
-      "wis": {
-        "mod": 0
-      }
+      "str": 3,
+      "dex": -2,
+      "con": 2,
+      "int": -5,
+      "wis": 0,
+      "cha": -2
     },
     "attributes": {
-      "ac": {
-        "details": "",
-        "value": 12
-      },
-      "allSaves": {
-        "value": ""
-      },
+      "ac": 12,
+      "allSaves": 0,
       "hp": {
         "details": "void healing",
         "max": 20,
         "temp": 0,
         "value": 20
       },
-      "immunities": [
+      "speed": [
         {
-          "exceptions": [],
-          "type": "death-effects"
-        },
-        {
-          "exceptions": [],
-          "type": "disease"
-        },
-        {
-          "exceptions": [],
-          "type": "paralyzed"
-        },
-        {
-          "exceptions": [],
-          "type": "poison"
-        },
-        {
-          "exceptions": [],
-          "type": "unconscious"
-        },
-        {
-          "exceptions": [],
-          "type": "bleed"
-        }
-      ],
-      "speed": {
-        "otherSpeeds": [],
-        "value": 25
-      },
-      "weaknesses": [
-        {
-          "type": "vitality",
-          "value": 5
-        },
-        {
-          "type": "slashing",
-          "value": 5
+          "value": 25
         }
       ]
     },
     "details": {
-      "blurb": "",
       "languages": {
         "details": "",
         "value": []
       },
-      "level": {
-        "value": -1
-      },
-      "privateNotes": "",
+      "level": -1,
       "publicNotes": "<p>A zombie shambler is a slow-moving horror dangerous in larger groups.</p>\n<hr />\n<p>A zombie's only desire is to consume the living. Unthinking and ever-shambling harbingers of death, zombies stop only when they're destroyed.</p>",
-      "publicNotesPlain": null,
       "publicNotesParagraphs": [
         "A zombie shambler is a slow-moving horror dangerous in larger groups.",
         "A zombie's only desire is to consume the living. Unthinking and ever-shambling harbingers of death, zombies stop only when they're destroyed."
@@ -113,30 +56,16 @@
     },
     "resources": {},
     "saves": {
-      "fortitude": {
-        "saveDetail": "",
-        "value": 6
-      },
-      "reflex": {
-        "saveDetail": "",
-        "value": 0
-      },
-      "will": {
-        "saveDetail": "",
-        "value": 2
-      }
+      "fortitude": 6,
+      "reflex": 0,
+      "will": 2
     },
-    "skills": [
-      {
-        "name": "athletics",
-        "value": 7
-      }
-    ],
+    "skills": {
+      "athletics": 7
+    },
     "traits": {
       "rarity": "common",
-      "size": {
-        "value": "med"
-      },
+      "size": "med",
       "value": [
         "mindless",
         "undead",
@@ -144,11 +73,46 @@
         "zombie"
       ]
     },
-    "weaknesses": [],
+    "immunities": [
+      {
+        "exceptions": [],
+        "type": "death-effects"
+      },
+      {
+        "exceptions": [],
+        "type": "disease"
+      },
+      {
+        "exceptions": [],
+        "type": "paralyzed"
+      },
+      {
+        "exceptions": [],
+        "type": "poison"
+      },
+      {
+        "exceptions": [],
+        "type": "unconscious"
+      },
+      {
+        "exceptions": [],
+        "type": "bleed"
+      }
+    ],
+    "weaknesses": [
+      {
+        "type": "vitality",
+        "value": 5
+      },
+      {
+        "type": "slashing",
+        "value": 5
+      }
+    ],
     "resistances": []
   },
   "equipment": [],
-  "items": [
+  "actions": [
     {
       "name": "Fist",
       "type": "melee",
@@ -335,84 +299,21 @@
           "value": []
         }
       }
-    },
-    {
-      "name": "Zombie-Fist",
-      "type": "action",
-      "system": {
-        "actionType": {
-          "value": "passive"
-        },
-        "actions": {
-          "value": null
-        },
-        "category": "defensive",
-        "description": {
-          "value": "TEMP substitute to active fist action"
-        },
-        "descriptionParagraphs": [
-          "TEMP substitute to active fist action"
-        ],
-        "descriptionContext": [
-          "PF2E.NPC.Abilities.Glossary.NegativeHealing"
-        ],
-        "publication": {
-          "license": "ORC",
-          "remaster": true,
-          "title": "Pathfinder Monster Core"
-        },
-        "rules": [
-          {
-            "key": "ActiveEffectLike",
-            "mode": "override",
-            "path": "system.attributes.hp.negativeHealing",
-            "value": true
-          }
-        ],
-        "slug": "void-healing",
-        "traits": {
-          "rarity": "common",
-          "value": []
-        }
-      }
     }
   ],
   "conditions": [],
-  "weaponBonuses": [
-    {
-      "category": "unarmed",
-      "bonus": 0
-    },
-    {
-      "category": "simple",
-      "bonus": 0
-    },
-    {
-      "category": "martial",
-      "bonus": 0
-    },
-    {
-      "category": "advanced",
-      "bonus": 0
-    }
-  ],
-  "armorBonuses": [
-    {
-      "category": "unarmored",
-      "bonus": 0
-    },
-    {
-      "category": "light",
-      "bonus": 0
-    },
-    {
-      "category": "medium",
-      "bonus": 0
-    },
-    {
-      "category": "heavy",
-      "bonus": 0
-    }
-  ],
+  "weaponBonuses": {
+    "unarmed": 0,
+    "simple": 0,
+    "martial": 0,
+    "advanced": 0
+  },
+  "armorBonuses": {
+    "unarmored": 0,
+    "light": 0,
+    "medium": 0,
+    "heavy": 0
+  },
+  "playerOnlyStuff": [],
   "Source": "packs/pathfinder-monster-core"
 }

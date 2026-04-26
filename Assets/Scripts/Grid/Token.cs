@@ -1,10 +1,16 @@
+using GridPrivate;
+using GridPublic;
 using UnityEngine;
 
-public class Token : MonoBehaviour
+namespace GridPublic
 {
-    void Awake()
+    public class Token : MonoBehaviour
     {
-        var c = GridCharacterController3D.GetInstance();
-        c.PlaceCreature(this.gameObject);
+        void Awake()
+        {
+            GridAPI grid = GridAPI.GetInstance();
+            GridAPIPrivate priv = (GridAPIPrivate)grid;
+            priv.AddToken(this.gameObject);
+        }
     }
 }

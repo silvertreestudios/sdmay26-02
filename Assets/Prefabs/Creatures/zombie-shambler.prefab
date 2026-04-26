@@ -284,8 +284,6 @@ MonoBehaviour:
   _passives:
   - Slow
   - Void Healing
-  - Zombie-Fist
-  _conditions: []
   _equippedArmor:
     name: 
     type: 

@@ -79,6 +79,13 @@ namespace JsonImporter
         }
     }
 
+    /*
+    Set parameters and constants for the importer, including:
+        - GitHub API configuration (root URL, branch/tag/ref, target directory)
+        - Local directory for saving files
+        - Whitelist of directories/files to include in the sync process
+        - Criteria for content approval (license, source book, remaster status)
+    */
     public static class Constants
     {
         // GitHub API root for the pf2e repository contents
@@ -103,6 +110,7 @@ namespace JsonImporter
 
         // Whitelist of directories/files to copy, comment/uncomment directories as needed
         // WARNING: /equipment/ is extremely large with no sub directories, use with caution
+        // TODO: add an option to populate whitelist from a text file so developers can easily reimport specific sets of assets without modifying code
         public static readonly HashSet<string> whitelist = new HashSet<string>
         {
             // "packs/spells/cantrip/",
@@ -119,10 +127,10 @@ namespace JsonImporter
             // "packs/equipment/breastplate.json",
             // "packs/equipment/padded-armor.json",
             // "packs/equipment/scale-mail.json",
-            // "packs/pathfinder-monster-core/goblin-warrior.json",
-            // "packs/pathfinder-monster-core/zombie-shambler.json",
-            // "packs/pathfinder-monster-core/skeleton-guard.json",
-            // "packs/pathfinder-monster-core/kobold-warrior.json",
+            "packs/pathfinder-monster-core/goblin-warrior.json",
+            "packs/pathfinder-monster-core/zombie-shambler.json",
+            "packs/pathfinder-monster-core/skeleton-guard.json",
+            "packs/pathfinder-monster-core/kobold-warrior.json",
             // "packs/ancestries/human.json",
             // "packs/heritages/human/skilled-human.json",
             // "packs/feats/ancestry/human/natural-skill.json",
@@ -135,8 +143,8 @@ namespace JsonImporter
             // "packs/actions/rage.json",
             // "packs/actions/quick-tempered.json",
             // "packs/classfeatures/fury-instinct.json"
-            "packs/backgrounds/bandit.json",
-            "packs/feats/class/barbarian/raging-intimidation.json",
+            // "packs/backgrounds/bandit.json",
+            // "packs/feats/class/barbarian/raging-intimidation.json",
         };
 
         public const bool requireRemaster = true; // or false, as needed
@@ -145,8 +153,6 @@ namespace JsonImporter
             "Pathfinder Player Core",
             "Pathfinder Player Core 2",
             "Pathfinder Monster Core",
-            // "Pathfinder Core Rulebook", // TODO temp for importing iconic characters
-            // "Pathfinder GM Core", // TODO temp for importing iconic characters
             // Add other allowed titles here
         };
 
@@ -198,6 +204,7 @@ namespace JsonImporter
         }
     }
 
+    // Utility class for processing JSON content based on source directory or other factors
     public class JSONParser
     {
         // Whitelist of directories/files to copy
@@ -418,6 +425,7 @@ namespace JsonImporter
             return new List<string>(files);
         }
 
+        // Recursive helper for ListGitHubFilesAsync
         private async Task ListGitHubFilesRecursiveAsync(string relativePath, HashSet<string> files)
         {
             // include ref (tag) when listing directory contents

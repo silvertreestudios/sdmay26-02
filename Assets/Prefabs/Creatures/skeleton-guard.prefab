@@ -290,7 +290,6 @@ MonoBehaviour:
   _reactions: []
   _passives:
   - Void Healing
-  _conditions: []
   _equippedArmor:
     name: 
     type: 

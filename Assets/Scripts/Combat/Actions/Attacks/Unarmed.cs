@@ -2,6 +2,7 @@ using Game.Creature;
 using System.Collections.Generic;
 using System.Collections;
 using UnityEngine;
+using GridPublic;
 
 namespace Game.Strikes
 {
@@ -31,10 +32,10 @@ public class Unarmed : MultiFrameEntityAction
         ActionController ac = attacker.GetComponent<ActionController>();
         // Grid get target;
         CoroutineResult<GameObject> target = new();
-        CoroutineResult<bool> canceled = new();
-        yield return GridAPI.GetInstance().Strike(attacker, range, target, canceled);
-        // I implemented a cancel refund for this action, let me know if it needs to change - Adam
-        if(target.Value && !canceled.Value)
+        yield return GridAPI.GetInstance().GetStrikeTarget(attacker, range*5, target);// Convert range(tiles) to ft
+            
+        // null target value equates to canceled action
+        if(target.Value)
         {
             CombatLog.GetInstance().Log("- " + attacker.name + " attacks " + target.Value.name + " with unarmed strike.");
             Debug.Log(attacker + " Striking " + target.Value);
@@ -57,6 +58,7 @@ public class Unarmed : MultiFrameEntityAction
         List<DamageValue> damageFlat = new() { new DamageValue("Bludgeoning", comp.strMod) };
         Unarmed unarmedStrike = new Unarmed(1, damageDice, damageFlat);
         creature.GetComponent<ActionController>()?.AddAction(unarmedStrike);
+        creature.GetComponent<CreatureComponent>()?.actions.Add("Unarmed Strike");
         Debug.Log("Unarmed strike added to " + creature.name);
     }
 

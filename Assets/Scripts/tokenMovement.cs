@@ -4,230 +4,100 @@ using System.Collections;
 using UnityEngine.Animations;
 using System;
 
-public class tokenMovement : ITokenMovement
+namespace GridPrivate
 {
-    // Jump points for the piece to move between
-    public float stepHeight;
-    public float maxRotation;
-    public AnimationCurve ptLerp;
-    public AnimationCurve yLerp;
-
-    // Private variables
-    private Transform objectTransform;
-    List<Vector3> path_points = new List<Vector3>();
-    private Vector3 current_jump_point;
-    private bool isMoving = false;
-    private bool isDoneMovingToPoint = true;
-    private Vector3 lookAtTarget;
-    private float currentTimeRotation;
-
-    //used just for interface
-    private Vector3 targetJump;
-    private float currentTime;
-    private Vector3 direction;
-    private int currentPathIndex = 0;
-    private bool running = true;
-    private bool isDone = true;
-
-
-    public tokenMovement(Transform objectTransform, float stepHeight, float maxRotation, AnimationCurve ptLerp, AnimationCurve yLerp)
+    public class TokenMovement : SingletonMonoBehaviour<TokenMovement>
     {
-        this.objectTransform = objectTransform;
-        this.stepHeight = stepHeight;
-        this.maxRotation = maxRotation;
-        this.ptLerp = ptLerp;
-        this.yLerp = yLerp;
-        current_jump_point = objectTransform.position;
-        currentTime = 0.0f;
-    }
+        // Jump points for the piece to move between
+        [SerializeField]
+        protected float StepHeight;
+        [SerializeField]
+        protected float MaxRotation;
+        [SerializeField]
+        protected AnimationCurve PtLerp;
+        [SerializeField]
+        protected AnimationCurve YLerp;
+        [SerializeField]
+        protected float JumpTime;
 
+        protected bool IsRotating;
+        protected bool IsMoving;
+        protected float CurrentTime;
+        protected Transform Token;
+        protected Vector3 StartPoint;
+        protected Vector3 EndPoint;
+        protected Vector3 Direction;
 
-    // Sets the SINGLE target point for the piece to move to
-    public int setPoint(Vector3 target)
-    {
-        if (path_points.Count > 0)
+        public void LookAt(Vector3 target, Transform token)
         {
-            //Debug.Log("failed to set move to point, target is null");
-            return -1;
+            IsRotating = true;
+            Token = token;
+            Direction = (target - token.position).normalized;
         }
-        else
-        {
-            path_points.Clear();
-            //targetJumpPoint = DisgustingFix(target);
-            path_points.Add(target);
-            isDone = false;
-            //Debug.Log("successfully set move to point");
-            return 0;
-        }
-    }
 
-    // Sets the list of path points for the piece to move along
-    public int setPath(List<Vector3Int> points)
-    {
-        if (path_points.Count > 0)
+        public IEnumerator Hop(Transform token, Vector3 next)
         {
-            //Debug.Log("failed to set path points, path_points length greater than 0");
-            return -1;
+            if (IsMoving)
+                yield break;
+            IsMoving = true;
+            Token = token;
+            CurrentTime = 0.0f;
+            EndPoint = next;
+            StartPoint = token.position;
+            Direction = (EndPoint - StartPoint).normalized;
+            yield return new WaitUntil(() => Token == null);
         }
-        else
+
+        public void Update()
         {
-            path_points.Clear();
-            // Skip the first point since it's the current position
-            for (int i = 1; i < points.Count; i++)
+            if (IsMoving)
             {
-                path_points.Add(points[i]);
-                isDone = false;
+                // Update the current time
+                CurrentTime += Time.deltaTime;
+                float time = Mathf.Clamp01(CurrentTime / JumpTime);
+                //-------------MOVEMENT CALCULATIONS----------------//
+                // Calculate the new position using the animation curves
+                Vector3 position = Vector3.Lerp(StartPoint, EndPoint, PtLerp.Evaluate(time));
+                position.y += StepHeight * YLerp.Evaluate(time);
+                // Apply the new position and rotation
+                Token.position = position;
+                //-------------ROTATION CALCULATIONS----------------//
+                // Tilt forward during jump
+                Vector3 tiltEuler = new Vector3(
+                    MaxRotation * YLerp.Evaluate(time),
+                    0,
+                    0
+                );
+                //Look towards movement direction
+                Quaternion lookRotation = Quaternion.LookRotation(Direction);
+                //convert tilt euler to quaternion
+                Quaternion tiltRotation = Quaternion.Euler(tiltEuler);
+                //combine the two rotations
+                Quaternion finalRotation = lookRotation * tiltRotation;
+                //apply the rotation smoothly
+                Token.rotation = Quaternion.Slerp(Token.rotation, finalRotation, Time.deltaTime * 20f);
+                //--------------------------------------------------//
+                // If the jump is complete
+                if (time >= 1.0f)
+                {
+                    //trigger step audio
+                    OnStepEnd.Invoke(Token.position);
+                    // Cleanup
+                    IsMoving = false;
+                    Token = null;
+                }
+            }   
+            if(IsRotating)
+            {
+                CurrentTime += Time.deltaTime;
+                Quaternion lookRotation = Quaternion.LookRotation(Direction);
+                Token.rotation = Quaternion.Slerp(Token.rotation, lookRotation, Time.deltaTime * 20f);
+                if(CurrentTime >= 1.0f)
+                {
+                    IsRotating = false;
+                    Token = null;
+                }
             }
-            //Debug.Log("successfully set path points");
-            return 0;
         }
     }
-
-
-    //<TODO>: Make current Path Index Increment by function call to allowe better one jump at a time control
-    // Moves the piece along the given list of target positions, with each jump taking the specified time
-    public void move(float time)
-    {
-        // If we're not currently jumping and there are more points to visit
-        if (!isMoving && currentPathIndex < path_points.Count && running)
-        {
-            StartJump(path_points[currentPathIndex]);
-        }
-        // If we are jumping, continue the current jump. Once done, move to the next point
-        if (isMoving)
-        {
-            movePiece(targetJump, time);
-            if (isDoneMovingToPoint) { currentPathIndex++; }
-        }
-        // If we've reached the end of the path, clear the path points to reset
-        if (currentPathIndex >= path_points.Count)
-        {
-            //Debug.Log("Reached end of path points, clearing path points");
-            path_points.Clear();
-            isDone = true;
-            currentPathIndex = 0;
-        }
-    }
-
-    public bool IsMoving()
-    {
-        return !isDone;
-    }
-
-
-    // Initiates a jump to the specified target position
-    private void StartJump(Vector3 target)
-    {
-        isDoneMovingToPoint = false;
-        isMoving = true;
-        targetJump = DisgustingFix(target);
-        current_jump_point = objectTransform.position;
-        direction = (targetJump - objectTransform.position).normalized;
-        currentTime = 0.0f;
-    }
-
-
-    // Moves the piece along a the animation curve to the target position, and handles rotation during the jump
-    private void movePiece(Vector3 target, float jumpTime)
-    {
-        Vector3 start = current_jump_point;
-        Vector3 end = target;
-        // Update the current time
-        currentTime += Time.deltaTime;
-        float time = Mathf.Clamp01(currentTime / jumpTime);
-        //-------------MOVEMENT CALCULATIONS----------------//
-        // Calculate the new position using the animation curves
-        Vector3 position = Vector3.Lerp(start, end, ptLerp.Evaluate(time));
-        position.y += stepHeight * yLerp.Evaluate(time);
-        // Apply the new position and rotation
-        objectTransform.position = position;
-        //-------------ROTATION CALCULATIONS----------------//
-        // Tilt forward during jump
-        Vector3 tiltEuler = new Vector3(
-            maxRotation * yLerp.Evaluate(time),
-            0,
-            0
-        );
-        //Look towards movement direction
-        Quaternion lookRotation = Quaternion.LookRotation(direction);
-        //convert tilt euler to quaternion
-        Quaternion tiltRotation = Quaternion.Euler(tiltEuler);
-        //combine the two rotations
-        Quaternion finalRotation = lookRotation * tiltRotation;
-        //apply the rotation smoothly
-        objectTransform.rotation = Quaternion.Slerp(objectTransform.rotation, finalRotation, Time.deltaTime * 20f);
-        //--------------------------------------------------//
-        // If the jump is complete
-        if (time >= 1.0f)
-        {
-            //trigger step audio
-            OnStepEnd.Invoke(objectTransform.position);            
-            //snap to final position
-            objectTransform.position = end;
-            current_jump_point = end;
-            isMoving = false;
-            isDoneMovingToPoint = true;
-        }
-    }
-
-    public int setLookAt(Vector3 target)
-    {
-        if (target == null)
-        {
-            //Debug.Log("failed to set look at point, target is null");
-            return -1;
-        }
-        else
-        {
-            lookAtTarget = target;
-            //Debug.Log("successfully set look at point");
-            return 0;
-        }
-    }
-
-    // Rotates the piece to face the specified target position
-    public void lookAt()
-    {
-        Vector3 lookDirection = lookAtTarget - objectTransform.position;
-        lookDirection.y = 0; // Keep only horizontal direction
-        float turnTime = 3.0f; // Duration of the turn
-        currentTimeRotation += Time.deltaTime;
-        float time = Mathf.Clamp01(currentTimeRotation / turnTime);
-        // Only rotate if not moving
-        if (lookDirection != Vector3.zero && (isDone || !running))
-        {
-            Quaternion targetRotation = Quaternion.LookRotation(lookDirection);
-            objectTransform.rotation = Quaternion.Slerp(objectTransform.rotation, targetRotation, time); // Smooth rotation
-            //objectTransform.LookAt(DisgustingFix(lookAtTarget));
-        } else
-        {
-            currentTimeRotation = 0.0f; // Reset rotation time if moving
-        }
-    }
-
-    public IEnumerator update()
-    {
-        move(0.5f);
-        lookAt();
-        yield return null;
-    }
-
-    public void stop()
-    {
-        running = false;
-    }
-    
-    public void start()
-    {
-        running = true;
-    }
-
-
-    //This belongs in the dumpster, fix and delete ASAP
-    private Vector3 DisgustingFix(Vector3 targetJumpPoint)
-    {
-        return new Vector3(targetJumpPoint.x + 0.5f, objectTransform.position.y, targetJumpPoint.z + 0.5f);
-    }
-
-
 }

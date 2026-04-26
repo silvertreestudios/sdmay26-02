@@ -2,6 +2,7 @@ using Game.Creature;
 using System.Collections.Generic;
 using System.Collections;
 using UnityEngine;
+using GridPublic;
 
 namespace Game.Strikes
 {
@@ -19,37 +20,45 @@ public class StrikeWeapon : MultiFrameEntityAction
 
 
     // Auto add strike actions based on equipped weapons
-    public void WeaponStrikeAdder(GameObject creature)
+    public static void WeaponStrikeAdder(GameObject creature)
     {
         CreatureComponent cc = creature.GetComponent<CreatureComponent>();
         // Check each hand for a weapon, and add corresponding strike action
         // Assumes that CreatureComponent is properly enforcing rules for what can be equipped
-        // TODO prevent duplicate left/right actions if called multiple times
-        if (cc.equippedRightHand != null)
+        // TODO prevent duplicate actions if called multiple times
+        if (cc.HasEquippedRightWeapon())
         {
             StrikeWeapon strikeWeaponRight = new StrikeWeapon(1, cc.equippedRightHand, creature);
             creature.GetComponent<ActionController>().AddAction(strikeWeaponRight);
+            creature.GetComponent<CreatureComponent>().actions.Add("StrikeWeapon " +strikeWeaponRight.weaponName);
         }
-        if (cc.equippedLeftHand != null)
+        if (cc.HasEquippedLeftWeapon())
         {
             StrikeWeapon strikeWeaponLeft = new StrikeWeapon(1, cc.equippedLeftHand, creature);
             creature.GetComponent<ActionController>().AddAction(strikeWeaponLeft);
+            creature.GetComponent<CreatureComponent>().actions.Add("StrikeWeapon " +strikeWeaponLeft.weaponName);
         }
     }
 
     // Temp method for testing, adds first listed melee weapon as StrikeWeapon action
-    public static void WeaponStrikeAdderTEMP(GameObject creature)
+    public static void WeaponStrikeAdderAutomatic(GameObject creature)
     {
-        // Debug.Log("WeaponStrikeAdderTEMP called for " + creature.name);
+        // Debug.Log("WeaponStrikeAdderAutomatic called for " + creature.name);
         List<string> weaponsList = creature.GetComponent<CreatureComponent>().weaponsList;
         foreach(string weaponName in weaponsList)
         {
             EquipmentWeapon weapon = DataFileInterface.GetWeapon(weaponName);
-            //EquipmentWeapon weapon = Armory.GetInstance().GetWeapon(weaponName); // Bypass DataFileInterface
+            // Bypass DataFileInterface using Armory assuming the class/prefab has been reimplemented
+            // EquipmentWeapon weapon = Armory.GetInstance().GetWeapon(weaponName); 
             if (weapon.range == null || weapon.range == 0)
             {
-                StrikeWeapon strikeWeaponAction = new StrikeWeapon(1, weapon, creature);
-                creature.GetComponent<ActionController>().AddAction(strikeWeaponAction);
+                // TEMP approach to bypass equipping elsewhere
+                creature.GetComponent<CreatureComponent>().equipWeaponRight(weapon); // Temp equip weapon so it can be used by StrikeWeapon constructor
+                WeaponStrikeAdder(creature);  
+
+                // TEMP approach to bypass equipping entirely
+                //StrikeWeapon strikeWeaponAction = new StrikeWeapon(1, weapon, creature);
+                //creature.GetComponent<ActionController>().AddAction(strikeWeaponAction);
                 //Debug.Log("WeaponStrikeAdderTEMP added StrikeWeapon action for " + weapon.name + " to " + creature.name);
                 break;
             }
@@ -90,7 +99,7 @@ public class StrikeWeapon : MultiFrameEntityAction
         List<DamageValue> flatDamageList = new List<DamageValue>();
         flatDamageList.Add(new DamageValue(Weapon.damage.damageType, flatDamageBonus));
         // TODO When size>medium creatures are implemented that will need accounted for in range
-        if(Weapon.range != null && Weapon.range > 0)
+        if(Weapon.range > 0)
         {
             range = Weapon.range/5; // convert from feet to grid units, assuming 5 foot grid squares
         }
@@ -104,15 +113,13 @@ public class StrikeWeapon : MultiFrameEntityAction
 
     protected override IEnumerator MFInvoke(GameObject attacker)
     {
-        
         ActionController ac = attacker.GetComponent<ActionController>();
         // Grid get target;
         CoroutineResult<GameObject> target = new();
-        CoroutineResult<bool> canceled = new();
-        //yield return GridCharacterController3D.Instance.StrikeCoroutine(attacker, 2, target);
-        yield return GridAPI.GetInstance().Strike(attacker, range, target, canceled);
-        // I implemented a cancel refund for this action, let me know if it needs to change - Adam
-        if(target.Value && !canceled.Value)
+        yield return GridAPI.GetInstance().GetStrikeTarget(attacker, range*5, target);// Convert range(tiles) to ft
+
+        // null target value equates to canceled action
+        if(target.Value)
         {
             CombatLog.GetInstance().Log("- " + attacker.name + " strikes " + target.Value.name + " with " + weaponName + ".");
             // TODO: need to modify strike/damage to account for character abilities, weapons traits, etc

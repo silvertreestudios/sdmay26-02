@@ -8,7 +8,8 @@ using Game.Creature;
 
 public static class EquipmentPrefabImporter
 {
-    [MenuItem("Tools/Equipment/Import JSON to Prefab Armory")]
+    // Commented out until a need for the armory class arises, as it is currently unused and may not be needed in the future.
+    // [MenuItem("Tools/Equipment/Import JSON to Prefab Armory")]
     public static void ImportEquipmentToPrefabs()
     {
         GameObject templatePrefab = new GameObject("Armory");

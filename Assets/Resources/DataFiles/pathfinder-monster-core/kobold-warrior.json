@@ -3,46 +3,29 @@
   "type": "npc",
   "system": {
     "abilities": {
-      "cha": {
-        "mod": 1
-      },
-      "con": {
-        "mod": -1
-      },
-      "dex": {
-        "mod": 3
-      },
-      "int": {
-        "mod": 0
-      },
-      "str": {
-        "mod": 1
-      },
-      "wis": {
-        "mod": 1
-      }
+      "str": 1,
+      "dex": 3,
+      "con": -1,
+      "int": 0,
+      "wis": 1,
+      "cha": 1
     },
     "attributes": {
-      "ac": {
-        "details": "",
-        "value": 16
-      },
-      "allSaves": {
-        "value": ""
-      },
+      "ac": 16,
+      "allSaves": 0,
       "hp": {
         "details": "",
         "max": 7,
         "temp": 0,
         "value": 7
       },
-      "speed": {
-        "otherSpeeds": [],
-        "value": 25
-      }
+      "speed": [
+        {
+          "value": 25
+        }
+      ]
     },
     "details": {
-      "blurb": "",
       "languages": {
         "details": "",
         "value": [
@@ -50,12 +33,8 @@
           "sakvroth"
         ]
       },
-      "level": {
-        "value": -1
-      },
-      "privateNotes": "",
+      "level": -1,
       "publicNotes": "<p>The typical kobold trains in tunnel fighting, learning to use simple weapons that are effective in narrow spaces. Kobolds are capable of landing sneaky strikes against unsuspecting foes, but are just as quick to scamper off to safety when they don't outnumber their enemies by at least two to one.</p>\n<hr />\n<p>Kobolds are small reptilian humanoids. They lurk in dark spaces, usually tunnels and mines beneath the earth, in either warrens of their own design or complexes discovered and colonized after the original builders have moved on. Though kobolds are far more pragmatic than courageous, they use every inch of their cunning to even the playing field between themselves and other, stronger creatures. They attack from the darkness and at range, and kobold artificers and engineers master the art of simple but effective traps, which they use to protect their lairs. Kobolds are skilled at working together by necessity, and they often set up ambushes or hit-and-run assaults that allow them to do the most damage possible without being harmed in return.</p>\n<p>Kobolds are diligent and hardworking creatures. While some kobolds live in communal collectives that maintain neutral relations with the creatures around them, they can be easily swayed into serving malevolent powers or megalomaniacal leaders. This is in part due to kobolds' innate pragmatism, as they would rather concede to servitude than risk being killed, but it is also in part due to a reverence for the power they generally lack. Notably, kobold eggs left in the proximity of magical creatures or places tend to absorb similar traits from the exposure. The resulting physical changes mark the appearance of each tribe, but a few lucky kobolds are also born with magical power that reflects their tribe's patron.</p>",
-      "publicNotesPlain": null,
       "publicNotesParagraphs": [
         "The typical kobold trains in tunnel fighting, learning to use simple weapons that are effective in narrow spaces. Kobolds are capable of landing sneaky strikes against unsuspecting foes, but are just as quick to scamper off to safety when they don't outnumber their enemies by at least two to one.",
         "Kobolds are small reptilian humanoids. They lurk in dark spaces, usually tunnels and mines beneath the earth, in either warrens of their own design or complexes discovered and colonized after the original builders have moved on. Though kobolds are far more pragmatic than courageous, they use every inch of their cunning to even the playing field between themselves and other, stronger creatures. They attack from the darkness and at range, and kobold artificers and engineers master the art of simple but effective traps, which they use to protect their lairs. Kobolds are skilled at working together by necessity, and they often set up ambushes or hit-and-run assaults that allow them to do the most damage possible without being harmed in return.",
@@ -81,43 +60,24 @@
     },
     "resources": {},
     "saves": {
-      "fortitude": {
-        "saveDetail": "",
-        "value": 3
-      },
-      "reflex": {
-        "saveDetail": "",
-        "value": 7
-      },
-      "will": {
-        "saveDetail": "",
-        "value": 3
-      }
+      "fortitude": 3,
+      "reflex": 7,
+      "will": 3
     },
-    "skills": [
-      {
-        "name": "acrobatics",
-        "value": 5
-      },
-      {
-        "name": "crafting",
-        "value": 2
-      },
-      {
-        "name": "stealth",
-        "value": 5
-      }
-    ],
+    "skills": {
+      "acrobatics": 5,
+      "crafting": 2,
+      "stealth": 5
+    },
     "traits": {
       "rarity": "common",
-      "size": {
-        "value": "sm"
-      },
+      "size": "sm",
       "value": [
         "humanoid",
         "kobold"
       ]
     },
+    "immunities": [],
     "weaknesses": [],
     "resistances": []
   },
@@ -153,7 +113,7 @@
       "quantity": 20
     }
   ],
-  "items": [
+  "actions": [
     {
       "name": "Spear",
       "type": "melee",
@@ -354,41 +314,18 @@
     }
   ],
   "conditions": [],
-  "weaponBonuses": [
-    {
-      "category": "unarmed",
-      "bonus": 2
-    },
-    {
-      "category": "simple",
-      "bonus": 2
-    },
-    {
-      "category": "martial",
-      "bonus": 0
-    },
-    {
-      "category": "advanced",
-      "bonus": 0
-    }
-  ],
-  "armorBonuses": [
-    {
-      "category": "unarmored",
-      "bonus": 2
-    },
-    {
-      "category": "light",
-      "bonus": 2
-    },
-    {
-      "category": "medium",
-      "bonus": 0
-    },
-    {
-      "category": "heavy",
-      "bonus": 0
-    }
-  ],
+  "weaponBonuses": {
+    "unarmed": 2,
+    "simple": 2,
+    "martial": 0,
+    "advanced": 0
+  },
+  "armorBonuses": {
+    "unarmored": 2,
+    "light": 2,
+    "medium": 0,
+    "heavy": 0
+  },
+  "playerOnlyStuff": [],
   "Source": "packs/pathfinder-monster-core"
 }
