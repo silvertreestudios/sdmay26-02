@@ -335,16 +335,16 @@ public class CharacterCreationScript : MonoBehaviour
 
         //TESTING. Would be cleaner as a separate function...
         tutorial = new TutorialManager(root);
-        tutorial.AddStep(root, "Welcome to the character creation tutorial! Click next to get started.");
-        tutorial.AddStep(ancestryTabHeader, "First, select your ancestry. This determines blah blah");
-        tutorial.AddStep(ancestryTab, "Your ancestry gives you different heritage and ancestry feat options. \nBe sure to choose a free boost as well!");
-        tutorial.AddStep(backgroundTabHeader, "Next, choose your background.");
-        tutorial.AddStep(classTabHeader, "Then, select your class. You can choose a subclass and class feat as well.");
-        tutorial.AddStep(finalBoostsTabHeader, "Finally, assign your free attribute boosts. You can only choose 4, so choose wisely!");
-        tutorial.AddStep(nameField, "Don't forget to give your character a name!");
-        tutorial.AddStep(leftInfoPanel, "As you build your character, you can see the details of your choices here. Hover over a field to see more info.");
-        tutorial.AddStep(finishCharacterCreation, "Once you're happy with your character, click here to finish and start your adventure!");
-        tutorial.AddStep(defaultBarbarian, "If you want to skip the work and get to playing, click here to populate the character creation with a default barbarian build.");
+        tutorial.AddStep(root, "Welcome to character creation! Click 'Next' for a short tutorial or 'Skip' to get straight to building your hero.");
+        tutorial.AddStep(ancestryTabHeader, "Start by choosing your ancestry, which grants innate traits.");
+        tutorial.AddStep(ancestryTab, "Your ancestry determines available heritages and ancestry feats. Don't forget to select a free attribute boost, too.");
+        tutorial.AddStep(backgroundTabHeader, "Next, choose your background, which reflects your character's past and grants additional training.");
+        tutorial.AddStep(classTabHeader, "Now select your class, which defines your core abilities and combat role. You'll also choose a subclass and class feats.");
+        tutorial.AddStep(finalBoostsTabHeader, "Assign your remaining attribute boosts. You may choose four total, so plan carefully.");
+        tutorial.AddStep(nameField, "Give your character a name to complete their identity.");
+        tutorial.AddStep(leftInfoPanel, "Review your character details here. Hover over options for more information.");
+        tutorial.AddStep(finishCharacterCreation, "When you're ready, finalize your character and begin your adventure!");
+        tutorial.AddStep(defaultBarbarian, "Short on time? Use a preset barbarian build to jump straight into the game.");
         tutorial.StartTutorial();
 
         nameField.RegisterValueChangedCallback(OnNameChanged);
@@ -395,7 +395,7 @@ public class CharacterCreationScript : MonoBehaviour
         HoverOverElement(attackDropdownMenu, "Proficiency with various weapon types. Determined by class.");
         HoverOverElement(defenseDropdownMenu, "Proficiency with different armor types and unarmored defense. Determined by class.");
 
-        //attributes? others?
+        HoverOverElement(notificationElement, "You are missing required fields. Click this message to dismiss.");
     }
 
     void PrintJson()
