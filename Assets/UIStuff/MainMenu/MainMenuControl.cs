@@ -18,11 +18,11 @@ public class MainMenuControl : MonoBehaviour
     }
 
     private void OnEnable() {
-        newGameButton = ui.Q<Button>("NewGameButton");
-        newGameButton.clicked += NewGame;
+        newGameButton = ui.Q<Button>("CharacterCreationButton");
+        newGameButton.clicked += CharacterCreation;
 
-        loadGameButton = ui.Q<Button>("LoadGameButton");
-        loadGameButton.clicked += LoadGame;
+        loadGameButton = ui.Q<Button>("PlayGameButton");
+        loadGameButton.clicked += PlayGame;
 
         optionsButton = ui.Q<Button>("OptionsButton");
         optionsButton.clicked += Options;
@@ -31,11 +31,11 @@ public class MainMenuControl : MonoBehaviour
         exitButton.clicked += Exit;
     }
 
-    public void NewGame() {
+    public void CharacterCreation() {
         SceneTransitionManager.FadeAndLoad("CharacterCreationScene");
     }
 
-    public void LoadGame() {
+    public void PlayGame() {
         SceneTransitionManager.FadeAndLoad("Level1");
     }
 
