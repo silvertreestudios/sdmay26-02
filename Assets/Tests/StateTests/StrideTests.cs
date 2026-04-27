@@ -23,9 +23,11 @@ namespace TestsState
         {
             
             elapsedTime = 0f;
-            // Load the MainMenu scene
-            SceneManager.LoadScene("UnitTestingScene");
-            yield return new WaitUntil(() => SceneManager.GetActiveScene().name == "UnitTestingScene");
+            
+            // load the scene and wait for it to finish loading
+            // it is important that this particular command is used to load the scene, using waituntil breaks everything
+            yield return SceneManager.LoadSceneAsync("UnitTestingScene");
+
            
             var doc = Object.FindFirstObjectByType<UIDocument>();
             var ui = doc.rootVisualElement;
@@ -72,99 +74,12 @@ namespace TestsState
             }
         }
 
-        [UnityTearDown]
-        public IEnumerator TearDown()
-        {
-            // Clear all static events to prevent state leaking between tests
-            OnHover.RemoveAllListeners();
-            OnHoverEnd.RemoveAllListeners();
-            OnHighlightRange.RemoveAllListeners();
-            OnHighlightRangeEnd.RemoveAllListeners();
-            OnActionComplete.RemoveAllListeners();
-            OnActionConfirm.RemoveAllListeners();
-            OnActionCancel.RemoveAllListeners();
-            OnPreviewPath.RemoveAllListeners();
-            yield return null;
-        }
-
-             
-        // TODO test that moving works
+        /// <summary>
+        /// Tests that the player can move to the right 3 tiles around an enemy player. Visually inpect this test for now to ensure that team pathfinding rules are enforced
+        /// </summary>
         [UnityTest]
         public IEnumerator StrideMoveTest()
         {
-            
-            var doc = Object.FindFirstObjectByType<UIDocument>();
-            var ui = doc.rootVisualElement;
-            
-            Button moveButton = null;
-            
-
-            while (moveButton == null && elapsedTime < timeout)
-            {
-                var buttons = ui.Query<Button>().ToList();
-                moveButton = buttons.Find(b => b.text == "Stride");
-                if (moveButton == null)
-                {
-                    elapsedTime += Time.deltaTime;
-                    yield return null;
-                }
-            }
-
-            Assert.IsNotNull(moveButton, "Timed out waiting for the Stride button to appear in the UI.");
-            elapsedTime = 0f;
-            // Simulate button click
-            using (var evt = NavigationSubmitEvent.GetPooled())
-            {
-                evt.target = moveButton;
-                moveButton.SendEvent(evt);
-            }
-
-            // wait for the state to change to stride
-            GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
-
-            while (!(gridBase.Fsm.CurrentState is StateStride) && elapsedTime < timeout)
-            {
-                elapsedTime += Time.deltaTime;
-                yield return null;
-            }
-
-            Assert.IsTrue(gridBase.Fsm.CurrentState is StateStride, "Timed out waiting for the FSM to transition to StateStride after clicking the Stride button.");
-
-            // Disable GridInput to prevent real mouse movements from overriding our injected hover events
-            GridInput gridInput = Object.FindFirstObjectByType<GridInput>();
-            if (gridInput != null)
-            {
-                gridInput.enabled = false;
-            }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
             //get active player object, click move, select tile that is pos.x, pos.y, pos.z + 1, check that player is now at that position
             GameObject player = CombatManagerInterface.GetInstance().WhosTurn();
             Vector3 startPos = player.transform.position;
@@ -174,11 +89,10 @@ namespace TestsState
             OnHover.Invoke(new System.Collections.Generic.List<Vector3Int> { targetPos });
             
             // Wait a frame for events to process
-            yield return new WaitForSeconds(5f);
             yield return null;
 
             // Get FSM and simulate left click
-            gridBase = Object.FindFirstObjectByType<GridBase>();
+            GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
             gridBase.Fsm.CurrentState.Leftclick();
 
             // Wait for movement to finish (FSM returns to idle)
@@ -188,7 +102,6 @@ namespace TestsState
                 elapsedTime += Time.deltaTime;
                 yield return null;
             }
-            yield return new WaitForSeconds(5f);
             Assert.IsTrue(gridBase.Fsm.CurrentState is StateIdle, "FSM did not return to StateIdle after movement.");
             Vector3 endPos = player.transform.position;
             Assert.AreEqual(targetPos, Vector3Int.RoundToInt(endPos), "Player did not move to the specified target position.");
@@ -208,6 +121,16 @@ namespace TestsState
 
             // Wait a frame for events to process
             yield return null;
+
+            targetPos = new Vector3Int(0, 0, 0); // null tile
+
+            OnHover.Invoke(new System.Collections.Generic.List<Vector3Int> { targetPos });
+            gridBase.Fsm.CurrentState.Leftclick();
+
+            // Wait a frame for events to process
+            yield return null;
+
+            
 
             // check that player did not move and that we are still in stride state
             Assert.IsTrue(gridBase.Fsm.CurrentState is StateStride, "FSM should still be in StateStride after attempting to move to an invalid tile.");
