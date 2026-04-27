@@ -10,15 +10,15 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: b9684b6e35e4b46adac844004ddb1538, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 0.7703426
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: b9684b6e35e4b46adac844004ddb1538, type: 3}
       propertyPath: m_LocalPosition.y
-      value: -0.6468631
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: b9684b6e35e4b46adac844004ddb1538, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 5.0349655
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: b9684b6e35e4b46adac844004ddb1538, type: 3}
       propertyPath: m_LocalRotation.w
@@ -124,6 +124,8 @@ MonoBehaviour:
   _damageBonus: 0
   _weaponBonuses: []
   _armorBonuses: []
+  _weaknesses: []
+  _resistances: []
   _strMod: 0
   _dexMod: 0
   _conMod: 0
@@ -140,6 +142,60 @@ MonoBehaviour:
   _reactions: []
   _passives: []
   _conditions: []
+  _equippedArmor:
+    name: 
+    type: 
+    category: 
+    price: 0
+    acBonus: 0
+    dexCap: 0
+    checkPenalty: 0
+    speedPenalty: 0
+    strengthRequirement: 0
+    description: 
+    bulk: 0
+    group: 
+    armorTraits: []
+  _equippedRightHand:
+    name: 
+    type: 
+    group: 
+    category: 
+    hands: 0
+    damage:
+      numberOfDice: 0
+      sidesPerDie: 0
+      damageType: 
+    description: 
+    traits: []
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 0
+  _equippedLeftHand:
+    name: 
+    type: 
+    group: 
+    category: 
+    hands: 0
+    damage:
+      numberOfDice: 0
+      sidesPerDie: 0
+      damageType: 
+    description: 
+    traits: []
+    materialType: 
+    materialGrade: 
+    runes: []
+    price: 0
+    range: 0
+    ammo: 
+    bulk: 0
   _equipment: []
   _weaponsList: []
+  _weapons: []
   _armorList: []
+  _armor: []

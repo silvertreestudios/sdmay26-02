@@ -9,7 +9,7 @@ public class Decorator : MonoBehaviour
     public Material Dirt;
     public Material GrassBillboard;
     private DecoratorMap dm;
-    private Tile[,] grid;
+    private TileOld[,] grid;
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     
     
@@ -25,40 +25,40 @@ public class Decorator : MonoBehaviour
         GameObject parentObject = new GameObject("DecoratedTiles");
 
 
-        foreach (Tile tile in grid)
+        foreach (TileOld tile in grid)
         {
             switch (tile.TileType)
             {
-                case Tile.Type.Walkable:
+                case TileOld.Type.Walkable:
                     //TODO: make this add to one mesh and refrence a material so can use tiling and save draw calls
                     //Debug.DrawLine(tile.WorldPosition, tile.WorldPosition + Vector3.up * 0.5f, Color.green);
-                    DrawQuad(tile, Color.green, Dirt);
+                    DrawQuad(tile, Dirt);
                     break;
-                case Tile.Type.Ground:
+                case TileOld.Type.Ground:
                     //Debug.DrawLine(tile.WorldPosition, tile.WorldPosition + Vector3.up * 0.5f, Color.yellow);
-                    DrawQuad(tile, Color.yellow, Grass);
+                    DrawQuad(tile, Grass);
                     break;
-                case Tile.Type.Void:
-                    DrawQuad(tile, Color.black, Grass);
+                case TileOld.Type.Void:
+                    DrawQuad(tile, Grass);
                     //Debug.DrawLine(tile.WorldPosition, tile.WorldPosition + Vector3.up * 0.5f, Color.black);
                     break;
-                case Tile.Type.Wall:
+                case TileOld.Type.Wall:
                     //Debug.DrawLine(tile.WorldPosition, tile.WorldPosition + Vector3.up * 0.5f, Color.red);
                     if (Wall != null)
                     {
-                        DrawQuad(tile, Color.red, Dirt);
+                        DrawQuad(tile, Dirt);
 
                         GameObject wallPrefab = Instantiate(Wall, tile.WorldPosition, Quaternion.identity, parentObject.transform);
                         wallPrefab.name = $"Wall_{tile.GridPosition.x}_{tile.GridPosition.z}";
-                        wallPrefab.GetComponent<Wall>().setStyle(tile.GridPosition.x, tile.GridPosition.z, grid);
+                        //wallPrefab.GetComponent<Wall>().setStyle(tile.GridPosition.x, tile.GridPosition.z, grid);
                     }
                     else
                     {
                         Debug.LogWarning("Wall prefab not assigned in Decorator script.");
                     }
                     break;
-                case Tile.Type.Door:
-                    DrawQuad(tile, Color.blue, Dirt);
+                case TileOld.Type.Door:
+                    DrawQuad(tile, Dirt);
                     GameObject doorPrefab = Instantiate(Door, tile.WorldPosition, Quaternion.identity, parentObject.transform);
                     doorPrefab.name = $"Door_{tile.GridPosition.x}_{tile.GridPosition.z}";
                     break;
@@ -68,7 +68,7 @@ public class Decorator : MonoBehaviour
         //VisualizePerlinNoise(0.55f, 0.05f, null);
     }
 
-    private void DrawQuad(Tile tile, Color color, Material mat)
+    private void DrawQuad(TileOld tile, Material mat)
     {
         if (mat != null)
         {
@@ -98,21 +98,21 @@ public class Decorator : MonoBehaviour
             return;
         }
 
-        foreach (Tile tile in grid)
+        foreach (TileOld tile in grid)
         {   
-            if (tile.TileType != Tile.Type.Void) continue; // Only visualize on walkable tiles
+            if (tile.TileType != TileOld.Type.Void) continue; // Only visualize on walkable tiles
             float noiseValue = Mathf.PerlinNoise(tile.WorldPosition.x * scale, tile.WorldPosition.z * scale);
             if (noiseValue > threshold)
             {
                 // First quad at 0,45,0
-            GameObject quad1 = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            quad1.transform.position = tile.WorldPosition;
-            quad1.transform.rotation = Quaternion.Euler(0, 45, 0);
-            if (purpleMaterial != null)
-                quad1.GetComponent<MeshRenderer>().material = purpleMaterial;
-            else
-                quad1.GetComponent<MeshRenderer>().material.color = new Color(0.5f, 0, 0.5f);
-            quad1.transform.SetParent(transform);
+                GameObject quad1 = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                quad1.transform.position = tile.WorldPosition;
+                quad1.transform.rotation = Quaternion.Euler(0, 45, 0);
+                if (purpleMaterial != null)
+                    quad1.GetComponent<MeshRenderer>().material = purpleMaterial;
+                else
+                    quad1.GetComponent<MeshRenderer>().material.color = new Color(0.5f, 0, 0.5f);
+                quad1.transform.SetParent(transform);
 
             // // Second quad at 0,-45,0
             // GameObject quad2 = GameObject.CreatePrimitive(PrimitiveType.Quad);

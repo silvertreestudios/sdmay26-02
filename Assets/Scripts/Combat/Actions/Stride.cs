@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Collections;
 
 using UnityEngineInternal;
+using GridPublic;
+using GridPrivate;
 
 public class Stride : MultiFrameEntityAction
 {
@@ -15,12 +17,22 @@ public class Stride : MultiFrameEntityAction
 
     protected override IEnumerator MFInvoke(GameObject target)
     {
+        bool canceled = false;
+        // Callback triggered on successful action cancelation
+        void cancel()
+        {
+            Debug.Log("Canceled");
+            canceled = true;
+            OnActionCancel.RemoveListener(cancel);
+        }
+        OnActionCancel.AddListener(cancel);
+
         ActionController ac = target.GetComponent<ActionController>();
-        CoroutineResult<bool> canceled = new();
-        //yield return GridCharacterController3D.Instance.StrideCoroutine(target, canceled);
+
         CombatLog.GetInstance().Log("- " + target.name + " used Stride");
-        yield return GridAPI.GetInstance().Stride(target, canceled);
-        if (!canceled.Value)
+        yield return GridAPI.GetInstance().Stride(target);
+        
+        if (!canceled)
         {
             if (ac)
                 PayCost(ac);
