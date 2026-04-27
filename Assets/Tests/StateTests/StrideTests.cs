@@ -4,72 +4,108 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 using UnityEngine.SceneManagement;
-//using GridPrivate;
+using GridPrivate;
 
 namespace TestsState
 {
     public class StrideTests
     {
-        //get UI document to press buttons
-        private UIDocument GetUIDocument()
-        {
-            return Object.FindFirstObjectByType<UIDocument>();
-        }
+        float timeout = 5f; // 5 seconds timeout
+        float elapsedTime = 0f;
 
+        
+
+        /// <summary>
+        /// Resets the scene and then presses the Stride button before every test, waits for the state machine to transition into the stride state
+        /// </summary>
         [UnitySetUp]
         public IEnumerator Setup()
         {
-            // Load the MainMenu scene - add it to Build Settings first!
+            elapsedTime = 0f;
+            // Load the MainMenu scene
             SceneManager.LoadScene("UnitTestingScene");
             yield return new WaitUntil(() => SceneManager.GetActiveScene().name == "UnitTestingScene");
+
+            elapsedTime = 0f;
+            
+            var doc = Object.FindFirstObjectByType<UIDocument>();
+            var ui = doc.rootVisualElement;
+            
+            Button moveButton = null;
+            
+
+            while (moveButton == null && elapsedTime < timeout)
+            {
+                var buttons = ui.Query<Button>().ToList();
+                moveButton = buttons.Find(b => b.text == "Stride");
+                if (moveButton == null)
+                {
+                    elapsedTime += Time.deltaTime;
+                    yield return null;
+                }
+            }
+
+            Assert.IsNotNull(moveButton, "Timed out waiting for the Stride button to appear in the UI.");
+            elapsedTime = 0f;
+            // Simulate button click
+            using (var evt = NavigationSubmitEvent.GetPooled())
+            {
+                evt.target = moveButton;
+                moveButton.SendEvent(evt);
+            }
+
+            // wait for the state to change to stride
+            GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
+
+            while (!(gridBase.Fsm.CurrentState is StateStride) && elapsedTime < timeout)
+            {
+                elapsedTime += Time.deltaTime;
+                yield return null;
+            }
+
+            Assert.IsTrue(gridBase.Fsm.CurrentState is StateStride, "Timed out waiting for the FSM to transition to StateStride after clicking the Stride button.");
+
+            // Disable GridInput to prevent real mouse movements from overriding our injected hover events
+            GridInput gridInput = Object.FindFirstObjectByType<GridInput>();
+            if (gridInput != null)
+            {
+                gridInput.enabled = false;
+            }
         }
-        
-        //TODO test that moving works
-        // [UnityTest]
-        // public IEnumerator StrideMoveTest()
-        // {
-        //     //get active player object, click move, select tile that is pos.x, pos.y, pos.z + 1, check that player is now at that position
 
-        //     var doc = GetUIDocument();
-        //     var ui = doc.rootVisualElement;
-        //     Button moveButton = ui.Q<Button>("MoveButton");
+             
+        // TODO test that moving works
+        [UnityTest]
+        public IEnumerator StrideMoveTest()
+        {
 
-        //     // Simulate button click
-        //     using (var evt = NavigationSubmitEvent.GetPooled())
-        //     {
-        //         evt.target = moveButton;
-        //         moveButton.SendEvent(evt);
-        //     }
+            //get active player object, click move, select tile that is pos.x, pos.y, pos.z + 1, check that player is now at that position
+            GameObject player = CombatManagerInterface.GetInstance().WhosTurn();
+            Vector3 startPos = player.transform.position;
+            Vector3Int targetPos = new Vector3Int(Mathf.RoundToInt(startPos.x) + 3, Mathf.RoundToInt(startPos.y), Mathf.RoundToInt(startPos.z));
+
+            // Invoke OnHover for the target tile to preview path
+            OnHover.Invoke(new System.Collections.Generic.List<Vector3Int> { targetPos });
             
-        //     // Wait for highlights to load
-        //     yield return new WaitForSeconds(0.1f);
-            
-        //     // hijack the stride state and initiate a left click on the tile directly above the player
-        //     //THIS USES REFLECTION, WATCH A TUTORIAL ON THIS SO YOU UNDERSTAND IT
-        //     // 1. Obtain your active StateStride instance (assuming you have access to the FSM or create it in the test)
-        //     StateStride strideState = /* your test's StateStride instance */;
+            // Wait a frame for events to process
+            yield return null;
 
-        //     // 2. Use Reflection to get the protected 'Character' field to calculate its position
-        //     FieldInfo charField = typeof(StateStride).GetField("Character", BindingFlags.NonPublic | BindingFlags.Instance);
-        //     GameObject character = (GameObject)charField.GetValue(strideState);
+            // Get FSM and simulate left click
+            GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
+            gridBase.Fsm.CurrentState.Leftclick();
 
-        //     // Calculate relative position (e.g., 1 tile forward in X)
-        //     Vector3Int startPos = Vector3Int.RoundToInt(character.transform.position);
-        //     Vector3Int targetTile = startPos + new Vector3Int(1, 0, 0); 
+            // Wait for movement to finish (FSM returns to idle)
+            float elapsedTime = 0f;
+            while (!(gridBase.Fsm.CurrentState is StateIdle) && elapsedTime < timeout)
+            {
+                elapsedTime += Time.deltaTime;
+                yield return null;
+            }
 
-        //     // 3. Use Reflection to access and invoke the protected 'HighlightPath' method
-        //     MethodInfo highlightMethod = typeof(StateStride).GetMethod("HighlightPath", BindingFlags.NonPublic | BindingFlags.Instance);
-
-        //     // HighlightPath expects a List<Vector3Int> containing the hovered tile
-        //     List<Vector3Int> hoverTarget = new List<Vector3Int> { targetTile };
-        //     highlightMethod.Invoke(strideState, new object[] { hoverTarget });
-
-        //     // 4. Now that 'Path' is populated internally, call Leftclick directly to trigger movement!
-        //     strideState.Leftclick();
-
-
-        //     yield return null;
-        // }
+            Assert.IsTrue(gridBase.Fsm.CurrentState is StateIdle, "FSM did not return to StateIdle after movement.");
+            Vector3 endPos = player.transform.position;
+            Assert.AreEqual(targetPos, Vector3Int.RoundToInt(endPos), "Player did not move to the specified target position.");
+        }
         //TODO test that you cannot move to invalid tiles (void, wall, enemy, teammate, self)
         //TODO test that cancelling and going into strike state does not break stride functionality
         //TODO test that the max range works in at least one cardinal direction

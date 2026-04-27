@@ -9,7 +9,6 @@ using GridPrivate;
 //TODO abstract AIActionConroller and make a subclass for mindless
 public abstract class AIActionController : ActionController
 {
-    protected GridCharacterController3D Controller => GridCharacterController3D.GetInstance();
     public GameObject BestTarget { get; protected set; }
     public List<PathNode> BestPath { get; protected set; }
     public Vector3Int SelectedTile { get; protected set; }

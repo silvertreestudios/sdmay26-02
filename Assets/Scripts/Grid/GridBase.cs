@@ -13,7 +13,7 @@ namespace GridPrivate
         public TileType[,] GridData {get; set;}
         protected Tile[,] Tiles;
         IPathfinder Pathfinder;
-        GridFSM Fsm = new GridFSM();
+        public GridFSM Fsm { get; private set; } = new GridFSM();
 
         public IPathfinder GetPathfinder()
         {
