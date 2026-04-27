@@ -106,7 +106,10 @@ namespace TestsState
             Vector3 endPos = player.transform.position;
             Assert.AreEqual(targetPos, Vector3Int.RoundToInt(endPos), "Player did not move to the specified target position.");
         }
-        //TODO test that you cannot move to invalid tiles (void, wall, enemy, teammate, self)
+
+        /// <summary>
+        /// Tests that a player cannot execute a stride action on an invalid tile (occupied tiles, null tiles, walls ect)
+        /// </summary>
         [UnityTest]
         public IEnumerator StrideInvalidMoveTest()
         {
