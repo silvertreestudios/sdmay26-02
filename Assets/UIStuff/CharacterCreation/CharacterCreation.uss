@@ -10,49 +10,330 @@
 }
 
 .unity-tab__header {
-    background-color: rgb(229, 223, 223);
+    background-color: rgb(68, 24, 13);
+    color: rgb(233, 196, 140);
     -unity-font-style: bold;
-    font-size: 14px;
+    font-size: 20px;
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
 .unity-tab__header:checked {
-    background-color: rgb(173, 166, 166);
+    background-color: rgb(122, 62, 46);
 }
 
 .tab-content {
-    background-color: rgb(255, 255, 255);
+    background-color: rgb(216, 195, 134);
+    color: rgb(1, 43, 13);
     font-size: 20px;
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
 .unity-tab__header-underline {
     opacity: 0;
 }
 
+.unity-text-field__input {
+    background-color: rgb(216, 195, 134);
+    color: rgb(1, 43, 13);
+    padding-top: 0;
+    padding-bottom: 0;
+    -unity-font-style: normal;
+}
+
+.unity-integer-field__input {
+    background-color: rgb(216, 195, 134);
+    color: rgb(1, 43, 13);
+    padding-top: 0;
+    padding-bottom: 0;
+    -unity-font-style: normal;
+}
+
 .unity-text-field {
+    background-color: rgb(1, 43, 13);
+    color: rgb(216, 195, 134);
     font-size: 20px;
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+    -unity-font-style: bold;
 }
 
 .unity-integer-field {
+    background-color: rgb(1, 43, 13);
+    color: rgb(216, 195, 134);
     font-size: 20px;
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+    -unity-font-style: bold;
 }
 
 .unity-foldout {
     font-size: 20px;
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+    -unity-font-style: bold;
 }
 
-.unity-radio-button {
-    font-size: 20px;
+#ChoiceTabs {
+    width: 530px;
 }
 
 .unity-radio-button-group {
     font-size: 20px;
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+}
+
+.unity-radio-button-group.icon-radio-button .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+.unity-radio-button.icon-radio-button .unity-radio-button__input {
+    flex-direction: column;
+    align-items: center;
+}
+
+.unity-radio-button.icon-radio-button .unity-radio-button__label {
+    margin-top: 4px;
+    -unity-text-align: middle-center;
+    align-self: center;
+}
+
+.unity-radio-button.icon-radio-button {
+    font-size: 20px;
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+    flex-direction: column-reverse;
+    width: 25%;
+    margin-left: 85px;
+}
+
+.unity-radio-button.icon-radio-button:checked .unity-radio-button__checkmark {
+    width: 0;
+    height: 0;
+}
+
+.unity-radio-button.icon-radio-button:checked .unity-radio-button__checkmark-background {
+    -unity-background-image-tint-color: rgb(255, 215, 0);
+}
+
+.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    -unity-background-scale-mode: scale-to-fit;
+    width: 50px;
+    height: 50px;
+}
+
+#Elf.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/elf');
+}
+
+#Gnome.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/gnome');
+}
+
+#Goblin.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/goblin');
+}
+
+#Leshy.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/leshy');
+}
+
+#Dwarf.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/dwarf');
+}
+
+#Halfling.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/halfling');
+}
+
+#AcolyteRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/acolyte');
+}
+
+#BanditRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/bandit');
+}
+
+#CookRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/cook');
+}
+
+#FighterRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/fighter');
+}
+
+#RogueRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/rogue');
+}
+
+#BarbarianRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/barbarian');
+}
+
+#ClericRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/cleric');
+}
+
+#SorcererRadioButton.unity-radio-button.icon-radio-button .unity-radio-button__checkmark-background {
+    background-image: resource('Icons/sorcerer');
 }
 
 .my-label {
     font-size: 18px;
     color: rgb(218, 165, 32);
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
 
 .unity-button {
-    font-size: 16px;
+    font-size: 20px;
+    background-color: rgb(68, 24, 13);
+    color: rgb(233, 196, 140);
+    -unity-text-outline-color: rgb(57, 16, 19);
+    -unity-text-outline-width: 0;
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+}
+
+.unity-button:hover {
+    background-color: rgb(122, 62, 46);
+    transition-duration: 0.5s;
+}
+
+.icon-radio-button {
+}
+
+#HeritageRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#AncestryFeatsRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#BackgroundBoostChoiceRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#ClassFeatsRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#SubClassRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#FreeBoostRadioButtonGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#BackgroundFreeBoostRadioGroup .unity-radio-button-group__container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.pill-radio {
+    align-self: flex-start;
+    flex-grow: 0;
+    width: auto;
+    padding: 6px 14px;
+    margin-bottom: 6px;
+    border-radius: 999px;
+    background-color: rgba(25, 18, 12, 0.9);
+    border-width: 1px;
+    border-color: rgb(200, 155, 60);
+    color: rgb(240, 230, 200);
+}
+
+.pill-radio .unity-radio-button__checkmark {
+    display: none;
+}
+
+.pill-radio .unity-radio-button__checkmark-background {
+    display: none;
+}
+
+.pill-radio:hover {
+    background-color: rgba(40, 28, 18, 0.95);
+    border-color: rgb(230, 193, 90);
+}
+
+.pill-radio:checked {
+    background-color: rgb(200, 155, 60);
+    border-color: rgb(240, 210, 122);
+    color: rgb(40, 30, 10);
+}
+
+.pill-toggle {
+    align-self: flex-start;
+    flex-grow: 0;
+    width: auto;
+    padding: 6px 14px;
+    margin-bottom: 6px;
+    background-color: rgba(25, 18, 12, 0.9);
+    border-width: 1px;
+    border-color: rgb(200, 155, 60);
+    color: rgb(240, 230, 200);
+    -unity-font-definition: resource('TitilliumWeb-Regular SDF');
+    font-size: 20px;
+}
+
+.pill-toggle:checked {
+    background-color: rgb(200, 155, 60);
+    border-color: rgb(240, 210, 122);
+    color: rgb(40, 30, 10);
+}
+
+.centered-textfield {
+    flex-direction: column;
+    align-items: center;
+}
+
+.centered-textfield > .unity-base-field__label {
+    -unity-text-align: middle-center;
+    margin-bottom: 4px;
+}
+
+.centered-textfield > .unity-base-field__input {
+    width: 100%;
+}
+
+.unity-scroller__low-button {
+    display: none;
+}
+
+.unity-scroller__high-button {
+    display: none;
+}
+
+.unity-scroll-view__vertical-scroller {
+    width: 6px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+}
+
+.unity-scroller__slider {
+    background-color: rgba(255, 255, 255, 0.25);
+    border-radius: 3px;
+}
+
+.unity-scroller__slider:hover {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.detail-card {
+    flex-grow: 1;
+    flex-basis: 0;
+    min-width: 0;
+    margin-left: 6px;
+    margin-right: 6px;
+    padding: 10px;
+    background-color: rgba(20, 14, 10, 0.85);
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-color: rgb(200, 155, 60);
+    border-radius: 6px;
 }

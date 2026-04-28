@@ -155,8 +155,8 @@ public class CharacterCreationScript : MonoBehaviour
     TextField heritageChoiceField;
     TextField backgroundChoiceField;
     TextField classChoiceField;
-    IntegerField hpField;
-    IntegerField speedField;
+    Label hpField;
+    Label speedField;
     IntegerField strengthAttributeField;
     IntegerField dexterityAttributeField;
     IntegerField constitutionAttributeField;
@@ -176,7 +176,7 @@ public class CharacterCreationScript : MonoBehaviour
     TextField mediumArmorField;
     TextField allArmorField;
     TextField nameField;
-    TextField sizeField;
+    Label sizeField;
     TextField subclassField;
     TextField ancestryFeatField;
     TextField classFeatField;
@@ -243,8 +243,8 @@ public class CharacterCreationScript : MonoBehaviour
         ancestrySpecialAbilitiesLabel = root.Q<Label>("AncestrySpecialAbilities");
         ancestryChoiceField = root.Q<TextField>("AncestryChoice");
         heritageChoiceField = root.Q<TextField>("HeritageChoice");
-        hpField = root.Q<IntegerField>("HP");
-        speedField = root.Q<IntegerField>("Speed");
+        hpField = root.Q<Label>("HP");
+        speedField = root.Q<Label>("Speed");
         subclassRadioButtonGroup = root.Q<RadioButtonGroup>("SubClassRadioButtonGroup");
         classDescriptionLabel = root.Q<Label>("ClassDescription");
         classBoostsLabel = root.Q<Label>("ClassBoosts");
@@ -279,7 +279,7 @@ public class CharacterCreationScript : MonoBehaviour
         wisdomAttributeField = root.Q<IntegerField>("WisdomAttribute");
         charismaAttributeField = root.Q<IntegerField>("CharismaAttribute"); 
         nameField = root.Q<TextField>("NameField");
-        sizeField = root.Q<TextField>("Size");
+        sizeField = root.Q<Label>("Size");
         subclassField = root.Q<TextField>("Subclass");
         ancestryFeatField = root.Q<TextField>("AncestryFeatField");
         classFeatField = root.Q<TextField>("ClassFeatField");
@@ -335,16 +335,16 @@ public class CharacterCreationScript : MonoBehaviour
 
         //TESTING. Would be cleaner as a separate function...
         tutorial = new TutorialManager(root);
-        tutorial.AddStep(root, "Welcome to the character creation tutorial! Click next to get started.");
-        tutorial.AddStep(ancestryTabHeader, "First, select your ancestry. This determines blah blah");
-        tutorial.AddStep(ancestryTab, "Your ancestry gives you different heritage and ancestry feat options. \nBe sure to choose a free boost as well!");
-        tutorial.AddStep(backgroundTabHeader, "Next, choose your background.");
-        tutorial.AddStep(classTabHeader, "Then, select your class. You can choose a subclass and class feat as well.");
-        tutorial.AddStep(finalBoostsTabHeader, "Finally, assign your free attribute boosts. You can only choose 4, so choose wisely!");
-        tutorial.AddStep(nameField, "Don't forget to give your character a name!");
-        tutorial.AddStep(leftInfoPanel, "As you build your character, you can see the details of your choices here. Hover over a field to see more info.");
-        tutorial.AddStep(finishCharacterCreation, "Once you're happy with your character, click here to finish and start your adventure!");
-        tutorial.AddStep(defaultBarbarian, "If you want to skip the work and get to playing, click here to populate the character creation with a default barbarian build.");
+        tutorial.AddStep(root, "Welcome to character creation! Click 'Next' for a short tutorial or 'Skip' to get straight to building your hero.");
+        tutorial.AddStep(ancestryTabHeader, "Start by choosing your ancestry, which grants innate traits.");
+        tutorial.AddStep(ancestryTab, "Your ancestry determines available heritages and ancestry feats. Don't forget to select a free attribute boost, too.");
+        tutorial.AddStep(backgroundTabHeader, "Next, choose your background, which reflects your character's past and grants additional training.");
+        tutorial.AddStep(classTabHeader, "Now select your class, which defines your core abilities and combat role. You'll also choose a subclass and class feats.");
+        tutorial.AddStep(finalBoostsTabHeader, "Assign your remaining attribute boosts. You may choose four total, so plan carefully.");
+        tutorial.AddStep(nameField, "Give your character a name to complete their identity.");
+        tutorial.AddStep(leftInfoPanel, "Review your character details here. Hover over options for more information.");
+        tutorial.AddStep(finishCharacterCreation, "When you're ready, finalize your character and begin your adventure!");
+        tutorial.AddStep(defaultBarbarian, "Short on time? Use a preset barbarian build to jump straight into the game.");
         tutorial.StartTutorial();
 
         nameField.RegisterValueChangedCallback(OnNameChanged);
@@ -395,7 +395,7 @@ public class CharacterCreationScript : MonoBehaviour
         HoverOverElement(attackDropdownMenu, "Proficiency with various weapon types. Determined by class.");
         HoverOverElement(defenseDropdownMenu, "Proficiency with different armor types and unarmored defense. Determined by class.");
 
-        //attributes? others?
+        HoverOverElement(notificationElement, "You are missing required fields. Click this message to dismiss.");
     }
 
     void PrintJson()
@@ -490,9 +490,9 @@ public class CharacterCreationScript : MonoBehaviour
         PopulateClassFeatButtons(c.className);
         PopulateSubclassButtons(c.className);
 
-        hpField.value = c.hp;
-        speedField.value = c.speed;
-        sizeField.value = c.size;
+        hpField.text = c.hp.ToString();
+        speedField.text = c.speed.ToString();
+        sizeField.text = c.size;
 
         strengthAttributeField.value = c.strength;
         dexterityAttributeField.value = c.dexterity;
@@ -621,8 +621,8 @@ public class CharacterCreationScript : MonoBehaviour
         ancestryChoiceField.value = selectedAncestry;
         currentCharacter.ancestry = selectedAncestry; //send to PlayerCharacter json
         ancestryHP = db.ancestries.Find(a => a.id == selectedAncestry).hp;
-        hpField.value = classHP + ancestryHP; //add ancestry hp to other hp
-        currentCharacter.hp = hpField.value;
+        hpField.text = (classHP + ancestryHP).ToString(); //add ancestry hp to other hp
+        currentCharacter.hp = int.Parse(hpField.text);
 
         Ancestry selectedAncestryObj = db.ancestries.Find(a => a.id == selectedAncestry); //make an ancestry object
         List<string> boosts = new List<string>(selectedAncestryObj.attributeBoost); //make a list of that ancestry's boosts
@@ -631,10 +631,10 @@ public class CharacterCreationScript : MonoBehaviour
         ApplyAncestryFlaw(db.ancestries.Find(a => a.id == selectedAncestry).attributeFlaw);
         RefreshAttributeFields();
 
-        speedField.value = db.ancestries.Find(a => a.id == selectedAncestry).speed;
-        currentCharacter.speed = speedField.value;
+        speedField.text = db.ancestries.Find(a => a.id == selectedAncestry).speed.ToString();
+        currentCharacter.speed = int.Parse(speedField.text);
         currentCharacter.size = db.ancestries.Find(a => a.id == selectedAncestry).size;
-        sizeField.value = currentCharacter.size;
+        sizeField.text = currentCharacter.size;
         PopulateHeritageButtons(selectedAncestry);
         PopulateAncestryFeatButtons(selectedAncestry);
         PopulateAncestryDescription(selectedAncestry);
@@ -678,6 +678,8 @@ public class CharacterCreationScript : MonoBehaviour
             {
                 text = heritage
             };
+
+            rb.AddToClassList("pill-radio"); //add custom class for styling
             heritageRadioButtonGroup.Add(rb);
         }
 
@@ -697,6 +699,7 @@ public class CharacterCreationScript : MonoBehaviour
             {
                 text = ancestryFeat
             };
+            rb.AddToClassList("pill-radio"); //add custom class for styling
             ancestryFeatsRadioButtonGroup.Add(rb);
         }
 
@@ -748,7 +751,7 @@ public class CharacterCreationScript : MonoBehaviour
         if (!backgroundDescriptionByBackground.TryGetValue(background, out var backgroundBoost))
             return;
 
-        backgroundDescriptionLabel.text = backgroundDescriptionByBackground[background][0];
+        backgroundDescriptionLabel.text = "Description: " + backgroundDescriptionByBackground[background][0];
         backgroundSkillLabel.text = "Skill: " + backgroundDescriptionByBackground[background][3];
         backgroundSkillFeatLabel.text = "Skill Feat: " + backgroundDescriptionByBackground[background][4];
 
@@ -763,7 +766,9 @@ public class CharacterCreationScript : MonoBehaviour
             text = backgroundDescriptionByBackground[background][2]
         };
 
+        rb.AddToClassList("pill-radio"); //add custom class for styling
         backgroundBoostChoiceRadioButtonGroup.Add(rb);
+        rb2.AddToClassList("pill-radio"); //add custom class for styling
         backgroundBoostChoiceRadioButtonGroup.Add(rb2);
 
     }
@@ -808,9 +813,9 @@ public class CharacterCreationScript : MonoBehaviour
 
         classHP = 0;
         classHP = db2.classes.Find(a => a.id == selectedClass).hp;
-        hpField.value = ancestryHP + classHP; //add class hp to total hp
+        hpField.text = (ancestryHP + classHP).ToString(); //add class hp to total hp
 
-        currentCharacter.hp = hpField.value;
+        currentCharacter.hp = int.Parse(hpField.text);
 
         simpleWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.simpleWeapons;
         martialWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.martialWeapons;
@@ -862,6 +867,7 @@ public class CharacterCreationScript : MonoBehaviour
             {
                 text = classFeat
             };
+            rb.AddToClassList("pill-radio"); //add custom class for styling
             classFeatsRadioButtonGroup.Add(rb);
         }
 
@@ -892,6 +898,7 @@ public class CharacterCreationScript : MonoBehaviour
             {
                 text = subclass
             };
+            rb.AddToClassList("pill-radio");
             subclassRadioButtonGroup.Add(rb);
         }
 
