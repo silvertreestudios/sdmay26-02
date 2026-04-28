@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -10,10 +11,10 @@ namespace TestsUI
     public class GameUITests
     {
         private float timeout = 5f; // 5 seconds timeout
-        private float elapsedTime = 0f;
         private Button button = null;
         private UIDocument doc;
         private VisualElement root;
+        private GameObject player;
 
         public void PushButton(Button button)
         {
@@ -24,11 +25,35 @@ namespace TestsUI
             }
         }
 
+        public List<string> GetActionButtons(GameObject player)
+        {
+            List<string> buttonNames = new List<string>();
+            ActionController ac = player.GetComponent<ActionController>();
+            if (ac != null)
+            {
+                List<EntityAction> playerActions = ac.GetActions();
+                foreach (EntityAction action in playerActions)
+                {
+                    buttonNames.Add(action.ActionName.Replace(" ", "") + "Button");
+                }
+            }
+            return buttonNames;
+        }
+
+        public IEnumerator WaitUntilWithTimeout(float maxTime, System.Func<bool> condition)
+        {
+            float timer = 0f;
+            while (timer < maxTime && !condition())
+            {
+                timer += Time.unscaledDeltaTime;
+                yield return null;
+            }
+        }
+
         [UnitySetUp]
         public IEnumerator Setup()
         {
             Time.timeScale = 1f; // Reset time scale to normal for any subsequent tests
-            elapsedTime = 0f;
             yield return SceneManager.LoadSceneAsync("UnitTestingScene");
             doc = Object.FindFirstObjectByType<UIDocument>();
             root = doc.rootVisualElement;
@@ -44,17 +69,12 @@ namespace TestsUI
         public IEnumerator UIActionsPresentTest()
         {
             //check that all buttons are present
-            string[] buttonNames = { "EndTurnButton", "StrideButton", "UnarmedStrikeButton", "CancelActionButton" };
+            player = CombatManagerInterface.GetInstance().WhosTurn();
+            List<string> buttonNames = GetActionButtons(player);
             foreach (string name in buttonNames)
             {
-                while (elapsedTime < timeout && button == null)
-                {
-                    elapsedTime += Time.unscaledDeltaTime;
-                    button = root.Q<Button>(name);
-                    yield return null; // Wait a frame before trying again
-                }
+                yield return WaitUntilWithTimeout(timeout, () => (button = root.Q<Button>(name)) != null);
                 Assert.IsNotNull(button, $"Button with name '{name}' not found in UI.");
-                elapsedTime = 0f; // Reset elapsed time for the next button
                 button = null; // Reset button for the next search
             }
             yield return null;
@@ -69,15 +89,8 @@ namespace TestsUI
             string[] buttonNames = { "PauseButton", "Speed2xButton", "Speed3xButton", "SpeedToggleButton" };
             foreach (string name in buttonNames)
             {
-                while (elapsedTime < timeout && button == null)
-                {
-                    elapsedTime += Time.unscaledDeltaTime;
-                    // Searching by name since these elements are queried by name in the HUDController
-                    button = root.Q<Button>(name);
-                    yield return null; 
-                }
+                yield return WaitUntilWithTimeout(timeout, () => (button = root.Q<Button>(name)) != null);
                 Assert.IsNotNull(button, $"Button with name '{name}' not found in UI.");
-                elapsedTime = 0f; 
                 button = null; 
             }
             yield return null;
@@ -93,14 +106,8 @@ namespace TestsUI
             VisualElement element = null;
             foreach (string name in elementNames)
             {
-                while (elapsedTime < timeout && element == null)
-                {
-                    elapsedTime += Time.unscaledDeltaTime;
-                    element = root.Q<VisualElement>(name);
-                    yield return null; 
-                }
+                yield return WaitUntilWithTimeout(timeout, () => (element = root.Q<VisualElement>(name)) != null);
                 Assert.IsNotNull(element, $"Element with name '{name}' not found in UI.");
-                elapsedTime = 0f; 
                 element = null; 
             }
             yield return null;
@@ -112,23 +119,25 @@ namespace TestsUI
         {
             // Get GridBase to check FSM states
             GridPrivate.GridBase gridBase = null;
-            while (gridBase == null && elapsedTime < timeout)
-            {
-                elapsedTime += Time.unscaledDeltaTime;
-                gridBase = Object.FindFirstObjectByType<GridPrivate.GridBase>();
-                yield return null;
-            }
+            yield return WaitUntilWithTimeout(timeout, () => (gridBase = Object.FindFirstObjectByType<GridPrivate.GridBase>()) != null);
             Assert.IsNotNull(gridBase, "GridBase not found in the scene.");
-            elapsedTime = 0f;
 
-            // Give it a moment to initialize and enter Idle state
-            yield return new WaitForSeconds(0.5f);
             Assert.IsTrue(gridBase.Fsm.CurrentState is GridPrivate.StateIdle, "FSM should start in StateIdle.");
 
-            Button strideButton = root.Q<Button>("StrideButton");
-            Button strikeButton = root.Q<Button>("UnarmedStrikeButton");
-            Button cancelButton = root.Q<Button>("CancelActionButton");
-            Button endTurnButton = root.Q<Button>("EndTurnButton");
+            // wait for buttons to be not null
+            Button strideButton = null;
+            Button strikeButton = null;
+            Button cancelButton = null;
+            Button endTurnButton = null;
+
+            yield return WaitUntilWithTimeout(timeout, () => {
+                strideButton = root.Q<Button>("StrideButton");
+                strikeButton = root.Q<Button>("UnarmedStrikeButton");
+                cancelButton = root.Q<Button>("CancelActionButton");
+                endTurnButton = root.Q<Button>("EndTurnButton");
+                return strideButton != null && strikeButton != null && cancelButton != null && endTurnButton != null;
+            });
+    
 
             // Test Stride Button
             PushButton(strideButton);
@@ -164,15 +173,14 @@ namespace TestsUI
             Button pauseBtn = null;
             Button speedToggle = null;
 
-            while (elapsedTime < timeout && (speed2x == null || speed3x == null || pauseBtn == null || speedToggle == null))
+            yield return WaitUntilWithTimeout(timeout, () =>
             {
-                elapsedTime += Time.unscaledDeltaTime;
                 speed2x = root.Q<Button>("Speed2xButton");
                 speed3x = root.Q<Button>("Speed3xButton");
                 pauseBtn = root.Q<Button>("PauseButton");
                 speedToggle = root.Q<Button>("SpeedToggleButton");
-                yield return null;
-            }
+                return speed2x != null && speed3x != null && pauseBtn != null && speedToggle != null;
+            });
 
             Assert.IsNotNull(speed2x, "Speed2xButton not found.");
             Assert.IsNotNull(speed3x, "Speed3xButton not found.");
@@ -197,28 +205,33 @@ namespace TestsUI
         [UnityTest]
         public IEnumerator CombatLogFunctionalityTest()
         {
-            // Give the UI a moment to be fully initialized
-            yield return new WaitForSeconds(0.5f);
+            CombatLog combatLogComponent = null;
+            VisualElement combatLogUI = null;
+            VisualElement handle = null;
+            Button toggleButton = null;
 
-            var combatLogComponent = Object.FindFirstObjectByType<CombatLog>();
+            yield return WaitUntilWithTimeout(timeout, () =>
+            {
+                combatLogComponent = Object.FindFirstObjectByType<CombatLog>();
+                combatLogUI = root.Q<VisualElement>("CombatLog");
+                handle = root.Q<VisualElement>("ResizeHandle");
+                toggleButton = root.Q<Button>("LogToggleButton");
+                
+                return combatLogComponent != null && combatLogUI != null && handle != null && toggleButton != null;
+            });
+
             Assert.IsNotNull(combatLogComponent, "CombatLog component was not initialized on a game object.");
-            
-            VisualElement combatLogUI = root.Q<VisualElement>("CombatLog");
             Assert.IsNotNull(combatLogUI, "CombatLog UI element not found.");
-
-            VisualElement handle = root.Q<VisualElement>("ResizeHandle");
             Assert.IsNotNull(handle, "ResizeHandle UI element not found.");
-            
-            Button toggleButton = root.Q<Button>("LogToggleButton");
             Assert.IsNotNull(toggleButton, "LogToggleButton UI element not found.");
 
             // Add a test log and ensure we can select the generic list view element 
-            ListView logList = combatLogUI.Q<ListView>("CombatLog");
-            if (logList == null)
+            ListView logList = null;
+            yield return WaitUntilWithTimeout(timeout, () =>
             {
-                // In some setups, the visual element IS the list view itself
-                logList = combatLogUI as ListView;
-            }
+                logList = combatLogUI.Q<ListView>("CombatLog") ?? combatLogUI as ListView;
+                return logList != null;
+            });
             Assert.IsNotNull(logList, "Could not find the ListView associated with the Combat Log.");
 
             // Send a test log
