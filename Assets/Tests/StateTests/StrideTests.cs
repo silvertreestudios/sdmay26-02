@@ -10,10 +10,19 @@ namespace TestsState
 {
     public class StrideTests
     {
-        float timeout = 5f; // 5 seconds timeout
-        float elapsedTime = 0f;
+        private UIDocument doc;
+        private VisualElement root;
+        private float timeout = 5f; // 5 seconds timeout
+        private float elapsedTime = 0f;
 
-        
+        public void PushButton(Button button)
+        {
+            using (var evt = NavigationSubmitEvent.GetPooled())
+            {
+                evt.target = button;
+                button.SendEvent(evt);
+            }
+        }
 
         /// <summary>
         /// Resets the scene and then presses the Stride button before every test, waits for the state machine to transition into the stride state
@@ -29,16 +38,14 @@ namespace TestsState
             yield return SceneManager.LoadSceneAsync("UnitTestingScene");
 
            
-            var doc = Object.FindFirstObjectByType<UIDocument>();
-            var ui = doc.rootVisualElement;
+            doc = Object.FindFirstObjectByType<UIDocument>();
+            root = doc.rootVisualElement;
             
             Button moveButton = null;
-            
 
             while (moveButton == null && elapsedTime < timeout)
             {
-                var buttons = ui.Query<Button>().ToList();
-                moveButton = buttons.Find(b => b.text == "Stride");
+                moveButton = root.Q<Button>("StrideButton");
                 if (moveButton == null)
                 {
                     elapsedTime += Time.deltaTime;
@@ -49,11 +56,7 @@ namespace TestsState
             Assert.IsNotNull(moveButton, "Timed out waiting for the Stride button to appear in the UI.");
             elapsedTime = 0f;
             // Simulate button click
-            using (var evt = NavigationSubmitEvent.GetPooled())
-            {
-                evt.target = moveButton;
-                moveButton.SendEvent(evt);
-            }
+            PushButton(moveButton);
 
             // wait for the state to change to stride
             GridBase gridBase = Object.FindFirstObjectByType<GridBase>();

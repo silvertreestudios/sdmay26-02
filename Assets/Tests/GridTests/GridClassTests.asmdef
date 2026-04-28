@@ -3,7 +3,8 @@
     "rootNamespace": "TestsGrid",
     "references": [
         "UnityEngine.TestRunner",
-        "UnityEditor.TestRunner"
+        "UnityEditor.TestRunner",
+        "MainGameAssembly"
     ],
     "includePlatforms": [
         "Editor"

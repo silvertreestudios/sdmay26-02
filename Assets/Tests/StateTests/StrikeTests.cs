@@ -11,8 +11,19 @@ namespace TestsState
 {
     public class StrikeTests
     {
-        float timeout = 5f; // 5 seconds timeout
-        float elapsedTime = 0f;
+        private UIDocument doc;
+        private VisualElement root;
+        private float timeout = 5f; // 5 seconds timeout
+        private float elapsedTime = 0f;
+
+        public void PushButton(Button button)
+        {
+            using (var evt = NavigationSubmitEvent.GetPooled())
+            {
+                evt.target = button;
+                button.SendEvent(evt);
+            }
+        }
 
         /// <summary>
         /// Resets the scene and then presses the Strike button before every test, waits for the state machine to transition into the strike state
@@ -28,31 +39,25 @@ namespace TestsState
             yield return SceneManager.LoadSceneAsync("UnitTestingScene");
 
            
-            var doc = Object.FindFirstObjectByType<UIDocument>();
-            var ui = doc.rootVisualElement;
+            doc = Object.FindFirstObjectByType<UIDocument>();
+            root = doc.rootVisualElement;
             
-            Button moveButton = null;
-            
+            Button strikeButton = null;
 
-            while (moveButton == null && elapsedTime < timeout)
+            while (strikeButton == null && elapsedTime < timeout)
             {
-                var buttons = ui.Query<Button>().ToList();
-                moveButton = buttons.Find(b => b.text == "Unarmed Strike");
-                if (moveButton == null)
+                strikeButton = root.Q<Button>("UnarmedStrikeButton");
+                if (strikeButton == null)
                 {
                     elapsedTime += Time.deltaTime;
                     yield return null;
                 }
             }
 
-            Assert.IsNotNull(moveButton, "Timed out waiting for the Strike button to appear in the UI.");
+            Assert.IsNotNull(strikeButton, "Timed out waiting for the Strike button to appear in the UI.");
             elapsedTime = 0f;
             // Simulate button click
-            using (var evt = NavigationSubmitEvent.GetPooled())
-            {
-                evt.target = moveButton;
-                moveButton.SendEvent(evt);
-            }
+            PushButton(strikeButton);
 
             // wait for the state to change to strike
             GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
@@ -73,7 +78,6 @@ namespace TestsState
             }
         }
         //TODO test that selecting a target returns the expected information
-        //TODO test that targeting floors and tiles out of range will refund AP and not execute the strike
         [UnityTest]
         public IEnumerator StrikeEmptyInRange()
         {

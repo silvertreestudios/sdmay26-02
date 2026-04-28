@@ -9,20 +9,48 @@ namespace TestsUI
 {
     public class MainMenuTests
     {
+        private UIDocument doc;
+        private VisualElement root;
         private UIDocument GetMainMenuDocument()
         {
             return Object.FindFirstObjectByType<UIDocument>();
+        }
+        public void PushButton(Button button)
+        {
+            using (var evt = NavigationSubmitEvent.GetPooled())
+            {
+                evt.target = button;
+                button.SendEvent(evt);
+            }
         }
 
         [UnitySetUp]
         public IEnumerator Setup()
         {
             // Load the MainMenu scene - add it to Build Settings first!
-            SceneManager.LoadScene("MainMenuScene");
-            yield return new WaitUntil(() => SceneManager.GetActiveScene().name == "MainMenuScene");
-            yield return new WaitForSeconds(0.5f);
+            yield return SceneManager.LoadSceneAsync("MainMenuScene");
+            
+            doc = GetMainMenuDocument();
+            Assert.IsNotNull(doc, "UIDocument not found in scene");
+            root = doc.rootVisualElement;
+            Assert.IsNotNull(root, "Root VisualElement not found in UIDocument");
         }
 
+        [UnityTearDown]
+        public IEnumerator TearDown()
+        {
+            // Destroy the persistent SceneTransitionManager if it was spawned by a button click
+            var transitionManager = GameObject.Find("SceneTransitionManager");
+            if (transitionManager != null)
+            {
+                Object.Destroy(transitionManager);
+                yield return null; // Wait a frame for destruction to apply
+            }
+        }
+
+        /// <summary>
+        /// Tests that the main menu scene loads correctly
+        /// </summary>
         [UnityTest]
         public IEnumerator MainMenuSceneLoads()
         {
@@ -30,13 +58,12 @@ namespace TestsUI
             yield return null;
         }
 
+        /// <summary>
+        /// Tests that all buttons are present in the main menu
+        /// </summary>
         [UnityTest]
         public IEnumerator AllButtonsExist()
         {
-            var doc = GetMainMenuDocument();
-            Assert.IsNotNull(doc, "UIDocument not found in scene");
-            var root = doc.rootVisualElement;
-
             Assert.IsNotNull(root.Q<Button>("NewGameButton"), "New Game button not found");
             Assert.IsNotNull(root.Q<Button>("LoadGameButton"), "Load Game button not found");
             Assert.IsNotNull(root.Q<Button>("OptionsButton"), "Options button not found");
@@ -45,13 +72,12 @@ namespace TestsUI
             yield return null;
         }
 
+        /// <summary>
+        /// Tests that all buttons are interactable in the main menu
+        /// </summary>
         [UnityTest]
         public IEnumerator ButtonsAreInteractable()
         {
-            var doc = GetMainMenuDocument();
-            Assert.IsNotNull(doc, "UIDocument not found in scene");
-            var root = doc.rootVisualElement;
-
             Assert.IsTrue(root.Q<Button>("NewGameButton").enabledSelf, "New Game button should be interactable");
             Assert.IsTrue(root.Q<Button>("LoadGameButton").enabledSelf, "Load Game button should be interactable");
             Assert.IsTrue(root.Q<Button>("OptionsButton").enabledSelf, "Options button should be interactable");
@@ -60,81 +86,82 @@ namespace TestsUI
             yield return null;
         }
 
+        /// <summary>
+        /// Tests that clicking the New Game button loads the CharacterCreationScene
+        /// </summary>
         [UnityTest]
         public IEnumerator NewGameButtonClick()
         {
-            var doc = GetMainMenuDocument();
-            Assert.IsNotNull(doc, "UIDocument not found in scene");
-            var button = doc.rootVisualElement.Q<Button>("NewGameButton");
+            var button = root.Q<Button>("NewGameButton");
             Assert.IsNotNull(button, "New Game button not found");
 
             // Simulate button click
-            using (var evt = NavigationSubmitEvent.GetPooled())
-            {
-                evt.target = button;
-                button.SendEvent(evt);
-            }
+            PushButton(button);
             
-            // Wait a frame for scene change
-            yield return new WaitForSeconds(0.5f);
+            // Wait until the scene changes or it times out
+            float timeoutTime = Time.realtimeSinceStartup + 5f;
+            yield return new WaitUntil(() => SceneManager.GetActiveScene().name == "CharacterCreationScene" || Time.realtimeSinceStartup > timeoutTime);
 
             // Check if scene changed according to MainMenuControl.NewGame()
             string currentScene = SceneManager.GetActiveScene().name;
             Assert.AreEqual("CharacterCreationScene", currentScene, "Scene should change to CharacterCreationScene after clicking New Game");
         }
 
+        /// <summary>
+        /// Tests that clicking the Load Game button loads the Level1 scene
+        /// </summary>
         [UnityTest]
         public IEnumerator LoadGameButtonClick()
         {
-            var doc = GetMainMenuDocument();
-            Assert.IsNotNull(doc, "UIDocument not found in scene");
-            var button = doc.rootVisualElement.Q<Button>("LoadGameButton");
+            var button = root.Q<Button>("LoadGameButton");
             Assert.IsNotNull(button, "Load Game button not found");
 
             // Simulate button click
-            using (var evt = NavigationSubmitEvent.GetPooled())
-            {
-                evt.target = button;
-                button.SendEvent(evt);
-            }
+            PushButton(button);
             
-            // Wait a frame for scene change
-            yield return new WaitForSeconds(0.5f);
+            // Wait until the scene changes or it times out
+            float timeoutTime = Time.realtimeSinceStartup + 5f;
+            yield return new WaitUntil(() => SceneManager.GetActiveScene().name == "Level1" || Time.realtimeSinceStartup > timeoutTime);
 
             // Check if scene changed according to MainMenuControl.LoadGame()
             string currentScene = SceneManager.GetActiveScene().name;
             Assert.AreEqual("Level1", currentScene, "Scene should change to Level1 after clicking Load Game");
         }
 
+        /// <summary>
+        /// Tests that clicking the Options button invokes its click handler
+        /// </summary>
         [UnityTest]
         public IEnumerator OptionsButtonClick()
         {
-            var doc = GetMainMenuDocument();
-            Assert.IsNotNull(doc, "UIDocument not found in scene");
-            var button = doc.rootVisualElement.Q<Button>("OptionsButton");
+            var button = root.Q<Button>("OptionsButton");
             Assert.IsNotNull(button, "Options button not found");
 
             bool wasClicked = false;
             button.clicked += () => wasClicked = true;
             
-            using (var evt = NavigationSubmitEvent.GetPooled())
-            {
-                evt.target = button;
-                button.SendEvent(evt);
-            }
+            // Simulate button click
+            PushButton(button);
             
             yield return null;
 
             Assert.IsTrue(wasClicked, "Options button click handler was not invoked");
         }
 
-        // TODO test Exit button click - may require mocking Application.Quit() or checking for log output
-
-        [UnityTearDown]
-        public IEnumerator TearDown()
+        /// <summary>
+        /// Tests that clicking the Exit button invokes its click handler
+        /// </summary>
+        [UnityTest]
+        public IEnumerator ExitButtonClick()
         {
-            // Clean up after tests
+            var button = root.Q<Button>("ExitButton");
+            Assert.IsNotNull(button, "Exit button not found");
+            // Simulate button click
+            PushButton(button);
             yield return null;
+
+            // Expect the specific debug log message
+            LogAssert.Expect(LogType.Log, "Clicked Exit button");
         }
     }
 }

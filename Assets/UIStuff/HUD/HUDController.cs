@@ -554,6 +554,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
 
         Button btn = onClick != null ? new Button(onClick) : new Button();
+        btn.name = label.Replace(" ", "") + "Button";
         btn.text = label;
         btn.AddToClassList(colorClass);
         if (label.Length > 10)
