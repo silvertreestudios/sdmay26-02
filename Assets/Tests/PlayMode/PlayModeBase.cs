@@ -15,6 +15,9 @@ public abstract class PlayModeBase
     protected VisualElement root;
     protected GameObject player;
 
+    /// <summary>
+    /// pushes a buton... nuff said
+    /// </summary>
     public void PushButton(Button button)
     {
         using (var evt = NavigationSubmitEvent.GetPooled())
@@ -24,6 +27,9 @@ public abstract class PlayModeBase
         }
     }
 
+    /// <summary>
+    /// Gets the names of the action buttons that should be present in the UI based on the actions available to the player
+    /// </summary>
     public List<string> GetActionButtons(GameObject player)
     {
         List<string> buttonNames = new List<string>();
@@ -39,6 +45,10 @@ public abstract class PlayModeBase
         return buttonNames;
     }
 
+    /// <summary>
+    /// Waits until a condition is true or a timeout is reached, whichever comes first. Used to wait for UI elements to appear or states to change without freezing the test indefinitely.
+    /// Use Lambda functions to execute custom code for every loop while waiting; do this when waiting to set a reference for a UI element.
+    /// </summary>
     public IEnumerator WaitUntilWithTimeout(float maxTime, System.Func<bool> condition)
     {
         float timer = 0f;
@@ -49,6 +59,9 @@ public abstract class PlayModeBase
         }
     }
 
+    /// <summary>
+    /// waits to set the active scene to the UnitTestingScene, then finds the UIDocument and root visual element in that scene and sets them for use in the tests. This runs before every test in this class and any subclasses, ensuring a fresh scene and UI for each test.
+    /// </summary>
     [UnitySetUp]
     public virtual IEnumerator Setup()
     {

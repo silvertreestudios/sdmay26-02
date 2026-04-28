@@ -69,7 +69,9 @@ namespace TestsUI
             yield return null;
         }
 
-        //TODO split this up into the state tests
+        /// <summary>
+        /// Tests that clicking cancel after each action button results in the correct state and UI behaviour
+        /// </summary>
         [UnityTest]
         public IEnumerator UIStatesTest()
         {
@@ -121,6 +123,9 @@ namespace TestsUI
             Assert.Pass("UI States test passed successfully.");
         }
 
+        /// <summary>
+        /// Tests that the fast forward buttons and pause button correctly modify Time.timeScale when clicked
+        /// </summary>
         [UnityTest]
         public IEnumerator FastForwardButtonsActionsTest()
         {
@@ -158,6 +163,11 @@ namespace TestsUI
             
         }
 
+        ////TODO finish this test////
+        
+        /// <summary>
+        /// Tests the functionality of the combat log by sending a test log message and verifying it appears in the log list, as well as testing the toggle button for visibility
+        /// </summary>
         [UnityTest]
         public IEnumerator CombatLogFunctionalityTest()
         {
