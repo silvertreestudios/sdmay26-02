@@ -11,27 +11,46 @@
     translate: 0px 0px;
 }
 
-.unity-progress-bar{
+.health-bar-container {
     width: 100%;
-    /* height: 100%; */
-    justify-content: left;
-    font-size: 14px;
-    color: white;
-}
-
-.unity-progress-bar__container {
-    width: 100%;
-    /* height: 100%; */
-    flex-grow: 1;
-    align-self: center;
-}
-
-.unity-progress-bar__background {
+    height: 29px;
     background-color: rgb(68, 24, 13);
-    border-color: rgb(68, 24, 13);
+    flex-direction: row;
+    position: relative;
+    border-radius: 3px;
+    overflow: hidden;
+    align-self: stretch;
+    margin-top: 0;
+    margin-right: 0;
+    margin-bottom: 0;
+    margin-left: 0;
 }
 
-.unity-progress-bar__progress {
+.health-bar-fill {
+    flex-shrink: 0;
+    height: 100%;
+}
+
+.health-bar-green {
     background-color: rgba(5, 158, 5, 1);
+}
+
+.health-bar-blue {
+    background-color: rgba(60, 130, 230, 1);
+}
+
+.health-bar-empty {
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.health-bar-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    -unity-text-align: middle-center;
+    color: rgb(255, 255, 255);
+    font-size: 14px;
     -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }

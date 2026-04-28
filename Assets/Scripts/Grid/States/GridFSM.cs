@@ -38,6 +38,8 @@ namespace GridPrivate
         // Update is called once per frame
         public void InputUpdate()
         {
+            if (HUDController.IsPointerOverHUD) return;
+
             TimeSinceLastClick = Time.time - LastClickTime;
             if (InputCompat.LeftClickDown())
             {

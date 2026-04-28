@@ -21,6 +21,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private bool autoCameraEnabled = true;
     private bool wasFollowing = false;
     public static bool IsPointerOverLog { get; private set; }
+    public static bool IsPointerOverHUD { get; private set; }
+    private int _hudHoverCount = 0;
     private Coroutine slideCoroutine;
     private Coroutine logSlideCoroutine;
     private Button logToggleButton;
@@ -99,6 +101,12 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             */
     }
 
+    private void RegisterHUDHover(VisualElement el)
+    {
+        el.RegisterCallback<MouseEnterEvent>(_ => { _hudHoverCount++; IsPointerOverHUD = true; });
+        el.RegisterCallback<MouseLeaveEvent>(_ => { _hudHoverCount = Mathf.Max(0, --_hudHoverCount); IsPointerOverHUD = _hudHoverCount > 0; });
+    }
+
     private void OnEnable() {
         //Debug.Log("OnEnable called");
         //####Button Setup####
@@ -171,8 +179,16 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         if (combatLogWrapper != null)
             combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(0, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
 
+        RegisterHUDHover(panel);
+        RegisterHUDHover(combatLogWrapper);
+        RegisterHUDHover(cardHolder);
+        if (speedButtonsBox != null) RegisterHUDHover(speedButtonsBox);
+
         SettingsMenuControl.OnLogOpacityChanged += ApplyLogOpacity;
         ApplyLogOpacity(PlayerPrefs.GetFloat(SettingsMenuControl.LogOpacityKey, SettingsMenuControl.LogOpacityDefault));
+
+
+        
     }
 
     private void OnDisable() {
@@ -193,6 +209,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             resizeHandle.UnregisterCallback<PointerUpEvent>(OnResizeEnd);
         }
         IsPointerOverLog = false;
+        _hudHoverCount = 0;
+        IsPointerOverHUD = false;
         SettingsMenuControl.OnLogOpacityChanged -= ApplyLogOpacity;
     }
 
@@ -712,18 +730,16 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             try {
                 var card = cardHolder.ElementAt(i);
                 CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
-                var healthBar = card.Q<ProgressBar>("HealthBar");
-                //Debug.Log($"Setting health bar for {p.name}: {p.hp}/{p.maxHp}");
-                healthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
-                healthBar.value = p.hp;
-                healthBar.highValue = p.maxHp;
-
-                // Commented out for now - TempHp bar
-                // var thpBar = card.Q<ProgressBar>("TempHpBar");
-                // thpBar.title = "Temp HP: " + p.tempHp + "/" + p.tempHp;
-                // thpBar.value = p.tempHp;
-                // thpBar.highValue = p.tempHp;
-                // ToggleTempHpBar(p, thpBar);
+                var hbGreen = card.Q<VisualElement>("HealthBarGreen");
+                var hbBlue  = card.Q<VisualElement>("HealthBarBlue");
+                var hbEmpty = card.Q<VisualElement>("HealthBarEmpty");
+                var hbLabel = card.Q<Label>("HealthBarLabel");
+                int tempHp = p.tempHp;
+                int emptyAmount = Mathf.Max(0, p.maxHp - p.hp);
+                hbGreen.style.flexGrow = p.hp;
+                hbBlue.style.flexGrow  = tempHp;
+                hbEmpty.style.flexGrow = emptyAmount;
+                hbLabel.text = (p.hp + tempHp) + "/" + (p.maxHp + tempHp);
 
                 VisualElement cardVE = card.Q<VisualElement>("Card");
                 if (p == currentTurn) {
