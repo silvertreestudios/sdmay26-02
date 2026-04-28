@@ -53,7 +53,7 @@ public class StrikeWeapon : MultiFrameEntityAction
             if (weapon.range == null || weapon.range == 0)
             {
                 // TEMP approach to bypass equipping elsewhere
-                creature.GetComponent<CreatureComponent>().equipWeaponRight(weapon); // Temp equip weapon so it can be used by StrikeWeapon constructor
+                creature.GetComponent<CreatureComponent>().EquipWeaponRight(weapon); // Temp equip weapon so it can be used by StrikeWeapon constructor
                 WeaponStrikeAdder(creature);  
 
                 // TEMP approach to bypass equipping entirely

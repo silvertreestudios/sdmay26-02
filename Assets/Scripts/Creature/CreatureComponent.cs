@@ -308,7 +308,7 @@ namespace Game.Creature
             GainTempHp(tempHpAmount, false);
         }
 
-        public int GetInitative()
+        public int GetInitiative()
         {
             // initiative is populated by perception by default, this should account for modifications to perception as well as initiative-specific bonuses
             return Mathf.Max(initiative, GetSkillMod("perception", 0));
@@ -316,7 +316,7 @@ namespace Game.Creature
 
 
         // ? Instead of disallowing equipping, unequip the other weapon?
-        public void equipWeaponLeft(EquipmentWeapon weapon)
+        public void EquipWeaponLeft(EquipmentWeapon weapon)
         {
             if (weapon == null) return;
             if (equippedRightHand != null && equippedRightHand.hands == 2)
@@ -326,7 +326,7 @@ namespace Game.Creature
             }
             _equippedLeftHand = weapon;
         }
-        public void equipWeaponRight(EquipmentWeapon weapon)
+        public void EquipWeaponRight(EquipmentWeapon weapon)
         {
             if (weapon == null) return;
             if (equippedLeftHand != null && equippedLeftHand.hands == 2)
@@ -336,11 +336,11 @@ namespace Game.Creature
             }
             _equippedRightHand = weapon;
         }
-        public void unequipWeaponLeft()
+        public void UnequipWeaponLeft()
         {
             _equippedLeftHand = null;
         }
-        public void unequipWeaponRight()
+        public void UnequipWeaponRight()
         {
             _equippedRightHand = null;
         }
@@ -361,18 +361,18 @@ namespace Game.Creature
                    _equippedRightHand.damage != null;
         }
 
-        public void equipArmor(EquipmentArmor armor)
+        public void EquipArmor(EquipmentArmor armor)
         {
             if (armor == null) return;
             _equippedArmor = armor;
         }
 
-        public void unequipArmor()
+        public void UnequipArmor()
         {
             _equippedArmor = null;
         }
 
-        public void calculateAC()
+        public void CalculateAC()
         {
             // If armor is equipped
             if (_equippedArmor != null && !string.IsNullOrWhiteSpace(_equippedArmor.name))

@@ -308,7 +308,7 @@ namespace Game.Creature
                         {
                             target.armor.Add(temp);
                             target.armorList.Add(temp.name); // TODO temp for debugging
-                            // target.calculateAC(); // Recalculate AC when armor is added
+                            // target.CalculateAC(); // Recalculate AC when armor is added
                         }
                     }
                     if (target.armor.Count > 0)
@@ -316,7 +316,7 @@ namespace Game.Creature
                         // For simplicity, assume the first armor in the list is equipped
                         target.equippedArmor = target.armor[0];
                         // Debug.Log($"CreatureDtoMapper: equipped armor set to {target.equippedArmor.name} with AC bonus {target.equippedArmor.acBonus}");
-                        target.calculateAC(); // Recalculate AC when armor is added
+                        target.CalculateAC(); // Recalculate AC when armor is added
                         // Debug.Log($"CreatureDtoMapper: AC after equipping armor: {target.ac}");
                     }
                 }
