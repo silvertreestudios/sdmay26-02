@@ -34,7 +34,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     private GameObject followTarget;
     public bool IsFollowing => followTarget != null;
 
-    void Awake()
+    protected override void Awake()
     {
         base.Awake();
         moveAction = InputSystem.actions.FindAction("MoveCamera");
@@ -42,6 +42,22 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         rotateAction = InputSystem.actions.FindAction("RotateCamera");
         //This is purely placeholder 
         interactAction = InputSystem.actions.FindAction("Sprint");
+    }
+
+    void OnEnable()
+    {
+        OnNextTurn.AddListener(HandleNextTurnCameraPan);
+    }
+
+    void OnDisable()
+    {
+        OnNextTurn.RemoveListener(HandleNextTurnCameraPan);
+    }
+
+    private void HandleNextTurnCameraPan(GameObject nextTurnTarget)
+    {
+        PanToTarget(nextTurnTarget, true);
+        CombatLog.GetInstance().Log("Focus on " + nextTurnTarget.name);
     }
 
     void Start()

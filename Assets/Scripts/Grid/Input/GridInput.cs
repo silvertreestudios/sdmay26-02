@@ -32,6 +32,16 @@ namespace GridPrivate
 
         void Update()
         {
+            if (HUDController.IsPointerOverHUD)
+            {
+                if (Hover.HasValue)
+                {
+                    OnHoverEnd.Invoke();
+                    Hover = null;
+                }
+                return;
+            }
+
             // Get camera
             var cam = Cam();
             if (!cam) return;
