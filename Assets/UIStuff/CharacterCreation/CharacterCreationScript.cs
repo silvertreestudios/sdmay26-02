@@ -751,7 +751,7 @@ public class CharacterCreationScript : MonoBehaviour
         if (!backgroundDescriptionByBackground.TryGetValue(background, out var backgroundBoost))
             return;
 
-        backgroundDescriptionLabel.text = backgroundDescriptionByBackground[background][0];
+        backgroundDescriptionLabel.text = "Description: " + backgroundDescriptionByBackground[background][0];
         backgroundSkillLabel.text = "Skill: " + backgroundDescriptionByBackground[background][3];
         backgroundSkillFeatLabel.text = "Skill Feat: " + backgroundDescriptionByBackground[background][4];
 

@@ -44,12 +44,7 @@
                     </ui:VisualElement>
                 </ui:VisualElement>
             </ui:Foldout>
-            <ui:VisualElement name="SubProfile2" style="flex-grow: 0; flex-shrink: 0; flex-wrap: nowrap; display: none;">
-                <ui:IntegerField label="HP" value="0" name="HP" readonly="true" />
-                <ui:TextField label="Size" name="Size" readonly="true" style="width: 250px;" />
-                <ui:IntegerField label="Speed" value="0" name="Speed" readonly="true" />
-            </ui:VisualElement>
-            <ui:VisualElement name="ProfilePanelCont" style="flex-grow: 1; flex-shrink: 0; flex-wrap: nowrap; flex-direction: row; align-items: stretch;">
+            <ui:VisualElement name="ProfilePanelCont" style="flex-grow: 1; flex-shrink: 0; flex-wrap: nowrap; flex-direction: row; align-items: stretch; border-left-color: rgba(200, 155, 60, 0); border-right-color: rgba(200, 155, 60, 0); border-top-color: rgba(200, 155, 60, 0); border-bottom-color: rgba(200, 155, 60, 0); border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; border-bottom-left-radius: 0; border-top-width: 0; border-right-width: 0; border-bottom-width: 0; border-left-width: 0;">
                 <ui:VisualElement style="flex-grow: 0;">
                     <ui:Foldout text="Attacks" name="ClassAttackFoldout" style="flex-shrink: 1;">
                         <ui:TextField label="Simple Weapons" name="SimpleAttack" readonly="true" max-length="-1" placeholder-text="not selected" style="width: 315px; flex-shrink: 1;" />
