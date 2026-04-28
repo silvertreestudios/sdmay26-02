@@ -8,64 +8,30 @@ using GridPrivate;
 
 namespace TestsState
 {
-    public class StrideTests
+    public class StrideTests : PlayModeBase
     {
-        private UIDocument doc;
-        private VisualElement root;
-        private float timeout = 5f; // 5 seconds timeout
-        private float elapsedTime = 0f;
-
-        public void PushButton(Button button)
-        {
-            using (var evt = NavigationSubmitEvent.GetPooled())
-            {
-                evt.target = button;
-                button.SendEvent(evt);
-            }
-        }
-
         /// <summary>
         /// Resets the scene and then presses the Stride button before every test, waits for the state machine to transition into the stride state
         /// </summary>
         [UnitySetUp]
-        public IEnumerator Setup()
-        {
+        public override IEnumerator Setup()
+        {           
+            yield return base.Setup();
             
-            elapsedTime = 0f;
-            
-            // load the scene and wait for it to finish loading
-            // it is important that this particular command is used to load the scene, using waituntil breaks everything
-            yield return SceneManager.LoadSceneAsync("UnitTestingScene");
-
-           
-            doc = Object.FindFirstObjectByType<UIDocument>();
-            root = doc.rootVisualElement;
-            
+            // Wait for the Stride button to appear in the UI
             Button moveButton = null;
-
-            while (moveButton == null && elapsedTime < timeout)
-            {
+            yield return WaitUntilWithTimeout(timeout, () => {
                 moveButton = root.Q<Button>("StrideButton");
-                if (moveButton == null)
-                {
-                    elapsedTime += Time.deltaTime;
-                    yield return null;
-                }
-            }
+                return root.Q<Button>("StrideButton") != null;
+            });
 
             Assert.IsNotNull(moveButton, "Timed out waiting for the Stride button to appear in the UI.");
-            elapsedTime = 0f;
             // Simulate button click
             PushButton(moveButton);
 
             // wait for the state to change to stride
             GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
-
-            while (!(gridBase.Fsm.CurrentState is StateStride) && elapsedTime < timeout)
-            {
-                elapsedTime += Time.deltaTime;
-                yield return null;
-            }
+            yield return WaitUntilWithTimeout(timeout, () => gridBase.Fsm.CurrentState is StateStride);
 
             Assert.IsTrue(gridBase.Fsm.CurrentState is StateStride, "Timed out waiting for the FSM to transition to StateStride after clicking the Stride button.");
 
@@ -99,12 +65,8 @@ namespace TestsState
             gridBase.Fsm.CurrentState.Leftclick();
 
             // Wait for movement to finish (FSM returns to idle)
-            elapsedTime = 0f;
-            while (!(gridBase.Fsm.CurrentState is StateIdle) && elapsedTime < timeout)
-            {
-                elapsedTime += Time.deltaTime;
-                yield return null;
-            }
+            yield return WaitUntilWithTimeout(timeout, () => gridBase.Fsm.CurrentState is StateIdle);
+            
             Assert.IsTrue(gridBase.Fsm.CurrentState is StateIdle, "FSM did not return to StateIdle after movement.");
             Vector3 endPos = player.transform.position;
             Assert.AreEqual(targetPos, Vector3Int.RoundToInt(endPos), "Player did not move to the specified target position.");

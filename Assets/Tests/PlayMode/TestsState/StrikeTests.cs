@@ -9,64 +9,33 @@ using GridPrivate;
 
 namespace TestsState
 {
-    public class StrikeTests
+    public class StrikeTests : PlayModeBase
     {
-        private UIDocument doc;
-        private VisualElement root;
-        private float timeout = 5f; // 5 seconds timeout
-        private float elapsedTime = 0f;
-
-        public void PushButton(Button button)
-        {
-            using (var evt = NavigationSubmitEvent.GetPooled())
-            {
-                evt.target = button;
-                button.SendEvent(evt);
-            }
-        }
 
         /// <summary>
         /// Resets the scene and then presses the Strike button before every test, waits for the state machine to transition into the strike state
         /// </summary>
         [UnitySetUp]
-        public IEnumerator Setup()
-        {
+        public override IEnumerator Setup()
+        {            
+            yield return base.Setup();
             
-            elapsedTime = 0f;
-            
-            // load the scene and wait for it to finish loading
-            // it is important that this particular command is used to load the scene, using waituntil breaks everything
-            yield return SceneManager.LoadSceneAsync("UnitTestingScene");
-
-           
-            doc = Object.FindFirstObjectByType<UIDocument>();
-            root = doc.rootVisualElement;
-            
+            // Wait for the Stride button to appear in the UI
             Button strikeButton = null;
-
-            while (strikeButton == null && elapsedTime < timeout)
-            {
+            yield return WaitUntilWithTimeout(timeout, () => {
                 strikeButton = root.Q<Button>("UnarmedStrikeButton");
-                if (strikeButton == null)
-                {
-                    elapsedTime += Time.deltaTime;
-                    yield return null;
-                }
-            }
+                return strikeButton != null;
+            });
 
             Assert.IsNotNull(strikeButton, "Timed out waiting for the Strike button to appear in the UI.");
-            elapsedTime = 0f;
+            
             // Simulate button click
             PushButton(strikeButton);
 
             // wait for the state to change to strike
             GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
 
-            while (!(gridBase.Fsm.CurrentState is StateStrike) && elapsedTime < timeout)
-            {
-                elapsedTime += Time.deltaTime;
-                yield return null;
-            }
+            yield return WaitUntilWithTimeout(timeout, () => gridBase.Fsm.CurrentState is StateStrike);
 
             Assert.IsTrue(gridBase.Fsm.CurrentState is StateStrike, "Timed out waiting for the FSM to transition to StateStrike after clicking the Strike button.");
 

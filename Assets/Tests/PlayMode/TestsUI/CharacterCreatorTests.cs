@@ -5,26 +5,15 @@ using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 using UnityEngine.SceneManagement;
 using UnityEditor.Experimental.GraphView;
+using System.Threading;
 
 namespace TestsUI
 {
-    public class CharacterCreatorTests
+    public class CharacterCreatorTests : PlayModeBase
     {
-        private UIDocument doc;
-        private VisualElement root;
-
-        public void PushButton(Button button)
-        {
-            using (var evt = NavigationSubmitEvent.GetPooled())
-            {
-                evt.target = button;
-                button.SendEvent(evt);
-            }
-        }
         [UnitySetUp]
-        public IEnumerator Setup()
+        public override IEnumerator Setup()
         {
-            // Load the CharacterCreator scene - add it to Build Settings first!
             yield return SceneManager.LoadSceneAsync("CharacterCreationScene");
             
             doc = Object.FindFirstObjectByType<UIDocument>();
@@ -46,7 +35,7 @@ namespace TestsUI
         }
 
         /// <summary>
-        /// Tests that the tutorial can be completed by simulating clicks on the "Next" button
+        /// Tests that the tutorial can be completed by simulating clicks on the "Next" button the correct ammount of times based on the tutorial's step count
         /// </summary>
         [UnityTest]
         public IEnumerator CharacterCreatorTutorialCompletes()
@@ -56,13 +45,15 @@ namespace TestsUI
             var script = Object.FindFirstObjectByType<CharacterCreationScript>();
             int steps = script.tutorial.StepCount;
             int clicks = 0;
-            while (nextButton.parent.parent.resolvedStyle.display != DisplayStyle.None && clicks < steps)
+            yield return WaitUntilWithTimeout(timeout, () => 
             {
                 nextButton = root.Q<Button>("NextTutorialButton");
                 PushButton(nextButton);
-                yield return null; // Wait a frame for the UI to update
-                
-            }
+                clicks++;
+                return nextButton.parent.parent.resolvedStyle.display == DisplayStyle.None && clicks == steps;
+            });
+            
+            Assert.IsTrue(clicks == steps, $"Expected to click the Next button {steps} times, but clicked it {clicks} times.");
             Assert.IsTrue(nextButton.parent.parent.resolvedStyle.display == DisplayStyle.None, "Tutorial overlay should not be displayed after completing the tutorial");
         }
 

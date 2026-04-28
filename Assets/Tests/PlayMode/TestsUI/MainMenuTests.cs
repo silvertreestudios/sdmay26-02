@@ -7,31 +7,18 @@ using UnityEngine.SceneManagement;
 
 namespace TestsUI
 {
-    public class MainMenuTests
+    public class MainMenuTests : PlayModeBase
     {
-        private UIDocument doc;
-        private VisualElement root;
-        private UIDocument GetMainMenuDocument()
-        {
-            return Object.FindFirstObjectByType<UIDocument>();
-        }
-        public void PushButton(Button button)
-        {
-            using (var evt = NavigationSubmitEvent.GetPooled())
-            {
-                evt.target = button;
-                button.SendEvent(evt);
-            }
-        }
 
         [UnitySetUp]
-        public IEnumerator Setup()
+        public override IEnumerator Setup()
         {
-            // Load the MainMenu scene - add it to Build Settings first!
+            Time.timeScale = 1f;
             yield return SceneManager.LoadSceneAsync("MainMenuScene");
             
-            doc = GetMainMenuDocument();
-            Assert.IsNotNull(doc, "UIDocument not found in scene");
+            doc = Object.FindFirstObjectByType<UIDocument>();
+            Assert.IsNotNull(doc, "UIDocument not found in MainMenuScene");
+            
             root = doc.rootVisualElement;
             Assert.IsNotNull(root, "Root VisualElement not found in UIDocument");
         }
