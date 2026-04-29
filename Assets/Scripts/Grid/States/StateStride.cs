@@ -139,7 +139,7 @@ namespace GridPrivate
 
             int i = 1;
             PathNode step;
-            while (i < Path.Count && (step = path[i++]) != null && step.Dist < MaxMoveDist)
+            while (i < Path.Count && (step = path[i++]) != null && step.Dist <= MaxMoveDist)
             {
                 // Remove from tile
                 CurrentPosition = Vector3Int.RoundToInt(Character.transform.position);
