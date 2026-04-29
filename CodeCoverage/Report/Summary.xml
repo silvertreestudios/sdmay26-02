@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CoverageReport scope="Summary">
+  <Summary>
+    <Generatedon>4/29/2026 - 10:51:04 AM</Generatedon>
+    <Parser>MultiReportParser (4x OpenCoverParser)</Parser>
+    <Assemblies>3</Assemblies>
+    <Classes>97</Classes>
+    <Files>87</Files>
+    <Coveredlines>3306</Coveredlines>
+    <Uncoveredlines>2763</Uncoveredlines>
+    <Coverablelines>6069</Coverablelines>
+    <Totallines>12974</Totallines>
+    <Linecoverage>54.4</Linecoverage>
+    <Coveredbranches>0</Coveredbranches>
+    <Totalbranches>0</Totalbranches>
+    <Coveredmethods>483</Coveredmethods>
+    <Totalmethods>854</Totalmethods>
+    <Methodcoverage>56.5</Methodcoverage>
+  </Summary>
+  <Coverage>
+    <Assembly name="EditModeAssembly" classes="1" coverage="100" coveredlines="11" coverablelines="11" totallines="39" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100">
+      <Class name="TestsGrid.GridClassTests" coverage="100" coveredlines="11" coverablelines="11" totallines="39" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+    </Assembly>
+    <Assembly name="MainGameAssembly" classes="90" coverage="51.3" coveredlines="2915" coverablelines="5677" totallines="15878" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="448" totalmethods="819" methodcoverage="54.7">
+      <Class name="Ability" coverage="100" coveredlines="11" coverablelines="11" totallines="23" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="4" methodcoverage="100" />
+      <Class name="ActionController" coverage="69.1" coveredlines="47" coverablelines="68" totallines="125" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="21" totalmethods="26" methodcoverage="80.7" />
+      <Class name="AIActionController" coverage="16.9" coveredlines="11" coverablelines="65" totallines="111" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="8" totalmethods="12" methodcoverage="66.6" />
+      <Class name="AttributeContributions" coverage="0" coveredlines="0" coverablelines="1" totallines="1087" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="1" methodcoverage="0" />
+      <Class name="AudioManager" coverage="49.1" coveredlines="28" coverablelines="57" totallines="111" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="8" methodcoverage="62.5" />
+      <Class name="BaseMeshes" coverage="100" coveredlines="1" coverablelines="1" totallines="201" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+      <Class name="CameraManager" coverage="62.5" coveredlines="115" coverablelines="184" totallines="274" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="12" totalmethods="16" methodcoverage="75" />
+      <Class name="CharacterCreationScript" coverage="57.5" coveredlines="332" coverablelines="577" totallines="1087" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="25" totalmethods="47" methodcoverage="53.1" />
+      <Class name="CombatLog" coverage="35.3" coveredlines="47" coverablelines="133" totallines="213" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="8" totalmethods="20" methodcoverage="40" />
+      <Class name="CombatManager" coverage="62.4" coveredlines="78" coverablelines="125" totallines="184" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="8" totalmethods="13" methodcoverage="61.5" />
+      <Class name="Condition" coverage="100" coveredlines="10" coverablelines="10" totallines="26" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="4" methodcoverage="100" />
+      <Class name="Conditions" coverage="33.3" coveredlines="8" coverablelines="24" totallines="46" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="3" totalmethods="6" methodcoverage="50" />
+      <Class name="ConditionSource" coverage="10.5" coveredlines="2" coverablelines="19" totallines="73" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="3" methodcoverage="33.3" />
+      <Class name="CoroutineRunner" coverage="50" coveredlines="3" coverablelines="6" totallines="20" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="2" methodcoverage="50" />
+      <Class name="CreaturePrefabImporter" coverage="0" coveredlines="0" coverablelines="152" totallines="221" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="4" methodcoverage="0" />
+      <Class name="Custom_Mesh_Inspector" coverage="0" coveredlines="0" coverablelines="9" totallines="29" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="1" methodcoverage="0" />
+      <Class name="DefinedAbilities" coverage="60.9" coveredlines="25" coverablelines="41" totallines="90" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="2" totalmethods="3" methodcoverage="66.6" />
+      <Class name="DefinedConditions" coverage="16.9" coveredlines="10" coverablelines="59" totallines="165" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="3" totalmethods="43" methodcoverage="6.9" />
+      <Class name="EntityAction" coverage="75" coveredlines="9" coverablelines="12" totallines="29" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="3" totalmethods="4" methodcoverage="75" />
+      <Class name="EquipmentPrefabImporter" coverage="0" coveredlines="0" coverablelines="18" totallines="36" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="1" methodcoverage="0" />
+      <Class name="EventCoroutine" coverage="0" coveredlines="0" coverablelines="5" totallines="75" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="5" methodcoverage="0" />
+      <Class name="EventCoroutine[T]" coverage="40" coveredlines="2" coverablelines="5" totallines="75" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="2" totalmethods="5" methodcoverage="40" />
+      <Class name="FiniteStateMachine[T]" coverage="78.9" coveredlines="15" coverablelines="19" totallines="45" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="7" totalmethods="8" methodcoverage="87.5" />
+      <Class name="Game.AbilityActions.Rage" coverage="69.1" coveredlines="47" coverablelines="68" totallines="114" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="7" methodcoverage="71.4" />
+      <Class name="Game.Creature.Armory" coverage="0" coveredlines="0" coverablelines="52" totallines="96" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="5" methodcoverage="0" />
+      <Class name="Game.Creature.CreatureComponent" coverage="53.8" coveredlines="105" coverablelines="195" totallines="394" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="62" totalmethods="104" methodcoverage="59.6" />
+      <Class name="Game.Creature.CreatureDtoMapper" coverage="0" coveredlines="0" coverablelines="163" totallines="691" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="2" methodcoverage="0" />
+      <Class name="Game.Creature.CreatureJsonConverter" coverage="13.2" coveredlines="32" coverablelines="242" totallines="691" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="2" totalmethods="9" methodcoverage="22.2" />
+      <Class name="Game.Creature.CreatureLoader" coverage="0" coveredlines="0" coverablelines="10" totallines="28" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="2" methodcoverage="0" />
+      <Class name="Game.Creature.D20" coverage="58.8" coveredlines="10" coverablelines="17" totallines="119" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+      <Class name="Game.Creature.DamageRoller" coverage="62" coveredlines="49" coverablelines="79" totallines="121" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="6" methodcoverage="66.6" />
+      <Class name="Game.Creature.DamageValue" coverage="100" coveredlines="4" coverablelines="4" totallines="121" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+      <Class name="Game.Creature.DataFileInterface" coverage="17.6" coveredlines="3" coverablelines="17" totallines="52" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="5" methodcoverage="20" />
+      <Class name="Game.Creature.Dice" coverage="22.6" coveredlines="12" coverablelines="53" totallines="119" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="2" totalmethods="6" methodcoverage="33.3" />
+      <Class name="Game.Creature.EquipmentArmor" coverage="100" coveredlines="1" coverablelines="1" totallines="28" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+      <Class name="Game.Creature.EquipmentWeapon" coverage="100" coveredlines="1" coverablelines="1" totallines="33" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+      <Class name="Game.Strikes.StrikeWeapon" coverage="51.2" coveredlines="40" coverablelines="78" totallines="141" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="9" methodcoverage="55.5" />
+      <Class name="Game.Strikes.Unarmed" coverage="91.8" coveredlines="34" coverablelines="37" totallines="67" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="5" methodcoverage="80" />
+      <Class name="GameManager" coverage="50" coveredlines="13" coverablelines="26" totallines="61" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="8" methodcoverage="50" />
+      <Class name="GameObjectPool" coverage="44.8" coveredlines="26" coverablelines="58" totallines="112" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="3" totalmethods="6" methodcoverage="50" />
+      <Class name="GridPrivate.Dijkstra" coverage="58.8" coveredlines="156" coverablelines="265" totallines="481" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="11" totalmethods="14" methodcoverage="78.5" />
+      <Class name="GridPrivate.Grass" coverage="100" coveredlines="7" coverablelines="7" totallines="29" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+      <Class name="GridPrivate.GridBase" coverage="81.4" coveredlines="44" coverablelines="54" totallines="96" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="12" totalmethods="13" methodcoverage="92.3" />
+      <Class name="GridPrivate.GridFSM" coverage="56" coveredlines="23" coverablelines="41" totallines="61" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="5" methodcoverage="100" />
+      <Class name="GridPrivate.GridFSMState" coverage="50" coveredlines="5" coverablelines="10" totallines="22" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="10" methodcoverage="50" />
+      <Class name="GridPrivate.GridInput" coverage="82.6" coveredlines="19" coverablelines="23" totallines="61" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="3" totalmethods="3" methodcoverage="100" />
+      <Class name="GridPrivate.GridVisuals" coverage="82.7" coveredlines="48" coverablelines="58" totallines="116" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="6" methodcoverage="83.3" />
+      <Class name="GridPrivate.PathNode" coverage="100" coveredlines="18" coverablelines="18" totallines="86" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="4" methodcoverage="100" />
+      <Class name="GridPrivate.StateStride" coverage="80.3" coveredlines="82" coverablelines="102" totallines="163" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="7" totalmethods="8" methodcoverage="87.5" />
+      <Class name="GridPrivate.StateStrike" coverage="80" coveredlines="56" coverablelines="70" totallines="114" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="7" methodcoverage="71.4" />
+      <Class name="GridPrivate.Tile" coverage="96" coveredlines="24" coverablelines="25" totallines="77" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="10" totalmethods="12" methodcoverage="83.3" />
+      <Class name="GridPrivate.TileSettings" coverage="92.8" coveredlines="26" coverablelines="28" totallines="87" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="5" methodcoverage="100" />
+      <Class name="GridPrivate.TokenMovement" coverage="66.6" coveredlines="32" coverablelines="48" totallines="103" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="2" totalmethods="3" methodcoverage="66.6" />
+      <Class name="GridPrivate.Wall" coverage="84.2" coveredlines="64" coverablelines="76" totallines="122" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+      <Class name="GridPublic.Token" coverage="100" coveredlines="5" coverablelines="5" totallines="16" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+      <Class name="Heap[T]" coverage="79.2" coveredlines="61" coverablelines="77" totallines="136" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="8" totalmethods="9" methodcoverage="88.8" />
+      <Class name="HowToPlayMenuControl" coverage="52.3" coveredlines="11" coverablelines="21" totallines="42" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="3" totalmethods="6" methodcoverage="50" />
+      <Class name="HUDController" coverage="79.8" coveredlines="389" coverablelines="487" totallines="750" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="36" totalmethods="46" methodcoverage="78.2" />
+      <Class name="InputCompat" coverage="100" coveredlines="4" coverablelines="4" totallines="24" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="4" methodcoverage="100" />
+      <Class name="InputSystem_Actions" coverage="0" coveredlines="0" coverablelines="290" totallines="2043" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="66" methodcoverage="0" />
+      <Class name="MainMenuControl" coverage="100" coveredlines="27" coverablelines="27" totallines="51" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="6" totalmethods="6" methodcoverage="100" />
+      <Class name="Map" coverage="97" coveredlines="66" coverablelines="68" totallines="128" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="8" totalmethods="8" methodcoverage="100" />
+      <Class name="MindlessController" coverage="59.3" coveredlines="70" coverablelines="118" totallines="215" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="6" methodcoverage="83.3" />
+      <Class name="Movement" coverage="0" coveredlines="0" coverablelines="79" totallines="168" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="8" methodcoverage="0" />
+      <Class name="MultiFrameEntityAction" coverage="100" coveredlines="8" coverablelines="8" totallines="20" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="3" totalmethods="3" methodcoverage="100" />
+      <Class name="MultiFrameEntityEffect" coverage="0" coveredlines="0" coverablelines="3" totallines="12" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="1" methodcoverage="0" />
+      <Class name="PlayerActionController" coverage="47.2" coveredlines="17" coverablelines="36" totallines="80" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="3" totalmethods="5" methodcoverage="60" />
+      <Class name="PlayerCharacter" coverage="100" coveredlines="2" coverablelines="2" totallines="1087" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+      <Class name="Portrait" coverage="87.1" coveredlines="34" coverablelines="39" totallines="57" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="6" methodcoverage="83.3" />
+      <Class name="ReadmeEditor" coverage="0" coveredlines="0" coverablelines="140" totallines="242" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="14" methodcoverage="0" />
+      <Class name="Ref[T]" coverage="100" coveredlines="4" coverablelines="4" totallines="14" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+      <Class name="SceneTransitionManager" coverage="84.8" coveredlines="56" coverablelines="66" totallines="106" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="6" methodcoverage="83.3" />
+      <Class name="SettingsMenuControl" coverage="68.7" coveredlines="22" coverablelines="32" totallines="61" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="7" methodcoverage="57.1" />
+      <Class name="SingletonMonoBehaviour[T]" coverage="55" coveredlines="11" coverablelines="20" totallines="32" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="2" totalmethods="2" methodcoverage="100" />
+      <Class name="Slowed" coverage="0" coveredlines="0" coverablelines="3" totallines="9" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="1" methodcoverage="0" />
+      <Class name="StaticEventCoroutine[S,T]" coverage="0" coveredlines="0" coverablelines="5" totallines="77" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="5" methodcoverage="0" />
+      <Class name="StaticEventCoroutine[T]" coverage="0" coveredlines="0" coverablelines="5" totallines="77" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="0" totalmethods="5" methodcoverage="0" />
+      <Class name="StaticUnityEvent[S,T]" coverage="80" coveredlines="4" coverablelines="5" totallines="74" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="5" methodcoverage="80" />
+      <Class name="StaticUnityEvent[T]" coverage="80" coveredlines="4" coverablelines="5" totallines="74" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="5" methodcoverage="80" />
+      <Class name="StatusMenuControl" coverage="28.7" coveredlines="31" coverablelines="108" totallines="172" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="14" methodcoverage="35.7" />
+      <Class name="StoryBoardControl" coverage="68.5" coveredlines="24" coverablelines="35" totallines="78" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="6" methodcoverage="66.6" />
+      <Class name="Stride" coverage="100" coveredlines="23" coverablelines="23" totallines="43" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="3" totalmethods="3" methodcoverage="100" />
+      <Class name="Strike" coverage="64.4" coveredlines="49" coverablelines="76" totallines="128" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="7" methodcoverage="71.4" />
+      <Class name="Team" coverage="100" coveredlines="9" coverablelines="9" totallines="18" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="3" totalmethods="3" methodcoverage="100" />
+      <Class name="TeamRules" coverage="42" coveredlines="37" coverablelines="88" totallines="201" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="8" totalmethods="21" methodcoverage="38" />
+      <Class name="TokenMeshes" coverage="100" coveredlines="1" coverablelines="1" totallines="201" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="1" totalmethods="1" methodcoverage="100" />
+      <Class name="TokenMeshSelection" coverage="71" coveredlines="76" coverablelines="107" totallines="201" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="6" totalmethods="6" methodcoverage="100" />
+      <Class name="TurnStep" coverage="35.7" coveredlines="10" coverablelines="28" totallines="39" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="4" totalmethods="8" methodcoverage="50" />
+      <Class name="TutorialManager" coverage="99" coveredlines="107" coverablelines="108" totallines="203" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="8" totalmethods="8" methodcoverage="100" />
+      <Class name="ViewModel" coverage="100" coveredlines="18" coverablelines="18" totallines="47" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="8" totalmethods="8" methodcoverage="100" />
+    </Assembly>
+    <Assembly name="PlayModeAssembly" classes="6" coverage="99.7" coveredlines="380" coverablelines="381" totallines="790" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="34" totalmethods="34" methodcoverage="100">
+      <Class name="PlayModeBase" coverage="100" coveredlines="41" coverablelines="41" totallines="81" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="5" methodcoverage="100" />
+      <Class name="TestsState.StrideTests" coverage="100" coveredlines="41" coverablelines="41" totallines="103" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="3" totalmethods="3" methodcoverage="100" />
+      <Class name="TestsState.StrikeTests" coverage="100" coveredlines="56" coverablelines="56" totallines="139" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="5" methodcoverage="100" />
+      <Class name="TestsUI.CharacterCreatorTests" coverage="100" coveredlines="51" coverablelines="51" totallines="99" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="5" totalmethods="5" methodcoverage="100" />
+      <Class name="TestsUI.GameUITests" coverage="99.1" coveredlines="123" coverablelines="124" totallines="214" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="7" totalmethods="7" methodcoverage="100" />
+      <Class name="TestsUI.MainMenuTests" coverage="100" coveredlines="68" coverablelines="68" totallines="154" branchcoverage="" coveredbranches="0" totalbranches="0" coveredmethods="9" totalmethods="9" methodcoverage="100" />
+    </Assembly>
+  </Coverage>
+</CoverageReport>
