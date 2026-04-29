@@ -35,12 +35,6 @@ namespace TestsState
 
             Assert.IsTrue(gridBase.Fsm.CurrentState is StateStride, "Timed out waiting for the FSM to transition to StateStride after clicking the Stride button.");
 
-            // Disable GridInput to prevent real mouse movements from overriding our injected hover events
-            GridInput gridInput = Object.FindFirstObjectByType<GridInput>();
-            if (gridInput != null)
-            {
-                gridInput.enabled = false;
-            }
         }
 
         /// <summary>
@@ -105,8 +99,5 @@ namespace TestsState
             Assert.AreEqual(startPos, player.transform.position, "Player should not have moved when attempting to move to an invalid tile.");
 
         }
-        //TODO test that cancelling and going into strike state does not break stride functionality
-        //TODO test that the max range works in at least one cardinal direction
-        //TODO test that the player pathfinds around enemies and through teammates
     }
 }

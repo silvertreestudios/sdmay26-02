@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 using NUnit.Framework;
+using GridPrivate;
 
 
 public abstract class PlayModeBase
@@ -69,5 +70,12 @@ public abstract class PlayModeBase
         yield return SceneManager.LoadSceneAsync("UnitTestingScene");
         doc = Object.FindFirstObjectByType<UIDocument>();
         root = doc.rootVisualElement;
+
+        // Disable GridInput to prevent real mouse movements from overriding our injected hover events
+        GridInput gridInput = Object.FindFirstObjectByType<GridInput>();
+        if (gridInput != null)
+        {
+            gridInput.enabled = false;
+        }
     }
 }

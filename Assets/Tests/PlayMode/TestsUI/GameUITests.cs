@@ -68,7 +68,7 @@ namespace TestsUI
             }
             yield return null;
         }
-
+       
         /// <summary>
         /// Tests that clicking cancel after each action button results in the correct state and UI behaviour
         /// </summary>
@@ -162,8 +162,6 @@ namespace TestsUI
             Assert.AreEqual(0f, Time.timeScale, "Time scale should be 0 after clicking Pause.");
             
         }
-
-        ////TODO finish this test////
         
         /// <summary>
         /// Tests the functionality of the combat log by sending a test log message and verifying it appears in the log list, as well as testing the toggle button for visibility
@@ -206,16 +204,11 @@ namespace TestsUI
 
             Assert.IsTrue(logList.itemsSource != null && logList.itemsSource.Count > 0, "Combat Log list view items source should not be empty after logging.");
 
-            // Verify Toggle Button toggles visibility
-            bool initialVisible = combatLogUI.style.display.value != DisplayStyle.None;
+            
             PushButton(toggleButton);
             yield return null;
             
-            bool toggledVisible = combatLogUI.style.display.value != DisplayStyle.None;
-            // The display style or layout typically changes when toggled. Ensure some state changed.
-            // We may not strictly be setting 'display', but testing that the button doesn't error out is a baseline check.
-            
-            Assert.Pass("Combat log successfully accepted logs and handled interactions.");
-        }
+
+            Assert.IsFalse(HUDController.GetInstance().logVisible, "Combat log should be hidden after toggling visibility.");        }
     }
 }

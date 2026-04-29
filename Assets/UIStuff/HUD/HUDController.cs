@@ -38,7 +38,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private VisualElement combatLogElement;
     private VisualElement combatLogWrapper;
     private VisualElement resizeHandle;
-    private bool logVisible = true;
+    public bool logVisible = true; // exposed for testing
     private bool isResizing = false;
     private float resizeStartY;
     private float resizeStartHeight;

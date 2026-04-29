@@ -39,14 +39,11 @@ namespace TestsState
 
             Assert.IsTrue(gridBase.Fsm.CurrentState is StateStrike, "Timed out waiting for the FSM to transition to StateStrike after clicking the Strike button.");
 
-            // Disable GridInput to prevent real mouse movements from overriding our injected hover events
-            GridInput gridInput = Object.FindFirstObjectByType<GridInput>();
-            if (gridInput != null)
-            {
-                gridInput.enabled = false;
-            }
         }
-        //TODO test that selecting a target returns the expected information
+
+        /// <summary>
+        /// Tests striking an empty tile within range
+        /// </summary>
         [UnityTest]
         public IEnumerator StrikeEmptyInRange()
         {
@@ -68,6 +65,9 @@ namespace TestsState
             Assert.IsTrue(player.GetComponent<PlayerActionController>().ActionPoints == 3, "Player should still have 3 AP after attempting to strike an invalid target");
         }
 
+        /// <summary>
+        /// Tests striking an empty tile outside of range
+        /// </summary>
         [UnityTest]
         public IEnumerator StrikeEmptyOutsideRange()
         {
@@ -89,6 +89,9 @@ namespace TestsState
             Assert.IsTrue(player.GetComponent<PlayerActionController>().ActionPoints == 3, "Player should still have 3 AP after attempting to strike an invalid target");
         }
 
+        /// <summary>
+        /// Tests striking a valid target within range
+        /// </summary>
         [UnityTest]
         public IEnumerator StrikeValidInRange()
         {
@@ -110,6 +113,9 @@ namespace TestsState
             Assert.IsTrue(player.GetComponent<PlayerActionController>().ActionPoints == 2, "Player should have 2 AP after attempting to strike a valid target");
         }
 
+        /// <summary>
+        /// Tests striking a valid target outside of range
+        /// </summary>
         [UnityTest]
         public IEnumerator StrikeValidOutsideRange()
         {
@@ -129,11 +135,5 @@ namespace TestsState
             // check that the player still has 3 AP
             Assert.IsTrue(player.GetComponent<PlayerActionController>().ActionPoints == 3, "Player should still have 3 AP after attempting to strike an enemy outside of range");
         }
-
-         
-        //TODO test that cancelling and going into stride does not break strike functionality
-        //TODO test that the max range works in at least one cardinal direction
-        //TODO ***STRETCH GOAL*** test emination ranges
-        //TODO ***STRETCH GOAL*** test line of sight rules
     }
 }
