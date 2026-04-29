@@ -4,8 +4,8 @@
         <ui:Label text="Paths Unbound " name="Title" double-click-selects-word="false" style="-unity-font-definition: resource(&apos;Metamorphous-Regular SDF&apos;); font-size: 120px; background-color: rgb(62, 18, 15); color: rgb(236, 200, 144); -unity-font-style: normal; border-top-left-radius: 20px; border-top-right-radius: 20px; border-bottom-right-radius: 20px; border-bottom-left-radius: 20px;" />
         <ui:Label text=" Undying Wrath " name="Title" double-click-selects-word="false" style="-unity-font-definition: resource(&apos;Metamorphous-Regular SDF&apos;); font-size: 70px; background-color: rgb(62, 18, 15); color: rgb(236, 200, 144); -unity-font-style: normal; border-top-left-radius: 20px; border-top-right-radius: 20px; border-bottom-right-radius: 20px; border-bottom-left-radius: 20px;" />
         <ui:GroupBox name="BoxForButtons" style="width: 500px; background-color: rgb(86, 92, 68); align-content: auto; align-self: auto; justify-content: center; align-items: center; height: 400px;">
-            <ui:Button text="Character Creator" name="NewGameButton" style="align-items: auto; width: 400px; align-content: auto; height: 75px;" />
-            <ui:Button text="Quick Play" name="LoadGameButton" />
+            <ui:Button text="Character Creator" name="CharacterCreationButton" style="align-items: auto; width: 400px; align-content: auto; height: 75px;" />
+            <ui:Button text="Quick Play" name="QuickPlayButton" />
             <ui:Button text="Settings" name="OptionsButton" selectable="true" />
             <ui:Button text="Exit" name="ExitButton" />
         </ui:GroupBox>

@@ -21,7 +21,7 @@ public class MainMenuControl : MonoBehaviour
         newGameButton = ui.Q<Button>("CharacterCreationButton");
         newGameButton.clicked += CharacterCreation;
 
-        loadGameButton = ui.Q<Button>("PlayGameButton");
+        loadGameButton = ui.Q<Button>("QuickPlayButton");
         loadGameButton.clicked += PlayGame;
 
         optionsButton = ui.Q<Button>("OptionsButton");
