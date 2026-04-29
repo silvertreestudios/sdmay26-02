@@ -34,41 +34,53 @@ public class TutorialManager //note that this is not MonoBehaviour!
         overlay.style.top = 0;
         overlay.style.right = 0;
         overlay.style.bottom = 0;
-        overlay.style.backgroundColor = new Color(0, 0, 0, 0.5f);
+        overlay.style.backgroundColor = new Color(0.05f, 0.04f, 0.03f, 0.72f);
         overlay.style.display = DisplayStyle.None;
         overlay.pickingMode = PickingMode.Position; //this makes sure the overlay blocks clicks to underlying UI
 
         //panel: actual tutorial box with text and buttons
         panel = new VisualElement();
         panel.style.position = Position.Absolute;
-        panel.style.backgroundColor = Color.white;
-        panel.style.paddingLeft = 10;
-        panel.style.paddingRight = 10;
-        panel.style.paddingTop = 10;
-        panel.style.paddingBottom = 10;
-        panel.style.borderBottomLeftRadius = 5;
-        panel.style.borderBottomRightRadius = 5;
-        panel.style.borderTopLeftRadius = 5;
-        panel.style.borderTopRightRadius = 5;
+        panel.style.backgroundColor = new Color(0.92f, 0.88f, 0.78f); 
+        panel.style.paddingLeft = 14;
+        panel.style.paddingRight = 14;
+        panel.style.paddingTop = 12;
+        panel.style.paddingBottom = 12;
+        panel.style.borderTopLeftRadius = 6;
+        panel.style.borderTopRightRadius = 6;
+        panel.style.borderBottomLeftRadius = 6;
+        panel.style.borderBottomRightRadius = 6;
+        panel.style.borderLeftWidth = 2;
+        panel.style.borderRightWidth = 2;
+        panel.style.borderTopWidth = 2;
+        panel.style.borderBottomWidth = 2;
+        panel.style.borderLeftColor = new Color(0.45f, 0.35f, 0.2f);
+        panel.style.borderRightColor = new Color(0.45f, 0.35f, 0.2f);
+        panel.style.borderTopColor = new Color(0.55f, 0.45f, 0.28f); 
+        panel.style.borderBottomColor = new Color(0.35f, 0.25f, 0.15f); 
         panel.style.maxWidth = 300;
-        panel.style.maxHeight = 200; //maxes keep the panel from stretching off screen with long text
+        panel.style.maxHeight = 400; //maxes keep the panel from stretching off screen with long text
 
         //"spotlight" highlight around the target element
         highlight = new VisualElement();
         highlight.style.position = Position.Absolute;
-        highlight.style.borderTopWidth = 2;
-        highlight.style.borderBottomWidth = 2;
-        highlight.style.borderLeftWidth = 2;
-        highlight.style.borderRightWidth = 2;
-        highlight.style.borderTopColor = Color.yellow;
-        highlight.style.borderBottomColor = Color.yellow;
-        highlight.style.borderLeftColor = Color.yellow;
-        highlight.style.borderRightColor = Color.yellow;
-        highlight.style.backgroundColor = new Color(1, 1, 0, 0.1f);
+        highlight.style.borderTopWidth = 3;
+        highlight.style.borderBottomWidth = 3;
+        highlight.style.borderLeftWidth = 3;
+        highlight.style.borderRightWidth = 3;
+        Color brass = new Color(0.76f, 0.65f, 0.37f);
+        highlight.style.borderTopColor = brass;
+        highlight.style.borderBottomColor = brass;
+        highlight.style.borderLeftColor = brass;
+        highlight.style.borderRightColor = brass;
+        highlight.style.backgroundColor = new Color(0.76f, 0.65f, 0.37f, 0.08f);
 
         textLabel = new Label();
         textLabel.style.whiteSpace = WhiteSpace.Normal;
         textLabel.style.flexWrap = Wrap.Wrap; //allows text to wrap within the panel, helpful for long text also
+        textLabel.style.color = new Color(0.15f, 0.1f, 0.05f);
+        textLabel.style.fontSize = 20;
+        textLabel.style.marginBottom = 8;
 
         nextButton = new Button(NextStep) { text = "Next", name = "NextTutorialButton" };
         skipButton = new Button(EndTutorial) { text = "Skip", name = "SkipTutorialButton" };

@@ -5,25 +5,25 @@
       "description": "The fighter is a master of weapons, martial techniques, and powerful attack combinations.",
       "attributeBoost": "Strength",
       "hp": 10,
-      "perception": "expert",
-      "fortitude": "expert",
-      "reflex": "expert",
-      "will": "trained",
-      "skills": ["acrobatics", "athletics"],
+      "perception": "Expert",
+      "fortitude": "Expert",
+      "reflex": "Expert",
+      "will": "Trained",
+      "skills": ["Acrobatics", "Athletics"],
       "attacks": {
-        "simpleWeapons": "expert",
-        "martialWeapons": "expert",
-        "advancedWeapons": "trained",
-        "unarmedAttacks": "expert"
+        "simpleWeapons": "Expert",
+        "martialWeapons": "Expert",
+        "advancedWeapons": "Trained",
+        "unarmedAttacks": "Expert"
       },
       "defenses": {
-        "unarmored": "trained",
-        "lightArmor": "untrained",
-        "mediumArmor": "untrained",
-        "allArmor": "trained"
+        "unarmored": "Trained",
+        "lightArmor": "Untrained",
+        "mediumArmor": "Untrained",
+        "allArmor": "Trained"
       },
       "spells": "none",
-      "subclass": ["none"],
+      "subclass": ["N/A"],
       "classFeat": ["Combat Assessment", "Double Slice", "Exacting Strike", "Point Blank Stance", "Reactive Shield", "Snagging Strike", "Sudden Charge", "Vicious Swing"]
     },
     {
@@ -31,25 +31,25 @@
       "description": "The cleric calls on the power of a deity to cast spells that can heal allies or harm foes.",
       "attributeBoost": "Wisdom",
       "hp": 8,
-      "perception": "trained",
-      "fortitude": "trained",
-      "reflex": "trained",
-      "will": "expert",
-      "skills": ["religion"],
+      "perception": "Trained",
+      "fortitude": "Trained",
+      "reflex": "Trained",
+      "will": "Expert",
+      "skills": ["Religion"],
       "attacks": {
-        "simpleWeapons": "trained",
-        "martialWeapons": "untrained",
-        "advancedWeapons": "untrained",
-        "unarmedAttacks": "trained"
+        "simpleWeapons": "Trained",
+        "martialWeapons": "Untrained",
+        "advancedWeapons": "Untrained",
+        "unarmedAttacks": "Trained"
       },
       "defenses": {
-        "unarmored": "trained",
-        "lightArmor": "untrained",
-        "mediumArmor": "untrained",
-        "allArmor": "untrained"
+        "unarmored": "Trained",
+        "lightArmor": "Untrained",
+        "mediumArmor": "Untrained",
+        "allArmor": "Untrained"
       },
       "spells": "available",
-      "subclass": ["cloistered", "warpriest"],
+      "subclass": ["Cloistered", "Warpriest"],
       "classFeat": ["Deadly Simplicity", "Divine Castigation", "Domain Initiate", "Harming Hands", "Healing Hands", "Premonition of Avoidance", "Reach Spell"]
     },
     {
@@ -57,25 +57,25 @@
       "description": "The rogue is a multitalented master of skulduggery who strikes when enemies least expect it.",
       "attributeBoost": "Dexterity",
       "hp": 8,
-      "perception": "expert",
-      "fortitude": "trained",
-      "reflex": "expert",
-      "will": "expert",
-      "skills": ["stealth"],
+      "perception": "Expert",
+      "fortitude": "Trained",
+      "reflex": "Expert",
+      "will": "Expert",
+      "skills": ["Stealth"],
       "attacks": {
-        "simpleWeapons": "trained",
-        "martialWeapons": "trained",
-        "advancedWeapons": "untrained",
-        "unarmedAttacks": "trained"
+        "simpleWeapons": "Trained",
+        "martialWeapons": "Trained",
+        "advancedWeapons": "Untrained",
+        "unarmedAttacks": "Trained"
       },
       "defenses": {
-        "unarmored": "trained",
-        "lightArmor": "trained",
-        "mediumArmor": "untrained",
-        "allArmor": "untrained"
+        "unarmored": "Trained",
+        "lightArmor": "Trained",
+        "mediumArmor": "Untrained",
+        "allArmor": "Untrained"
       },
       "spells": "none",
-      "subclass": ["mastermind", "ruffian", "scoundrel", "thief"],
+      "subclass": ["Mastermind", "Ruffian", "Scoundrel", "Thief"],
       "classFeat": ["Nimble Dodge", "Overextending Feint", "Plant Evidence", "Trap Finder", "Tumble Behind", "Twin Feint", "You're Next"]
     },
     {
@@ -83,25 +83,25 @@
       "description": "The sorcerer's magical might flows from their blood and manifests as fantastic spells and abilities.",
       "attributeBoost": "Charisma",
       "hp": 6,
-      "perception": "trained",
-      "fortitude": "trained",
-      "reflex": "trained",
-      "will": "expert",
-      "skills": ["here"],
+      "perception": "Trained",
+      "fortitude": "Trained",
+      "reflex": "Trained",
+      "will": "Expert",
+      "skills": ["available"],
       "attacks": {
-        "simpleWeapons": "trained",
-        "martialWeapons": "untrained",
-        "advancedWeapons": "untrained",
-        "unarmedAttacks": "trained"
+        "simpleWeapons": "Trained",
+        "martialWeapons": "Untrained",
+        "advancedWeapons": "Untrained",
+        "unarmedAttacks": "Trained"
       },
       "defenses": {
-        "unarmored": "trained",
-        "lightArmor": "untrained",
-        "mediumArmor": "untrained",
-        "allArmor": "untrained"
+        "unarmored": "Trained",
+        "lightArmor": "Untrained",
+        "mediumArmor": "Untrained",
+        "allArmor": "Untrained"
       },
       "spells": "available",
-      "subclass": ["abberant", "angelic", "demonic", "diabolic", "draconic", "elemental", "fey", "hag", "imperial", "undead"],
+      "subclass": ["Abberant", "Angelic", "Demonic", "Diabolic", "Draconic", "Elemental", "Fey", "Hag", "Imperial", "Undead"],
       "classFeat": ["Blood Rising", "Familiar", "Reach Spell", "Tap into Blood", "Widen Spell"]
     },
       {
@@ -109,25 +109,25 @@
       "description": "The barbarian flies into a rage on the battlefield, smashing foes with abandon.",
       "attributeBoost": "Strength",
       "hp": 12,
-      "perception": "expert",
-      "fortitude": "expert",
-      "reflex": "trained",
-      "will": "expert",
-      "skills": ["athletics"],
+      "perception": "Expert",
+      "fortitude": "Expert",
+      "reflex": "Trained",
+      "will": "Expert",
+      "skills": ["Athletics"],
       "attacks": {
-        "simpleWeapons": "trained",
-        "martialWeapons": "trained",
-        "advancedWeapons": "untrained",
-        "unarmedAttacks": "trained"
+        "simpleWeapons": "Trained",
+        "martialWeapons": "Trained",
+        "advancedWeapons": "Untrained",
+        "unarmedAttacks": "Trained"
       },
       "defenses": {
-        "unarmored": "trained",
-        "lightArmor": "trained",
-        "mediumArmor": "trained",
-        "allArmor": "untrained"
+        "unarmored": "Trained",
+        "lightArmor": "Trained",
+        "mediumArmor": "Trained",
+        "allArmor": "Untrained"
       },
       "spells": "none",
-      "subclass": ["animal instinct", "dragon instinct", "fury instinct", "giant instinct", "spirit instinct", "superstition instinct"],
+      "subclass": ["Animal Instinct", "Dragon Instinct", "Fury Instinct", "Giant Instinct", "Spirit Instinct", "Superstition Instinct"],
       "classFeat": ["Acute Vision", "Adrenaline Rush", "Draconic Arrogance", "Moment of Clarity", "Raging Intimidation", "Raging Thrower", "Sudden Charge"]
     }
 ]
