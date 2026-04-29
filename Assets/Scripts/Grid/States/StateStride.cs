@@ -107,9 +107,9 @@ namespace GridPrivate
             }
             Vector3Int end = hover[0];
 
-            // Abandon path if target is occupied
+            // Abandon path if target is occupied or if tile is invalid (null, wall, or out of bounds)
             Tile tile = Tiles[end.x, end.z];
-            if (tile != null && tile.Occupants.Count > 0)
+            if (tile == null || tile.Occupants.Count > 0 || !tile.CanStrideOn(Character))
             {
                 Path = null;
                 OnPreviewPath.Invoke(new());
@@ -139,7 +139,7 @@ namespace GridPrivate
 
             int i = 1;
             PathNode step;
-            while (i < Path.Count && (step = path[i++]) != null && step.Dist < MaxMoveDist)
+            while (i < Path.Count && (step = path[i++]) != null && step.Dist <= MaxMoveDist)
             {
                 // Remove from tile
                 CurrentPosition = Vector3Int.RoundToInt(Character.transform.position);

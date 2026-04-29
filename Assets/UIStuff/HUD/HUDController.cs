@@ -40,7 +40,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private VisualElement combatLogElement;
     private VisualElement combatLogWrapper;
     private VisualElement resizeHandle;
-    private bool logVisible = true;
+    public bool logVisible = true; // exposed for testing
     private bool isResizing = false;
     private float resizeStartY;
     private float resizeStartHeight;
@@ -572,6 +572,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
 
         Button btn = onClick != null ? new Button(onClick) : new Button();
+        btn.name = label.Replace(" ", "") + "Button";
         btn.text = label;
         btn.AddToClassList(colorClass);
         if (label.Length > 10)

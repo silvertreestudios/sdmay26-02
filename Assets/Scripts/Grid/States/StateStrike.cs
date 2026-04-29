@@ -14,6 +14,7 @@ namespace GridPrivate
         protected GridAPIPrivate GridAPI = (GridAPIPrivate)GridPublic.GridAPI.GetInstance();
         protected IPathfinder Pathfinder;
         protected Tile[,] Tiles;
+        protected List<Vector3Int> inRange = new List<Vector3Int>();
         protected List<GameObject> OccupantsInRange = new List<GameObject>();
         protected Vector3Int HoverCell;
         protected float Range;
@@ -50,7 +51,7 @@ namespace GridPrivate
             }
             else
             {
-                List<Vector3Int> inRange = Pathfinder.CalculateEmination(StartPosition, Range);
+                inRange = Pathfinder.CalculateEmination(StartPosition, Range);
                 OnHighlightRange.Invoke(inRange);
                 OnHover.AddListener(Hover);
 
@@ -77,7 +78,7 @@ namespace GridPrivate
         public override void Leftclick()
         {
             Tile tile = Tiles[HoverCell.x, HoverCell.z];
-            if (tile != null)
+            if (tile != null && inRange.Contains(HoverCell)) // check that tile is valid and in range
             {
                 OnActionConfirm.Invoke();
                 if (tile.Occupants.Count > 0)

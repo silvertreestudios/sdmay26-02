@@ -15,6 +15,8 @@ public class TutorialManager //note that this is not MonoBehaviour!
     private Button skipButton;
 
     private List<TutorialStep> steps = new List<TutorialStep>();
+
+    public int StepCount => steps.Count;
     private int currentStep = 0;
 
     public TutorialManager(VisualElement rootElement)
@@ -80,8 +82,8 @@ public class TutorialManager //note that this is not MonoBehaviour!
         textLabel.style.fontSize = 20;
         textLabel.style.marginBottom = 8;
 
-        nextButton = new Button(NextStep) { text = "Next" };
-        skipButton = new Button(EndTutorial) { text = "Skip" };
+        nextButton = new Button(NextStep) { text = "Next", name = "NextTutorialButton" };
+        skipButton = new Button(EndTutorial) { text = "Skip", name = "SkipTutorialButton" };
 
         panel.Add(textLabel);
         panel.Add(nextButton);

@@ -6,6 +6,9 @@ using UnityEngine;
 /// </summary>
 public class LineOfSight
 {
+    ////TODO re-implement with new grid system////
+    
+    /*
     private readonly IGridMemory grid;
 
     // offsets for raycasting to tile corners, used in LOS checks
@@ -175,4 +178,5 @@ public class LineOfSight
         return cell.x >= 0 && cell.x < grid.Width &&
                cell.z >= 0 && cell.z < grid.Height;
     }
+    */
 }

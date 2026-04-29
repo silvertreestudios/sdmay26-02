@@ -128,7 +128,7 @@ public class AttributeContributions
 public class CharacterCreationScript : MonoBehaviour
 {
     [SerializeField] private ViewModel characterClassModel; //this is the spinning model in the middle (refer to ViewModel.cs)
-    private TutorialManager tutorial;
+    public TutorialManager tutorial{ get; private set; } 
     RadioButtonGroup ancestryRadioButtonGroup;
     RadioButtonGroup heritageRadioButtonGroup;
     RadioButtonGroup ancestryFeatsRadioButtonGroup;
