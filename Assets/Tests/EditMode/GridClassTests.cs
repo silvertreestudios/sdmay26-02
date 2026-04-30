@@ -9,18 +9,6 @@ namespace TestsGrid
 {
     public class GridClassTests
     {
-        // INTENTIONAL FAILURE — added to validate CI visibility and test-failure reporting.
-        // Remove this test once CI surfacing has been confirmed. Do NOT merge.
-        [Test]
-        public void IntentionalFailure_CIVisibilityCheck()
-        {
-            Assert.Fail(
-                "INTENTIONAL FAILURE: This test was deliberately broken to verify that " +
-                "the Unity Tests CI workflow surfaces failures correctly. " +
-                "See PR description for details. Revert this test to restore CI green."
-            );
-        }
-
         [Test]
         public void LevelLoadsSuccessfullyInEditor()
         {
