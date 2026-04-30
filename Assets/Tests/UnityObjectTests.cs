@@ -12,7 +12,7 @@ namespace Tests
             GameObject go = new GameObject("TestObject");
             
             // Assert
-            Assert.IsNotNull(go);
+            Assert.IsNull(go); // HACK FAIL
             Assert.AreEqual("TestObject", go.name);
             
             // Cleanup
