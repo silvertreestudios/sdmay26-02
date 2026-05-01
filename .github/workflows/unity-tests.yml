@@ -13,27 +13,32 @@ permissions:
 
 jobs:
   test:
-    name: Run Unity Tests
+    name: Unity Tests (${{ matrix.testMode }})
     runs-on: ubuntu-latest
-    
+    strategy:
+      fail-fast: false
+      matrix:
+        testMode: [ EditMode, PlayMode ]
+
     steps:
       # Checkout repository
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           lfs: true
-      
+
       # Cache Library folder
       - name: Cache Unity Library
         uses: actions/cache@v3
         with:
           path: Library
-          key: Library-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          key: Library-${{ matrix.testMode }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
           restore-keys: |
+            Library-${{ matrix.testMode }}-
             Library-
-      
+
       # Run tests
-      - name: Run Unity Tests
+      - name: Run Unity Tests (${{ matrix.testMode }})
         uses: game-ci/unity-test-runner@v4
         id: tests
         env:
@@ -43,22 +48,22 @@ jobs:
         with:
           projectPath: .
           unityVersion: 6000.0.23f1
-          testMode: EditMode
-          checkName: Unity Test Results
-      
+          testMode: ${{ matrix.testMode }}
+          checkName: Unity Test Results (${{ matrix.testMode }})
+
       # Upload test results
-      - name: Upload Test Results
+      - name: Upload Test Results (${{ matrix.testMode }})
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Test results
+          name: Test results (${{ matrix.testMode }})
           path: ${{ steps.tests.outputs.artifactsPath }}
-      
+
       # Publish test results for easy viewing
-      - name: Publish Test Results
+      - name: Publish Test Results (${{ matrix.testMode }})
         uses: dorny/test-reporter@v2
         if: always()
         with:
-          name: Unity Tests
+          name: Unity Tests (${{ matrix.testMode }})
           path: ${{ steps.tests.outputs.artifactsPath }}/**/*.xml
           reporter: dotnet-nunit
