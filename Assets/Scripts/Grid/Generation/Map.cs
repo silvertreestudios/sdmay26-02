@@ -1,6 +1,8 @@
 using GridPrivate;
 using System;
+#if UNITY_EDITOR
 using UnityEditor;
+#endif
 using UnityEngine;
 
 [ExecuteAlways]
@@ -58,7 +60,11 @@ public class Map : MonoBehaviour
                 Vector3 pos = new Vector3(x * spacing, 0, z * spacing);
                 if (prefab != null)
                 {
+#if UNITY_EDITOR
                     GameObject obj = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+#else
+                    GameObject obj = Instantiate(prefab) as GameObject;
+#endif
                     obj.transform.position = pos;
                     obj.transform.rotation = prefab.transform.rotation;
                     obj.transform.parent = transform;

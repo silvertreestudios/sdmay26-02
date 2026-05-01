@@ -3,7 +3,6 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
-using UnityEngine.SceneManagement;
 using GridPrivate;
 
 namespace TestsState

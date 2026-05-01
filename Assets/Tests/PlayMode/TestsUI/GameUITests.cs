@@ -4,7 +4,6 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
-using UnityEngine.SceneManagement;
 
 namespace TestsUI
 {

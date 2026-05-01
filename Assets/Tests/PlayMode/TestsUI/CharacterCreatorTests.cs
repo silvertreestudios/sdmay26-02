@@ -4,8 +4,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 using UnityEngine.SceneManagement;
-using UnityEditor.Experimental.GraphView;
-using System.Threading;
+
 
 namespace TestsUI
 {

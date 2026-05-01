@@ -114,7 +114,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GridVisuals
   HoverPrefab: {fileID: 8655392066640400182, guid: c11e75bfdf06f9a45bede66aa651e15b, type: 3}
   RangePrefab: {fileID: 8655392066640400182, guid: 100483f396e57a648934bd455608797d, type: 3}
-  LineMaterial: {fileID: 0}
+  LineMaterial: {fileID: 2100000, guid: 1745df7036fa1004497210e8fee4ed51, type: 2}
   LineWidth: 0.1
   LineColor: {r: 1, g: 1, b: 0, a: 1}
 --- !u!114 &2328881485120049778

@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -219,3 +220,4 @@ public static class CreaturePrefabImporter
         return sourceJson == targetJson;
     }
 }
+#endif
