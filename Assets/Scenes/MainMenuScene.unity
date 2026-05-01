@@ -371,6 +371,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c1e86529e86674602be57947a4cbfad4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SettingsMenuControl
+  audioMixer: {fileID: 24100000, guid: 77bffedc080f5cc468c63509a6a45d96, type: 2}
 --- !u!114 &928177746
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -1,12 +1,28 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
-    <Style src="project://database/Assets/UIStuff/SettingsMenu/SettingsMenu.uss" />
+    <Style src="project://database/Assets/UIStuff/SettingsMenu/SettingsMenu.uss?fileID=7433441132597879392&amp;guid=920f28fcba1a8441e9f70c7b989f1672&amp;type=3#SettingsMenu" />
     <ui:VisualElement name="Overlay" style="flex-grow: 1; width: 100%; height: 100%; align-items: center; justify-content: center; flex-direction: column; background-color: rgba(0, 0, 0, 0.6);">
         <ui:VisualElement name="Panel" style="align-items: flex-start; justify-content: flex-start; flex-direction: column; background-color: rgb(86, 92, 68); padding-top: 40px; padding-bottom: 40px; padding-left: 60px; padding-right: 60px; border-top-left-radius: 20px; border-top-right-radius: 20px; border-bottom-right-radius: 20px; border-bottom-left-radius: 20px; width: 75%; height: 75%;">
-            <ui:Label text="Settings" name="SettingsTitle" style="-unity-font-definition: resource('Metamorphous-Regular SDF'); font-size: 80px; color: rgb(236, 200, 144); background-color: rgb(62, 18, 15); border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; margin-bottom: 15px; padding-left: 30px; padding-right: 30px; padding-top: 10px; padding-bottom: 10px;" />
+            <ui:Label text="Settings" name="SettingsTitle" style="-unity-font-definition: resource(&apos;Metamorphous-Regular SDF&apos;); font-size: 80px; color: rgb(236, 200, 144); background-color: rgb(62, 18, 15); border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; margin-bottom: 15px; padding-left: 30px; padding-right: 30px; padding-top: 10px; padding-bottom: 10px;" />
             <ui:VisualElement name="SettingsContent" style="flex-grow: 1; width: 100%; background-color: rgb(66, 72, 50); border-top-left-radius: 8px; border-top-right-radius: 8px; border-bottom-right-radius: 8px; border-bottom-left-radius: 8px; padding-top: 16px; padding-bottom: 16px; padding-left: 16px; padding-right: 16px;">
+                <ui:VisualElement name="MasterVolumeRow" style="flex-direction: row; align-items: center; margin-bottom: 12px; width: 100%;">
+                    <ui:Label text="Master Volume" name="MasterVolumeLabel" style="color: rgb(236, 200, 144); font-size: 28px; width: 240px; flex-shrink: 0; -unity-text-align: upper-right;" />
+                    <ui:Slider name="MasterVolumeSlider" low-value="0" high-value="1" value="0.5" style="flex-grow: 1;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="MusicVolumeRow" style="flex-direction: row; align-items: center; margin-bottom: 8px; margin-left: 40px; width: 100%;">
+                    <ui:Label text="Music" name="MusicrVolumeLabel" style="color: rgb(201, 161, 89); font-size: 22px; width: 200px; flex-shrink: 0; -unity-text-align: upper-right; padding-right: 15px;" />
+                    <ui:Slider name="MusicVolumeSlider" low-value="0" high-value="1" value="0.5" style="flex-grow: 1; padding-right: 40px;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="SFXVolumeRow" style="flex-direction: row; align-items: center; margin-bottom: 24px; margin-left: 40px; width: 100%;">
+                    <ui:Label text="SFX" name="SFXVolumeLabel" style="color: rgb(201, 161, 89); font-size: 22px; width: 200px; flex-shrink: 0; -unity-text-align: upper-right; padding-right: 15px;" />
+                    <ui:Slider name="SFXVolumeSlider" low-value="0" high-value="1" value="0.5" style="flex-grow: 1; min-height: 24px; padding-right: 40px;" />
+                </ui:VisualElement>
                 <ui:VisualElement name="LogOpacityRow" style="flex-direction: row; align-items: center; margin-bottom: 12px; width: 100%;">
                     <ui:Label text="Combat Log Background" name="LogOpacityLabel" style="color: rgb(236, 200, 144); font-size: 28px; width: 400px; flex-shrink: 0;" />
                     <ui:Slider name="LogOpacitySlider" low-value="0" high-value="1" value="0.35" style="flex-grow: 1;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="FullScreenRow" style="flex-direction: row; align-items: center; margin-bottom: 12px; width: 100%;">
+                    <ui:Label text="Full Screen" name="FullScreenLabel" style="color: rgb(236, 200, 144); font-size: 28px; width: 188px; flex-shrink: 0; -unity-text-align: upper-left;" />
+                    <ui:Toggle tabindex="0" enabled="true" value="true" />
                 </ui:VisualElement>
             </ui:VisualElement>
             <ui:VisualElement name="BackButtonContainer" style="width: 100%; align-items: flex-end;">
