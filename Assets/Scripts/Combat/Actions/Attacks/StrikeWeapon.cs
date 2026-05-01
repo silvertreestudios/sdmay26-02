@@ -48,8 +48,6 @@ public class StrikeWeapon : MultiFrameEntityAction
         foreach(string weaponName in weaponsList)
         {
             EquipmentWeapon weapon = DataFileInterface.GetWeapon(weaponName);
-            // Bypass DataFileInterface using Armory assuming the class/prefab has been reimplemented
-            // EquipmentWeapon weapon = Armory.GetInstance().GetWeapon(weaponName); 
             if (weapon.range == null || weapon.range == 0)
             {
                 // TEMP approach to bypass equipping elsewhere
