@@ -51,8 +51,8 @@ namespace TestsUI
         [UnityTest]
         public IEnumerator AllButtonsExist()
         {
-            Assert.IsNotNull(root.Q<Button>("NewGameButton"), "New Game button not found");
-            Assert.IsNotNull(root.Q<Button>("LoadGameButton"), "Load Game button not found");
+            Assert.IsNotNull(root.Q<Button>("CharacterCreationButton"), "Character Creation button not found");
+            Assert.IsNotNull(root.Q<Button>("QuickPlayButton"), "Quick Play button not found");
             Assert.IsNotNull(root.Q<Button>("OptionsButton"), "Options button not found");
             Assert.IsNotNull(root.Q<Button>("ExitButton"), "Exit button not found");
 
@@ -65,8 +65,8 @@ namespace TestsUI
         [UnityTest]
         public IEnumerator ButtonsAreInteractable()
         {
-            Assert.IsTrue(root.Q<Button>("NewGameButton").enabledSelf, "New Game button should be interactable");
-            Assert.IsTrue(root.Q<Button>("LoadGameButton").enabledSelf, "Load Game button should be interactable");
+            Assert.IsTrue(root.Q<Button>("CharacterCreationButton").enabledSelf, "Character Creation button should be interactable");
+            Assert.IsTrue(root.Q<Button>("QuickPlayButton").enabledSelf, "Quick Play button should be interactable");
             Assert.IsTrue(root.Q<Button>("OptionsButton").enabledSelf, "Options button should be interactable");
             Assert.IsTrue(root.Q<Button>("ExitButton").enabledSelf, "Exit button should be interactable");
 
@@ -74,13 +74,13 @@ namespace TestsUI
         }
 
         /// <summary>
-        /// Tests that clicking the New Game button loads the CharacterCreationScene
+        /// Tests that clicking the Character Creation button loads the CharacterCreationScene
         /// </summary>
         [UnityTest]
-        public IEnumerator NewGameButtonClick()
+        public IEnumerator CharacterCreationButtonClick()
         {
-            var button = root.Q<Button>("NewGameButton");
-            Assert.IsNotNull(button, "New Game button not found");
+            var button = root.Q<Button>("CharacterCreationButton");
+            Assert.IsNotNull(button, "Character Creation button not found");
 
             // Simulate button click
             PushButton(button);
@@ -95,13 +95,13 @@ namespace TestsUI
         }
 
         /// <summary>
-        /// Tests that clicking the Load Game button loads the Level1 scene
+        /// Tests that clicking the Quick Play button loads the Level1 scene
         /// </summary>
         [UnityTest]
-        public IEnumerator LoadGameButtonClick()
+        public IEnumerator QuickPlayButtonClick()
         {
-            var button = root.Q<Button>("LoadGameButton");
-            Assert.IsNotNull(button, "Load Game button not found");
+            var button = root.Q<Button>("QuickPlayButton");
+            Assert.IsNotNull(button, "Quick Play button not found");
 
             // Simulate button click
             PushButton(button);
