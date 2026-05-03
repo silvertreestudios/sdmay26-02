@@ -285,7 +285,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                              ? new Color(28 / 255f, 114 / 255f, 135 / 255f, 1f)      // player green
                              : new Color(166f / 255f, 49f / 255f, 49f / 255f, 1f)  // default red
             };
-            cardInstance.Q<VisualElement>("Card").style.backgroundColor = new StyleColor(cardColor);
+            VisualElement cardVE = cardInstance.Q<VisualElement>("Card");
+            cardVE.style.backgroundColor = new StyleColor(cardColor);
 
             var portraitImage = cardInstance.Q<Image>("PortraitImage");
             // Get portrait snapshot and display it
@@ -301,7 +302,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
             // Pan camera to player when card is clicked
             GameObject captured = Players[i];
-            cardInstance.Q<VisualElement>("Card").RegisterCallback<ClickEvent>(evt =>
+            cardVE.RegisterCallback<ClickEvent>(evt =>
             {
                 CameraManager.GetInstance().PanToTarget(captured);
             });
@@ -723,10 +724,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
                 VisualElement cardVE = card.Q<VisualElement>("Card");
                 if (p == currentTurn) {
-                    // card.style.opacity = 1f;
                     cardVE.RemoveFromClassList("card-inactive");
                 } else {
-                    // card.style.opacity = 0.5f;
                     cardVE.AddToClassList("card-inactive");
                 }
                 if (p.hp <= 0) {
