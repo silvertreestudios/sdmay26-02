@@ -57,6 +57,7 @@ public class StatusMenuControl : MonoBehaviour
 
     private void OnCombatOutcomeHandler(bool playerWon)
     {
+        if (playerWon && SceneManager.GetActiveScene().name == "Level3") return;
         StartCoroutine(ShowAfterDelay(playerWon ? StatusType.YouWin : StatusType.YouLose, 1f));
     }
 

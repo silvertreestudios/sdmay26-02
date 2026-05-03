@@ -10,5 +10,9 @@
   "Level3": {
     "Title": "The Final Descent",
     "Message": "The source of the corruption lies ahead. One final push. Whatever awaits you in the depths, you must face it. There is no retreat."
+  },
+  "END": {
+    "Title": "Victory",
+    "Message": "The corruption has been purged. Against all odds, you held the line. The land breathes easier now — but the scars of battle remain. Rest, hero. You've earned it."
   }
 }

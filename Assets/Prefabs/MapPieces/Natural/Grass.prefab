@@ -1,59 +1,12 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!1 &751495300958085589
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 2112763927146230986}
-  - component: {fileID: -1056345770449543163}
-  m_Layer: 0
-  m_Name: Grass
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &2112763927146230986
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 751495300958085589}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0.38268343, z: 0, w: 0.92387956}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 2982572576345722816}
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 45, z: 0}
---- !u!114 &-1056345770449543163
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 751495300958085589}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 1ced4c7961cb0fa4c9b336014f2c7751, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::GridPrivate.Grass
-  Scale: 0.05
-  Threshold: 0.55
---- !u!1001 &3381781699579209771
+--- !u!1001 &5672806446868943953
 PrefabInstance:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Modification:
     serializedVersion: 3
-    m_TransformParent: {fileID: 2112763927146230986}
+    m_TransformParent: {fileID: 0}
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: ef10e197d99ae214fa77060e2dabb2d6, type: 3}
       propertyPath: m_LocalPosition.x
@@ -105,29 +58,30 @@ PrefabInstance:
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: ef10e197d99ae214fa77060e2dabb2d6, type: 3}
       insertIndex: -1
-      addedObject: {fileID: 3156648568784724096}
+      addedObject: {fileID: 7407620332486004772}
   m_SourcePrefab: {fileID: 100100000, guid: ef10e197d99ae214fa77060e2dabb2d6, type: 3}
---- !u!1 &2463444086088586618 stripped
+--- !u!1 &4789774714520627456 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: ef10e197d99ae214fa77060e2dabb2d6, type: 3}
-  m_PrefabInstance: {fileID: 3381781699579209771}
+  m_PrefabInstance: {fileID: 5672806446868943953}
   m_PrefabAsset: {fileID: 0}
---- !u!114 &3156648568784724096
+--- !u!114 &7407620332486004772
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2463444086088586618}
+  m_GameObject: {fileID: 4789774714520627456}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1ced4c7961cb0fa4c9b336014f2c7751, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: MainGameAssembly::GridPrivate.Grass
-  Scale: 0
-  Threshold: 0
---- !u!4 &2982572576345722816 stripped
-Transform:
-  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: ef10e197d99ae214fa77060e2dabb2d6, type: 3}
-  m_PrefabInstance: {fileID: 3381781699579209771}
-  m_PrefabAsset: {fileID: 0}
+  m_EditorClassIdentifier: Assembly-CSharp::GridPrivate.Grass
+  Scale: 0.05
+  Threshold: 0.1
+  HeightNoiseScale: 0.5
+  MinHeight: 0.5
+  MaxHeight: 2
+  DebugHeightColor: 0
+  DebugLowColor: {r: 0, g: 0, b: 1, a: 1}
+  DebugHighColor: {r: 1, g: 0, b: 0, a: 1}
