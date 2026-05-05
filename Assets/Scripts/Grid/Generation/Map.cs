@@ -23,6 +23,7 @@ public class Map : MonoBehaviour
     void OnValidate()
     {
         #if UNITY_EDITOR
+        GridData = null; // Prevents data caching old data (can cause bugs)
         if (UnityEditor.PrefabUtility.IsPartOfPrefabAsset(this))
             return;
         // Defer the rebuild to avoid "DestroyImmediate is not permitted during OnValidate"
