@@ -118,3 +118,16 @@ InitTestScene*.unity*
 #PlantUML generated files
 *.puml.png
 
+# Codex/Unity test output
+/TestResults/
+/CodeCoverage/
+/BenchmarkSuite1/obj/
+
+# Unity recovery and merge leftovers
+/[Aa]ssets/_Recovery/
+*.orig
+*.orig.meta
+
+# Stray editor command files
+wqWQ
+

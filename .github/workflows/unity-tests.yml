@@ -47,7 +47,7 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
           projectPath: .
-          unityVersion: 6000.0.23f1
+          unityVersion: 6000.2.1f1
           testMode: ${{ matrix.testMode }}
           checkName: Unity Test Results (${{ matrix.testMode }})
 
