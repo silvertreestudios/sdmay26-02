@@ -49,6 +49,7 @@ Write test results outside tracked Unity asset folders. Do not commit `Library/`
 - Keep worktrees under the sibling folder `../sdmay26-02-worktrees/`.
 - Use descriptive worktree names tied to the task, for example `../sdmay26-02-worktrees/issue-62-tokenmesh-log-noise`.
 - Create task branches from the intended base branch inside the worktree.
+- When implementation is complete and verified for a GitHub issue, always push the task branch and create a draft PR linked to the issue.
 - Delete task worktrees after the PR is merged, closed, or the work is abandoned.
 - Before deleting a worktree, verify there are no uncommitted changes that should be preserved.
 - Never delete another user's worktree or branch without explicit approval.
