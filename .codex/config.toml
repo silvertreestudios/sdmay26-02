@@ -1,0 +1,21 @@
+# Repo-local Codex configuration. Project config is loaded only after the
+# project is trusted by the user.
+
+model = "gpt-5-codex"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+# Optional Unity MCP setup for Editor-backed scene, prefab, test, profiling, and
+# build workflows. Install and trust the MCP server before enabling.
+#
+# Preferred candidate:
+#   https://github.com/CoplayDev/unity-mcp
+#
+# Example shape only; adjust command/args to the installed server:
+#
+# [mcp_servers.unity]
+# command = "uv"
+# args = ["run", "unity-mcp"]
+# startup_timeout_sec = 30
+#
+# Keep destructive/build tools behind Codex approval or MCP tool allowlists.
