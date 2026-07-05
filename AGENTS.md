@@ -42,6 +42,17 @@ Do not add `-quit` to Unity Test Framework command-line runs in this project. Th
 
 Write test results outside tracked Unity asset folders. Do not commit `Library/`, `Logs/`, `Temp/`, generated `.csproj` files, generated `.sln` files, coverage output, or crash/recovery artifacts.
 
+## Git Workflow
+
+- Do not make task changes directly in the main repository checkout.
+- Create a local Git worktree for each issue, PR, or task branch.
+- Keep worktrees under the sibling folder `../sdmay26-02-worktrees/`.
+- Use descriptive worktree names tied to the task, for example `../sdmay26-02-worktrees/issue-62-tokenmesh-log-noise`.
+- Create task branches from the intended base branch inside the worktree.
+- Delete task worktrees after the PR is merged, closed, or the work is abandoned.
+- Before deleting a worktree, verify there are no uncommitted changes that should be preserved.
+- Never delete another user's worktree or branch without explicit approval.
+
 ## Coding
 
 - Follow existing C# style and Unity lifecycle patterns.
