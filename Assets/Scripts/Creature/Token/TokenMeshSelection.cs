@@ -74,7 +74,6 @@ public class TokenMeshSelection : MonoBehaviour
         {
             return;
         }
-        Debug.Log("Looking for mesh: " + TokenMeshToFind);
         bool meshFound = false;
 
         foreach (TokenMeshes entry in TokenOptions)
