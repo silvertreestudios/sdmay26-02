@@ -15,6 +15,7 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
 4. Prefer pure, deterministic logic for combat/rules calculations and thin MonoBehaviour integration.
 5. Add EditMode tests for pure rules/data behavior. Add PlayMode tests for scene, prefab, UI, lifecycle, and interaction behavior.
 6. Run the narrowest useful Unity test command, then broaden when shared behavior changes.
+7. When Unity MCP is connected, prefer MCP for Editor-backed compilation refreshes, console reads, Unity Test Runner jobs, and scene/prefab validation. Use `UNITY_MCP.md` for setup and limitations.
 
 ## Guardrails
 
@@ -23,6 +24,7 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
 - Save and restore random state in tests that touch randomness.
 - Keep generated Unity files and results out of version control.
 - Remove the task worktree after the work is merged, closed, or abandoned.
+- Keep Unity MCP mutating/build/package/asset-generation tools approval-gated, activate only needed tool groups, and inspect `git status` plus `git diff` after any MCP operation that can dirty assets or settings.
 
 ## Common Commands
 
