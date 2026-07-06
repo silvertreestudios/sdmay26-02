@@ -1,6 +1,6 @@
 # Unity Test Workflow
 
-This project uses Unity `6000.2.1f1`. `Packages/manifest.json` lists Unity Test Framework `1.3.11`; Unity 6 resolves the active package to `1.5.1` through the Development feature set.
+This project uses Unity `6000.2.1f1`. `Packages/manifest.json` lists Unity Test Framework `1.5.1`, matching the version Unity 6 resolves through the Development feature set.
 
 ## Running Tests In The Editor
 
