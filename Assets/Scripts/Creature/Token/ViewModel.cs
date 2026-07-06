@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.Animations;
 
 public class ViewModel : TokenMeshSelection
 {
@@ -7,11 +6,6 @@ public class ViewModel : TokenMeshSelection
     public float rotationSpeed {get; set;}
     
 
-    // Timer stuff for mesh switching
-    private float meshTimer = 0f;
-    private int currentMeshIndex = 0;
-
-    
     protected new void Start()
     {
         base.Start();
@@ -33,15 +27,5 @@ public class ViewModel : TokenMeshSelection
             transform.Rotate(Vector3.up, rotationSpeed * Time.deltaTime);
         }
         
-
-        // Mesh switching logic, switch every 2 sec 
-        // meshTimer += Time.deltaTime;
-        // if (meshTimer >= 2f && TokenOptions.Length > 0)
-        // {
-        //     meshTimer = 0f;
-        //     Debug.Log("Switching mesh to: " + TokenOptions[currentMeshIndex].Name);
-        //     setMeshName(TokenOptions[currentMeshIndex].Name);
-        //     currentMeshIndex = (currentMeshIndex + 1) % TokenOptions.Length;
-        // }
     }
 }

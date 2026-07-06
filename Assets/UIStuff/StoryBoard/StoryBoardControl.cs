@@ -31,7 +31,7 @@ public class StoryBoardControl : MonoBehaviour
         continueButton = ui.Q<Button>("ContinueButton");
         continueButton.clicked += Close;
 
-        HUDController hud = FindObjectOfType<HUDController>();
+        HUDController hud = FindFirstObjectByType<HUDController>();
         if (hud != null) hud.ui.style.display = DisplayStyle.None;
 
         Time.timeScale = 0f;
@@ -47,7 +47,7 @@ public class StoryBoardControl : MonoBehaviour
     private void Close()
     {
         ui.style.display = DisplayStyle.None;
-        HUDController hud = FindObjectOfType<HUDController>();
+        HUDController hud = FindFirstObjectByType<HUDController>();
         if (hud != null) hud.ui.style.display = DisplayStyle.Flex;
         StartCoroutine(ResumeAfterDelay(0.5f));
     }
