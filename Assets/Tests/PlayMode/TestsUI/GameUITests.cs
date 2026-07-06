@@ -67,6 +67,81 @@ namespace TestsUI
             }
             yield return null;
         }
+
+        [UnityTest]
+        public IEnumerator PlayerCardsShowActionPointMedallions()
+        {
+            VisualElement cardHolder = null;
+            Button strideButton = null;
+            yield return WaitUntilWithTimeout(timeout, () =>
+            {
+                cardHolder = root.Q<VisualElement>("CardHolder");
+                strideButton = root.Q<Button>("StrideButton");
+                player = CombatManagerInterface.GetInstance().WhosTurn();
+                return cardHolder != null && cardHolder.childCount > 0 && strideButton != null && player != null;
+            });
+            Assert.IsNotNull(cardHolder, "CardHolder not found in UI.");
+            Assert.IsNotNull(strideButton, "Player turn action buttons were not ready.");
+
+            ActionController actionController = player.GetComponent<ActionController>();
+            Assert.IsNotNull(actionController, "Current player has no ActionController.");
+
+            List<GameObject> combatants = CombatManagerInterface.GetInstance().GetCombatants();
+            int playerCardIndex = combatants.IndexOf(player);
+            Assert.GreaterOrEqual(playerCardIndex, 0, "Current player was not found in the combatant queue.");
+            Assert.Less(playerCardIndex, cardHolder.childCount, "Current player's card was not found in CardHolder.");
+
+            VisualElement card = cardHolder.ElementAt(playerCardIndex);
+            List<VisualElement> medallions = null;
+            yield return WaitUntilWithTimeout(timeout, () =>
+            {
+                medallions = card.Query<VisualElement>(className: "action-medallion").ToList();
+                return medallions.Count == 3;
+            });
+
+            Assert.AreEqual(3, medallions.Count, "Player card should show exactly three action medallions.");
+            Assert.IsNull(card.Q<Label>("DESC"), "Temporary DESC action point label should be removed.");
+            foreach (Label label in card.Query<Label>().ToList())
+                Assert.IsFalse((label.text ?? "").Contains("AP:"), "Player card should not show textual AP.");
+
+            float containerWidth = card.Q<VisualElement>("ActionPointContainer").resolvedStyle.width;
+            float containerHeight = card.Q<VisualElement>("ActionPointContainer").resolvedStyle.height;
+
+            uint[] actionPointStates = { 3, 2, 1, 0 };
+            foreach (uint actionPoints in actionPointStates)
+            {
+                foreach (GameObject combatant in combatants)
+                {
+                    ActionController combatantActionController = combatant.GetComponent<ActionController>();
+                    if (combatantActionController != null)
+                        combatantActionController.ActionPoints = actionPoints;
+                }
+
+                yield return WaitUntilWithTimeout(timeout, () =>
+                {
+                    medallions = card.Query<VisualElement>(className: "action-medallion").ToList();
+                    return CountMedallionsWithClass(medallions, "action-medallion--filled") == (int)actionPoints;
+                });
+
+                int filledCount = CountMedallionsWithClass(medallions, "action-medallion--filled");
+                int emptyCount = CountMedallionsWithClass(medallions, "action-medallion--empty");
+                Assert.AreEqual((int)actionPoints, filledCount, $"Expected {actionPoints} filled action medallions.");
+                Assert.AreEqual(3 - (int)actionPoints, emptyCount, $"Expected {3 - (int)actionPoints} empty action medallions.");
+                Assert.AreEqual(containerWidth, card.Q<VisualElement>("ActionPointContainer").resolvedStyle.width, "Action medallion container width should not shift as AP changes.");
+                Assert.AreEqual(containerHeight, card.Q<VisualElement>("ActionPointContainer").resolvedStyle.height, "Action medallion container height should not shift as AP changes.");
+            }
+        }
+
+        private int CountMedallionsWithClass(List<VisualElement> medallions, string className)
+        {
+            int count = 0;
+            foreach (VisualElement medallion in medallions)
+            {
+                if (medallion.ClassListContains(className))
+                    count++;
+            }
+            return count;
+        }
        
         /// <summary>
         /// Tests that clicking cancel after each action button results in the correct state and UI behaviour

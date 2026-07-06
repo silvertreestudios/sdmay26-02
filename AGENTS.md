@@ -89,5 +89,6 @@ Write test results outside tracked Unity asset folders. Do not commit `Library/`
 
 - End substantial code changes with targeted tests or a clear note explaining why tests could not be run.
 - For scene, prefab, UI, level, or art changes, verify in the Unity Editor or with PlayMode/screenshots before considering the change done.
+- For any visual change, including UI, models, scenes, levels, materials, VFX, animation, or art assets, include one or more real in-game or Unity Editor screenshots in the PR description. Do not use fake screenshots, generated mockups, hand-drawn renderings, or programmatic stand-ins as PR visual evidence.
 - Review Unity serialized diffs carefully for unintended scene or prefab churn.
 - Capture deferred follow-up work as GitHub Issues using the repo issue label schema in `.agents/skills/gh-issue-capture`.
