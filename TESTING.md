@@ -15,7 +15,7 @@ When Unity MCP is connected, Codex can run Unity Test Runner jobs from the Edito
 
 1. Open Unity `6000.2.1f1` for this checkout.
 2. Start the MCP for Unity HTTP server on `http://localhost:8080/mcp`.
-3. Restart Codex and confirm the `unity` MCP server is connected.
+3. Restart Codex and confirm the `unityMCP` MCP server is connected.
 4. Use MCP testing tools for targeted EditMode or PlayMode runs, then compare important failures with the console and, when needed, a batchmode run.
 
 Use MCP test runs for fast Editor-backed iteration. Use the PowerShell batchmode commands below for CI-parity verification, final pre-merge checks, and cases where MCP output does not include enough log or XML detail.

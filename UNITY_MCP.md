@@ -10,7 +10,7 @@ This project uses [MCP for Unity](https://github.com/CoplayDev/unity-mcp) to let
 3. Open the MCP for Unity window from the Unity Editor menu.
 4. Start the local HTTP MCP server on `http://localhost:8080/mcp`.
 5. Start or restart Codex from a trusted checkout of this repo.
-6. In Codex, use `/mcp` or the available tool list to confirm the `unity` MCP server is connected.
+6. In Codex, use `/mcp` or the available tool list to confirm the `unityMCP` MCP server is connected.
 
 Codex reads `.codex/config.toml` only for trusted projects. If Unity MCP tools are missing, first confirm project trust, Unity is open to this project, and the MCP server is running.
 
@@ -53,7 +53,7 @@ Run this checklist whenever Unity MCP is installed, upgraded, or behaving unexpe
 The `chore/unity-mcp-hookup` setup was validated on Unity `6000.2.1f1`:
 
 - Unity Package Manager resolved `com.coplaydev.unity-mcp` from the pinned Git URL and updated `Packages/packages-lock.json`.
-- `codex mcp list` from the trusted worktree reported `unity` enabled at `http://localhost:8080/mcp`.
+- `codex mcp list` from the trusted worktree reported `unityMCP` enabled at `http://localhost:8080/mcp`.
 - EditMode batchmode test run passed: `1` total, `1` passed, `0` failed.
 - PlayMode batchmode test run passed: `22` total, `22` passed, `0` failed.
 - Test logs showed MCP for Unity's TestRunner helper applying and restoring its no-throttle behavior during Unity Test Runner execution.
