@@ -154,6 +154,45 @@ read_console(
 # - blocking_reasons: Why tools might fail
 ```
 
+### 6. Avoid Scene Save/Close Modals
+
+Unity modal dialogs block MCP and can make the editor unusable for remote agentic work. Avoid operations that trigger "Save Scene" or "Reload changed scene" prompts.
+
+For temporary scenes, use this exact lifecycle:
+
+```python
+# 1. Create a unique temporary folder. Do not reuse temp folder names within the same Editor session.
+manage_asset(action="create_folder", path="Assets/__McpTemp_<purpose>")
+
+# 2. Create the scene directly at its final path.
+manage_scene(action="create", name="TempScene", path="Assets/__McpTemp_<purpose>", template="3d_basic")
+
+# 3. Mutate scene objects.
+manage_gameobject(action="create", name="TempCube", primitive_type="Cube")
+
+# 4. Save the active temp scene with no path argument.
+# Do not use manage_scene(save, path=...) as Save As; it may save the active scene or trigger a modal.
+manage_scene(action="save")
+
+# 5. Load a real existing scene additively and set it active.
+manage_scene(action="load", path="Assets/Scenes/UnitTestingScene.unity", additive=True)
+manage_scene(action="set_active_scene", scene_path="Assets/Scenes/UnitTestingScene.unity")
+
+# 6. Close the saved, clean temp scene before deleting files.
+manage_scene(action="close_scene", scene_path="Assets/__McpTemp_<purpose>/TempScene.unity", remove_scene=True)
+
+# 7. Delete the temp folder only after the temp scene is closed.
+manage_asset(action="delete", path="Assets/__McpTemp_<purpose>")
+```
+
+Do not delete a scene asset or its containing folder while that scene is loaded. If a deleted scene remains loaded and dirty, `close_scene` may refuse to close it and `save` may open a modal prompt.
+
+Do not save tracked project scenes merely to clear dirty state; saving a tracked scene can serialize unrelated Unity YAML changes. If a tracked scene is accidentally saved and then restored from Git while open, Unity may show a "changed on disk" reload prompt that blocks MCP until a human responds.
+
+If a Unity modal appears, stop MCP operations and ask the user to dismiss it. On unattended machines, treat modal-triggering flows as failures and restart from a clean Editor state.
+
+`manage_asset(action="delete")` can leave a stale deleted-folder handle in Unity's AssetDatabase for the remainder of the Editor session. The folder may be gone from disk and Git, but `manage_asset(get_info)` may report `assetType: Unknown` and `isFolder: false`, and recreating the same path may fail. Use unique temp folder names per Editor session. Restarting Unity clears these stale handles when path reuse is required.
+
 ## Parameter Type Conventions
 
 These are common patterns, not strict guarantees. `manage_components.set_property` payload shapes can vary by component/property; if a template fails, inspect the component resource payload and adjust.
@@ -286,6 +325,9 @@ set_active_instance(instance="MyProject@abc123")
 | "stale_file" error | File changed since SHA | Re-fetch SHA with `get_sha`, retry |
 | Connection lost | Domain reload | Wait ~5s, reconnect |
 | Commands fail silently | Wrong instance | Check `set_active_instance` |
+| Save Scene modal appears | Dirty loaded scene was closed, deleted, or saved with ambiguous path | Stop and ask user to dismiss the modal. For future attempts, create the scene at its final path, save active scene without `path`, switch to an existing scene, close the clean temp scene, then delete files. |
+| Reload changed scene modal appears | A loaded tracked scene changed on disk, often after `git restore` | Stop and ask user to reload or close the scene. Avoid saving/restoring tracked scenes during temp workflows. |
+| Temp folder path reports `assetType: Unknown` and `isFolder: false` | Stale AssetDatabase entry after `manage_asset(delete)` or deleting a loaded scene | Use a new unique temp folder for the rest of the Editor session. Restart Unity only when exact path reuse is required. |
 
 ## Reference Files
 
