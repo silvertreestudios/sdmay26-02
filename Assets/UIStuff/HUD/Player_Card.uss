@@ -54,3 +54,76 @@
     font-size: 14px;
     -unity-font-definition: resource('TitilliumWeb-Regular SDF');
 }
+
+.action-point-container {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: nowrap;
+    flex-grow: 0;
+    flex-shrink: 0;
+    width: 192px;
+    height: 96px;
+    min-width: 192px;
+    max-width: 192px;
+    min-height: 96px;
+    max-height: 96px;
+}
+
+.action-medallion {
+    position: relative;
+    width: 31px;
+    height: 31px;
+    min-width: 31px;
+    max-width: 31px;
+    min-height: 31px;
+    max-height: 31px;
+    flex-grow: 0;
+    flex-shrink: 0;
+    margin-left: 12px;
+    margin-right: 12px;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 5px;
+    border-width: 2px;
+    align-items: center;
+    justify-content: center;
+    rotate: 45deg;
+}
+
+.action-medallion-core {
+    width: 11px;
+    height: 11px;
+    min-width: 11px;
+    max-width: 11px;
+    min-height: 11px;
+    max-height: 11px;
+    flex-grow: 0;
+    flex-shrink: 0;
+    border-top-left-radius: 2px;
+    border-top-right-radius: 2px;
+    border-bottom-left-radius: 2px;
+    border-bottom-right-radius: 2px;
+    border-width: 2px;
+}
+
+.action-medallion--filled {
+    background-color: rgb(209, 153, 50);
+    border-color: rgb(255, 232, 149);
+}
+
+.action-medallion--filled > .action-medallion-core {
+    background-color: rgb(255, 238, 178);
+    border-color: rgb(97, 52, 18);
+}
+
+.action-medallion--empty {
+    background-color: rgba(28, 23, 21, 0.82);
+    border-color: rgb(127, 91, 53);
+}
+
+.action-medallion--empty > .action-medallion-core {
+    background-color: rgba(18, 16, 15, 0.72);
+    border-color: rgb(83, 60, 42);
+}

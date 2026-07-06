@@ -8,8 +8,16 @@
             <ui:Label name="HealthBarLabel" text="10/10" class="health-bar-label" style="margin-top: 0; margin-right: 0; margin-bottom: 0; margin-left: 0; padding-top: 0; padding-right: 0; padding-bottom: 0; padding-left: 0;" />
         </ui:VisualElement>
         <ui:Image name="PortraitImage" style="width: 100%; height: 140px; flex-grow: 0; flex-shrink: 0; background-color: rgba(0, 0, 0, 0); flex-direction: column; align-items: auto; margin-top: 0; margin-bottom: 3px;" />
-        <ui:VisualElement name="VisualElement" style="flex-grow: 0; flex-shrink: 0; align-items: center; justify-content: center; align-self: stretch; text-overflow: ellipsis; height: 96px; width: 192px;">
-            <ui:Label text="ACTION POINTS TEMP" name="DESC" style="align-items: center; justify-content: center; white-space: normal; align-content: auto; flex-direction: column; margin-top: 0; margin-right: 0; margin-bottom: 0; margin-left: 0; padding-top: 0; padding-right: 0; padding-bottom: 0; padding-left: 0; text-overflow: ellipsis; font-size: 30%; -unity-text-outline-color: rgb(0, 0, 0); color: rgb(255, 255, 255); -unity-text-outline-width: 0.2px; height: 88px; width: 192px; -unity-text-align: middle-center;" />
+        <ui:VisualElement name="ActionPointContainer" class="action-point-container" style="flex-grow: 0; flex-shrink: 0; align-self: stretch; height: 96px; width: 192px;">
+            <ui:VisualElement name="ActionMedallion0" class="action-medallion action-medallion--empty">
+                <ui:VisualElement class="action-medallion-core" />
+            </ui:VisualElement>
+            <ui:VisualElement name="ActionMedallion1" class="action-medallion action-medallion--empty">
+                <ui:VisualElement class="action-medallion-core" />
+            </ui:VisualElement>
+            <ui:VisualElement name="ActionMedallion2" class="action-medallion action-medallion--empty">
+                <ui:VisualElement class="action-medallion-core" />
+            </ui:VisualElement>
         </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>

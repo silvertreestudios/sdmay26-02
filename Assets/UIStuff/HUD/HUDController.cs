@@ -50,6 +50,10 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private const float SlideDuration = 0.4f;
     private const float LogHiddenPercent = 80f;
     private const float PanelHiddenPercent = 80f;
+    private const int MaxActionMedallions = 3;
+    private const string ActionMedallionClass = "action-medallion";
+    private const string ActionMedallionFilledClass = "action-medallion--filled";
+    private const string ActionMedallionEmptyClass = "action-medallion--empty";
 
 
     //####Player Queue Card Variables####   
@@ -299,14 +303,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 }
             }
 
-            cardInstance.Q<Label>("DESC").text = p.description;
-
             // Pan camera to player when card is clicked
             GameObject captured = Players[i];
             cardInstance.Q<VisualElement>("Card").RegisterCallback<ClickEvent>(evt =>
             {
                 CameraManager.GetInstance().PanToTarget(captured);
             });
+            UpdateActionPointMedallions(cardInstance, Players[i].GetComponent<ActionController>());
         }
     }
 
@@ -705,10 +708,10 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                     // card.style.opacity = 0.5f;
                     cardVE.AddToClassList("card-inactive");
                 }
+                UpdateActionPointMedallions(card, p.GetComponent<ActionController>());
                 if (p.hp <= 0) {
-                    return; // Exit early to avoid updating cards that may be removed
+                    continue;
                 }
-                card.Q<Label>("DESC").text = "AP: " + p.GetComponent<ActionController>().ActionPoints;
                 
                 
             } catch (System.Exception e) {
@@ -716,5 +719,18 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             }
         }
         // Debug.Log("Finished updating player queue cards");
+    }
+
+    private void UpdateActionPointMedallions(VisualElement card, ActionController actionController)
+    {
+        List<VisualElement> medallions = card.Query<VisualElement>(className: ActionMedallionClass).ToList();
+        int actionPoints = actionController != null ? Mathf.Clamp((int)actionController.ActionPoints, 0, MaxActionMedallions) : 0;
+
+        for (int i = 0; i < medallions.Count; i++)
+        {
+            bool filled = i < actionPoints;
+            medallions[i].EnableInClassList(ActionMedallionFilledClass, filled);
+            medallions[i].EnableInClassList(ActionMedallionEmptyClass, !filled);
+        }
     }
 }
