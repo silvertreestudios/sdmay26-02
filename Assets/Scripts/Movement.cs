@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 
 /// <summary>
@@ -27,7 +26,6 @@ public class Movement : MonoBehaviour
 
     // Public variables
     [Header("General")]
-    [FormerlySerializedAs("camera")]
     public GameObject targetCamera;
     public Vector3Int enemy;
     
