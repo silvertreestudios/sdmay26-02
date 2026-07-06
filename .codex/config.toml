@@ -1,7 +1,6 @@
 # Repo-local Codex configuration. Project config is loaded only after the
 # project is trusted by the user.
 
-model = "gpt-5-codex"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 
