@@ -42,6 +42,15 @@ Do not add `-quit` to Unity Test Framework command-line runs in this project. Th
 
 Write test results outside tracked Unity asset folders. Do not commit `Library/`, `Logs/`, `Temp/`, generated `.csproj` files, generated `.sln` files, coverage output, or crash/recovery artifacts.
 
+## Unity MCP
+
+- This repo is configured for MCP for Unity through `Packages/manifest.json` and `.codex/config.toml`.
+- For Editor-backed work, open Unity `6000.2.1f1`, start the MCP for Unity HTTP server on `http://localhost:8080/mcp`, then restart Codex from a trusted checkout.
+- Use Unity MCP for scene, prefab, UI, package, console, compilation, screenshot, and Unity Test Runner workflows when the Editor state matters.
+- Use `manage_tools` to activate only the tool groups needed for the task, and keep mutating/build/package/asset-generation tools approval-gated.
+- After any MCP mutation, inspect `git status` and `git diff`; Unity may dirty serialized files or package locks unexpectedly.
+- Use `UNITY_MCP.md` for setup, troubleshooting, and the evaluation checklist. Keep batchmode test commands as the CI-parity fallback.
+
 ## Git Workflow
 
 - Do not make task changes directly in the main repository checkout.

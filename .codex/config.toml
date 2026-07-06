@@ -4,17 +4,17 @@
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 
-# Optional Unity MCP setup for Editor-backed scene, prefab, test, profiling, and
-# build workflows. Install and trust the MCP server before enabling.
+[features]
+rmcp_client = true
+
+# Unity MCP setup for Editor-backed scene, prefab, test, profiling, and build
+# workflows. Requires the MCP for Unity package in Packages/manifest.json and a
+# running Unity Editor instance for this project.
 #
-# Preferred candidate:
-#   https://github.com/CoplayDev/unity-mcp
-#
-# Example shape only; adjust command/args to the installed server:
-#
-# [mcp_servers.unity]
-# command = "uv"
-# args = ["run", "unity-mcp"]
-# startup_timeout_sec = 30
-#
-# Keep destructive/build tools behind Codex approval or MCP tool allowlists.
+# Start Unity 6000.2.1f1, allow package import, then use the MCP for Unity
+# window to run the local HTTP server on port 8080 before starting Codex.
+[mcp_servers.unityMCP]
+url = "http://127.0.0.1:8080/mcp"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+default_tools_approval_mode = "prompt"

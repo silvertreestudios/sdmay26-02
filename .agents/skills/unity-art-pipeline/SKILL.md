@@ -11,7 +11,7 @@ Use this skill for art briefs, generated bitmap concepts, import checklists, pre
 
 1. Define the asset purpose, dimensions, style constraints, camera/use context, and integration target.
 2. Keep generated concepts separate from final imported Unity assets until reviewed.
-3. Use Unity Editor automation or manual Unity review for import settings, material setup, prefab wiring, and thumbnails.
+3. Use Unity MCP when connected for import settings, material setup, prefab wiring, thumbnails, scene previews, and console validation. Use manual Unity review when MCP cannot expose the needed visual or importer detail.
 4. Track binary and large assets with Git LFS according to `.gitattributes`.
 5. Verify in context: scene lighting, scale, collider bounds, UI readability, audio levels, or animation preview as relevant.
 
@@ -20,3 +20,4 @@ Use this skill for art briefs, generated bitmap concepts, import checklists, pre
 - Do not import copyrighted art, protected Pathfinder setting material, or unclear-license assets without approval.
 - Preserve `.meta` files for assets that are intentionally added.
 - Avoid raw serialized prefab/material edits unless narrowly scoped and reviewed.
+- Keep MCP asset generation and package tools approval-gated, and verify any generated/imported asset diff before committing it.
