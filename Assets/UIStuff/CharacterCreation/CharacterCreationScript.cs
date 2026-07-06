@@ -308,7 +308,7 @@ public class CharacterCreationScript : MonoBehaviour
         //currentCharacter.ancestry = "elf";
         jsonFile3 = JsonUtility.ToJson(currentCharacter);
 
-        characterClassModel = FindObjectOfType<ViewModel>(); //instanciate to the ViewModel in the scene
+        characterClassModel = FindFirstObjectByType<ViewModel>(); //instanciate to the ViewModel in the scene
 
         //small enough that I'm keeping as a dictionary for now
         backgroundDescriptionByBackground = new Dictionary<string, List<string>>()

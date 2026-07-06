@@ -1,5 +1,3 @@
-using NUnit.Framework.Internal;
-using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
@@ -59,21 +57,10 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     [SerializeField]
     private VisualTreeAsset playerCardTemplate;
     private bool needToUpdateCards = true;
-    private bool needToMoveCards = false;
-    private int lastPlayerIndex = -1; // Track the last player index to detect changes
 
     //####Cancel Action Button####
     private Button cancelActionButton;
     private bool canCancelAction = true;
-    
-    //####Current Player Variables####
-    private VisualElement currentPlayerCard;
-    private ProgressBar currentPlayerHealthBar;
-    private ProgressBar currentPlayerThpBar;
-
-    //####Target Variables####
-    private VisualElement targetCard;
-    private ProgressBar targetHealthBar;
 
     private static List<GameObject> Players;
     private static bool IsActive = false;
@@ -128,16 +115,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         cancelActionButton.name = "CancelActionButton";
         cancelActionButton.text = "Cancel";
         cancelActionButton.AddToClassList("btn-cancel");
-
-
-        // //####Player Queue Card Setup####
-        // currentPlayerCard = ui.Q<VisualElement>("CurrentPlayerInfo");
-        // currentPlayerHealthBar = currentPlayerCard.Q<ProgressBar>("HealthBar");
-
-        // //####Target Card Setup####
-        // targetCard = ui.Q<VisualElement>("TargetInfo");
-        // targetHealthBar = targetCard.Q<ProgressBar>("HealthBar");
-
 
 
         //####Player Queue Card Setup####
@@ -696,27 +673,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
 
 
-    private void updateCurrentPlayerCard() {
-        // Debug.Log("updateCurrentPlayerCard called");
-        CreatureComponent p = Players[1].GetComponent<CreatureComponent>();
-        currentPlayerHealthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
-        currentPlayerHealthBar.value = p.hp;
-        currentPlayerHealthBar.highValue = p.maxHp;
-
-        // Update THP bar
-        currentPlayerThpBar.title = "THP: " + p.tempHp + "/" + p.tempHp;
-        currentPlayerThpBar.value = p.tempHp;
-        currentPlayerThpBar.highValue = p.tempHp;
-    }
-
-    private void updateTargetCard() {
-        // Debug.Log("updateTargetCard called");
-        CreatureComponent p = Players[0].GetComponent<CreatureComponent>();
-        targetHealthBar.title = p.name + ": " + p.hp + "/" + p.maxHp;
-        targetHealthBar.value = p.hp;
-        targetHealthBar.highValue = p.maxHp;
-    }
-
     private void updatePlayerQueueCards() {
         if (cardHolder == null || Players == null) return;
         CombatManagerInterface cm = CombatManager.GetInstance();
@@ -750,7 +706,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                     cardVE.AddToClassList("card-inactive");
                 }
                 if (p.hp <= 0) {
-                    needToMoveCards = true; // Flag to move cards if a player is defeated
                     return; // Exit early to avoid updating cards that may be removed
                 }
                 card.Q<Label>("DESC").text = "AP: " + p.GetComponent<ActionController>().ActionPoints;

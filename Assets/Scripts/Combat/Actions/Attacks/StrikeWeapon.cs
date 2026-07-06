@@ -48,7 +48,7 @@ public class StrikeWeapon : MultiFrameEntityAction
         foreach(string weaponName in weaponsList)
         {
             EquipmentWeapon weapon = DataFileInterface.GetWeapon(weaponName);
-            if (weapon.range == null || weapon.range == 0)
+            if (weapon.range == 0)
             {
                 // TEMP approach to bypass equipping elsewhere
                 creature.GetComponent<CreatureComponent>().EquipWeaponRight(weapon); // Temp equip weapon so it can be used by StrikeWeapon constructor

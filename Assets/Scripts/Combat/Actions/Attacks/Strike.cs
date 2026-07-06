@@ -2,10 +2,7 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
 using Game.Creature;
-using static UnityEngine.GraphicsBuffer;
-
 using System;
-using Unity.VisualScripting;
 
 
 public class Strike
@@ -100,7 +97,7 @@ public class Strike
     {
         return Traits;
     }
-    public String ToString()
+    public override string ToString()
     {
         string traits = "";
         foreach (string trait in Traits)

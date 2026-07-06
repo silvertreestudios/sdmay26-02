@@ -40,7 +40,7 @@ public class WinScreenControl : MonoBehaviour
         mainMenuButton = ui.Q<Button>("MainMenuButton");
         mainMenuButton.clicked += GoToMainMenu;
 
-        HUDController hud = FindObjectOfType<HUDController>();
+        HUDController hud = FindFirstObjectByType<HUDController>();
         if (hud != null) hud.ui.style.display = DisplayStyle.None;
 
         Time.timeScale = 0f;

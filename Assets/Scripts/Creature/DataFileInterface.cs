@@ -29,7 +29,7 @@ namespace Game.Creature
         public static GameObject GetCreature(string creatureName)
         {
             // Prefer using an instance's prefab if present
-            var instance = UnityEngine.Object.FindObjectOfType<DataFileInterface>();
+            var instance = UnityEngine.Object.FindFirstObjectByType<DataFileInterface>();
             GameObject prefab = instance != null ? instance.prefab : null;
 
             // Delegate lookup + creation to the converter (it will search Assets/DataFiles)

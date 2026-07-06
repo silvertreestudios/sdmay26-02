@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 
 /// <summary>
@@ -26,7 +27,8 @@ public class Movement : MonoBehaviour
 
     // Public variables
     [Header("General")]
-    public GameObject camera;
+    [FormerlySerializedAs("camera")]
+    public GameObject targetCamera;
     public Vector3Int enemy;
     
     [Header("Jump Parameters")]
@@ -62,7 +64,7 @@ public class Movement : MonoBehaviour
     void Update()
     {
         // Keep the camera focused on the piece, ignoring y-axis
-        camera.transform.LookAt(new Vector3(transform.position.x, 0, transform.position.z));
+        targetCamera.transform.LookAt(new Vector3(transform.position.x, 0, transform.position.z));
 
         // On space key press, set the path points for the piece to follow
         //if (Input.GetKeyDown(KeyCode.Space)) { }

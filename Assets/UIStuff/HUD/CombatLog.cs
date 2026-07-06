@@ -1,7 +1,6 @@
 using Game.Strikes;
 using System;
 using System.Collections.Generic;
-using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -23,7 +22,7 @@ public class CombatLog : CombatLogInterface
     protected HashSet<string> BlackListTags = new();
 
 
-    void Awake()
+    protected override void Awake()
     {
         base.Awake();
         Ui = GetComponent<UIDocument>().rootVisualElement;
