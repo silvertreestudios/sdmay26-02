@@ -54,6 +54,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private const string ActionMedallionClass = "action-medallion";
     private const string ActionMedallionFilledClass = "action-medallion--filled";
     private const string ActionMedallionEmptyClass = "action-medallion--empty";
+    public const string DisabledHudButtonClass = "btn-hud-disabled";
 
 
     //####Player Queue Card Variables####   
@@ -234,10 +235,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
         wasFollowing = isFollowing;
 
-        bool actionRunning = isActionRunning();
-        foreach (var child in buttonGrid.Children())
-            child.SetEnabled(!actionRunning);
-
         if(currentTurnAC != null)
         {
             cancelActionButton.style.display = (currentTurnAC.IsTakingAction && canCancelAction)? 
@@ -257,11 +254,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             selectedActionButton.style.backgroundColor = new StyleColor(Color.Lerp(selectedButtonBaseColor, bright, t));
         }
 
-        if (currentTurnAC != null)
-        {
-            foreach (var (btn, cost) in buttonCostMap)
-                btn.style.display = cost > currentTurnAC.ActionPoints ? DisplayStyle.None : DisplayStyle.Flex;
-        }
+        UpdateHudButtonStates();
 
         // Highlight the current player's card
         
@@ -598,6 +591,34 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         row.Add(cancelActionButton);
     }
 
+    private void UpdateHudButtonStates()
+    {
+        bool actionRunning = isActionRunning();
+
+        foreach (var (btn, cost) in buttonCostMap)
+        {
+            btn.style.display = DisplayStyle.Flex;
+            SetHudButtonEnabled(btn, currentTurnAC != null && !actionRunning && cost <= currentTurnAC.ActionPoints);
+        }
+
+        if (endTurnButton != null)
+            SetHudButtonEnabled(endTurnButton, currentTurnAC != null && !actionRunning);
+
+        if (cancelActionButton != null)
+            SetHudButtonEnabled(cancelActionButton, currentTurnAC != null && currentTurnAC.IsTakingAction && canCancelAction);
+    }
+
+    private void SetHudButtonEnabled(Button btn, bool enabled)
+    {
+        if (btn == null) return;
+
+        btn.SetEnabled(enabled);
+        btn.EnableInClassList(DisabledHudButtonClass, !enabled);
+
+        if (!enabled)
+            btn.style.backgroundColor = StyleKeyword.Null;
+    }
+
     private void BuildActionButtons(GameObject turnTaker, List<EntityAction> actions)
     {
         ClearAllRows();
@@ -653,6 +674,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     public void CancelAction() {
         Debug.Log("here I am");
         UniversalEvents.OnCancel.Invoke();
+        if (currentTurnAC != null)
+        {
+            currentTurnAC.IsTakingAction = false;
+            canCancelAction = true;
+            SetSelectedButton(null);
+            UpdateHudButtonStates();
+        }
         GameObject g = CombatManager.GetInstance().WhosTurn();
         combatLog.Log("- " + g.name + " canceled their action.");
     }
@@ -668,10 +696,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     }
 
     public bool isActionRunning(){
-        // Debug.Log("isActionRunning called");
-        // Disable buttons if action is running
-        // Placeholder logic, always return false for now
-        return false;
+        return currentTurnAC != null && currentTurnAC.IsTakingAction;
     }
 
 

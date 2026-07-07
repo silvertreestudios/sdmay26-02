@@ -87,6 +87,17 @@
     transition-duration: 0.5s;
 }
 
+.btn-hud-disabled {
+    color: rgb(145, 145, 145);
+    background-color: rgb(55, 55, 55);
+    border-color: rgb(105, 105, 105);
+    opacity: 0.65;
+}
+
+.btn-hud-disabled:hover {
+    background-color: rgb(55, 55, 55);
+}
+
 .combat_log_background {
     padding-bottom: 15px;
     background-color: rgba(86, 92, 68, 0.35);
