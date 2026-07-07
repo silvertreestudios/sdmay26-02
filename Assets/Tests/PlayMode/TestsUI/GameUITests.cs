@@ -143,6 +143,50 @@ namespace TestsUI
             return count;
         }
        
+        [UnityTest]
+        public IEnumerator ActionButtonsGreyOutInsteadOfDisappearingWhenUnavailable()
+        {
+            Button strideButton = null;
+            Button strikeButton = null;
+            Button endTurnButton = null;
+
+            yield return WaitUntilWithTimeout(timeout, () =>
+            {
+                player = CombatManagerInterface.GetInstance().WhosTurn();
+                strideButton = root.Q<Button>("StrideButton");
+                strikeButton = root.Q<Button>("UnarmedStrikeButton");
+                endTurnButton = root.Q<Button>("EndTurnButton");
+                return player != null && strideButton != null && strikeButton != null && endTurnButton != null;
+            });
+
+            Assert.IsNotNull(player, "Current player was not ready.");
+            Assert.IsNotNull(strideButton, "Stride button was not ready.");
+            Assert.IsNotNull(strikeButton, "Unarmed Strike button was not ready.");
+            Assert.IsNotNull(endTurnButton, "End Turn button was not ready.");
+
+            ActionController actionController = player.GetComponent<ActionController>();
+            Assert.IsNotNull(actionController, "Current player has no ActionController.");
+
+            actionController.ActionPoints = 0;
+            yield return null;
+
+            Assert.AreEqual(DisplayStyle.Flex, strideButton.resolvedStyle.display, "Stride should stay visible when unavailable.");
+            Assert.AreEqual(DisplayStyle.Flex, strikeButton.resolvedStyle.display, "Strike should stay visible when unavailable.");
+            Assert.IsFalse(strideButton.enabledSelf, "Stride should be disabled when AP is too low.");
+            Assert.IsFalse(strikeButton.enabledSelf, "Strike should be disabled when AP is too low.");
+            Assert.IsTrue(strideButton.ClassListContains(HUDController.DisabledHudButtonClass), "Stride should use the HUD disabled style.");
+            Assert.IsTrue(strikeButton.ClassListContains(HUDController.DisabledHudButtonClass), "Strike should use the HUD disabled style.");
+            Assert.IsTrue(endTurnButton.enabledSelf, "End Turn should remain available when no action is running.");
+
+            actionController.ActionPoints = 1;
+            yield return null;
+
+            Assert.IsTrue(strideButton.enabledSelf, "Stride should re-enable when enough AP is restored.");
+            Assert.IsTrue(strikeButton.enabledSelf, "Strike should re-enable when enough AP is restored.");
+            Assert.IsFalse(strideButton.ClassListContains(HUDController.DisabledHudButtonClass), "Stride disabled style should be removed when available.");
+            Assert.IsFalse(strikeButton.ClassListContains(HUDController.DisabledHudButtonClass), "Strike disabled style should be removed when available.");
+        }
+
         /// <summary>
         /// Tests that clicking cancel after each action button results in the correct state and UI behaviour
         /// </summary>
