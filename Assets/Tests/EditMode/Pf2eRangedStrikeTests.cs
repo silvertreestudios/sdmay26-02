@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using Game.AbilityActions;
 using Game.Creature;
+using Game.Creature.Rules;
 using Game.Strikes;
 using GridPrivate;
 using GridPublic;
@@ -347,11 +348,33 @@ namespace TestsCombat
         public void RageDamageIgnoresProjectileStrikeWithoutMeleeFlatDamage()
         {
             // PF2e source for Rage applying additional damage only to melee Strikes: https://2e.aonprd.com/Actions.aspx?ID=2802
-            Strike projectileStrike = new Strike(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>());
-            Rage rage = new Rage(1);
+            GameObject creatureObject = new GameObject("raging archer");
+            try
+            {
+                CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+                creatureObject.AddComponent<Conditions>();
+                creature.level = 1;
+                creature.conMod = 1;
+                creature.Build = new CharacterBuild
+                {
+                    ClassName = "Barbarian",
+                    SubclassName = "Fury Instinct",
+                    ClassFeatName = "Raging Intimidation"
+                };
+                creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
+                Assert.IsTrue(new Rage(0).UseRage(creatureObject));
 
-            Assert.DoesNotThrow(() => rage.AddRageDamage(projectileStrike));
-            Assert.AreEqual(0, projectileStrike.FlatDamages.Count);
+                Strike projectileStrike = new Strike(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>());
+                projectileStrike.Traits.Add("ranged");
+
+                Assert.DoesNotThrow(() => Pf2eRulesEngine.ApplyStrikeDamageModifiers(creature, projectileStrike));
+                Assert.AreEqual(0, projectileStrike.FlatDamages.Count);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(creatureObject);
+                Pf2eItemCatalog.ResetForTests();
+            }
         }
 
         private static Tile[,] BuildTiles(int width, int height)

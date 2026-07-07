@@ -5,6 +5,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Game.Strikes;
+using Game.Creature.Rules;
 // using System.Diagnostics;
 
 namespace Game.Creature
@@ -430,6 +431,9 @@ namespace Game.Creature
             GameObject go = prefab != null ? UnityEngine.Object.Instantiate(prefab) : new GameObject(dto?.name ?? "Creature");
             var comp = go.GetComponent<CreatureComponent>() ?? go.AddComponent<CreatureComponent>();
             comp.ApplyFromDto(dto);
+            comp.Build = CharacterBuild.FromCreatureJson(creatureAsset.text);
+            if (!string.IsNullOrWhiteSpace(comp.Build.ClassName))
+                comp.Prepared = Pf2eCharacterPreparer.Prepare(comp, comp.Build);
             return go;
         }
 

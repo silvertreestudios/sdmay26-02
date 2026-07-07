@@ -1,116 +1,72 @@
-using Game.Creature;
-using Game.Strikes;
-using System.Collections.Generic;
+using Game.Creature.Rules;
 using System.Collections;
 using UnityEngine;
-using Unity.VisualScripting;
-using System.Diagnostics.Tracing;
-using System;
-//using System.Diagnostics;
 
-namespace Game.AbilityActions{
-
-// TODO change to single frame entity action?
-[System.Serializable]
-public class Rage : MultiFrameEntityAction
+namespace Game.AbilityActions
 {
-    // Done by Ryan Meyer 04/07/2026
-    public override string ActionName => "Rage";
-    List<string> Traits = new List<string> {"barbarian", "concentrate", "emotion", "mental"};
-    int rageBonus = 2;
-    
-    public Rage(uint cost) : base(cost)
+    /// <summary>
+    /// Unity action wrapper for Rage; rules live in RageRule and this class only bridges action flow to Unity components.
+    /// </summary>
+    [System.Serializable]
+    public class Rage : MultiFrameEntityAction
     {
-        // apply abilities that alter rage?
-    }
+        public override string ActionName => "Rage";
 
-    public void UseRage(GameObject g)
-    {
-        Debug.Log(g + " is attempting to use Rage");
-        if (RageAllowed(g)){
-            // Check for rage modifying abilities
-            if (g.GetComponent<CreatureComponent>().passives.Contains("Fury-Instinct")) rageBonus = 3;
-            // Apply THP from rage
-            AddRageTHP(g);
-            // Add listener to trigger bonus rage damage
-            OnStrikeEvent.AddListener((Tuple<Strike, GameObject> tuple) => { if (tuple.Item2 == g) { AddRageDamage(tuple.Item1); }});
-            MFInvoke(g);
+        /// <summary>
+        /// Creates a Rage action with the action point cost supplied by the action system.
+        /// </summary>
+        /// <param name="cost">The number of action points Rage spends when successfully used.</param>
+        public Rage(uint cost) : base(cost)
+        {
         }
-    }
 
-    public bool RageAllowed(GameObject g)
-    {
-        // Check for conditions that would prevent raging, and return false if any are present
-        bool allowed =true;
-        if (g.GetComponent<Conditions>().Contains("Fatigued")){
-            allowed = false;
-            Debug.Log(g + " cannot Rage while Fatigued");
-        }
-        if (g.GetComponent<Conditions>().Contains("Raging")){ // TODO Update to look for an actual sign of rage
-            allowed = false;
-            Debug.Log(g + " cannot Rage while Raging");
-        }
-        if(g.GetComponent<CreatureComponent>().equippedArmor != null && g.GetComponent<CreatureComponent>().equippedArmor.category == "heavy")
+        /// <summary>
+        /// Attempts to start Rage for an actor by evaluating the pure rule and applying its generic Unity side effects.
+        /// </summary>
+        /// <param name="actor">The Unity actor attempting to Rage.</param>
+        /// <returns>True when Rage was applied.</returns>
+        public bool UseRage(GameObject actor)
         {
-            allowed = false;
-            Debug.Log(g + " cannot Rage while wearing heavy armor");
-        }
-        return allowed;
-    }
-
-    public void AddRageTHP(GameObject g)
-    {
-        ActionController ac = g.GetComponent<ActionController>();
-        CreatureComponent cc = g.GetComponent<CreatureComponent>();
-        
-        if (cc.tempHp > 0)
-        {
-            // TODO if creature already has THP, UI prompt to ask if they want to accept rage THP
-        }
-        // Add THP, if rage hasn't ended with 1 min == 10 turns
-        if (true)
-        {
-            int tempHP = cc.level;
-            tempHP += cc.conMod;
-            cc.GainTempHp(tempHP);
-            if (ac)
+            Debug.Log(actor + " is attempting to use Rage");
+            RageRuleResult result = RageRule.Apply(new RageRequest
             {
-                Debug.Log(g + " used Rage");
-                PayCost(ac);
-                ac.IsTakingAction = false;
-            }
+                Creature = UnityCreatureRulesAdapter.From(actor),
+                ActionCost = ActionCost
+            });
+            UnityRuleEffectApplier.Apply(actor, result.Effects);
+            if (!result.Applied)
+                Debug.Log(actor + " cannot Rage");
+            return result.Applied;
         }
-    }
 
-
-    public void AddRageDamage(Strike action)
-    {
-        // TODO make rageBonus not hardcoded
-        // int rageBonus = 2;
-        Debug.Log("Adding Rage damage to strike");
-        if (action == null || action.FlatDamages == null || action.FlatDamages.Count == 0)
-            return;
-
-        if (action.getTraits().Contains("agile") || action.getTraits().Contains("unarmed"))
+        /// <summary>
+        /// Checks whether the actor can currently Rage without mutating Unity or prepared rule state.
+        /// </summary>
+        /// <param name="actor">The Unity actor being checked.</param>
+        /// <returns>True when the actor satisfies the Rage rule prerequisites.</returns>
+        public bool RageAllowed(GameObject actor)
         {
-            DamageValue dmg = action.FlatDamages[0];
-            dmg.DamageAmount = rageBonus/2;
-            action.FlatDamages.Add(dmg);  
+            return RageRule.CanApply(new RageRequest
+            {
+                Creature = UnityCreatureRulesAdapter.From(actor),
+                ActionCost = ActionCost
+            });
         }
-        else
+
+        /// <summary>
+        /// Ends Rage for an actor and applies cleanup effects returned by the pure Rage rule.
+        /// </summary>
+        /// <param name="actor">The Unity actor whose Rage should end.</param>
+        public void EndRage(GameObject actor)
         {
-            //Debug.Log("Rage damage not applicable to this action");
-            DamageValue dmg = action.FlatDamages[0];
-            dmg.DamageAmount = rageBonus;
-            action.FlatDamages.Add(dmg);  
+            RageRuleResult result = RageRule.End(UnityCreatureRulesAdapter.From(actor));
+            UnityRuleEffectApplier.Apply(actor, result.Effects);
+        }
+
+        protected override IEnumerator MFInvoke(GameObject actor)
+        {
+            UseRage(actor);
+            yield break;
         }
     }
-
-    protected override IEnumerator MFInvoke(GameObject g)
-    {
-        ActionController ac = g.GetComponent<ActionController>();
-        yield break;
-    }
-}
-
 }

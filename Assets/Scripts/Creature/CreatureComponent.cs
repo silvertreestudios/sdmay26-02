@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using Game.Strikes;
 using GridPublic;
+using Game.Creature.Rules;
+using System;
 
 namespace Game.Creature
 {
@@ -18,7 +20,9 @@ namespace Game.Creature
     [System.Serializable] public struct AmmoCount { public string ammoName; public int quantity; }
 
 
-    // Extension as a Unity MonoBehaviour
+    /// <summary>
+    /// Unity creature component that owns mutable gameplay state and exposes narrow state snapshots for PF2e rules.
+    /// </summary>
     public class CreatureComponent : MonoBehaviour 
     {
 
@@ -249,11 +253,15 @@ namespace Game.Creature
         public string size { get; set; }
         public List<string> languages { get; set; } = new List<string>();
         public List<string> senses { get; set; } = new List<string>();
+        public CharacterBuild Build { get; set; }
+        public PreparedCharacter Prepared { get; set; }
 
         // expose serialized backing fields via properties used by code
         public List<SkillValue> skills { get => _skills; set => _skills = value ?? new List<SkillValue>(); }
         public string description { get => _description; set => _description = value; }
 
+        private readonly Dictionary<string, int> _sourceTempHp = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _tempHpImmunities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         void Awake()
         {
@@ -262,15 +270,8 @@ namespace Game.Creature
         void Start()
         {
             // Initialization code here
-            // Apply passive abilities
-            foreach (var a in passives)
-            {
-                var ability = DefinedAbilities.TryGet(a);
-                if (ability != null)
-                    ability.Apply(this.gameObject);
-                else
-                    Debug.LogWarning($"Ability '{a}' not found for {name}");
-            }
+            if (Prepared == null && Build != null)
+                Prepared = Pf2eCharacterPreparer.Prepare(this, Build);
 
             // Add initial strike actions
             if(this.gameObject.GetComponent<ActionController>() != null){
@@ -365,6 +366,7 @@ namespace Game.Creature
             {
                 int used = Mathf.Min(_tempHp, remaining);
                 _tempHp -= used;
+                ConsumeSourceTempHp(used);
                 remaining -= used;
             }
             // apply HP loss
@@ -377,7 +379,9 @@ namespace Game.Creature
         public void TakeDamage(uint amount)
         {
             // consume temp HP first
+            int tempBeforeDamage = _tempHp;
             _tempHp -= (int)amount;
+            ConsumeSourceTempHp(Mathf.Min(tempBeforeDamage, (int)amount));
             if (_tempHp < 0)
             {
                 _hp += _tempHp;
@@ -423,6 +427,81 @@ namespace Game.Creature
         public void GainTempHp(int tempHpAmount)
         {
             GainTempHp(tempHpAmount, false);
+        }
+
+        /// <summary>
+        /// Grants temporary Hit Points tracked by a stable source so rule cleanup can remove only its own grant.
+        /// </summary>
+        /// <param name="source">The source key associated with the temporary Hit Points.</param>
+        /// <param name="tempHpAmount">The amount of temporary Hit Points to grant.</param>
+        public void GainSourceTempHp(string source, int tempHpAmount)
+        {
+            if (string.IsNullOrWhiteSpace(source) || tempHpAmount <= 0)
+                return;
+
+            RemoveSourceTempHp(source);
+            _sourceTempHp[source] = tempHpAmount;
+            if (tempHpAmount > _tempHp)
+                _tempHp = tempHpAmount;
+        }
+
+        /// <summary>
+        /// Removes temporary Hit Points previously granted by a specific source.
+        /// </summary>
+        /// <param name="source">The source key to remove.</param>
+        public void RemoveSourceTempHp(string source)
+        {
+            if (string.IsNullOrWhiteSpace(source) || !_sourceTempHp.TryGetValue(source, out int amount))
+                return;
+
+            _sourceTempHp.Remove(source);
+            _tempHp = Mathf.Max(0, _tempHp - amount);
+        }
+
+        /// <summary>
+        /// Records that a source cannot grant temporary Hit Points again until game flow resets the immunity set.
+        /// </summary>
+        /// <param name="source">The source key to mark immune.</param>
+        public void AddTempHpImmunity(string source)
+        {
+            if (!string.IsNullOrWhiteSpace(source))
+                _tempHpImmunities.Add(source);
+        }
+
+        /// <summary>
+        /// Checks whether a source is currently blocked from granting temporary Hit Points.
+        /// </summary>
+        /// <param name="source">The source key to check.</param>
+        /// <returns>True when the source has temporary Hit Point immunity.</returns>
+        public bool HasTempHpImmunity(string source)
+        {
+            return !string.IsNullOrWhiteSpace(source) && _tempHpImmunities.Contains(source);
+        }
+
+        /// <summary>
+        /// Returns a snapshot of temporary Hit Point immunity sources for Unity-free rule evaluation.
+        /// </summary>
+        /// <returns>The active source keys with temporary Hit Point immunity.</returns>
+        public IReadOnlyCollection<string> GetTempHpImmunitySources()
+        {
+            return new List<string>(_tempHpImmunities);
+        }
+
+        private void ConsumeSourceTempHp(int amount)
+        {
+            if (amount <= 0 || _sourceTempHp.Count == 0)
+                return;
+
+            foreach (string source in new List<string>(_sourceTempHp.Keys))
+            {
+                int consumed = Mathf.Min(amount, _sourceTempHp[source]);
+                _sourceTempHp[source] -= consumed;
+                amount -= consumed;
+                if (_sourceTempHp[source] <= 0)
+                    _sourceTempHp.Remove(source);
+                if (amount <= 0)
+                    return;
+            }
         }
 
         public int GetInitiative()
