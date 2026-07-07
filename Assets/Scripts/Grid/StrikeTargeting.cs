@@ -143,7 +143,7 @@ namespace GridPrivate
             if (!IsWithinStrikeRange(start, targetCell, request))
                 return null;
 
-            int clearRays = CountClearRays(tiles, start, targetCell);
+            int clearRays = BlocksDiagonalCorner(tiles, start, targetCell) ? 0 : CountClearRays(tiles, start, targetCell);
             GridPublic.StrikeLineOfEffect lineOfEffect = clearRays > 0
                 ? GridPublic.StrikeLineOfEffect.Clear
                 : GridPublic.StrikeLineOfEffect.Blocked;
@@ -181,6 +181,25 @@ namespace GridPrivate
                 }
             }
             return clear;
+        }
+
+        private static bool BlocksDiagonalCorner(Tile[,] tiles, Vector3Int start, Vector3Int target)
+        {
+            int dx = target.x - start.x;
+            int dz = target.z - start.z;
+            if (Mathf.Abs(dx) != 1 || Mathf.Abs(dz) != 1)
+                return false;
+
+            int stepX = dx > 0 ? 1 : -1;
+            int stepZ = dz > 0 ? 1 : -1;
+            Vector3Int sideX = new(start.x + stepX, start.y, start.z);
+            Vector3Int sideZ = new(start.x, start.y, start.z + stepZ);
+            return IsBlocking(tiles, sideX) && IsBlocking(tiles, sideZ);
+        }
+
+        private static bool IsBlocking(Tile[,] tiles, Vector3Int cell)
+        {
+            return !IsInBounds(tiles, cell) || tiles[cell.x, cell.z] == null;
         }
 
         private static bool IsRayBlocked(Tile[,] tiles, Vector3Int start, Vector3Int target, Vector2 startOffset, Vector2 targetOffset)
