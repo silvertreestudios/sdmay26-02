@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Workflow"
+  short_description: "Safer gh workflows for issues and PRs"
+  default_prompt: "Use $github-workflow to handle GitHub issue, PR, review comment, or gist operations safely."
