@@ -13,6 +13,10 @@ namespace Game.Creature
 
     [System.Serializable] public struct ArmorBonus { public string category; public int bonus; }
 
+    [System.Serializable] public struct WeaponActionBonus { public string weaponName; public int bonus; }
+
+    [System.Serializable] public struct AmmoCount { public string ammoName; public int quantity; }
+
 
     // Extension as a Unity MonoBehaviour
     public class CreatureComponent : MonoBehaviour 
@@ -35,6 +39,7 @@ namespace Game.Creature
         [SerializeField] private int _attackBonus;
         [SerializeField] private int _damageBonus;
         [SerializeField] private List<WeaponBonus> _weaponBonuses = new List<WeaponBonus>();
+        [SerializeField] private List<WeaponActionBonus> _weaponActionBonuses = new List<WeaponActionBonus>();
         [SerializeField] private List<ArmorBonus> _armorBonuses = new List<ArmorBonus>();
         [SerializeField] private List<DamageValue> _weaknesses = new List<DamageValue>();
         [SerializeField] private List<DamageValue> _resistances = new List<DamageValue>();
@@ -77,6 +82,8 @@ namespace Game.Creature
         [SerializeField] private List<string> _equipment = new List<string>();
         [SerializeField] private List<string> _weaponsList = new List<string>(); // Temp to display _weapons in inspector
         [SerializeField] private List<EquipmentWeapon> _weapons = new List<EquipmentWeapon>();
+        [SerializeField] private List<AmmoCount> _ammunition = new List<AmmoCount>();
+        [SerializeField] private List<string> _unloadedWeapons = new List<string>();
         [SerializeField] private List<string> _armorList = new List<string>(); // Temp to display armor in inspector
         [SerializeField] private List<EquipmentArmor> _armor = new List<EquipmentArmor>(); // Temp to display armor in inspector
 
@@ -93,6 +100,7 @@ namespace Game.Creature
         public int attackBonus { get => _attackBonus; set => _attackBonus = value; }
         public int damageBonus { get => _damageBonus; set => _damageBonus = value; }
         public List<WeaponBonus> weaponBonuses { get => _weaponBonuses; set => _weaponBonuses = value ?? new List<WeaponBonus>(); }
+        public List<WeaponActionBonus> weaponActionBonuses { get => _weaponActionBonuses; set => _weaponActionBonuses = value ?? new List<WeaponActionBonus>(); }
         public List<ArmorBonus> armorBonuses { get => _armorBonuses; set => _armorBonuses = value ?? new List<ArmorBonus>(); }
         public List<DamageValue> weaknesses { get => _weaknesses; set => _weaknesses = value; }
         public List<DamageValue> resistances { get => _resistances; set => _resistances = value; }
@@ -123,10 +131,119 @@ namespace Game.Creature
         public EquipmentWeapon equippedLeftHand { get => _equippedLeftHand; set => _equippedLeftHand = value; }
         public List<string> weaponsList { get => _weaponsList; set => _weaponsList = value ?? new List<string>(); }
         public List<EquipmentWeapon> weapons { get => _weapons; set => _weapons = value ?? new List<EquipmentWeapon>(); }
+        public List<AmmoCount> ammunition { get => _ammunition; set => _ammunition = value ?? new List<AmmoCount>(); }
+        public List<string> unloadedWeapons { get => _unloadedWeapons; set => _unloadedWeapons = value ?? new List<string>(); }
         public List<string> armorList { get => _armorList; set => _armorList = value ?? new List<string>(); }
         public List<EquipmentArmor> armor { get => _armor; set => _armor = value ?? new List<EquipmentArmor>(); }
 
 
+        public int GetAttackBonusForWeapon(EquipmentWeapon weapon)
+        {
+            if (weapon != null && _weaponActionBonuses != null)
+            {
+                string weaponKey = NormalizeEquipmentKey(weapon.name);
+                foreach (WeaponActionBonus actionBonus in _weaponActionBonuses)
+                {
+                    if (NormalizeEquipmentKey(actionBonus.weaponName) == weaponKey)
+                        return actionBonus.bonus;
+                }
+            }
+            return attackBonus;
+        }
+
+        public int GetAmmoQuantity(string ammoName)
+        {
+            string key = NormalizeEquipmentKey(ammoName);
+            for (int i = 0; i < _ammunition.Count; i++)
+            {
+                if (NormalizeEquipmentKey(_ammunition[i].ammoName) == key)
+                    return _ammunition[i].quantity;
+            }
+            return 0;
+        }
+
+        public void SetAmmoQuantity(string ammoName, int quantity)
+        {
+            string key = NormalizeEquipmentKey(ammoName);
+            for (int i = 0; i < _ammunition.Count; i++)
+            {
+                if (NormalizeEquipmentKey(_ammunition[i].ammoName) == key)
+                {
+                    _ammunition[i] = new AmmoCount { ammoName = ammoName, quantity = Mathf.Max(0, quantity) };
+                    return;
+                }
+            }
+            _ammunition.Add(new AmmoCount { ammoName = ammoName, quantity = Mathf.Max(0, quantity) });
+        }
+
+        public bool HasAmmoFor(EquipmentWeapon weapon)
+        {
+            return weapon == null || string.IsNullOrWhiteSpace(weapon.ammo) || GetAmmoQuantity(weapon.ammo) > 0;
+        }
+
+        public bool ConsumeAmmoFor(EquipmentWeapon weapon)
+        {
+            if (weapon == null || string.IsNullOrWhiteSpace(weapon.ammo))
+                return true;
+
+            int quantity = GetAmmoQuantity(weapon.ammo);
+            if (quantity <= 0)
+                return false;
+
+            SetAmmoQuantity(weapon.ammo, quantity - 1);
+            return true;
+        }
+
+        public bool IsWeaponLoaded(EquipmentWeapon weapon)
+        {
+            if (weapon == null || GetReloadCost(weapon) <= 0)
+                return true;
+            return !_unloadedWeapons.Contains(NormalizeEquipmentKey(weapon.name));
+        }
+
+        public void MarkWeaponFired(EquipmentWeapon weapon)
+        {
+            if (weapon == null || GetReloadCost(weapon) <= 0)
+                return;
+
+            string key = NormalizeEquipmentKey(weapon.name);
+            if (!_unloadedWeapons.Contains(key))
+                _unloadedWeapons.Add(key);
+        }
+
+        public bool ReloadWeapon(EquipmentWeapon weapon)
+        {
+            if (weapon == null || GetReloadCost(weapon) <= 0 || !HasAmmoFor(weapon))
+                return false;
+
+            _unloadedWeapons.Remove(NormalizeEquipmentKey(weapon.name));
+            return true;
+        }
+
+        public int GetReloadCost(EquipmentWeapon weapon)
+        {
+            if (weapon == null)
+                return 0;
+
+            if (!string.IsNullOrWhiteSpace(weapon.reload) && int.TryParse(weapon.reload, out int cost))
+                return Mathf.Max(0, cost);
+
+            if (weapon.traits != null)
+            {
+                foreach (string trait in weapon.traits)
+                {
+                    if (trait != null && trait.StartsWith("reload-", System.StringComparison.OrdinalIgnoreCase) && int.TryParse(trait.Substring(7), out cost))
+                        return Mathf.Max(0, cost);
+                }
+            }
+
+            return 0;
+        }
+
+        private static string NormalizeEquipmentKey(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToLowerInvariant().Replace(' ', '-');
+        }
         // Other attributes
         public List<string> traits { get; set; } = new List<string>();
         public string size { get; set; }

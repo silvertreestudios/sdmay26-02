@@ -84,7 +84,22 @@ namespace GridPrivate
 
         public override IEnumerator GetStrikeTarget(GameObject attacker, float range, CoroutineResult<GameObject> target)
         {
-            if (Fsm.ChangeState(new StateStrike(attacker, range, target, Fsm)))
+            StrikeTargetRequest request = new StrikeTargetRequest
+            {
+                ReachFeet = Mathf.RoundToInt(range),
+                IsRanged = false,
+                RequiresLineOfEffect = true
+            };
+            CoroutineResult<StrikeTargetResult> result = new();
+            if (Fsm.ChangeState(new StateStrike(attacker, request, result, Fsm)))
+                yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
+
+            target.Value = result.Value?.Target;
+        }
+
+        public override IEnumerator GetStrikeTarget(GameObject attacker, StrikeTargetRequest request, CoroutineResult<StrikeTargetResult> target)
+        {
+            if (Fsm.ChangeState(new StateStrike(attacker, request, target, Fsm)))
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 

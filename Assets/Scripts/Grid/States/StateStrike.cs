@@ -1,16 +1,17 @@
 using UnityEngine;
 using System.Collections.Generic;
-using Game.Creature;
 using System.Collections;
+using GridPublic;
 
 namespace GridPrivate
 {
     public class StateStrike : GridFSMState
     {
         protected GridFSM Fsm;
-        // target character
-        GameObject Character;
-        CoroutineResult<GameObject> Selection;
+        private readonly GameObject Character;
+        private readonly StrikeTargetRequest Request;
+        private readonly CoroutineResult<StrikeTargetResult> Selection;
+        private readonly CoroutineResult<GameObject> LegacySelection;
         protected GridAPIPrivate GridAPI = (GridAPIPrivate)GridPublic.GridAPI.GetInstance();
         protected IPathfinder Pathfinder;
         protected Tile[,] Tiles;
@@ -20,19 +21,25 @@ namespace GridPrivate
         protected float Range;
         protected Vector3Int StartPosition;
 
-
-        // compact constructor
         public StateStrike(GameObject character, float range, CoroutineResult<GameObject> selection, GridFSM fsm)
+            : this(character, new StrikeTargetRequest { ReachFeet = Mathf.RoundToInt(range), RequiresLineOfEffect = true }, new CoroutineResult<StrikeTargetResult>(), fsm)
+        {
+            LegacySelection = selection;
+        }
+
+        public StateStrike(GameObject character, StrikeTargetRequest request, CoroutineResult<StrikeTargetResult> selection, GridFSM fsm)
         {
             Fsm = fsm;
             Character = character;
+            Request = request ?? new StrikeTargetRequest();
             Selection = selection;
             Tiles = GridAPI.GetTiles();
             StartPosition = Vector3Int.RoundToInt(Character.transform.position);
             Pathfinder = GridAPI.GetPathfinder();
             Pathfinder.Search(Character, StartPosition);
-            Range = range;
+            Range = Request.MaximumRangeFeet;
         }
+
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
         {
             base.Enter(fsm);
@@ -41,51 +48,71 @@ namespace GridPrivate
             AIActionController ai = Character.GetComponent<AIActionController>();
             if (ai != null)
             {
-
-                // grab best target from the AI's controller, this should be set during its decision making process
                 if (ai.BestTarget == null)
                     Debug.LogWarning("AI has no target, skipping strike");
                 else
-                    Selection.Value = ai.BestTarget;
-                CoroutineRunner.Run(ChangeToIdle()); // Used because you shouldn't transition from enter()
+                    Selection.Value = StrikeTargeting.Evaluate(Character, ai.BestTarget, Tiles, Request);
+                CoroutineRunner.Run(ChangeToIdle());
             }
             else
             {
-                inRange = Pathfinder.CalculateEmination(StartPosition, Range);
+                inRange = StrikeTargeting.CellsInRange(Tiles, StartPosition, Request);
                 OnHighlightRange.Invoke(inRange);
                 OnHover.AddListener(Hover);
 
-                foreach(Vector3Int cell in inRange)
+                foreach (Vector3Int cell in inRange)
                 {
                     Tile tile = Tiles[cell.x, cell.z];
-                    if (tile != null)
+                    if (tile == null)
+                        continue;
+
+                    foreach (GameObject occupant in tile.Occupants)
                     {
-                        foreach(GameObject occupant in tile.Occupants)
+                        if (occupant == Character)
+                            continue;
+
+                        StrikeTargetResult result = StrikeTargeting.Evaluate(Character, occupant, Tiles, Request);
+                        if (result != null && result.IsLegal)
                             OccupantsInRange.Add(occupant);
                     }
                 }
-                OccupantsInRange.Remove(Character);
             }
         }
 
         public override void Exit()
         {
+            if (LegacySelection != null)
+                LegacySelection.Value = Selection.Value?.Target;
+
             OccupantsInRange.Clear();
             OnHover.RemoveListener(Hover);
             OnHighlightRangeEnd.Invoke();
             OnActionComplete.Invoke();
         }
+
         public override void Leftclick()
         {
+            if (HoverCell.x < 0 || HoverCell.z < 0 || HoverCell.x >= Tiles.GetLength(0) || HoverCell.z >= Tiles.GetLength(1))
+                return;
+
             Tile tile = Tiles[HoverCell.x, HoverCell.z];
-            if (tile != null && inRange.Contains(HoverCell)) // check that tile is valid and in range
+            if (tile == null || !inRange.Contains(HoverCell))
+                return;
+
+            if (tile.Occupants.Count == 0)
             {
                 OnActionConfirm.Invoke();
-                if (tile.Occupants.Count > 0)
-                    Selection.Value = tile.Occupants[0];
-
                 fsm.ChangeState(fsm.IdleState);
+                return;
             }
+
+            StrikeTargetResult result = StrikeTargeting.Evaluate(Character, tile.Occupants[0], Tiles, Request);
+            if (result == null || !result.IsLegal)
+                return;
+
+            Selection.Value = result;
+            OnActionConfirm.Invoke();
+            fsm.ChangeState(fsm.IdleState);
         }
 
         public override void Rightclick()
@@ -100,14 +127,9 @@ namespace GridPrivate
                 HoverCell = hoverList[0];
         }
 
-        /// <summary>
-        /// Used to transition to idle after a frame
-        /// Necessary to change state from state.Enter
-        /// </summary>
-        /// <returns></returns>
         protected IEnumerator ChangeToIdle()
         {
-            yield return null; // wait a frame
+            yield return null;
             fsm.ChangeState(this.fsm.IdleState);
         }
     }

@@ -112,6 +112,7 @@ namespace Game.Creature
         public List<string> runes;
         public string price;
         public int range;
+        public string reload;
         public string ammo;
         public int bulk;
     }
@@ -169,6 +170,17 @@ namespace Game.Creature
             // TODO: temporary, damage bonus directly from str mod 
             target.damageBonus = dto.system.abilities != null ? dto.system.abilities.str : target.strMod;
 
+            // Action-specific weapon attack bonuses from imported creature actions
+            if (target.weaponActionBonuses == null) target.weaponActionBonuses = new List<WeaponActionBonus>();
+            target.weaponActionBonuses.Clear();
+            if (dto.actions != null)
+            {
+                foreach (var action in dto.actions)
+                {
+                    if (!string.IsNullOrWhiteSpace(action?.name) && action.system?.bonus != null)
+                        target.weaponActionBonuses.Add(new WeaponActionBonus { weaponName = action.name, bonus = action.system.bonus.value });
+                }
+            }
             // Weapon attack bonuses by proficiency category
             if (target.weaponBonuses == null) target.weaponBonuses = new List<WeaponBonus>();
             target.weaponBonuses.Clear();
@@ -266,11 +278,16 @@ namespace Game.Creature
             // Equipment
             if (target.equipment == null) target.equipment = new List<string>();
             target.equipment.Clear();
+            target.ammunition.Clear();
             if (dto.equipment != null)
             {
                 foreach (var e in dto.equipment)
+                {
                     if (!string.IsNullOrEmpty(e?.name))
                         target.equipment.Add(e.name);
+                    if (e != null && string.Equals(e.type, "ammo", StringComparison.OrdinalIgnoreCase))
+                        target.SetAmmoQuantity(e.name, e.quantity);
+                }
             }
             // Weapons
             if (target.weapons == null){
@@ -478,6 +495,7 @@ namespace Game.Creature
             weapon.runes = dto.runes;
             weapon.price = double.TryParse(dto.price, out double priceValue) ? priceValue : 0.0; // Handle parsing price string to double
             weapon.range = dto.range;
+            weapon.reload = dto.reload;
             weapon.ammo = dto.ammo;
             weapon.bulk = dto.bulk;
             return weapon;
@@ -563,6 +581,7 @@ namespace Game.Creature
                     weapon.runes = dto.runes;
                     weapon.price = double.TryParse(dto.price, out double priceValue) ? priceValue : 0.0; // Handle parsing price string to double
                     weapon.range = dto.range;
+                    weapon.reload = dto.reload;
                     weapon.ammo = dto.ammo;
                     weapon.bulk = dto.bulk;
                     weapons.Add(weapon);

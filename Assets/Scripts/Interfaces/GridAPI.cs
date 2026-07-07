@@ -23,6 +23,15 @@ namespace GridPublic
         public abstract IEnumerator GetStrikeTarget(GameObject attacker, float range, CoroutineResult<GameObject> target);
 
         /// <summary>
+        /// The given character selects a target for a Strike-style action.
+        /// </summary>
+        /// <param name="attacker"></param>
+        /// <param name="request">targeting constraints for the Strike</param>
+        /// <param name="target">selected target result, null if canceled or illegal</param>
+        /// <returns></returns>
+        public abstract IEnumerator GetStrikeTarget(GameObject attacker, StrikeTargetRequest request, CoroutineResult<StrikeTargetResult> target);
+
+        /// <summary>
         /// Destroys a gameobject from the grid
         /// </summary>
         /// <param name="token">Token to remove</param>

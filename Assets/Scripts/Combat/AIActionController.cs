@@ -97,6 +97,8 @@ public abstract class AIActionController : ActionController
             else if (action is StrikeWeapon)
             {
                 StrikeWeapon strikeWeaponAction = action as StrikeWeapon;
+                if (!strikeWeaponAction.IsUsableBy(gameObject))
+                    continue;
                 damage = strikeWeaponAction.GetStrike().GetAvgDmg();
             }
             if (damage > bestDamage)
