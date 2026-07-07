@@ -12,8 +12,63 @@ permissions:
   checks: write
 
 jobs:
+  changes:
+    name: Detect Unity Changes
+    runs-on: ubuntu-latest
+    outputs:
+      run_unity_tests: ${{ steps.filter.outputs.run_unity_tests }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Unity project changes
+        id: filter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run_unity_tests=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+
+          if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            changed_files="$(git diff-tree --no-commit-id --name-only -r "$head")"
+          else
+            changed_files="$(git diff --name-only "$base" "$head")"
+          fi
+
+          run_unity_tests=false
+          while IFS= read -r file; do
+            case "$file" in
+              Assets/*|Packages/*|ProjectSettings/*|.github/workflows/unity-tests.yml)
+                run_unity_tests=true
+                break
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          echo "run_unity_tests=$run_unity_tests" >> "$GITHUB_OUTPUT"
+          if [[ "$run_unity_tests" == "true" ]]; then
+            echo "Unity project changes detected; Unity tests will run."
+          else
+            echo "No Unity project changes detected; Unity tests will be skipped."
+          fi
+
   test:
     name: Unity Tests (${{ matrix.testMode }})
+    needs: changes
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -21,14 +76,20 @@ jobs:
         testMode: [ EditMode, PlayMode ]
 
     steps:
+      - name: Skip Unity Tests (${{ matrix.testMode }})
+        if: needs.changes.outputs.run_unity_tests != 'true'
+        run: echo "No Unity project changes detected; skipping ${{ matrix.testMode }} Unity tests."
+
       # Checkout repository
       - name: Checkout code
+        if: needs.changes.outputs.run_unity_tests == 'true'
         uses: actions/checkout@v4
         with:
           lfs: true
 
       # Cache Library folder
       - name: Cache Unity Library
+        if: needs.changes.outputs.run_unity_tests == 'true'
         uses: actions/cache@v3
         with:
           path: Library
@@ -39,6 +100,7 @@ jobs:
 
       # Run tests
       - name: Run Unity Tests (${{ matrix.testMode }})
+        if: needs.changes.outputs.run_unity_tests == 'true'
         uses: game-ci/unity-test-runner@v4
         id: tests
         env:
@@ -54,7 +116,7 @@ jobs:
       # Upload test results
       - name: Upload Test Results (${{ matrix.testMode }})
         uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && needs.changes.outputs.run_unity_tests == 'true'
         with:
           name: Test results (${{ matrix.testMode }})
           path: ${{ steps.tests.outputs.artifactsPath }}
@@ -62,7 +124,7 @@ jobs:
       # Publish test results for easy viewing
       - name: Publish Test Results (${{ matrix.testMode }})
         uses: dorny/test-reporter@v2
-        if: always()
+        if: always() && needs.changes.outputs.run_unity_tests == 'true'
         with:
           name: Unity Tests (${{ matrix.testMode }})
           path: ${{ steps.tests.outputs.artifactsPath }}/**/*.xml
