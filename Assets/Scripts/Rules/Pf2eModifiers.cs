@@ -24,30 +24,19 @@ namespace Game.Rules
         DifficultyClass
     }
 
-    public static class Pf2eRuleReferences
-    {
-        public const string ModifierStacking = "https://2e.aonprd.com/Rules.aspx?ID=2278";
-        public const string MultipleAttackPenalty = "https://2e.aonprd.com/Rules.aspx?ID=2288";
-        public const string RangePenalty = "https://2e.aonprd.com/Rules.aspx?ID=2288";
-        public const string Cover = "https://2e.aonprd.com/Rules.aspx?ID=2372";
-        public const string OffGuard = "https://2e.aonprd.com/Conditions.aspx?ID=58";
-    }
-
     public readonly struct Pf2eModifier
     {
         public int Value { get; }
         public Pf2eModifierType Type { get; }
         public string Source { get; }
         public Pf2eStatistic TargetStatistic { get; }
-        public string RulesReference { get; }
 
-        public Pf2eModifier(int value, Pf2eModifierType type, string source, Pf2eStatistic targetStatistic, string rulesReference = null)
+        public Pf2eModifier(int value, Pf2eModifierType type, string source, Pf2eStatistic targetStatistic)
         {
             Value = value;
             Type = type;
             Source = string.IsNullOrWhiteSpace(source) ? "Unknown" : source;
             TargetStatistic = targetStatistic;
-            RulesReference = rulesReference;
         }
     }
 

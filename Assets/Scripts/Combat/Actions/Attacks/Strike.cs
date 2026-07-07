@@ -98,15 +98,18 @@ public class Strike
     private static IEnumerable<Pf2eModifier> BuildStrikeAttackModifiers(int mapPenalty, int rangePenalty)
     {
         if (mapPenalty != 0)
-            yield return new Pf2eModifier(-mapPenalty, Pf2eModifierType.Untyped, "Multiple attack penalty", Pf2eStatistic.AttackRoll, Pf2eRuleReferences.MultipleAttackPenalty);
+            // Multiple attack penalty source: https://2e.aonprd.com/Rules.aspx?ID=2288
+            yield return new Pf2eModifier(-mapPenalty, Pf2eModifierType.Untyped, "Multiple attack penalty", Pf2eStatistic.AttackRoll);
         if (rangePenalty != 0)
-            yield return new Pf2eModifier(rangePenalty, Pf2eModifierType.Untyped, "Range penalty", Pf2eStatistic.AttackRoll, Pf2eRuleReferences.RangePenalty);
+            // Range penalty source: https://2e.aonprd.com/Rules.aspx?ID=2288
+            yield return new Pf2eModifier(rangePenalty, Pf2eModifierType.Untyped, "Range penalty", Pf2eStatistic.AttackRoll);
     }
 
     private static IEnumerable<Pf2eModifier> BuildStrikeAcModifiers(int coverBonus)
     {
         if (coverBonus != 0)
-            yield return new Pf2eModifier(coverBonus, Pf2eModifierType.Circumstance, "Cover", Pf2eStatistic.ArmorClass, Pf2eRuleReferences.Cover);
+            // Cover source: https://2e.aonprd.com/Rules.aspx?ID=2372
+            yield return new Pf2eModifier(coverBonus, Pf2eModifierType.Circumstance, "Cover", Pf2eStatistic.ArmorClass);
     }
 
     private static string FormatResolution(Pf2eModifierResolution resolution)

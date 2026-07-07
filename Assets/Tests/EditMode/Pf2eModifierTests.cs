@@ -70,7 +70,7 @@ namespace TestsCombat
 
             Pf2eModifierResolution result = creature.ResolveArmorClass(new[]
             {
-                new Pf2eModifier(2, Pf2eModifierType.Circumstance, "Cover", Pf2eStatistic.ArmorClass, Pf2eRuleReferences.Cover)
+                new Pf2eModifier(2, Pf2eModifierType.Circumstance, "Cover", Pf2eStatistic.ArmorClass)
             });
 
             Assert.AreEqual(100, result.Total);
@@ -85,7 +85,8 @@ namespace TestsCombat
             GameObject target = new GameObject("target");
             CreatureComponent creature = target.AddComponent<CreatureComponent>();
             creature.ac = 100;
-            creature.AddModifier(new Pf2eModifier(1, Pf2eModifierType.Circumstance, "Lesser cover", Pf2eStatistic.ArmorClass));
+            Pf2eModifierCollection modifiers = target.AddComponent<Pf2eModifierCollection>();
+            modifiers.Add(new Pf2eModifier(1, Pf2eModifierType.Circumstance, "Lesser cover", Pf2eStatistic.ArmorClass));
 
             Pf2eModifierResolution result = creature.ResolveArmorClass(new[]
             {
