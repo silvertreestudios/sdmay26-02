@@ -52,7 +52,7 @@ jobs:
           run_unity_tests=false
           while IFS= read -r file; do
             case "$file" in
-              Assets/*|Packages/*|ProjectSettings/*)
+              Assets/*|Packages/*|ProjectSettings/*|.github/workflows/unity-tests.yml)
                 run_unity_tests=true
                 break
                 ;;
