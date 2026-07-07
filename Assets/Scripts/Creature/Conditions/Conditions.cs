@@ -7,8 +7,14 @@ using UnityEngine;
 public class Conditions : MonoBehaviour, IConditionTarget
 {
     protected Dictionary<string, List<ConditionSource>> AppliedConditions = new();
+
+    public IReadOnlyCollection<string> ActiveConditionNames => AppliedConditions.Keys;
+
     public void Add(string condition, ConditionSource source)
     {
+        if (string.IsNullOrWhiteSpace(condition))
+            return;
+
         List<ConditionSource> sources;
         if(!AppliedConditions.TryGetValue(condition, out sources))
             AppliedConditions.Add(condition, new List<ConditionSource>() { source });

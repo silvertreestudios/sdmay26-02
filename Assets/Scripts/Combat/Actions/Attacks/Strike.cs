@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using Game.Creature;
+using Game.Rules;
 using System;
 using GridPublic;
 
@@ -56,19 +57,24 @@ public class Strike
         int coverBonus = TargetingResult?.CoverAcBonus ?? 0;
 
         int attackBonus = AttackModifierOverride ?? from.attackBonus;
-        int targetAc = to.ac + coverBonus;
-        int totalModifier = attackBonus - mapPenalty + rangePenalty;
+        Pf2eModifierResolution attackResolution = from.ResolveAttackRoll(AttackModifierOverride, BuildStrikeAttackModifiers(mapPenalty, rangePenalty));
+        Pf2eModifierResolution baseAcResolution = to.ResolveArmorClass();
+        Pf2eModifierResolution targetAcResolution = to.ResolveArmorClass(BuildStrikeAcModifiers(coverBonus));
+        int targetAc = targetAcResolution.Total;
+        int totalModifier = attackResolution.Total;
 
         D20Result attackRoll = D20.Roll(totalModifier, targetAc);
 
         string log = "Attack:\n  AC: " + targetAc;
         if (coverBonus != 0)
-            log += " (" + to.ac + " + " + coverBonus + " cover)";
+            log += " (" + baseAcResolution.Total + " + " + coverBonus + " cover)";
         log += "\n  Attack Roll: " + attackRoll.total
             + " (" + attackRoll.roll + " + " + attackBonus + " - " + mapPenalty;
         if (rangePenalty != 0)
             log += " " + rangePenalty;
         log += ")\n  Result: " + attackRoll.degree;
+        log += "\n  Attack Modifiers: " + FormatResolution(attackResolution);
+        log += "\n  AC Modifiers: " + FormatResolution(targetAcResolution);
 
         if (attackRoll.degree == DegreeOfSuccess.Success || attackRoll.degree == DegreeOfSuccess.CriticalSuccess)
         {
@@ -87,6 +93,41 @@ public class Strike
             log += "\nAttack Missed!";
             CombatLog.GetInstance().Log(log);
         }
+    }
+
+    private static IEnumerable<Pf2eModifier> BuildStrikeAttackModifiers(int mapPenalty, int rangePenalty)
+    {
+        if (mapPenalty != 0)
+            yield return new Pf2eModifier(-mapPenalty, Pf2eModifierType.Untyped, "Multiple attack penalty", Pf2eStatistic.AttackRoll, Pf2eRuleReferences.MultipleAttackPenalty);
+        if (rangePenalty != 0)
+            yield return new Pf2eModifier(rangePenalty, Pf2eModifierType.Untyped, "Range penalty", Pf2eStatistic.AttackRoll, Pf2eRuleReferences.RangePenalty);
+    }
+
+    private static IEnumerable<Pf2eModifier> BuildStrikeAcModifiers(int coverBonus)
+    {
+        if (coverBonus != 0)
+            yield return new Pf2eModifier(coverBonus, Pf2eModifierType.Circumstance, "Cover", Pf2eStatistic.ArmorClass, Pf2eRuleReferences.Cover);
+    }
+
+    private static string FormatResolution(Pf2eModifierResolution resolution)
+    {
+        return "total " + resolution.Total + "; applied [" + FormatModifiers(resolution.AppliedModifiers) + "]; suppressed [" + FormatModifiers(resolution.SuppressedModifiers) + "]";
+    }
+
+    private static string FormatModifiers(IReadOnlyList<Pf2eModifier> modifiers)
+    {
+        if (modifiers == null || modifiers.Count == 0)
+            return "none";
+
+        List<string> parts = new();
+        foreach (Pf2eModifier modifier in modifiers)
+            parts.Add(modifier.Source + " " + FormatSigned(modifier.Value) + " " + modifier.Type);
+        return string.Join(", ", parts);
+    }
+
+    private static string FormatSigned(int value)
+    {
+        return value >= 0 ? "+" + value : value.ToString();
     }
 
     private int CalculateMultipleAttackPenalty(uint strikePenaltyCount)

@@ -1,7 +1,9 @@
 using Game.Creature;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Game.Strikes;
+using Game.Rules;
 using GridPublic;
 
 namespace Game.Creature
@@ -43,6 +45,7 @@ namespace Game.Creature
         [SerializeField] private List<ArmorBonus> _armorBonuses = new List<ArmorBonus>();
         [SerializeField] private List<DamageValue> _weaknesses = new List<DamageValue>();
         [SerializeField] private List<DamageValue> _resistances = new List<DamageValue>();
+        private readonly List<Pf2eModifier> _modifiers = new();
 
         // Ability modifiers
         [Header("Ability Modifiers")]
@@ -104,6 +107,7 @@ namespace Game.Creature
         public List<ArmorBonus> armorBonuses { get => _armorBonuses; set => _armorBonuses = value ?? new List<ArmorBonus>(); }
         public List<DamageValue> weaknesses { get => _weaknesses; set => _weaknesses = value; }
         public List<DamageValue> resistances { get => _resistances; set => _resistances = value; }
+        public IReadOnlyList<Pf2eModifier> modifiers => _modifiers;
 
         public int strMod { get => _strMod; set => _strMod = value; }
         public int dexMod { get => _dexMod; set => _dexMod = value; }
@@ -149,6 +153,176 @@ namespace Game.Creature
                 }
             }
             return attackBonus;
+        }
+
+
+        public void AddModifier(Pf2eModifier modifier)
+        {
+            _modifiers.Add(modifier);
+        }
+
+        public void RemoveModifiersFromSource(string source)
+        {
+            if (string.IsNullOrWhiteSpace(source))
+                return;
+
+            _modifiers.RemoveAll(modifier => string.Equals(modifier.Source, source, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public void ClearModifiers()
+        {
+            _modifiers.Clear();
+        }
+
+        public Pf2eModifierResolution ResolveAttackRoll(int? baseAttackOverride = null, IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            List<Pf2eModifier> modifiers = new()
+            {
+                new Pf2eModifier(baseAttackOverride ?? attackBonus, Pf2eModifierType.Untyped, baseAttackOverride.HasValue ? "Attack modifier override" : "Attack bonus", Pf2eStatistic.AttackRoll)
+            };
+            AddRuntimeModifiers(modifiers, additionalModifiers);
+            return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.AttackRoll);
+        }
+
+        public Pf2eModifierResolution ResolveAttackRollForWeapon(EquipmentWeapon weapon, IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            return ResolveAttackRoll(GetAttackBonusForWeapon(weapon), additionalModifiers);
+        }
+
+        public Pf2eModifierResolution ResolveArmorClass(IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            List<Pf2eModifier> modifiers = BuildBaseArmorClassModifiers();
+            AddRuntimeModifiers(modifiers, additionalModifiers);
+            AddConditionModifiers(modifiers, Pf2eStatistic.ArmorClass);
+            return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.ArmorClass);
+        }
+
+        public Pf2eModifierResolution ResolveFortitudeSave(IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            return ResolveSave(fortitudeSave, "Fortitude save", Pf2eStatistic.FortitudeSave, additionalModifiers);
+        }
+
+        public Pf2eModifierResolution ResolveReflexSave(IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            return ResolveSave(reflexSave, "Reflex save", Pf2eStatistic.ReflexSave, additionalModifiers);
+        }
+
+        public Pf2eModifierResolution ResolveWillSave(IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            return ResolveSave(willSave, "Will save", Pf2eStatistic.WillSave, additionalModifiers);
+        }
+
+        public Pf2eModifierResolution ResolveSkillCheck(string skillName, IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            List<Pf2eModifier> modifiers = new()
+            {
+                new Pf2eModifier(GetBaseSkillMod(skillName, 0), Pf2eModifierType.Untyped, string.IsNullOrWhiteSpace(skillName) ? "Skill modifier" : skillName.Trim() + " skill", Pf2eStatistic.SkillCheck)
+            };
+            AddRuntimeModifiers(modifiers, additionalModifiers);
+            return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.SkillCheck);
+        }
+
+        public Pf2eModifierResolution ResolveInitiative(IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            int baseInitiative = Mathf.Max(initiative, GetBaseSkillMod("perception", 0));
+            List<Pf2eModifier> modifiers = new()
+            {
+                new Pf2eModifier(baseInitiative, Pf2eModifierType.Untyped, "Initiative", Pf2eStatistic.Initiative)
+            };
+            AddRuntimeModifiers(modifiers, additionalModifiers);
+            return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.Initiative);
+        }
+
+        public Pf2eModifierResolution ResolveDifficultyClass(int baseDc, IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            List<Pf2eModifier> modifiers = new()
+            {
+                new Pf2eModifier(baseDc, Pf2eModifierType.Untyped, "Base DC", Pf2eStatistic.DifficultyClass)
+            };
+            AddRuntimeModifiers(modifiers, additionalModifiers);
+            return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.DifficultyClass);
+        }
+
+        private Pf2eModifierResolution ResolveSave(int baseSave, string source, Pf2eStatistic statistic, IEnumerable<Pf2eModifier> additionalModifiers)
+        {
+            List<Pf2eModifier> modifiers = new()
+            {
+                new Pf2eModifier(baseSave, Pf2eModifierType.Untyped, source, statistic),
+                new Pf2eModifier(allSaves, Pf2eModifierType.Untyped, "All saves", statistic)
+            };
+            AddRuntimeModifiers(modifiers, additionalModifiers);
+            return Pf2eModifierResolver.Resolve(modifiers, statistic);
+        }
+
+        private void AddRuntimeModifiers(List<Pf2eModifier> modifiers, IEnumerable<Pf2eModifier> additionalModifiers)
+        {
+            if (_modifiers != null)
+                modifiers.AddRange(_modifiers);
+            if (additionalModifiers != null)
+                modifiers.AddRange(additionalModifiers);
+        }
+
+        private List<Pf2eModifier> BuildBaseArmorClassModifiers()
+        {
+            if (_equippedArmor != null && !string.IsNullOrWhiteSpace(_equippedArmor.name))
+            {
+                return new List<Pf2eModifier>
+                {
+                    new Pf2eModifier(10, Pf2eModifierType.Untyped, "Base AC", Pf2eStatistic.ArmorClass),
+                    new Pf2eModifier(Mathf.Min(dexMod, _equippedArmor.dexCap), Pf2eModifierType.Untyped, "Dexterity modifier", Pf2eStatistic.ArmorClass),
+                    new Pf2eModifier(GetArmorProficiencyBonus(_equippedArmor.category), Pf2eModifierType.Untyped, _equippedArmor.category + " armor proficiency", Pf2eStatistic.ArmorClass),
+                    new Pf2eModifier(_equippedArmor.acBonus, Pf2eModifierType.Item, _equippedArmor.name, Pf2eStatistic.ArmorClass)
+                };
+            }
+
+            return new List<Pf2eModifier>
+            {
+                new Pf2eModifier(ac, Pf2eModifierType.Untyped, "Armor Class", Pf2eStatistic.ArmorClass)
+            };
+        }
+
+        private int GetArmorProficiencyBonus(string category)
+        {
+            if (armorBonuses == null || string.IsNullOrWhiteSpace(category))
+                return 0;
+
+            foreach (ArmorBonus armorBonus in armorBonuses)
+            {
+                if (string.Equals(armorBonus.category, category, StringComparison.OrdinalIgnoreCase))
+                    return armorBonus.bonus;
+            }
+            return 0;
+        }
+
+        private void AddConditionModifiers(List<Pf2eModifier> modifiers, Pf2eStatistic statistic)
+        {
+            if (statistic == Pf2eStatistic.ArmorClass && HasActiveCondition("off-guard", "flat-footed"))
+            {
+                modifiers.Add(new Pf2eModifier(-2, Pf2eModifierType.Circumstance, "Off-Guard", Pf2eStatistic.ArmorClass, Pf2eRuleReferences.OffGuard));
+            }
+        }
+
+        private bool HasActiveCondition(params string[] conditionNames)
+        {
+            Conditions conditions = GetComponent<Conditions>();
+            if (conditions == null)
+                return false;
+
+            foreach (string activeCondition in conditions.ActiveConditionNames)
+            {
+                string activeKey = NormalizeConditionKey(activeCondition);
+                foreach (string conditionName in conditionNames)
+                {
+                    if (activeKey == NormalizeConditionKey(conditionName))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        private static string NormalizeConditionKey(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToLowerInvariant().Replace(" ", string.Empty).Replace("-", string.Empty);
         }
 
         public int GetAmmoQuantity(string ammoName)
@@ -292,6 +466,12 @@ namespace Game.Creature
         public int GetSkillMod(string skillName, int defaultValue = 0)
         {
             if (string.IsNullOrWhiteSpace(skillName)) return defaultValue;
+            return ResolveSkillCheck(skillName).Total;
+        }
+
+        private int GetBaseSkillMod(string skillName, int defaultValue = 0)
+        {
+            if (string.IsNullOrWhiteSpace(skillName)) return defaultValue;
             string key = skillName.Trim();
 
             // Check explicit proficient skill entries first
@@ -427,8 +607,7 @@ namespace Game.Creature
 
         public int GetInitiative()
         {
-            // initiative is populated by perception by default, this should account for modifications to perception as well as initiative-specific bonuses
-            return Mathf.Max(initiative, GetSkillMod("perception", 0));
+            return ResolveInitiative().Total;
         }
 
 
@@ -491,21 +670,13 @@ namespace Game.Creature
 
         public void CalculateAC()
         {
-            // If armor is equipped
-            if (_equippedArmor != null && !string.IsNullOrWhiteSpace(_equippedArmor.name))
+            if (_equippedArmor == null || string.IsNullOrWhiteSpace(_equippedArmor.name))
             {
-                // Add Dex modifier up to the armor's dex cap
-                _ac = 10 + _equippedArmor.acBonus + Mathf.Min(dexMod, _equippedArmor.dexCap);
-                int armorBonus = armorBonuses.Find(b => b.category == _equippedArmor.category).bonus; // Add armor bonuses based on equipped armor group
-                _ac += armorBonus;
-                // Debug.Log($"Calculated "+ name +" AC with armor: 10 + " + _equippedArmor.acBonus +" (armor bonus) + min(" + dexMod +" (dex mod) + " + _equippedArmor.dexCap +" (dex cap)) + " + armorBonus +" (armor proficiency bonus for " + _equippedArmor.category + " armor) = " + _ac);
-                // Debug.Log($" _equippedArmor.group: {_equippedArmor.category}, armorBonuses: {string.Join(", ", armorBonuses.ConvertAll(b => $"{b.category}: {b.bonus}"))}");
-            }else{
-                // Unarmored AC calculation
-                // TODO: modify to include natural armor or other bonuses
-                _ac = 10 + dexMod + armorBonuses.Find(b => b.category == "unarmored").bonus; 
-                //_ac += armorBonuses.Find(b => b.category == "unarmored").bonus; // Add unarmored bonus if applicable
+                _ac = 10 + dexMod + GetArmorProficiencyBonus("unarmored");
+                return;
             }
+
+            _ac = Pf2eModifierResolver.Resolve(BuildBaseArmorClassModifiers(), Pf2eStatistic.ArmorClass).Total;
         }
     }
 }
