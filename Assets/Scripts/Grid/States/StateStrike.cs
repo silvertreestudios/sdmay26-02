@@ -11,21 +11,13 @@ namespace GridPrivate
         private readonly GameObject Character;
         private readonly StrikeTargetRequest Request;
         private readonly CoroutineResult<StrikeTargetResult> Selection;
-        private readonly CoroutineResult<GameObject> LegacySelection;
         protected GridAPIPrivate GridAPI = (GridAPIPrivate)GridPublic.GridAPI.GetInstance();
         protected IPathfinder Pathfinder;
         protected Tile[,] Tiles;
         protected List<Vector3Int> inRange = new List<Vector3Int>();
         protected List<GameObject> OccupantsInRange = new List<GameObject>();
         protected Vector3Int HoverCell;
-        protected float Range;
         protected Vector3Int StartPosition;
-
-        public StateStrike(GameObject character, float range, CoroutineResult<GameObject> selection, GridFSM fsm)
-            : this(character, new StrikeTargetRequest { ReachFeet = Mathf.RoundToInt(range), RequiresLineOfEffect = true }, new CoroutineResult<StrikeTargetResult>(), fsm)
-        {
-            LegacySelection = selection;
-        }
 
         public StateStrike(GameObject character, StrikeTargetRequest request, CoroutineResult<StrikeTargetResult> selection, GridFSM fsm)
         {
@@ -37,7 +29,6 @@ namespace GridPrivate
             StartPosition = Vector3Int.RoundToInt(Character.transform.position);
             Pathfinder = GridAPI.GetPathfinder();
             Pathfinder.Search(Character, StartPosition);
-            Range = Request.MaximumRangeFeet;
         }
 
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
@@ -81,9 +72,6 @@ namespace GridPrivate
 
         public override void Exit()
         {
-            if (LegacySelection != null)
-                LegacySelection.Value = Selection.Value?.Target;
-
             OccupantsInRange.Clear();
             OnHover.RemoveListener(Hover);
             OnHighlightRangeEnd.Invoke();

@@ -9,7 +9,7 @@ public class Strike
     public List<Dice> Damages;
     public List<DamageValue> FlatDamages;
     public List<string> Traits = new List<string>();
-    public int? AttackBonusOverride { get; set; }
+    public int? AttackModifierOverride { get; set; }
     public GameObject From = null;
     public GameObject To = null;
     private StrikeTargetResult TargetingResult = null;
@@ -27,7 +27,7 @@ public class Strike
             this.Damages.Add(new Dice(dice.numberOfDice, dice.sidesPerDie, dice.damageType));
         this.FlatDamages = new List<DamageValue>(strike.FlatDamages);
         this.Traits = new List<string>(strike.Traits);
-        this.AttackBonusOverride = strike.AttackBonusOverride;
+        this.AttackModifierOverride = strike.AttackModifierOverride;
     }
 
     public void Damage(GameObject from_go, GameObject to_go)
@@ -55,7 +55,7 @@ public class Strike
         int rangePenalty = TargetingResult?.RangePenalty ?? 0;
         int coverBonus = TargetingResult?.CoverAcBonus ?? 0;
 
-        int attackBonus = AttackBonusOverride ?? from.attackBonus;
+        int attackBonus = AttackModifierOverride ?? from.attackBonus;
         int targetAc = to.ac + coverBonus;
         int totalModifier = attackBonus - mapPenalty + rangePenalty;
 

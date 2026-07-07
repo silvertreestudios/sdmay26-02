@@ -30,16 +30,21 @@ public class Unarmed : MultiFrameEntityAction
     protected override IEnumerator MFInvoke(GameObject attacker)
     {
         ActionController ac = attacker.GetComponent<ActionController>();
-        // Grid get target;
-        CoroutineResult<GameObject> target = new();
-        yield return GridAPI.GetInstance().GetStrikeTarget(attacker, range*5, target);// Convert range(tiles) to ft
+        CoroutineResult<StrikeTargetResult> target = new();
+        StrikeTargetRequest request = new StrikeTargetRequest
+        {
+            ReachFeet = range * 5,
+            IsRanged = false,
+            RequiresLineOfEffect = true
+        };
+        yield return GridAPI.GetInstance().GetStrikeTarget(attacker, request, target);
             
         // null target value equates to canceled action
-        if(target.Value)
+        if(target.Value != null && target.Value.Target != null)
         {
-            CombatLog.GetInstance().Log("- " + attacker.name + " attacks " + target.Value.name + " with unarmed strike.");
-            Debug.Log(attacker + " Striking " + target.Value);
-            Strike.Damage(attacker, target.Value);
+            CombatLog.GetInstance().Log("- " + attacker.name + " attacks " + target.Value.Target.name + " with unarmed strike.");
+            Debug.Log(attacker + " Striking " + target.Value.Target);
+            Strike.Damage(attacker, target.Value.Target, target.Value);
             if (ac)
             {
                 PayCost(ac);

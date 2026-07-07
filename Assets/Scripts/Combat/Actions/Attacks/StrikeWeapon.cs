@@ -11,10 +11,12 @@ namespace Game.Strikes
 [System.Serializable]
 public class StrikeWeapon : MultiFrameEntityAction
 {
+    private const string CreatureActionLabelPrefix = "StrikeWeapon ";
+    private const string ReachTrait = "reach";
+
     public override string ActionName => GetWeaponName();
     private Strike Strike;
     private EquipmentWeapon Weapon;
-    private int range = 1;
     public string weaponName;
 
     public static void WeaponStrikeAdder(GameObject creature)
@@ -58,28 +60,43 @@ public class StrikeWeapon : MultiFrameEntityAction
 
         ActionController controller = creature.GetComponent<ActionController>();
         CreatureComponent cc = creature.GetComponent<CreatureComponent>();
-        if (controller == null || cc == null || HasAction(controller, weapon.name))
+        if (controller == null || cc == null || HasWeaponStrike(controller, weapon))
             return;
 
         StrikeWeapon strikeWeapon = new StrikeWeapon(1, weapon, creature);
         controller.AddAction(strikeWeapon);
-        if (!cc.actions.Contains("StrikeWeapon " + strikeWeapon.weaponName))
-            cc.actions.Add("StrikeWeapon " + strikeWeapon.weaponName);
+        string creatureActionLabel = CreatureActionLabelPrefix + strikeWeapon.weaponName;
+        if (!cc.actions.Contains(creatureActionLabel))
+            cc.actions.Add(creatureActionLabel);
 
         int reloadCost = cc.GetReloadCost(weapon);
-        string reloadActionName = "Reload " + weapon.name;
-        if (reloadCost > 0 && !HasAction(controller, reloadActionName))
+        if (reloadCost > 0 && !HasReloadAction(controller, weapon))
             controller.AddAction(new ReloadWeaponAction((uint)reloadCost, weapon));
     }
 
-    private static bool HasAction(ActionController controller, string actionName)
+    private static bool HasWeaponStrike(ActionController controller, EquipmentWeapon weapon)
     {
         foreach (EntityAction action in controller.GetActions())
         {
-            if (action.ActionName == actionName)
+            if (action is StrikeWeapon strikeWeapon && strikeWeapon.RepresentsWeapon(weapon))
                 return true;
         }
         return false;
+    }
+
+    private static bool HasReloadAction(ActionController controller, EquipmentWeapon weapon)
+    {
+        foreach (EntityAction action in controller.GetActions())
+        {
+            if (action is ReloadWeaponAction reloadAction && reloadAction.RepresentsWeapon(weapon))
+                return true;
+        }
+        return false;
+    }
+
+    private bool RepresentsWeapon(EquipmentWeapon weapon)
+    {
+        return Weapon == weapon || (Weapon != null && weapon != null && string.Equals(Weapon.name, weapon.name, System.StringComparison.OrdinalIgnoreCase));
     }
 
     public string GetWeaponName()
@@ -99,13 +116,13 @@ public class StrikeWeapon : MultiFrameEntityAction
 
     public int GetRange()
     {
-        return range;
+        return Mathf.CeilToInt(GetTargetRequest().MaximumRangeFeet / 5.0f);
     }
 
     public StrikeTargetRequest GetTargetRequest()
     {
         bool ranged = IsRangedWeapon();
-        int reachFeet = Weapon.traits != null && Weapon.traits.Contains("reach") ? 10 : 5;
+        int reachFeet = Weapon.traits != null && Weapon.traits.Contains(ReachTrait) ? 10 : 5;
         return new StrikeTargetRequest
         {
             ReachFeet = reachFeet,
@@ -142,14 +159,9 @@ public class StrikeWeapon : MultiFrameEntityAction
         if (!IsRangedWeapon() || string.IsNullOrWhiteSpace(Weapon.ammo))
             flatDamageList.Add(new DamageValue(Weapon.damage.damageType, cc.damageBonus));
 
-        if (Weapon.range > 0)
-            range = Weapon.range / 5;
-        if (Weapon.traits != null && Weapon.traits.Contains("reach"))
-            range += 1;
-
         Strike = new Strike(damageList, flatDamageList);
         Strike.Traits = Weapon.traits ?? new List<string>();
-        Strike.AttackBonusOverride = cc.GetAttackBonusForWeapon(weapon);
+        Strike.AttackModifierOverride = cc.GetAttackBonusForWeapon(weapon);
     }
 
     protected override IEnumerator MFInvoke(GameObject attacker)
@@ -203,6 +215,11 @@ public class ReloadWeaponAction : EntityAction
         Weapon = weapon;
     }
 
+    public bool RepresentsWeapon(EquipmentWeapon weapon)
+    {
+        return Weapon == weapon || (Weapon != null && weapon != null && string.Equals(Weapon.name, weapon.name, System.StringComparison.OrdinalIgnoreCase));
+    }
+
     public override void Invoke(GameObject target)
     {
         ActionController ac = target.GetComponent<ActionController>();
@@ -214,7 +231,7 @@ public class ReloadWeaponAction : EntityAction
         }
         if (ac)
             ac.IsTakingAction = false;
-        CombatManager.GetInstance().CheckForEndOfGame();
+        base.Invoke(target);
     }
 }
 }
