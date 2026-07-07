@@ -22,24 +22,53 @@ namespace Game.Creature
     public class D20{
         public static D20Result Roll(int modifier, int targetVal){
             int rollResult = UnityEngine.Random.Range(1, 21);
+            return Evaluate(rollResult, modifier, targetVal);
+        }
+
+        public static D20Result Evaluate(int rollResult, int modifier, int targetVal){
             int totalResult = rollResult + modifier;
             DegreeOfSuccess degree;
-            if (rollResult == 20 || totalResult >= targetVal + 10){
+            if (totalResult >= targetVal + 10){
                 degree = DegreeOfSuccess.CriticalSuccess;
-            }
-            else if (rollResult == 1 || totalResult <= targetVal - 10){
-                degree = DegreeOfSuccess.CriticalFail;
             }
             else if (totalResult >= targetVal){
                 degree = DegreeOfSuccess.Success;
             }
+            else if (totalResult <= targetVal - 10){
+                degree = DegreeOfSuccess.CriticalFail;
+            }
             else{
                 degree = DegreeOfSuccess.Fail;
             }
+
+            if (rollResult == 20){
+                degree = Improve(degree);
+            }
+            else if (rollResult == 1){
+                degree = Worsen(degree);
+            }
+
             return new D20Result{ roll = rollResult, total = totalResult, degree = degree };
         }
-    }
 
+        private static DegreeOfSuccess Improve(DegreeOfSuccess degree){
+            return degree switch{
+                DegreeOfSuccess.CriticalFail => DegreeOfSuccess.Fail,
+                DegreeOfSuccess.Fail => DegreeOfSuccess.Success,
+                DegreeOfSuccess.Success => DegreeOfSuccess.CriticalSuccess,
+                _ => DegreeOfSuccess.CriticalSuccess
+            };
+        }
+
+        private static DegreeOfSuccess Worsen(DegreeOfSuccess degree){
+            return degree switch{
+                DegreeOfSuccess.CriticalSuccess => DegreeOfSuccess.Success,
+                DegreeOfSuccess.Success => DegreeOfSuccess.Fail,
+                DegreeOfSuccess.Fail => DegreeOfSuccess.CriticalFail,
+                _ => DegreeOfSuccess.CriticalFail
+            };
+        }
+    }
     // Class for rolling dice of given number and sides
     [System.Serializable]
     public class Dice{

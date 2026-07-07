@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using Game.Creature;
+using Game.Strikes;
 using NUnit.Framework;
 using System;
 using System.Collections;
@@ -117,6 +118,10 @@ public class MindlessController : AIActionController
             }
         }
 
+        EntityAction legalStrike = BestLegalStrike(myTeam);
+        if (legalStrike != null)
+            return legalStrike;
+
         // Attack if best target is in strike range
         if (BestTarget != null)
         {
@@ -171,6 +176,43 @@ public class MindlessController : AIActionController
         return Movements[0];
     }
 
+    private EntityAction BestLegalStrike(string myTeam)
+    {
+        EntityAction bestAction = null;
+        GameObject bestTarget = null;
+        float bestDamage = 0;
+
+        foreach (GameObject target in CombatManagerInterface.GetInstance().GetCombatants())
+        {
+            if (target == this.gameObject || TeamRules.GetInstance().IsFriendly(myTeam, target.GetComponent<Team>().Name))
+                continue;
+
+            foreach (EntityAction action in Actions)
+            {
+                if (action is not StrikeWeapon strikeWeapon || !strikeWeapon.IsUsableBy(gameObject))
+                    continue;
+
+                if (!strikeWeapon.CanStrikeTarget(gameObject, target, Tiles))
+                    continue;
+
+                float damage = strikeWeapon.GetStrike().GetAvgDmg();
+                if (damage > bestDamage)
+                {
+                    bestDamage = damage;
+                    bestAction = action;
+                    bestTarget = target;
+                }
+            }
+        }
+
+        if (bestAction != null)
+        {
+            BestTarget = bestTarget;
+            SelectedTile = Vector3Int.RoundToInt(bestTarget.transform.position);
+        }
+
+        return bestAction;
+    }
     /// <summary>
     /// when the best path to the target is blocked by other entities, this function determines if the AI can take a detour around the obstacle in one turn.
     /// if it takes longer than one turn to take the calculated best path, the AI will choose not to take the detour and get as close as possible to the target instead.

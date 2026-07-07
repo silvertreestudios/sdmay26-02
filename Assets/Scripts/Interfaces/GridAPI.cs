@@ -14,13 +14,13 @@ namespace GridPublic
         public abstract IEnumerator Stride(GameObject character);
         
         /// <summary>
-        /// The given character performs a strike action
+        /// The given character selects a target for a Strike-style action.
         /// </summary>
         /// <param name="attacker"></param>
-        /// <param name="range">of the strike</param>
-        /// <param name="target">selected target in range, null if none</param>
+        /// <param name="request">targeting constraints for the Strike</param>
+        /// <param name="target">selected target result, null if canceled or illegal</param>
         /// <returns></returns>
-        public abstract IEnumerator GetStrikeTarget(GameObject attacker, float range, CoroutineResult<GameObject> target);
+        public abstract IEnumerator GetStrikeTarget(GameObject attacker, StrikeTargetRequest request, CoroutineResult<StrikeTargetResult> target);
 
         /// <summary>
         /// Destroys a gameobject from the grid

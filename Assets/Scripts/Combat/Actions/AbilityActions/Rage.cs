@@ -88,6 +88,8 @@ public class Rage : MultiFrameEntityAction
         // TODO make rageBonus not hardcoded
         // int rageBonus = 2;
         Debug.Log("Adding Rage damage to strike");
+        if (action == null || action.FlatDamages == null || action.FlatDamages.Count == 0)
+            return;
 
         if (action.getTraits().Contains("agile") || action.getTraits().Contains("unarmed"))
         {

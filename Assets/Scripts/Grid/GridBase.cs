@@ -82,9 +82,9 @@ namespace GridPrivate
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 
-        public override IEnumerator GetStrikeTarget(GameObject attacker, float range, CoroutineResult<GameObject> target)
+        public override IEnumerator GetStrikeTarget(GameObject attacker, StrikeTargetRequest request, CoroutineResult<StrikeTargetResult> target)
         {
-            if (Fsm.ChangeState(new StateStrike(attacker, range, target, Fsm)))
+            if (Fsm.ChangeState(new StateStrike(attacker, request, target, Fsm)))
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 
