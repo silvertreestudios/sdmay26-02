@@ -1,13 +1,8 @@
-using System;
 using System.Collections;
-using System.Collections.Generic;
-//using System.Numerics;
-using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-// TODO: add a way to get all tokens poistions in the scene for camera to focus on them CombatManager->Action Contoller -> prefab token
-// TODO:
+// TODO: add a way to get all token positions in the scene for camera to focus on them.
 public class CameraManager : SingletonMonoBehaviour<CameraManager>
 {
     public float cameraMoveSpeed = 5f;
@@ -18,8 +13,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     public float cameraMovementAcceleration = 10f;
     public float cameraMovementDeceleration = 15f;
     public bool invertZoom = false;
-    Camera mainCamera;
-    private InputSystem_Actions inputActions;
+    private Camera mainCamera;
     private InputAction moveAction;
     private InputAction zoomAction;
     private InputAction rotateAction;
@@ -28,7 +22,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     private Vector2 zoomInput = Vector2.zero;
     private Vector2 rotateInput = Vector2.zero;
     private Vector2 currentVelocity = Vector2.zero;
-    private float currentRotationVelocity = 0f; // Add this
+    private float currentRotationVelocity = 0f;
     
     private CombatManager combatManager;
     private GameObject followTarget;
@@ -40,7 +34,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         moveAction = InputSystem.actions.FindAction("MoveCamera");
         zoomAction = InputSystem.actions.FindAction("ZoomCamera");
         rotateAction = InputSystem.actions.FindAction("RotateCamera");
-        //This is purely placeholder 
+        // Reuse Sprint until a dedicated camera focus action exists.
         interactAction = InputSystem.actions.FindAction("Sprint");
     }
 
@@ -62,7 +56,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
     void Start()
     {
-        getCamera();
+        GetCamera();
         combatManager = CombatManagerInterface.GetInstance() as CombatManager;
     }
 
@@ -78,15 +72,14 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     }
 
 
-    private void getCamera()
+    private void GetCamera()
     {
-        if(Camera.main != null)
+        if (Camera.main != null)
         {
             mainCamera = Camera.main;
         }
         else
         {
-            Debug.Log("No camera found in the scene, creating one.");
             GameObject cameraObject = new GameObject("Main Camera");
             mainCamera = cameraObject.AddComponent<Camera>();
             cameraObject.AddComponent<AudioListener>();
@@ -152,7 +145,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     }
 
 
-    //This is used for the center point of what the camera rotates on
+    // Used for the center point that the camera rotates around.
     private Vector3 GetCameraLookAtPosition()
     {
         Vector3 returnPosition = new Vector3(mainCamera.transform.position.x, 0, mainCamera.transform.position.z);
@@ -186,7 +179,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     public void PanToTarget(GameObject target, bool followIndefinitely = false)
     {
         if (target == null) return;
-        if (mainCamera == null) getCamera();
+        if (mainCamera == null) GetCamera();
         if (mainCamera == null) return;
         if (currentPanRoutine != null) StopCoroutine(currentPanRoutine);
         currentPanRoutine = StartCoroutine(PanToTargetRoutine(target, followIndefinitely));
@@ -222,12 +215,17 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
         if (followIndefinitely)
         {
-            // Follow indefinitely - track target delta (X/Z only) so orbiting still works
+            // Follow indefinitely by tracking target delta (X/Z only) so orbiting still works.
             followTarget = target;
             Vector3 lastTargetPos = target.transform.position;
             while (true)
             {
-                if (target == null) { followTarget = null; yield break; }
+                if (target == null)
+                {
+                    followTarget = null;
+                    yield break;
+                }
+
                 Vector3 delta = target.transform.position - lastTargetPos;
                 delta.y = 0;
                 mainCamera.transform.position += delta;
@@ -263,7 +261,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         float maxDistance = GetMaxDistanceFromAveragePoint(averagePosition);
         
         // Map distance to Y height (closer combatants = lower camera, spread out = higher camera)
-        float targetY = Mathf.Lerp(minCamearYLimit, maxCameraYLimit, maxDistance/5f); // Adjust divisor to tune sensitivity
+        float targetY = Mathf.Lerp(minCamearYLimit, maxCameraYLimit, maxDistance / 5f);
         targetY = Mathf.Clamp(targetY, minCamearYLimit, maxCameraYLimit);
         
         // Update Y component of offset
