@@ -186,6 +186,7 @@ namespace TestsCombat
             Assert.IsNotNull(method);
 
             Strike normal = new Strike(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue>());
+            Assert.AreSame(AttackSourceInfo.Unspecified, normal.SourceInfo);
             Strike agile = new Strike(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>())
             {
                 Traits = new List<string> { "agile" }
@@ -321,7 +322,7 @@ namespace TestsCombat
             provider.Effects.Add(new RecordingAttackResultEffect(AttackResultEffectPhase.AfterCriticalDoubling, context =>
             {
                 events.Add("after-critical:" + context.DamageValues[0].DamageAmount);
-                DamageRoller.AddOrMergeDamage(context.DamageValues, new DamageValue("piercing", 2));
+                context.DamageValues = DamageRoller.AddOrMergeDamage(context.DamageValues, new DamageValue("piercing", 2));
             }));
             provider.Effects.Add(new RecordingAttackResultEffect(AttackResultEffectPhase.BeforeDefenseAdjustments, context => events.Add("before-defense:" + context.DamageValues[0].DamageAmount)));
             provider.Effects.Add(new RecordingAttackResultEffect(AttackResultEffectPhase.AfterDamageApplied, context => events.Add("after-damage:" + context.FinalAppliedDamage)));
@@ -403,6 +404,19 @@ namespace TestsCombat
             UnityEngine.Object.DestroyImmediate(target);
             UnityEngine.Object.DestroyImmediate(logObject);
         }
+
+        [Test]
+        public void DamageMergeReturnsNewListWithoutMutatingInput()
+        {
+            List<DamageValue> original = new() { new DamageValue("piercing", 2) };
+
+            List<DamageValue> merged = DamageRoller.AddOrMergeDamage(original, new DamageValue("piercing", 3));
+
+            Assert.AreEqual(2, original[0].DamageAmount);
+            Assert.AreEqual(5, merged[0].DamageAmount);
+            Assert.AreNotSame(original, merged);
+        }
+
         [Test]
         public void AmmoAndReloadStateAreEnforced()
         {
@@ -570,6 +584,7 @@ namespace TestsCombat
                 TotalAttackModifier = 10
             };
         }
+
         private static Tile[,] BuildTiles(int width, int height)
         {
             Tile[,] tiles = new Tile[width, height];
@@ -619,6 +634,7 @@ namespace TestsCombat
                 apply?.Invoke(context);
             }
         }
+
         private class TestActionController : ActionController
         {
             public override void EndTurn() { }
