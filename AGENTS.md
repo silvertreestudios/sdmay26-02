@@ -42,6 +42,8 @@ Do not add `-quit` to Unity Test Framework command-line runs in this project. Th
 
 Write test results outside tracked Unity asset folders. Do not commit `Library/`, `Logs/`, `Temp/`, generated `.csproj` files, generated `.sln` files, coverage output, or crash/recovery artifacts.
 
+Use `.agent-temp/` at the checkout root for temporary body files, generated command payloads, screenshots awaiting upload, and other short-lived agent workflow artifacts. Create it on demand, clean up task-specific files when done, and avoid OS temp directories for repo workflow files unless explicitly requested.
+
 ## Unity MCP
 
 - This repo is configured for MCP for Unity through `Packages/manifest.json` and `.codex/config.toml`.

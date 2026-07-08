@@ -98,6 +98,49 @@ def gh_api(
     return completed.returncode
 
 
+def gh_api_json(
+    endpoint: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+) -> Any:
+    method = method.upper()
+    require_gh()
+    args = [
+        "gh",
+        "api",
+        endpoint,
+        "--method",
+        method,
+        "--header",
+        "Accept: application/vnd.github+json",
+        "--header",
+        f"X-GitHub-Api-Version: {API_VERSION}",
+    ]
+
+    stdin = None
+    if payload is not None:
+        args.extend(["--input", "-"])
+        stdin = json.dumps(payload, ensure_ascii=False)
+
+    completed = subprocess.run(args, input=stdin, text=True, capture_output=True, check=False)
+    if completed.returncode != 0:
+        if completed.stdout:
+            print(completed.stdout, end="")
+        if completed.stderr:
+            print(completed.stderr, end="", file=sys.stderr)
+        raise SystemExit(completed.returncode)
+
+    if not completed.stdout.strip():
+        return None
+
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        print(completed.stdout, end="")
+        raise SystemExit(f"GitHub API returned non-JSON output: {exc}") from exc
+
+
 def gh_command(args: list[str], *, dry_run: bool = False) -> int:
     if dry_run:
         print(json.dumps({"dry_run": True, "command": args}, indent=2, ensure_ascii=False))
