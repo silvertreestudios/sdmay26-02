@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Game.Creature;
+using Game.Strikes;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
