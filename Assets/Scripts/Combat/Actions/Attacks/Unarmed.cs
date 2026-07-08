@@ -20,6 +20,8 @@ public class Unarmed : MultiFrameEntityAction
         Strike = new Strike(damages, flatDamages);
         // Unarmed strike traits based on PF2e rules
         Strike.Traits = new List<string>() {"agile", "finesse", "nonlethal", "unarmed"};
+        Strike.ItemSlug = "unarmed";
+        Strike.WeaponCategory = "unarmed";
     }
 
     public Strike GetStrike()
