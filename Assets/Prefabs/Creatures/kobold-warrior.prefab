@@ -401,6 +401,15 @@ MonoBehaviour:
     bonus: 0
   - category: advanced
     bonus: 0
+  _weaponActionBonuses:
+  - weaponName: Spear
+    bonus: 3
+  - weaponName: Spear
+    bonus: 5
+  - weaponName: Sling
+    bonus: 5
+  - weaponName: Scamper
+    bonus: 0
   _armorBonuses:
   - category: unarmored
     bonus: 2
@@ -466,7 +475,6 @@ MonoBehaviour:
   _reactions: []
   _passives:
   - Sneak Attack
-  _conditions: []
   _equippedArmor:
     name: Leather Armor
     type: armor
@@ -498,6 +506,7 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 0
   _equippedLeftHand:
@@ -517,6 +526,7 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 0
   _equipment:
@@ -545,6 +555,7 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 50
+    reload: 1
     ammo: sling-bullets
     bulk: 0
   - name: Spear
@@ -565,8 +576,13 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: '-'
     ammo: 
     bulk: 1
+  _ammunition:
+  - ammoName: Sling Bullets
+    quantity: 20
+  _unloadedWeapons: []
   _armorList:
   - Leather Armor
   _armor:
@@ -583,6 +599,11 @@ MonoBehaviour:
     bulk: 1
     group: leather
     armorTraits: []
+  _buildClassName: 
+  _buildSubclassName: 
+  _buildClassFeatName: 
+  _buildTrainedSkills: []
+  _buildRuleSelections: []
 --- !u!114 &5049490658535004338
 MonoBehaviour:
   m_ObjectHideFlags: 0

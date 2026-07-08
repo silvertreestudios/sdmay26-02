@@ -22,6 +22,7 @@ public class Unarmed : MultiFrameEntityAction
         Strike.Traits = new List<string>() {"agile", "finesse", "nonlethal", "unarmed"};
         Strike.ItemSlug = "unarmed";
         Strike.WeaponCategory = "unarmed";
+        Strike.ReachFeet = range * 5;
     }
 
     public Strike GetStrike()

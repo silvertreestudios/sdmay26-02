@@ -70,6 +70,11 @@ MonoBehaviour:
     bonus: 4
   - category: advanced
     bonus: 0
+  _weaponActionBonuses:
+  - weaponName: Dogslicer
+    bonus: 7
+  - weaponName: Shortbow
+    bonus: 7
   _armorBonuses:
   - category: unarmored
     bonus: 2
@@ -121,7 +126,6 @@ MonoBehaviour:
   _reactions:
   - Goblin Scuttle
   _passives: []
-  _conditions: []
   _equippedArmor:
     name: Leather Armor
     type: armor
@@ -153,6 +157,7 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 0
   _equippedLeftHand:
@@ -172,6 +177,7 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 0
   _equipment:
@@ -203,6 +209,7 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 0
   - name: Shortbow
@@ -222,8 +229,13 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 60
+    reload: 0
     ammo: arrows
     bulk: 1
+  _ammunition:
+  - ammoName: Arrows
+    quantity: 10
+  _unloadedWeapons: []
   _armorList:
   - Leather Armor
   _armor:
@@ -240,6 +252,11 @@ MonoBehaviour:
     bulk: 1
     group: leather
     armorTraits: []
+  _buildClassName: 
+  _buildSubclassName: 
+  _buildClassFeatName: 
+  _buildTrainedSkills: []
+  _buildRuleSelections: []
 --- !u!114 &8362074675100557896
 MonoBehaviour:
   m_ObjectHideFlags: 0
