@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using Game.Creature;
+using Game.Creature.Rules;
 using Game.Rules;
 using System;
 using GridPublic;
@@ -43,6 +44,7 @@ public class Strike
         evaluated.To = to_go;
         evaluated.TargetingResult = targetingResult;
 
+        Pf2eRulesEngine.ApplyStrikeDamageModifiers(from_go.GetComponent<CreatureComponent>(), evaluated);
         OnStrikeEvent.Invoke(new(evaluated, from_go));
         evaluated.DamageEvaluate();
     }

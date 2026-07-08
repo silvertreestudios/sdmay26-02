@@ -2,6 +2,7 @@ using UnityEngine;
 using System.Collections.Generic;
 using UnityEngine.Events;
 using Game.Creature;
+using Game.Creature.Rules;
 
 public class CombatManager : CombatManagerInterface
 {
@@ -74,6 +75,7 @@ public class CombatManager : CombatManagerInterface
     public override void StartCombat()
     {
         RollInitiative();
+        Pf2eRulesEngine.ApplyCombatStartRules(Combatants);
         OnCombatStart.Invoke();
         //Debug.Log("Start Combat.");
 
@@ -137,6 +139,7 @@ public class CombatManager : CombatManagerInterface
         if (teams.Count < 2)
         {
             Debug.Log("Team " + teams[0] + " wins!");
+            Pf2eRulesEngine.EndEncounter(Combatants);
             OnCombatEnd.Invoke(teams[0]);// Signal end
             if (teams[0].ToLower() == "players")
             {

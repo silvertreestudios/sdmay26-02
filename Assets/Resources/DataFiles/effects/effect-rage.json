@@ -1,0 +1,68 @@
+{
+    "_id": "z3uyCMBddrPK5umr",
+    "img": "icons/skills/wounds/injury-face-impact-orange.webp",
+    "name": "Effect: Rage",
+    "system": {
+        "description": {
+            "value": "<p>Granted by @UUID[Compendium.pf2e.actionspf2e.Item.Rage]</p>\n<p>You gain a number of temporary Hit Points equal to your level plus your Constitution modifier.</p>\n<p>You deal additional damage on melee Strikes. This additional damage is halved if your weapon or unarmed attack is agile.</p>\n<p>When you stop raging, you lose any remaining temporary Hit Points from Rage, and can't gain temporary Hit Points from using the Rage action again for 1 minute.</p>"
+        },
+        "duration": {
+            "expiry": "turn-start",
+            "sustained": false,
+            "unit": "minutes",
+            "value": 1
+        },
+        "level": {
+            "value": 1
+        },
+        "publication": {
+            "license": "ORC",
+            "remaster": true,
+            "title": "Pathfinder Player Core 2"
+        },
+        "rules": [
+            {
+                "key": "ActiveEffectLike",
+                "mode": "upgrade",
+                "path": "flags.system.rageTempHP",
+                "value": 1
+            },
+            {
+                "key": "ActiveEffectLike",
+                "mode": "upgrade",
+                "path": "flags.system.rageTempHP",
+                "phase": "beforeDerived",
+                "predicate": [
+                    {
+                        "nor": [
+                            "self:type:familiar",
+                            "self:type:hazard",
+                            "self:type:vehicle"
+                        ]
+                    }
+                ],
+                "value": "@actor.level + @actor.abilities.con.mod"
+            },
+            {
+                "key": "TempHP",
+                "value": "@actor.flags.system.rageTempHP"
+            },
+            {
+                "key": "RollOption",
+                "option": "rage"
+            }
+        ],
+        "start": {
+            "initiative": null,
+            "value": 0
+        },
+        "tokenIcon": {
+            "show": true
+        },
+        "traits": {
+            "rarity": "common",
+            "value": []
+        }
+    },
+    "type": "effect"
+}
