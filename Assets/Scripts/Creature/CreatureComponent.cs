@@ -1,10 +1,11 @@
 using Game.Creature;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Game.Strikes;
+using Game.Rules;
 using GridPublic;
 using Game.Creature.Rules;
-using System;
 
 namespace Game.Creature
 {
@@ -155,6 +156,183 @@ namespace Game.Creature
             return attackBonus;
         }
 
+
+        /// <summary>
+        /// Resolves an attack roll modifier using the creature's base attack value plus providers and roll-specific modifiers.
+        /// CreatureComponent coordinates the calculation but individual rule sources should contribute through IPf2eModifierProvider.
+        /// </summary>
+        /// <param name="baseAttackOverride">Optional imported weapon/action attack total to use instead of attackBonus.</param>
+        /// <param name="additionalModifiers">One-roll modifiers from the immediate action context, such as MAP or range.</param>
+        /// <returns>The resolved attack modifier and stacking details.</returns>
+        public Pf2eModifierResolution ResolveAttackRoll(int? baseAttackOverride = null, IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            List<Pf2eModifier> modifiers = new()
+            {
+                new Pf2eModifier(baseAttackOverride ?? attackBonus, Pf2eModifierType.Untyped, baseAttackOverride.HasValue ? "Attack modifier override" : "Attack bonus", Pf2eStatistic.AttackRoll)
+            };
+            AddProvidedModifiers(modifiers, additionalModifiers, Pf2eStatistic.AttackRoll);
+            return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.AttackRoll);
+        }
+
+        /// <summary>
+        /// Resolves an attack roll for a specific weapon, preserving imported weapon action bonuses as the base attack total.
+        /// </summary>
+        /// <param name="weapon">The weapon whose imported attack bonus should be used when available.</param>
+        /// <param name="additionalModifiers">One-roll modifiers from the immediate action context.</param>
+        /// <returns>The resolved attack modifier and stacking details.</returns>
+        public Pf2eModifierResolution ResolveAttackRollForWeapon(EquipmentWeapon weapon, IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            return ResolveAttackRoll(GetAttackBonusForWeapon(weapon), additionalModifiers);
+        }
+
+        /// <summary>
+        /// Resolves Armor Class from base creature or equipped armor data plus providers and context modifiers.
+        /// Armor item bonuses are modeled as item modifiers so they stack according to PF2e rules.
+        /// </summary>
+        /// <param name="additionalModifiers">One-roll modifiers from the immediate context, such as cover.</param>
+        /// <returns>The resolved AC value and stacking details.</returns>
+        public Pf2eModifierResolution ResolveArmorClass(IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            List<Pf2eModifier> modifiers = BuildBaseArmorClassModifiers();
+            AddProvidedModifiers(modifiers, additionalModifiers, Pf2eStatistic.ArmorClass);
+            return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.ArmorClass);
+        }
+
+        /// <summary>
+        /// Resolves the creature's Fortitude save with all-save bonuses, providers, and context modifiers.
+        /// </summary>
+        /// <param name="additionalModifiers">One-roll or effect-specific modifiers for this save.</param>
+        /// <returns>The resolved Fortitude modifier and stacking details.</returns>
+        public Pf2eModifierResolution ResolveFortitudeSave(IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            return ResolveSave(fortitudeSave, "Fortitude save", Pf2eStatistic.FortitudeSave, additionalModifiers);
+        }
+
+        /// <summary>
+        /// Resolves the creature's Reflex save with all-save bonuses, providers, and context modifiers.
+        /// </summary>
+        /// <param name="additionalModifiers">One-roll or effect-specific modifiers for this save.</param>
+        /// <returns>The resolved Reflex modifier and stacking details.</returns>
+        public Pf2eModifierResolution ResolveReflexSave(IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            return ResolveSave(reflexSave, "Reflex save", Pf2eStatistic.ReflexSave, additionalModifiers);
+        }
+
+        /// <summary>
+        /// Resolves the creature's Will save with all-save bonuses, providers, and context modifiers.
+        /// </summary>
+        /// <param name="additionalModifiers">One-roll or effect-specific modifiers for this save.</param>
+        /// <returns>The resolved Will modifier and stacking details.</returns>
+        public Pf2eModifierResolution ResolveWillSave(IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            return ResolveSave(willSave, "Will save", Pf2eStatistic.WillSave, additionalModifiers);
+        }
+
+        /// <summary>
+        /// Resolves a skill check from imported skill data or its fallback ability modifier plus providers and context modifiers.
+        /// </summary>
+        /// <param name="skillName">The skill name to resolve.</param>
+        /// <param name="additionalModifiers">One-roll or effect-specific modifiers for this skill check.</param>
+        /// <returns>The resolved skill modifier and stacking details.</returns>
+        public Pf2eModifierResolution ResolveSkillCheck(string skillName, IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            List<Pf2eModifier> modifiers = new()
+            {
+                new Pf2eModifier(GetBaseSkillMod(skillName, 0), Pf2eModifierType.Untyped, string.IsNullOrWhiteSpace(skillName) ? "Skill modifier" : skillName.Trim() + " skill", Pf2eStatistic.SkillCheck)
+            };
+            AddProvidedModifiers(modifiers, additionalModifiers, Pf2eStatistic.SkillCheck);
+            return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.SkillCheck);
+        }
+
+        /// <summary>
+        /// Resolves initiative using the better of imported initiative or Perception, then applies providers and context modifiers.
+        /// </summary>
+        /// <param name="additionalModifiers">Encounter-start or effect-specific modifiers for initiative.</param>
+        /// <returns>The resolved initiative modifier and stacking details.</returns>
+        public Pf2eModifierResolution ResolveInitiative(IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            int baseInitiative = Mathf.Max(initiative, GetBaseSkillMod("perception", 0));
+            List<Pf2eModifier> modifiers = new()
+            {
+                new Pf2eModifier(baseInitiative, Pf2eModifierType.Untyped, "Initiative", Pf2eStatistic.Initiative)
+            };
+            AddProvidedModifiers(modifiers, additionalModifiers, Pf2eStatistic.Initiative);
+            return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.Initiative);
+        }
+
+        /// <summary>
+        /// Resolves a DC from its caller-supplied base value plus providers and context modifiers.
+        /// </summary>
+        /// <param name="baseDc">The unmodified DC supplied by the action, spell, or other rule source.</param>
+        /// <param name="additionalModifiers">Effect-specific modifiers for this DC.</param>
+        /// <returns>The resolved DC and stacking details.</returns>
+        public Pf2eModifierResolution ResolveDifficultyClass(int baseDc, IEnumerable<Pf2eModifier> additionalModifiers = null)
+        {
+            List<Pf2eModifier> modifiers = new()
+            {
+                new Pf2eModifier(baseDc, Pf2eModifierType.Untyped, "Base DC", Pf2eStatistic.DifficultyClass)
+            };
+            AddProvidedModifiers(modifiers, additionalModifiers, Pf2eStatistic.DifficultyClass);
+            return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.DifficultyClass);
+        }
+
+        // Fortitude, Reflex, and Will differ only by base value and target statistic.
+        private Pf2eModifierResolution ResolveSave(int baseSave, string source, Pf2eStatistic statistic, IEnumerable<Pf2eModifier> additionalModifiers)
+        {
+            List<Pf2eModifier> modifiers = new()
+            {
+                new Pf2eModifier(baseSave, Pf2eModifierType.Untyped, source, statistic),
+                new Pf2eModifier(allSaves, Pf2eModifierType.Untyped, "All saves", statistic)
+            };
+            AddProvidedModifiers(modifiers, additionalModifiers, statistic);
+            return Pf2eModifierResolver.Resolve(modifiers, statistic);
+        }
+
+        private void AddProvidedModifiers(List<Pf2eModifier> modifiers, IEnumerable<Pf2eModifier> additionalModifiers, Pf2eStatistic statistic)
+        {
+            if (additionalModifiers != null)
+                modifiers.AddRange(additionalModifiers);
+
+            foreach (MonoBehaviour component in GetComponents<MonoBehaviour>())
+            {
+                if (component is IPf2eModifierProvider provider)
+                    modifiers.AddRange(provider.GetModifiers(statistic));
+            }
+        }
+
+        private List<Pf2eModifier> BuildBaseArmorClassModifiers()
+        {
+            if (_equippedArmor != null && !string.IsNullOrWhiteSpace(_equippedArmor.name))
+            {
+                return new List<Pf2eModifier>
+                {
+                    new Pf2eModifier(10, Pf2eModifierType.Untyped, "Base AC", Pf2eStatistic.ArmorClass),
+                    new Pf2eModifier(Mathf.Min(dexMod, _equippedArmor.dexCap), Pf2eModifierType.Untyped, "Dexterity modifier", Pf2eStatistic.ArmorClass),
+                    new Pf2eModifier(GetArmorProficiencyBonus(_equippedArmor.category), Pf2eModifierType.Untyped, _equippedArmor.category + " armor proficiency", Pf2eStatistic.ArmorClass),
+                    // Armor AC bonus is an item bonus. Source: https://2e.aonprd.com/Rules.aspx?ID=2166
+                    new Pf2eModifier(_equippedArmor.acBonus, Pf2eModifierType.Item, _equippedArmor.name, Pf2eStatistic.ArmorClass)
+                };
+            }
+
+            return new List<Pf2eModifier>
+            {
+                new Pf2eModifier(ac, Pf2eModifierType.Untyped, "Armor Class", Pf2eStatistic.ArmorClass)
+            };
+        }
+
+        private int GetArmorProficiencyBonus(string category)
+        {
+            if (armorBonuses == null || string.IsNullOrWhiteSpace(category))
+                return 0;
+
+            foreach (ArmorBonus armorBonus in armorBonuses)
+            {
+                if (string.Equals(armorBonus.category, category, StringComparison.OrdinalIgnoreCase))
+                    return armorBonus.bonus;
+            }
+            return 0;
+        }
+
         public int GetAmmoQuantity(string ammoName)
         {
             string key = NormalizeEquipmentKey(ammoName);
@@ -287,10 +465,26 @@ namespace Game.Creature
             // Per-frame logic here
         }
 
-        // helper: get skill mod by name (case-insensitive). If the skill is present in the serialized
-        // skills list we return that value. Otherwise we return the associated ability modifier.
+        /// <summary>
+        /// Resolves a skill modifier by name using the shared PF2e modifier pipeline.
+        /// </summary>
+        /// <param name="skillName">The skill name to resolve.</param>
+        /// <returns>The resolved skill modifier, or 0 for blank skill names.</returns>
         public int GetSkillMod(string skillName) { return GetSkillMod(skillName, 0);}
+
+        /// <summary>
+        /// Resolves a skill modifier by name, returning a fallback value when no skill name is provided.
+        /// </summary>
+        /// <param name="skillName">The skill name to resolve.</param>
+        /// <param name="defaultValue">The value returned when the skill name is blank.</param>
+        /// <returns>The resolved skill modifier or the supplied fallback.</returns>
         public int GetSkillMod(string skillName, int defaultValue = 0)
+        {
+            if (string.IsNullOrWhiteSpace(skillName)) return defaultValue;
+            return ResolveSkillCheck(skillName).Total;
+        }
+
+        private int GetBaseSkillMod(string skillName, int defaultValue = 0)
         {
             if (string.IsNullOrWhiteSpace(skillName)) return defaultValue;
             string key = skillName.Trim();
@@ -506,8 +700,7 @@ namespace Game.Creature
 
         public int GetInitiative()
         {
-            // initiative is populated by perception by default, this should account for modifications to perception as well as initiative-specific bonuses
-            return Mathf.Max(initiative, GetSkillMod("perception", 0));
+            return ResolveInitiative().Total;
         }
 
 
@@ -570,21 +763,13 @@ namespace Game.Creature
 
         public void CalculateAC()
         {
-            // If armor is equipped
-            if (_equippedArmor != null && !string.IsNullOrWhiteSpace(_equippedArmor.name))
+            if (_equippedArmor == null || string.IsNullOrWhiteSpace(_equippedArmor.name))
             {
-                // Add Dex modifier up to the armor's dex cap
-                _ac = 10 + _equippedArmor.acBonus + Mathf.Min(dexMod, _equippedArmor.dexCap);
-                int armorBonus = armorBonuses.Find(b => b.category == _equippedArmor.category).bonus; // Add armor bonuses based on equipped armor group
-                _ac += armorBonus;
-                // Debug.Log($"Calculated "+ name +" AC with armor: 10 + " + _equippedArmor.acBonus +" (armor bonus) + min(" + dexMod +" (dex mod) + " + _equippedArmor.dexCap +" (dex cap)) + " + armorBonus +" (armor proficiency bonus for " + _equippedArmor.category + " armor) = " + _ac);
-                // Debug.Log($" _equippedArmor.group: {_equippedArmor.category}, armorBonuses: {string.Join(", ", armorBonuses.ConvertAll(b => $"{b.category}: {b.bonus}"))}");
-            }else{
-                // Unarmored AC calculation
-                // TODO: modify to include natural armor or other bonuses
-                _ac = 10 + dexMod + armorBonuses.Find(b => b.category == "unarmored").bonus; 
-                //_ac += armorBonuses.Find(b => b.category == "unarmored").bonus; // Add unarmored bonus if applicable
+                _ac = 10 + dexMod + GetArmorProficiencyBonus("unarmored");
+                return;
             }
+
+            _ac = Pf2eModifierResolver.Resolve(BuildBaseArmorClassModifiers(), Pf2eStatistic.ArmorClass).Total;
         }
     }
 }

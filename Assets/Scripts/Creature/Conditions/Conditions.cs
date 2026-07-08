@@ -1,12 +1,18 @@
 using System.Collections.Generic;
+using Game.Rules;
 using UnityEngine;
 
 /// <summary>
-/// Stores active conditions by source so rules can query condition names without coupling to condition UI or effects.
+/// Tracks condition sources and exposes condition names to both rules snapshots and PF2e modifier providers.
 /// </summary>
-public class Conditions : MonoBehaviour, IConditionTarget
+public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
 {
     protected Dictionary<string, List<ConditionSource>> AppliedConditions = new();
+
+    /// <summary>
+    /// Active condition names used by UI and condition modifier mapping; source details remain internal to this component.
+    /// </summary>
+    public IReadOnlyCollection<string> ActiveConditionNames => AppliedConditions.Keys;
 
     /// <summary>
     /// Adds a condition from a specific source, preserving multiple sources for the same condition.
@@ -15,6 +21,9 @@ public class Conditions : MonoBehaviour, IConditionTarget
     /// <param name="source">The source responsible for applying the condition.</param>
     public void Add(string condition, ConditionSource source)
     {
+        if (string.IsNullOrWhiteSpace(condition))
+            return;
+
         List<ConditionSource> sources;
         if(!AppliedConditions.TryGetValue(condition, out sources))
             AppliedConditions.Add(condition, new List<ConditionSource>() { source });
@@ -80,5 +89,61 @@ public class Conditions : MonoBehaviour, IConditionTarget
     {
         Remove(oldCondition, oldSource);
         Add(newCondition, newSource);
+    }
+
+    /// <summary>
+    /// Provides rule-derived modifiers from active conditions without requiring CreatureComponent to know condition details.
+    /// </summary>
+    /// <param name="statistic">The statistic currently being resolved.</param>
+    /// <returns>Condition modifiers for the requested statistic.</returns>
+    public IEnumerable<Pf2eModifier> GetModifiers(Pf2eStatistic statistic)
+    {
+        return ConditionModifierRules.GetModifiers(ActiveConditionNames, statistic);
+    }
+}
+
+/// <summary>
+/// Maps active condition names to PF2e modifiers while keeping condition-specific math outside CreatureComponent.
+/// Add new condition modifiers here only when the condition itself directly changes a supported statistic.
+/// </summary>
+public static class ConditionModifierRules
+{
+    private static readonly Dictionary<string, Pf2eModifier[]> ModifiersByCondition = new()
+    {
+        // Off-Guard/Flat-Footed: circumstance penalty to AC. Source: https://2e.aonprd.com/Conditions.aspx?ID=58
+        { NormalizeConditionKey("off-guard"), new[] { new Pf2eModifier(-2, Pf2eModifierType.Circumstance, "Off-Guard", Pf2eStatistic.ArmorClass) } },
+        { NormalizeConditionKey("flat-footed"), new[] { new Pf2eModifier(-2, Pf2eModifierType.Circumstance, "Off-Guard", Pf2eStatistic.ArmorClass) } }
+    };
+
+    /// <summary>
+    /// Converts active condition names into de-duplicated modifiers for the requested statistic.
+    /// </summary>
+    /// <param name="activeConditions">Condition names currently applied to a creature.</param>
+    /// <param name="statistic">The statistic currently being resolved.</param>
+    /// <returns>Condition modifiers that apply to the requested statistic.</returns>
+    public static IEnumerable<Pf2eModifier> GetModifiers(IEnumerable<string> activeConditions, Pf2eStatistic statistic)
+    {
+        if (activeConditions == null)
+            yield break;
+
+        HashSet<string> emittedSources = new();
+        foreach (string activeCondition in activeConditions)
+        {
+            if (!ModifiersByCondition.TryGetValue(NormalizeConditionKey(activeCondition), out Pf2eModifier[] modifiers))
+                continue;
+
+            foreach (Pf2eModifier modifier in modifiers)
+            {
+                if (modifier.TargetStatistic != statistic || !emittedSources.Add(modifier.Source + modifier.TargetStatistic))
+                    continue;
+
+                yield return modifier;
+            }
+        }
+    }
+
+    private static string NormalizeConditionKey(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToLowerInvariant().Replace(" ", string.Empty).Replace("-", string.Empty);
     }
 }

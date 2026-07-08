@@ -228,6 +228,8 @@ namespace TestsCombat
             Assert.IsNotNull(attackLog);
             StringAssert.Contains("AC: 102 (100 + 2 cover)", attackLog);
             StringAssert.Contains("+ 7 - 5 -2", attackLog);
+            StringAssert.Contains("Attack Modifiers: total 0", attackLog);
+            StringAssert.Contains("AC Modifiers: total 102", attackLog);
 
             UnityEngine.Object.DestroyImmediate(attacker);
             UnityEngine.Object.DestroyImmediate(target);
