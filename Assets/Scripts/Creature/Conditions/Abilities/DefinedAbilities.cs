@@ -39,12 +39,21 @@ public static class DefinedAbilities
 
     private static Ability Slow = new("Slow", (GameObject g) =>
     {
+        ActionController actionController = g.GetComponent<ActionController>();
+        if (actionController == null)
+            return;
+
+        Conditions conditions = g.GetComponent<Conditions>() ?? g.AddComponent<Conditions>();
+        if (conditions.Contains("Slowed", Slow))
+            return;
+
         Condition slow;
         if ((slow = DefinedConditions.TryGet("Slowed 1")) != null)
         {
             slow.Apply(Slow, g);
         }
-        g.GetComponent<ActionController>().GetReactionsEvent.AddListener(
+
+        actionController.GetReactionsEvent.AddListener(
             (List<EntityAction> reactions) => reactions.Clear()
         );
     });
