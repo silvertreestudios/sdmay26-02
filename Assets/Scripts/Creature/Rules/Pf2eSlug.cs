@@ -17,7 +17,7 @@ namespace Game.Creature.Rules
             if (string.IsNullOrWhiteSpace(value))
                 return string.Empty;
 
-            string lower = value.Trim().ToLowerInvariant();
+            string lower = value.Trim().ToLowerInvariant().Replace("'", string.Empty);
             char[] chars = lower.Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray();
             string slug = new string(chars);
             while (slug.Contains("--"))

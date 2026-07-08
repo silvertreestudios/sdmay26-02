@@ -4,6 +4,7 @@ using System.Collections;
 using UnityEngine;
 using GridPublic;
 using GridPrivate;
+using Game.Creature.Rules;
 
 namespace Game.Strikes
 {
@@ -162,6 +163,9 @@ public class StrikeWeapon : MultiFrameEntityAction
         Strike = new Strike(damageList, flatDamageList);
         Strike.Traits = Weapon.traits ?? new List<string>();
         Strike.SourceInfo = AttackSourceInfo.FromWeapon(Weapon);
+        Strike.ItemSlug = Pf2eSlug.FromName(Weapon.name);
+        Strike.WeaponCategory = Weapon.category;
+        Strike.IsRangedAttack = IsRangedWeapon();
         Strike.AttackModifierOverride = cc.GetAttackBonusForWeapon(weapon);
     }
 

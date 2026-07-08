@@ -30,6 +30,10 @@ public class Pf2eRulesTests
         Assert.That(catalog.Resolve("Compendium.pf2e.actionspf2e.Item.Rage")?.Slug, Is.EqualTo("rage"));
         Assert.That(catalog.Resolve("Compendium.pf2e.feat-effects.Item.Effect: Rage")?.Slug, Is.EqualTo("effect-rage"));
         Assert.That(catalog.Resolve("Raging Intimidation")?.Slug, Is.EqualTo("raging-intimidation"));
+        Assert.That(catalog.Resolve("Compendium.pf2e.classes.Item.Rogue")?.Slug, Is.EqualTo("rogue"));
+        Assert.That(catalog.Resolve("Compendium.pf2e.classfeatures.Item.Sneak Attack")?.Slug, Is.EqualTo("sneak-attack"));
+        Assert.That(catalog.Resolve("Compendium.pf2e.classfeatures.Item.Thief")?.Slug, Is.EqualTo("thief"));
+        Assert.That(catalog.Resolve("Nimble Dodge")?.Slug, Is.EqualTo("nimble-dodge"));
     }
 
     [Test]
@@ -183,6 +187,111 @@ public class Pf2eRulesTests
         Assert.That(duringRage, Does.Contain("rage"));
     }
 
+    [Test]
+    public void LenaPreparesRogueFeaturesFromBuildData()
+    {
+        GameObject lena = CreatureJsonConverter.CreateFromFile("DataFiles/playerCharacters/Lena");
+        created.Add(lena);
+        CreatureComponent creature = lena.GetComponent<CreatureComponent>();
+
+        Assert.That(creature.Build.ClassName, Is.EqualTo("Rogue"));
+        Assert.That(creature.Build.SubclassName, Is.EqualTo("Thief"));
+        Assert.That(creature.Prepared.HasOwnedItem("rogue"), Is.True);
+        Assert.That(creature.Prepared.HasOwnedItem("rogues-racket"), Is.True);
+        Assert.That(creature.Prepared.HasOwnedItem("sneak-attack"), Is.True);
+        Assert.That(creature.Prepared.HasOwnedItem("surprise-attack"), Is.True);
+        Assert.That(creature.Prepared.HasOwnedItem("thief"), Is.True);
+        Assert.That(creature.Prepared.HasOwnedItem("nimble-dodge"), Is.True);
+        Assert.That(creature.Prepared.SkillRanks["stealth"], Is.EqualTo(1));
+        Assert.That(creature.Prepared.SkillRanks["thievery"], Is.EqualTo(1));
+        Assert.That(creature.weaponBonuses.First(b => b.category == "martial").bonus, Is.EqualTo(2));
+        Assert.That(creature.armorBonuses.First(b => b.category == "light").bonus, Is.EqualTo(2));
+    }
+
+    [Test]
+    public void RogueToggleableRollOptionsAreNotAlwaysActive()
+    {
+        CreatureComponent creature = CreatePreparedRogue();
+
+        Assert.That(creature.Prepared.RollOptions, Does.Not.Contain("target:condition:off-guard"));
+        Assert.That(creature.Prepared.RollOptions, Does.Not.Contain("nimble-dodge"));
+    }
+
+    [Test]
+    public void ThiefUsesDexterityForFinesseMeleeDamage()
+    {
+        CreatureComponent creature = CreatePreparedRogue();
+
+        Strike finesseStrike = new(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue> { new DamageValue("slashing", creature.strMod) })
+        {
+            Traits = new List<string> { "agile", "finesse" },
+            ItemSlug = "dogslicer",
+            WeaponCategory = "martial"
+        };
+        Pf2eRulesEngine.ApplyStrikeDamageModifiers(creature, finesseStrike);
+        Assert.That(finesseStrike.FlatDamages[0].DamageAmount, Is.EqualTo(creature.dexMod));
+
+        Strike nonFinesseStrike = new(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue> { new DamageValue("slashing", creature.strMod) })
+        {
+            Traits = new List<string> { "forceful" },
+            ItemSlug = "scimitar",
+            WeaponCategory = "martial"
+        };
+        Pf2eRulesEngine.ApplyStrikeDamageModifiers(creature, nonFinesseStrike);
+        Assert.That(nonFinesseStrike.FlatDamages[0].DamageAmount, Is.EqualTo(creature.strMod));
+    }
+
+    [Test]
+    public void SneakAttackAddsPrecisionDamageOnlyAgainstOffGuardTargets()
+    {
+        CreatureComponent rogue = CreatePreparedRogue();
+        CreatureComponent target = CreateTarget("Target");
+
+        Strike normalTarget = CreateDogslicerStrike(rogue);
+        Pf2eRulesEngine.ApplyStrikeDamageModifiers(rogue, normalTarget, target);
+        Assert.That(normalTarget.Damages.Count, Is.EqualTo(1));
+
+        target.GetComponent<Conditions>().Add("Off-Guard", new ConditionSource());
+        Strike offGuardTarget = CreateDogslicerStrike(rogue);
+        Pf2eRulesEngine.ApplyStrikeDamageModifiers(rogue, offGuardTarget, target);
+        Assert.That(offGuardTarget.Damages.Count, Is.EqualTo(2));
+        Assert.That(offGuardTarget.Damages.Last().numberOfDice, Is.EqualTo(1));
+        Assert.That(offGuardTarget.Damages.Last().sidesPerDie, Is.EqualTo(6));
+        Assert.That(offGuardTarget.Damages.Last().damageType, Is.EqualTo("precision"));
+
+        Strike ineligibleWeapon = new(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue> { new DamageValue("slashing", rogue.strMod) })
+        {
+            Traits = new List<string> { "forceful" },
+            ItemSlug = "scimitar",
+            WeaponCategory = "martial"
+        };
+        Pf2eRulesEngine.ApplyStrikeDamageModifiers(rogue, ineligibleWeapon, target);
+        Assert.That(ineligibleWeapon.Damages.Count, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void SneakAttackSupportsRangedWeaponsAndFlatFootedAlias()
+    {
+        CreatureComponent rogue = CreatePreparedRogue();
+        CreatureComponent target = CreateTarget("Flat-Footed Target");
+        target.GetComponent<Conditions>().Add("Flat-Footed", new ConditionSource());
+
+        Strike shortbowStrike = new(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>())
+        {
+            Traits = new List<string> { "deadly-d10" },
+            ItemSlug = "shortbow",
+            WeaponCategory = "martial",
+            IsRangedAttack = true
+        };
+
+        Pf2eRulesEngine.ApplyStrikeDamageModifiers(rogue, shortbowStrike, target);
+
+        Assert.That(shortbowStrike.Damages.Count, Is.EqualTo(2));
+        Assert.That(shortbowStrike.Damages.Last().numberOfDice, Is.EqualTo(1));
+        Assert.That(shortbowStrike.Damages.Last().sidesPerDie, Is.EqualTo(6));
+        Assert.That(shortbowStrike.Damages.Last().damageType, Is.EqualTo("precision"));
+    }
+
     private CreatureComponent CreatePreparedBarbarian()
     {
         GameObject go = new("Prepared Barbarian");
@@ -201,6 +310,47 @@ public class Pf2eRulesTests
         return creature;
     }
 
+    private CreatureComponent CreatePreparedRogue()
+    {
+        GameObject go = new("Prepared Rogue");
+        created.Add(go);
+        CreatureComponent creature = go.AddComponent<CreatureComponent>();
+        go.AddComponent<Conditions>();
+        creature.level = 1;
+        creature.strMod = 1;
+        creature.dexMod = 4;
+        creature.Build = new CharacterBuild
+        {
+            ClassName = "Rogue",
+            SubclassName = "Thief",
+            ClassFeatName = "Nimble Dodge"
+        };
+        creature.Build.TrainedSkills.Add("stealth");
+        creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
+        return creature;
+    }
+
+    private CreatureComponent CreateTarget(string name)
+    {
+        GameObject go = new(name);
+        created.Add(go);
+        CreatureComponent creature = go.AddComponent<CreatureComponent>();
+        go.AddComponent<Conditions>();
+        creature.ac = 15;
+        creature.hp = 10;
+        creature.maxHp = 10;
+        return creature;
+    }
+
+    private static Strike CreateDogslicerStrike(CreatureComponent rogue)
+    {
+        return new Strike(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue> { new DamageValue("slashing", rogue.strMod) })
+        {
+            Traits = new List<string> { "agile", "finesse" },
+            ItemSlug = "dogslicer",
+            WeaponCategory = "martial"
+        };
+    }
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn()

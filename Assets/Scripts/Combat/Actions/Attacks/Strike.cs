@@ -13,6 +13,9 @@ public class Strike
     public List<string> Traits = new List<string>();
     public AttackSourceInfo SourceInfo { get; set; }
     public int? AttackModifierOverride { get; set; }
+    public string ItemSlug { get; set; }
+    public string WeaponCategory { get; set; }
+    public bool IsRangedAttack { get; set; }
     public GameObject From = null;
     public GameObject To = null;
     private StrikeTargetResult TargetingResult = null;
@@ -32,6 +35,9 @@ public class Strike
         this.Traits = new List<string>(strike.Traits);
         this.SourceInfo = strike.SourceInfo == null ? null : new AttackSourceInfo(strike.SourceInfo);
         this.AttackModifierOverride = strike.AttackModifierOverride;
+        this.ItemSlug = strike.ItemSlug;
+        this.WeaponCategory = strike.WeaponCategory;
+        this.IsRangedAttack = strike.IsRangedAttack;
     }
 
     public void Damage(GameObject from_go, GameObject to_go)
@@ -46,7 +52,7 @@ public class Strike
         evaluated.To = to_go;
         evaluated.TargetingResult = targetingResult;
 
-        Pf2eRulesEngine.ApplyStrikeDamageModifiers(from_go.GetComponent<CreatureComponent>(), evaluated);
+        Pf2eRulesEngine.ApplyStrikeDamageModifiers(from_go.GetComponent<CreatureComponent>(), evaluated, to_go.GetComponent<CreatureComponent>());
         OnStrikeEvent.Invoke(new(evaluated, from_go));
         evaluated.DamageEvaluate();
     }
