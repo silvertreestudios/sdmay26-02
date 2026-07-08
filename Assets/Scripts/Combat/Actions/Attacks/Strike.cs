@@ -80,20 +80,8 @@ public class Strike
 
         D20Result attackRoll = D20.Roll(totalModifier, targetAc);
 
-        string log = "Attack:\n  AC: " + targetAc;
-        if (coverBonus != 0)
-            log += " (" + baseAcResolution.Total + " + " + coverBonus + " cover)";
-        log += "\n  Attack Roll: " + attackRoll.total
-            + " (" + attackRoll.roll + " + " + attackBonus + " - " + mapPenalty;
-        if (rangePenalty != 0)
-            log += " " + rangePenalty;
-        log += ")\n  Result: " + attackRoll.degree;
-        log += "\n  Attack Modifiers: " + FormatResolution(attackResolution);
-        log += "\n  AC Modifiers: " + FormatResolution(targetAcResolution);
-
         if (attackRoll.degree == DegreeOfSuccess.Success || attackRoll.degree == DegreeOfSuccess.CriticalSuccess)
         {
-            CombatLog.GetInstance().Log(log);
             AttackResultContext context = new AttackResultContext
             {
                 AttackerObject = From,
@@ -118,13 +106,89 @@ public class Strike
                 CoverAcBonus = coverBonus
             };
             AttackResultPipeline.ProcessHit(context);
+            CombatLog.GetInstance().LogEntry(BuildAttackLogEntry(attackRoll, targetAc, baseAcResolution.Total, attackResolution, targetAcResolution, mapPenalty, rangePenalty, coverBonus, context));
         }
         else
         {
             OnAttackMiss.Invoke(From);
-            log += "\nAttack Missed!";
-            CombatLog.GetInstance().Log(log);
+            CombatLog.GetInstance().LogEntry(BuildAttackLogEntry(attackRoll, targetAc, baseAcResolution.Total, attackResolution, targetAcResolution, mapPenalty, rangePenalty, coverBonus, null));
         }
+    }
+
+    private CombatLogEntry BuildAttackLogEntry(
+        D20Result attackRoll,
+        int targetAc,
+        int baseAc,
+        Pf2eModifierResolution attackResolution,
+        Pf2eModifierResolution targetAcResolution,
+        int mapPenalty,
+        int rangePenalty,
+        int coverBonus,
+        AttackResultContext context)
+    {
+        CombatLogEntry entry = new CombatLogEntry
+        {
+            Kind = CombatLogEntryKind.Attack,
+            Outcome = ToCombatLogOutcome(attackRoll.degree),
+            Actor = From != null ? From.name : string.Empty,
+            Target = To != null ? To.name : string.Empty,
+            Action = GetActionLabel(),
+            Roll = new CombatLogRoll
+            {
+                NaturalRoll = attackRoll.roll,
+                TotalModifier = attackResolution.Total,
+                Total = attackRoll.total,
+                DifficultyClass = targetAc
+            },
+            Damage = context?.DamageResolution?.Damage
+        };
+
+        entry.Tags.Add("attack");
+        entry.Details.Add(new CombatLogDetail("D20 Roll", attackRoll.total + " (" + attackRoll.roll + " + " + attackResolution.Total + ")"));
+        entry.Details.Add(new CombatLogDetail("Target AC", FormatArmorClass(targetAc, baseAc, coverBonus)));
+        entry.Details.Add(new CombatLogDetail("Attack Modifiers", FormatResolution(attackResolution)));
+        entry.Details.Add(new CombatLogDetail("AC Modifiers", FormatResolution(targetAcResolution)));
+        entry.Details.Add(new CombatLogDetail("MAP", mapPenalty == 0 ? "none" : "-" + mapPenalty));
+        entry.Details.Add(new CombatLogDetail("Range Penalty", rangePenalty == 0 ? "none" : rangePenalty.ToString()));
+        entry.Details.Add(new CombatLogDetail("Cover", coverBonus == 0 ? "none" : "+" + coverBonus + " AC"));
+        entry.Details.Add(new CombatLogDetail("Result", attackRoll.degree.ToString()));
+
+        if (context != null)
+        {
+            foreach (CombatLogDetail detail in context.DamageResolution.Details)
+                entry.Details.Add(detail);
+            foreach (CombatLogDetail detail in context.LogDetails)
+                entry.Details.Add(detail);
+        }
+
+        return entry;
+    }
+
+    private string GetActionLabel()
+    {
+        if (!string.IsNullOrWhiteSpace(SourceInfo?.Name))
+            return SourceInfo.Name;
+        if (!string.IsNullOrWhiteSpace(ItemSlug))
+            return ItemSlug == "unarmed" ? "Unarmed Strike" : ItemSlug;
+        return "Strike";
+    }
+
+    private static string FormatArmorClass(int targetAc, int baseAc, int coverBonus)
+    {
+        if (coverBonus == 0)
+            return targetAc.ToString();
+        return targetAc + " (" + baseAc + " + " + coverBonus + " cover)";
+    }
+
+    private static CombatLogOutcome ToCombatLogOutcome(DegreeOfSuccess degree)
+    {
+        return degree switch
+        {
+            DegreeOfSuccess.CriticalSuccess => CombatLogOutcome.CriticalSuccess,
+            DegreeOfSuccess.Success => CombatLogOutcome.Success,
+            DegreeOfSuccess.CriticalFail => CombatLogOutcome.CriticalFailure,
+            _ => CombatLogOutcome.Failure
+        };
     }
 
     private static List<Dice> CloneDamageDice(List<Dice> diceList)
