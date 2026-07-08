@@ -72,5 +72,10 @@ public abstract class CombatLogInterface : SingletonMonoBehaviour<CombatLogInter
     /// <param name="tags"></param>
     public abstract void Log(string msg, List<string> tags);
 
+    public virtual void LogEntry(CombatLogEntry entry)
+    {
+        Log(CombatLogEntryFormatter.ToPlainText(entry));
+    }
+
     public abstract List<string> GetMessages();
 }

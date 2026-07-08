@@ -37,14 +37,14 @@ namespace TestsCombat
             AttackResultPipeline.ProcessHit(normal);
 
             Assert.AreEqual(1u, normal.FinalAppliedDamage);
-            Assert.IsFalse(log.Messages.Any(message => message.Contains("deadly-d10 critical damage")));
+            Assert.IsFalse(normal.LogDetails.Any(detail => detail.Value.Contains("deadly-d10 critical damage")));
 
             AttackResultContext critical = BuildPipelineContext(attacker, target, DegreeOfSuccess.CriticalSuccess, new List<string> { "deadly-d10" });
             AttackResultPipeline.ProcessHit(critical);
 
             Assert.Greater(critical.FinalAppliedDamage, 2u);
             Assert.LessOrEqual(critical.FinalAppliedDamage, 12u);
-            Assert.IsTrue(log.Messages.Any(message => message.Contains("deadly-d10 critical damage")));
+            Assert.IsTrue(critical.LogDetails.Any(detail => detail.Value.Contains("deadly-d10 critical damage")));
 
             UnityEngine.Random.state = randomState;
             UnityEngine.Object.DestroyImmediate(attacker);
@@ -78,8 +78,8 @@ namespace TestsCombat
             Assert.AreEqual(12, critical.DamageDice[0].sidesPerDie);
             Assert.GreaterOrEqual(critical.FinalAppliedDamage, 3u);
             Assert.LessOrEqual(critical.FinalAppliedDamage, 36u);
-            Assert.IsTrue(log.Messages.Any(message => message.Contains("fatal-d12 upgrades critical damage dice")));
-            Assert.IsTrue(log.Messages.Any(message => message.Contains("fatal-d12 critical damage")));
+            Assert.IsTrue(critical.LogDetails.Any(detail => detail.Value.Contains("fatal-d12 upgrades critical damage dice")));
+            Assert.IsTrue(critical.LogDetails.Any(detail => detail.Value.Contains("fatal-d12 critical damage")));
 
             UnityEngine.Random.state = randomState;
             UnityEngine.Object.DestroyImmediate(attacker);

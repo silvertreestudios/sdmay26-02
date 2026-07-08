@@ -195,7 +195,6 @@ public class StrikeWeapon : MultiFrameEntityAction
                 yield break;
             }
 
-            CombatLog.GetInstance().Log("- " + attacker.name + " strikes " + target.Value.Target.name + " with " + weaponName + ".");
             Strike.Damage(attacker, target.Value.Target, target.Value);
             cc?.MarkWeaponFired(Weapon);
             if (ac)

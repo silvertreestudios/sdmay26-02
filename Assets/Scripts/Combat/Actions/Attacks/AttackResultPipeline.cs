@@ -107,6 +107,8 @@ public class AttackResultContext
     public List<Dice> DamageDice { get; set; } = new();
     public List<DamageValue> FlatDamages { get; set; } = new();
     public List<DamageValue> DamageValues { get; set; } = new();
+    public DamageRollResolution DamageResolution { get; set; }
+    public List<CombatLogDetail> LogDetails { get; } = new();
     public StrikeTargetResult TargetingResult { get; set; }
     public int BaseArmorClass { get; set; }
     public int TargetArmorClass { get; set; }
@@ -165,12 +167,16 @@ public static class AttackResultPipeline
         if (context.DamageDice.Count > 0)
             OnDamageDealt.Invoke(context.DamageDice[0].damageType);
 
-        context.DamageValues = DamageRoller.RollDamage(context.DamageDice, context.FlatDamages);
-        DamageRoller.EvaluateCriticalDamage(context.Degree, context.DamageValues);
+        context.DamageResolution = DamageRoller.StartDamageResolution(context.DamageDice, context.FlatDamages);
+        context.DamageValues = context.DamageResolution.DamageValues;
+        DamageRoller.ApplyCriticalDamage(context.DamageResolution, context.Degree);
         ApplyPhase(effects, AttackResultEffectPhase.AfterCriticalDoubling, context);
         ApplyPhase(effects, AttackResultEffectPhase.BeforeDefenseAdjustments, context);
-        DamageRoller.ApplyWeaknessAndResistance(context.DamageValues, context.TargetCreature.weaknesses, context.TargetCreature.resistances);
-        int totalDamage = DamageRoller.SumDamage(context.DamageValues);
+        context.DamageResolution.DamageValues = context.DamageValues;
+        DamageRoller.ApplyWeaknessAndResistance(context.DamageResolution, context.TargetCreature.weaknesses, context.TargetCreature.resistances);
+        DamageRoller.FinalizeDamageResolution(context.DamageResolution);
+        context.DamageValues = context.DamageResolution.DamageValues;
+        int totalDamage = context.DamageResolution.TotalDamage;
         context.FinalAppliedDamage = (uint)Mathf.Max(0, totalDamage);
         context.TargetCreature.TakeDamage(context.FinalAppliedDamage);
         ApplyPhase(effects, AttackResultEffectPhase.AfterDamageApplied, context);
@@ -300,7 +306,9 @@ internal sealed class DeadlyAttackResultEffect : IAttackResultEffect
         string damageType = context.DamageDice[0].damageType;
         DamageValue extraDamage = new DamageValue(damageType, UnityEngine.Random.Range(1, sides + 1));
         context.DamageValues = DamageRoller.AddOrMergeDamage(context.DamageValues, extraDamage);
-        CombatLog.GetInstance().Log("  +" + extraDamage.DamageAmount + " " + trait + " critical damage!");
+        if (context.DamageResolution != null)
+            context.DamageResolution.DamageValues = context.DamageValues;
+        context.LogDetails.Add(new CombatLogDetail("Critical Trait", "+" + extraDamage.DamageAmount + " " + trait + " critical damage"));
     }
 }
 
@@ -327,7 +335,7 @@ internal sealed class FatalDamageDieUpgradeEffect : IAttackResultEffect
             return;
 
         context.DamageDice[0] = new Dice(primary.numberOfDice, sides, primary.damageType);
-        CombatLog.GetInstance().Log("  " + trait + " upgrades critical damage dice to d" + sides + ".");
+        context.LogDetails.Add(new CombatLogDetail("Critical Trait", trait + " upgrades critical damage dice to d" + sides));
     }
 }
 
