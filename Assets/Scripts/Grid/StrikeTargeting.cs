@@ -122,7 +122,7 @@ namespace GridPrivate
                 for (int z = start.z - maxCells; z <= start.z + maxCells; z++)
                 {
                     Vector3Int cell = new(x, start.y, z);
-                    if (!IsInBounds(tiles, cell) || cell == start)
+                    if (!GridTargeting.IsInBounds(tiles, cell) || cell == start)
                         continue;
 
                     if (IsWithinStrikeRange(start, cell, request))
@@ -143,7 +143,7 @@ namespace GridPrivate
             if (!IsWithinStrikeRange(start, targetCell, request))
                 return null;
 
-            int clearRays = BlocksDiagonalCorner(tiles, start, targetCell) ? 0 : CountClearRays(tiles, start, targetCell);
+            int clearRays = GridTargeting.BlocksDiagonalCorner(tiles, start, targetCell) ? 0 : CountClearRays(tiles, start, targetCell);
             GridPublic.StrikeLineOfEffect lineOfEffect = clearRays > 0
                 ? GridPublic.StrikeLineOfEffect.Clear
                 : GridPublic.StrikeLineOfEffect.Blocked;
