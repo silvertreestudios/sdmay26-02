@@ -154,6 +154,13 @@ namespace Game.Creature
         }
 
 
+        /// <summary>
+        /// Resolves an attack roll modifier using the creature's base attack value plus providers and roll-specific modifiers.
+        /// CreatureComponent coordinates the calculation but individual rule sources should contribute through IPf2eModifierProvider.
+        /// </summary>
+        /// <param name="baseAttackOverride">Optional imported weapon/action attack total to use instead of attackBonus.</param>
+        /// <param name="additionalModifiers">One-roll modifiers from the immediate action context, such as MAP or range.</param>
+        /// <returns>The resolved attack modifier and stacking details.</returns>
         public Pf2eModifierResolution ResolveAttackRoll(int? baseAttackOverride = null, IEnumerable<Pf2eModifier> additionalModifiers = null)
         {
             List<Pf2eModifier> modifiers = new()
@@ -164,11 +171,23 @@ namespace Game.Creature
             return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.AttackRoll);
         }
 
+        /// <summary>
+        /// Resolves an attack roll for a specific weapon, preserving imported weapon action bonuses as the base attack total.
+        /// </summary>
+        /// <param name="weapon">The weapon whose imported attack bonus should be used when available.</param>
+        /// <param name="additionalModifiers">One-roll modifiers from the immediate action context.</param>
+        /// <returns>The resolved attack modifier and stacking details.</returns>
         public Pf2eModifierResolution ResolveAttackRollForWeapon(EquipmentWeapon weapon, IEnumerable<Pf2eModifier> additionalModifiers = null)
         {
             return ResolveAttackRoll(GetAttackBonusForWeapon(weapon), additionalModifiers);
         }
 
+        /// <summary>
+        /// Resolves Armor Class from base creature or equipped armor data plus providers and context modifiers.
+        /// Armor item bonuses are modeled as item modifiers so they stack according to PF2e rules.
+        /// </summary>
+        /// <param name="additionalModifiers">One-roll modifiers from the immediate context, such as cover.</param>
+        /// <returns>The resolved AC value and stacking details.</returns>
         public Pf2eModifierResolution ResolveArmorClass(IEnumerable<Pf2eModifier> additionalModifiers = null)
         {
             List<Pf2eModifier> modifiers = BuildBaseArmorClassModifiers();
@@ -176,21 +195,42 @@ namespace Game.Creature
             return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.ArmorClass);
         }
 
+        /// <summary>
+        /// Resolves the creature's Fortitude save with all-save bonuses, providers, and context modifiers.
+        /// </summary>
+        /// <param name="additionalModifiers">One-roll or effect-specific modifiers for this save.</param>
+        /// <returns>The resolved Fortitude modifier and stacking details.</returns>
         public Pf2eModifierResolution ResolveFortitudeSave(IEnumerable<Pf2eModifier> additionalModifiers = null)
         {
             return ResolveSave(fortitudeSave, "Fortitude save", Pf2eStatistic.FortitudeSave, additionalModifiers);
         }
 
+        /// <summary>
+        /// Resolves the creature's Reflex save with all-save bonuses, providers, and context modifiers.
+        /// </summary>
+        /// <param name="additionalModifiers">One-roll or effect-specific modifiers for this save.</param>
+        /// <returns>The resolved Reflex modifier and stacking details.</returns>
         public Pf2eModifierResolution ResolveReflexSave(IEnumerable<Pf2eModifier> additionalModifiers = null)
         {
             return ResolveSave(reflexSave, "Reflex save", Pf2eStatistic.ReflexSave, additionalModifiers);
         }
 
+        /// <summary>
+        /// Resolves the creature's Will save with all-save bonuses, providers, and context modifiers.
+        /// </summary>
+        /// <param name="additionalModifiers">One-roll or effect-specific modifiers for this save.</param>
+        /// <returns>The resolved Will modifier and stacking details.</returns>
         public Pf2eModifierResolution ResolveWillSave(IEnumerable<Pf2eModifier> additionalModifiers = null)
         {
             return ResolveSave(willSave, "Will save", Pf2eStatistic.WillSave, additionalModifiers);
         }
 
+        /// <summary>
+        /// Resolves a skill check from imported skill data or its fallback ability modifier plus providers and context modifiers.
+        /// </summary>
+        /// <param name="skillName">The skill name to resolve.</param>
+        /// <param name="additionalModifiers">One-roll or effect-specific modifiers for this skill check.</param>
+        /// <returns>The resolved skill modifier and stacking details.</returns>
         public Pf2eModifierResolution ResolveSkillCheck(string skillName, IEnumerable<Pf2eModifier> additionalModifiers = null)
         {
             List<Pf2eModifier> modifiers = new()
@@ -201,6 +241,11 @@ namespace Game.Creature
             return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.SkillCheck);
         }
 
+        /// <summary>
+        /// Resolves initiative using the better of imported initiative or Perception, then applies providers and context modifiers.
+        /// </summary>
+        /// <param name="additionalModifiers">Encounter-start or effect-specific modifiers for initiative.</param>
+        /// <returns>The resolved initiative modifier and stacking details.</returns>
         public Pf2eModifierResolution ResolveInitiative(IEnumerable<Pf2eModifier> additionalModifiers = null)
         {
             int baseInitiative = Mathf.Max(initiative, GetBaseSkillMod("perception", 0));
@@ -212,6 +257,12 @@ namespace Game.Creature
             return Pf2eModifierResolver.Resolve(modifiers, Pf2eStatistic.Initiative);
         }
 
+        /// <summary>
+        /// Resolves a DC from its caller-supplied base value plus providers and context modifiers.
+        /// </summary>
+        /// <param name="baseDc">The unmodified DC supplied by the action, spell, or other rule source.</param>
+        /// <param name="additionalModifiers">Effect-specific modifiers for this DC.</param>
+        /// <returns>The resolved DC and stacking details.</returns>
         public Pf2eModifierResolution ResolveDifficultyClass(int baseDc, IEnumerable<Pf2eModifier> additionalModifiers = null)
         {
             List<Pf2eModifier> modifiers = new()
@@ -414,9 +465,19 @@ namespace Game.Creature
             // Per-frame logic here
         }
 
-        // helper: get skill mod by name (case-insensitive). If the skill is present in the serialized
-        // skills list we return that value. Otherwise we return the associated ability modifier.
+        /// <summary>
+        /// Resolves a skill modifier by name using the shared PF2e modifier pipeline.
+        /// </summary>
+        /// <param name="skillName">The skill name to resolve.</param>
+        /// <returns>The resolved skill modifier, or 0 for blank skill names.</returns>
         public int GetSkillMod(string skillName) { return GetSkillMod(skillName, 0);}
+
+        /// <summary>
+        /// Resolves a skill modifier by name, returning a fallback value when no skill name is provided.
+        /// </summary>
+        /// <param name="skillName">The skill name to resolve.</param>
+        /// <param name="defaultValue">The value returned when the skill name is blank.</param>
+        /// <returns>The resolved skill modifier or the supplied fallback.</returns>
         public int GetSkillMod(string skillName, int defaultValue = 0)
         {
             if (string.IsNullOrWhiteSpace(skillName)) return defaultValue;

@@ -3,12 +3,15 @@ using Game.Rules;
 using UnityEngine;
 
 /// <summary>
-/// A container for all the conditions that are applied to a target
+/// Tracks condition sources on a creature and exposes condition-derived PF2e modifiers as a provider.
 /// </summary>
 public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
 {
     protected Dictionary<string, List<ConditionSource>> AppliedConditions = new();
 
+    /// <summary>
+    /// Active condition names used by UI and condition modifier mapping; source details remain internal to this component.
+    /// </summary>
     public IReadOnlyCollection<string> ActiveConditionNames => AppliedConditions.Keys;
 
     public void Add(string condition, ConditionSource source)
@@ -51,12 +54,21 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
         Add(newCondition, newSource);
     }
 
+    /// <summary>
+    /// Provides rule-derived modifiers from active conditions without requiring CreatureComponent to know condition details.
+    /// </summary>
+    /// <param name="statistic">The statistic currently being resolved.</param>
+    /// <returns>Condition modifiers for the requested statistic.</returns>
     public IEnumerable<Pf2eModifier> GetModifiers(Pf2eStatistic statistic)
     {
         return ConditionModifierRules.GetModifiers(ActiveConditionNames, statistic);
     }
 }
 
+/// <summary>
+/// Maps active condition names to PF2e modifiers while keeping condition-specific math outside CreatureComponent.
+/// Add new condition modifiers here only when the condition itself directly changes a supported statistic.
+/// </summary>
 public static class ConditionModifierRules
 {
     private static readonly Dictionary<string, Pf2eModifier[]> ModifiersByCondition = new()
@@ -66,6 +78,12 @@ public static class ConditionModifierRules
         { NormalizeConditionKey("flat-footed"), new[] { new Pf2eModifier(-2, Pf2eModifierType.Circumstance, "Off-Guard", Pf2eStatistic.ArmorClass) } }
     };
 
+    /// <summary>
+    /// Converts active condition names into de-duplicated modifiers for the requested statistic.
+    /// </summary>
+    /// <param name="activeConditions">Condition names currently applied to a creature.</param>
+    /// <param name="statistic">The statistic currently being resolved.</param>
+    /// <returns>Condition modifiers that apply to the requested statistic.</returns>
     public static IEnumerable<Pf2eModifier> GetModifiers(IEnumerable<string> activeConditions, Pf2eStatistic statistic)
     {
         if (activeConditions == null)

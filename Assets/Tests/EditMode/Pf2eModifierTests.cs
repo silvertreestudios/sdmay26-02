@@ -7,8 +7,14 @@ using UnityEngine;
 
 namespace TestsCombat
 {
+    /// <summary>
+    /// Verifies the shared PF2e modifier resolver and CreatureComponent integration points.
+    /// </summary>
     public class Pf2eModifierTests
     {
+        /// <summary>
+        /// Confirms PF2e typed bonuses and penalties each keep only the strongest same-type value.
+        /// </summary>
         [Test]
         public void SameTypeBonusesAndPenaltiesDoNotStack()
         {
@@ -26,6 +32,9 @@ namespace TestsCombat
             AssertSuppressed(result, "Lesser cover", "Minor opening");
         }
 
+        /// <summary>
+        /// Confirms different modifier types stack with untyped bonuses and penalties.
+        /// </summary>
         [Test]
         public void DifferentTypedAndUntypedModifiersStack()
         {
@@ -44,6 +53,9 @@ namespace TestsCombat
             Assert.AreEqual(0, result.SuppressedModifiers.Count);
         }
 
+        /// <summary>
+        /// Confirms resolving one statistic ignores modifiers targeting a different statistic.
+        /// </summary>
         [Test]
         public void ResolverFiltersByTargetStatistic()
         {
@@ -58,6 +70,9 @@ namespace TestsCombat
             Assert.IsFalse(result.AppliedModifiers.Any(modifier => modifier.Source == "Attack"));
         }
 
+        /// <summary>
+        /// Confirms cover and off-guard can both affect AC because PF2e tracks bonuses and penalties separately.
+        /// </summary>
         [Test]
         public void CoverAndOffGuardBothApplyAsCircumstanceAcModifiers()
         {
@@ -78,6 +93,9 @@ namespace TestsCombat
             UnityEngine.Object.DestroyImmediate(target);
         }
 
+        /// <summary>
+        /// Confirms a stronger circumstance AC bonus suppresses a weaker bonus from another provider.
+        /// </summary>
         [Test]
         public void LowerCircumstanceAcBonusIsSuppressedByCover()
         {
@@ -99,6 +117,9 @@ namespace TestsCombat
             UnityEngine.Object.DestroyImmediate(target);
         }
 
+        /// <summary>
+        /// Confirms equipped armor contributes an item AC bonus and suppresses weaker item AC bonuses.
+        /// </summary>
         [Test]
         public void EquippedArmorItemBonusSuppressesLowerItemAcBonus()
         {
@@ -120,6 +141,9 @@ namespace TestsCombat
             UnityEngine.Object.DestroyImmediate(target);
         }
 
+        /// <summary>
+        /// Confirms shared resolver entry points cover saves, skills, initiative, and DCs.
+        /// </summary>
         [Test]
         public void SaveSkillInitiativeAndDcHelpersUseSharedResolver()
         {
@@ -153,6 +177,9 @@ namespace TestsCombat
             UnityEngine.Object.DestroyImmediate(actor);
         }
 
+        /// <summary>
+        /// Confirms imported weapon action bonuses remain the untyped base total before roll-specific penalties apply.
+        /// </summary>
         [Test]
         public void ImportedWeaponActionBonusRemainsUntypedBaseAttackTotal()
         {

@@ -4,6 +4,9 @@ using System.Linq;
 
 namespace Game.Rules
 {
+    /// <summary>
+    /// PF2e modifier categories that determine whether bonuses and penalties stack.
+    /// </summary>
     public enum Pf2eModifierType
     {
         Untyped,
@@ -12,6 +15,9 @@ namespace Game.Rules
         Status
     }
 
+    /// <summary>
+    /// Roll and DC targets currently supported by the shared PF2e modifier resolver.
+    /// </summary>
     public enum Pf2eStatistic
     {
         AttackRoll,
@@ -24,13 +30,36 @@ namespace Game.Rules
         DifficultyClass
     }
 
+    /// <summary>
+    /// A single PF2e modifier emitted by a rule source, item, condition, or roll context.
+    /// Keep source-specific behavior in providers and pass only normalized modifiers to the resolver.
+    /// </summary>
     public readonly struct Pf2eModifier
     {
+        /// <summary>
+        /// Signed numeric value applied when this modifier is not suppressed.
+        /// </summary>
         public int Value { get; }
+        /// <summary>
+        /// PF2e stacking category for this modifier.
+        /// </summary>
         public Pf2eModifierType Type { get; }
+        /// <summary>
+        /// Short source label used in logs, tests, and modifier audits.
+        /// </summary>
         public string Source { get; }
+        /// <summary>
+        /// Statistic this modifier is allowed to affect.
+        /// </summary>
         public Pf2eStatistic TargetStatistic { get; }
 
+        /// <summary>
+        /// Creates a modifier for one target statistic, preserving a readable source name for logs and audits.
+        /// </summary>
+        /// <param name="value">The signed modifier value.</param>
+        /// <param name="type">The PF2e stacking category for this modifier.</param>
+        /// <param name="source">A short source label used for diagnostics and combat logs.</param>
+        /// <param name="targetStatistic">The statistic this modifier can affect.</param>
         public Pf2eModifier(int value, Pf2eModifierType type, string source, Pf2eStatistic targetStatistic)
         {
             Value = value;
@@ -40,12 +69,30 @@ namespace Game.Rules
         }
     }
 
+    /// <summary>
+    /// Result of resolving a statistic's modifiers, including which typed modifiers were suppressed by PF2e stacking.
+    /// </summary>
     public readonly struct Pf2eModifierResolution
     {
+        /// <summary>
+        /// Final total after typed stacking rules are applied.
+        /// </summary>
         public int Total { get; }
+        /// <summary>
+        /// Modifiers that contributed to the final total.
+        /// </summary>
         public IReadOnlyList<Pf2eModifier> AppliedModifiers { get; }
+        /// <summary>
+        /// Modifiers ignored because another same-type bonus or penalty was stronger.
+        /// </summary>
         public IReadOnlyList<Pf2eModifier> SuppressedModifiers { get; }
 
+        /// <summary>
+        /// Creates a resolved modifier result with immutable applied and suppressed modifier lists.
+        /// </summary>
+        /// <param name="total">The final modifier total after stacking rules are applied.</param>
+        /// <param name="appliedModifiers">Modifiers that contributed to the total.</param>
+        /// <param name="suppressedModifiers">Modifiers ignored because another modifier of the same type was stronger.</param>
         public Pf2eModifierResolution(int total, IReadOnlyList<Pf2eModifier> appliedModifiers, IReadOnlyList<Pf2eModifier> suppressedModifiers)
         {
             Total = total;
@@ -54,6 +101,9 @@ namespace Game.Rules
         }
     }
 
+    /// <summary>
+    /// Applies PF2e typed modifier stacking to already-collected modifiers for a single statistic.
+    /// </summary>
     public static class Pf2eModifierResolver
     {
         /// <summary>
@@ -61,6 +111,9 @@ namespace Game.Rules
         /// circumstance modifiers apply only the best bonus and worst penalty of each type.
         /// Source: https://2e.aonprd.com/Rules.aspx?ID=2278
         /// </summary>
+        /// <param name="modifiers">Candidate modifiers from creature providers and the immediate roll context.</param>
+        /// <param name="statistic">The statistic being resolved; modifiers for other statistics are ignored.</param>
+        /// <returns>The resolved total with applied and suppressed modifier details.</returns>
         public static Pf2eModifierResolution Resolve(IEnumerable<Pf2eModifier> modifiers, Pf2eStatistic statistic)
         {
             List<Pf2eModifier> relevant = modifiers?
