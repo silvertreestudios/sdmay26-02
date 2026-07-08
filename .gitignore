@@ -131,4 +131,6 @@ InitTestScene*.unity*
 
 # Stray editor command files
 wqWQ
-
+# Python cache files
+__pycache__/
+*.py[cod]

@@ -23,6 +23,7 @@ public class Unarmed : MultiFrameEntityAction
         Strike.ItemSlug = "unarmed";
         Strike.WeaponCategory = "unarmed";
         Strike.SourceInfo = new AttackSourceInfo("Unarmed Strike", "unarmed", "unarmed", Strike.Traits);
+        Strike.ReachFeet = range * 5;
     }
 
     public Strike GetStrike()
@@ -44,7 +45,8 @@ public class Unarmed : MultiFrameEntityAction
             
         // null target value equates to canceled action
         if(target.Value != null && target.Value.Target != null)
-        {            Debug.Log(attacker + " Striking " + target.Value.Target);
+        {
+            Debug.Log(attacker + " Striking " + target.Value.Target);
             Strike.Damage(attacker, target.Value.Target, target.Value);
             if (ac)
             {

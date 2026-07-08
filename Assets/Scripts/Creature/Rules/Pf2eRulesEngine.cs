@@ -1,4 +1,5 @@
 using Game.AbilityActions;
+using Game.Combat.Rules;
 using Game.Creature;
 using System;
 using System.Collections.Generic;
@@ -56,9 +57,26 @@ namespace Game.Creature.Rules
                 if (creature == null)
                     continue;
 
+                ApplyImportedPassiveAbilities(controller, creature);
+
                 PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
                 if (prepared.HasOwnedItem("quick-tempered"))
                     new Rage(0).UseRage(controller.gameObject);
+            }
+        }
+
+        private static void ApplyImportedPassiveAbilities(ActionController controller, CreatureComponent creature)
+        {
+            if (controller == null || creature?.passives == null)
+                return;
+
+            foreach (string passive in creature.passives)
+            {
+                if (string.IsNullOrWhiteSpace(passive))
+                    continue;
+
+                Ability ability = DefinedAbilities.TryGet(passive);
+                ability?.Apply(controller.gameObject);
             }
         }
 
@@ -159,6 +177,7 @@ namespace Game.Creature.Rules
             List<string> options = BuildItemOptions(strike?.ItemSlug, strike?.WeaponCategory, strike?.IsRangedAttack ?? false, strike?.Traits, strike?.Damages.FirstOrDefault());
             AddAlteredItemTags(prepared, options);
             AddTargetConditionOptions(target, options);
+            AddFlankingTargetConditionOption(strike, options);
             return options;
         }
 
@@ -207,6 +226,12 @@ namespace Game.Creature.Rules
                 if (!options.Contains(option, StringComparer.OrdinalIgnoreCase))
                     options.Add(option);
             }
+        }
+
+        private static void AddFlankingTargetConditionOption(Strike strike, List<string> options)
+        {
+            if (FlankingRule.GrantsOffGuardToMeleeAttack(strike?.From, strike?.To, strike))
+                AddOption(options, "target:condition:off-guard");
         }
 
         private static void AddTargetConditionOptions(CreatureComponent target, List<string> options)

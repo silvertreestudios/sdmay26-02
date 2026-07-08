@@ -20,6 +20,8 @@ namespace Game.Creature
 
     [System.Serializable] public struct AmmoCount { public string ammoName; public int quantity; }
 
+    [System.Serializable] public struct RuleSelectionValue { public string flag; public string selection; }
+
 
     /// <summary>
     /// Unity creature component that owns mutable gameplay state and exposes narrow state snapshots for PF2e rules.
@@ -91,6 +93,14 @@ namespace Game.Creature
         [SerializeField] private List<string> _unloadedWeapons = new List<string>();
         [SerializeField] private List<string> _armorList = new List<string>(); // Temp to display armor in inspector
         [SerializeField] private List<EquipmentArmor> _armor = new List<EquipmentArmor>(); // Temp to display armor in inspector
+
+        [Header("PF2e Build")]
+        [SerializeField] private string _buildClassName;
+        [SerializeField] private string _buildSubclassName;
+        [SerializeField] private string _buildClassFeatName;
+        [SerializeField] private List<string> _buildTrainedSkills = new List<string>();
+        [SerializeField] private List<RuleSelectionValue> _buildRuleSelections = new List<RuleSelectionValue>();
+        private CharacterBuild _build;
 
         // Public properties for interface
         public new string name { get => _name; set { _name = value; base.name = value; } }
@@ -431,7 +441,24 @@ namespace Game.Creature
         public string size { get; set; }
         public List<string> languages { get; set; } = new List<string>();
         public List<string> senses { get; set; } = new List<string>();
-        public CharacterBuild Build { get; set; }
+        public CharacterBuild Build
+        {
+            get
+            {
+                if (_build != null)
+                    return _build;
+                if (!HasSerializedBuild())
+                    return null;
+
+                _build = CreateBuildFromSerializedFields();
+                return _build;
+            }
+            set
+            {
+                _build = value;
+                StoreBuildInSerializedFields(value);
+            }
+        }
         public PreparedCharacter Prepared { get; set; }
 
         // expose serialized backing fields via properties used by code
@@ -770,6 +797,62 @@ namespace Game.Creature
             }
 
             _ac = Pf2eModifierResolver.Resolve(BuildBaseArmorClassModifiers(), Pf2eStatistic.ArmorClass).Total;
+        }
+        private bool HasSerializedBuild()
+        {
+            return !string.IsNullOrWhiteSpace(_buildClassName)
+                || !string.IsNullOrWhiteSpace(_buildSubclassName)
+                || !string.IsNullOrWhiteSpace(_buildClassFeatName)
+                || (_buildTrainedSkills != null && _buildTrainedSkills.Count > 0)
+                || (_buildRuleSelections != null && _buildRuleSelections.Count > 0);
+        }
+
+        private CharacterBuild CreateBuildFromSerializedFields()
+        {
+            CharacterBuild build = new CharacterBuild
+            {
+                ClassName = _buildClassName,
+                SubclassName = _buildSubclassName,
+                ClassFeatName = _buildClassFeatName
+            };
+
+            foreach (string skill in _buildTrainedSkills ?? new List<string>())
+            {
+                if (!string.IsNullOrWhiteSpace(skill))
+                    build.TrainedSkills.Add(skill);
+            }
+
+            foreach (RuleSelectionValue selection in _buildRuleSelections ?? new List<RuleSelectionValue>())
+            {
+                if (!string.IsNullOrWhiteSpace(selection.flag) && !string.IsNullOrWhiteSpace(selection.selection))
+                    build.RuleSelections[selection.flag] = selection.selection;
+            }
+
+            return build;
+        }
+
+        private void StoreBuildInSerializedFields(CharacterBuild build)
+        {
+            _buildClassName = build?.ClassName;
+            _buildSubclassName = build?.SubclassName;
+            _buildClassFeatName = build?.ClassFeatName;
+            _buildTrainedSkills = new List<string>();
+            _buildRuleSelections = new List<RuleSelectionValue>();
+
+            if (build == null)
+                return;
+
+            foreach (string skill in build.TrainedSkills)
+            {
+                if (!string.IsNullOrWhiteSpace(skill))
+                    _buildTrainedSkills.Add(skill);
+            }
+
+            foreach (KeyValuePair<string, string> selection in build.RuleSelections)
+            {
+                if (!string.IsNullOrWhiteSpace(selection.Key) && !string.IsNullOrWhiteSpace(selection.Value))
+                    _buildRuleSelections.Add(new RuleSelectionValue { flag = selection.Key, selection = selection.Value });
+            }
         }
     }
 }

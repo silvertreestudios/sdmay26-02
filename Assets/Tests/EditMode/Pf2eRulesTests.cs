@@ -54,6 +54,36 @@ public class Pf2eRulesTests
     }
 
     [Test]
+    public void ZombiePassiveSlowAppliesAtCombatStart()
+    {
+        GameObject zombie = CreatureJsonConverter.CreateFromFile("DataFiles/pathfinder-monster-core/zombie-shambler");
+        created.Add(zombie);
+        TestActionController actionController = zombie.AddComponent<TestActionController>();
+
+        Assert.That(zombie.GetComponent<CreatureComponent>().passives, Does.Contain("Slow"));
+
+        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
+
+        Assert.That(zombie.GetComponent<Conditions>().Contains("Slowed"), Is.True);
+        actionController.StartTurn();
+        Assert.That(actionController.ActionPoints, Is.EqualTo(2));
+    }
+
+    [Test]
+    public void ZombiePassiveSlowDoesNotStackWhenCombatStartRulesRunAgain()
+    {
+        GameObject zombie = CreatureJsonConverter.CreateFromFile("DataFiles/pathfinder-monster-core/zombie-shambler");
+        created.Add(zombie);
+        TestActionController actionController = zombie.AddComponent<TestActionController>();
+
+        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
+        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
+
+        actionController.StartTurn();
+        Assert.That(actionController.ActionPoints, Is.EqualTo(2));
+    }
+
+    [Test]
     public void PredicateSupportsAtomicCompoundAndNumericChecks()
     {
         PreparedCharacter prepared = new(new CharacterBuild());
