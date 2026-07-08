@@ -15,9 +15,11 @@ namespace Game.Creature.Rules
         public HashSet<string> RollOptions { get; } = new(StringComparer.OrdinalIgnoreCase);
         public List<RuleModifier> Modifiers { get; } = new();
         public List<RuleAdjustment> Adjustments { get; } = new();
+        public List<RuleDamageDice> DamageDice { get; } = new();
         public List<ItemAlterationRule> ItemAlterations { get; } = new();
         public List<ActivePf2eEffect> ActiveEffects { get; } = new();
         public Dictionary<string, int> SkillRanks { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, int> RuleValues { get; } = new(StringComparer.OrdinalIgnoreCase);
         public List<string> UnsupportedRuleKeys { get; } = new();
 
         /// <summary>
@@ -174,6 +176,8 @@ namespace Game.Creature.Rules
         public string Selector;
         public string Slug;
         public int Value;
+        public string Type;
+        public string Ability;
         public JToken Predicate;
     }
 
@@ -187,6 +191,17 @@ namespace Game.Creature.Rules
         public string Mode;
         public float Value;
         public int Priority;
+        public JToken Predicate;
+    }
+    /// <summary>
+    /// Represents a supported DamageDice rule element after item preparation.
+    /// </summary>
+    public sealed class RuleDamageDice
+    {
+        public string Selector;
+        public string Category;
+        public int DiceNumber;
+        public int DieSize;
         public JToken Predicate;
     }
 

@@ -14,6 +14,7 @@ namespace Game.Creature.Rules
         public string SubclassName;
         public string ClassFeatName;
         public readonly Dictionary<string, string> RuleSelections = new(StringComparer.OrdinalIgnoreCase);
+        public readonly List<string> TrainedSkills = new();
 
         /// <summary>
         /// Reads the current creature JSON shape into build choices without requiring Foundry-derived data to be rewritten.
@@ -35,6 +36,26 @@ namespace Game.Creature.Rules
                     build.ClassName = firstPlayerBlock.Value<string>("className");
                     build.SubclassName = firstPlayerBlock.Value<string>("subclass");
                     build.ClassFeatName = firstPlayerBlock.Value<string>("classFeat");
+
+                    if (firstPlayerBlock["ruleSelections"] is JObject selections)
+                    {
+                        foreach (JProperty selection in selections.Properties())
+                        {
+                            string value = selection.Value?.Value<string>();
+                            if (!string.IsNullOrWhiteSpace(value))
+                                build.RuleSelections[selection.Name] = value;
+                        }
+                    }
+
+                    if (firstPlayerBlock["trainedSkills"] is JArray trainedSkills)
+                    {
+                        foreach (JToken skill in trainedSkills)
+                        {
+                            string value = skill.Value<string>();
+                            if (!string.IsNullOrWhiteSpace(value))
+                                build.TrainedSkills.Add(value);
+                        }
+                    }
                 }
             }
             catch (Exception ex)

@@ -10,6 +10,46 @@
     {
       "localPath": "Assets/Resources/DataFiles/effects/effect-rage-temporary-hit-points-immunity.json",
       "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/feat-effects/effect-rage-temporary-hit-points-immunity.json"
+    },
+    {
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/classes/rogue.json",
+      "localPath": "Assets/Resources/DataFiles/classes/rogue.json"
+    },
+    {
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/class-features/rogues-racket.json",
+      "localPath": "Assets/Resources/DataFiles/classfeatures/rogues-racket.json"
+    },
+    {
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/class-features/sneak-attack.json",
+      "localPath": "Assets/Resources/DataFiles/classfeatures/sneak-attack.json"
+    },
+    {
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/class-features/surprise-attack.json",
+      "localPath": "Assets/Resources/DataFiles/classfeatures/surprise-attack.json"
+    },
+    {
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/class-features/thief.json",
+      "localPath": "Assets/Resources/DataFiles/classfeatures/thief.json"
+    },
+    {
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/feats/class/rogue/level-1/nimble-dodge.json",
+      "localPath": "Assets/Resources/DataFiles/feats/class/rogue/nimble-dodge.json"
+    },
+    {
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/feats/class/rogue/level-1/overextending-feint.json",
+      "localPath": "Assets/Resources/DataFiles/feats/class/rogue/overextending-feint.json"
+    },
+    {
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/feats/class/rogue/level-1/plant-evidence.json",
+      "localPath": "Assets/Resources/DataFiles/feats/class/rogue/plant-evidence.json"
+    },
+    {
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/feats/class/rogue/level-1/tumble-behind-rogue.json",
+      "localPath": "Assets/Resources/DataFiles/feats/class/rogue/tumble-behind-rogue.json"
+    },
+    {
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/feats/class/rogue/level-1/twin-feint.json",
+      "localPath": "Assets/Resources/DataFiles/feats/class/rogue/twin-feint.json"
     }
   ]
 }

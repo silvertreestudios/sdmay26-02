@@ -62,6 +62,45 @@ public class Pf2eBarbarianSmokeTests
         Assert.That(torgrimCreature.tempHp, Is.EqualTo(torgrimCreature.level + torgrimCreature.conMod));
     }
 
+    [UnityTest]
+    public IEnumerator LenaRoguePreparedCharacterSurvivesCombatStart()
+    {
+        GameObject teamRulesGo = Create("TeamRules");
+        teamRulesGo.AddComponent<TeamRules>();
+        GameObject logGo = Create("TestCombatLog");
+        logGo.AddComponent<TestCombatLog>();
+        GameObject managerGo = Create("CombatManager");
+        CombatManager manager = managerGo.AddComponent<CombatManager>();
+
+        GameObject lena = CreatureJsonConverter.CreateFromFile("DataFiles/playerCharacters/Lena");
+        created.Add(lena);
+        lena.AddComponent<Conditions>();
+        lena.AddComponent<TestActionController>();
+        Team lenaTeam = lena.AddComponent<Team>();
+        lenaTeam.Name = "Players";
+
+        GameObject enemy = Create("Enemy");
+        CreatureComponent enemyCreature = enemy.AddComponent<CreatureComponent>();
+        enemyCreature.name = "Enemy";
+        enemyCreature.level = 1;
+        enemyCreature.hp = 10;
+        enemyCreature.maxHp = 10;
+        enemy.AddComponent<Conditions>();
+        enemy.AddComponent<TestActionController>();
+        Team enemyTeam = enemy.AddComponent<Team>();
+        enemyTeam.Name = "Enemies";
+
+        manager.AddCombatant(lena.GetComponent<ActionController>());
+        manager.AddCombatant(enemy.GetComponent<ActionController>());
+        manager.StartCombat();
+        yield return null;
+
+        CreatureComponent lenaCreature = lena.GetComponent<CreatureComponent>();
+        Assert.That(lenaCreature.Prepared.HasOwnedItem("rogue"), Is.True);
+        Assert.That(lenaCreature.Prepared.HasOwnedItem("sneak-attack"), Is.True);
+        Assert.That(lenaCreature.Prepared.HasOwnedItem("thief"), Is.True);
+        Assert.That(lenaCreature.Prepared.HasActiveEffect("rage"), Is.False);
+    }
     private GameObject Create(string name)
     {
         GameObject go = new(name);
