@@ -132,6 +132,65 @@ namespace TestsUI
             }
         }
 
+        [UnityTest]
+        public IEnumerator CombatTrackerShowsReducedActionsForSlowedCreature()
+        {
+            VisualElement cardHolder = null;
+            yield return WaitUntilWithTimeout(timeout, () =>
+            {
+                cardHolder = root.Q<VisualElement>("CardHolder");
+                player = CombatManagerInterface.GetInstance().WhosTurn();
+                return cardHolder != null && cardHolder.childCount > 0 && player != null;
+            });
+            Assert.IsNotNull(cardHolder, "CardHolder not found in UI.");
+            Assert.IsNotNull(player, "Current player was not ready.");
+
+            ActionController actionController = player.GetComponent<ActionController>();
+            Assert.IsNotNull(actionController, "Current combatant has no ActionController.");
+
+            List<GameObject> combatants = CombatManagerInterface.GetInstance().GetCombatants();
+            foreach (GameObject combatant in combatants)
+            {
+                ActionController combatantActionController = combatant.GetComponent<ActionController>();
+                if (combatantActionController != null)
+                    combatantActionController.ActionPoints = 0;
+            }
+
+            Conditions conditions = player.GetComponent<Conditions>() ?? player.AddComponent<Conditions>();
+            Condition slowed = DefinedConditions.TryGet("Slowed 1");
+            Assert.IsNotNull(slowed, "Slowed 1 condition definition was not found.");
+
+            slowed.Apply(new ConditionSource(), player);
+            actionController.StartTurn();
+
+            int matchingCards = 0;
+            yield return WaitUntilWithTimeout(timeout, () =>
+            {
+                matchingCards = CountCardsWithMedallionState(cardHolder, 2, 1);
+                return matchingCards == 1;
+            });
+
+            Assert.IsTrue(conditions.Contains("Slowed"), "Combatant should have the Slowed condition.");
+            Assert.AreEqual(2u, actionController.ActionPoints, "Slowed 1 should leave the combatant with two actions at turn start.");
+            Assert.AreEqual(1, matchingCards, "Combat tracker should show exactly one card with two available actions for Slowed 1.");
+        }
+
+        private int CountCardsWithMedallionState(VisualElement cardHolder, int expectedFilled, int expectedEmpty)
+        {
+            int matchingCards = 0;
+            for (int i = 0; i < cardHolder.childCount; i++)
+            {
+                List<VisualElement> medallions = cardHolder.ElementAt(i).Query<VisualElement>(className: "action-medallion").ToList();
+                if (medallions.Count == 3
+                    && CountMedallionsWithClass(medallions, "action-medallion--filled") == expectedFilled
+                    && CountMedallionsWithClass(medallions, "action-medallion--empty") == expectedEmpty)
+                {
+                    matchingCards++;
+                }
+            }
+            return matchingCards;
+        }
+
         private int CountMedallionsWithClass(List<VisualElement> medallions, string className)
         {
             int count = 0;
