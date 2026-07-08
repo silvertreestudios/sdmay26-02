@@ -242,6 +242,13 @@ MonoBehaviour:
     bonus: 0
   - category: advanced
     bonus: 0
+  _weaponActionBonuses:
+  - weaponName: Fist
+    bonus: 7
+  - weaponName: Jaws
+    bonus: 7
+  - weaponName: Grab
+    bonus: 0
   _armorBonuses:
   - category: unarmored
     bonus: 0
@@ -315,6 +322,7 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 0
   _equippedLeftHand:
@@ -334,13 +342,21 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 0
   _equipment: []
   _weaponsList: []
   _weapons: []
+  _ammunition: []
+  _unloadedWeapons: []
   _armorList: []
   _armor: []
+  _buildClassName: 
+  _buildSubclassName: 
+  _buildClassFeatName: 
+  _buildTrainedSkills: []
+  _buildRuleSelections: []
 --- !u!114 &7837854870448240000
 MonoBehaviour:
   m_ObjectHideFlags: 0

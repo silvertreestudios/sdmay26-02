@@ -165,6 +165,7 @@ public class StrikeWeapon : MultiFrameEntityAction
         Strike.ItemSlug = Pf2eSlug.FromName(Weapon.name);
         Strike.WeaponCategory = Weapon.category;
         Strike.IsRangedAttack = IsRangedWeapon();
+        Strike.ReachFeet = GetTargetRequest().ReachFeet;
         Strike.AttackModifierOverride = cc.GetAttackBonusForWeapon(weapon);
     }
 

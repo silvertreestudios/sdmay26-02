@@ -401,6 +401,7 @@ MonoBehaviour:
     bonus: 2
   - category: advanced
     bonus: 0
+  _weaponActionBonuses: []
   _armorBonuses:
   - category: unarmored
     bonus: 2
@@ -431,7 +432,6 @@ MonoBehaviour:
   _passives:
   - Quick-Tempered
   - Fury-Instinct
-  _conditions: []
   _equippedArmor:
     name: Scale Mail
     type: armor
@@ -463,6 +463,7 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 0
   _equippedLeftHand:
@@ -482,6 +483,7 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 0
   _equipment:
@@ -507,8 +509,11 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 2
+  _ammunition: []
+  _unloadedWeapons: []
   _armorList:
   - Scale Mail
   _armor:
@@ -525,6 +530,11 @@ MonoBehaviour:
     bulk: 2
     group: composite
     armorTraits: []
+  _buildClassName: Barbarian
+  _buildSubclassName: Fury Instinct
+  _buildClassFeatName: Raging Intimidation
+  _buildTrainedSkills: []
+  _buildRuleSelections: []
 --- !u!114 &1052189595565174629
 MonoBehaviour:
   m_ObjectHideFlags: 0

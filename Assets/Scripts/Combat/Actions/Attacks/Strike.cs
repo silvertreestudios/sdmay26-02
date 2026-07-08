@@ -15,6 +15,7 @@ public class Strike
     public string ItemSlug { get; set; }
     public string WeaponCategory { get; set; }
     public bool IsRangedAttack { get; set; }
+    public int ReachFeet { get; set; } = 5;
     public GameObject From = null;
     public GameObject To = null;
     private StrikeTargetResult TargetingResult = null;
@@ -36,6 +37,7 @@ public class Strike
         this.ItemSlug = strike.ItemSlug;
         this.WeaponCategory = strike.WeaponCategory;
         this.IsRangedAttack = strike.IsRangedAttack;
+        this.ReachFeet = strike.ReachFeet;
     }
 
     public void Damage(GameObject from_go, GameObject to_go)
@@ -63,11 +65,12 @@ public class Strike
         int mapPenalty = CalculateMultipleAttackPenalty(strikePenaltyCount);
         int rangePenalty = TargetingResult?.RangePenalty ?? 0;
         int coverBonus = TargetingResult?.CoverAcBonus ?? 0;
+        bool flankedOffGuard = FlankingRules.GrantsOffGuardToMeleeAttack(From, To, this);
 
         int attackBonus = AttackModifierOverride ?? from.attackBonus;
         Pf2eModifierResolution attackResolution = from.ResolveAttackRoll(AttackModifierOverride, BuildStrikeAttackModifiers(mapPenalty, rangePenalty));
         Pf2eModifierResolution baseAcResolution = to.ResolveArmorClass();
-        Pf2eModifierResolution targetAcResolution = to.ResolveArmorClass(BuildStrikeAcModifiers(coverBonus));
+        Pf2eModifierResolution targetAcResolution = to.ResolveArmorClass(BuildStrikeAcModifiers(coverBonus, flankedOffGuard));
         int targetAc = targetAcResolution.Total;
         int totalModifier = attackResolution.Total;
 
@@ -113,11 +116,14 @@ public class Strike
             yield return new Pf2eModifier(rangePenalty, Pf2eModifierType.Untyped, "Range penalty", Pf2eStatistic.AttackRoll);
     }
 
-    private static IEnumerable<Pf2eModifier> BuildStrikeAcModifiers(int coverBonus)
+    private static IEnumerable<Pf2eModifier> BuildStrikeAcModifiers(int coverBonus, bool flankedOffGuard)
     {
         if (coverBonus != 0)
             // Cover source: https://2e.aonprd.com/Rules.aspx?ID=2372
             yield return new Pf2eModifier(coverBonus, Pf2eModifierType.Circumstance, "Cover", Pf2eStatistic.ArmorClass);
+        if (flankedOffGuard)
+            // Flanking source: https://2e.aonprd.com/Rules.aspx?ID=2375
+            yield return new Pf2eModifier(-2, Pf2eModifierType.Circumstance, "Off-Guard", Pf2eStatistic.ArmorClass);
     }
 
     private static string FormatResolution(Pf2eModifierResolution resolution)

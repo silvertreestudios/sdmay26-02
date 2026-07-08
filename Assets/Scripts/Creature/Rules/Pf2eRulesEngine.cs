@@ -159,6 +159,7 @@ namespace Game.Creature.Rules
             List<string> options = BuildItemOptions(strike?.ItemSlug, strike?.WeaponCategory, strike?.IsRangedAttack ?? false, strike?.Traits, strike?.Damages.FirstOrDefault());
             AddAlteredItemTags(prepared, options);
             AddTargetConditionOptions(target, options);
+            AddFlankingTargetConditionOption(strike, options);
             return options;
         }
 
@@ -207,6 +208,12 @@ namespace Game.Creature.Rules
                 if (!options.Contains(option, StringComparer.OrdinalIgnoreCase))
                     options.Add(option);
             }
+        }
+
+        private static void AddFlankingTargetConditionOption(Strike strike, List<string> options)
+        {
+            if (global::FlankingRules.GrantsOffGuardToMeleeAttack(strike?.From, strike?.To, strike))
+                AddOption(options, "target:condition:off-guard");
         }
 
         private static void AddTargetConditionOptions(CreatureComponent target, List<string> options)

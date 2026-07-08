@@ -103,19 +103,53 @@
       "dexCap": 4
     }
   ],
-  "actions": [],
+  "actions": [
+    {
+      "name": "Dogslicer",
+      "type": "melee",
+      "system": {
+        "bonus": {
+          "value": 7
+        },
+        "traits": {
+          "rarity": "common",
+          "value": [
+            "agile",
+            "backstabber",
+            "finesse",
+            "goblin"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shortbow",
+      "type": "ranged",
+      "system": {
+        "bonus": {
+          "value": 7
+        },
+        "traits": {
+          "rarity": "common",
+          "value": [
+            "deadly-d10"
+          ]
+        }
+      }
+    }
+  ],
   "reactions": [],
   "passives": [],
   "conditions": [],
   "weaponBonuses": {
-    "unarmed": 0,
-    "simple": 0,
-    "martial": 0,
+    "unarmed": 2,
+    "simple": 2,
+    "martial": 2,
     "advanced": 0
   },
   "armorBonuses": {
-    "unarmored": 0,
-    "light": 0,
+    "unarmored": 2,
+    "light": 2,
     "medium": 0,
     "heavy": 0
   },
