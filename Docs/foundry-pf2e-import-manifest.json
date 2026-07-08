@@ -1,0 +1,15 @@
+{
+  "source": "foundryvtt/pf2e",
+  "ref": "v14-dev",
+  "policy": "Imported PF2e item JSON should remain verbatim where practical. Unity-specific build choices, runtime state, and resource-path mappings live in code or sidecar files rather than in imported JSON.",
+  "imports": [
+    {
+      "localPath": "Assets/Resources/DataFiles/effects/effect-rage.json",
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/feat-effects/effect-rage.json"
+    },
+    {
+      "localPath": "Assets/Resources/DataFiles/effects/effect-rage-temporary-hit-points-immunity.json",
+      "upstreamUrl": "https://raw.githubusercontent.com/foundryvtt/pf2e/v14-dev/packs/pf2e/feat-effects/effect-rage-temporary-hit-points-immunity.json"
+    }
+  ]
+}

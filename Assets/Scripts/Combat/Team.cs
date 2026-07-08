@@ -8,6 +8,9 @@ public class Team : MonoBehaviour
 
     private void Awake()
     {
+        if (string.IsNullOrWhiteSpace(Name))
+            return;
+
         TeamRules tr = TeamRules.GetInstance();
         if(!tr.Contains(Name)) 
         {
