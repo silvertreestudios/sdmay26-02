@@ -1,4 +1,5 @@
 using Game.AbilityActions;
+using Game.Combat.Rules;
 using Game.Creature;
 using System;
 using System.Collections.Generic;
@@ -212,7 +213,7 @@ namespace Game.Creature.Rules
 
         private static void AddFlankingTargetConditionOption(Strike strike, List<string> options)
         {
-            if (global::FlankingRules.GrantsOffGuardToMeleeAttack(strike?.From, strike?.To, strike))
+            if (FlankingRule.GrantsOffGuardToMeleeAttack(strike?.From, strike?.To, strike))
                 AddOption(options, "target:condition:off-guard");
         }
 

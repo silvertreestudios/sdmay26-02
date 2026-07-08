@@ -2,6 +2,7 @@ using UnityEngine;
 using System.Collections.Generic;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Combat.Rules;
 using Game.Rules;
 using System;
 using GridPublic;
@@ -65,7 +66,7 @@ public class Strike
         int mapPenalty = CalculateMultipleAttackPenalty(strikePenaltyCount);
         int rangePenalty = TargetingResult?.RangePenalty ?? 0;
         int coverBonus = TargetingResult?.CoverAcBonus ?? 0;
-        bool flankedOffGuard = FlankingRules.GrantsOffGuardToMeleeAttack(From, To, this);
+        bool flankedOffGuard = FlankingRule.GrantsOffGuardToMeleeAttack(From, To, this);
 
         int attackBonus = AttackModifierOverride ?? from.attackBonus;
         Pf2eModifierResolution attackResolution = from.ResolveAttackRoll(AttackModifierOverride, BuildStrikeAttackModifiers(mapPenalty, rangePenalty));
