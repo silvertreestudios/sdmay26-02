@@ -29,7 +29,19 @@ namespace GridPublic
         /// <param name="request">area targeting constraints</param>
         /// <param name="target">selected area result, null if canceled or illegal</param>
         /// <returns></returns>
-        public abstract IEnumerator GetAreaTarget(GameObject actor, AreaTargetRequest request, CoroutineResult<AreaTargetResult> target);
+        public virtual IEnumerator GetAreaTarget(GameObject actor, AreaTargetRequest request, CoroutineResult<AreaTargetResult> target)
+        {
+            return GetAreaTarget(new AreaTargetSource(actor), request, target);
+        }
+
+        /// <summary>
+        /// Selects or confirms an area template placement from a grid source, such as a trap or environmental effect.
+        /// </summary>
+        /// <param name="source">source object or source cell placing the area</param>
+        /// <param name="request">area targeting constraints</param>
+        /// <param name="target">selected area result, null if canceled or illegal</param>
+        /// <returns></returns>
+        public abstract IEnumerator GetAreaTarget(AreaTargetSource source, AreaTargetRequest request, CoroutineResult<AreaTargetResult> target);
 
         /// <summary>
         /// Destroys a gameobject from the grid

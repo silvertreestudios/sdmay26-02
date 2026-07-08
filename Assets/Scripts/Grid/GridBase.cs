@@ -89,9 +89,9 @@ namespace GridPrivate
         }
 
 
-        public override IEnumerator GetAreaTarget(GameObject actor, AreaTargetRequest request, CoroutineResult<AreaTargetResult> target)
+        public override IEnumerator GetAreaTarget(AreaTargetSource source, AreaTargetRequest request, CoroutineResult<AreaTargetResult> target)
         {
-            if (Fsm.ChangeState(new StateAreaTarget(actor, request, target, Fsm)))
+            if (Fsm.ChangeState(new StateAreaTarget(source, request, target, Fsm)))
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 

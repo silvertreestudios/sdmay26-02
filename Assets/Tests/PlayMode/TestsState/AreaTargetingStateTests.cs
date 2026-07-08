@@ -65,7 +65,7 @@ namespace TestsState
         }
 
         [UnityTest]
-        public IEnumerator GridApiAreaTargetCancelReturnsIdleWithoutResult()
+        public IEnumerator GridApiAreaTargetSupportsSourceCellWithoutActorObject()
         {
             yield return base.Setup();
 
@@ -73,32 +73,23 @@ namespace TestsState
             Assert.IsNotNull(grid);
             Tile[,] tiles = grid.GetTiles();
             FindClearHorizontalRun(tiles, 1, out Vector3Int start);
-            GameObject player = CreateToken("area target actor");
-            MoveCombatant(tiles, player, start);
             CoroutineResult<AreaTargetResult> result = new();
 
-            try
+            grid.StartCoroutine(GridAPI.GetInstance().GetAreaTarget(new AreaTargetSource(start), new AreaTargetRequest
             {
-                grid.StartCoroutine(GridAPI.GetInstance().GetAreaTarget(player, new AreaTargetRequest
-                {
-                    Shape = AreaShape.Emanation,
-                    SizeFeet = 10,
-                    IncludeCenter = true
-                }, result));
+                Shape = AreaShape.Emanation,
+                SizeFeet = 10,
+                IncludeCenter = true
+            }, result));
 
-                yield return WaitUntilWithTimeout(timeout, () => grid.Fsm.CurrentState is StateAreaTarget);
-                Assert.IsTrue(grid.Fsm.CurrentState is StateAreaTarget);
+            yield return WaitUntilWithTimeout(timeout, () => grid.Fsm.CurrentState is StateAreaTarget);
+            Assert.IsTrue(grid.Fsm.CurrentState is StateAreaTarget);
 
-                grid.Fsm.CurrentState.Rightclick();
-                yield return WaitUntilWithTimeout(timeout, () => grid.Fsm.CurrentState is StateIdle);
+            grid.Fsm.CurrentState.Rightclick();
+            yield return WaitUntilWithTimeout(timeout, () => grid.Fsm.CurrentState is StateIdle);
 
-                Assert.IsTrue(grid.Fsm.CurrentState is StateIdle);
-                Assert.IsNull(result.Value);
-            }
-            finally
-            {
-                Object.DestroyImmediate(player);
-            }
+            Assert.IsTrue(grid.Fsm.CurrentState is StateIdle);
+            Assert.IsNull(result.Value);
         }
 
         private static void FindClearHorizontalRun(Tile[,] tiles, int length, out Vector3Int start)

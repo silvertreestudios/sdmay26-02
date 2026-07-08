@@ -7,7 +7,7 @@ namespace GridPrivate
 {
     public class StateAreaTarget : GridFSMState
     {
-        private readonly GameObject Character;
+        private readonly AreaTargetSource Source;
         private readonly AreaTargetRequest Request;
         private readonly CoroutineResult<AreaTargetResult> Selection;
         private readonly GridFSM Fsm;
@@ -17,13 +17,18 @@ namespace GridPrivate
         private AreaTargetResult PendingResult;
 
         public StateAreaTarget(GameObject character, AreaTargetRequest request, CoroutineResult<AreaTargetResult> selection, GridFSM fsm)
+            : this(new AreaTargetSource(character), request, selection, fsm)
         {
-            Character = character;
+        }
+
+        public StateAreaTarget(AreaTargetSource source, AreaTargetRequest request, CoroutineResult<AreaTargetResult> selection, GridFSM fsm)
+        {
+            Source = source ?? new AreaTargetSource();
             Request = request ?? new AreaTargetRequest();
             Selection = selection;
             Fsm = fsm;
             Tiles = GridAPI.GetTiles();
-            StartPosition = Character == null ? Vector3Int.zero : Vector3Int.RoundToInt(Character.transform.position);
+            StartPosition = Source.OriginCell;
         }
 
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
@@ -31,14 +36,7 @@ namespace GridPrivate
             base.Enter(fsm);
             canCancel = true;
 
-            if (Character == null)
-            {
-                Debug.LogWarning("Area targeting requires an actor.");
-                CoroutineRunner.Run(ChangeToIdle());
-                return;
-            }
-
-            if (Character.GetComponent<AIActionController>() != null)
+            if (Source.SourceObject != null && Source.SourceObject.GetComponent<AIActionController>() != null)
             {
                 Debug.LogWarning("AI area targeting is not implemented in this grid state.");
                 CoroutineRunner.Run(ChangeToIdle());
@@ -93,7 +91,7 @@ namespace GridPrivate
 
         private void HandleGridHover(GridHoverInfo hover)
         {
-            AreaPlacement placement = AreaTargeting.PlacementFromHover(Character, Request, hover);
+            AreaPlacement placement = AreaTargeting.PlacementFromHover(Source, Request, hover);
             Preview(placement);
         }
 
@@ -117,7 +115,7 @@ namespace GridPrivate
 
         private void Preview(AreaPlacement placement)
         {
-            PendingResult = AreaTargeting.Evaluate(Character, Tiles, Request, placement);
+            PendingResult = AreaTargeting.Evaluate(Source, Tiles, Request, placement);
             if (PendingResult == null)
             {
                 OnPreviewAreaEnd.Invoke();

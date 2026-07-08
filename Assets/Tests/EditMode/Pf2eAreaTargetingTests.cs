@@ -70,6 +70,28 @@ namespace TestsCombat
         }
 
         [Test]
+        public void AreaTargetingSupportsSourceCellWithoutActorObject()
+        {
+            Tile[,] tiles = BuildTiles(8, 8);
+            AreaTargetSource source = new(Cell(2, 2));
+            AreaTargetRequest request = new()
+            {
+                Shape = AreaShape.Line,
+                SizeFeet = 15
+            };
+
+            AreaTargetResult result = AreaTargeting.Evaluate(source, tiles, request, new AreaPlacement
+            {
+                Shape = AreaShape.Line,
+                Direction = AreaDirection.East
+            });
+
+            Assert.IsNotNull(result);
+            CollectionAssert.AreEqual(new[] { Cell(3, 2), Cell(4, 2), Cell(5, 2) }, result.Cells);
+            Assert.AreEqual(Cell(2, 2), result.Placement.OriginCell);
+        }
+
+        [Test]
         public void ConeUsesAimedQuarterCircleAndExcludesCasterCell()
         {
             Tile[,] tiles = BuildTiles(8, 8);
