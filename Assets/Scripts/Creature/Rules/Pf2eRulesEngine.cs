@@ -57,9 +57,26 @@ namespace Game.Creature.Rules
                 if (creature == null)
                     continue;
 
+                ApplyImportedPassiveAbilities(controller, creature);
+
                 PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
                 if (prepared.HasOwnedItem("quick-tempered"))
                     new Rage(0).UseRage(controller.gameObject);
+            }
+        }
+
+        private static void ApplyImportedPassiveAbilities(ActionController controller, CreatureComponent creature)
+        {
+            if (controller == null || creature?.passives == null)
+                return;
+
+            foreach (string passive in creature.passives)
+            {
+                if (string.IsNullOrWhiteSpace(passive))
+                    continue;
+
+                Ability ability = DefinedAbilities.TryGet(passive);
+                ability?.Apply(controller.gameObject);
             }
         }
 
