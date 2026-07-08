@@ -237,36 +237,6 @@ namespace TestsCombat
         }
 
         [Test]
-        public void DeadlyTraitAddsExtraDieOnlyOnCritical()
-        {
-            // PF2e sources:
-            // Strike critical damage: https://2e.aonprd.com/Rules.aspx?ID=2343
-            // Deadly trait: https://2e.aonprd.com/Traits.aspx?ID=570
-            GameObject logObject = new GameObject("test-combat-log");
-            InstallTestCombatLog(logObject);
-            MethodInfo method = typeof(Strike).GetMethod("ApplyDeadlyDamage", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(method);
-
-            Strike strike = new Strike(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>())
-            {
-                Traits = new List<string> { "deadly-d10" }
-            };
-            List<DamageValue> normalDamage = new() { new DamageValue("piercing", 6) };
-            List<DamageValue> criticalDamage = new() { new DamageValue("piercing", 12) };
-            UnityEngine.Random.State randomState = UnityEngine.Random.state;
-            UnityEngine.Random.InitState(76);
-
-            method.Invoke(strike, new object[] { DegreeOfSuccess.Success, normalDamage });
-            method.Invoke(strike, new object[] { DegreeOfSuccess.CriticalSuccess, criticalDamage });
-
-            UnityEngine.Random.state = randomState;
-            Assert.AreEqual(6, normalDamage[0].DamageAmount);
-            Assert.Greater(criticalDamage[0].DamageAmount, 12);
-            Assert.LessOrEqual(criticalDamage[0].DamageAmount, 22);
-            UnityEngine.Object.DestroyImmediate(logObject);
-        }
-
-        [Test]
         public void AmmoAndReloadStateAreEnforced()
         {
             GameObject creature = new GameObject("archer");

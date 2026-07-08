@@ -41,15 +41,7 @@ namespace Game.Creature
                 string damageTypeCapitalized = char.ToUpper(damageValue.DamageType[0]) + damageValue.DamageType.Substring(1);
                 log += " "+dice.numberOfDice+"d"+dice.sidesPerDie+": "+damageValue.DamageAmount+" " + damageTypeCapitalized + ", ";
                 // Group damage by type (string comparison)
-                if (damageInstances.Exists(di => di.DamageType == damageValue.DamageType)){
-                    int idx = damageInstances.FindIndex(di => di.DamageType == damageValue.DamageType);
-                    var existingInstance = damageInstances[idx];
-                    existingInstance.DamageAmount += damageValue.DamageAmount;
-                    damageInstances[idx] = existingInstance;
-                }
-                else{
-                    damageInstances.Add(damageValue);
-                }
+                damageInstances = AddOrMergeDamage(damageInstances, damageValue);
 
             }
             log += "\n       ";
@@ -58,15 +50,7 @@ namespace Game.Creature
                 // Group damage by type (string comparison)
                 string damageTypeCapitalized = char.ToUpper(damageFlat.DamageType[0]) + damageFlat.DamageType.Substring(1);
                 log += " +"+damageFlat.DamageAmount + " " + damageTypeCapitalized + ", ";
-                if (damageInstances.Exists(di => di.DamageType == damageFlat.DamageType)){
-                    int idx = damageInstances.FindIndex(di => di.DamageType == damageFlat.DamageType);
-                    var existingInstance = damageInstances[idx];
-                    existingInstance.DamageAmount += damageFlat.DamageAmount;
-                    damageInstances[idx] = existingInstance;
-                }
-                else{
-                    damageInstances.Add(damageFlat);
-                }
+                damageInstances = AddOrMergeDamage(damageInstances, damageFlat);
             }
             // TODO: append traits list?
 
@@ -75,6 +59,22 @@ namespace Game.Creature
             return damageInstances;
         }
 
+        /// <summary>
+        /// Returns a new damage list with the supplied value merged by damage type, leaving the input list unchanged.
+        /// </summary>
+        public static List<DamageValue> AddOrMergeDamage(IEnumerable<DamageValue> damageValues, DamageValue damageValue){
+            List<DamageValue> merged = damageValues == null ? new List<DamageValue>() : new List<DamageValue>(damageValues);
+            int index = merged.FindIndex(damage => damage.DamageType == damageValue.DamageType);
+            if (index >= 0){
+                DamageValue existing = merged[index];
+                existing.DamageAmount += damageValue.DamageAmount;
+                merged[index] = existing;
+            }
+            else{
+                merged.Add(damageValue);
+            }
+            return merged;
+        }
         public static int SumDamage(List<DamageValue> damageValues){
             int totalDamage = 0;
             foreach (DamageValue dv in damageValues){

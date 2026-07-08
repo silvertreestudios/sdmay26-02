@@ -11,6 +11,12 @@ public class Strike
     public List<Dice> Damages;
     public List<DamageValue> FlatDamages;
     public List<string> Traits = new List<string>();
+    private AttackSourceInfo sourceInfo = AttackSourceInfo.Unspecified;
+    public AttackSourceInfo SourceInfo
+    {
+        get => sourceInfo;
+        set => sourceInfo = value ?? AttackSourceInfo.Unspecified;
+    }
     public int? AttackModifierOverride { get; set; }
     public string ItemSlug { get; set; }
     public string WeaponCategory { get; set; }
@@ -32,6 +38,7 @@ public class Strike
             this.Damages.Add(new Dice(dice.numberOfDice, dice.sidesPerDie, dice.damageType));
         this.FlatDamages = new List<DamageValue>(strike.FlatDamages);
         this.Traits = new List<string>(strike.Traits);
+        this.SourceInfo = new AttackSourceInfo(strike.SourceInfo);
         this.AttackModifierOverride = strike.AttackModifierOverride;
         this.ItemSlug = strike.ItemSlug;
         this.WeaponCategory = strike.WeaponCategory;
@@ -87,13 +94,30 @@ public class Strike
         if (attackRoll.degree == DegreeOfSuccess.Success || attackRoll.degree == DegreeOfSuccess.CriticalSuccess)
         {
             CombatLog.GetInstance().Log(log);
-            OnDamageDealt.Invoke(Damages[0].damageType);
-            List<DamageValue> damageValues = DamageRoller.RollDamage(Damages, FlatDamages);
-            DamageRoller.EvaluateCriticalDamage(attackRoll.degree, damageValues);
-            ApplyDeadlyDamage(attackRoll.degree, damageValues);
-            DamageRoller.ApplyWeaknessAndResistance(damageValues, to.weaknesses, to.resistances);
-            uint damage = (uint)DamageRoller.SumDamage(damageValues);
-            to.TakeDamage(damage);
+            AttackResultContext context = new AttackResultContext
+            {
+                AttackerObject = From,
+                TargetObject = To,
+                AttackerCreature = from,
+                TargetCreature = to,
+                Strike = this,
+                SourceInfo = SourceInfo,
+                Traits = Traits,
+                D20Result = attackRoll,
+                Degree = attackRoll.degree,
+                DamageDice = CloneDamageDice(Damages),
+                FlatDamages = new List<DamageValue>(FlatDamages),
+                DamageValues = new List<DamageValue>(),
+                TargetingResult = TargetingResult,
+                BaseArmorClass = baseAcResolution.Total,
+                TargetArmorClass = targetAc,
+                AttackBonus = attackBonus,
+                TotalAttackModifier = totalModifier,
+                MultipleAttackPenalty = mapPenalty,
+                RangePenalty = rangePenalty,
+                CoverAcBonus = coverBonus
+            };
+            AttackResultPipeline.ProcessHit(context);
         }
         else
         {
@@ -101,6 +125,17 @@ public class Strike
             log += "\nAttack Missed!";
             CombatLog.GetInstance().Log(log);
         }
+    }
+
+    private static List<Dice> CloneDamageDice(List<Dice> diceList)
+    {
+        List<Dice> clone = new();
+        if (diceList == null)
+            return clone;
+
+        foreach (Dice dice in diceList)
+            clone.Add(new Dice(dice.numberOfDice, dice.sidesPerDie, dice.damageType));
+        return clone;
     }
 
     private static IEnumerable<Pf2eModifier> BuildStrikeAttackModifiers(int mapPenalty, int rangePenalty)
@@ -150,35 +185,6 @@ public class Strike
         if (strikePenaltyCount == 1)
             return agile ? 4 : 5;
         return agile ? 8 : 10;
-    }
-
-    private void ApplyDeadlyDamage(DegreeOfSuccess degree, List<DamageValue> damageValues)
-    {
-        if (degree != DegreeOfSuccess.CriticalSuccess || Traits == null || Damages.Count == 0)
-            return;
-
-        foreach (string trait in Traits)
-        {
-            if (string.IsNullOrWhiteSpace(trait) || !trait.StartsWith("deadly-d", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (!int.TryParse(trait.Substring("deadly-d".Length), out int sides))
-                continue;
-
-            DamageValue deadly = new DamageValue(Damages[0].damageType, UnityEngine.Random.Range(1, sides + 1));
-            int index = damageValues.FindIndex(d => d.DamageType == deadly.DamageType);
-            if (index >= 0)
-            {
-                DamageValue existing = damageValues[index];
-                existing.DamageAmount += deadly.DamageAmount;
-                damageValues[index] = existing;
-            }
-            else
-            {
-                damageValues.Add(deadly);
-            }
-            CombatLog.GetInstance().Log("  +" + deadly.DamageAmount + " " + trait + " critical damage!");
-        }
     }
 
     public List<string> getTraits()
