@@ -12,7 +12,7 @@ namespace Game.Combat.Rules
     {
         private const int DefaultUnarmedReachFeet = 5;
 
-        public static bool GrantsOffGuardToMeleeAttack(GameObject attacker, GameObject target, Strike strike)
+        public static bool GrantsOffGuardToMeleeAttack(GameObject attacker, GameObject target, StrikeProfile strike)
         {
             if (attacker == null || target == null || strike == null || strike.IsRangedAttack)
                 return false;
