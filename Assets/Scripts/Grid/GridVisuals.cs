@@ -58,6 +58,8 @@ namespace GridPrivate
             LineRenderer.useWorldSpace = true;
 
             OnPreviewPath.AddListener(ShowPath);
+            OnPreviewArea.AddListener((List<Vector3Int> locations) => ClearAndShow(locations, RangePool, RangeOffset));
+            OnPreviewAreaEnd.AddListener(() => RangePool.Clear());
         }
 
         protected void Show(List<Vector3Int> locations, GameObjectPool pool, float offset)

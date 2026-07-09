@@ -22,6 +22,7 @@ public class Unarmed : MultiFrameEntityAction
         Profile.Traits = new List<string>() {"agile", "finesse", "nonlethal", "unarmed"};
         Profile.ItemSlug = "unarmed";
         Profile.WeaponCategory = "unarmed";
+        Profile.SourceInfo = new AttackSourceInfo("Unarmed Strike", "unarmed", "unarmed", Profile.Traits);
         Profile.ReachFeet = range * 5;
     }
 
@@ -79,3 +80,5 @@ public class Unarmed : MultiFrameEntityAction
 }
 
 }
+
+

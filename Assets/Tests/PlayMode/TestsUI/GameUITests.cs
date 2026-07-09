@@ -375,11 +375,24 @@ namespace TestsUI
             });
             Assert.IsNotNull(logList, "Could not find the ListView associated with the Combat Log.");
 
-            // Send a test log
-            combatLogComponent.Log("UI System Test Log");
+            CombatLogEntry entry = new CombatLogEntry
+            {
+                Kind = CombatLogEntryKind.Attack,
+                Outcome = CombatLogOutcome.Success,
+                Actor = "UI Tester",
+                Target = "Training Dummy",
+                Action = "Longsword",
+                Roll = new CombatLogRoll { Total = 23, DifficultyClass = 18 },
+                Damage = new CombatLogDamage { Total = 7 }
+            };
+            entry.Damage.Parts.Add(new CombatLogDamagePart("slashing", 7));
+            entry.Details.Add(new CombatLogDetail("D20 Roll", "23 (15 + 8)"));
+
+            combatLogComponent.LogEntry(entry);
             yield return null;
 
-            Assert.IsTrue(logList.itemsSource != null && logList.itemsSource.Count > 0, "Combat Log list view items source should not be empty after logging.");
+            Assert.IsTrue(logList.itemsSource != null && logList.itemsSource.Count > 0, "Combat Log list view items source should not be empty after structured logging.");
+            Assert.IsInstanceOf<CombatLogEntry>(logList.itemsSource[logList.itemsSource.Count - 1], "Combat Log list view should be backed by structured entries.");
 
             
             PushButton(toggleButton);

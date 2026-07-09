@@ -185,6 +185,8 @@ public class StrikeResolutionContext
     public List<Dice> DamageDice { get; set; } = new();
     public List<DamageValue> FlatDamages { get; set; } = new();
     public List<DamageValue> DamageValues { get; set; } = new();
+    public DamageRollResolution DamageResolution { get; set; }
+    public List<CombatLogDetail> LogDetails { get; } = new();
     public List<Pf2eModifier> AttackModifiers { get; } = new();
     public List<Pf2eModifier> ArmorClassModifiers { get; } = new();
     public StrikeTargetResult TargetingResult { get; set; }
@@ -264,6 +266,8 @@ public class StrikeResolutionResult
     public bool Hit => Context?.IsHit ?? false;
     public bool CriticalHit => Context?.Degree == DegreeOfSuccess.CriticalSuccess;
     public uint FinalAppliedDamage => Context?.FinalAppliedDamage ?? 0;
+    public DamageRollResolution DamageResolution => Context?.DamageResolution;
+    public IReadOnlyList<CombatLogDetail> LogDetails => Context != null ? Context.LogDetails : Array.Empty<CombatLogDetail>();
 
     public StrikeResolutionResult(StrikeResolutionContext context)
     {
@@ -291,3 +295,5 @@ public interface IStrikeAdjustmentProvider
 }
 
 public class OnStrikePreparedEvent : StaticUnityEvent<OnStrikePreparedEvent, StrikeResolutionContext> { }
+
+

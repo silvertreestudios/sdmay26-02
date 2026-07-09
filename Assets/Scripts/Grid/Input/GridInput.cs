@@ -58,6 +58,12 @@ namespace GridPrivate
                 ) {
                     Hover = cell;
                     OnHover.Invoke(new List<Vector3Int> { cell });
+                    OnGridHover.Invoke(new GridPublic.GridHoverInfo
+                    {
+                        Cell = cell,
+                        WorldPosition = hit,
+                        NearestCorner = AreaTargeting.NearestCorner(cell, hit)
+                    });
                     return;
                 }
             }

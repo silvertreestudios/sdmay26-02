@@ -27,7 +27,7 @@ namespace GridPrivate
             GridData = map.GetMapData();
             Tiles = new Tile[GridData.GetLength(0), GridData.GetLength(1)];
 
-            for(int x = 0; x < GridData.GetLength(0); x++) 
+            for(int x = 0; x < GridData.GetLength(0); x++)
             {
                 for (int y = 0; y < GridData.GetLength(1); y++)
                 {
@@ -85,6 +85,13 @@ namespace GridPrivate
         public override IEnumerator GetStrikeTarget(GameObject attacker, StrikeTargetRequest request, CoroutineResult<StrikeTargetResult> target)
         {
             if (Fsm.ChangeState(new StateStrike(attacker, request, target, Fsm)))
+                yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
+        }
+
+
+        public override IEnumerator GetAreaTarget(AreaTargetSource source, AreaTargetRequest request, CoroutineResult<AreaTargetResult> target)
+        {
+            if (Fsm.ChangeState(new StateAreaTarget(source, request, target, Fsm)))
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 

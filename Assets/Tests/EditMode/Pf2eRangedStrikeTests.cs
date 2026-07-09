@@ -242,12 +242,18 @@ namespace TestsCombat
                 }
             });
 
-            string attackLog = log.Messages.FirstOrDefault(message => message.StartsWith("Attack:", StringComparison.Ordinal));
+            string attackLog = log.Messages.FirstOrDefault(message => message.StartsWith("attacker -> target | Strike", StringComparison.Ordinal));
             Assert.IsNotNull(attackLog);
-            StringAssert.Contains("AC: 102 (100 + 2 cover)", attackLog);
-            StringAssert.Contains("+ 7 - 5 -2", attackLog);
+            StringAssert.Contains("vs AC 102", attackLog);
+            StringAssert.Contains("Target AC: 102 (100 + 2 cover)", attackLog);
+            StringAssert.Contains("MAP: -5", attackLog);
+            StringAssert.Contains("Range Penalty: -2", attackLog);
+            StringAssert.Contains("Cover: +2 AC", attackLog);
             StringAssert.Contains("Attack Modifiers: total 0", attackLog);
             StringAssert.Contains("AC Modifiers: total 102", attackLog);
+            StringAssert.Contains("Multiple attack penalty -5", attackLog);
+            StringAssert.Contains("Range penalty -2", attackLog);
+            StringAssert.Contains("suppressed [none]", attackLog);
 
             UnityEngine.Object.DestroyImmediate(attacker);
             UnityEngine.Object.DestroyImmediate(target);
