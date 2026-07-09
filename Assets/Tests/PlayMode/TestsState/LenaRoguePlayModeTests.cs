@@ -49,12 +49,12 @@ namespace TestsState
             PrepareTarget(target, -10, 100);
             yield return ForceTurnAndClickAction(lena, "DogslicerButton");
 
-            Strike observed = null;
+            StrikeResolutionContext observed = null;
             yield return ExecuteSelectedStrike(lena, targetCell, value => observed = value);
 
             CreatureComponent creature = lena.GetComponent<CreatureComponent>();
             Assert.IsNotNull(observed);
-            Assert.That(observed.ItemSlug, Is.EqualTo("dogslicer"));
+            Assert.That(observed.Profile.ItemSlug, Is.EqualTo("dogslicer"));
             Assert.That(observed.Traits, Does.Contain("finesse"));
             Assert.That(observed.FlatDamages[0].DamageAmount, Is.EqualTo(creature.dexMod));
             Assert.That(lena.GetComponent<ActionController>().ActionPoints, Is.EqualTo(2u));
@@ -76,20 +76,20 @@ namespace TestsState
             PrepareTarget(target, -10, 100);
 
             yield return ForceTurnAndClickAction(lena, "DogslicerButton");
-            Strike normalStrike = null;
+            StrikeResolutionContext normalStrike = null;
             yield return ExecuteSelectedStrike(lena, targetCell, value => normalStrike = value);
-            Assert.That(normalStrike.Damages.Count, Is.EqualTo(1));
+            Assert.That(normalStrike.DamageDice.Count, Is.EqualTo(1));
 
             target.GetComponent<CreatureComponent>().hp = 100;
             target.GetComponent<Conditions>().Add("Off-Guard", new ConditionSource());
             yield return ForceTurnAndClickAction(lena, "DogslicerButton");
-            Strike offGuardStrike = null;
+            StrikeResolutionContext offGuardStrike = null;
             yield return ExecuteSelectedStrike(lena, targetCell, value => offGuardStrike = value);
 
-            Assert.That(offGuardStrike.Damages.Count, Is.EqualTo(2));
-            Assert.That(offGuardStrike.Damages[1].numberOfDice, Is.EqualTo(1));
-            Assert.That(offGuardStrike.Damages[1].sidesPerDie, Is.EqualTo(6));
-            Assert.That(offGuardStrike.Damages[1].damageType, Is.EqualTo("precision"));
+            Assert.That(offGuardStrike.DamageDice.Count, Is.EqualTo(2));
+            Assert.That(offGuardStrike.DamageDice[1].numberOfDice, Is.EqualTo(1));
+            Assert.That(offGuardStrike.DamageDice[1].sidesPerDie, Is.EqualTo(6));
+            Assert.That(offGuardStrike.DamageDice[1].damageType, Is.EqualTo("precision"));
         }
 
         [UnityTest]
@@ -109,12 +109,12 @@ namespace TestsState
             PrepareTarget(target, -10, 100);
 
             yield return ForceTurnAndClickAction(lena, "DogslicerButton");
-            Strike observed = null;
+            StrikeResolutionContext observed = null;
             yield return ExecuteSelectedStrike(lena, targetCell, value => observed = value);
 
             Assert.IsFalse(target.GetComponent<Conditions>().Contains("Off-Guard"), "Flanking should be contextual to the flankers, not a global target condition.");
-            Assert.That(observed.Damages.Count, Is.EqualTo(2));
-            Assert.That(observed.Damages[1].damageType, Is.EqualTo("precision"));
+            Assert.That(observed.DamageDice.Count, Is.EqualTo(2));
+            Assert.That(observed.DamageDice[1].damageType, Is.EqualTo("precision"));
             Assert.Less(target.GetComponent<CreatureComponent>().hp, 100);
         }
 
@@ -135,10 +135,10 @@ namespace TestsState
             PrepareTarget(target, -10, 100);
 
             yield return ForceTurnAndClickAction(lena, "DogslicerButton");
-            Strike observed = null;
+            StrikeResolutionContext observed = null;
             yield return ExecuteSelectedStrike(lena, targetCell, value => observed = value);
 
-            Assert.That(observed.Damages.Count, Is.EqualTo(1));
+            Assert.That(observed.DamageDice.Count, Is.EqualTo(1));
             Assert.IsFalse(target.GetComponent<Conditions>().Contains("Off-Guard"));
         }
 
@@ -159,11 +159,11 @@ namespace TestsState
             PrepareTarget(target, -10, 100);
 
             yield return ForceTurnAndClickAction(lena, "ShortbowButton");
-            Strike observed = null;
+            StrikeResolutionContext observed = null;
             yield return ExecuteSelectedStrike(lena, targetCell, value => observed = value);
 
-            Assert.That(observed.IsRangedAttack, Is.True);
-            Assert.That(observed.Damages.Count, Is.EqualTo(1));
+            Assert.That(observed.Profile.IsRangedAttack, Is.True);
+            Assert.That(observed.DamageDice.Count, Is.EqualTo(1));
             Assert.IsFalse(target.GetComponent<Conditions>().Contains("Off-Guard"));
         }
 
@@ -184,15 +184,15 @@ namespace TestsState
             CreatureComponent creature = lena.GetComponent<CreatureComponent>();
             int startingAmmo = creature.GetAmmoQuantity("arrows");
             yield return ForceTurnAndClickAction(lena, "ShortbowButton");
-            Strike observed = null;
+            StrikeResolutionContext observed = null;
             yield return ExecuteSelectedStrike(lena, targetCell, value => observed = value);
 
             Assert.IsNotNull(observed);
-            Assert.That(observed.ItemSlug, Is.EqualTo("shortbow"));
-            Assert.That(observed.IsRangedAttack, Is.True);
+            Assert.That(observed.Profile.ItemSlug, Is.EqualTo("shortbow"));
+            Assert.That(observed.Profile.IsRangedAttack, Is.True);
             Assert.That(observed.FlatDamages, Is.Empty);
-            Assert.That(observed.Damages.Count, Is.EqualTo(2));
-            Assert.That(observed.Damages[1].damageType, Is.EqualTo("precision"));
+            Assert.That(observed.DamageDice.Count, Is.EqualTo(2));
+            Assert.That(observed.DamageDice[1].damageType, Is.EqualTo("precision"));
             Assert.That(creature.GetAmmoQuantity("arrows"), Is.EqualTo(startingAmmo - 1));
             Assert.That(lena.GetComponent<ActionController>().ActionPoints, Is.EqualTo(2u));
             Assert.Less(target.GetComponent<CreatureComponent>().hp, 100);
@@ -273,26 +273,26 @@ namespace TestsState
             Assert.IsTrue(grid.Fsm.CurrentState is StateStrike);
         }
 
-        private IEnumerator ExecuteSelectedStrike(GameObject actor, Vector3Int targetCell, Action<Strike> assignObservedStrike)
+        private IEnumerator ExecuteSelectedStrike(GameObject actor, Vector3Int targetCell, Action<StrikeResolutionContext> assignObservedStrike)
         {
             GridBase grid = UnityEngine.Object.FindFirstObjectByType<GridBase>();
-            Strike observed = null;
-            UnityAction<Tuple<Strike, GameObject>> listener = evt =>
+            StrikeResolutionContext observed = null;
+            UnityAction<StrikeResolutionContext> listener = context =>
             {
-                if (evt.Item2 == actor)
-                    observed = evt.Item1;
+                if (context.AttackerObject == actor)
+                    observed = context;
             };
 
-            OnStrikeEvent.AddListener(listener);
+            OnStrikePreparedEvent.AddListener(listener);
             UnityEngine.Random.State randomState = UnityEngine.Random.state;
             UnityEngine.Random.InitState(7604);
             OnHover.Invoke(new List<Vector3Int> { targetCell });
             grid.Fsm.CurrentState.Leftclick();
             yield return WaitUntilWithTimeout(timeout, () => observed != null && !actor.GetComponent<ActionController>().IsTakingAction);
             UnityEngine.Random.state = randomState;
-            OnStrikeEvent.RemoveListener(listener);
+            OnStrikePreparedEvent.RemoveListener(listener);
 
-            Assert.IsNotNull(observed, "Expected Lena's Strike to execute through OnStrikeEvent.");
+            Assert.IsNotNull(observed, "Expected Lena's Strike to execute through OnStrikePreparedEvent.");
             assignObservedStrike(observed);
         }
 
