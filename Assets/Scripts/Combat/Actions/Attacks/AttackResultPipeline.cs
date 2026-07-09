@@ -59,13 +59,23 @@ public static class StrikeResolutionPipeline
         };
 
         adjustments.AddRange(AttackTraitStrikeAdjustmentResolver.Resolve(context));
-        AddProviderAdjustments(adjustments, context.AttackerObject, context);
-        AddProviderAdjustments(adjustments, context.TargetObject, context);
+        AddAttackerProviderAdjustments(adjustments, context);
+        AddTargetProviderAdjustments(adjustments, context);
         return adjustments
             .OrderBy(adjustment => adjustment.Phase)
             .ThenBy(adjustment => adjustment.Order)
             .ThenBy(adjustment => adjustment.Source, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static void AddAttackerProviderAdjustments(List<IStrikeAdjustment> adjustments, StrikeResolutionContext context)
+    {
+        AddProviderAdjustments(adjustments, context.AttackerObject, context);
+    }
+
+    private static void AddTargetProviderAdjustments(List<IStrikeAdjustment> adjustments, StrikeResolutionContext context)
+    {
+        AddProviderAdjustments(adjustments, context.TargetObject, context);
     }
 
     private static void AddProviderAdjustments(List<IStrikeAdjustment> adjustments, GameObject owner, StrikeResolutionContext context)
@@ -78,6 +88,7 @@ public static class StrikeResolutionPipeline
             if (component is not IStrikeAdjustmentProvider provider)
                 continue;
 
+            // Providers are discovered from a specific owner, then use the full context to decide whether they apply as attacker, target, weapon, feat, condition, or another rule source.
             IEnumerable<IStrikeAdjustment> provided = provider.GetStrikeAdjustments(context);
             if (provided == null)
                 continue;
@@ -473,3 +484,4 @@ internal sealed class FatalExtraDieStrikeAdjustment : StrikeAdjustmentBase
         DeadlyStrikeAdjustment.AddCriticalTraitDamage(context, trait, sides);
     }
 }
+

@@ -14,7 +14,7 @@ public class Unarmed : MultiFrameEntityAction
     public override string ActionName => "Unarmed Strike";
     private StrikeProfile Profile;
     private int range = 1; // default range of 1 tile
-    
+
     public Unarmed(uint cost, List<Dice> damages, List<DamageValue> flatDamages) : base(cost)
     {
         Profile = new StrikeProfile(damages, flatDamages);
@@ -42,7 +42,7 @@ public class Unarmed : MultiFrameEntityAction
             RequiresLineOfEffect = true
         };
         yield return GridAPI.GetInstance().GetStrikeTarget(attacker, request, target);
-            
+
         // null target value equates to canceled action
         if(target.Value != null && target.Value.Target != null)
         {
@@ -80,5 +80,4 @@ public class Unarmed : MultiFrameEntityAction
 }
 
 }
-
 
