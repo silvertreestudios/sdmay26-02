@@ -43,6 +43,7 @@ namespace Game.Creature
         public List<SkillValue> skills;
         public WeaknessDto[] weaknesses;
         public ResistanceDto[] resistances;
+        public TraitsDto traits;
     }
     [Serializable]
     public class DetailsDto
@@ -59,6 +60,7 @@ namespace Game.Creature
         public SpeedEntryDto[] speed;
         public WeaknessDto[] weaknesses;
         public ResistanceDto[] resistances;
+        public TraitsDto traits;
     }
     [Serializable] public class HpDto { public string details; public int max; public int temp; public int value; }
     [Serializable] public class SpeedEntryDto { public string type; public int value; }
@@ -86,14 +88,17 @@ namespace Game.Creature
         public string[] descriptionParagraphs;
         public RangeDto range;
         public TraitsDto traits;
+        public string slug;
+        public RuleElementDto[] rules;
     }
 
     [Serializable] public class BonusDto { public int value; }
     [Serializable] public class DamageRollsDto { public string damage; public string damageType; }
 
     [Serializable] public class RangeDto { public int increment; public int max; }
+    [Serializable] public class RuleElementDto { public string key; public int radius; public string slug; public string[] traits; }
 
-    [Serializable] public class TraitsDto { public string rarity; public string[] value; }
+    [Serializable] public class TraitsDto { public string rarity; public string size; public string[] value; }
 
     [Serializable] public class EquipmentDto { public string name; public string type; public int quantity; }
     [Serializable] 
@@ -220,6 +225,11 @@ namespace Game.Creature
             target.reflexSave = dto.system.saves != null ? dto.system.saves.reflex : target.reflexSave;
             target.willSave = dto.system.saves != null ? dto.system.saves.will : target.willSave;
 
+            target.traits = dto.system.traits?.value != null
+                ? new List<string>(dto.system.traits.value)
+                : new List<string>();
+            target.size = dto.system.traits?.size;
+
             // Replace weaknesses/resistances lists
             // Debug.Log(target.name +" weaknesses and resistances from DTO:");
             var weaknessEntries = dto.system.weaknesses ?? dto.system.attributes?.weaknesses;
@@ -264,13 +274,16 @@ namespace Game.Creature
                         target.reactions.Add(r.name);
             }
             if(target.passives == null) target.passives = new List<string>();
+            if(target.auras == null) target.auras = new List<CreatureAura>();
             // Actions - Passives
             target.passives.Clear();
+            target.auras.Clear();
             if (dto.passives != null)
             {
                 foreach (var p in dto.passives){
                     if (!string.IsNullOrEmpty(p?.name)){
                         target.passives.Add(p.name);
+                        AddAurasFromPassive(target, p);
                         //DefinedAbilities.TryGet(p.name)?.Apply(target.gameObject); 
                     }
                 }
@@ -301,6 +314,7 @@ namespace Game.Creature
                 target.armor.Clear();
                 target.armorList.Clear();
             }
+            if (dto.equipment != null)
             foreach (var e in dto.equipment)
                 if (!string.IsNullOrEmpty(e?.name) && !string.IsNullOrEmpty(e?.type)){
                     // Debug.Log($"CreatureDtoMapper: processing equipment: {e.name} ({e.type})");
@@ -373,6 +387,25 @@ namespace Game.Creature
             }
         }
 
+        private static void AddAurasFromPassive(CreatureComponent target, ActionDto passive)
+        {
+            if (target == null || passive?.system?.rules == null)
+                return;
+
+            foreach (RuleElementDto rule in passive.system.rules)
+            {
+                if (rule == null || !string.Equals(rule.key, "Aura", StringComparison.OrdinalIgnoreCase) || rule.radius <= 0)
+                    continue;
+
+                target.auras.Add(new CreatureAura
+                {
+                    name = passive.name,
+                    slug = string.IsNullOrWhiteSpace(rule.slug) ? passive.system.slug : rule.slug,
+                    radiusFeet = rule.radius,
+                    traits = rule.traits == null ? new List<string>() : new List<string>(rule.traits)
+                });
+            }
+        }
         private static int GetBaseSpeed(SpeedEntryDto[] speeds, int defaultValue = 0)
         {
             if (speeds == null || speeds.Length == 0)

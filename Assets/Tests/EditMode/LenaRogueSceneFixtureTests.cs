@@ -50,6 +50,24 @@ public class LenaRogueSceneFixtureTests
         }
     }
 
+
+    [Test]
+    public void Level2ContainsOneRottingAuraZombieOnZombiesTeam()
+    {
+        EditorSceneManager.OpenScene("Assets/Scenes/Level2.unity", OpenSceneMode.Single);
+        CreatureComponent[] creatures = Object.FindObjectsByType<CreatureComponent>(FindObjectsSortMode.None);
+        List<CreatureComponent> auraZombies = creatures
+            .Where(c => c.name == "Zombie Shambler (Rotting Aura)" || c.auras.Any(a => a.slug == Game.Creature.Rules.RottingAuraRule.RuleSlug))
+            .ToList();
+
+        Assert.AreEqual(1, auraZombies.Count, "Level2 should contain exactly one rotting-aura zombie variant.");
+        GameObject zombie = auraZombies[0].gameObject;
+        Assert.IsNotNull(zombie.GetComponent<MindlessController>(), "Rotting-aura zombie should remain AI-controlled.");
+        Assert.AreEqual("Zombies", zombie.GetComponent<Team>()?.Name, "Rotting-aura zombie should remain on Level2 hostile team.");
+        CollectionAssert.DoesNotContain(auraZombies[0].actions, "Jaws");
+        CollectionAssert.Contains(auraZombies[0].passives, "Rotting Aura");
+        AssertNoCreaturePositionOverlap("Assets/Scenes/Level2.unity", creatures);
+    }
     private static void AssertHasVisibleMesh(GameObject root)
     {
         bool hasMesh = false;

@@ -1,0 +1,321 @@
+{
+  "name": "Zombie Shambler (Rotting Aura)",
+  "type": "npc",
+  "system": {
+    "abilities": {
+      "str": 3,
+      "dex": -2,
+      "con": 2,
+      "int": -5,
+      "wis": 0,
+      "cha": -2
+    },
+    "attributes": {
+      "ac": 12,
+      "allSaves": 0,
+      "hp": {
+        "details": "void healing",
+        "max": 20,
+        "temp": 0,
+        "value": 20
+      },
+      "speed": [
+        {
+          "value": 25
+        }
+      ]
+    },
+    "details": {
+      "languages": {
+        "details": "",
+        "value": []
+      },
+      "level": -1,
+      "publicNotes": "<p>A zombie shambler variant surrounded by a disease-bearing aura that worsens nearby wounds.</p>",
+      "publicNotesParagraphs": [
+        "A zombie shambler variant surrounded by a disease-bearing aura that worsens nearby wounds."
+      ],
+      "publication": {
+        "license": "ORC",
+        "remaster": true,
+        "title": "Pathfinder Monster Core"
+      }
+    },
+    "initiative": {
+      "statistic": "perception"
+    },
+    "perception": {
+      "details": "",
+      "mod": 0,
+      "senses": [
+        {
+          "type": "darkvision"
+        }
+      ]
+    },
+    "resources": {},
+    "saves": {
+      "fortitude": 6,
+      "reflex": 0,
+      "will": 2
+    },
+    "skills": {
+      "athletics": 7
+    },
+    "traits": {
+      "rarity": "common",
+      "size": "med",
+      "value": [
+        "mindless",
+        "undead",
+        "unholy",
+        "zombie"
+      ]
+    },
+    "immunities": [
+      {
+        "exceptions": [],
+        "type": "death-effects"
+      },
+      {
+        "exceptions": [],
+        "type": "disease"
+      },
+      {
+        "exceptions": [],
+        "type": "paralyzed"
+      },
+      {
+        "exceptions": [],
+        "type": "poison"
+      },
+      {
+        "exceptions": [],
+        "type": "unconscious"
+      },
+      {
+        "exceptions": [],
+        "type": "bleed"
+      }
+    ],
+    "weaknesses": [
+      {
+        "type": "vitality",
+        "value": 5
+      },
+      {
+        "type": "slashing",
+        "value": 5
+      }
+    ],
+    "resistances": []
+  },
+  "equipment": [],
+  "actions": [
+    {
+      "name": "Fist",
+      "type": "melee",
+      "system": {
+        "attack": {
+          "value": ""
+        },
+        "attackEffects": {
+          "custom": "",
+          "value": [
+            "grab"
+          ]
+        },
+        "bonus": {
+          "value": 7
+        },
+        "damageRolls": [
+          {
+            "damage": "1d6+3",
+            "damageType": "bludgeoning"
+          }
+        ],
+        "description": {
+          "value": ""
+        },
+        "range": null,
+        "rules": [],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": [
+            "unarmed"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Grab",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "action"
+        },
+        "actions": {
+          "value": 1
+        },
+        "category": "offensive",
+        "description": {
+          "value": "<p>@Localize[PF2E.NPC.Abilities.Glossary.Grab]</p>"
+        },
+        "descriptionParagraphs": [
+          "{Grab}"
+        ],
+        "descriptionContext": [
+          "PF2E.NPC.Abilities.Glossary.Grab"
+        ],
+        "publication": {
+          "license": "ORC",
+          "remaster": true,
+          "title": "Pathfinder Monster Core"
+        },
+        "rules": [],
+        "slug": "grab",
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    }
+  ],
+  "reactions": [],
+  "passives": [
+    {
+      "name": "Slow",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "passive"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "interaction",
+        "description": {
+          "value": "<p>A zombie is permanently @UUID[Compendium.pf2e.conditionitems.Item.Slowed]{Slowed 1} and can't use reactions.</p>"
+        },
+        "descriptionParagraphs": [
+          "A zombie is permanently {Slowed 1} and can't use reactions."
+        ],
+        "descriptionContext": [
+          "Compendium.pf2e.conditionitems.Item.Slowed"
+        ],
+        "rules": [
+          {
+            "inMemoryOnly": true,
+            "key": "GrantItem",
+            "uuid": "Compendium.pf2e.conditionitems.Item.Slowed"
+          }
+        ],
+        "slug": null,
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    },
+    {
+      "name": "Void Healing",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "passive"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "defensive",
+        "description": {
+          "value": "<p>@Localize[PF2E.NPC.Abilities.Glossary.NegativeHealing]</p>"
+        },
+        "descriptionParagraphs": [
+          "{NegativeHealing}"
+        ],
+        "descriptionContext": [
+          "PF2E.NPC.Abilities.Glossary.NegativeHealing"
+        ],
+        "publication": {
+          "license": "ORC",
+          "remaster": true,
+          "title": "Pathfinder Monster Core"
+        },
+        "rules": [
+          {
+            "key": "ActiveEffectLike",
+            "mode": "override",
+            "path": "system.attributes.hp.negativeHealing",
+            "value": true
+          }
+        ],
+        "slug": "void-healing",
+        "traits": {
+          "rarity": "common",
+          "value": []
+        }
+      }
+    },
+    {
+      "name": "Rotting Aura",
+      "type": "action",
+      "system": {
+        "actionType": {
+          "value": "passive"
+        },
+        "actions": {
+          "value": null
+        },
+        "category": "defensive",
+        "description": {
+          "value": "<p>10 feet. Wounded living creatures that start their turn in the aura take void damage.</p>"
+        },
+        "descriptionParagraphs": [
+          "10 feet. Wounded living creatures that start their turn in the aura take void damage."
+        ],
+        "publication": {
+          "license": "ORC",
+          "remaster": true,
+          "title": "Pathfinder Monster Core"
+        },
+        "rules": [
+          {
+            "key": "Aura",
+            "radius": 10,
+            "slug": "rotting-aura",
+            "traits": [
+              "disease",
+              "void"
+            ]
+          }
+        ],
+        "slug": "rotting-aura",
+        "traits": {
+          "rarity": "common",
+          "value": [
+            "aura",
+            "disease",
+            "void"
+          ]
+        }
+      }
+    }
+  ],
+  "conditions": [],
+  "weaponBonuses": {
+    "unarmed": 0,
+    "simple": 0,
+    "martial": 0,
+    "advanced": 0
+  },
+  "armorBonuses": {
+    "unarmored": 0,
+    "light": 0,
+    "medium": 0,
+    "heavy": 0
+  },
+  "playerOnlyStuff": [],
+  "Source": "packs/pathfinder-monster-core"
+}

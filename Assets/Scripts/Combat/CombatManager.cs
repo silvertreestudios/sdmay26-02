@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using UnityEngine.Events;
 using Game.Creature;
 using Game.Creature.Rules;
+using GridPrivate;
+using GridPublic;
 
 public class CombatManager : CombatManagerInterface
 {
@@ -165,11 +167,30 @@ public class CombatManager : CombatManagerInterface
         {
             TurnTaker = e.Player;
             OnNextTurn.Invoke(TurnTaker.gameObject);
+            ApplyTurnStartAuras(TurnTaker);
+            if (e.Player.gameObject.activeSelf)
+                e.Trigger();
         }
-        e.Trigger();
+        else
+        {
+            e.Trigger();
+        }
         // Only re-queue if the combatant is still active (not killed during their turn)
         if (e.Player == null || e.Player.gameObject.activeSelf)
             TurnQueue.Add(e);
+    }
+
+    private void ApplyTurnStartAuras(ActionController acting)
+    {
+        if (acting == null)
+            return;
+
+        GridAPI grid = UnityEngine.Object.FindFirstObjectByType<GridAPI>();
+        GridAPIPrivate gridPrivate = grid as GridAPIPrivate;
+        if (gridPrivate == null)
+            return;
+
+        CreatureAuraResolver.ApplyTurnStartAuras(acting, Combatants, gridPrivate.GetTiles());
     }
 
     //added by Ryan Meyer 5/29/24, For cameraManager to get the positions of all tokens

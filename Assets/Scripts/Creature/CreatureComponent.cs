@@ -22,6 +22,15 @@ namespace Game.Creature
 
     [System.Serializable] public struct RuleSelectionValue { public string flag; public string selection; }
 
+    [System.Serializable]
+    public class CreatureAura
+    {
+        public string name;
+        public string slug;
+        public int radiusFeet;
+        public List<string> traits = new List<string>();
+    }
+
 
     /// <summary>
     /// Unity creature component that owns mutable gameplay state and exposes narrow state snapshots for PF2e rules.
@@ -77,6 +86,7 @@ namespace Game.Creature
         [SerializeField] private List<string> _actions = new List<string>(); // standard actions
         [SerializeField] private List<string> _reactions = new List<string>(); // reactions
         [SerializeField] private List<string> _passives = new List<string>(); // abilities that don't require an action
+        [SerializeField] private List<CreatureAura> _auras = new List<CreatureAura>();
 
         // Conditions - commented out until used, uncomment getter/setter and serialized field if needed
         // [Header("Conditions")]
@@ -437,7 +447,9 @@ namespace Game.Creature
             return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToLowerInvariant().Replace(' ', '-');
         }
         // Other attributes
-        public List<string> traits { get; set; } = new List<string>();
+        [SerializeField] private List<string> _traits = new List<string>();
+        public List<string> traits { get => _traits; set => _traits = value ?? new List<string>(); }
+        public List<CreatureAura> auras { get => _auras; set => _auras = value ?? new List<CreatureAura>(); }
         public string size { get; set; }
         public List<string> languages { get; set; } = new List<string>();
         public List<string> senses { get; set; } = new List<string>();
