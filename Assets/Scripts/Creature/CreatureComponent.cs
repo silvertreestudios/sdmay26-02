@@ -6,6 +6,7 @@ using Game.Strikes;
 using Game.Rules;
 using GridPublic;
 using Game.Creature.Rules;
+using Game.Combat.Spells;
 
 namespace Game.Creature
 {
@@ -26,7 +27,7 @@ namespace Game.Creature
     /// <summary>
     /// Unity creature component that owns mutable gameplay state and exposes narrow state snapshots for PF2e rules.
     /// </summary>
-    public class CreatureComponent : MonoBehaviour 
+    public class CreatureComponent : MonoBehaviour
     {
 
         // Basic stats
@@ -482,6 +483,7 @@ namespace Game.Creature
             if(this.gameObject.GetComponent<ActionController>() != null){
                 Unarmed.AddUnarmedStrike(this.gameObject);
                 StrikeWeapon.WeaponStrikeAdderAutomatic(this.gameObject);
+                CastSpellAction.AddSpellActions(this.gameObject);
             }else{
                 Debug.LogWarning($"No ActionController found on {name}, cannot add default strikes");
             }
@@ -624,7 +626,7 @@ namespace Game.Creature
             GridAPI.GetInstance().DestroyToken(this.gameObject);
             OnDeath.Invoke(gameObject); // Trigger the death event
             CombatLog.GetInstance().Log("- " + this.gameObject.name + " was defeated!");
-            
+
             gameObject.SetActive(false);
         }
 
@@ -636,7 +638,7 @@ namespace Game.Creature
 
         public void GainTempHp(int tempHpAmount, bool overrideExisting)
         {
-            // TODO replace with UI prompt for player decision about which 
+            // TODO replace with UI prompt for player decision about which
             if(_tempHp > 0)
             {
                 // UI prompt here
@@ -764,16 +766,16 @@ namespace Game.Creature
         // Helper: check if left hand has a valid equipped weapon
         public bool HasEquippedLeftWeapon()
         {
-            return _equippedLeftHand != null && 
-                   !string.IsNullOrWhiteSpace(_equippedLeftHand.name) && 
+            return _equippedLeftHand != null &&
+                   !string.IsNullOrWhiteSpace(_equippedLeftHand.name) &&
                    _equippedLeftHand.damage != null;
         }
 
         // Helper: check if right hand has a valid equipped weapon
         public bool HasEquippedRightWeapon()
         {
-            return _equippedRightHand != null && 
-                   !string.IsNullOrWhiteSpace(_equippedRightHand.name) && 
+            return _equippedRightHand != null &&
+                   !string.IsNullOrWhiteSpace(_equippedRightHand.name) &&
                    _equippedRightHand.damage != null;
         }
 

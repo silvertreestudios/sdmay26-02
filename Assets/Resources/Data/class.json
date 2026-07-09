@@ -49,8 +49,8 @@
         "allArmor": "Untrained"
       },
       "spells": "available",
-      "subclass": ["Cloistered", "Warpriest"],
-      "classFeat": ["Deadly Simplicity", "Divine Castigation", "Domain Initiate", "Harming Hands", "Healing Hands", "Premonition of Avoidance", "Reach Spell"]
+      "subclass": ["Cloistered Cleric"],
+      "classFeat": ["Domain Initiate"]
     },
     {
       "id": "Rogue",
