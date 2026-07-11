@@ -1,3 +1,4 @@
+using Game.Combat.Spells;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -20,7 +21,9 @@ namespace Game.Creature.Rules
         public List<ActivePf2eEffect> ActiveEffects { get; } = new();
         public Dictionary<string, int> SkillRanks { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, int> RuleValues { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, string> RuleReferences { get; } = new(StringComparer.OrdinalIgnoreCase);
         public List<string> UnsupportedRuleKeys { get; } = new();
+        public SpellcastingState Spellcasting { get; set; }
 
         /// <summary>
         /// Creates prepared state around saved build choices while leaving all derivation to the preparer.

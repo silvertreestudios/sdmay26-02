@@ -1,10 +1,13 @@
 {
-    "_id": "qwZBXN6zBoB9BHXE",
+    "_id": "b5BQbwmuBhgPXTyi",
     "folder": "D7UVaOiB40wTR6kv",
-    "img": "systems/pf2e/icons/spells/divine-lance.webp",
-    "name": "Divine Lance",
+    "img": "icons/commodities/tech/antenna-powered-purple.webp",
+    "name": "Haunting Hymn",
     "system": {
-        "area": null,
+        "area": {
+            "type": "cone",
+            "value": 15
+        },
         "cost": {
             "value": ""
         },
@@ -13,17 +16,22 @@
             "0": {
                 "applyMod": false,
                 "category": null,
-                "formula": "2d4",
+                "formula": "1d8",
                 "kinds": [
                     "damage"
                 ],
                 "materials": [],
-                "type": "spirit"
+                "type": "sonic"
             }
         },
-        "defense": null,
+        "defense": {
+            "save": {
+                "basic": true,
+                "statistic": "fortitude"
+            }
+        },
         "description": {
-            "value": "<p>You unleash a beam of divine energy. Make a ranged spell attack against the target's AC. On a hit, the target takes 2d4 spirit damage (double damage on a critical hit).</p>\n<hr />\n<p><strong>Heightened (+1)</strong> The damage increases by 1d4.</p>"
+            "value": "<p>You echo a jarring hymn that only creatures in the area can hear. The hymn deals 1d8 sonic damage, with a basic Fortitude save. If a target critically fails the save, it's also @UUID[Compendium.pf2e.conditionitems.Item.Deafened] for 1 minute.</p>\n<hr />\n<p><strong>Heightened (+2)</strong> The damage increases by 1d8.</p>"
         },
         "duration": {
             "sustained": false,
@@ -31,27 +39,26 @@
         },
         "heightening": {
             "damage": {
-                "0": "1d4"
+                "0": "1d8"
             },
-            "interval": 1,
+            "interval": 2,
             "type": "interval"
         },
         "level": {
             "value": 1
         },
-        "overlays": {},
         "publication": {
             "license": "ORC",
             "remaster": true,
-            "title": "Pathfinder Player Core"
+            "title": "Pathfinder Player Core 2"
         },
         "range": {
-            "value": "60 feet"
+            "value": ""
         },
         "requirements": "",
         "rules": [],
         "target": {
-            "value": "1 creature"
+            "value": ""
         },
         "time": {
             "value": "2"
@@ -59,15 +66,15 @@
         "traits": {
             "rarity": "common",
             "traditions": [
-                "divine"
+                "divine",
+                "occult"
             ],
             "value": [
-                "attack",
+                "auditory",
                 "cantrip",
                 "concentrate",
                 "manipulate",
-                "sanctified",
-                "spirit"
+                "sonic"
             ]
         }
     },
