@@ -2,7 +2,7 @@
 
 This proposal describes a command-based rules architecture for future PF2e actions, reactions, spells, auras, and feat behavior. The goal is to prevent core gameplay classes from accumulating feature-specific `if` statements while still giving players transparent UI state such as active effects, available reactions, and logged rule causes.
 
-The key idea is that gameplay operations are typed commands with lifecycle phases. Features register listeners for the specific command types and phases they care about. A feature such as Reactive Strike listens to movement and manipulate commands at `Begin`; a feature such as Bless listens to movement commands at `End`; a feature such as Tumble Through creates a movement command with action-scoped movement rules.
+The key idea is that gameplay operations are typed commands with typed responses and lifecycle phases. Features register listeners for the specific command types and phases they care about. A feature such as Reactive Strike listens to movement and manipulate commands at `Begin`; a feature such as Bless listens to movement commands at `End`; a feature such as Tumble Through creates a movement command with action-scoped movement rules.
 
 Rules references:
 
@@ -16,90 +16,208 @@ Rules references:
 - Keep PF2e feature behavior self-contained in feature classes.
 - Let the engine expose generic command lifecycles instead of feature-specific hooks.
 - Preserve immediate UI transparency for active effects such as Bless.
-- Support preemption, prompts, nested commands, and cancellation.
+- Support preemption, prompts, nested commands, typed responses, and cancellation.
 - Keep modifier math centralized through `IPf2eModifierProvider` and `Pf2eModifierResolver`.
 - Introduce this incrementally without replacing existing `EntityAction`, HUD, grid, and Strike code in one large rewrite.
 
 ## Core Model
 
-Use typed commands, not one generic stringly-typed event payload. Commands are mutable contexts that flow through a shared lifecycle.
+Use typed commands and typed responses, not one generic stringly-typed event payload. Every command declares the response type it returns. Commands whose response is not important can use `BasicCommandResponse`; commands whose results drive later rules should expose typed response fields.
 
 ```csharp
 public interface IRuleCommand
 {
     Guid Id { get; }
+    Guid? ParentId { get; set; }
+    Guid RootId { get; set; }
+    string SourceFeatureId { get; set; }
     GameObject Actor { get; }
+    IReadOnlyList<GameObject> Targets { get; }
     bool Cancelled { get; }
-    CommandResult Result { get; }
 
     void Cancel(string source, string reason);
 }
 
+public interface IRuleCommand<TResponse> : IRuleCommand
+    where TResponse : CommandResponse
+{
+}
+
+public abstract class RuleCommand<TResponse> : IRuleCommand<TResponse>
+    where TResponse : CommandResponse
+{
+    public Guid Id { get; } = Guid.NewGuid();
+    public Guid? ParentId { get; set; }
+    public Guid RootId { get; set; }
+    public string SourceFeatureId { get; set; }
+    public GameObject Actor { get; init; }
+    public virtual IReadOnlyList<GameObject> Targets => Array.Empty<GameObject>();
+    public bool Cancelled { get; private set; }
+    public string CancellationSource { get; private set; }
+    public string CancellationReason { get; private set; }
+
+    public void Cancel(string source, string reason)
+    {
+        Cancelled = true;
+        CancellationSource = source;
+        CancellationReason = reason;
+    }
+}
+
+public abstract class CommandResponse
+{
+    public bool Succeeded { get; init; }
+    public bool Cancelled { get; init; }
+    public string SourceFeatureId { get; init; }
+    public List<CommandFact> Facts { get; } = new();
+}
+
+public sealed class BasicCommandResponse : CommandResponse
+{
+}
+
+public sealed class CommandFact
+{
+    public string Kind { get; init; }
+    public GameObject Subject { get; init; }
+    public GameObject Object { get; init; }
+    public string SourceFeatureId { get; init; }
+    public int Amount { get; init; }
+}
+```
+
+Commands with explicit target fields should override `Targets` or populate a target list so generic UI, logs, and trigger checks do not need type-specific target lookup.
+
+Typed responses keep feature code explicit:
+
+```csharp
+public sealed class StrikeCommand : RuleCommand<StrikeCommandResponse>
+{
+    public GameObject Target;
+    public override IReadOnlyList<GameObject> Targets =>
+        Target == null ? Array.Empty<GameObject>() : new[] { Target };
+    public Strike SourceStrike;
+    public StrikeTargetResult TargetingResult;
+}
+
+public sealed class StrikeCommandResponse : CommandResponse
+{
+    public GameObject Target { get; init; }
+    public D20Result AttackRoll { get; init; }
+    public DegreeOfSuccess Degree { get; init; }
+    public uint DamageApplied { get; init; }
+    public bool TargetReducedToZero { get; init; }
+    public AttackResultContext AttackResult { get; init; }
+}
+```
+
+The generic `Facts` list gives cross-cutting systems a uniform audit and trigger surface without erasing typed response data. For example, a `StrikeCommandResponse` can expose `TargetReducedToZero` directly and also add a `CommandFact` with kind `ReducedToZero` for generic death-triggered listeners.
+
+## Lifecycle Phases
+
+Commands flow through shared lifecycle phases.
+
+```csharp
 public enum CommandPhase
 {
     Begin,
-    Commit,
     End,
     Cancelled
 }
 
-public interface ICommandListener<TCommand> where TCommand : IRuleCommand
+public interface ICommandListener<TCommand, TResponse>
+    where TCommand : IRuleCommand<TResponse>
+    where TResponse : CommandResponse
 {
     int Priority { get; }
     CommandPhase Phase { get; }
-    IEnumerator OnCommandPhase(TCommand command, CommandFrame frame);
+    IEnumerator OnCommandPhase(
+        TCommand command,
+        CommandPhaseContext<TResponse> context,
+        CommandFrame frame);
+}
+
+public sealed class CommandPhaseContext<TResponse>
+    where TResponse : CommandResponse
+{
+    public CommandPhase Phase { get; set; }
+    public TResponse Response { get; set; }
 }
 ```
 
-The command runner owns lifecycle ordering:
+The command runner owns lifecycle ordering. This pseudo-code uses `CoroutineResult<TResponse>` to fit Unity coroutine flow; a future task-based runner could return `TResponse` directly.
 
 ```csharp
-public IEnumerator Execute<TCommand>(TCommand command)
-    where TCommand : IRuleCommand
+public IEnumerator Execute<TCommand, TResponse>(
+    TCommand command,
+    CoroutineResult<TResponse> response)
+    where TCommand : IRuleCommand<TResponse>
+    where TResponse : CommandResponse
 {
-    yield return Dispatch(command, CommandPhase.Begin);
+    AssignParentAndRootIds(command);
+
+    CommandPhaseContext<TResponse> context = new() { Phase = CommandPhase.Begin };
+    yield return Dispatch(command, context);
 
     if (!command.Cancelled)
-        yield return RunCommandHandler(command);
+    {
+        CoroutineResult<TResponse> handlerResult = new();
+        yield return RunCommandHandler<TCommand, TResponse>(command, handlerResult);
+        context.Response = handlerResult.Value;
+    }
 
     if (command.Cancelled)
-        yield return Dispatch(command, CommandPhase.Cancelled);
+    {
+        context.Response ??= BuildCancelledResponse<TResponse>(command);
+        context.Phase = CommandPhase.Cancelled;
+        yield return Dispatch(command, context);
+    }
     else
-        yield return Dispatch(command, CommandPhase.End);
+    {
+        context.Phase = CommandPhase.End;
+        yield return Dispatch(command, context);
+    }
+
+    response.Value = context.Response;
 }
 ```
 
-`Begin` is for preemption and validation. `Commit` is where the command's primary effect happens. `End` is for follow-up state updates after the command succeeded. `Cancelled` is for cleanup and logging when the command did not complete.
+`Begin` is for preemption and validation. The command handler runs the primary effect between `Begin` and `End`. `End` is for follow-up state updates after the command succeeded. `Cancelled` is for cleanup and logging when the command did not complete.
 
 Nested command execution is explicit through a frame object:
 
 ```csharp
 public sealed class CommandFrame
 {
+    public IRuleCommand Current { get; }
     public IRuleCommand Parent { get; }
+    public Guid RootId { get; }
 
-    public IEnumerator Execute(IRuleCommand nestedCommand);
+    public IEnumerator Execute<TResponse>(
+        IRuleCommand<TResponse> nestedCommand,
+        CoroutineResult<TResponse> response)
+        where TResponse : CommandResponse;
 }
 ```
 
-This lets a listener pause the current command, resolve prompts or reactions, and then allow the parent command to continue or cancel it.
+This lets a listener pause the current command, resolve prompts or reactions, and then allow the parent command to continue or cancel it. Parent id, root id, and source feature id should be assigned immediately in the first pass because they are painful to retrofit and support logs, once-per-use effects, and command causality.
 
 ## Commands Versus Queries
 
-Not everything needs to be a command. Commands are for operations with lifecycle, side effects, prompts, cancellation, or logs. Pure reads should remain services.
+Not everything needs to be a command. Commands are for operations with lifecycle, side effects, prompts, cancellation, logs, or a response that later rules may inspect. Pure reads should remain services.
 
 Good command candidates:
 
-- `StrikeCommand`
-- `MovementCommand`
-- `MovementStepCommand`
-- `PromptChoiceCommand`
-- `SpendReactionCommand`
-- `ApplyEffectCommand`
-- `RemoveEffectCommand`
-- `SkillCheckCommand`
-- `FlatCheckCommand`
-- `ActionCommand`
+- `StrikeCommand : IRuleCommand<StrikeCommandResponse>`
+- `MovementCommand : IRuleCommand<MovementResponse>`
+- `MovementStepCommand : IRuleCommand<MovementStepResponse>`
+- `PromptChoiceCommand : IRuleCommand<PromptChoiceResponse>`
+- `SpendReactionCommand : IRuleCommand<BasicCommandResponse>`
+- `ApplyEffectCommand : IRuleCommand<BasicCommandResponse>`
+- `RemoveEffectCommand : IRuleCommand<BasicCommandResponse>`
+- `SkillCheckCommand : IRuleCommand<SkillCheckResponse>`
+- `FlatCheckCommand : IRuleCommand<FlatCheckResponse>`
+- `ActionCommand : IRuleCommand<ActionCommandResponse>`
 
 Good service/query candidates:
 
@@ -115,7 +233,7 @@ This distinction keeps rules expressive without turning simple reads into corout
 
 ## Runtime Components
 
-`RuleCommandBus` executes commands, dispatches listeners, applies listener ordering, and tracks command nesting.
+`RuleCommandBus` executes commands, dispatches listeners, applies listener ordering, tracks command nesting, and returns typed responses.
 
 `ActiveEffectTracker` lives on creatures. It stores visible effects and implements `IPf2eModifierProvider`, allowing UI and mechanics to read the same state.
 
@@ -144,9 +262,55 @@ public sealed class ActiveEffectTracker : MonoBehaviour, IPf2eModifierProvider
 
 `StrikeResolutionService` resolves `StrikeCommand` so normal Strikes, Reactive Strike, and future reaction attacks share one attack/damage path.
 
-`MovementService` resolves `MovementCommand` and emits per-cell `MovementStepCommand` child commands.
+`MovementService` resolves `MovementCommand` and per-cell `MovementStepCommand` child commands.
+
+`MovementCostProvider` implementations participate in both path preview and actual movement execution. This is needed early so dynamic costs such as difficult terrain, feat-based spaces, and future aura terrain do not diverge between UI preview and committed movement.
 
 `AuraFeature` implementations listen to command phases and apply or remove visible active effects as creatures enter, leave, or move the aura source.
+
+## Movement Cost Providers
+
+Movement path preview and movement execution must ask the same providers for movement cost. Otherwise a path can look legal in UI and fail during execution.
+
+```csharp
+public interface IMovementCostProvider
+{
+    bool AppliesTo(MovementStepPreview step);
+    int AdditionalCost(MovementStepPreview step);
+}
+
+public sealed class MovementStepPreview
+{
+    public GameObject Actor { get; init; }
+    public Vector3Int From { get; init; }
+    public Vector3Int To { get; init; }
+    public GameObject Occupant { get; init; }
+    public int BaseCost { get; init; }
+}
+```
+
+The committed `MovementStepCommand` should include the cost computed from the same provider set.
+
+```csharp
+public sealed class MovementStepCommand : RuleCommand<MovementStepResponse>
+{
+    public Vector3Int From;
+    public Vector3Int To;
+    public int BaseCost;
+    public int TotalCost;
+    public GameObject ToOccupant;
+}
+
+public sealed class MovementStepResponse : CommandResponse
+{
+    public Vector3Int From { get; init; }
+    public Vector3Int To { get; init; }
+    public bool Moved { get; init; }
+    public int CostPaid { get; init; }
+}
+```
+
+The first implementation only needs base terrain plus a test provider, but the hook should be present from the start.
 
 ## Listener Ordering
 
@@ -163,26 +327,34 @@ Suggested convention:
 - lower priorities run earlier
 - validation/prevention listeners run before prompts
 - prompts/reactions run before the command handler
-- post-commit UI/effect refresh listeners run at `End`
+- post-handler UI/effect refresh listeners run at `End`
 
 ## Normal Strike Example
 
 Normal Strike becomes a typed `StrikeCommand`. Existing `EntityAction` wrappers can create the command internally so the current HUD action list does not need to change immediately.
 
 ```csharp
-public sealed class StrikeCommand : RuleCommand
+public sealed class StrikeCommand : RuleCommand<StrikeCommandResponse>
 {
     public GameObject Target;
+    public override IReadOnlyList<GameObject> Targets =>
+        Target == null ? Array.Empty<GameObject>() : new[] { Target };
     public Strike SourceStrike;
     public StrikeTargetResult TargetingResult;
 
     public bool AppliesMultipleAttackPenalty = true;
     public bool IncrementsMultipleAttackPenalty = true;
     public bool CostsActionPoint = true;
+}
 
-    public D20Result AttackRoll;
-    public DegreeOfSuccess Degree;
-    public AttackResultContext AttackResult;
+public sealed class StrikeCommandResponse : CommandResponse
+{
+    public GameObject Target { get; init; }
+    public D20Result AttackRoll { get; init; }
+    public DegreeOfSuccess Degree { get; init; }
+    public uint DamageApplied { get; init; }
+    public bool TargetReducedToZero { get; init; }
+    public AttackResultContext AttackResult { get; init; }
 }
 ```
 
@@ -191,16 +363,18 @@ Flow:
 ```text
 Player selects Strike
   -> existing EntityAction creates StrikeCommand
-  -> Execute(StrikeCommand)
+  -> Execute(StrikeCommand) returns StrikeCommandResponse
   -> Begin listeners may adjust roll context or cancel
-  -> Commit resolves attack roll, AC, damage, and AttackResultPipeline
+  -> handler resolves attack roll, AC, damage, and AttackResultPipeline
   -> End spends action cost, increments MAP, logs result
 ```
 
 Pseudo-code:
 
 ```csharp
-public IEnumerator Commit(StrikeCommand command)
+public IEnumerator Resolve(
+    StrikeCommand command,
+    CoroutineResult<StrikeCommandResponse> response)
 {
     CreatureComponent attacker = command.Actor.GetComponent<CreatureComponent>();
     CreatureComponent target = command.Target.GetComponent<CreatureComponent>();
@@ -216,15 +390,45 @@ public IEnumerator Commit(StrikeCommand command)
     Pf2eModifierResolution ac = target.ResolveArmorClass(
         BuildStrikeAcModifiers(command.TargetingResult.CoverAcBonus));
 
-    command.AttackRoll = D20.Roll(attack.Total, ac.Total);
-    command.Degree = command.AttackRoll.degree;
+    D20Result attackRoll = D20.Roll(attack.Total, ac.Total);
+    AttackResultContext attackResult = null;
+    uint damageApplied = 0;
+    bool reducedToZero = false;
 
-    if (command.Degree == DegreeOfSuccess.Success ||
-        command.Degree == DegreeOfSuccess.CriticalSuccess)
+    if (attackRoll.degree == DegreeOfSuccess.Success ||
+        attackRoll.degree == DegreeOfSuccess.CriticalSuccess)
     {
-        command.AttackResult = BuildAttackResultContext(command, attack, ac);
-        AttackResultPipeline.ProcessHit(command.AttackResult);
+        attackResult = BuildAttackResultContext(command, attack, ac, attackRoll);
+        int hpBefore = target.hp;
+        AttackResultPipeline.ProcessHit(attackResult);
+        damageApplied = attackResult.FinalAppliedDamage;
+        reducedToZero = hpBefore > 0 && target.hp == 0;
     }
+
+    StrikeCommandResponse result = new()
+    {
+        Succeeded = true,
+        SourceFeatureId = command.SourceFeatureId,
+        Target = command.Target,
+        AttackRoll = attackRoll,
+        Degree = attackRoll.degree,
+        DamageApplied = damageApplied,
+        TargetReducedToZero = reducedToZero,
+        AttackResult = attackResult
+    };
+
+    if (reducedToZero)
+    {
+        result.Facts.Add(new CommandFact
+        {
+            Kind = "ReducedToZero",
+            Subject = command.Target,
+            Object = command.Actor,
+            SourceFeatureId = command.SourceFeatureId
+        });
+    }
+
+    response.Value = result;
 }
 ```
 
@@ -238,46 +442,50 @@ Movement trigger:
 
 ```csharp
 public sealed class ReactiveStrikeFeature :
-    ICommandListener<MovementStepCommand>,
-    ICommandListener<ActionCommand>
+    ICommandListener<MovementStepCommand, MovementStepResponse>,
+    ICommandListener<ActionCommand, ActionCommandResponse>
 {
     public int Priority => 100;
     public CommandPhase Phase => CommandPhase.Begin;
 
-    public IEnumerator OnCommandPhase(MovementStepCommand move, CommandFrame frame)
+    public IEnumerator OnCommandPhase(
+        MovementStepCommand move,
+        CommandPhaseContext<MovementStepResponse> context,
+        CommandFrame frame)
     {
         if (!CanReactiveStrike(move.Actor, move.From, move.To))
             yield break;
 
-        PromptChoiceCommand choice = new PromptChoiceCommand
+        CoroutineResult<PromptChoiceResponse> choice = new();
+        yield return frame.Execute(new PromptChoiceCommand
         {
             Actor = owner,
             Prompt = "Use Reactive Strike?",
-            Source = "Reactive Strike",
+            SourceFeatureId = "reactive-strike",
             Target = move.Actor
-        };
-        yield return frame.Execute(choice);
-        if (!choice.Accepted)
+        }, choice);
+        if (!choice.Value.Accepted)
             yield break;
 
-        SpendReactionCommand spend = new SpendReactionCommand
+        CoroutineResult<BasicCommandResponse> spend = new();
+        yield return frame.Execute(new SpendReactionCommand
         {
             Actor = owner,
-            Source = "Reactive Strike"
-        };
-        yield return frame.Execute(spend);
-        if (!spend.Result.Success)
+            SourceFeatureId = "reactive-strike"
+        }, spend);
+        if (!spend.Value.Succeeded)
             yield break;
 
-        StrikeCommand strike = new StrikeCommand
+        CoroutineResult<StrikeCommandResponse> strike = new();
+        yield return frame.Execute(new StrikeCommand
         {
             Actor = owner,
             Target = move.Actor,
             AppliesMultipleAttackPenalty = false,
             IncrementsMultipleAttackPenalty = false,
-            CostsActionPoint = false
-        };
-        yield return frame.Execute(strike);
+            CostsActionPoint = false,
+            SourceFeatureId = "reactive-strike"
+        }, strike);
     }
 }
 ```
@@ -285,17 +493,21 @@ public sealed class ReactiveStrikeFeature :
 Manipulate trigger:
 
 ```csharp
-public IEnumerator OnCommandPhase(ActionCommand action, CommandFrame frame)
+public IEnumerator OnCommandPhase(
+    ActionCommand action,
+    CommandPhaseContext<ActionCommandResponse> context,
+    CommandFrame frame)
 {
     if (!action.HasTrait("manipulate"))
         yield break;
     if (!CanReactiveStrike(action.Actor))
         yield break;
 
-    StrikeCommand strike = yield return PromptSpendAndStrike(action.Actor, frame);
+    CoroutineResult<StrikeCommandResponse> strike = new();
+    yield return PromptSpendAndStrike(action.Actor, frame, strike);
 
-    if (strike != null &&
-        strike.Degree == DegreeOfSuccess.CriticalSuccess)
+    if (strike.Value != null &&
+        strike.Value.Degree == DegreeOfSuccess.CriticalSuccess)
     {
         action.Cancel("Reactive Strike", "Critical hit disrupted manipulate action.");
     }
@@ -311,8 +523,8 @@ Bless is an aura with event-maintained visible effects. Do not wait until roll t
 When Bless is cast:
 
 ```text
-Execute(CastSpellCommand: Bless)
-  -> Commit creates BlessAuraFeature instance
+Execute(CastSpellCommand: Bless) returns CastSpellResponse
+  -> handler creates BlessAuraFeature instance
   -> End recomputes all combatants
   -> affected allies receive visible Bless active effect
 ```
@@ -321,21 +533,22 @@ Aura membership updates on movement:
 
 ```csharp
 public sealed class BlessAuraFeature :
-    ICommandListener<MovementStepCommand>,
-    ICommandListener<AuraRadiusChangedCommand>,
-    ICommandListener<EffectEndedCommand>
+    ICommandListener<MovementStepCommand, MovementStepResponse>,
+    ICommandListener<AuraRadiusChangedCommand, BasicCommandResponse>,
+    ICommandListener<EffectEndedCommand, BasicCommandResponse>
 {
     public int Priority => 500;
     public CommandPhase Phase => CommandPhase.End;
 
-    public IEnumerator OnCommandPhase(MovementStepCommand move, CommandFrame frame)
+    public IEnumerator OnCommandPhase(
+        MovementStepCommand move,
+        CommandPhaseContext<MovementStepResponse> context,
+        CommandFrame frame)
     {
-        RecomputeFor(move.Actor, frame);
+        yield return RecomputeFor(move.Actor, frame);
 
         if (move.Actor == source)
-            RecomputeAllCombatants(frame);
-
-        yield break;
+            yield return RecomputeAllCombatants(frame);
     }
 }
 ```
@@ -352,19 +565,23 @@ private IEnumerator RecomputeFor(GameObject candidate, CommandFrame frame)
 
     if (affected)
     {
+        CoroutineResult<BasicCommandResponse> apply = new();
         yield return frame.Execute(new ApplyEffectCommand
         {
             Actor = candidate,
-            Effect = BuildBlessEffect()
-        });
+            Effect = BuildBlessEffect(),
+            SourceFeatureId = "bless"
+        }, apply);
     }
     else
     {
+        CoroutineResult<BasicCommandResponse> remove = new();
         yield return frame.Execute(new RemoveEffectCommand
         {
             Actor = candidate,
-            SourceInstanceId = blessInstanceId
-        });
+            SourceInstanceId = blessInstanceId,
+            SourceFeatureId = "bless"
+        }, remove);
     }
 }
 ```
@@ -391,10 +608,11 @@ public sealed class BlessEffect : ActiveEffectInstance
 When a Blessed creature attacks, the existing modifier resolver handles stacking with other status bonuses.
 
 ```text
-StrikeCommand.Commit
+StrikeCommand handler
   -> CreatureComponent.ResolveAttackRoll(...)
   -> ActiveEffectTracker contributes Bless modifier
   -> Pf2eModifierResolver applies stacking rules
+  -> StrikeCommandResponse records the final roll and result
 ```
 
 This gives immediate UI feedback and keeps combat math centralized.
@@ -404,12 +622,20 @@ This gives immediate UI feedback and keeps combat math centralized.
 Tumble Through is an action command that creates a movement command with action-scoped movement rules. The grid should not hardcode the name "Tumble Through".
 
 ```csharp
-public sealed class TumbleThroughCommand : RuleCommand
+public sealed class TumbleThroughCommand : RuleCommand<TumbleThroughResponse>
 {
     public MovementCommand Movement;
     public GameObject TargetEnemy;
-    public bool CheckResolved;
-    public DegreeOfSuccess AcrobaticsResult;
+    public override IReadOnlyList<GameObject> Targets =>
+        TargetEnemy == null ? Array.Empty<GameObject>() : new[] { TargetEnemy };
+}
+
+public sealed class TumbleThroughResponse : CommandResponse
+{
+    public GameObject TargetEnemy { get; init; }
+    public DegreeOfSuccess AcrobaticsResult { get; init; }
+    public bool PassedThroughEnemySpace { get; init; }
+    public MovementResponse Movement { get; init; }
 }
 ```
 
@@ -417,7 +643,7 @@ Flow:
 
 ```text
 Player selects Tumble Through
-  -> Execute(TumbleThroughCommand)
+  -> Execute(TumbleThroughCommand) returns TumbleThroughResponse
   -> command creates MovementCommand with TumbleThroughMovementRule
   -> movement pathing allows provisional enemy-occupied cell
   -> entering enemy space rolls Acrobatics vs Reflex DC
@@ -430,8 +656,8 @@ Movement rules are attached to the movement command:
 ```csharp
 public interface IMovementRule
 {
-    bool CanEnter(MovementStepCommand step);
-    int GetAdditionalCost(MovementStepCommand step);
+    bool CanEnter(MovementStepPreview step);
+    int GetAdditionalCost(MovementStepPreview step);
     IEnumerator OnBeforeEnter(MovementStepCommand step, CommandFrame frame);
 }
 ```
@@ -441,55 +667,101 @@ Tumble Through supplies its own movement rule:
 ```csharp
 public sealed class TumbleThroughMovementRule : IMovementRule
 {
-    public bool CanEnter(MovementStepCommand step)
+    public bool CheckResolved { get; private set; }
+    public DegreeOfSuccess AcrobaticsResult { get; private set; }
+
+    public bool CanEnter(MovementStepPreview step)
     {
-        if (step.ToOccupant == null)
+        if (step.Occupant == null)
             return true;
 
-        return step.ToOccupant == targetEnemy;
+        return step.Occupant == targetEnemy;
     }
 
-    public int GetAdditionalCost(MovementStepCommand step)
+    public int GetAdditionalCost(MovementStepPreview step)
     {
-        return step.ToOccupant == targetEnemy ? step.BaseCost : 0;
+        return step.Occupant == targetEnemy ? step.BaseCost : 0;
     }
 
     public IEnumerator OnBeforeEnter(MovementStepCommand step, CommandFrame frame)
     {
-        if (step.ToOccupant != targetEnemy || checkResolved)
+        if (step.ToOccupant != targetEnemy || CheckResolved)
             yield break;
 
-        SkillCheckCommand roll = new SkillCheckCommand
+        CoroutineResult<SkillCheckResponse> roll = new();
+        yield return frame.Execute(new SkillCheckCommand
         {
             Actor = actor,
             SkillName = "Acrobatics",
             DifficultyClass = ReflexDcService.GetReflexDc(targetEnemy),
-            Source = "Tumble Through"
-        };
-        yield return frame.Execute(roll);
+            SourceFeatureId = "tumble-through"
+        }, roll);
 
-        checkResolved = true;
-        acrobaticsResult = roll.Degree;
+        CheckResolved = true;
+        AcrobaticsResult = roll.Value.Degree;
 
-        if (roll.Degree < DegreeOfSuccess.Success)
+        if (roll.Value.Degree < DegreeOfSuccess.Success)
             step.Cancel("Tumble Through", "Failed to move through enemy space.");
     }
 }
 ```
 
+The Tumble Through command response is built from the movement response and the action-scoped movement rule state.
+
+```csharp
+CoroutineResult<MovementResponse> movement = new();
+yield return frame.Execute(command.Movement, movement);
+
+response.Value = new TumbleThroughResponse
+{
+    Succeeded = movement.Value.Succeeded,
+    TargetEnemy = command.TargetEnemy,
+    AcrobaticsResult = tumbleRule.AcrobaticsResult,
+    PassedThroughEnemySpace = tumbleRule.CheckResolved &&
+        tumbleRule.AcrobaticsResult >= DegreeOfSuccess.Success,
+    Movement = movement.Value
+};
+```
+
 Reactive Strike does not need to know Tumble Through exists. It only sees `MovementStepCommand.Begin` like any other movement.
 
-## Suggested Vertical Slice
+## First-Pass Scope
 
 Implement this in stages to avoid a broad rewrite.
 
-1. Add the command runner, typed command base, command frame, and listener registration.
-2. Add `ActiveEffectTracker` and make it an `IPf2eModifierProvider`.
-3. Wrap current Strike resolution in `StrikeCommand` while preserving existing `EntityAction` entry points.
-4. Add `MovementStepCommand` around the current step loop in `StateStride`.
-5. Implement Bless as the first active-effect aura.
-6. Implement Reactive Strike using `MovementStepCommand.Begin` and `ActionCommand.Begin`.
-7. Implement Tumble Through using movement command rules.
+1. Add `RuleCommand<TResponse>`, `CommandResponse`, `BasicCommandResponse`, `CommandFact`, command frame, and listener registration.
+2. Assign parent id, root id, actor, targets, and source feature id for every command.
+3. Add typed listener priority and lifecycle phases.
+4. Add `ActiveEffectTracker` and make it an `IPf2eModifierProvider`.
+5. Add the movement cost provider hook and ensure path preview and movement execution share it.
+6. Wrap current Strike resolution in `StrikeCommand` while preserving existing `EntityAction` entry points.
+7. Add `MovementStepCommand` around the current step loop in `StateStride`.
+8. Implement Bless as the first active-effect aura.
+9. Implement Reactive Strike using `MovementStepCommand.Begin` and `ActionCommand.Begin`.
+10. Implement Tumble Through using movement command rules.
+
+## Deferred Scope
+
+These are intentionally not first-pass requirements, but the model should leave room for them.
+
+- pending next-command effects, such as spellshape benefits
+- persistent area effects and hazardous terrain zones
+- teleport and forced movement taxonomy
+- full spell result modeling
+- fortune and misfortune arbitration
+- chained damage and defeat resolution
+- generic replacement effects
+
+Pending next-command effects can be documented as a future hook without implementing storage, invalidation, UI, or tests in v1.
+
+```csharp
+public interface IPendingCommandEffect
+{
+    bool AppliesTo(IRuleCommand command);
+    IEnumerator Apply(IRuleCommand command, CommandFrame frame);
+    void Expire(PendingEffectExpireReason reason);
+}
+```
 
 ## Caveats
 
@@ -505,15 +777,23 @@ Effect state should be visible and mechanical. If a player should know they are 
 
 Keep commands typed. A generic `RuleCommand` with arbitrary tags would be harder to search, test, and refactor.
 
+Keep responses typed. Feature logic should inspect `StrikeCommandResponse`, `MovementStepResponse`, and similar explicit response types rather than downcasting a generic result object.
+
+Keep facts generic. Cross-cutting logs and delayed triggers can inspect `CommandFact` without depending on every response type.
+
 ## Test Expectations
 
 Prefer deterministic EditMode tests for:
 
 - command lifecycle ordering
+- typed command responses
+- command fact recording
+- parent id and root id propagation
 - nested command execution
 - cancellation behavior
 - listener priority
 - active effect add/remove behavior
+- movement cost provider parity between preview and execution
 - Bless modifier stacking through `Pf2eModifierResolver`
 - Reactive Strike reaction spending and MAP exemption
 - Tumble Through skill check and movement stop behavior
