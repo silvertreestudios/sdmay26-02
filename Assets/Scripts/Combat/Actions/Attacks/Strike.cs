@@ -295,5 +295,3 @@ public interface IStrikeAdjustmentProvider
 }
 
 public class OnStrikePreparedEvent : StaticUnityEvent<OnStrikePreparedEvent, StrikeResolutionContext> { }
-
-

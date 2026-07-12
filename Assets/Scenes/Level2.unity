@@ -15237,6 +15237,67 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 260640630}
   m_Mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!1001 &261611795
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 1482348887408822193, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 12
+      objectReference: {fileID: 0}
+    - target: {fileID: 1482348887408822193, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1482348887408822193, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 30
+      objectReference: {fileID: 0}
+    - target: {fileID: 1482348887408822193, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1482348887408822193, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1482348887408822193, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1482348887408822193, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1482348887408822193, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1482348887408822193, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1482348887408822193, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3529646480320815615, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: m_Name
+      value: zombie-shambler-rotting-aura
+      objectReference: {fileID: 0}
+    - target: {fileID: 4331769715411260288, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
+      propertyPath: <Name>k__BackingField
+      value: Zombies
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: bf0a0ee31329bfe4fb5d23dbe99d124d, type: 3}
 --- !u!1 &265243672
 GameObject:
   m_ObjectHideFlags: 0
@@ -135213,72 +135274,6 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 6921552487640700387, guid: 9af2d97d2899147188c1fda5db7f582d, type: 3}
   m_PrefabInstance: {fileID: 2120331901}
   m_PrefabAsset: {fileID: 0}
---- !u!1001 &2120334306
-PrefabInstance:
-  m_ObjectHideFlags: 0
-  serializedVersion: 2
-  m_Modification:
-    serializedVersion: 3
-    m_TransformParent: {fileID: 0}
-    m_Modifications:
-    - target: {fileID: 1556978515433345310, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_Mesh
-      value: 
-      objectReference: {fileID: -1306287401402662401, guid: d9e17dbadb98846ae8b04c9726f148e9, type: 3}
-    - target: {fileID: 5821593739516632169, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_LocalPosition.x
-      value: 12
-      objectReference: {fileID: 0}
-    - target: {fileID: 5821593739516632169, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_LocalPosition.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 5821593739516632169, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_LocalPosition.z
-      value: 30
-      objectReference: {fileID: 0}
-    - target: {fileID: 5821593739516632169, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_LocalRotation.w
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 5821593739516632169, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_LocalRotation.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 5821593739516632169, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_LocalRotation.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 5821593739516632169, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_LocalRotation.z
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 5821593739516632169, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 5821593739516632169, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 5821593739516632169, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.z
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 7005988303118988967, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: m_Name
-      value: zombie-shambler (2)
-      objectReference: {fileID: 0}
-    - target: {fileID: 7837854870448240000, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-      propertyPath: <Name>k__BackingField
-      value: Zombies
-      objectReference: {fileID: 0}
-    m_RemovedComponents:
-    - {fileID: 6526205508254451706, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
-    m_RemovedGameObjects: []
-    m_AddedGameObjects: []
-    m_AddedComponents: []
-  m_SourcePrefab: {fileID: 100100000, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}
 --- !u!1 &2120784434
 GameObject:
   m_ObjectHideFlags: 0
@@ -136672,7 +136667,7 @@ SceneRoots:
   - {fileID: 970174158}
   - {fileID: 481499600}
   - {fileID: 180933117}
-  - {fileID: 2120334306}
+  - {fileID: 261611795}
   - {fileID: 2134803689}
   - {fileID: 300927359}
   - {fileID: 1423501992}

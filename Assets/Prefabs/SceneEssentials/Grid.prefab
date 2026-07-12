@@ -14,6 +14,7 @@ GameObject:
   - component: {fileID: 855444430254580328}
   - component: {fileID: 1822279502085929403}
   - component: {fileID: 2328881485120049778}
+  - component: {fileID: 8601997762308973152}
   m_Layer: 0
   m_Name: Grid
   m_TagString: Untagged
@@ -46,7 +47,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2243be99eb79bbe4292460d9fe0a1d7a, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::GridBase
 --- !u!114 &4680215030041954131
 MonoBehaviour:
@@ -58,7 +59,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c7faf117d248d954ca5a0da08fd7eefd, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::MapGenerator
   ImageMap: {fileID: 0}
   spacing: 1
@@ -98,7 +99,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f6035678cd457f844a1ffebcd6ae1559, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::GridInput
 --- !u!114 &1822279502085929403
 MonoBehaviour:
@@ -110,7 +111,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: eb7c1d0ae7d5cd34bbadf4f08eaa075a, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::GridVisuals
   HoverPrefab: {fileID: 8655392066640400182, guid: c11e75bfdf06f9a45bede66aa651e15b, type: 3}
   RangePrefab: {fileID: 8655392066640400182, guid: 100483f396e57a648934bd455608797d, type: 3}
@@ -127,7 +128,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 7589ca45bffac4582896851d2bca76a8, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::GridPrivate.TokenMovement
   StepHeight: 1
   MaxRotation: 0.6
@@ -189,3 +190,19 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   JumpTime: 0.6
+--- !u!114 &8601997762308973152
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8046027799161636309}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 06d35f96bbbf4b49b820e52330d5b626, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: MainGameAssembly::GridPrivate.AuraGridVisuals
+  AuraPrefab: {fileID: 1278404967031447886, guid: f00c437d91ec64544a2ca5484fcc167e, type: 3}
+  AuraOffset: 0.018
+  AuraParticlePrefab: {fileID: 1701017023780030390, guid: f7ca4c23887574b41abbdaa847073f86, type: 3}
+  AuraParticleVerticalOffset: 0.09

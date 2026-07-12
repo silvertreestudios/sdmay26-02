@@ -484,4 +484,3 @@ internal sealed class FatalExtraDieStrikeAdjustment : StrikeAdjustmentBase
         DeadlyStrikeAdjustment.AddCriticalTraitDamage(context, trait, sides);
     }
 }
-

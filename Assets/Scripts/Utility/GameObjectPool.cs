@@ -38,9 +38,10 @@ public class GameObjectPool
     /// <returns>instance of the prefab</returns>
     public GameObject GetObject()
     {
+        Pool.RemoveAll(go => go == null);
         foreach(GameObject go in Pool)
         {
-            if(!go.activeInHierarchy)
+            if(go != null && !go.activeInHierarchy)
             {
                 go.SetActive(true);
                 Active.Add(go);
@@ -57,9 +58,10 @@ public class GameObjectPool
     public List<GameObject> GetMany(int amt)
     {
         List<GameObject> result = new();
+        Pool.RemoveAll(go => go == null);
         foreach (GameObject go in Pool)
         {
-            if (!go.activeInHierarchy)
+            if (go != null && !go.activeInHierarchy)
             {
                 go.SetActive(true);
                 Active.Add(go);
@@ -95,7 +97,8 @@ public class GameObjectPool
     /// <param name="g">Gameobject to destroy</param>
     public void Destroy(GameObject g)
     {
-        g.SetActive(false);
+        if (g != null)
+            g.SetActive(false);
         Active.Remove(g);
     }
 
@@ -106,7 +109,11 @@ public class GameObjectPool
     public void Clear()
     {
         foreach (GameObject go in Active)
-            go.SetActive(false);
+        {
+            if (go != null)
+                go.SetActive(false);
+        }
         Active.Clear();
+        Pool.RemoveAll(go => go == null);
     }
 }
