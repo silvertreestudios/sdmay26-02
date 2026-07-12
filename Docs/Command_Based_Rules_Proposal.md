@@ -56,6 +56,10 @@ public sealed record BasicCommandResponse(
     : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
 ```
 
+`IRuleCommand` is intentionally only a marker and typed-response relationship. Registration, validation, and execution belong to rule definitions and handlers, not command data objects.
+
+`CommandResponse` is an abstract record because responses are immutable result data with a shared envelope. It is not just a capability contract.
+
 Rationale: if commands execute themselves, every command becomes a small service object and replay becomes harder. Keeping commands as data lets the engine log, serialize, replay, inspect, and test requests without hidden behavior.
 
 ### Commands And Responses Carry Provenance
@@ -79,13 +83,6 @@ public interface ICommandFrame
     RuleBindingId NewBindingId();
 }
 
-public interface IFrameIdScope
-{
-    EffectId NewEffectId(CommandId command);
-    EffectInstanceId NewEffectInstanceId(CommandId command);
-    RuleBindingId NewBindingId(CommandId command);
-}
-
 public sealed record CommandFrame<TCommand>(
     CommandId Id,
     CommandId? ParentId,
@@ -95,18 +92,15 @@ public sealed record CommandFrame<TCommand>(
     CreatureId? Actor,
     Type CommandType,
     TCommand Command,
-    ImmutableArray<Trait> Traits,
-    IFrameIdScope Ids) : ICommandFrame
+    ImmutableArray<Trait> Traits) : ICommandFrame
 {
-    public EffectId NewEffectId() => Ids.NewEffectId(Id);
-    public EffectInstanceId NewEffectInstanceId() => Ids.NewEffectInstanceId(Id);
-    public RuleBindingId NewBindingId() => Ids.NewBindingId(Id);
+    public EffectId NewEffectId() { /* deterministic frame-scoped ID */ }
+    public EffectInstanceId NewEffectInstanceId() { /* deterministic frame-scoped ID */ }
+    public RuleBindingId NewBindingId() { /* deterministic frame-scoped ID */ }
 }
 ```
 
 `ICommandFrame` is the common metadata view for any code that needs to inspect a command without reading command-specific payload. Broad listeners should use frame metadata such as actor, traits, command type, source rule, source binding, and provenance. If a rule needs `StrikeCommand`-specific fields, it should register a typed `ICommandStartListener<StrikeCommand, StrikeResponse>` instead of casting through a generic listener.
-
-The frame ID scope is engine-owned runtime metadata. It gives handlers a consistent way to create provenance-linked effect, effect-instance, and binding IDs without falling back to ad hoc context-scoped ID calls. The implementation must be deterministic for replay, but it is not part of the command payload.
 
 Rationale: provenance is required for combat logs, once-per-trigger validation, response listeners, nested command ancestry, generic trait/predicate triggers, and replay. Keeping it on the frame also keeps command payloads focused on semantic input.
 
@@ -184,8 +178,6 @@ public interface ICommandStartListener<TCommand, TResponse>
     where TCommand : IRuleCommand<TResponse>
     where TResponse : CommandResponse
 {
-    int Priority { get; }
-
     IEnumerable<RuleEffect> OnCommandStarting(
         ActiveRuleBinding binding,
         CommandFrame<TCommand> frame,
@@ -196,8 +188,6 @@ public interface ICommandResponseListener<TCommand, TResponse>
     where TCommand : IRuleCommand<TResponse>
     where TResponse : CommandResponse
 {
-    int Priority { get; }
-
     IEnumerable<RuleEffect> OnCommandResolved(
         ActiveRuleBinding binding,
         CommandFrame<TCommand> frame,
@@ -231,8 +221,9 @@ public sealed class BlessRule :
     ICommandResponseListener<MovementStepCommand, MovementStepResponse>,
     ICommandResponseListener<AuraRadiusChangedCommand, BasicCommandResponse>
 {
-    public RuleSourceId SourceId => RuleSources.Spell("bless");
-    private static readonly RuleSourceId AuraSourceId = RuleSources.SpellEffect("bless-aura");
+    public static readonly RuleSourceId SourceId = RuleSources.Spell("bless");
+    public static readonly RuleSourceId AuraSourceId = RuleSources.SpellEffect("bless-aura");
+    RuleSourceId IRuleDefinition.SourceId => SourceId;
 
     public void Register(IRuleRegistryBuilder rules)
     {
@@ -552,7 +543,6 @@ Predicate listeners are the escape hatch for rules that care about traits or bro
 ```csharp
 public interface ICommandPredicateListener
 {
-    int Priority { get; }
     bool AppliesTo(ICommandFrame frame);
     IEnumerable<RuleEffect> OnCommandStarting(
         ActiveRuleBinding binding,
@@ -682,22 +672,6 @@ public interface IRollService
 }
 ```
 
-Concrete Bless examples:
-
-```csharp
-var attackModifiers = context.Modifiers.Resolve(
-    subject: blessedAlly,
-    statistic: StatisticIds.AttackRoll,
-    context: ModifierContext.ForCommand(strikeFrame),
-    snapshot: snapshot);
-
-var affectedCreatures = AuraQueryService.CreaturesInEmanation(
-    owner: blessCaster,
-    radius: Feet.Of(15),
-    snapshot: snapshot)
-    .Where(creature => snapshot.IsAlly(blessCaster, creature));
-```
-
 Rationale: services keep shared math centralized without giving up the command/effect architecture. Static helpers are fine for pure deterministic calculations. Interfaces are preferable for snapshot access, randomness, data catalogs, and anything a test may need to replace.
 
 ## Visible Effects And Derived Effects
@@ -748,27 +722,52 @@ Rules-facing responsibilities:
 - emit immutable effects and facts;
 - update `MutableRulesState` through effect appliers.
 
-A Unity adapter can then project rules facts and effects into scene/UI work:
+A Unity adapter can then project rules facts and effects into scene/UI work through registered presenters instead of one central switchboard:
 
 ```csharp
+public interface IUnityFactPresenter<TFact>
+    where TFact : RuleFact
+{
+    void Present(TFact fact, UnityPresentationContext context);
+}
+
+public interface IUnityEffectPresenter<TEffect>
+    where TEffect : RuleEffect
+{
+    void Present(TEffect effect, UnityPresentationContext context);
+}
+
 public sealed class UnityRulesPresenter
 {
     public void OnFactCommitted(RuleFact fact)
     {
-        if (fact is ActiveEffectAppliedFact applied && applied.Effect.SourceRule == BlessRule.SourceId)
-            hudEffects.ShowEffect(applied.Target, applied.Effect.DisplayName);
-
-        if (fact is DamageAppliedFact damage)
-            combatLog.Render(damage);
+        factPresenters.For(fact).Present(fact, context);
     }
 
     public void OnEffectApplied(RuleEffect effect)
     {
-        if (effect is MoveTokenEffect move)
-            tokenAnimator.EnqueueMove(move.Token, move.From, move.To);
+        effectPresenters.For(effect).Present(effect, context);
+    }
+}
+
+public sealed class BlessEffectPresenter : IUnityFactPresenter<ActiveEffectAppliedFact>
+{
+    public void Present(ActiveEffectAppliedFact fact, UnityPresentationContext context)
+    {
+        if (fact.Effect.SourceRule == BlessRule.SourceId)
+            context.HudEffects.ShowEffect(fact.Target, fact.Effect.DisplayName);
+    }
+}
+
+public sealed class MovementPresenter : IUnityEffectPresenter<MoveTokenEffect>
+{
+    public void Present(MoveTokenEffect effect, UnityPresentationContext context)
+    {
+        context.TokenAnimator.EnqueueMove(effect.Token, effect.From, effect.To);
     }
 }
 ```
+
 
 Rationale: this gives us an incremental path out of `GameObject`-centric rules while still letting the current Unity project host the engine.
 
@@ -842,7 +841,8 @@ public sealed class StrikeRule :
     IRuleDefinition,
     ICommandHandler<StrikeCommand, StrikeResponse>
 {
-    public RuleSourceId SourceId => RuleSources.Core("strike");
+    public static readonly RuleSourceId SourceId = RuleSources.Core("strike");
+    RuleSourceId IRuleDefinition.SourceId => SourceId;
 
     public void Register(IRuleRegistryBuilder rules)
     {
@@ -933,7 +933,8 @@ public sealed class ReactiveStrikeRule :
     ICommandStartListener<MovementStepCommand, MovementStepResponse>,
     ICommandHandler<ReactiveStrikeCommand, ReactiveStrikeResponse>
 {
-    public RuleSourceId SourceId => RuleSources.Feat("reactive-strike");
+    public static readonly RuleSourceId SourceId = RuleSources.Feat("reactive-strike");
+    RuleSourceId IRuleDefinition.SourceId => SourceId;
     private static readonly PromptId UsePrompt = PromptId.For(SourceId, "use");
 
     public void Register(IRuleRegistryBuilder rules)
@@ -956,7 +957,7 @@ public sealed class ReactiveStrikeRule :
         ICommandFrame trigger,
         IRulesSnapshot snapshot)
     {
-        if (!CanReachEnemy(binding.Owner, trigger.Actor, snapshot))
+        if (!CanPromptReactiveStrike(binding, trigger.Actor, snapshot))
             yield break;
 
         yield return PromptForReactiveStrike(binding, trigger);
@@ -970,7 +971,7 @@ public sealed class ReactiveStrikeRule :
         if (!snapshot.GetStrikeProfile(trigger.Command.Profile).IsRanged)
             yield break;
 
-        if (!CanReachEnemy(binding.Owner, trigger.Command.Actor, snapshot))
+        if (!CanPromptReactiveStrike(binding, trigger.Command.Actor, snapshot))
             yield break;
 
         yield return PromptForReactiveStrike(binding, trigger);
@@ -981,10 +982,20 @@ public sealed class ReactiveStrikeRule :
         CommandFrame<MovementStepCommand> trigger,
         IRulesSnapshot snapshot)
     {
+        if (!snapshot.HasReactionAvailable(binding.Owner))
+            yield break;
+
         if (!IsLeavingSquareWithinReach(binding.Owner, trigger.Command.Actor, trigger.Command.From, snapshot))
             yield break;
 
         yield return PromptForReactiveStrike(binding, trigger);
+    }
+
+    private bool CanPromptReactiveStrike(ActiveRuleBinding binding, CreatureId? triggerActor, IRulesSnapshot snapshot)
+    {
+        return triggerActor.HasValue
+            && snapshot.HasReactionAvailable(binding.Owner)
+            && CanReachEnemy(binding.Owner, triggerActor.Value, snapshot);
     }
 
     private RuleEffect PromptForReactiveStrike(ActiveRuleBinding binding, ICommandFrame trigger)
@@ -1021,6 +1032,9 @@ public sealed class ReactiveStrikeRule :
 
         if (binding.SourceId != SourceId || binding.Owner != command.Actor)
             return Response.Invalid<ReactiveStrikeResponse>(frame.Id, FailureReasons.InvalidRuleBinding);
+
+        if (!snapshot.HasReactionAvailable(command.Actor))
+            return Response.Invalid<ReactiveStrikeResponse>(frame.Id, FailureReasons.NoReactionAvailable);
 
         var spend = new SpendReactionEffect(frame.NewEffectId(), frame.Id, SourceId, binding.Id, command.Actor);
         effects.Add(spend);
@@ -1082,8 +1096,9 @@ public sealed class BlessRule :
     ICommandResponseListener<MovementStepCommand, MovementStepResponse>,
     ICommandResponseListener<AuraRadiusChangedCommand, BasicCommandResponse>
 {
-    public RuleSourceId SourceId => RuleSources.Spell("bless");
-    private static readonly RuleSourceId AuraSourceId = RuleSources.SpellEffect("bless-aura");
+    public static readonly RuleSourceId SourceId = RuleSources.Spell("bless");
+    public static readonly RuleSourceId AuraSourceId = RuleSources.SpellEffect("bless-aura");
+    RuleSourceId IRuleDefinition.SourceId => SourceId;
     private static readonly EffectSlug AttackBonusEffect = EffectSlug.For(SourceId, "attack-bonus");
     private static readonly ModifierSlug AttackBonusModifier = ModifierSlug.For(SourceId, "status-attack-bonus");
 
@@ -1234,7 +1249,8 @@ public sealed class TumbleThroughRule :
     IRuleDefinition,
     ICommandHandler<TumbleThroughCommand, TumbleThroughResponse>
 {
-    public RuleSourceId SourceId => RuleSources.Action("tumble-through");
+    public static readonly RuleSourceId SourceId = RuleSources.Action("tumble-through");
+    RuleSourceId IRuleDefinition.SourceId => SourceId;
 
     public void Register(IRuleRegistryBuilder rules)
     {
@@ -1391,7 +1407,8 @@ public sealed class CranialDetonationRule :
     ICommandResponseListener<CastSpellCommand, CastSpellResponse>,
     ICommandHandler<CranialDetonationCommand, CranialDetonationResponse>
 {
-    public RuleSourceId SourceId => RuleSources.Feat("cranial-detonation");
+    public static readonly RuleSourceId SourceId = RuleSources.Feat("cranial-detonation");
+    RuleSourceId IRuleDefinition.SourceId => SourceId;
     private static readonly PromptId UsePrompt = PromptId.For(SourceId, "use");
 
     public void Register(IRuleRegistryBuilder rules)
@@ -1757,7 +1774,7 @@ The existing grid FSM still has value for selecting targets, paths, and areas. L
 
 ### Listener Ordering Must Be Deterministic
 
-Multiple rules can react to the same command. Listener priority and stable tie-breaking by rule source are required. Component order, registration order from scene objects, and dictionary iteration order are not acceptable rules ordering mechanisms.
+Multiple rules can react to the same command. Dispatch order must be deterministic, but the first-pass API should avoid numeric listener priorities because they create implicit dependencies across unrelated rules. Use a stable engine-defined ordering for independent listeners, and model real before/after requirements as explicit lifecycle hooks, typed pipelines, or command/effect relationships. Component order, registration order from scene objects, and dictionary iteration order are not acceptable rules ordering mechanisms.
 
 ## Test Expectations
 
