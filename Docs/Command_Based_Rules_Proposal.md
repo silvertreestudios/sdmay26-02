@@ -63,8 +63,6 @@ Rationale: if commands execute themselves, every command becomes a small service
 Provenance should be attached through command frames and effect/fact metadata rather than through mutable fields on the command payload.
 
 ```csharp
-public readonly record struct CommandTypeId(string Value);
-
 public interface ICommandFrame
 {
     CommandId Id { get; }
@@ -73,7 +71,7 @@ public interface ICommandFrame
     RuleBindingId? SourceBinding { get; }
     RuleSourceId? SourceRule { get; }
     CreatureId? Actor { get; }
-    CommandTypeId CommandType { get; }
+    Type CommandType { get; }
     ImmutableArray<Trait> Traits { get; }
 
     EffectId NewEffectId();
@@ -95,7 +93,7 @@ public sealed record CommandFrame<TCommand>(
     RuleBindingId? SourceBinding,
     RuleSourceId? SourceRule,
     CreatureId? Actor,
-    CommandTypeId CommandType,
+    Type CommandType,
     TCommand Command,
     ImmutableArray<Trait> Traits,
     IFrameIdScope Ids) : ICommandFrame
@@ -106,7 +104,7 @@ public sealed record CommandFrame<TCommand>(
 }
 ```
 
-`ICommandFrame` is the common metadata view for any code that needs to inspect a command without reading command-specific payload. Broad listeners should use frame metadata such as actor, traits, command type ID, source rule, source binding, and provenance. If a rule needs `StrikeCommand`-specific fields, it should register a typed `ICommandStartListener<StrikeCommand, StrikeResponse>` instead of casting through a generic listener.
+`ICommandFrame` is the common metadata view for any code that needs to inspect a command without reading command-specific payload. Broad listeners should use frame metadata such as actor, traits, command type, source rule, source binding, and provenance. If a rule needs `StrikeCommand`-specific fields, it should register a typed `ICommandStartListener<StrikeCommand, StrikeResponse>` instead of casting through a generic listener.
 
 The frame ID scope is engine-owned runtime metadata. It gives handlers a consistent way to create provenance-linked effect, effect-instance, and binding IDs without falling back to ad hoc context-scoped ID calls. The implementation must be deterministic for replay, but it is not part of the command payload.
 
@@ -950,7 +948,7 @@ public sealed class ReactiveStrikeRule :
     {
         return frame.Traits.Contains(Trait.Manipulate)
             || (frame.Traits.Contains(Trait.Move)
-                && frame.CommandType != CommandTypes.MovementStep);
+                && frame.CommandType != typeof(MovementStepCommand));
     }
 
     public IEnumerable<RuleEffect> OnCommandStarting(
