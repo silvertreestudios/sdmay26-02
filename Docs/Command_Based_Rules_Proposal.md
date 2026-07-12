@@ -701,6 +701,60 @@ public interface IDerivedEffectProvider
 }
 ```
 
+Concrete stored-effect flow:
+
+```csharp
+// BlessRule emits this when an ally enters the aura.
+yield return new ApplyActiveEffectEffect(
+    frame.NewEffectId(),
+    frame.Id,
+    BlessRule.SourceId,
+    aura.Id,
+    target,
+    BuildBlessBonusEffect(frame, aura, target));
+
+// The effect applier stores the active effect and emits a fact.
+yield return new ActiveEffectAppliedFact(
+    factId,
+    frame.Id,
+    BlessRule.SourceId,
+    aura.Id,
+    target,
+    appliedEffect);
+
+// Unity presentation reacts to the fact through a registered presenter.
+public sealed class BlessEffectPresenter : IUnityFactPresenter<ActiveEffectAppliedFact>
+{
+    public void Present(ActiveEffectAppliedFact fact, UnityPresentationContext context)
+    {
+        if (fact.Effect.SourceRule == BlessRule.SourceId)
+            context.HudEffects.RefreshCreatureEffects(fact.Target);
+    }
+}
+```
+
+In that flow, the rules snapshot owns the active effect and its modifier. Unity does not become the source of truth; it refreshes token badges, current-effect lists, and tooltips from `snapshot.ActiveEffectsFor(creature)`.
+
+Concrete derived-effect flow:
+
+```csharp
+public sealed class ChampionAuraDerivedEffects : IDerivedEffectProvider
+{
+    public ImmutableArray<DerivedEffect> GetDerivedEffects(IRulesSnapshot snapshot)
+    {
+        return snapshot.CreaturesWithRule(ChampionAuraRule.SourceId)
+            .SelectMany(champion => BuildAuraProjection(champion, snapshot))
+            .ToImmutableArray();
+    }
+}
+
+// Unity can query derived projections for previews without mutating rules state.
+var visibleEffects = snapshot.ActiveEffectsFor(creature)
+    .Concat(derivedEffectService.GetDerivedEffects(snapshot).ForCreature(creature));
+```
+
+Derived effects are useful when no individual creature needs a stored effect instance yet. The UI can still show them in current-effect panels, aura overlays, movement previews, or targeting hints, but there is no apply/remove churn when creatures move in and out unless a concrete rule needs stored state.
+
 Rationale: not every aura should eagerly mutate every creature on every movement step. Bless benefits from stored visible effects on affected allies. Some terrain or aura effects may be cleaner as projections queried by movement preview, current-effects UI, and movement execution.
 
 ## Unity Boundary
