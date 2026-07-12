@@ -40,10 +40,10 @@ namespace Game.Creature
         public DetailsDto details;
         public PerceptionDto perception;
         public SaveSetDto saves;
+        public TraitsDto traits;
         public List<SkillValue> skills;
         public WeaknessDto[] weaknesses;
         public ResistanceDto[] resistances;
-        public TraitsDto traits;
     }
     [Serializable]
     public class DetailsDto
@@ -54,7 +54,7 @@ namespace Game.Creature
         public string[] publicNotesParagraphs;
     }
 
-    [Serializable] public class AttributesDto { 
+    [Serializable] public class AttributesDto {
         public int ac;
         public HpDto hp;
         public SpeedEntryDto[] speed;
@@ -101,8 +101,8 @@ namespace Game.Creature
     [Serializable] public class TraitsDto { public string rarity; public string size; public string[] value; }
 
     [Serializable] public class EquipmentDto { public string name; public string type; public int quantity; }
-    [Serializable] 
-    public class WeaponDto { 
+    [Serializable]
+    public class WeaponDto {
         public string name;
         public string type;
         public string group;
@@ -173,7 +173,7 @@ namespace Game.Creature
                 ? dto.actions[0]?.system?.bonus?.value ?? target.attackBonus
                 : target.attackBonus;
 
-            // TODO: temporary, damage bonus directly from str mod 
+            // TODO: temporary, damage bonus directly from str mod
             target.damageBonus = dto.system.abilities != null ? dto.system.abilities.str : target.strMod;
 
             // Action-specific weapon attack bonuses from imported creature actions
@@ -225,11 +225,14 @@ namespace Game.Creature
             target.reflexSave = dto.system.saves != null ? dto.system.saves.reflex : target.reflexSave;
             target.willSave = dto.system.saves != null ? dto.system.saves.will : target.willSave;
 
-            target.traits = dto.system.traits?.value != null
-                ? new List<string>(dto.system.traits.value)
-                : new List<string>();
-            target.size = dto.system.traits?.size;
-
+            target.traits.Clear();
+            if (dto.system.traits?.value != null)
+            {
+                foreach (string trait in dto.system.traits.value)
+                    if (!string.IsNullOrWhiteSpace(trait))
+                        target.traits.Add(trait);
+            }
+            target.size = dto.system.traits?.size ?? target.size;
             // Replace weaknesses/resistances lists
             // Debug.Log(target.name +" weaknesses and resistances from DTO:");
             var weaknessEntries = dto.system.weaknesses ?? dto.system.attributes?.weaknesses;
@@ -284,7 +287,7 @@ namespace Game.Creature
                     if (!string.IsNullOrEmpty(p?.name)){
                         target.passives.Add(p.name);
                         AddAurasFromPassive(target, p);
-                        //DefinedAbilities.TryGet(p.name)?.Apply(target.gameObject); 
+                        //DefinedAbilities.TryGet(p.name)?.Apply(target.gameObject);
                     }
                 }
             }
@@ -352,7 +355,7 @@ namespace Game.Creature
                         // Debug.Log($"CreatureDtoMapper: AC after equipping armor: {target.ac}");
                     }
                 }
-            
+
             // Conditions
             // if (target.conditions == null) target.conditions = new List<string>();
             // target.conditions.Clear();
@@ -607,7 +610,7 @@ namespace Game.Creature
                     EquipmentWeapon weapon = new EquipmentWeapon();
                     weapon.name = dto.name;
                     weapon.type = dto.type;
-                    weapon.group = dto.group;   
+                    weapon.group = dto.group;
                     weapon.category = dto.category;
                     weapon.hands = dto.hands;
                     weapon.damage = new Dice(dto.damageDice, dto.damageDie, dto.damageType);
@@ -625,7 +628,7 @@ namespace Game.Creature
                 }
             }
             return weapons;
-        }   
+        }
 
         public static List<EquipmentArmor> GetAllArmors()
         {
@@ -653,10 +656,10 @@ namespace Game.Creature
                 {
                     EquipmentArmor armor = new EquipmentArmor();
                     armor.name = dto.name;
-                    armor.type = dto.type; 
+                    armor.type = dto.type;
                     armor.category = dto.category;
                     armor.price = dto.price;
-                    armor.acBonus = dto.acBonus;    
+                    armor.acBonus = dto.acBonus;
                     armor.dexCap = dto.dexCap;
                     armor.checkPenalty = dto.checkPenalty;
                     armor.speedPenalty = dto.speedPenalty;

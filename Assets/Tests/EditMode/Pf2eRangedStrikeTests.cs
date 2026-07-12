@@ -182,20 +182,32 @@ namespace TestsCombat
         public void MultipleAttackPenaltyUsesAgileValues()
         {
             // PF2e source: https://2e.aonprd.com/Rules.aspx?ID=2288
-            MethodInfo method = typeof(Strike).GetMethod("CalculateMultipleAttackPenalty", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(method);
+            GameObject logObject = new GameObject("test-combat-log");
+            InstallTestCombatLog(logObject);
+            GameObject attacker = CreateCombatCreature("attacker", 100);
+            GameObject target = CreateCombatCreature("target", 100);
+            TestActionController controller = attacker.GetComponent<TestActionController>();
 
-            Strike normal = new Strike(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue>());
-            Strike agile = new Strike(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>())
+            StrikeProfile normal = new StrikeProfile(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue>());
+            StrikeProfile agile = new StrikeProfile(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>())
             {
                 Traits = new List<string> { "agile" }
             };
 
-            Assert.AreEqual(0, (int)method.Invoke(normal, new object[] { 0u }));
-            Assert.AreEqual(5, (int)method.Invoke(normal, new object[] { 1u }));
-            Assert.AreEqual(10, (int)method.Invoke(normal, new object[] { 2u }));
-            Assert.AreEqual(4, (int)method.Invoke(agile, new object[] { 1u }));
-            Assert.AreEqual(8, (int)method.Invoke(agile, new object[] { 2u }));
+            controller.StrikePenalty = 0;
+            Assert.AreEqual(0, ResolveForContext(attacker, target, normal).MultipleAttackPenalty);
+            controller.StrikePenalty = 1;
+            Assert.AreEqual(5, ResolveForContext(attacker, target, normal).MultipleAttackPenalty);
+            controller.StrikePenalty = 2;
+            Assert.AreEqual(10, ResolveForContext(attacker, target, normal).MultipleAttackPenalty);
+            controller.StrikePenalty = 1;
+            Assert.AreEqual(4, ResolveForContext(attacker, target, agile).MultipleAttackPenalty);
+            controller.StrikePenalty = 2;
+            Assert.AreEqual(8, ResolveForContext(attacker, target, agile).MultipleAttackPenalty);
+
+            UnityEngine.Object.DestroyImmediate(attacker);
+            UnityEngine.Object.DestroyImmediate(target);
+            UnityEngine.Object.DestroyImmediate(logObject);
         }
 
         [Test]
@@ -206,22 +218,28 @@ namespace TestsCombat
             // Cover AC bonus: https://2e.aonprd.com/Rules.aspx?ID=2372
             GameObject logObject = new GameObject("test-combat-log");
             TestCombatLog log = InstallTestCombatLog(logObject);
-            GameObject attacker = new GameObject("attacker");
-            GameObject target = new GameObject("target");
-            attacker.AddComponent<TestActionController>().StrikePenalty = 1;
-            CreatureComponent attackerCreature = attacker.AddComponent<CreatureComponent>();
-            CreatureComponent targetCreature = target.AddComponent<CreatureComponent>();
+            GameObject attacker = CreateCombatCreature("attacker", 100);
+            GameObject target = CreateCombatCreature("target", 100);
+            attacker.GetComponent<TestActionController>().StrikePenalty = 1;
+            CreatureComponent attackerCreature = attacker.GetComponent<CreatureComponent>();
+            CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
             attackerCreature.attackBonus = 7;
             targetCreature.ac = 100;
             targetCreature.hp = 100;
 
-            Strike strike = new Strike(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>());
-            strike.Damage(attacker, target, new StrikeTargetResult
+            StrikeProfile profile = new StrikeProfile(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>());
+            StrikeResolutionPipeline.Resolve(new StrikeResolutionRequest
             {
+                Attacker = attacker,
                 Target = target,
-                LineOfEffect = StrikeLineOfEffect.Clear,
-                Cover = StrikeCover.Standard,
-                RangePenalty = -2
+                Profile = profile,
+                TargetingResult = new StrikeTargetResult
+                {
+                    Target = target,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                    Cover = StrikeCover.Standard,
+                    RangePenalty = -2
+                }
             });
 
             string attackLog = log.Messages.FirstOrDefault(message => message.StartsWith("attacker -> target | Strike", StringComparison.Ordinal));
@@ -241,7 +259,6 @@ namespace TestsCombat
             UnityEngine.Object.DestroyImmediate(target);
             UnityEngine.Object.DestroyImmediate(logObject);
         }
-
         [Test]
         public void AmmoAndReloadStateAreEnforced()
         {
@@ -317,8 +334,8 @@ namespace TestsCombat
 
             StrikeWeapon action = new StrikeWeapon(1, shortbow, creature);
 
-            Assert.AreEqual(0, action.GetStrike().FlatDamages.Count);
-            Assert.AreEqual(3.5f, action.GetStrike().GetAvgDmg());
+            Assert.AreEqual(0, action.GetStrikeProfile().FlatDamages.Count);
+            Assert.AreEqual(3.5f, action.GetStrikeProfile().GetAverageDamage());
             UnityEngine.Object.DestroyImmediate(creature);
         }
 
@@ -342,11 +359,24 @@ namespace TestsCombat
                 creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
                 Assert.IsTrue(new Rage(0).UseRage(creatureObject));
 
-                Strike projectileStrike = new Strike(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>());
-                projectileStrike.Traits.Add("ranged");
+                StrikeProfile projectileStrike = new StrikeProfile(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>())
+                {
+                    Traits = new List<string> { "ranged" },
+                    IsRangedAttack = true
+                };
+                GameObject target = new GameObject("target");
+                target.AddComponent<CreatureComponent>();
 
-                Assert.DoesNotThrow(() => Pf2eRulesEngine.ApplyStrikeDamageModifiers(creature, projectileStrike));
-                Assert.AreEqual(0, projectileStrike.FlatDamages.Count);
+                StrikeResolutionContext context = StrikeResolutionContext.FromRequest(new StrikeResolutionRequest
+                {
+                    Attacker = creatureObject,
+                    Target = target,
+                    Profile = projectileStrike,
+                    TargetingResult = new StrikeTargetResult { Target = target, LineOfEffect = StrikeLineOfEffect.Clear, Cover = StrikeCover.None }
+                });
+                Assert.DoesNotThrow(() => Pf2eRulesEngine.ApplyPreparedStrikeAdjustments(context));
+                Assert.AreEqual(0, context.FlatDamages.Count);
+                UnityEngine.Object.DestroyImmediate(target);
             }
             finally
             {
@@ -355,6 +385,35 @@ namespace TestsCombat
             }
         }
 
+        private static GameObject CreateCombatCreature(string name, int hp)
+        {
+            GameObject creature = new GameObject(name);
+            CreatureComponent component = creature.AddComponent<CreatureComponent>();
+            creature.AddComponent<TestActionController>();
+            component.hp = hp;
+            component.maxHp = hp;
+            component.ac = 10;
+            component.attackBonus = 10;
+            component.weaknesses = new List<DamageValue>();
+            component.resistances = new List<DamageValue>();
+            return creature;
+        }
+
+        private static StrikeResolutionContext ResolveForContext(GameObject attacker, GameObject target, StrikeProfile profile)
+        {
+            return StrikeResolutionPipeline.Resolve(new StrikeResolutionRequest
+            {
+                Attacker = attacker,
+                Target = target,
+                Profile = profile,
+                TargetingResult = new StrikeTargetResult
+                {
+                    Target = target,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                    Cover = StrikeCover.None
+                }
+            }).Context;
+        }
         private static Tile[,] BuildTiles(int width, int height)
         {
             Tile[,] tiles = new Tile[width, height];

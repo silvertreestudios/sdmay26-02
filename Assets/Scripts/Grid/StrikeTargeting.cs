@@ -24,11 +24,16 @@ namespace GridPublic
         public int RangeIncrementFeet { get; set; } = 0;
         public bool IsRanged { get; set; } = false;
         public bool RequiresLineOfEffect { get; set; } = true;
+        public int FixedRangeFeet { get; set; } = 0;
 
         public int MaximumRangeFeet
         {
             get
             {
+                if (IsRanged && FixedRangeFeet > 0)
+                    return FixedRangeFeet;
+                if (IsRanged && FixedRangeFeet > 0)
+                    return FixedRangeFeet;
                 if (IsRanged && RangeIncrementFeet > 0)
                     return RangeIncrementFeet * 6;
                 return ReachFeet;
@@ -94,7 +99,11 @@ namespace GridPrivate
 
             int distance = MeasureGridDistanceFeet(start, target);
             if (request.IsRanged)
+            {
+                if (request.FixedRangeFeet > 0)
+                    return distance <= request.FixedRangeFeet;
                 return request.RangeIncrementFeet > 0 && distance <= request.RangeIncrementFeet * 6;
+            }
             return distance <= request.ReachFeet;
         }
 
@@ -155,7 +164,7 @@ namespace GridPrivate
             if (request.IsRanged && clearRays > 0 && clearRays < 16)
                 cover = GridPublic.StrikeCover.Standard;
 
-            int rangePenalty = request.IsRanged
+            int rangePenalty = request.IsRanged && request.FixedRangeFeet <= 0
                 ? CalculateRangePenalty(distance, request.RangeIncrementFeet)
                 : 0;
 

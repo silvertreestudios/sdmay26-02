@@ -55,19 +55,24 @@ public class CombatLog : CombatLogInterface
 
     protected void RefreshLogList()
     {
+        if (LogList == null)
+            return;
+
         CurrentEntries = GetVisibleEntries();
         LogList.itemsSource = CurrentEntries;
         LogList.Rebuild();
-        if (LogList != null && CurrentEntries.Count > 0)
+        if (CurrentEntries.Count > 0)
             LogList.ScrollToItem(CurrentEntries.Count - 1);
     }
 
     protected void UpdateLogList(CombatLogEntry entry)
     {
+        if (CurrentEntries == null || LogList == null)
+            return;
+
         CurrentEntries.Add(entry);
         LogList.RefreshItems();
-        if (LogList != null)
-            LogList.ScrollToItem(CurrentEntries.Count - 1);
+        LogList.ScrollToItem(CurrentEntries.Count - 1);
     }
 
     [ContextMenu("Enable Dev Mode")]

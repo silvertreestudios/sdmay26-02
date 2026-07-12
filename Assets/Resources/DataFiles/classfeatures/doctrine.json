@@ -1,0 +1,52 @@
+{
+    "_id": "tyrBwBTzo5t9Zho7",
+    "img": "icons/magic/symbols/question-stone-yellow.webp",
+    "name": "Doctrine",
+    "system": {
+        "actionType": {
+            "value": "passive"
+        },
+        "actions": {
+            "value": null
+        },
+        "category": "classfeature",
+        "description": {
+            "value": "<p>Even among followers of the same deity, approaches vary. At 1st level, you select cloistered cleric or warpriest and gain the benefits of its first doctrine. At 3rd level and every four levels thereafter, you gain another benefit from your doctrine.</p>\n<ul>\n<li>@UUID[Compendium.pf2e.classfeatures.Item.Cloistered Cleric]</li>\n<li>@UUID[Compendium.pf2e.classfeatures.Item.Warpriest]</li>\n</ul>"
+        },
+        "level": {
+            "value": 1
+        },
+        "prerequisites": {
+            "value": []
+        },
+        "publication": {
+            "license": "ORC",
+            "remaster": true,
+            "title": "Pathfinder Player Core"
+        },
+        "rules": [
+            {
+                "adjustName": false,
+                "choices": {
+                    "filter": [
+                        "item:tag:cleric-doctrine"
+                    ]
+                },
+                "flag": "doctrine",
+                "key": "ChoiceSet",
+                "prompt": "PF2E.SpecificRule.Cleric.Doctrine.Prompt"
+            },
+            {
+                "key": "GrantItem",
+                "uuid": "{item|flags.system.rulesSelections.doctrine}"
+            }
+        ],
+        "traits": {
+            "rarity": "common",
+            "value": [
+                "cleric"
+            ]
+        }
+    },
+    "type": "feat"
+}

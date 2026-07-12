@@ -1,18 +1,58 @@
 using UnityEngine;
+using System;
 using System.Collections.Generic;
 using Game.Creature;
-using Game.Creature.Rules;
-using Game.Combat.Rules;
 using Game.Rules;
-using System;
 using GridPublic;
 
-public class Strike
+/// <summary>
+/// Describes the non-statistical source of an attack, such as its weapon name, group, category, and traits.
+/// This keeps strike resolution independent from equipment-only data so natural, spell, and item attacks can share provenance.
+/// </summary>
+public class AttackSourceInfo
 {
-    public List<Dice> Damages;
-    public List<DamageValue> FlatDamages;
-    public List<string> Traits = new List<string>();
+    public static readonly AttackSourceInfo Unspecified = new AttackSourceInfo(string.Empty, string.Empty, string.Empty);
+
+    public string Name { get; }
+    public string Group { get; }
+    public string Category { get; }
+    public IReadOnlyList<string> Traits { get; }
+    public EquipmentWeapon EquipmentWeapon { get; }
+
+    public AttackSourceInfo(string name, string group, string category, IEnumerable<string> traits = null, EquipmentWeapon equipmentWeapon = null)
+    {
+        Name = name ?? string.Empty;
+        Group = group ?? string.Empty;
+        Category = category ?? string.Empty;
+        Traits = traits == null ? new List<string>() : new List<string>(traits);
+        EquipmentWeapon = equipmentWeapon;
+    }
+
+    public AttackSourceInfo(AttackSourceInfo sourceInfo)
+        : this(sourceInfo?.Name, sourceInfo?.Group, sourceInfo?.Category, sourceInfo?.Traits, sourceInfo?.EquipmentWeapon)
+    {
+    }
+
+    public static AttackSourceInfo FromWeapon(EquipmentWeapon weapon)
+    {
+        if (weapon == null)
+            return Unspecified;
+
+        return new AttackSourceInfo(weapon.name, weapon.group, weapon.category, weapon.traits, weapon);
+    }
+}
+
+/// <summary>
+/// Reusable Strike data supplied by a weapon, unarmed attack, or later Strike-like source.
+/// Runtime resolution clones this profile so per-Strike adjustments never mutate action-owned data.
+/// </summary>
+public class StrikeProfile
+{
     private AttackSourceInfo sourceInfo = AttackSourceInfo.Unspecified;
+
+    public List<Dice> DamageDice { get; set; }
+    public List<DamageValue> FlatDamages { get; set; }
+    public List<string> Traits { get; set; } = new();
     public AttackSourceInfo SourceInfo
     {
         get => sourceInfo;
@@ -23,179 +63,51 @@ public class Strike
     public string WeaponCategory { get; set; }
     public bool IsRangedAttack { get; set; }
     public int ReachFeet { get; set; } = 5;
-    public GameObject From = null;
-    public GameObject To = null;
-    private StrikeTargetResult TargetingResult = null;
 
-    public Strike(List<Dice> damages, List<DamageValue> flatDamages)
+    public StrikeProfile(List<Dice> damageDice, List<DamageValue> flatDamages)
     {
-        Damages = damages ?? new();
-        FlatDamages = flatDamages ?? new();
+        DamageDice = CloneDice(damageDice);
+        FlatDamages = flatDamages == null ? new List<DamageValue>() : new List<DamageValue>(flatDamages);
     }
 
-    public Strike(Strike strike)
+    public StrikeProfile(StrikeProfile profile)
     {
-        this.Damages = new List<Dice>();
-        foreach (Dice dice in strike.Damages)
-            this.Damages.Add(new Dice(dice.numberOfDice, dice.sidesPerDie, dice.damageType));
-        this.FlatDamages = new List<DamageValue>(strike.FlatDamages);
-        this.Traits = new List<string>(strike.Traits);
-        this.SourceInfo = new AttackSourceInfo(strike.SourceInfo);
-        this.AttackModifierOverride = strike.AttackModifierOverride;
-        this.ItemSlug = strike.ItemSlug;
-        this.WeaponCategory = strike.WeaponCategory;
-        this.IsRangedAttack = strike.IsRangedAttack;
-        this.ReachFeet = strike.ReachFeet;
-    }
-
-    public void Damage(GameObject from_go, GameObject to_go)
-    {
-        Damage(from_go, to_go, null);
-    }
-
-    public void Damage(GameObject from_go, GameObject to_go, StrikeTargetResult targetingResult)
-    {
-        Strike evaluated = new Strike(this);
-        evaluated.From = from_go;
-        evaluated.To = to_go;
-        evaluated.TargetingResult = targetingResult;
-
-        Pf2eRulesEngine.ApplyStrikeDamageModifiers(from_go.GetComponent<CreatureComponent>(), evaluated, to_go.GetComponent<CreatureComponent>());
-        OnStrikeEvent.Invoke(new(evaluated, from_go));
-        evaluated.DamageEvaluate();
-    }
-
-    protected void DamageEvaluate()
-    {
-        CreatureComponent from = From.GetComponent<CreatureComponent>();
-        CreatureComponent to = To.GetComponent<CreatureComponent>();
-        uint strikePenaltyCount = From.GetComponent<ActionController>()?.StrikePenalty ?? 0;
-        int mapPenalty = CalculateMultipleAttackPenalty(strikePenaltyCount);
-        int rangePenalty = TargetingResult?.RangePenalty ?? 0;
-        int coverBonus = TargetingResult?.CoverAcBonus ?? 0;
-        bool flankedOffGuard = FlankingRule.GrantsOffGuardToMeleeAttack(From, To, this);
-
-        int attackBonus = AttackModifierOverride ?? from.attackBonus;
-        Pf2eModifierResolution attackResolution = from.ResolveAttackRoll(AttackModifierOverride, BuildStrikeAttackModifiers(mapPenalty, rangePenalty));
-        Pf2eModifierResolution baseAcResolution = to.ResolveArmorClass();
-        Pf2eModifierResolution targetAcResolution = to.ResolveArmorClass(BuildStrikeAcModifiers(coverBonus, flankedOffGuard));
-        int targetAc = targetAcResolution.Total;
-        int totalModifier = attackResolution.Total;
-
-        D20Result attackRoll = D20.Roll(totalModifier, targetAc);
-
-        if (attackRoll.degree == DegreeOfSuccess.Success || attackRoll.degree == DegreeOfSuccess.CriticalSuccess)
+        if (profile == null)
         {
-            AttackResultContext context = new AttackResultContext
-            {
-                AttackerObject = From,
-                TargetObject = To,
-                AttackerCreature = from,
-                TargetCreature = to,
-                Strike = this,
-                SourceInfo = SourceInfo,
-                Traits = Traits,
-                D20Result = attackRoll,
-                Degree = attackRoll.degree,
-                DamageDice = CloneDamageDice(Damages),
-                FlatDamages = new List<DamageValue>(FlatDamages),
-                DamageValues = new List<DamageValue>(),
-                TargetingResult = TargetingResult,
-                BaseArmorClass = baseAcResolution.Total,
-                TargetArmorClass = targetAc,
-                AttackBonus = attackBonus,
-                TotalAttackModifier = totalModifier,
-                MultipleAttackPenalty = mapPenalty,
-                RangePenalty = rangePenalty,
-                CoverAcBonus = coverBonus
-            };
-            AttackResultPipeline.ProcessHit(context);
-            CombatLog.GetInstance().LogEntry(BuildAttackLogEntry(attackRoll, targetAc, baseAcResolution.Total, attackResolution, targetAcResolution, mapPenalty, rangePenalty, coverBonus, context));
-        }
-        else
-        {
-            OnAttackMiss.Invoke(From);
-            CombatLog.GetInstance().LogEntry(BuildAttackLogEntry(attackRoll, targetAc, baseAcResolution.Total, attackResolution, targetAcResolution, mapPenalty, rangePenalty, coverBonus, null));
-        }
-    }
-
-    private CombatLogEntry BuildAttackLogEntry(
-        D20Result attackRoll,
-        int targetAc,
-        int baseAc,
-        Pf2eModifierResolution attackResolution,
-        Pf2eModifierResolution targetAcResolution,
-        int mapPenalty,
-        int rangePenalty,
-        int coverBonus,
-        AttackResultContext context)
-    {
-        CombatLogEntry entry = new CombatLogEntry
-        {
-            Kind = CombatLogEntryKind.Attack,
-            Outcome = ToCombatLogOutcome(attackRoll.degree),
-            Actor = From != null ? From.name : string.Empty,
-            Target = To != null ? To.name : string.Empty,
-            Action = GetActionLabel(),
-            Roll = new CombatLogRoll
-            {
-                NaturalRoll = attackRoll.roll,
-                TotalModifier = attackResolution.Total,
-                Total = attackRoll.total,
-                DifficultyClass = targetAc
-            },
-            Damage = context?.DamageResolution?.Damage
-        };
-
-        entry.Tags.Add("attack");
-        entry.Details.Add(new CombatLogDetail("D20 Roll", attackRoll.total + " (" + attackRoll.roll + " + " + attackResolution.Total + ")"));
-        entry.Details.Add(new CombatLogDetail("Target AC", FormatArmorClass(targetAc, baseAc, coverBonus)));
-        entry.Details.Add(new CombatLogDetail("Attack Modifiers", FormatResolution(attackResolution)));
-        entry.Details.Add(new CombatLogDetail("AC Modifiers", FormatResolution(targetAcResolution)));
-        entry.Details.Add(new CombatLogDetail("MAP", mapPenalty == 0 ? "none" : "-" + mapPenalty));
-        entry.Details.Add(new CombatLogDetail("Range Penalty", rangePenalty == 0 ? "none" : rangePenalty.ToString()));
-        entry.Details.Add(new CombatLogDetail("Cover", coverBonus == 0 ? "none" : "+" + coverBonus + " AC"));
-        entry.Details.Add(new CombatLogDetail("Result", attackRoll.degree.ToString()));
-
-        if (context != null)
-        {
-            foreach (CombatLogDetail detail in context.DamageResolution.Details)
-                entry.Details.Add(detail);
-            foreach (CombatLogDetail detail in context.LogDetails)
-                entry.Details.Add(detail);
+            DamageDice = new List<Dice>();
+            FlatDamages = new List<DamageValue>();
+            SourceInfo = AttackSourceInfo.Unspecified;
+            return;
         }
 
-        return entry;
+        DamageDice = CloneDice(profile.DamageDice);
+        FlatDamages = new List<DamageValue>(profile.FlatDamages ?? new List<DamageValue>());
+        Traits = new List<string>(profile.Traits ?? new List<string>());
+        SourceInfo = new AttackSourceInfo(profile.SourceInfo);
+        AttackModifierOverride = profile.AttackModifierOverride;
+        ItemSlug = profile.ItemSlug;
+        WeaponCategory = profile.WeaponCategory;
+        IsRangedAttack = profile.IsRangedAttack;
+        ReachFeet = profile.ReachFeet;
     }
 
-    private string GetActionLabel()
+    public float GetAverageDamage()
     {
-        if (!string.IsNullOrWhiteSpace(SourceInfo?.Name))
-            return SourceInfo.Name;
-        if (!string.IsNullOrWhiteSpace(ItemSlug))
-            return ItemSlug == "unarmed" ? "Unarmed Strike" : ItemSlug;
-        return "Strike";
+        float average = 0;
+        foreach (Dice dice in DamageDice ?? new List<Dice>())
+            average += dice.numberOfDice * ((float)dice.sidesPerDie + 1) / 2;
+        foreach (DamageValue damageValue in FlatDamages ?? new List<DamageValue>())
+            average += damageValue.DamageAmount;
+        return average;
     }
 
-    private static string FormatArmorClass(int targetAc, int baseAc, int coverBonus)
+    public override string ToString()
     {
-        if (coverBonus == 0)
-            return targetAc.ToString();
-        return targetAc + " (" + baseAc + " + " + coverBonus + " cover)";
+        string traits = string.Join(" ", Traits ?? new List<string>());
+        return "Strike Profile: " + (DamageDice?.Count ?? 0) + " damage rolls, " + (FlatDamages?.Count ?? 0) + " flat damages, Traits: " + traits;
     }
 
-    private static CombatLogOutcome ToCombatLogOutcome(DegreeOfSuccess degree)
-    {
-        return degree switch
-        {
-            DegreeOfSuccess.CriticalSuccess => CombatLogOutcome.CriticalSuccess,
-            DegreeOfSuccess.Success => CombatLogOutcome.Success,
-            DegreeOfSuccess.CriticalFail => CombatLogOutcome.CriticalFailure,
-            _ => CombatLogOutcome.Failure
-        };
-    }
-
-    private static List<Dice> CloneDamageDice(List<Dice> diceList)
+    internal static List<Dice> CloneDice(IEnumerable<Dice> diceList)
     {
         List<Dice> clone = new();
         if (diceList == null)
@@ -205,87 +117,181 @@ public class Strike
             clone.Add(new Dice(dice.numberOfDice, dice.sidesPerDie, dice.damageType));
         return clone;
     }
+}
 
-    private static IEnumerable<Pf2eModifier> BuildStrikeAttackModifiers(int mapPenalty, int rangePenalty)
+/// <summary>
+/// Immutable request data for resolving one selected Strike.
+/// Target selection, ammo checks, action cost, and MAP increment remain owned by the invoking action.
+/// </summary>
+public class StrikeResolutionRequest
+{
+    public GameObject Attacker { get; set; }
+    public GameObject Target { get; set; }
+    public StrikeProfile Profile { get; set; }
+    public StrikeTargetResult TargetingResult { get; set; }
+}
+
+/// <summary>
+/// Ordered extension points for Strike resolution. Phases are intentionally broad so rule sources can plug in without growing Strike action classes.
+/// </summary>
+public enum StrikeAdjustmentPhase
+{
+    PrepareProfile = 0,
+    BeforeAttackRoll = 100,
+    BeforeArmorClassResolution = 200,
+    ResolveAttackRoll = 300,
+    AfterAttackRoll = 400,
+    BeforeDamageRoll = 500,
+    RollDamage = 600,
+    AfterCriticalDoubling = 700,
+    BeforeDefenseAdjustments = 800,
+    ApplyDefenseAndDamage = 900,
+    AfterDamageApplied = 1000
+}
+
+/// <summary>
+/// Mutable state for a Strike as it moves through resolution.
+/// </summary>
+public class StrikeResolutionContext
+{
+    private List<string> explicitTraits = new();
+    private List<string> traits = new();
+    private AttackSourceInfo sourceInfo = AttackSourceInfo.Unspecified;
+
+    public GameObject AttackerObject { get; set; }
+    public GameObject TargetObject { get; set; }
+    public CreatureComponent AttackerCreature { get; set; }
+    public CreatureComponent TargetCreature { get; set; }
+    public StrikeProfile Profile { get; set; }
+    public AttackSourceInfo SourceInfo
     {
-        if (mapPenalty != 0)
-            // Multiple attack penalty source: https://2e.aonprd.com/Rules.aspx?ID=2288
-            yield return new Pf2eModifier(-mapPenalty, Pf2eModifierType.Untyped, "Multiple attack penalty", Pf2eStatistic.AttackRoll);
-        if (rangePenalty != 0)
-            // Range penalty source: https://2e.aonprd.com/Rules.aspx?ID=2288
-            yield return new Pf2eModifier(rangePenalty, Pf2eModifierType.Untyped, "Range penalty", Pf2eStatistic.AttackRoll);
-    }
-
-    private static IEnumerable<Pf2eModifier> BuildStrikeAcModifiers(int coverBonus, bool flankedOffGuard)
-    {
-        if (coverBonus != 0)
-            // Cover source: https://2e.aonprd.com/Rules.aspx?ID=2372
-            yield return new Pf2eModifier(coverBonus, Pf2eModifierType.Circumstance, "Cover", Pf2eStatistic.ArmorClass);
-        if (flankedOffGuard)
-            // Flanking source: https://2e.aonprd.com/Rules.aspx?ID=2375
-            yield return new Pf2eModifier(-2, Pf2eModifierType.Circumstance, "Off-Guard", Pf2eStatistic.ArmorClass);
-    }
-
-    private static string FormatResolution(Pf2eModifierResolution resolution)
-    {
-        return "total " + resolution.Total + "; applied [" + FormatModifiers(resolution.AppliedModifiers) + "]; suppressed [" + FormatModifiers(resolution.SuppressedModifiers) + "]";
-    }
-
-    private static string FormatModifiers(IReadOnlyList<Pf2eModifier> modifiers)
-    {
-        if (modifiers == null || modifiers.Count == 0)
-            return "none";
-
-        List<string> parts = new();
-        foreach (Pf2eModifier modifier in modifiers)
-            parts.Add(modifier.Source + " " + FormatSigned(modifier.Value) + " " + modifier.Type);
-        return string.Join(", ", parts);
-    }
-
-    private static string FormatSigned(int value)
-    {
-        return value >= 0 ? "+" + value : value.ToString();
-    }
-
-    private int CalculateMultipleAttackPenalty(uint strikePenaltyCount)
-    {
-        if (strikePenaltyCount == 0)
-            return 0;
-
-        bool agile = Traits.Contains("agile");
-        if (strikePenaltyCount == 1)
-            return agile ? 4 : 5;
-        return agile ? 8 : 10;
-    }
-
-    public List<string> getTraits()
-    {
-        return Traits;
-    }
-
-    public override string ToString()
-    {
-        string traits = "";
-        foreach (string trait in Traits)
+        get => sourceInfo;
+        set
         {
-            traits += trait + " ";
+            sourceInfo = value ?? AttackSourceInfo.Unspecified;
+            RefreshTraits();
         }
-        return "Strike Action: " + Damages.Count + " damage rolls, " + FlatDamages.Count + " flat damages, Traits: " + traits;
+    }
+    public List<string> Traits
+    {
+        get => traits;
+        set
+        {
+            explicitTraits = value == null ? new List<string>() : new List<string>(value);
+            RefreshTraits();
+        }
+    }
+    public List<string> ItemOptions { get; set; } = new();
+    public List<Dice> DamageDice { get; set; } = new();
+    public List<DamageValue> FlatDamages { get; set; } = new();
+    public List<DamageValue> DamageValues { get; set; } = new();
+    public DamageRollResolution DamageResolution { get; set; }
+    public List<CombatLogDetail> LogDetails { get; } = new();
+    public List<Pf2eModifier> AttackModifiers { get; } = new();
+    public List<Pf2eModifier> ArmorClassModifiers { get; } = new();
+    public StrikeTargetResult TargetingResult { get; set; }
+    public Pf2eModifierResolution AttackResolution { get; set; }
+    public Pf2eModifierResolution BaseArmorClassResolution { get; set; }
+    public Pf2eModifierResolution TargetArmorClassResolution { get; set; }
+    public D20Result D20Result { get; set; }
+    public DegreeOfSuccess Degree { get; set; }
+    public int BaseArmorClass { get; set; }
+    public int TargetArmorClass { get; set; }
+    public int AttackBonus { get; set; }
+    public int TotalAttackModifier { get; set; }
+    public int MultipleAttackPenalty { get; set; }
+    public int RangePenalty { get; set; }
+    public int CoverAcBonus { get; set; }
+    public bool FlankedOffGuard { get; set; }
+    public bool IsHit { get; set; }
+    public uint FinalAppliedDamage { get; set; }
+
+    public static StrikeResolutionContext FromRequest(StrikeResolutionRequest request)
+    {
+        if (request == null)
+            throw new ArgumentNullException(nameof(request));
+        if (request.Attacker == null)
+            throw new ArgumentException("Strike resolution requires an attacker.", nameof(request));
+        if (request.Target == null)
+            throw new ArgumentException("Strike resolution requires a target.", nameof(request));
+        if (request.Profile == null)
+            throw new ArgumentException("Strike resolution requires a Strike profile.", nameof(request));
+
+        StrikeProfile profile = new(request.Profile);
+        return new StrikeResolutionContext
+        {
+            AttackerObject = request.Attacker,
+            TargetObject = request.Target,
+            AttackerCreature = request.Attacker.GetComponent<CreatureComponent>(),
+            TargetCreature = request.Target.GetComponent<CreatureComponent>(),
+            Profile = profile,
+            SourceInfo = profile.SourceInfo,
+            Traits = profile.Traits,
+            DamageDice = StrikeProfile.CloneDice(profile.DamageDice),
+            FlatDamages = new List<DamageValue>(profile.FlatDamages ?? new List<DamageValue>()),
+            DamageValues = new List<DamageValue>(),
+            TargetingResult = request.TargetingResult
+        };
     }
 
-    public float GetAvgDmg()
+    private void RefreshTraits()
     {
-        float avg = 0;
-        foreach (Dice dice in Damages)
+        List<string> merged = explicitTraits == null ? new List<string>() : new List<string>(explicitTraits);
+        if (sourceInfo?.Traits != null)
         {
-            avg += dice.numberOfDice * ((float)dice.sidesPerDie + 1) / 2;
+            foreach (string trait in sourceInfo.Traits)
+            {
+                if (!ContainsTrait(merged, trait))
+                    merged.Add(trait);
+            }
         }
-        foreach (DamageValue damageValue in FlatDamages)
-        {
-            avg += damageValue.DamageAmount;
-        }
-        return avg;
+        traits = merged;
+    }
+
+    private static bool ContainsTrait(List<string> traits, string candidate)
+    {
+        foreach (string trait in traits)
+            if (string.Equals(trait, candidate, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
     }
 }
 
-public class OnStrikeEvent : StaticUnityEvent<OnStrikeEvent, Tuple<Strike, GameObject>>{ }
+/// <summary>
+/// Final outcome of a resolved Strike.
+/// </summary>
+public class StrikeResolutionResult
+{
+    public StrikeResolutionContext Context { get; }
+    public bool Hit => Context?.IsHit ?? false;
+    public bool CriticalHit => Context?.Degree == DegreeOfSuccess.CriticalSuccess;
+    public uint FinalAppliedDamage => Context?.FinalAppliedDamage ?? 0;
+    public DamageRollResolution DamageResolution => Context?.DamageResolution;
+    public IReadOnlyList<CombatLogDetail> LogDetails => Context != null ? Context.LogDetails : Array.Empty<CombatLogDetail>();
+
+    public StrikeResolutionResult(StrikeResolutionContext context)
+    {
+        Context = context;
+    }
+}
+
+/// <summary>
+/// A deterministic rule hook that can inspect and mutate Strike resolution state at one phase.
+/// </summary>
+public interface IStrikeAdjustment
+{
+    StrikeAdjustmentPhase Phase { get; }
+    int Order { get; }
+    string Source { get; }
+    void Apply(StrikeResolutionContext context);
+}
+
+/// <summary>
+/// Optional Unity component contract for attacker- or defender-owned Strike rule hooks.
+/// </summary>
+public interface IStrikeAdjustmentProvider
+{
+    IEnumerable<IStrikeAdjustment> GetStrikeAdjustments(StrikeResolutionContext context);
+}
+
+public class OnStrikePreparedEvent : StaticUnityEvent<OnStrikePreparedEvent, StrikeResolutionContext> { }

@@ -195,7 +195,7 @@ public class MindlessController : AIActionController
                 if (!strikeWeapon.CanStrikeTarget(gameObject, target, Tiles))
                     continue;
 
-                float damage = strikeWeapon.GetStrike().GetAvgDmg();
+                float damage = strikeWeapon.GetStrikeProfile().GetAverageDamage();
                 if (damage > bestDamage)
                 {
                     bestDamage = damage;

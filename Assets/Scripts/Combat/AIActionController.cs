@@ -92,14 +92,14 @@ public abstract class AIActionController : ActionController
             if (action is Unarmed)
             {
                 Unarmed unarmedAction = action as Unarmed;
-                damage = unarmedAction.GetStrike().GetAvgDmg();
+                damage = unarmedAction.GetStrikeProfile().GetAverageDamage();
             }
             else if (action is StrikeWeapon)
             {
                 StrikeWeapon strikeWeaponAction = action as StrikeWeapon;
                 if (!strikeWeaponAction.IsUsableBy(gameObject))
                     continue;
-                damage = strikeWeaponAction.GetStrike().GetAvgDmg();
+                damage = strikeWeaponAction.GetStrikeProfile().GetAverageDamage();
             }
             if (damage > bestDamage)
             {

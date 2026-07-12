@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Game.Creature;
 using NUnit.Framework;
 using Game.Strikes;
+using Game.Combat.Spells;
 
 public abstract class ActionController : MonoBehaviour
 {
@@ -26,7 +27,7 @@ public abstract class ActionController : MonoBehaviour
     [SerializeField]
     List<string> _actionNames = new List<string>(); // Temporary list of action names to add for testing purposes.  TODO remove
 
-    
+
 
     /// <summary>
     /// Starts this creature's turn
@@ -38,6 +39,7 @@ public abstract class ActionController : MonoBehaviour
         ResetActionPointsEvent.Invoke(newActionPoints);
         ActionPoints = newActionPoints.Value;
         StrikePenalty = 0;
+        SpellEffectController.ExpireAtStartOfTurn(gameObject);
     }
 
     public abstract void EndTurn();

@@ -16,7 +16,7 @@ public class StrikeWeapon : MultiFrameEntityAction
     private const string ReachTrait = "reach";
 
     public override string ActionName => GetWeaponName();
-    private Strike Strike;
+    private StrikeProfile Profile;
     private EquipmentWeapon Weapon;
     public string weaponName;
 
@@ -110,9 +110,9 @@ public class StrikeWeapon : MultiFrameEntityAction
         return Weapon;
     }
 
-    public Strike GetStrike()
+    public StrikeProfile GetStrikeProfile()
     {
-        return Strike;
+        return Profile;
     }
 
     public int GetRange()
@@ -160,14 +160,14 @@ public class StrikeWeapon : MultiFrameEntityAction
         if (!IsRangedWeapon() || string.IsNullOrWhiteSpace(Weapon.ammo))
             flatDamageList.Add(new DamageValue(Weapon.damage.damageType, cc.damageBonus));
 
-        Strike = new Strike(damageList, flatDamageList);
-        Strike.Traits = Weapon.traits ?? new List<string>();
-        Strike.SourceInfo = AttackSourceInfo.FromWeapon(Weapon);
-        Strike.ItemSlug = Pf2eSlug.FromName(Weapon.name);
-        Strike.WeaponCategory = Weapon.category;
-        Strike.IsRangedAttack = IsRangedWeapon();
-        Strike.ReachFeet = GetTargetRequest().ReachFeet;
-        Strike.AttackModifierOverride = cc.GetAttackBonusForWeapon(weapon);
+        Profile = new StrikeProfile(damageList, flatDamageList);
+        Profile.Traits = Weapon.traits ?? new List<string>();
+        Profile.SourceInfo = AttackSourceInfo.FromWeapon(Weapon);
+        Profile.ItemSlug = Pf2eSlug.FromName(Weapon.name);
+        Profile.WeaponCategory = Weapon.category;
+        Profile.IsRangedAttack = IsRangedWeapon();
+        Profile.ReachFeet = GetTargetRequest().ReachFeet;
+        Profile.AttackModifierOverride = cc.GetAttackBonusForWeapon(weapon);
     }
 
     protected override IEnumerator MFInvoke(GameObject attacker)
@@ -195,7 +195,14 @@ public class StrikeWeapon : MultiFrameEntityAction
                 yield break;
             }
 
-            Strike.Damage(attacker, target.Value.Target, target.Value);
+            CombatLog.GetInstance().Log("- " + attacker.name + " strikes " + target.Value.Target.name + " with " + weaponName + ".");
+            StrikeResolutionPipeline.Resolve(new StrikeResolutionRequest
+            {
+                Attacker = attacker,
+                Target = target.Value.Target,
+                Profile = Profile,
+                TargetingResult = target.Value
+            });
             cc?.MarkWeaponFired(Weapon);
             if (ac)
             {
