@@ -63,6 +63,8 @@ Rationale: if commands execute themselves, every command becomes a small service
 Provenance should be attached through command frames and effect/fact metadata rather than through mutable fields on the command payload.
 
 ```csharp
+public readonly record struct CommandTypeId(string Value);
+
 public interface ICommandFrame
 {
     CommandId Id { get; }
@@ -71,7 +73,7 @@ public interface ICommandFrame
     RuleBindingId? SourceBinding { get; }
     RuleSourceId? SourceRule { get; }
     CreatureId? Actor { get; }
-    object UntypedCommand { get; }
+    CommandTypeId CommandType { get; }
     ImmutableArray<Trait> Traits { get; }
 
     EffectId NewEffectId();
@@ -93,27 +95,8 @@ public sealed record CommandFrame<TCommand>(
     RuleBindingId? SourceBinding,
     RuleSourceId? SourceRule,
     CreatureId? Actor,
+    CommandTypeId CommandType,
     TCommand Command,
-    ImmutableArray<Trait> Traits,
-    IFrameIdScope Ids) : ICommandFrame
-{
-    public object UntypedCommand => Command!;
-    public EffectId NewEffectId() => Ids.NewEffectId(Id);
-    public EffectInstanceId NewEffectInstanceId() => Ids.NewEffectInstanceId(Id);
-    public RuleBindingId NewBindingId() => Ids.NewBindingId(Id);
-
-    public CommandFrameUntyped ToUntyped() =>
-        new(Id, ParentId, RootId, SourceBinding, SourceRule, Actor, UntypedCommand, Traits, Ids);
-}
-
-public sealed record CommandFrameUntyped(
-    CommandId Id,
-    CommandId? ParentId,
-    CommandId RootId,
-    RuleBindingId? SourceBinding,
-    RuleSourceId? SourceRule,
-    CreatureId? Actor,
-    object UntypedCommand,
     ImmutableArray<Trait> Traits,
     IFrameIdScope Ids) : ICommandFrame
 {
@@ -123,9 +106,11 @@ public sealed record CommandFrameUntyped(
 }
 ```
 
+`ICommandFrame` is the common metadata view for any code that needs to inspect a command without reading command-specific payload. Broad listeners should use frame metadata such as actor, traits, command type ID, source rule, source binding, and provenance. If a rule needs `StrikeCommand`-specific fields, it should register a typed `ICommandStartListener<StrikeCommand, StrikeResponse>` instead of casting through a generic listener.
+
 The frame ID scope is engine-owned runtime metadata. It gives handlers a consistent way to create provenance-linked effect, effect-instance, and binding IDs without falling back to ad hoc context-scoped ID calls. The implementation must be deterministic for replay, but it is not part of the command payload.
 
-Rationale: provenance is required for combat logs, once-per-trigger validation, response listeners, nested command ancestry, and replay. Keeping it on the frame also keeps command payloads focused on semantic input.
+Rationale: provenance is required for combat logs, once-per-trigger validation, response listeners, nested command ancestry, generic trait/predicate triggers, and replay. Keeping it on the frame also keeps command payloads focused on semantic input.
 
 ### No Unity References In Rules Data
 
@@ -570,15 +555,15 @@ Predicate listeners are the escape hatch for rules that care about traits or bro
 public interface ICommandPredicateListener
 {
     int Priority { get; }
-    bool AppliesTo(CommandFrameUntyped frame);
+    bool AppliesTo(ICommandFrame frame);
     IEnumerable<RuleEffect> OnCommandStarting(
         ActiveRuleBinding binding,
-        CommandFrameUntyped frame,
+        ICommandFrame frame,
         IRulesSnapshot snapshot);
 }
 ```
 
-`CommandFrameUntyped` is not a second command type. It is the non-generic view the engine uses for broad trait/predicate listeners that cannot know `TCommand` at compile time, while still preserving provenance, actor, traits, and deterministic ID helpers.
+Predicate listeners receive `ICommandFrame`. That keeps broad listeners focused on generic trigger metadata. If a listener needs command-specific fields, it should use a typed listener registration for that command type.
 
 Rationale: without trait-based listeners, features would need to register against many unrelated concrete command types. Traits give rules a generic trigger surface without giving up typed command data.
 
@@ -920,7 +905,7 @@ The existing `StrikeResolutionPipeline` remains useful. In the first migration, 
 
 Reactive Strike is a rule definition with listeners and its own command. The listeners detect valid triggers; the command handles the optional reaction, nested Strike, and possible disruption.
 
-Reactive Strike's trigger covers four cases: a creature within reach uses a `manipulate` action, uses a `move` action, makes a ranged attack, or leaves a square during a move action. The first three can be detected from command traits or Strike profile data. The last one requires per-step movement commands.
+Reactive Strike's trigger covers four cases: a creature within reach uses a `manipulate` action, uses a `move` action, makes a ranged attack, or leaves a square during a move action. The first three can be detected from command traits or Strike profile data. The last one requires per-step movement commands. The broad move-trait listener excludes `MovementStepCommand` so a movement step does not produce duplicate prompts; movement steps are handled by the typed listener that can inspect the square being left.
 
 ```csharp
 public sealed record ReactiveStrikeCommand(
@@ -961,15 +946,16 @@ public sealed class ReactiveStrikeRule :
         rules.Handle<ReactiveStrikeCommand, ReactiveStrikeResponse>(this);
     }
 
-    public bool AppliesTo(CommandFrameUntyped frame)
+    public bool AppliesTo(ICommandFrame frame)
     {
         return frame.Traits.Contains(Trait.Manipulate)
-            || frame.Traits.Contains(Trait.Move);
+            || (frame.Traits.Contains(Trait.Move)
+                && frame.CommandType != CommandTypes.MovementStep);
     }
 
     public IEnumerable<RuleEffect> OnCommandStarting(
         ActiveRuleBinding binding,
-        CommandFrameUntyped trigger,
+        ICommandFrame trigger,
         IRulesSnapshot snapshot)
     {
         if (!CanReachEnemy(binding.Owner, trigger.Actor, snapshot))
@@ -989,7 +975,7 @@ public sealed class ReactiveStrikeRule :
         if (!CanReachEnemy(binding.Owner, trigger.Command.Actor, snapshot))
             yield break;
 
-        yield return PromptForReactiveStrike(binding, trigger.ToUntyped());
+        yield return PromptForReactiveStrike(binding, trigger);
     }
 
     public IEnumerable<RuleEffect> OnCommandStarting(
@@ -1000,10 +986,10 @@ public sealed class ReactiveStrikeRule :
         if (!IsLeavingSquareWithinReach(binding.Owner, trigger.Command.Actor, trigger.Command.From, snapshot))
             yield break;
 
-        yield return PromptForReactiveStrike(binding, trigger.ToUntyped());
+        yield return PromptForReactiveStrike(binding, trigger);
     }
 
-    private RuleEffect PromptForReactiveStrike(ActiveRuleBinding binding, CommandFrameUntyped trigger)
+    private RuleEffect PromptForReactiveStrike(ActiveRuleBinding binding, ICommandFrame trigger)
     {
         var command = new ReactiveStrikeCommand(
             SourceBinding: binding.Id,
