@@ -31,7 +31,11 @@ These constraints are part of the design, not optional cleanup.
 A command is an immutable request. A response is an immutable result. Neither contains business logic, Unity references, mutable collections, or methods that resolve rules.
 
 ```csharp
-public interface IRuleCommand<TResponse>
+public interface IRuleCommand
+{
+}
+
+public interface IRuleCommand<TResponse> : IRuleCommand
     where TResponse : CommandResponse
 {
 }
@@ -59,6 +63,29 @@ Rationale: if commands execute themselves, every command becomes a small service
 Provenance should be attached through command frames and effect/fact metadata rather than through mutable fields on the command payload.
 
 ```csharp
+public interface ICommandFrame
+{
+    CommandId Id { get; }
+    CommandId? ParentId { get; }
+    CommandId RootId { get; }
+    RuleBindingId? SourceBinding { get; }
+    RuleSourceId? SourceRule { get; }
+    CreatureId? Actor { get; }
+    object UntypedCommand { get; }
+    ImmutableArray<Trait> Traits { get; }
+
+    EffectId NewEffectId();
+    EffectInstanceId NewEffectInstanceId();
+    RuleBindingId NewBindingId();
+}
+
+public interface IFrameIdScope
+{
+    EffectId NewEffectId(CommandId command);
+    EffectInstanceId NewEffectInstanceId(CommandId command);
+    RuleBindingId NewBindingId(CommandId command);
+}
+
 public sealed record CommandFrame<TCommand>(
     CommandId Id,
     CommandId? ParentId,
@@ -67,8 +94,36 @@ public sealed record CommandFrame<TCommand>(
     RuleSourceId? SourceRule,
     CreatureId? Actor,
     TCommand Command,
-    ImmutableArray<CommandTrait> Traits);
+    ImmutableArray<Trait> Traits,
+    IFrameIdScope Ids) : ICommandFrame
+{
+    public object UntypedCommand => Command!;
+    public EffectId NewEffectId() => Ids.NewEffectId(Id);
+    public EffectInstanceId NewEffectInstanceId() => Ids.NewEffectInstanceId(Id);
+    public RuleBindingId NewBindingId() => Ids.NewBindingId(Id);
+
+    public CommandFrameUntyped ToUntyped() =>
+        new(Id, ParentId, RootId, SourceBinding, SourceRule, Actor, UntypedCommand, Traits, Ids);
+}
+
+public sealed record CommandFrameUntyped(
+    CommandId Id,
+    CommandId? ParentId,
+    CommandId RootId,
+    RuleBindingId? SourceBinding,
+    RuleSourceId? SourceRule,
+    CreatureId? Actor,
+    object UntypedCommand,
+    ImmutableArray<Trait> Traits,
+    IFrameIdScope Ids) : ICommandFrame
+{
+    public EffectId NewEffectId() => Ids.NewEffectId(Id);
+    public EffectInstanceId NewEffectInstanceId() => Ids.NewEffectInstanceId(Id);
+    public RuleBindingId NewBindingId() => Ids.NewBindingId(Id);
+}
 ```
+
+The frame ID scope is engine-owned runtime metadata. It gives handlers a consistent way to create provenance-linked effect, effect-instance, and binding IDs without falling back to ad hoc context-scoped ID calls. The implementation must be deterministic for replay, but it is not part of the command payload.
 
 Rationale: provenance is required for combat logs, once-per-trigger validation, response listeners, nested command ancestry, and replay. Keeping it on the frame also keeps command payloads focused on semantic input.
 
@@ -110,7 +165,7 @@ public interface ICommandHandler<TCommand, TResponse>
 {
     RuleProgram<TResponse> HandleCommand(
         CommandFrame<TCommand> frame,
-        RulesSnapshot snapshot,
+        IRulesSnapshot snapshot,
         ResolutionContext context);
 }
 ```
@@ -133,61 +188,109 @@ token.transform.position = nextWorldPosition;
 
 Rationale: central effect application gives us one place to enforce invariants, emit facts, update visible state, update predicate state, write combat logs, and preserve replayable history.
 
+### Handlers And Listeners
+
+Handlers and listeners are separate concepts.
+
+A command handler owns the primary resolution for one command type. It validates the command, calls pure services as needed, and yields effects that the engine should apply. There should normally be one authoritative handler for each command type.
+
+A listener observes a command at a specific lifecycle point and may yield additional effects. Many active rule bindings can listen to the same command. For example, multiple creatures can have a Bless aura active, but that does not mean multiple handlers own `MovementStepCommand`; it means multiple Bless bindings listen after movement and update their own visible effects.
+
+```csharp
+public interface ICommandStartListener<TCommand, TResponse>
+    where TCommand : IRuleCommand<TResponse>
+    where TResponse : CommandResponse
+{
+    int Priority { get; }
+
+    IEnumerable<RuleEffect> OnCommandStarting(
+        ActiveRuleBinding binding,
+        CommandFrame<TCommand> frame,
+        IRulesSnapshot snapshot);
+}
+
+public interface ICommandResponseListener<TCommand, TResponse>
+    where TCommand : IRuleCommand<TResponse>
+    where TResponse : CommandResponse
+{
+    int Priority { get; }
+
+    IEnumerable<RuleEffect> OnCommandResolved(
+        ActiveRuleBinding binding,
+        CommandFrame<TCommand> frame,
+        TResponse response,
+        IRulesSnapshot snapshot);
+}
+```
+
+Listeners receive an `ActiveRuleBinding` so the same rule definition can run once for each active owner or effect instance. The listener object itself is stateless and globally registered; the binding is the per-creature or per-effect state that says this listener currently applies.
+
+Rationale: this avoids hidden live subscriptions while still supporting many active copies of the same rule. It also makes tests clearer: construct a snapshot with the active bindings you want, dispatch a command, and inspect the yielded effects.
+
 ### Rule Definitions Own Feature Logic
 
 A bespoke feature should usually live in one rule definition class. That rule definition may implement command handlers and listeners directly.
 
+Bless is a useful introductory example because it has both a command-time effect and an ongoing aura, but the behavior is still easy to understand. Spell effect resolution is another hook owned by the rule definition; it is shown here as an interface so casting a spell can delegate to the spell's rule without `CastSpellCommand` knowing every spell.
+
 ```csharp
-public interface IRuleDefinition
+public interface ISpellEffectRule
 {
-    RuleSourceId SourceId { get; }
-    void Register(IRuleRegistryBuilder rules);
+    IEnumerable<RuleEffect> ResolveSpellEffect(
+        SpellEffectContext spell,
+        CommandFrame<CastSpellCommand> frame,
+        IRulesSnapshot snapshot);
 }
 
-public sealed class CranialDetonationRule :
+public sealed class BlessRule :
     IRuleDefinition,
-    ICommandHandler<CranialDetonationCommand, CranialDetonationResponse>,
-    ICommandResponseListener<CastSpellCommand, CastSpellResponse>
+    ISpellEffectRule,
+    ICommandResponseListener<MovementStepCommand, MovementStepResponse>,
+    ICommandResponseListener<AuraRadiusChangedCommand, BasicCommandResponse>
 {
-    public RuleSourceId SourceId => RuleSources.Feat("cranial-detonation");
+    public RuleSourceId SourceId => RuleSources.Spell("bless");
+    private static readonly RuleSourceId AuraSourceId = RuleSources.SpellEffect("bless-aura");
 
     public void Register(IRuleRegistryBuilder rules)
     {
-        rules.AfterCommandCommitted<CastSpellCommand, CastSpellResponse>(SourceId, this);
-        rules.Handle<CranialDetonationCommand, CranialDetonationResponse>(this);
+        rules.RegisterSpellEffect(SourceId, this);
+        rules.AfterCommandCommitted<MovementStepCommand, MovementStepResponse>(AuraSourceId, this);
+        rules.AfterCommandCommitted<AuraRadiusChangedCommand, BasicCommandResponse>(AuraSourceId, this);
+    }
+
+    public IEnumerable<RuleEffect> ResolveSpellEffect(
+        SpellEffectContext spell,
+        CommandFrame<CastSpellCommand> frame,
+        IRulesSnapshot snapshot)
+    {
+        // Create the Bless aura active effect and its active rule binding.
     }
 
     public IEnumerable<RuleEffect> OnCommandResolved(
         ActiveRuleBinding binding,
-        CommandFrame<CastSpellCommand> frame,
-        CastSpellResponse response,
-        RulesSnapshot snapshot)
+        CommandFrame<MovementStepCommand> frame,
+        MovementStepResponse response,
+        IRulesSnapshot snapshot)
     {
-        // Trigger detection.
-    }
-
-    public RuleProgram<CranialDetonationResponse> HandleCommand(
-        CommandFrame<CranialDetonationCommand> frame,
-        RulesSnapshot snapshot,
-        ResolutionContext context)
-    {
-        // Feature activation orchestration.
+        // Recompute visible Bless effects for creatures that moved near this aura.
     }
 }
 ```
 
 Rationale: separate listener and handler classes are still allowed, but they should not be the default. For thousands of PF2e features, locality matters. A reviewer should usually be able to open one feature rule file and see its trigger, activation, validation, and emitted effects. Split helper classes only when the helper is reused, the feature class becomes difficult to scan, or the helper has its own meaningful test surface.
 
+`Register` is intentionally explicit in the first pass. Reflection or convention-based registration could reduce boilerplate later, but it also makes ordering and IL2CPP/AOT behavior less obvious in Unity. A future helper such as `rules.RegisterImplementedHooks(this)` or a source-generated registry would be reasonable after the interfaces settle; the initial design should prefer explicit, searchable registration.
+
 ## Command Frames, Snapshots, Effects, And Facts
 
 The engine moves immutable data through a small number of explicit concepts.
 
-### RulesSnapshot
+### IRulesSnapshot
 
-`RulesSnapshot` is the read model for current encounter state. Handlers and listeners query it but do not mutate it.
+`IRulesSnapshot` is the read model for current encounter state. Handlers and listeners query it but do not mutate it.
 
 ```csharp
-public sealed class RulesSnapshot
+public interface IRulesSnapshot
 {
     public CreatureRulesView GetCreature(CreatureId creature);
     public TokenRulesView GetToken(TokenId token);
@@ -195,14 +298,14 @@ public sealed class RulesSnapshot
     public bool HasActiveBinding(CreatureId owner, RuleSourceId source);
     public bool IsEnemy(CreatureId a, CreatureId b);
     public bool IsAlly(CreatureId a, CreatureId b);
-    public bool HasTrait(CreatureId creature, CreatureTrait trait);
+    public bool HasTrait(CreatureId creature, Trait trait);
     public bool HasCondition(CreatureId creature, ConditionId condition);
     public ImmutableArray<CreatureId> CreaturesInArea(AreaShape area);
     public DifficultyClass ResolveFeatureDc(CreatureId owner, RuleSourceId source);
 }
 ```
 
-Rationale: handlers should be easy to test with constructed snapshots. They should not need scene objects, singletons, or Unity component lookup.
+Rationale: handlers should be easy to test with constructed `IRulesSnapshot` implementations. They should not need scene objects, singletons, or Unity component lookup.
 
 ### Rule Effects
 
@@ -284,7 +387,7 @@ public sealed record CreatureReducedToZeroFact(
     : RuleFact(Id, SourceCommand, SourceRule, SourceBinding);
 ```
 
-Rationale: response listeners should not scrape logs or inspect mutated components. They should react to typed, provenance-rich facts.
+Rationale: response listeners should not scrape logs or inspect mutated components. They should react to typed, provenance-rich facts. Facts should also drive the in-game combat log: the log renderer can listen to committed facts and conditionally render entries such as damage dealt, conditions applied, effects expired, movement disrupted, or a creature reduced to 0 HP.
 
 ### Effect Application
 
@@ -428,29 +531,42 @@ public RuleProgram<TResponse> Execute<TCommand, TResponse>(TCommand command)
 
 `Begin` listeners are for prevention, replacement, and preemption. `AfterCommitted` listeners are for triggers that depend on what actually happened. The command handler proposes effects. The effect pipeline applies them and emits facts.
 
+`AfterCommandCommitted` is intentionally more specific than `AfterCommand`. It means the handler has completed, its effects have been applied to rules state, and the response includes the resulting facts. If a future rule needs to inspect proposed effects before they commit, that should be a distinct pre-commit hook such as `BeforeEffectsCommitted`, not an ambiguous `AfterCommand` phase.
+
 Rationale: a small global lifecycle prevents the command system from becoming an enormous PF2e phase enum. Strike damage dice, resistance, weakness, degree of success, persistent damage, and spell internals should live in domain services or pipelines, not global command phases.
 
-## Command Traits And Predicate Listeners
+## Traits And Predicate Listeners
 
-PF2e triggers often care about traits more than concrete command types. Reactive Strike cares about movement and `manipulate`; other features may care about `concentrate`, `attack`, `spellshape`, `flourish`, or future action traits.
+PF2e traits are an open set, and the rules layer should use the same trait representation for commands, items, spells, actions, and imported data. The design should not hardcode a closed enum of command-only traits.
 
 ```csharp
-public enum CommandTrait
+public readonly record struct Trait(string Slug)
 {
-    Attack,
-    Move,
-    Manipulate,
-    Concentrate,
-    Spellshape,
-    Flourish,
-    Teleportation
-}
+    public static readonly Trait Attack = new("attack");
+    public static readonly Trait Move = new("move");
+    public static readonly Trait Manipulate = new("manipulate");
+    public static readonly Trait Concentrate = new("concentrate");
+    public static readonly Trait Spellshape = new("spellshape");
+    public static readonly Trait Flourish = new("flourish");
 
-public interface ICommandTraitProvider<TCommand>
+    public static Trait FromSlug(string slug) => new(slug);
+}
+```
+
+Commands remain data-only. They can carry traits as immutable data when the caller already knows them, but commands should not contain logic to derive traits. The frame factory can resolve or enrich traits from action definitions, spell definitions, item profiles, and optional trait providers.
+
+```csharp
+public interface ICommandFrameTraitProvider<TCommand>
 {
-    ImmutableArray<CommandTrait> GetTraits(TCommand command, RulesSnapshot snapshot);
+    ImmutableArray<Trait> GetTraits(TCommand command, IRulesSnapshot snapshot);
 }
+```
 
+This provider exists because some traits are not intrinsic to the command payload alone. For example, `CastSpellCommand` traits depend on the selected spell, rank, action count, and spellshape state. A `StrikeCommand` might derive traits from the selected weapon or unarmed profile. Keeping that derivation outside command objects preserves the data-only command constraint.
+
+Predicate listeners are the escape hatch for rules that care about traits or broad command shape instead of a single concrete command type.
+
+```csharp
 public interface ICommandPredicateListener
 {
     int Priority { get; }
@@ -458,9 +574,11 @@ public interface ICommandPredicateListener
     IEnumerable<RuleEffect> OnCommandStarting(
         ActiveRuleBinding binding,
         CommandFrameUntyped frame,
-        RulesSnapshot snapshot);
+        IRulesSnapshot snapshot);
 }
 ```
+
+`CommandFrameUntyped` is not a second command type. It is the non-generic view the engine uses for broad trait/predicate listeners that cannot know `TCommand` at compile time, while still preserving provenance, actor, traits, and deterministic ID helpers.
 
 Rationale: without trait-based listeners, features would need to register against many unrelated concrete command types. Traits give rules a generic trigger surface without giving up typed command data.
 
@@ -500,7 +618,7 @@ A prompt option can submit a command:
 public sealed record PromptOption(
     PromptOptionId Id,
     string Label,
-    IRuleCommand<CommandResponse>? CommandToSubmit);
+    IRuleCommand? CommandToSubmit);
 ```
 
 Rationale: prompts must be replayable. During replay, the engine can consume recorded prompt choices instead of opening UI. During AI control, the prompt resolver can choose from policy. During normal play, the UI observes the prompt effect and returns a decision.
@@ -544,23 +662,34 @@ Rationale: turning every read into a command would add noise and reduce clarity.
 
 Services are allowed and expected, but they should not mutate state. They compute reusable rules results or produce effect proposals.
 
+Pure stateless rules can be static helpers when all dependencies are supplied as parameters.
+
 ```csharp
-public interface IStrikeService
+public static class StrikeService
 {
-    StrikeResolution Resolve(
+    public static StrikeResolution Resolve(
         StrikeCommand command,
-        RulesSnapshot snapshot,
-        RollService rolls,
-        ModifierService modifiers);
+        IRulesSnapshot snapshot,
+        IRollService rolls,
+        IModifierService modifiers);
 }
 
+public static class BasicSaveDamage
+{
+    public static DamageValue Apply(DamageRoll roll, DegreeOfSuccess saveDegree);
+}
+```
+
+Interfaces are useful when the implementation is stateful, environment-backed, or intentionally replaced in tests. Randomness should use an interface from the start.
+
+```csharp
 public interface IModifierService
 {
     ModifierBreakdown Resolve(
         CreatureId subject,
         StatisticId statistic,
         ModifierContext context,
-        RulesSnapshot snapshot);
+        IRulesSnapshot snapshot);
 }
 
 public interface IRollService
@@ -570,7 +699,23 @@ public interface IRollService
 }
 ```
 
-Rationale: services keep shared math centralized without giving up the command/effect architecture. The important boundary is that services return values or effect proposals; they do not mutate Unity or rules state directly.
+Concrete Bless examples:
+
+```csharp
+var attackModifiers = context.Modifiers.Resolve(
+    subject: blessedAlly,
+    statistic: StatisticIds.AttackRoll,
+    context: ModifierContext.ForCommand(strikeFrame),
+    snapshot: snapshot);
+
+var affectedCreatures = AuraQueryService.CreaturesInEmanation(
+    owner: blessCaster,
+    radius: Feet.Of(15),
+    snapshot: snapshot)
+    .Where(creature => snapshot.IsAlly(blessCaster, creature));
+```
+
+Rationale: services keep shared math centralized without giving up the command/effect architecture. Static helpers are fine for pure deterministic calculations. Interfaces are preferable for snapshot access, randomness, data catalogs, and anything a test may need to replace.
 
 ## Visible Effects And Derived Effects
 
@@ -595,7 +740,7 @@ Use derived projections when the effect is continuously implied by current state
 ```csharp
 public interface IDerivedEffectProvider
 {
-    ImmutableArray<DerivedEffect> GetDerivedEffects(RulesSnapshot snapshot);
+    ImmutableArray<DerivedEffect> GetDerivedEffects(IRulesSnapshot snapshot);
 }
 ```
 
@@ -620,6 +765,28 @@ Rules-facing responsibilities:
 - emit immutable effects and facts;
 - update `MutableRulesState` through effect appliers.
 
+A Unity adapter can then project rules facts and effects into scene/UI work:
+
+```csharp
+public sealed class UnityRulesPresenter
+{
+    public void OnFactCommitted(RuleFact fact)
+    {
+        if (fact is ActiveEffectAppliedFact applied && applied.Effect.SourceRule == BlessRule.SourceId)
+            hudEffects.ShowEffect(applied.Target, applied.Effect.DisplayName);
+
+        if (fact is DamageAppliedFact damage)
+            combatLog.Render(damage);
+    }
+
+    public void OnEffectApplied(RuleEffect effect)
+    {
+        if (effect is MoveTokenEffect move)
+            tokenAnimator.EnqueueMove(move.Token, move.From, move.To);
+    }
+}
+```
+
 Rationale: this gives us an incremental path out of `GameObject`-centric rules while still letting the current Unity project host the engine.
 
 ## Action Definitions And Selection
@@ -632,16 +799,16 @@ public interface IActionDefinition
     ActionId Id { get; }
     string DisplayName { get; }
     ActionCost Cost { get; }
-    ImmutableArray<CommandTrait> Traits { get; }
+    ImmutableArray<Trait> Traits { get; }
     TargetingMode Targeting { get; }
-    bool IsAvailable(CreatureId actor, RulesSnapshot snapshot);
+    bool IsAvailable(CreatureId actor, IRulesSnapshot snapshot);
 }
 
 public interface IActionDefinition<TCommand, TResponse> : IActionDefinition
     where TCommand : IRuleCommand<TResponse>
     where TResponse : CommandResponse
 {
-    TCommand BuildCommand(CreatureId actor, ActionSelection selection, RulesSnapshot snapshot);
+    TCommand BuildCommand(CreatureId actor, ActionSelection selection, IRulesSnapshot snapshot);
 }
 ```
 
@@ -701,243 +868,361 @@ public sealed class StrikeRule :
 
     public RuleProgram<StrikeResponse> HandleCommand(
         CommandFrame<StrikeCommand> frame,
-        RulesSnapshot snapshot,
+        IRulesSnapshot snapshot,
         ResolutionContext context)
     {
         var command = frame.Command;
-        var resolution = strikeService.Resolve(command, snapshot, context.Rolls, context.Modifiers);
+        var facts = ImmutableArray.CreateBuilder<RuleFact>();
+        var effects = ImmutableArray.CreateBuilder<RuleEffect>();
+
+        var resolution = StrikeService.Resolve(command, snapshot, context.Rolls, context.Modifiers);
 
         if (command.CostsAction)
-            yield return new SpendActionEffect(context.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Actor, ActionCost.One);
+        {
+            var spend = new SpendActionEffect(frame.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Actor, ActionCost.One);
+            effects.Add(spend);
+            facts.AddRange((yield return spend).Facts);
+        }
 
         if (resolution.Hit)
-            yield return new ApplyDamageEffect(context.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Target, resolution.Damage);
+        {
+            var damage = new ApplyDamageEffect(frame.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Target, resolution.Damage);
+            effects.Add(damage);
+
+            // ApplyDamageEffect is where HP changes and reduced-to-zero facts are produced.
+            facts.AddRange((yield return damage).Facts);
+        }
 
         if (command.IncrementsMultipleAttackPenalty)
-            yield return new IncrementMultipleAttackPenaltyEffect(context.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Actor, resolution.MapIncrement);
+        {
+            var map = new IncrementMultipleAttackPenaltyEffect(frame.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Actor, resolution.MapIncrement);
+            effects.Add(map);
+            facts.AddRange((yield return map).Facts);
+        }
 
         return new StrikeResponse(
             frame.Id,
             CommandOutcome.Succeeded,
             null,
-            context.ProducedEffects,
-            context.Facts,
+            effects.ToImmutable(),
+            facts.ToImmutable(),
             resolution.AttackRoll,
             resolution.Degree,
             resolution.Damage,
-            context.Facts.OfType<CreatureReducedToZeroFact>().Any(f => f.Creature == command.Target));
+            facts.OfType<CreatureReducedToZeroFact>().Any(f => f.Creature == command.Target));
     }
 }
 ```
 
-The existing `StrikeResolutionPipeline` remains useful. In the first migration, `StrikeService` can wrap it. Longer term, the pipeline should be moved below the Unity boundary so it consumes rules IDs and snapshots instead of `GameObject` references.
+The existing `StrikeResolutionPipeline` remains useful. In the first migration, `StrikeService.Resolve` can wrap it. Longer term, the pipeline should be moved below the Unity boundary so it consumes rules IDs and snapshots instead of `GameObject` references.
 
 ## Reactive Strike Example
 
-Reactive Strike is a rule definition with listeners. It does not require special engine code.
+Reactive Strike is a rule definition with listeners and its own command. The listeners detect valid triggers; the command handles the optional reaction, nested Strike, and possible disruption.
+
+Reactive Strike's trigger covers four cases: a creature within reach uses a `manipulate` action, uses a `move` action, makes a ranged attack, or leaves a square during a move action. The first three can be detected from command traits or Strike profile data. The last one requires per-step movement commands.
+
+```csharp
+public sealed record ReactiveStrikeCommand(
+    RuleBindingId SourceBinding,
+    CreatureId Actor,
+    CreatureId Target,
+    CommandId TriggeringCommand,
+    ImmutableArray<Trait> TriggerTraits,
+    StrikeProfileId StrikeProfile)
+    : IRuleCommand<ReactiveStrikeResponse>;
+
+public sealed record ReactiveStrikeResponse(
+    CommandId CommandId,
+    CommandOutcome Outcome,
+    FailureReason? FailureReason,
+    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleFact> Facts,
+    StrikeResponse? Strike)
+    : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
+```
 
 ```csharp
 public sealed class ReactiveStrikeRule :
     IRuleDefinition,
+    ICommandPredicateListener,
+    ICommandStartListener<StrikeCommand, StrikeResponse>,
     ICommandStartListener<MovementStepCommand, MovementStepResponse>,
-    ICommandPredicateStartListener
+    ICommandHandler<ReactiveStrikeCommand, ReactiveStrikeResponse>
 {
     public RuleSourceId SourceId => RuleSources.Feat("reactive-strike");
+    private static readonly PromptId UsePrompt = PromptId.For(SourceId, "use");
 
     public void Register(IRuleRegistryBuilder rules)
     {
-        rules.BeforeCommand<MovementStepCommand, MovementStepResponse>(SourceId, this);
         rules.BeforeAnyCommand(SourceId, this);
-    }
-
-    public IEnumerable<RuleEffect> OnCommandStarting(
-        ActiveRuleBinding binding,
-        CommandFrame<MovementStepCommand> frame,
-        RulesSnapshot snapshot)
-    {
-        if (!CanStrikeMovement(binding.Owner, frame.Command.Actor, frame.Command.From, frame.Command.To, snapshot))
-            yield break;
-
-        yield return BuildPromptToStrike(binding, frame.ToUntyped());
+        rules.BeforeCommand<StrikeCommand, StrikeResponse>(SourceId, this);
+        rules.BeforeCommand<MovementStepCommand, MovementStepResponse>(SourceId, this);
+        rules.Handle<ReactiveStrikeCommand, ReactiveStrikeResponse>(this);
     }
 
     public bool AppliesTo(CommandFrameUntyped frame)
     {
-        return frame.Traits.Contains(CommandTrait.Manipulate);
+        return frame.Traits.Contains(Trait.Manipulate)
+            || frame.Traits.Contains(Trait.Move);
     }
 
     public IEnumerable<RuleEffect> OnCommandStarting(
         ActiveRuleBinding binding,
-        CommandFrameUntyped frame,
-        RulesSnapshot snapshot)
+        CommandFrameUntyped trigger,
+        IRulesSnapshot snapshot)
     {
-        if (!CanStrikeManipulate(binding.Owner, frame.Actor, snapshot))
+        if (!CanReachEnemy(binding.Owner, trigger.Actor, snapshot))
             yield break;
 
-        yield return BuildPromptToStrike(binding, frame);
+        yield return PromptForReactiveStrike(binding, trigger);
     }
-}
-```
 
-The prompt submits a Strike and spends the reaction through generic effects or nested commands.
-
-```csharp
-private RuleEffect BuildPromptToStrike(ActiveRuleBinding binding, CommandFrameUntyped triggeringFrame)
-{
-    var strike = new StrikeCommand(
-        Actor: binding.Owner,
-        Target: triggeringFrame.Actor!.Value,
-        Profile: ChooseMeleeProfile(binding.Owner),
-        CostsAction: false,
-        AppliesMultipleAttackPenalty: false,
-        IncrementsMultipleAttackPenalty: false);
-
-    return new PromptChoiceEffect(
-        NewEffectId(),
-        triggeringFrame.Id,
-        SourceId,
-        binding.Id,
-        Chooser: binding.Owner,
-        Prompt: PromptIds.UseReactiveStrike,
-        Options: ImmutableArray.Create(
-            PromptOption.Decline(),
-            PromptOption.Sequence(
-                "Strike",
-                new SpendReactionCommand(binding.Owner, SourceId),
-                strike)));
-}
-```
-
-If the Strike critically disrupts a manipulate command, the rule can emit a generic cancellation effect against the triggering command.
-
-```csharp
-public IEnumerable<RuleEffect> OnNestedStrikeResolved(
-    ActiveRuleBinding binding,
-    CommandFrame<StrikeCommand> strikeFrame,
-    StrikeResponse response,
-    CommandFrameUntyped triggeringFrame)
-{
-    if (triggeringFrame.Traits.Contains(CommandTrait.Manipulate) && response.Degree == DegreeOfSuccess.CriticalSuccess)
+    public IEnumerable<RuleEffect> OnCommandStarting(
+        ActiveRuleBinding binding,
+        CommandFrame<StrikeCommand> trigger,
+        IRulesSnapshot snapshot)
     {
-        yield return new CancelCommandEffect(
-            NewEffectId(),
-            strikeFrame.Id,
+        if (!snapshot.GetStrikeProfile(trigger.Command.Profile).IsRanged)
+            yield break;
+
+        if (!CanReachEnemy(binding.Owner, trigger.Command.Actor, snapshot))
+            yield break;
+
+        yield return PromptForReactiveStrike(binding, trigger.ToUntyped());
+    }
+
+    public IEnumerable<RuleEffect> OnCommandStarting(
+        ActiveRuleBinding binding,
+        CommandFrame<MovementStepCommand> trigger,
+        IRulesSnapshot snapshot)
+    {
+        if (!IsLeavingSquareWithinReach(binding.Owner, trigger.Command.Actor, trigger.Command.From, snapshot))
+            yield break;
+
+        yield return PromptForReactiveStrike(binding, trigger.ToUntyped());
+    }
+
+    private RuleEffect PromptForReactiveStrike(ActiveRuleBinding binding, CommandFrameUntyped trigger)
+    {
+        var command = new ReactiveStrikeCommand(
+            SourceBinding: binding.Id,
+            Actor: binding.Owner,
+            Target: trigger.Actor!.Value,
+            TriggeringCommand: trigger.Id,
+            TriggerTraits: trigger.Traits,
+            StrikeProfile: ChooseMeleeProfile(binding.Owner));
+
+        return new PromptChoiceEffect(
+            trigger.NewEffectId(),
+            trigger.Id,
             SourceId,
             binding.Id,
-            TargetCommand: triggeringFrame.Id,
-            Reason: FailureReasons.Disrupted);
+            Chooser: binding.Owner,
+            Prompt: UsePrompt,
+            Options: ImmutableArray.Create(
+                PromptOption.Decline(),
+                PromptOption.SubmitCommand("Strike", command)));
+    }
+
+    public RuleProgram<ReactiveStrikeResponse> HandleCommand(
+        CommandFrame<ReactiveStrikeCommand> frame,
+        IRulesSnapshot snapshot,
+        ResolutionContext context)
+    {
+        var command = frame.Command;
+        var binding = snapshot.GetActiveBinding(command.SourceBinding);
+        var effects = ImmutableArray.CreateBuilder<RuleEffect>();
+        var facts = ImmutableArray.CreateBuilder<RuleFact>();
+
+        if (binding.SourceId != SourceId || binding.Owner != command.Actor)
+            return Response.Invalid<ReactiveStrikeResponse>(frame.Id, FailureReasons.InvalidRuleBinding);
+
+        var spend = new SpendReactionEffect(frame.NewEffectId(), frame.Id, SourceId, binding.Id, command.Actor);
+        effects.Add(spend);
+        facts.AddRange((yield return spend).Facts);
+
+        var strikeCommand = new StrikeCommand(
+            Actor: command.Actor,
+            Target: command.Target,
+            Profile: command.StrikeProfile,
+            CostsAction: false,
+            AppliesMultipleAttackPenalty: false,
+            IncrementsMultipleAttackPenalty: false);
+
+        var strike = yield return new RunNestedCommandEffect<StrikeCommand, StrikeResponse>(
+            frame.NewEffectId(),
+            frame.Id,
+            SourceId,
+            binding.Id,
+            strikeCommand);
+
+        effects.AddRange(strike.ProducedEffects);
+        facts.AddRange(strike.Facts);
+
+        if (command.TriggerTraits.Contains(Trait.Manipulate) && strike.Degree == DegreeOfSuccess.CriticalSuccess)
+        {
+            var disrupt = new CancelCommandEffect(
+                frame.NewEffectId(),
+                frame.Id,
+                SourceId,
+                binding.Id,
+                TargetCommand: command.TriggeringCommand,
+                Reason: FailureReasons.Disrupted);
+
+            effects.Add(disrupt);
+            facts.AddRange((yield return disrupt).Facts);
+        }
+
+        return new ReactiveStrikeResponse(
+            frame.Id,
+            CommandOutcome.Succeeded,
+            null,
+            effects.ToImmutable(),
+            facts.ToImmutable(),
+            strike);
     }
 }
 ```
 
-Rationale: Reactive Strike only knows generic movement, manipulate traits, reaction spending, prompts, strikes, and cancellation. The movement engine and manipulate actions do not know Reactive Strike exists.
+Rationale: movement, manipulate actions, and ranged Strikes do not know Reactive Strike exists. They expose generic command data and traits. Reactive Strike owns its own trigger detection and reaction resolution, and the command frame preserves the triggering command needed for disruption.
 
 ## Bless Example
 
 Bless demonstrates visible effects and aura maintenance. The player should see that a creature is affected before making an attack.
 
-When Bless is cast, the spell handler creates an active aura effect owned by the caster.
-
 ```csharp
-yield return new ApplyActiveEffectEffect(
-    context.NewEffectId(),
-    frame.Id,
-    RuleSources.Spell("bless"),
-    frame.SourceBinding,
-    Target: command.Actor,
-    Effect: new ActiveEffectInstance(
-        Id: context.NewEffectInstanceId(),
-        SourceRule: RuleSources.SpellEffect("bless-aura"),
-        Owner: command.Actor,
-        Target: null,
-        DisplayName: "Bless Aura",
-        Duration: Duration.OneMinute,
-        Modifiers: ImmutableArray<ModifierDefinition>.Empty,
-        Bindings: ImmutableArray.Create(
-            new ActiveRuleBinding(
-                context.NewBindingId(),
-                RuleSources.SpellEffect("bless-aura"),
-                command.Actor,
-                RuleSourceKind.ActiveEffect,
-                effectInstance: context.CurrentEffectInstance,
-                sourceItem: null))));
-```
-
-The aura rule recomputes affected allies after movement and aura-radius changes.
-
-```csharp
-public sealed class BlessAuraRule :
+public sealed class BlessRule :
     IRuleDefinition,
+    ISpellEffectRule,
     ICommandResponseListener<MovementStepCommand, MovementStepResponse>,
     ICommandResponseListener<AuraRadiusChangedCommand, BasicCommandResponse>
 {
-    public RuleSourceId SourceId => RuleSources.SpellEffect("bless-aura");
+    public RuleSourceId SourceId => RuleSources.Spell("bless");
+    private static readonly RuleSourceId AuraSourceId = RuleSources.SpellEffect("bless-aura");
+    private static readonly EffectSlug AttackBonusEffect = EffectSlug.For(SourceId, "attack-bonus");
+    private static readonly ModifierSlug AttackBonusModifier = ModifierSlug.For(SourceId, "status-attack-bonus");
 
     public void Register(IRuleRegistryBuilder rules)
     {
-        rules.AfterCommandCommitted<MovementStepCommand, MovementStepResponse>(SourceId, this);
-        rules.AfterCommandCommitted<AuraRadiusChangedCommand, BasicCommandResponse>(SourceId, this);
+        rules.RegisterSpellEffect(SourceId, this);
+        rules.AfterCommandCommitted<MovementStepCommand, MovementStepResponse>(AuraSourceId, this);
+        rules.AfterCommandCommitted<AuraRadiusChangedCommand, BasicCommandResponse>(AuraSourceId, this);
+    }
+
+    public IEnumerable<RuleEffect> ResolveSpellEffect(
+        SpellEffectContext spell,
+        CommandFrame<CastSpellCommand> frame,
+        IRulesSnapshot snapshot)
+    {
+        var auraId = frame.NewEffectInstanceId();
+        var auraBinding = new ActiveRuleBinding(
+            frame.NewBindingId(),
+            AuraSourceId,
+            Owner: spell.Caster,
+            Kind: RuleSourceKind.ActiveEffect,
+            EffectInstance: auraId,
+            SourceItem: spell.SpellItem);
+
+        yield return new ApplyActiveEffectEffect(
+            frame.NewEffectId(),
+            frame.Id,
+            SourceId,
+            frame.SourceBinding,
+            Target: spell.Caster,
+            Effect: new ActiveEffectInstance(
+                Id: auraId,
+                SourceRule: AuraSourceId,
+                Owner: spell.Caster,
+                Target: null,
+                DisplayName: "Bless Aura",
+                Duration: Duration.OneMinute,
+                Modifiers: ImmutableArray<ModifierDefinition>.Empty,
+                Bindings: ImmutableArray.Create(auraBinding)));
+
+        foreach (var ally in AlliesInBlessAura(spell.Caster, snapshot))
+            yield return ApplyBlessBonus(frame, auraBinding, ally);
     }
 
     public IEnumerable<RuleEffect> OnCommandResolved(
         ActiveRuleBinding binding,
         CommandFrame<MovementStepCommand> frame,
         MovementStepResponse response,
-        RulesSnapshot snapshot)
+        IRulesSnapshot snapshot)
     {
         foreach (var candidate in CandidatesNearAura(binding, frame, snapshot))
-            foreach (var effect in RecomputeBlessOnCreature(binding, candidate, snapshot))
+            foreach (var effect in RecomputeBlessOnCreature(frame, binding, candidate, snapshot))
                 yield return effect;
     }
-}
-```
 
-Applying Bless to an ally uses a visible active effect with a modifier definition.
+    public IEnumerable<RuleEffect> OnCommandResolved(
+        ActiveRuleBinding binding,
+        CommandFrame<AuraRadiusChangedCommand> frame,
+        BasicCommandResponse response,
+        IRulesSnapshot snapshot)
+    {
+        foreach (var candidate in snapshot.CreaturesInArea(binding.CurrentAuraArea()))
+            foreach (var effect in RecomputeBlessOnCreature(frame, binding, candidate, snapshot))
+                yield return effect;
+    }
 
-```csharp
-private IEnumerable<RuleEffect> RecomputeBlessOnCreature(
-    ActiveRuleBinding aura,
-    CreatureId candidate,
-    RulesSnapshot snapshot)
-{
-    bool shouldHaveBless = snapshot.IsAlly(aura.Owner, candidate)
-        && snapshot.Distance(aura.Owner, candidate) <= Feet.Of(15);
+    private IEnumerable<RuleEffect> RecomputeBlessOnCreature(
+        ICommandFrame frame,
+        ActiveRuleBinding aura,
+        CreatureId candidate,
+        IRulesSnapshot snapshot)
+    {
+        bool shouldHaveBless = snapshot.IsAlly(aura.Owner, candidate)
+            && snapshot.Distance(aura.Owner, candidate) <= snapshot.GetAuraRadius(aura.EffectInstance!.Value);
 
-    bool hasBless = snapshot.HasEffectFrom(candidate, aura.Id, EffectSlugs.BlessAttackBonus);
+        bool hasBless = snapshot.HasEffectFrom(candidate, aura.Id, AttackBonusEffect);
 
-    if (shouldHaveBless && !hasBless)
-        yield return new ApplyActiveEffectEffect(NewEffectId(), SourceCommand.Current, SourceId, aura.Id, candidate, BuildBlessBonusEffect(aura, candidate));
-    else if (!shouldHaveBless && hasBless)
-        yield return new RemoveActiveEffectEffect(NewEffectId(), SourceCommand.Current, SourceId, aura.Id, candidate, EffectSlugs.BlessAttackBonus);
-}
+        if (shouldHaveBless && !hasBless)
+            yield return ApplyBlessBonus(frame, aura, candidate);
+        else if (!shouldHaveBless && hasBless)
+            yield return new RemoveActiveEffectEffect(frame.NewEffectId(), frame.Id, SourceId, aura.Id, candidate, AttackBonusEffect);
+    }
 
-private ActiveEffectInstance BuildBlessBonusEffect(ActiveRuleBinding aura, CreatureId candidate)
-{
-    return new ActiveEffectInstance(
-        Id: NewEffectInstanceId(),
-        SourceRule: SourceId,
-        Owner: aura.Owner,
-        Target: candidate,
-        DisplayName: "Bless",
-        Duration: Duration.WhileSourceExists(aura.EffectInstance!.Value),
-        Modifiers: ImmutableArray.Create(
-            new ModifierDefinition(
-                ModifierSlugs.Bless,
-                StatisticIds.AttackRoll,
-                ModifierType.Status,
-                +1,
-                SourceId)),
-        Bindings: ImmutableArray<ActiveRuleBinding>.Empty);
+    private RuleEffect ApplyBlessBonus(ICommandFrame frame, ActiveRuleBinding aura, CreatureId target)
+    {
+        return new ApplyActiveEffectEffect(
+            frame.NewEffectId(),
+            frame.Id,
+            SourceId,
+            aura.Id,
+            target,
+            BuildBlessBonusEffect(frame, aura, target));
+    }
+
+    private ActiveEffectInstance BuildBlessBonusEffect(ICommandFrame frame, ActiveRuleBinding aura, CreatureId target)
+    {
+        return new ActiveEffectInstance(
+            Id: frame.NewEffectInstanceId(),
+            SourceRule: SourceId,
+            Owner: aura.Owner,
+            Target: target,
+            DisplayName: "Bless",
+            Duration: Duration.WhileSourceExists(aura.EffectInstance!.Value),
+            Slug: AttackBonusEffect,
+            Modifiers: ImmutableArray.Create(
+                new ModifierDefinition(
+                    AttackBonusModifier,
+                    StatisticIds.AttackRoll,
+                    ModifierType.Status,
+                    +1,
+                    SourceId)),
+            Bindings: ImmutableArray<ActiveRuleBinding>.Empty);
+    }
 }
 ```
 
 When the blessed creature attacks, Strike asks the generic modifier service for attack-roll modifiers. Strike does not know Bless exists.
 
-Rationale: Bless is transparent in the UI and still mechanically generic. It also demonstrates the distinction between stored visible effects and roll-time modifier resolution.
+Rationale: Bless is transparent in the UI and still mechanically generic. It also demonstrates the distinction between stored visible effects and roll-time modifier resolution. Source-specific IDs such as the Bless effect slug and modifier slug stay local to `BlessRule`, avoiding giant shared registries that grow with every PF2e feature.
 
 ## Tumble Through Example
 
-Tumble Through is an action command that wraps movement with action-scoped movement permission. The grid should not hardcode Tumble Through.
+Tumble Through is an action command that wraps movement with action-scoped permission to pass through one enemy's space. The grid should not hardcode Tumble Through.
 
 ```csharp
 public sealed record TumbleThroughCommand(
@@ -952,7 +1237,7 @@ public sealed record TumbleThroughResponse(
     FailureReason? FailureReason,
     ImmutableArray<RuleEffect> ProducedEffects,
     ImmutableArray<RuleFact> Facts,
-    DegreeOfSuccess? AcrobaticsDegree,
+    SkillCheckResponse? AcrobaticsCheck,
     bool PassedThroughTargetSpace,
     MovementResponse Movement)
     : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
@@ -974,73 +1259,117 @@ public sealed class TumbleThroughRule :
 
     public RuleProgram<TumbleThroughResponse> HandleCommand(
         CommandFrame<TumbleThroughCommand> frame,
-        RulesSnapshot snapshot,
+        IRulesSnapshot snapshot,
         ResolutionContext context)
     {
-        var movementRule = new TumbleThroughMovementRule(
-            frame.Command.Actor,
-            frame.Command.TargetEnemy,
-            SourceId,
-            frame.Id);
+        var command = frame.Command;
+        var effects = ImmutableArray.CreateBuilder<RuleEffect>();
+        var facts = ImmutableArray.CreateBuilder<RuleFact>();
+        var targetPosition = snapshot.GetCreaturePosition(command.TargetEnemy);
+        var split = MovementPath.SplitBeforePosition(command.Path, targetPosition);
 
-        var movement = new MovementCommand(
-            Actor: frame.Command.Actor,
-            Path: frame.Command.Path,
-            Rules: ImmutableArray.Create<IMovementRule>(movementRule),
-            Traits: ImmutableArray.Create(CommandTrait.Move));
+        MovementResponse movement = MovementResponse.Empty(frame.Id);
+        SkillCheckResponse? acrobatics = null;
+        bool passedThrough = false;
 
-        var movementResponse = yield return new RunNestedCommandEffect<MovementCommand, MovementResponse>(
-            context.NewEffectId(),
-            frame.Id,
-            SourceId,
-            frame.SourceBinding,
-            movement);
+        if (split.BeforeTarget.Length > 0)
+        {
+            movement = yield return new RunNestedCommandEffect<MovementCommand, MovementResponse>(
+                frame.NewEffectId(),
+                frame.Id,
+                SourceId,
+                frame.SourceBinding,
+                new MovementCommand(
+                    Actor: command.Actor,
+                    Path: split.BeforeTarget,
+                    Traits: ImmutableArray.Create(Trait.Move),
+                    Permissions: ImmutableArray<MovementPermission>.Empty));
+
+            effects.AddRange(movement.ProducedEffects);
+            facts.AddRange(movement.Facts);
+
+            if (movement.Outcome != CommandOutcome.Succeeded)
+            {
+                return new TumbleThroughResponse(
+                    frame.Id,
+                    movement.Outcome,
+                    movement.FailureReason,
+                    effects.ToImmutable(),
+                    facts.ToImmutable(),
+                    acrobatics,
+                    passedThrough,
+                    movement);
+            }
+        }
+
+        if (split.TargetWasInPath)
+        {
+            acrobatics = yield return new RunNestedCommandEffect<SkillCheckCommand, SkillCheckResponse>(
+                frame.NewEffectId(),
+                frame.Id,
+                SourceId,
+                frame.SourceBinding,
+                new SkillCheckCommand(
+                    Actor: command.Actor,
+                    Skill: SkillIds.Acrobatics,
+                    Dc: snapshot.GetReflexDc(command.TargetEnemy)));
+
+            effects.AddRange(acrobatics.ProducedEffects);
+            facts.AddRange(acrobatics.Facts);
+
+            if (acrobatics.Degree < DegreeOfSuccess.Success)
+            {
+                return new TumbleThroughResponse(
+                    frame.Id,
+                    CommandOutcome.Succeeded,
+                    null,
+                    effects.ToImmutable(),
+                    facts.ToImmutable(),
+                    acrobatics,
+                    passedThrough,
+                    movement);
+            }
+
+            passedThrough = true;
+        }
+
+        var pathAfterCheck = split.TargetWasInPath
+            ? split.PathFromTargetThroughEnd
+            : split.RemainingPathAfter(split.BeforeTarget);
+
+        if (pathAfterCheck.Length > 0)
+        {
+            movement = yield return new RunNestedCommandEffect<MovementCommand, MovementResponse>(
+                frame.NewEffectId(),
+                frame.Id,
+                SourceId,
+                frame.SourceBinding,
+                new MovementCommand(
+                    Actor: command.Actor,
+                    Path: pathAfterCheck,
+                    Traits: ImmutableArray.Create(Trait.Move),
+                    Permissions: passedThrough
+                        ? ImmutableArray.Create(MovementPermission.EnterOccupiedSpace(command.TargetEnemy, SourceId))
+                        : ImmutableArray<MovementPermission>.Empty));
+
+            effects.AddRange(movement.ProducedEffects);
+            facts.AddRange(movement.Facts);
+        }
 
         return new TumbleThroughResponse(
             frame.Id,
-            movementResponse.Outcome,
-            movementResponse.FailureReason,
-            context.ProducedEffects,
-            context.Facts,
-            movementRule.AcrobaticsDegree,
-            movementRule.PassedThroughTargetSpace,
-            movementResponse);
+            movement.Outcome,
+            movement.FailureReason,
+            effects.ToImmutable(),
+            facts.ToImmutable(),
+            acrobatics,
+            passedThrough,
+            movement);
     }
 }
 ```
 
-The movement rule is local to the command and only alters how this movement resolves.
-
-```csharp
-public sealed class TumbleThroughMovementRule : IMovementRule
-{
-    public IEnumerable<RuleEffect> BeforeEnter(
-        MovementStepCommand step,
-        RulesSnapshot snapshot,
-        CommandFrame<MovementStepCommand> frame)
-    {
-        if (step.To != snapshot.GetCreaturePosition(targetEnemy))
-            yield break;
-
-        var check = new SkillCheckCommand(
-            Actor: actor,
-            Skill: SkillIds.Acrobatics,
-            Dc: snapshot.GetReflexDc(targetEnemy));
-
-        yield return new RunNestedCommandEffect<SkillCheckCommand, SkillCheckResponse>(
-            NewEffectId(),
-            frame.Id,
-            sourceRule,
-            sourceBinding: null,
-            check);
-
-        if (AcrobaticsDegree < DegreeOfSuccess.Success)
-            yield return new CancelCommandEffect(NewEffectId(), frame.Id, sourceRule, null, frame.Id, FailureReasons.TumbleThroughFailed);
-    }
-}
-```
-
-Rationale: Reactive Strike still only sees normal movement step commands. Tumble Through extends movement through a generic movement-rule hook rather than teaching the grid about a specific action.
+Rationale: Reactive Strike still only sees normal movement step commands. Tumble Through coordinates a skill check and grants action-scoped movement permission through generic movement commands. If movement-specific rule hooks become more complex later, this can be refactored into reusable movement rule objects, but the first implementation should keep the data flow explicit.
 
 ## Cranial Detonation Example: Illustrative Future Complex Feature
 
@@ -1079,153 +1408,156 @@ public sealed class CranialDetonationRule :
     ICommandHandler<CranialDetonationCommand, CranialDetonationResponse>
 {
     public RuleSourceId SourceId => RuleSources.Feat("cranial-detonation");
+    private static readonly PromptId UsePrompt = PromptId.For(SourceId, "use");
 
     public void Register(IRuleRegistryBuilder rules)
     {
         rules.AfterCommandCommitted<CastSpellCommand, CastSpellResponse>(SourceId, this);
         rules.Handle<CranialDetonationCommand, CranialDetonationResponse>(this);
     }
-}
-```
 
-Trigger listener:
-
-```csharp
-public IEnumerable<RuleEffect> OnCommandResolved(
-    ActiveRuleBinding binding,
-    CommandFrame<CastSpellCommand> frame,
-    CastSpellResponse response,
-    RulesSnapshot snapshot)
-{
-    if (binding.Owner != frame.Command.Actor)
-        yield break;
-
-    if (!snapshot.HasUnleashedPsyche(binding.Owner))
-        yield break;
-
-    if (!snapshot.FrequencyAvailable(binding.Owner, SourceId, FrequencyWindow.OncePerRound))
-        yield break;
-
-    var origins = response.Facts
-        .OfType<CreatureReducedToZeroFact>()
-        .Where(f => f.SourceCommand == frame.Id)
-        .Where(f => snapshot.IsEnemy(binding.Owner, f.Creature))
-        .Where(f => !snapshot.HasTrait(f.Creature, CreatureTrait.Mindless))
-        .Select(f => f.Creature)
-        .Distinct()
-        .ToImmutableArray();
-
-    if (origins.Length == 0)
-        yield break;
-
-    yield return new PromptChoiceEffect(
-        NewEffectId(),
-        frame.Id,
-        SourceId,
-        binding.Id,
-        Chooser: binding.Owner,
-        Prompt: PromptIds.UseCranialDetonation,
-        Options: ImmutableArray.Create(
-            PromptOption.Decline(),
-            PromptOption.SubmitCommand("Detonate", new CranialDetonationCommand(
-                binding.Id,
-                binding.Owner,
-                frame.Id,
-                origins,
-                MindshiftMode.Normal))));
-}
-```
-Handler:
-
-```csharp
-public RuleProgram<CranialDetonationResponse> HandleCommand(
-    CommandFrame<CranialDetonationCommand> frame,
-    RulesSnapshot snapshot,
-    ResolutionContext context)
-{
-    var command = frame.Command;
-    var binding = snapshot.GetActiveBinding(command.SourceBinding);
-
-    if (binding.SourceId != SourceId || binding.Owner != command.Actor)
-        return Response.Invalid<CranialDetonationResponse>(frame.Id, FailureReasons.InvalidRuleBinding);
-
-    if (!CanStillActivate(command, snapshot, context.EventLog))
-        return Response.Invalid<CranialDetonationResponse>(frame.Id, FailureReasons.InvalidTrigger);
-
-    yield return new SpendFrequencyEffect(
-        context.NewEffectId(),
-        frame.Id,
-        SourceId,
-        binding.Id,
-        command.Actor,
-        SourceId,
-        FrequencyWindow.OncePerRound);
-
-    var detonated = ImmutableHashSet<CreatureId>.Empty;
-    var resolvedTargets = ImmutableHashSet<CreatureId>.Empty;
-    var frontier = command.InitialOrigins;
-
-    while (frontier.Length > 0)
+    public IEnumerable<RuleEffect> OnCommandResolved(
+        ActiveRuleBinding binding,
+        CommandFrame<CastSpellCommand> frame,
+        CastSpellResponse response,
+        IRulesSnapshot snapshot)
     {
-        foreach (var origin in frontier)
-        {
-            detonated = detonated.Add(origin);
-            yield return new SetLifeStateEffect(
-                context.NewEffectId(),
-                frame.Id,
-                SourceId,
-                binding.Id,
-                origin,
-                LifeState.Dead);
-        }
+        if (binding.Owner != frame.Command.Actor)
+            yield break;
 
-        var area = AreaShape.Union(frontier.Select(origin => AreaShape.EmanationFromCreature(origin, Feet.Of(15))));
-        var targets = snapshot.CreaturesInArea(area)
-            .Where(target => !resolvedTargets.Contains(target))
-            .Where(target => snapshot.CanBeDamaged(target))
-            .ToImmutableArray();
+        if (!snapshot.HasUnleashedPsyche(binding.Owner))
+            yield break;
 
-        if (targets.Length == 0)
-            break;
+        if (!snapshot.FrequencyAvailable(binding.Owner, SourceId, FrequencyWindow.OncePerRound))
+            yield break;
 
-        var damageSpec = CranialDetonationDamage(command.MindshiftMode);
-
-        var areaDamage = new AreaBasicSaveDamageCommand(
-            Actor: command.Actor,
-            Targets: targets,
-            Area: area,
-            Save: damageSpec.Save,
-            Dc: snapshot.ResolveFeatureDc(command.Actor, SourceId),
-            Damage: damageSpec.Damage,
-            Traits: damageSpec.Traits,
-            SourceRule: SourceId);
-
-        var areaResponse = yield return new RunNestedCommandEffect<AreaBasicSaveDamageCommand, AreaDamageResponse>(
-            context.NewEffectId(),
-            frame.Id,
-            SourceId,
-            binding.Id,
-            areaDamage);
-
-        resolvedTargets = resolvedTargets.Union(targets);
-
-        frontier = areaResponse.Facts
+        var origins = response.Facts
             .OfType<CreatureReducedToZeroFact>()
-            .Where(f => snapshot.IsEnemy(command.Actor, f.Creature))
-            .Where(f => !detonated.Contains(f.Creature))
+            .Where(f => f.SourceCommand == frame.Id)
+            .Where(f => snapshot.IsEnemy(binding.Owner, f.Creature))
+            .Where(f => !snapshot.HasTrait(f.Creature, Trait.FromSlug("mindless")))
             .Select(f => f.Creature)
             .Distinct()
             .ToImmutableArray();
+
+        if (origins.Length == 0)
+            yield break;
+
+        yield return new PromptChoiceEffect(
+            frame.NewEffectId(),
+            frame.Id,
+            SourceId,
+            binding.Id,
+            Chooser: binding.Owner,
+            Prompt: UsePrompt,
+            Options: ImmutableArray.Create(
+                PromptOption.Decline(),
+                PromptOption.SubmitCommand("Detonate", new CranialDetonationCommand(
+                    binding.Id,
+                    binding.Owner,
+                    frame.Id,
+                    origins,
+                    MindshiftMode.Normal))));
     }
 
-    return new CranialDetonationResponse(
-        frame.Id,
-        CommandOutcome.Succeeded,
-        null,
-        context.ProducedEffects,
-        context.Facts,
-        detonated.ToImmutableArray(),
-        resolvedTargets.ToImmutableArray());
+    public RuleProgram<CranialDetonationResponse> HandleCommand(
+        CommandFrame<CranialDetonationCommand> frame,
+        IRulesSnapshot snapshot,
+        ResolutionContext context)
+    {
+        var command = frame.Command;
+        var binding = snapshot.GetActiveBinding(command.SourceBinding);
+        var effects = ImmutableArray.CreateBuilder<RuleEffect>();
+        var facts = ImmutableArray.CreateBuilder<RuleFact>();
+
+        if (binding.SourceId != SourceId || binding.Owner != command.Actor)
+            return Response.Invalid<CranialDetonationResponse>(frame.Id, FailureReasons.InvalidRuleBinding);
+
+        if (!CanStillActivate(command, snapshot, context.EventLog))
+            return Response.Invalid<CranialDetonationResponse>(frame.Id, FailureReasons.InvalidTrigger);
+
+        var spend = new SpendFrequencyEffect(
+            frame.NewEffectId(),
+            frame.Id,
+            SourceId,
+            binding.Id,
+            command.Actor,
+            SourceId,
+            FrequencyWindow.OncePerRound);
+        effects.Add(spend);
+        facts.AddRange((yield return spend).Facts);
+
+        var detonated = ImmutableHashSet<CreatureId>.Empty;
+        var resolvedTargets = ImmutableHashSet<CreatureId>.Empty;
+        var frontier = command.InitialOrigins;
+
+        while (frontier.Length > 0)
+        {
+            foreach (var origin in frontier)
+            {
+                detonated = detonated.Add(origin);
+
+                var dead = new ApplyConditionEffect(
+                    frame.NewEffectId(),
+                    frame.Id,
+                    SourceId,
+                    binding.Id,
+                    origin,
+                    ConditionIds.Dead);
+                effects.Add(dead);
+                facts.AddRange((yield return dead).Facts);
+            }
+
+            var area = AreaShape.Union(frontier.Select(origin => AreaShape.EmanationFromCreature(origin, Feet.Of(15))));
+            var targets = snapshot.CreaturesInArea(area)
+                .Where(target => !resolvedTargets.Contains(target))
+                .Where(target => snapshot.CanBeDamaged(target))
+                .ToImmutableArray();
+
+            if (targets.Length == 0)
+                break;
+
+            var damageSpec = CranialDetonationDamage(command.MindshiftMode);
+
+            var areaDamage = new AreaBasicSaveDamageCommand(
+                Actor: command.Actor,
+                Targets: targets,
+                Area: area,
+                Save: damageSpec.Save,
+                Dc: snapshot.ResolveFeatureDc(command.Actor, SourceId),
+                Damage: damageSpec.Damage,
+                Traits: damageSpec.Traits,
+                SourceRule: SourceId);
+
+            var areaResponse = yield return new RunNestedCommandEffect<AreaBasicSaveDamageCommand, AreaDamageResponse>(
+                frame.NewEffectId(),
+                frame.Id,
+                SourceId,
+                binding.Id,
+                areaDamage);
+
+            effects.AddRange(areaResponse.ProducedEffects);
+            facts.AddRange(areaResponse.Facts);
+            resolvedTargets = resolvedTargets.Union(targets);
+
+            frontier = areaResponse.Facts
+                .OfType<CreatureReducedToZeroFact>()
+                .Where(f => snapshot.IsEnemy(command.Actor, f.Creature))
+                .Where(f => !detonated.Contains(f.Creature))
+                .Select(f => f.Creature)
+                .Distinct()
+                .ToImmutableArray();
+        }
+
+        return new CranialDetonationResponse(
+            frame.Id,
+            CommandOutcome.Succeeded,
+            null,
+            effects.ToImmutable(),
+            facts.ToImmutable(),
+            detonated.ToImmutableArray(),
+            resolvedTargets.ToImmutableArray());
+    }
 }
 ```
 
@@ -1239,7 +1571,7 @@ public sealed record AreaBasicSaveDamageCommand(
     SaveType Save,
     DifficultyClass Dc,
     DamageExpression Damage,
-    ImmutableArray<CommandTrait> Traits,
+    ImmutableArray<Trait> Traits,
     RuleSourceId SourceRule)
     : IRuleCommand<AreaDamageResponse>;
 ```
@@ -1250,7 +1582,7 @@ The generic area-damage handler emits nested saves and damage effects. It is not
 foreach (var target in command.Targets)
 {
     var save = yield return new RunNestedCommandEffect<SavingThrowCommand, SavingThrowResponse>(
-        NewEffectId(),
+        frame.NewEffectId(),
         frame.Id,
         command.SourceRule,
         frame.SourceBinding,
@@ -1259,7 +1591,7 @@ foreach (var target in command.Targets)
     var adjustedDamage = BasicSaveDamage.Apply(damageRoll, save.Degree);
 
     yield return new ApplyDamageEffect(
-        NewEffectId(),
+        frame.NewEffectId(),
         frame.Id,
         command.SourceRule,
         frame.SourceBinding,
@@ -1275,6 +1607,7 @@ Important design lessons from this example:
 - Frequency spending should be a generic effect.
 - Chained damage should use generic area damage, saves, and damage effects.
 - The feat-specific handler owns only the detonation queue and once-per-use target bookkeeping.
+- Final death state should likely be represented as applying the `Dead` condition rather than inventing a separate `LifeState` enum. However, effects such as Breath of Life trigger when a creature would die, so the damage/death pipeline still needs a pre-commit `CreatureWouldDieFact` or `BeforeConditionApplied(Dead)` hook before the `Dead` condition is committed.
 - The implementation should mark a creature resolved once it was included in a detonation wave, even if it critically succeeded and took no damage, to preserve the likely intent that one use cannot affect the same creature repeatedly.
 
 ## Incremental Migration Plan
