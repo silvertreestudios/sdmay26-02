@@ -1,1066 +1,1473 @@
 # Command-Based PF2e Rules Proposal
 
-This proposal describes a command-based rules architecture for future PF2e actions, reactions, spells, auras, and feat behavior. The goal is to prevent core gameplay classes from accumulating feature-specific `if` statements while still giving players transparent UI state such as active effects, available reactions, and logged rule causes.
+This proposal describes a command-based rules architecture for future PF2e actions, reactions, spells, auras, feats, conditions, and item effects. The purpose is to keep PF2e feature behavior self-contained while preventing central combat, grid, and UI classes from accumulating feature-specific branches.
 
-The key idea is that gameplay operations are typed commands with typed responses and lifecycle phases. Features register listeners for the specific command types and phases they care about. A feature such as Reactive Strike listens to movement and manipulate commands at `Begin`; a feature such as Bless listens to movement commands at `End`; a feature such as Tumble Through creates a movement command with action-scoped movement rules.
+The proposed direction is stricter than an event bus. Gameplay operations are immutable command data, commands are resolved by stateless rule handlers, handlers emit immutable effect data, and the rules engine applies those effects through one controlled state transition path. The model is intentionally close to Redux-style state updates: requests are data, side effects are data, state changes in one engine-owned place, and the command/effect/fact stream is observable.
 
-Rules references:
+Rules references used as examples:
 
 - Strike: https://2e.aonprd.com/Actions.aspx?ID=2306
 - Reactive Strike: https://2e.aonprd.com/Actions.aspx?ID=2256
 - Bless: https://2e.aonprd.com/Spells.aspx?ID=1451
 - Tumble Through: https://2e.aonprd.com/Actions.aspx?ID=2370&Redirected=1
+- Cranial Detonation: https://2e.aonprd.com/Feats.aspx?ID=8347
 
 ## Design Goals
 
-- Keep PF2e feature behavior self-contained in feature classes.
-- Let the engine expose generic command lifecycles instead of feature-specific hooks.
-- Preserve immediate UI transparency for active effects such as Bless.
-- Support preemption, prompts, nested commands, typed responses, command traits, and cancellation.
-- Keep modifier math centralized through `IPf2eModifierProvider` and `Pf2eModifierResolver`.
-- Introduce this incrementally without replacing existing `EntityAction`, HUD, grid, AI, and Strike code in one large rewrite.
+- Keep bespoke PF2e feature behavior local to feature rule definitions.
+- Avoid large central files of feature-specific `if` statements.
+- Make rule resolution observable for UI, combat logs, debugging, tests, and future replay.
+- Preserve immediate player transparency for visible effects such as Bless.
+- Support preemption, prompts, reactions, nested commands, typed responses, and cancellation.
+- Keep commands, responses, effects, and facts independent of Unity classes.
+- Introduce the architecture incrementally without replacing the whole combat stack in one refactor.
 
-## Core Model
+## Core Design Constraints
 
-Use typed commands and typed responses, not one generic stringly-typed event payload. Every command declares the response type it returns. Commands whose response is not important can use `BasicCommandResponse`; commands whose results drive later rules should expose typed response fields.
+These constraints are part of the design, not optional cleanup.
+
+### Commands And Responses Are Data Only
+
+A command is an immutable request. A response is an immutable result. Neither contains business logic, Unity references, mutable collections, or methods that resolve rules.
 
 ```csharp
-public interface IRuleCommand
-{
-    Guid Id { get; }
-    Guid? ParentId { get; set; }
-    Guid RootId { get; set; }
-    string SourceFeatureId { get; set; }
-    GameObject Actor { get; }
-    IReadOnlyList<GameObject> Targets { get; }
-    IReadOnlyCollection<string> Traits { get; }
-    bool Cancelled { get; }
-
-    void Cancel(string source, string reason);
-}
-
-public interface IRuleCommand<TResponse> : IRuleCommand
+public interface IRuleCommand<TResponse>
     where TResponse : CommandResponse
 {
 }
 
-public abstract class RuleCommand<TResponse> : IRuleCommand<TResponse>
+public abstract record CommandResponse(
+    CommandId CommandId,
+    CommandOutcome Outcome,
+    FailureReason? FailureReason,
+    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleFact> Facts);
+
+public sealed record BasicCommandResponse(
+    CommandId CommandId,
+    CommandOutcome Outcome,
+    FailureReason? FailureReason,
+    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleFact> Facts)
+    : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
+```
+
+Rationale: if commands execute themselves, every command becomes a small service object and replay becomes harder. Keeping commands as data lets the engine log, serialize, replay, inspect, and test requests without hidden behavior.
+
+### Commands And Responses Carry Provenance
+
+Provenance should be attached through command frames and effect/fact metadata rather than through mutable fields on the command payload.
+
+```csharp
+public sealed record CommandFrame<TCommand>(
+    CommandId Id,
+    CommandId? ParentId,
+    CommandId RootId,
+    RuleBindingId? SourceBinding,
+    RuleSourceId? SourceRule,
+    CreatureId? Actor,
+    TCommand Command,
+    ImmutableArray<CommandTrait> Traits);
+```
+
+Rationale: provenance is required for combat logs, once-per-trigger validation, response listeners, nested command ancestry, and replay. Keeping it on the frame also keeps command payloads focused on semantic input.
+
+### No Unity References In Rules Data
+
+Rules-layer data must not hold `GameObject`, `MonoBehaviour`, `Transform`, Unity vectors, Unity events, scene objects, UI documents, or assets. Use rules-domain references instead.
+
+```csharp
+public readonly record struct CreatureId(string Value);
+public readonly record struct TokenId(string Value);
+public readonly record struct ItemId(string Value);
+public readonly record struct EffectInstanceId(string Value);
+public readonly record struct FeatureId(string Value);
+public readonly record struct RuleSourceId(string Value);
+public readonly record struct RuleBindingId(string Value);
+public readonly record struct GridPosition(int X, int Y, int Z);
+```
+
+Unity adapters can translate these IDs to scene objects when rendering, animating, or collecting input.
+
+```csharp
+public interface IUnityTokenLookup
+{
+    GameObject GetTokenObject(TokenId token);
+    TokenId GetTokenId(GameObject tokenObject);
+}
+```
+
+Rationale: PF2e rules should be portable, deterministic, and testable without a Unity scene. Unity should host the rules engine, not be embedded inside every rule object.
+
+### Handlers Do Not Mutate State Directly
+
+Handlers resolve command intent and emit effect data. The engine applies those effects and records the resulting facts.
+
+```csharp
+public interface ICommandHandler<TCommand, TResponse>
+    where TCommand : IRuleCommand<TResponse>
     where TResponse : CommandResponse
 {
-    public Guid Id { get; } = Guid.NewGuid();
-    public Guid? ParentId { get; set; }
-    public Guid RootId { get; set; }
-    public string SourceFeatureId { get; set; }
-    public GameObject Actor { get; init; }
-    public virtual IReadOnlyList<GameObject> Targets => Array.Empty<GameObject>();
-    public virtual IReadOnlyCollection<string> Traits => Array.Empty<string>();
-    public bool Cancelled { get; private set; }
-    public string CancellationSource { get; private set; }
-    public string CancellationReason { get; private set; }
+    RuleProgram<TResponse> HandleCommand(
+        CommandFrame<TCommand> frame,
+        RulesSnapshot snapshot,
+        ResolutionContext context);
+}
+```
 
-    public void Cancel(string source, string reason)
+A handler should emit data:
+
+```csharp
+yield return new SpendActionEffect(actor, ActionCost.One);
+yield return new ApplyDamageEffect(target, damage, source: frame.Id);
+yield return new MoveTokenEffect(token, from, to, source: frame.Id);
+```
+
+It should not directly mutate runtime state:
+
+```csharp
+controller.ActionPoints -= 1;
+targetCreature.TakeDamage(amount);
+token.transform.position = nextWorldPosition;
+```
+
+Rationale: central effect application gives us one place to enforce invariants, emit facts, update visible state, update predicate state, write combat logs, and preserve replayable history.
+
+### Rule Definitions Own Feature Logic
+
+A bespoke feature should usually live in one rule definition class. That rule definition may implement command handlers and listeners directly.
+
+```csharp
+public interface IRuleDefinition
+{
+    RuleSourceId SourceId { get; }
+    void Register(IRuleRegistryBuilder rules);
+}
+
+public sealed class CranialDetonationRule :
+    IRuleDefinition,
+    ICommandHandler<CranialDetonationCommand, CranialDetonationResponse>,
+    ICommandResponseListener<CastSpellCommand, CastSpellResponse>
+{
+    public RuleSourceId SourceId => RuleSources.Feat("cranial-detonation");
+
+    public void Register(IRuleRegistryBuilder rules)
     {
-        Cancelled = true;
-        CancellationSource = source;
-        CancellationReason = reason;
+        rules.AfterCommandCommitted<CastSpellCommand, CastSpellResponse>(SourceId, this);
+        rules.Handle<CranialDetonationCommand, CranialDetonationResponse>(this);
+    }
+
+    public IEnumerable<RuleEffect> OnCommandResolved(
+        ActiveRuleBinding binding,
+        CommandFrame<CastSpellCommand> frame,
+        CastSpellResponse response,
+        RulesSnapshot snapshot)
+    {
+        // Trigger detection.
+    }
+
+    public RuleProgram<CranialDetonationResponse> HandleCommand(
+        CommandFrame<CranialDetonationCommand> frame,
+        RulesSnapshot snapshot,
+        ResolutionContext context)
+    {
+        // Feature activation orchestration.
     }
 }
-
-public abstract class CommandResponse
-{
-    public bool Succeeded { get; init; }
-    public bool Cancelled { get; init; }
-    public string SourceFeatureId { get; init; }
-    public string FailureReason { get; init; }
-    public List<CommandFact> Facts { get; } = new();
-}
-
-public sealed class BasicCommandResponse : CommandResponse
-{
-}
-
-public sealed class CommandFact
-{
-    public string Kind { get; init; }
-    public GameObject Subject { get; init; }
-    public GameObject Object { get; init; }
-    public string SourceFeatureId { get; init; }
-    public int Amount { get; init; }
-}
 ```
 
-Commands with explicit target fields should override `Targets` or populate a target list so generic UI, logs, and trigger checks do not need type-specific target lookup. Commands should also expose PF2e action traits such as `attack`, `move`, `manipulate`, and `concentrate` when those traits are known; many triggers care about traits more than concrete command types.
+Rationale: separate listener and handler classes are still allowed, but they should not be the default. For thousands of PF2e features, locality matters. A reviewer should usually be able to open one feature rule file and see its trigger, activation, validation, and emitted effects. Split helper classes only when the helper is reused, the feature class becomes difficult to scan, or the helper has its own meaningful test surface.
 
-Typed responses keep feature code explicit:
+## Command Frames, Snapshots, Effects, And Facts
+
+The engine moves immutable data through a small number of explicit concepts.
+
+### RulesSnapshot
+
+`RulesSnapshot` is the read model for current encounter state. Handlers and listeners query it but do not mutate it.
 
 ```csharp
-public sealed class StrikeCommand : RuleCommand<StrikeCommandResponse>
+public sealed class RulesSnapshot
 {
-    public GameObject Target;
-    public override IReadOnlyList<GameObject> Targets =>
-        Target == null ? Array.Empty<GameObject>() : new[] { Target };
-    public StrikeProfile Profile;
-    public override IReadOnlyCollection<string> Traits =>
-        new[] { "attack" }.Concat(Profile?.Traits ?? Array.Empty<string>()).ToArray();
-    public StrikeTargetResult TargetingResult;
-}
-
-public sealed class StrikeCommandResponse : CommandResponse
-{
-    public GameObject Target { get; init; }
-    public D20Result AttackRoll { get; init; }
-    public DegreeOfSuccess Degree { get; init; }
-    public uint DamageApplied { get; init; }
-    public bool TargetReducedToZero { get; init; }
-    public StrikeResolutionResult Resolution { get; init; }
+    public CreatureRulesView GetCreature(CreatureId creature);
+    public TokenRulesView GetToken(TokenId token);
+    public ImmutableArray<ActiveRuleBinding> ActiveBindingsFor(RuleSourceId source);
+    public bool HasActiveBinding(CreatureId owner, RuleSourceId source);
+    public bool IsEnemy(CreatureId a, CreatureId b);
+    public bool IsAlly(CreatureId a, CreatureId b);
+    public bool HasTrait(CreatureId creature, CreatureTrait trait);
+    public bool HasCondition(CreatureId creature, ConditionId condition);
+    public ImmutableArray<CreatureId> CreaturesInArea(AreaShape area);
+    public DifficultyClass ResolveFeatureDc(CreatureId owner, RuleSourceId source);
 }
 ```
 
-The generic `Facts` list gives cross-cutting systems a uniform audit and trigger surface without erasing typed response data. For example, a `StrikeCommandResponse` can expose `TargetReducedToZero` directly and also add a `CommandFact` with kind `ReducedToZero` for generic death-triggered listeners.
+Rationale: handlers should be easy to test with constructed snapshots. They should not need scene objects, singletons, or Unity component lookup.
 
-## Lifecycle Phases
+### Rule Effects
 
-Commands flow through shared lifecycle phases.
+Effects describe side effects requested by handlers and listeners. They are data, not callbacks.
+
+```csharp
+public abstract record RuleEffect(
+    EffectId Id,
+    CommandId SourceCommand,
+    RuleSourceId? SourceRule,
+    RuleBindingId? SourceBinding);
+
+public sealed record ApplyDamageEffect(
+    EffectId Id,
+    CommandId SourceCommand,
+    RuleSourceId? SourceRule,
+    RuleBindingId? SourceBinding,
+    CreatureId Target,
+    DamageValue Damage)
+    : RuleEffect(Id, SourceCommand, SourceRule, SourceBinding);
+
+public sealed record MoveTokenEffect(
+    EffectId Id,
+    CommandId SourceCommand,
+    RuleSourceId? SourceRule,
+    RuleBindingId? SourceBinding,
+    TokenId Token,
+    GridPosition From,
+    GridPosition To)
+    : RuleEffect(Id, SourceCommand, SourceRule, SourceBinding);
+```
+
+Reusable effects should cover common state transitions:
+
+- `SpendActionEffect`
+- `SpendReactionEffect`
+- `IncrementMultipleAttackPenaltyEffect`
+- `ApplyConditionEffect`
+- `RemoveConditionEffect`
+- `ApplyActiveEffectEffect`
+- `RemoveActiveEffectEffect`
+- `CreatePersistentAreaEffect`
+- `DestroyPersistentEffect`
+- `PromptChoiceEffect`
+- `RunNestedCommandEffect<TCommand, TResponse>`
+- `RecordRuleFactEffect`
+
+Rationale: generic effects keep feature implementations small. Avoid one-off effects when a generic effect captures the actual side effect.
+
+### Rule Facts
+
+Facts are immutable observations produced during effect application or command resolution. Facts are the trigger surface for later rules and the audit surface for logs and tests.
+
+```csharp
+public abstract record RuleFact(
+    FactId Id,
+    CommandId SourceCommand,
+    RuleSourceId? SourceRule,
+    RuleBindingId? SourceBinding);
+
+public sealed record DamageAppliedFact(
+    FactId Id,
+    CommandId SourceCommand,
+    RuleSourceId? SourceRule,
+    RuleBindingId? SourceBinding,
+    CreatureId Target,
+    DamageValue Damage,
+    HitPoints HitPointsBefore,
+    HitPoints HitPointsAfter)
+    : RuleFact(Id, SourceCommand, SourceRule, SourceBinding);
+
+public sealed record CreatureReducedToZeroFact(
+    FactId Id,
+    CommandId SourceCommand,
+    RuleSourceId? SourceRule,
+    RuleBindingId? SourceBinding,
+    CreatureId Creature,
+    CreatureId? CausedBy)
+    : RuleFact(Id, SourceCommand, SourceRule, SourceBinding);
+```
+
+Rationale: response listeners should not scrape logs or inspect mutated components. They should react to typed, provenance-rich facts.
+
+### Effect Application
+
+The engine applies effects in order. Effect appliers are the only layer that mutates encounter state.
+
+```csharp
+public interface IRuleEffectApplier<TEffect>
+    where TEffect : RuleEffect
+{
+    EffectApplicationResult Apply(
+        TEffect effect,
+        MutableRulesState state,
+        EffectApplicationContext context);
+}
+
+public sealed record EffectApplicationResult(
+    ImmutableArray<RuleFact> Facts,
+    ImmutableArray<RuleEffect> FollowUpEffects);
+```
+
+Rationale: applying damage, moving tokens, changing action points, and changing active effects all become auditable state transitions. This also gives Unity adapters a clean place to observe changes and schedule animations after rules state has advanced.
+
+## Rule Registration And Active Bindings
+
+Rule definitions are registered globally once. Characters and active effects do not hold live listener instances. Instead, the current rules state stores active bindings.
+
+```csharp
+public sealed record ActiveRuleBinding(
+    RuleBindingId Id,
+    RuleSourceId SourceId,
+    CreatureId Owner,
+    RuleSourceKind Kind,
+    EffectInstanceId? EffectInstance,
+    ItemId? SourceItem);
+```
+
+Examples:
+
+```csharp
+new ActiveRuleBinding(
+    bindingId,
+    RuleSources.Feat("reactive-strike"),
+    owner: fighterId,
+    kind: RuleSourceKind.CharacterFeat,
+    effectInstance: null,
+    sourceItem: null);
+
+new ActiveRuleBinding(
+    bindingId,
+    RuleSources.SpellEffect("bless"),
+    owner: clericId,
+    kind: RuleSourceKind.ActiveEffect,
+    effectInstance: blessAuraId,
+    sourceItem: null);
+```
+
+The registry maps command types and phases to rule definitions.
+
+```csharp
+public interface IRuleRegistryBuilder
+{
+    void Handle<TCommand, TResponse>(
+        ICommandHandler<TCommand, TResponse> handler)
+        where TCommand : IRuleCommand<TResponse>
+        where TResponse : CommandResponse;
+
+    void BeforeCommand<TCommand, TResponse>(
+        RuleSourceId source,
+        ICommandStartListener<TCommand, TResponse> listener)
+        where TCommand : IRuleCommand<TResponse>
+        where TResponse : CommandResponse;
+
+    void AfterCommandCommitted<TCommand, TResponse>(
+        RuleSourceId source,
+        ICommandResponseListener<TCommand, TResponse> listener)
+        where TCommand : IRuleCommand<TResponse>
+        where TResponse : CommandResponse;
+
+    void BeforeAnyCommand(
+        RuleSourceId source,
+        ICommandPredicateListener listener);
+}
+```
+
+During dispatch, the engine invokes a listener only for active bindings of that listener's source.
+
+```csharp
+foreach (var registration in registry.AfterCommittedListenersFor<TCommand, TResponse>())
+{
+    foreach (var binding in snapshot.ActiveBindingsFor(registration.SourceId))
+    {
+        var effects = registration.Listener.OnCommandResolved(binding, frame, response, snapshot);
+        engine.ApplyOrQueue(effects);
+    }
+}
+```
+
+Rationale: this avoids hidden mutable subscriptions. It also handles mid-combat feature gain/loss naturally. If a condition, spell, item, stance, or aura creates or removes an active binding, the next command dispatch sees the new snapshot.
+
+## Command Lifecycle
+
+The global lifecycle should stay coarse. Domain-specific pipelines can have finer phases internally.
 
 ```csharp
 public enum CommandPhase
 {
     Begin,
-    End,
+    Handler,
+    CommitEffects,
+    AfterCommitted,
     Cancelled
 }
+```
 
-public interface ICommandListener<TCommand, TResponse>
+Suggested execution flow:
+
+```csharp
+public RuleProgram<TResponse> Execute<TCommand, TResponse>(TCommand command)
     where TCommand : IRuleCommand<TResponse>
     where TResponse : CommandResponse
 {
-    int Priority { get; }
-    CommandPhase Phase { get; }
-    IEnumerator OnCommandPhase(
-        TCommand command,
-        CommandPhaseContext<TResponse> context,
-        CommandFrame frame);
-}
+    var frame = frameFactory.Create(command);
 
-public interface ICommandPhaseListener
-{
-    int Priority { get; }
-    CommandPhase Phase { get; }
-    bool AppliesTo(IRuleCommand command);
-    IEnumerator OnCommandPhase(
-        IRuleCommand command,
-        ICommandPhaseContext context,
-        CommandFrame frame);
-}
+    yield return DispatchBeginListeners(frame);
 
-public interface ICommandPhaseContext
-{
-    CommandPhase Phase { get; }
-    CommandResponse UntypedResponse { get; }
-}
+    if (context.Cancelled)
+        return BuildCancelledResponse<TResponse>(frame, context);
 
-public sealed class CommandPhaseContext<TResponse> : ICommandPhaseContext
-    where TResponse : CommandResponse
-{
-    public CommandPhase Phase { get; set; }
-    public TResponse Response { get; set; }
-    public CommandResponse UntypedResponse => Response;
+    var handler = registry.GetHandler<TCommand, TResponse>();
+    var proposed = yield return handler.HandleCommand(frame, snapshot, context);
+
+    var applied = yield return effectPipeline.Apply(proposed.Effects);
+
+    var response = responseFactory.AttachEffectsAndFacts(proposed.Response, applied);
+
+    yield return DispatchAfterCommittedListeners(frame, response);
+
+    return response;
 }
 ```
 
-The command runner owns lifecycle ordering. It dispatches exact typed listeners and broader predicate listeners such as trait listeners in one priority-ordered list. This pseudo-code uses `CoroutineResult<TResponse>` to fit Unity coroutine flow; a future task-based runner could return `TResponse` directly.
+`Begin` listeners are for prevention, replacement, and preemption. `AfterCommitted` listeners are for triggers that depend on what actually happened. The command handler proposes effects. The effect pipeline applies them and emits facts.
+
+Rationale: a small global lifecycle prevents the command system from becoming an enormous PF2e phase enum. Strike damage dice, resistance, weakness, degree of success, persistent damage, and spell internals should live in domain services or pipelines, not global command phases.
+
+## Command Traits And Predicate Listeners
+
+PF2e triggers often care about traits more than concrete command types. Reactive Strike cares about movement and `manipulate`; other features may care about `concentrate`, `attack`, `spellshape`, `flourish`, or future action traits.
 
 ```csharp
-public IEnumerator Execute<TCommand, TResponse>(
-    TCommand command,
-    CoroutineResult<TResponse> response)
+public enum CommandTrait
+{
+    Attack,
+    Move,
+    Manipulate,
+    Concentrate,
+    Spellshape,
+    Flourish,
+    Teleportation
+}
+
+public interface ICommandTraitProvider<TCommand>
+{
+    ImmutableArray<CommandTrait> GetTraits(TCommand command, RulesSnapshot snapshot);
+}
+
+public interface ICommandPredicateListener
+{
+    int Priority { get; }
+    bool AppliesTo(CommandFrameUntyped frame);
+    IEnumerable<RuleEffect> OnCommandStarting(
+        ActiveRuleBinding binding,
+        CommandFrameUntyped frame,
+        RulesSnapshot snapshot);
+}
+```
+
+Rationale: without trait-based listeners, features would need to register against many unrelated concrete command types. Traits give rules a generic trigger surface without giving up typed command data.
+
+## Nested Commands And Prompts
+
+Nested commands are represented as effects or rule-program yields, not direct method calls that bypass the engine.
+
+```csharp
+public sealed record RunNestedCommandEffect<TCommand, TResponse>(
+    EffectId Id,
+    CommandId SourceCommand,
+    RuleSourceId? SourceRule,
+    RuleBindingId? SourceBinding,
+    TCommand Command)
+    : RuleEffect(Id, SourceCommand, SourceRule, SourceBinding)
     where TCommand : IRuleCommand<TResponse>
-    where TResponse : CommandResponse
-{
-    AssignParentAndRootIds(command);
-
-    CommandPhaseContext<TResponse> context = new() { Phase = CommandPhase.Begin };
-    yield return Dispatch(command, context);
-
-    if (!command.Cancelled)
-    {
-        CoroutineResult<TResponse> handlerResult = new();
-        yield return RunCommandHandler<TCommand, TResponse>(command, handlerResult);
-        context.Response = handlerResult.Value;
-    }
-
-    if (command.Cancelled)
-    {
-        context.Response ??= BuildCancelledResponse<TResponse>(command);
-        context.Phase = CommandPhase.Cancelled;
-        yield return Dispatch(command, context);
-    }
-    else
-    {
-        context.Phase = CommandPhase.End;
-        yield return Dispatch(command, context);
-    }
-
-    response.Value = context.Response;
-}
+    where TResponse : CommandResponse;
 ```
 
-`Begin` is for preemption and validation. The command handler runs the primary effect between `Begin` and `End`. `End` is for follow-up state updates after the command succeeded. `Cancelled` is for cleanup and logging when the command did not complete.
-
-Nested command execution is explicit through a frame object:
+Prompts are also effect data.
 
 ```csharp
-public sealed class CommandFrame
-{
-    public IRuleCommand Current { get; }
-    public IRuleCommand Parent { get; }
-    public Guid RootId { get; }
-
-    public IEnumerator Execute<TResponse>(
-        IRuleCommand<TResponse> nestedCommand,
-        CoroutineResult<TResponse> response)
-        where TResponse : CommandResponse;
-}
+public sealed record PromptChoiceEffect(
+    EffectId Id,
+    CommandId SourceCommand,
+    RuleSourceId? SourceRule,
+    RuleBindingId? SourceBinding,
+    CreatureId Chooser,
+    PromptId Prompt,
+    ImmutableArray<PromptOption> Options)
+    : RuleEffect(Id, SourceCommand, SourceRule, SourceBinding);
 ```
 
-This lets a listener pause the current command, resolve prompts or reactions, and then allow the parent command to continue or cancel it. Parent id, root id, and source feature id should be assigned immediately in the first pass because they are painful to retrofit and support logs, once-per-use effects, and command causality. Trait-wide listeners should use `ICommandPhaseListener`; command-specific listeners should use `ICommandListener<TCommand, TResponse>` when they need typed response data.
+A prompt option can submit a command:
+
+```csharp
+public sealed record PromptOption(
+    PromptOptionId Id,
+    string Label,
+    IRuleCommand<CommandResponse>? CommandToSubmit);
+```
+
+Rationale: prompts must be replayable. During replay, the engine can consume recorded prompt choices instead of opening UI. During AI control, the prompt resolver can choose from policy. During normal play, the UI observes the prompt effect and returns a decision.
 
 ## Commands Versus Queries
 
-Not everything needs to be a command. Commands are for operations with lifecycle, side effects, prompts, cancellation, logs, or a response that later rules may inspect. Pure reads should remain services.
+Not everything should be a command. Commands are for operations that may change rules state, produce prompts, invoke reactions, be cancelled, or return facts that later rules inspect. Pure reads remain services.
 
 Good command candidates:
 
-- `StrikeCommand : IRuleCommand<StrikeCommandResponse>`
+- `StrikeCommand : IRuleCommand<StrikeResponse>`
+- `CastSpellCommand : IRuleCommand<CastSpellResponse>`
 - `MovementCommand : IRuleCommand<MovementResponse>`
 - `MovementStepCommand : IRuleCommand<MovementStepResponse>`
-- `PromptChoiceCommand : IRuleCommand<PromptChoiceResponse>`
+- `SkillCheckCommand : IRuleCommand<SkillCheckResponse>`
+- `SavingThrowCommand : IRuleCommand<SavingThrowResponse>`
+- `FlatCheckCommand : IRuleCommand<FlatCheckResponse>`
 - `SpendActionCommand : IRuleCommand<BasicCommandResponse>`
 - `SpendReactionCommand : IRuleCommand<BasicCommandResponse>`
-- `ApplyEffectCommand : IRuleCommand<BasicCommandResponse>`
-- `RemoveEffectCommand : IRuleCommand<BasicCommandResponse>`
 - `ApplyConditionCommand : IRuleCommand<BasicCommandResponse>`
-- `RemoveConditionCommand : IRuleCommand<BasicCommandResponse>`
-- `SkillCheckCommand : IRuleCommand<SkillCheckResponse>`
-- `FlatCheckCommand : IRuleCommand<FlatCheckResponse>`
-- `ActionCommand : IRuleCommand<ActionCommandResponse>`
+- `ApplyActiveEffectCommand : IRuleCommand<BasicCommandResponse>`
 - `ReloadWeaponCommand : IRuleCommand<ReloadWeaponResponse>`
 - `StartTurnCommand : IRuleCommand<StartTurnResponse>`
 - `CombatStartCommand : IRuleCommand<BasicCommandResponse>`
-- `CombatEndCommand : IRuleCommand<BasicCommandResponse>`
 
 Good service/query candidates:
 
 - team relationship checks
-- grid distance checks
 - line-of-effect checks
-- active effect lookup
+- grid distance checks
+- current effect lookup
 - current action point lookup
-- current reaction availability lookup
-- action definition lookup
 - target/path/area preview
 - modifier resolution
+- DC calculation
+- action roster queries
 
-This distinction keeps rules expressive without turning simple reads into coroutine workflows.
+Rationale: turning every read into a command would add noise and reduce clarity. The command boundary should mark meaningful rules operations.
 
-## Runtime Components
+## Rule Services
 
-`RuleCommandBus` executes commands, dispatches listeners, applies listener ordering, tracks command nesting, and returns typed responses. It should be scene/encounter-scoped in lifetime even if the first implementation exposes a convenience singleton accessor to match existing project patterns.
-
-`ActiveEffectTracker` lives on creatures. It stores visible effects and implements `IPf2eModifierProvider`, allowing UI and mechanics to read the same state.
-
-```csharp
-public sealed class ActiveEffectTracker : MonoBehaviour, IPf2eModifierProvider
-{
-    public IReadOnlyList<ActiveEffectInstance> Effects => effects;
-
-    public void AddOrRefresh(ActiveEffectInstance effect);
-    public void RemoveBySource(Guid sourceInstanceId);
-
-    public IEnumerable<Pf2eModifier> GetModifiers(Pf2eStatistic statistic)
-    {
-        foreach (ActiveEffectInstance effect in effects)
-        {
-            foreach (Pf2eModifier modifier in effect.GetModifiers(statistic))
-                yield return modifier;
-        }
-    }
-}
-```
-
-`ActionDefinition` replaces `EntityAction` as the long-term action-list model. It describes action name, traits, cost, icon or UI metadata, targeting mode, availability, and how to build a command once target/path/area input has been selected.
-
-`ActionSelection` stores the player or AI selection for an action definition: target creature, selected path, area placement, weapon profile, spell rank, or other input needed to build the command. Selection is UI/input data, not rules resolution.
-
-`ChoiceService` or `PromptChoiceCommand` routes player and AI decisions through one abstraction. Player-controlled actors can open UI prompts; AI-controlled actors can answer immediately from policy.
-
-`ActionEconomyService` owns action point spending, reaction spending, and multiple attack penalty state. Features should request spending through commands such as `SpendActionCommand`, `SpendReactionCommand`, and `IncrementMultipleAttackPenaltyCommand`; they should not directly mutate `ActionController.ActionPoints`, `Reacted`, or `StrikePenalty`.
-
-`ReactionService` owns reaction availability and spending. Features should not directly decrement reaction counters.
-
-`RollService` owns d20 and damage randomness for command handlers. The first pass can wrap existing `D20` and `Dice` helpers, but commands should not call `UnityEngine.Random` directly; this keeps tests deterministic and leaves room for fortune, misfortune, rerolls, and roll auditing.
-
-`StrikeResolutionService` resolves `StrikeCommand` by wrapping the existing `StrikeResolutionPipeline`, so normal Strikes, Reactive Strike, and future reaction attacks share one attack/damage path.
-
-`MovementService` resolves `MovementCommand` and per-cell `MovementStepCommand` child commands.
-
-`MovementCostProvider` implementations participate in both path preview and actual movement execution. This is needed early so dynamic costs such as difficult terrain, feat-based spaces, and future aura terrain do not diverge between UI preview and committed movement.
-
-`AuraFeature` implementations listen to command phases and apply or remove visible active effects as creatures enter, leave, or move the aura source.
-
-`Conditions` can remain the condition tracker for named PF2e conditions. `ActiveEffectTracker` should complement it for visible non-condition effects and effect-granted modifiers. Commands such as `ApplyConditionCommand`, `RemoveConditionCommand`, `ApplyEffectCommand`, and `RemoveEffectCommand` keep both UI-visible state and prepared-rule predicate state in sync.
-
-## Movement Cost Providers
-
-Movement path preview and movement execution must ask the same providers for movement cost. Otherwise a path can look legal in UI and fail during execution.
+Services are allowed and expected, but they should not mutate state. They compute reusable rules results or produce effect proposals.
 
 ```csharp
-public interface IMovementCostProvider
+public interface IStrikeService
 {
-    bool AppliesTo(MovementStepPreview step);
-    int AdditionalCost(MovementStepPreview step);
+    StrikeResolution Resolve(
+        StrikeCommand command,
+        RulesSnapshot snapshot,
+        RollService rolls,
+        ModifierService modifiers);
 }
 
-public sealed class MovementStepPreview
+public interface IModifierService
 {
-    public GameObject Actor { get; init; }
-    public Vector3Int From { get; init; }
-    public Vector3Int To { get; init; }
-    public GameObject Occupant { get; init; }
-    public int BaseCost { get; init; }
+    ModifierBreakdown Resolve(
+        CreatureId subject,
+        StatisticId statistic,
+        ModifierContext context,
+        RulesSnapshot snapshot);
+}
+
+public interface IRollService
+{
+    D20Roll RollD20(RollPurpose purpose, CommandId source);
+    DamageRoll RollDamage(DamageExpression expression, CommandId source);
 }
 ```
 
-The committed `MovementStepCommand` should include the cost computed from the same provider set.
+Rationale: services keep shared math centralized without giving up the command/effect architecture. The important boundary is that services return values or effect proposals; they do not mutate Unity or rules state directly.
+
+## Visible Effects And Derived Effects
+
+The UI needs to show current effects immediately. The architecture supports this in two ways.
+
+Use stored active effects when a concrete effect instance should be visible and mechanically queryable:
 
 ```csharp
-public sealed class MovementStepCommand : RuleCommand<MovementStepResponse>
-{
-    public override IReadOnlyCollection<string> Traits => new[] { "move" };
-    public Vector3Int From;
-    public Vector3Int To;
-    public int BaseCost;
-    public int TotalCost;
-    public GameObject ToOccupant;
-}
-
-public sealed class MovementStepResponse : CommandResponse
-{
-    public Vector3Int From { get; init; }
-    public Vector3Int To { get; init; }
-    public bool Moved { get; init; }
-    public int CostPaid { get; init; }
-}
+public sealed record ActiveEffectInstance(
+    EffectInstanceId Id,
+    RuleSourceId SourceRule,
+    CreatureId? Owner,
+    CreatureId? Target,
+    string DisplayName,
+    Duration Duration,
+    ImmutableArray<ModifierDefinition> Modifiers,
+    ImmutableArray<ActiveRuleBinding> Bindings);
 ```
 
-The first implementation only needs base terrain plus a test provider, but the hook should be present from the start.
-
-## Listener Ordering
-
-Multiple features can listen to the same command phase. Ordering must be deterministic.
-
-Use:
-
-- explicit numeric `Priority`
-- stable tie-breaking by feature id or type name
-- tests for interactions that depend on order
-
-Suggested convention:
-
-- lower priorities run earlier
-- validation/prevention listeners run before prompts
-- prompts/reactions run before the command handler
-- post-handler UI/effect refresh listeners run at `End`
-
-## Normal Strike Example
-
-Normal Strike becomes a typed `StrikeCommand`. Existing `EntityAction` wrappers can create the command internally so the current HUD action list does not need to change immediately.
+Use derived projections when the effect is continuously implied by current state, such as difficult terrain around a shield-bearing champion.
 
 ```csharp
-public sealed class StrikeCommand : RuleCommand<StrikeCommandResponse>
+public interface IDerivedEffectProvider
 {
-    public GameObject Target;
-    public override IReadOnlyList<GameObject> Targets =>
-        Target == null ? Array.Empty<GameObject>() : new[] { Target };
-    public StrikeProfile Profile;
-    public override IReadOnlyCollection<string> Traits =>
-        new[] { "attack" }.Concat(Profile?.Traits ?? Array.Empty<string>()).ToArray();
-    public StrikeTargetResult TargetingResult;
-
-    public bool AppliesMultipleAttackPenalty = true;
-    public bool IncrementsMultipleAttackPenalty = true;
-    public bool CostsActionPoint = true;
-}
-
-public sealed class StrikeCommandResponse : CommandResponse
-{
-    public GameObject Target { get; init; }
-    public D20Result AttackRoll { get; init; }
-    public DegreeOfSuccess Degree { get; init; }
-    public uint DamageApplied { get; init; }
-    public bool TargetReducedToZero { get; init; }
-    public StrikeResolutionResult Resolution { get; init; }
+    ImmutableArray<DerivedEffect> GetDerivedEffects(RulesSnapshot snapshot);
 }
 ```
 
-Flow:
+Rationale: not every aura should eagerly mutate every creature on every movement step. Bless benefits from stored visible effects on affected allies. Some terrain or aura effects may be cleaner as projections queried by movement preview, current-effects UI, and movement execution.
 
-```text
-Player selects Strike
-  -> existing EntityAction creates StrikeCommand
-  -> Execute(StrikeCommand) returns StrikeCommandResponse
-  -> Begin listeners may adjust roll context or cancel
-  -> handler resolves the selected Strike through StrikeResolutionPipeline
-  -> End spends action cost, increments MAP, logs result
-```
+## Unity Boundary
 
-Pseudo-code:
+The rules engine should live below Unity presentation and input layers.
 
-```csharp
-public IEnumerator Resolve(
-    StrikeCommand command,
-    CoroutineResult<StrikeCommandResponse> response)
-{
-    CreatureComponent target = command.Target.GetComponent<CreatureComponent>();
-    int hpBefore = target.hp;
+Unity-facing responsibilities:
 
-    StrikeResolutionResult resolution = StrikeResolutionPipeline.Resolve(
-        new StrikeResolutionRequest
-        {
-            Attacker = command.Actor,
-            Target = command.Target,
-            Profile = command.Profile,
-            TargetingResult = command.TargetingResult
-        });
+- map `CreatureId`, `TokenId`, and `GridPosition` to scene objects;
+- collect player targeting/path/area choices;
+- display prompts emitted by `PromptChoiceEffect`;
+- animate applied movement and damage after rules state changes;
+- render active effects and combat logs from facts and state projections.
 
-    StrikeResolutionContext context = resolution.Context;
-    bool reducedToZero = hpBefore > 0 && target.hp == 0;
+Rules-facing responsibilities:
 
-    StrikeCommandResponse result = new()
-    {
-        Succeeded = true,
-        SourceFeatureId = command.SourceFeatureId,
-        Target = command.Target,
-        AttackRoll = context.D20Result,
-        Degree = context.Degree,
-        DamageApplied = resolution.FinalAppliedDamage,
-        TargetReducedToZero = reducedToZero,
-        Resolution = resolution
-    };
+- validate commands;
+- resolve rolls, checks, saves, damage, effects, and triggers;
+- emit immutable effects and facts;
+- update `MutableRulesState` through effect appliers.
 
-    if (reducedToZero)
-    {
-        result.Facts.Add(new CommandFact
-        {
-            Kind = "ReducedToZero",
-            Subject = command.Target,
-            Object = command.Actor,
-            SourceFeatureId = command.SourceFeatureId
-        });
-    }
+Rationale: this gives us an incremental path out of `GameObject`-centric rules while still letting the current Unity project host the engine.
 
-    response.Value = result;
-}
-```
+## Action Definitions And Selection
 
-The current `StrikeResolutionPipeline` remains valuable and should be reused rather than replaced. The command layer should own when a Strike occurs and how its result is exposed; the Strike pipeline should continue to own Strike-specific math and damage phases.
-
-## Reactive Strike Example
-
-Reactive Strike should be implemented as a feature listener, not as special engine logic. It listens to command phases that can trigger it.
-
-Movement trigger:
-
-```csharp
-public sealed class ReactiveStrikeFeature :
-    ICommandListener<MovementStepCommand, MovementStepResponse>,
-    ICommandPhaseListener
-{
-    public int Priority => 100;
-    public CommandPhase Phase => CommandPhase.Begin;
-
-    public IEnumerator OnCommandPhase(
-        MovementStepCommand move,
-        CommandPhaseContext<MovementStepResponse> context,
-        CommandFrame frame)
-    {
-        if (!CanReactiveStrike(move.Actor, move.From, move.To))
-            yield break;
-
-        CoroutineResult<PromptChoiceResponse> choice = new();
-        yield return frame.Execute(new PromptChoiceCommand
-        {
-            Actor = owner,
-            Prompt = "Use Reactive Strike?",
-            SourceFeatureId = "reactive-strike",
-            Target = move.Actor
-        }, choice);
-        if (!choice.Value.Accepted)
-            yield break;
-
-        CoroutineResult<BasicCommandResponse> spend = new();
-        yield return frame.Execute(new SpendReactionCommand
-        {
-            Actor = owner,
-            SourceFeatureId = "reactive-strike"
-        }, spend);
-        if (!spend.Value.Succeeded)
-            yield break;
-
-        CoroutineResult<StrikeCommandResponse> strike = new();
-        yield return frame.Execute(new StrikeCommand
-        {
-            Actor = owner,
-            Target = move.Actor,
-            Profile = ChooseReactiveStrikeProfile(owner, move.Actor),
-            AppliesMultipleAttackPenalty = false,
-            IncrementsMultipleAttackPenalty = false,
-            CostsActionPoint = false,
-            SourceFeatureId = "reactive-strike"
-        }, strike);
-    }
-}
-```
-
-Manipulate trigger:
-
-```csharp
-public bool AppliesTo(IRuleCommand command)
-{
-    return command.Traits.Contains("manipulate") &&
-        CanReactiveStrike(command.Actor);
-}
-
-public IEnumerator OnCommandPhase(
-    IRuleCommand action,
-    ICommandPhaseContext context,
-    CommandFrame frame)
-{
-    CoroutineResult<StrikeCommandResponse> strike = new();
-    yield return PromptSpendAndStrike(action.Actor, frame, strike);
-
-    if (strike.Value != null &&
-        strike.Value.Degree == DegreeOfSuccess.CriticalSuccess)
-    {
-        action.Cancel("Reactive Strike", "Critical hit disrupted manipulate action.");
-    }
-}
-```
-
-Important rules note: base Reactive Strike disrupts manipulate actions on a critical hit. It does not normally require a flat check to disrupt movement. `FlatCheckCommand` is still useful for future features that do require flat checks.
-
-## Bless Example
-
-Bless is an aura with event-maintained visible effects. Do not wait until roll time to reveal whether a creature is affected. Do not directly mutate `attackBonus`.
-
-When Bless is cast:
-
-```text
-Execute(CastSpellCommand: Bless) returns CastSpellResponse
-  -> handler creates BlessAuraFeature instance
-  -> End recomputes all combatants
-  -> affected allies receive visible Bless active effect
-```
-
-Aura membership updates on movement:
-
-```csharp
-public sealed class BlessAuraFeature :
-    ICommandListener<MovementStepCommand, MovementStepResponse>,
-    ICommandListener<AuraRadiusChangedCommand, BasicCommandResponse>,
-    ICommandListener<EffectEndedCommand, BasicCommandResponse>
-{
-    public int Priority => 500;
-    public CommandPhase Phase => CommandPhase.End;
-
-    public IEnumerator OnCommandPhase(
-        MovementStepCommand move,
-        CommandPhaseContext<MovementStepResponse> context,
-        CommandFrame frame)
-    {
-        yield return RecomputeFor(move.Actor, frame);
-
-        if (move.Actor == source)
-            yield return RecomputeAllCombatants(frame);
-    }
-}
-```
-
-Membership logic:
-
-```csharp
-private IEnumerator RecomputeFor(GameObject candidate, CommandFrame frame)
-{
-    bool affected =
-        IsActive &&
-        TeamService.IsSelfOrAlly(source, candidate) &&
-        GridDistance.IsWithinFeet(source, candidate, radiusFeet);
-
-    if (affected)
-    {
-        CoroutineResult<BasicCommandResponse> apply = new();
-        yield return frame.Execute(new ApplyEffectCommand
-        {
-            Actor = candidate,
-            Effect = BuildBlessEffect(),
-            SourceFeatureId = "bless"
-        }, apply);
-    }
-    else
-    {
-        CoroutineResult<BasicCommandResponse> remove = new();
-        yield return frame.Execute(new RemoveEffectCommand
-        {
-            Actor = candidate,
-            SourceInstanceId = blessInstanceId,
-            SourceFeatureId = "bless"
-        }, remove);
-    }
-}
-```
-
-The effect contributes a status bonus through `ActiveEffectTracker`:
-
-```csharp
-public sealed class BlessEffect : ActiveEffectInstance
-{
-    public override IEnumerable<Pf2eModifier> GetModifiers(Pf2eStatistic statistic)
-    {
-        if (statistic == Pf2eStatistic.AttackRoll)
-        {
-            yield return new Pf2eModifier(
-                +1,
-                Pf2eModifierType.Status,
-                "Bless",
-                Pf2eStatistic.AttackRoll);
-        }
-    }
-}
-```
-
-When a Blessed creature attacks, the existing modifier resolver handles stacking with other status bonuses.
-
-```text
-StrikeCommand handler
-  -> CreatureComponent.ResolveAttackRoll(...)
-  -> ActiveEffectTracker contributes Bless modifier
-  -> Pf2eModifierResolver applies stacking rules
-  -> StrikeCommandResponse records the final roll and result
-```
-
-This gives immediate UI feedback and keeps combat math centralized.
-
-## Tumble Through Example
-
-Tumble Through is an action command that creates a movement command with action-scoped movement rules. The grid should not hardcode the name "Tumble Through".
-
-```csharp
-public sealed class TumbleThroughCommand : RuleCommand<TumbleThroughResponse>
-{
-    public MovementCommand Movement;
-    public GameObject TargetEnemy;
-    public override IReadOnlyCollection<string> Traits => new[] { "move" };
-    public override IReadOnlyList<GameObject> Targets =>
-        TargetEnemy == null ? Array.Empty<GameObject>() : new[] { TargetEnemy };
-}
-
-public sealed class TumbleThroughResponse : CommandResponse
-{
-    public GameObject TargetEnemy { get; init; }
-    public DegreeOfSuccess AcrobaticsResult { get; init; }
-    public bool PassedThroughEnemySpace { get; init; }
-    public MovementResponse Movement { get; init; }
-}
-```
-
-Flow:
-
-```text
-Player selects Tumble Through
-  -> Execute(TumbleThroughCommand) returns TumbleThroughResponse
-  -> command creates MovementCommand with TumbleThroughMovementRule
-  -> movement pathing allows provisional enemy-occupied cell
-  -> entering enemy space rolls Acrobatics vs Reflex DC
-  -> success allows passage and applies extra movement cost
-  -> failure cancels the movement step and movement stops
-```
-
-Movement rules are attached to the movement command:
-
-```csharp
-public interface IMovementRule
-{
-    bool CanEnter(MovementStepPreview step);
-    int GetAdditionalCost(MovementStepPreview step);
-    IEnumerator OnBeforeEnter(MovementStepCommand step, CommandFrame frame);
-}
-```
-
-Tumble Through supplies its own movement rule:
-
-```csharp
-public sealed class TumbleThroughMovementRule : IMovementRule
-{
-    public bool CheckResolved { get; private set; }
-    public DegreeOfSuccess AcrobaticsResult { get; private set; }
-
-    public bool CanEnter(MovementStepPreview step)
-    {
-        if (step.Occupant == null)
-            return true;
-
-        return step.Occupant == targetEnemy;
-    }
-
-    public int GetAdditionalCost(MovementStepPreview step)
-    {
-        return step.Occupant == targetEnemy ? step.BaseCost : 0;
-    }
-
-    public IEnumerator OnBeforeEnter(MovementStepCommand step, CommandFrame frame)
-    {
-        if (step.ToOccupant != targetEnemy || CheckResolved)
-            yield break;
-
-        CoroutineResult<SkillCheckResponse> roll = new();
-        yield return frame.Execute(new SkillCheckCommand
-        {
-            Actor = actor,
-            SkillName = "Acrobatics",
-            DifficultyClass = ReflexDcService.GetReflexDc(targetEnemy),
-            SourceFeatureId = "tumble-through"
-        }, roll);
-
-        CheckResolved = true;
-        AcrobaticsResult = roll.Value.Degree;
-
-        if (roll.Value.Degree < DegreeOfSuccess.Success)
-            step.Cancel("Tumble Through", "Failed to move through enemy space.");
-    }
-}
-```
-
-The Tumble Through command response is built from the movement response and the action-scoped movement rule state.
-
-```csharp
-CoroutineResult<MovementResponse> movement = new();
-yield return frame.Execute(command.Movement, movement);
-
-response.Value = new TumbleThroughResponse
-{
-    Succeeded = movement.Value.Succeeded,
-    TargetEnemy = command.TargetEnemy,
-    AcrobaticsResult = tumbleRule.AcrobaticsResult,
-    PassedThroughEnemySpace = tumbleRule.CheckResolved &&
-        tumbleRule.AcrobaticsResult >= DegreeOfSuccess.Success,
-    Movement = movement.Value
-};
-```
-
-Reactive Strike does not need to know Tumble Through exists. It only sees `MovementStepCommand.Begin` like any other movement.
-
-## Incremental Migration Plan
-
-The migration should be vertical by feature, not horizontal by subsystem. The existing `EntityAction`, HUD, AI, and grid selection code can continue to call into actions while individual actions move their resolution into commands.
-
-Current responsibilities in code:
-
-- `EntityAction` and `MultiFrameEntityAction` provide action-list entries and coroutine invocation.
-- `ActionController` owns action points, turn state, reaction state, action lists, movement lists, reaction lists, and multiple attack penalty.
-- `GridFSM` and its states collect player input, preview cells, and currently execute some gameplay such as Stride movement.
-- `StrikeResolutionPipeline` already separates much of Strike math from `Unarmed` and `StrikeWeapon` wrappers.
-- `RageRule` already separates pure Rage eligibility from Unity mutation, but `UnityRuleEffectApplier` applies those effects directly.
-- `Conditions` already tracks named conditions and contributes condition modifiers through `IPf2eModifierProvider`.
-
-The compatibility bridge is a command-backed action wrapper. It lets the HUD and AI keep using `EntityAction` while the feature's behavior moves to commands.
-
-```csharp
-public abstract class CommandBackedEntityAction<TResponse> : MultiFrameEntityAction
-    where TResponse : CommandResponse
-{
-    protected CommandBackedEntityAction(uint cost) : base(cost)
-    {
-    }
-
-    protected override IEnumerator MFInvoke(GameObject actor)
-    {
-        ActionController controller = actor.GetComponent<ActionController>();
-        CoroutineResult<IRuleCommand<TResponse>> command = new();
-        yield return BuildCommand(actor, command);
-        if (command.Value == null)
-        {
-            if (controller != null)
-                controller.IsTakingAction = false;
-            yield break;
-        }
-
-        CoroutineResult<TResponse> response = new();
-        yield return RuleCommandBus.Instance.Execute(command.Value, response);
-        if (controller != null)
-            controller.IsTakingAction = false;
-    }
-
-    protected abstract IEnumerator BuildCommand(
-        GameObject actor,
-        CoroutineResult<IRuleCommand<TResponse>> command);
-}
-```
-
-This bridge is temporary. It is valuable because it keeps each migration small:
-
-```text
-Existing HUD/AI selects EntityAction
-  -> command-backed wrapper gathers any target/path/area input
-  -> wrapper submits typed command
-  -> command response drives logs, UI cleanup, and follow-up rules
-```
-
-Migration order:
-
-1. **Reload**
-   Current implementation is isolated in `ReloadWeaponAction.Invoke`. Migrate it first because it has one actor, one item, one resource cost, one log line, and no targeting state. Add `ReloadWeaponCommand` and `ReloadWeaponResponse`; the wrapper only submits the command. Remove direct `CreatureComponent.ReloadWeapon`, `PayCost`, and `IsTakingAction` mutation from the action wrapper after command tests pass.
-
-2. **Rage**
-   `RageRule` is already a good pure-rule seam. Add `RageCommand` and `EndRageCommand`. The command handler calls `RageRule`, then converts each `RuleEffect` into nested commands such as `SpendActionCommand`, `GainTempHpCommand`, `RemoveTempHpCommand`, and `ApplyEffectCommand`. After this migration, `UnityRuleEffectApplier` should no longer be used by Rage.
-
-3. **Strike**
-   Wrap the existing `StrikeResolutionPipeline` in `StrikeCommand` rather than rewriting the attack pipeline. `Unarmed` and `StrikeWeapon` still gather targets through the current grid state at first, then submit `StrikeCommand`. The command handler owns attack roll response data, command facts, action cost, MAP increment, ammo consumption, logs, and miss/hit facts. After both wrappers migrate, no production path should call `StrikeResolutionPipeline.Resolve` directly except the command handler and tests focused on the pure pipeline.
-
-4. **Stride and Movement**
-   Keep `StateStride` for path selection and preview at first. Move path execution into `MovementCommand`, and have `MovementCommand` emit one `MovementStepCommand` per step. Bridge existing `Tile.OnExitTile`, `Tile.OnEnterTile`, and `OnStepEnd` behavior from the movement command handler until their rule-relevant listeners move to command listeners. Once movement commands are stable, `StateStride.ExecutePlayerMovement` should disappear; the state should only collect a path and submit a command.
-
-5. **Conditions and Turn Start**
-   `DefinedConditions.Slowed` currently installs a listener on `ResetActionPointsEvent`. Migrate action restoration to `StartTurnCommand` or `ResetActionPointsCommand`, then implement Slowed as a listener or provider for that command. This avoids anonymous UnityEvent callbacks becoming hidden rule state. Similar migrations should cover reaction suppression currently attached through `GetReactionsEvent`.
-
-6. **Combat Start and End Rules**
-   `Pf2eRulesEngine.ApplyCombatStartRules` and `EndEncounter` currently call feature behavior directly, including Quick-Tempered Rage. Replace these with `CombatStartCommand` and `CombatEndCommand`. Quick-Tempered becomes a feature listener that emits a zero-cost `RageCommand`; Rage cleanup becomes an encounter-end listener.
-
-7. **Static Rule Events**
-   Static events such as `OnAttackMiss`, `OnDamageDealt`, `OnDeath`, and `OnStrikePreparedEvent` can remain temporarily for audio and UI compatibility. Rule behavior should stop subscribing to them. Command handlers should emit facts such as `AttackMissed`, `DamageDealt`, `CreatureReducedToZero`, and an adapter can translate those facts into legacy static events until audio/UI are migrated.
-
-8. **Action Roster and AI**
-   Replace `ActionController.Actions`, `Movements`, and `Reactions` with action providers that return `ActionDefinition` objects. AI should evaluate definitions and build `ActionSelection` values rather than type-checking `Unarmed` or `StrikeWeapon`. This can happen after the migrated command-backed wrappers prove the behavior path.
-
-9. **Remove `EntityAction`**
-   Once the HUD and AI consume `ActionDefinition` directly, delete `EntityAction`, `MultiFrameEntityAction`, action-list UnityEvents, and command-backed wrappers. At that point command submission is the only action execution path.
-
-A feature is fully migrated only when:
-
-- it has a typed command and typed response;
-- all direct side effects are inside the command handler or nested commands;
-- the old `EntityAction` wrapper, if still present, only gathers selection and submits the command;
-- direct action point, reaction, MAP, condition, temp HP, ammo, and log mutations are removed from the wrapper;
-- tests cover the old behavior through the command path.
-
-## Full Migration Target
-
-The long-term target removes `EntityAction` as a rules/execution abstraction. It does not require deleting the grid state machine.
-
-Replace `EntityAction` with action definitions:
+Long term, `EntityAction` should be replaced as the rules execution abstraction. The replacement is action definition plus action selection plus command submission.
 
 ```csharp
 public interface IActionDefinition
 {
-    string Name { get; }
-    uint ActionCost { get; }
-    IReadOnlyCollection<string> Traits { get; }
-    ITargetingMode Targeting { get; }
-    Type ResponseType { get; }
-
-    bool IsAvailable(GameObject actor);
+    ActionId Id { get; }
+    string DisplayName { get; }
+    ActionCost Cost { get; }
+    ImmutableArray<CommandTrait> Traits { get; }
+    TargetingMode Targeting { get; }
+    bool IsAvailable(CreatureId actor, RulesSnapshot snapshot);
 }
 
-public interface IActionDefinition<TResponse> : IActionDefinition
+public interface IActionDefinition<TCommand, TResponse> : IActionDefinition
+    where TCommand : IRuleCommand<TResponse>
     where TResponse : CommandResponse
 {
-    IRuleCommand<TResponse> BuildCommand(
-        GameObject actor,
-        ActionSelection selection);
+    TCommand BuildCommand(CreatureId actor, ActionSelection selection, RulesSnapshot snapshot);
 }
 ```
 
-`ActionDefinition` is stable data and command construction. `ActionSelection` is player or AI input. `RuleCommand` is execution. Keeping those separate prevents UI targeting code, AI planning, and rules resolution from collapsing back into one action class.
+`ActionSelection` is input data gathered by UI or AI.
 
-The grid FSM should remain only if it stays an input and preview system. It still provides value for modal states such as:
-
-- idle
-- selecting a Strike target
-- selecting a movement path
-- selecting an area placement
-- selecting an interact target
-
-It should not own rule resolution. Long-term Stride should look like this:
-
-```text
-StrideActionDefinition selected
-  -> Grid selection state previews legal paths
-  -> player or AI confirms ActionSelection
-  -> MovementCommand submitted
-  -> MovementCommand emits MovementStepCommand per step
-  -> Reactive Strike, auras, terrain, and cancellation resolve through command listeners
-  -> MovementResponse returned
-  -> UI exits action mode
+```csharp
+public sealed record ActionSelection(
+    CreatureId? TargetCreature,
+    GridPosition? TargetPosition,
+    ImmutableArray<GridPosition> SelectedPath,
+    ItemId? SelectedItem,
+    SpellId? SelectedSpell);
 ```
 
-Keep these existing services:
+Rationale: action definitions answer what can be selected. Commands answer what is being attempted. Handlers answer what happens. Keeping those separate prevents UI targeting, AI planning, and rules resolution from collapsing back into one action class.
 
-- `StrikeTargeting`
-- `AreaTargeting`
-- `FlankingRule`
-- `Pf2eModifierResolver`
-- `StrikeResolutionPipeline` or its successor service
-- `RageRule`-style pure rule evaluators where they keep Unity mutation out of rule decisions
+## Normal Strike Example
 
-Remove or replace these long-term execution paths:
+Normal Strike becomes a typed command. Existing `Unarmed` and `StrikeWeapon` wrappers can submit it during migration.
 
-- `EntityAction.Invoke` and `MultiFrameEntityAction.MFInvoke` as action execution;
-- direct `ActionController.ActionPoints`, `Reacted`, and `StrikePenalty` mutation from feature code;
-- rule-relevant `StaticUnityEvent` and `UnityEvent` hooks;
-- `UnityRuleEffectApplier` as a generic mutation switch;
-- grid states that directly move tokens, spend resources, or apply damage.
+```csharp
+public sealed record StrikeCommand(
+    CreatureId Actor,
+    CreatureId Target,
+    StrikeProfileId Profile,
+    bool CostsAction,
+    bool AppliesMultipleAttackPenalty,
+    bool IncrementsMultipleAttackPenalty)
+    : IRuleCommand<StrikeResponse>;
 
-## Design Review Findings
+public sealed record StrikeResponse(
+    CommandId CommandId,
+    CommandOutcome Outcome,
+    FailureReason? FailureReason,
+    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleFact> Facts,
+    D20Roll AttackRoll,
+    DegreeOfSuccess Degree,
+    DamageValue DamageApplied,
+    bool TargetReducedToZero)
+    : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
+```
 
-This proposal is compatible with the current codebase, but only if the following constraints are treated as core design decisions rather than optional cleanup.
+Handler sketch:
 
-**Command Traits Are Required**
+```csharp
+public sealed class StrikeRule :
+    IRuleDefinition,
+    ICommandHandler<StrikeCommand, StrikeResponse>
+{
+    public RuleSourceId SourceId => RuleSources.Core("strike");
 
-PF2e triggers often care about traits, not class names. Reactive Strike cares about `manipulate` and movement; many future reactions care about `concentrate`, `move`, `attack`, `spellshape`, `flourish`, and similar traits. `IRuleCommand.Traits` and `ICommandPhaseListener` are therefore part of the core command contract. Without them, feature listeners would either type-check too many concrete commands or recreate a parallel trigger system later.
+    public void Register(IRuleRegistryBuilder rules)
+    {
+        rules.Handle<StrikeCommand, StrikeResponse>(this);
+    }
 
-**Typed Responses Need Failure State**
+    public RuleProgram<StrikeResponse> HandleCommand(
+        CommandFrame<StrikeCommand> frame,
+        RulesSnapshot snapshot,
+        ResolutionContext context)
+    {
+        var command = frame.Command;
+        var resolution = strikeService.Resolve(command, snapshot, context.Rolls, context.Modifiers);
 
-Every command returns a response, including blocked or cancelled commands. `CommandResponse.FailureReason` keeps failure reporting and tests out of ad hoc logs. A cancelled command should return a typed response with `Cancelled = true`, `Succeeded = false`, and enough command-specific fields for callers to make safe decisions.
+        if (command.CostsAction)
+            yield return new SpendActionEffect(context.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Actor, ActionCost.One);
 
-**Coarse Command Phases Are Enough Only With Domain Pipelines**
+        if (resolution.Hit)
+            yield return new ApplyDamageEffect(context.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Target, resolution.Damage);
 
-The command lifecycle should stay coarse: `Begin`, handler, `End`, `Cancelled`. Strike already needs finer phases for damage dice, critical traits, resistance, weakness, and logging; those belong inside `StrikeResolutionPipeline`, not in the global command phase enum. The same pattern should apply later to spell resolution, affliction saves, persistent damage, and recovery checks. The command system coordinates features; domain pipelines own domain-specific math.
+        if (command.IncrementsMultipleAttackPenalty)
+            yield return new IncrementMultipleAttackPenaltyEffect(context.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Actor, resolution.MapIncrement);
 
-**Action Economy Must Be Centralized Early**
+        return new StrikeResponse(
+            frame.Id,
+            CommandOutcome.Succeeded,
+            null,
+            context.ProducedEffects,
+            context.Facts,
+            resolution.AttackRoll,
+            resolution.Degree,
+            resolution.Damage,
+            context.Facts.OfType<CreatureReducedToZeroFact>().Any(f => f.Creature == command.Target));
+    }
+}
+```
 
-Current code spends actions through `PayCost`, mutates MAP through `ActionController.StrikePenalty`, and suppresses reactions by editing lists. That will not scale. The first implementation should include `SpendActionCommand`, `SpendReactionCommand`, and `IncrementMultipleAttackPenaltyCommand` even if their handlers are small wrappers around `ActionController`. This lets migrated features stop mutating resource fields directly.
+The existing `StrikeResolutionPipeline` remains useful. In the first migration, `StrikeService` can wrap it. Longer term, the pipeline should be moved below the Unity boundary so it consumes rules IDs and snapshots instead of `GameObject` references.
 
-**Rolls Need a Testable Seam**
+## Reactive Strike Example
 
-Existing code uses `UnityEngine.Random` through `D20`, `Dice`, and critical trait effects. That is acceptable inside legacy services, but command handlers should call a `RollService` abstraction. This is important for deterministic tests and for future PF2e roll mechanics such as fortune, misfortune, rerolls, secret checks, flat checks, and roll replacement effects. This does not require making every damage die a command in the first pass; it does require avoiding new direct random calls in command handlers.
+Reactive Strike is a rule definition with listeners. It does not require special engine code.
 
-**Visible State and Predicate State Must Stay Synchronized**
+```csharp
+public sealed class ReactiveStrikeRule :
+    IRuleDefinition,
+    ICommandStartListener<MovementStepCommand, MovementStepResponse>,
+    ICommandPredicateStartListener
+{
+    public RuleSourceId SourceId => RuleSources.Feat("reactive-strike");
 
-The project currently has `Conditions`, `PreparedCharacter.ActiveEffects`, `Pf2eModifierCollection`, and proposed `ActiveEffectTracker`. These cannot become four unrelated sources of truth. Applying an effect or condition through commands should update the player-visible tracker, modifier providers, and prepared rule predicate state together. If an effect only modifies one immediate roll, it should remain contextual modifier data instead of visible active state.
+    public void Register(IRuleRegistryBuilder rules)
+    {
+        rules.BeforeCommand<MovementStepCommand, MovementStepResponse>(SourceId, this);
+        rules.BeforeAnyCommand(SourceId, this);
+    }
 
-**Grid FSM Should Not Execute Rules Long Term**
+    public IEnumerable<RuleEffect> OnCommandStarting(
+        ActiveRuleBinding binding,
+        CommandFrame<MovementStepCommand> frame,
+        RulesSnapshot snapshot)
+    {
+        if (!CanStrikeMovement(binding.Owner, frame.Command.Actor, frame.Command.From, frame.Command.To, snapshot))
+            yield break;
 
-`StateStride` currently previews and executes movement. The preview role is still useful; the execution role should move to `MovementCommand`. This distinction is essential for Reactive Strike, aura updates, difficult terrain, Tumble Through, forced movement, and future movement-triggered features. Path preview and committed movement must share movement cost providers.
+        yield return BuildPromptToStrike(binding, frame.ToUntyped());
+    }
 
-**Static Events Should Become Compatibility Adapters**
+    public bool AppliesTo(CommandFrameUntyped frame)
+    {
+        return frame.Traits.Contains(CommandTrait.Manipulate);
+    }
 
-Static events are useful for audio and some UI integration, but rule behavior should not depend on them. They have global lifetime, implicit ordering, and weak command provenance. Command facts and typed responses should become the rule surface. Temporary adapters can translate command facts to `OnDamageDealt`, `OnAttackMiss`, `OnDeath`, `OnActionComplete`, and similar legacy events until callers migrate.
+    public IEnumerable<RuleEffect> OnCommandStarting(
+        ActiveRuleBinding binding,
+        CommandFrameUntyped frame,
+        RulesSnapshot snapshot)
+    {
+        if (!CanStrikeManipulate(binding.Owner, frame.Actor, snapshot))
+            yield break;
 
-**Nested Commands Need Reentrancy Guards**
+        yield return BuildPromptToStrike(binding, frame);
+    }
+}
+```
 
-Nested command execution is powerful enough for reactions and prompts, but it can also create loops. Listeners should be able to inspect `CommandFrame` ancestry, `RootId`, and `SourceFeatureId` to avoid triggering from their own nested commands unless explicitly allowed. This is especially important for reactions that emit Strikes, effects that apply other effects, and future replacement effects.
+The prompt submits a Strike and spends the reaction through generic effects or nested commands.
 
-**Data-Driven Rule Elements Should Compile Into Features, Not Special Cases**
+```csharp
+private RuleEffect BuildPromptToStrike(ActiveRuleBinding binding, CommandFrameUntyped triggeringFrame)
+{
+    var strike = new StrikeCommand(
+        Actor: binding.Owner,
+        Target: triggeringFrame.Actor!.Value,
+        Profile: ChooseMeleeProfile(binding.Owner),
+        CostsAction: false,
+        AppliesMultipleAttackPenalty: false,
+        IncrementsMultipleAttackPenalty: false);
 
-`Pf2eRulesEngine` and `PreparedCharacter` already consume imported rule elements. Long term, those prepared rule elements should produce modifier providers, action definitions, command listeners, or active effects. The command design should not require central `DefinedAbilities` or `Pf2eRulesEngine` switch logic for every feat. The bridge can be incremental, but the destination is feature registration, not a larger static rules facade.
+    return new PromptChoiceEffect(
+        NewEffectId(),
+        triggeringFrame.Id,
+        SourceId,
+        binding.Id,
+        Chooser: binding.Owner,
+        Prompt: PromptIds.UseReactiveStrike,
+        Options: ImmutableArray.Create(
+            PromptOption.Decline(),
+            PromptOption.Sequence(
+                "Strike",
+                new SpendReactionCommand(binding.Owner, SourceId),
+                strike)));
+}
+```
 
-**The Core Design Is Solid If These Boundaries Hold**
+If the Strike critically disrupts a manipulate command, the rule can emit a generic cancellation effect against the triggering command.
 
-The command approach should hold up for substantially more PF2e content if commands own side effects, services own pure queries/math, UI owns selection, action definitions own action availability, and feature classes own their own listeners. The main risk is not missing a future command type; new command types are cheap. The main risk is allowing legacy direct mutation paths to remain after a feature is considered migrated.
+```csharp
+public IEnumerable<RuleEffect> OnNestedStrikeResolved(
+    ActiveRuleBinding binding,
+    CommandFrame<StrikeCommand> strikeFrame,
+    StrikeResponse response,
+    CommandFrameUntyped triggeringFrame)
+{
+    if (triggeringFrame.Traits.Contains(CommandTrait.Manipulate) && response.Degree == DegreeOfSuccess.CriticalSuccess)
+    {
+        yield return new CancelCommandEffect(
+            NewEffectId(),
+            strikeFrame.Id,
+            SourceId,
+            binding.Id,
+            TargetCommand: triggeringFrame.Id,
+            Reason: FailureReasons.Disrupted);
+    }
+}
+```
+
+Rationale: Reactive Strike only knows generic movement, manipulate traits, reaction spending, prompts, strikes, and cancellation. The movement engine and manipulate actions do not know Reactive Strike exists.
+
+## Bless Example
+
+Bless demonstrates visible effects and aura maintenance. The player should see that a creature is affected before making an attack.
+
+When Bless is cast, the spell handler creates an active aura effect owned by the caster.
+
+```csharp
+yield return new ApplyActiveEffectEffect(
+    context.NewEffectId(),
+    frame.Id,
+    RuleSources.Spell("bless"),
+    frame.SourceBinding,
+    Target: command.Actor,
+    Effect: new ActiveEffectInstance(
+        Id: context.NewEffectInstanceId(),
+        SourceRule: RuleSources.SpellEffect("bless-aura"),
+        Owner: command.Actor,
+        Target: null,
+        DisplayName: "Bless Aura",
+        Duration: Duration.OneMinute,
+        Modifiers: ImmutableArray<ModifierDefinition>.Empty,
+        Bindings: ImmutableArray.Create(
+            new ActiveRuleBinding(
+                context.NewBindingId(),
+                RuleSources.SpellEffect("bless-aura"),
+                command.Actor,
+                RuleSourceKind.ActiveEffect,
+                effectInstance: context.CurrentEffectInstance,
+                sourceItem: null))));
+```
+
+The aura rule recomputes affected allies after movement and aura-radius changes.
+
+```csharp
+public sealed class BlessAuraRule :
+    IRuleDefinition,
+    ICommandResponseListener<MovementStepCommand, MovementStepResponse>,
+    ICommandResponseListener<AuraRadiusChangedCommand, BasicCommandResponse>
+{
+    public RuleSourceId SourceId => RuleSources.SpellEffect("bless-aura");
+
+    public void Register(IRuleRegistryBuilder rules)
+    {
+        rules.AfterCommandCommitted<MovementStepCommand, MovementStepResponse>(SourceId, this);
+        rules.AfterCommandCommitted<AuraRadiusChangedCommand, BasicCommandResponse>(SourceId, this);
+    }
+
+    public IEnumerable<RuleEffect> OnCommandResolved(
+        ActiveRuleBinding binding,
+        CommandFrame<MovementStepCommand> frame,
+        MovementStepResponse response,
+        RulesSnapshot snapshot)
+    {
+        foreach (var candidate in CandidatesNearAura(binding, frame, snapshot))
+            foreach (var effect in RecomputeBlessOnCreature(binding, candidate, snapshot))
+                yield return effect;
+    }
+}
+```
+
+Applying Bless to an ally uses a visible active effect with a modifier definition.
+
+```csharp
+private IEnumerable<RuleEffect> RecomputeBlessOnCreature(
+    ActiveRuleBinding aura,
+    CreatureId candidate,
+    RulesSnapshot snapshot)
+{
+    bool shouldHaveBless = snapshot.IsAlly(aura.Owner, candidate)
+        && snapshot.Distance(aura.Owner, candidate) <= Feet.Of(15);
+
+    bool hasBless = snapshot.HasEffectFrom(candidate, aura.Id, EffectSlugs.BlessAttackBonus);
+
+    if (shouldHaveBless && !hasBless)
+        yield return new ApplyActiveEffectEffect(NewEffectId(), SourceCommand.Current, SourceId, aura.Id, candidate, BuildBlessBonusEffect(aura, candidate));
+    else if (!shouldHaveBless && hasBless)
+        yield return new RemoveActiveEffectEffect(NewEffectId(), SourceCommand.Current, SourceId, aura.Id, candidate, EffectSlugs.BlessAttackBonus);
+}
+
+private ActiveEffectInstance BuildBlessBonusEffect(ActiveRuleBinding aura, CreatureId candidate)
+{
+    return new ActiveEffectInstance(
+        Id: NewEffectInstanceId(),
+        SourceRule: SourceId,
+        Owner: aura.Owner,
+        Target: candidate,
+        DisplayName: "Bless",
+        Duration: Duration.WhileSourceExists(aura.EffectInstance!.Value),
+        Modifiers: ImmutableArray.Create(
+            new ModifierDefinition(
+                ModifierSlugs.Bless,
+                StatisticIds.AttackRoll,
+                ModifierType.Status,
+                +1,
+                SourceId)),
+        Bindings: ImmutableArray<ActiveRuleBinding>.Empty);
+}
+```
+
+When the blessed creature attacks, Strike asks the generic modifier service for attack-roll modifiers. Strike does not know Bless exists.
+
+Rationale: Bless is transparent in the UI and still mechanically generic. It also demonstrates the distinction between stored visible effects and roll-time modifier resolution.
+
+## Tumble Through Example
+
+Tumble Through is an action command that wraps movement with action-scoped movement permission. The grid should not hardcode Tumble Through.
+
+```csharp
+public sealed record TumbleThroughCommand(
+    CreatureId Actor,
+    CreatureId TargetEnemy,
+    ImmutableArray<GridPosition> Path)
+    : IRuleCommand<TumbleThroughResponse>;
+
+public sealed record TumbleThroughResponse(
+    CommandId CommandId,
+    CommandOutcome Outcome,
+    FailureReason? FailureReason,
+    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleFact> Facts,
+    DegreeOfSuccess? AcrobaticsDegree,
+    bool PassedThroughTargetSpace,
+    MovementResponse Movement)
+    : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
+```
+
+Handler sketch:
+
+```csharp
+public sealed class TumbleThroughRule :
+    IRuleDefinition,
+    ICommandHandler<TumbleThroughCommand, TumbleThroughResponse>
+{
+    public RuleSourceId SourceId => RuleSources.Action("tumble-through");
+
+    public void Register(IRuleRegistryBuilder rules)
+    {
+        rules.Handle<TumbleThroughCommand, TumbleThroughResponse>(this);
+    }
+
+    public RuleProgram<TumbleThroughResponse> HandleCommand(
+        CommandFrame<TumbleThroughCommand> frame,
+        RulesSnapshot snapshot,
+        ResolutionContext context)
+    {
+        var movementRule = new TumbleThroughMovementRule(
+            frame.Command.Actor,
+            frame.Command.TargetEnemy,
+            SourceId,
+            frame.Id);
+
+        var movement = new MovementCommand(
+            Actor: frame.Command.Actor,
+            Path: frame.Command.Path,
+            Rules: ImmutableArray.Create<IMovementRule>(movementRule),
+            Traits: ImmutableArray.Create(CommandTrait.Move));
+
+        var movementResponse = yield return new RunNestedCommandEffect<MovementCommand, MovementResponse>(
+            context.NewEffectId(),
+            frame.Id,
+            SourceId,
+            frame.SourceBinding,
+            movement);
+
+        return new TumbleThroughResponse(
+            frame.Id,
+            movementResponse.Outcome,
+            movementResponse.FailureReason,
+            context.ProducedEffects,
+            context.Facts,
+            movementRule.AcrobaticsDegree,
+            movementRule.PassedThroughTargetSpace,
+            movementResponse);
+    }
+}
+```
+
+The movement rule is local to the command and only alters how this movement resolves.
+
+```csharp
+public sealed class TumbleThroughMovementRule : IMovementRule
+{
+    public IEnumerable<RuleEffect> BeforeEnter(
+        MovementStepCommand step,
+        RulesSnapshot snapshot,
+        CommandFrame<MovementStepCommand> frame)
+    {
+        if (step.To != snapshot.GetCreaturePosition(targetEnemy))
+            yield break;
+
+        var check = new SkillCheckCommand(
+            Actor: actor,
+            Skill: SkillIds.Acrobatics,
+            Dc: snapshot.GetReflexDc(targetEnemy));
+
+        yield return new RunNestedCommandEffect<SkillCheckCommand, SkillCheckResponse>(
+            NewEffectId(),
+            frame.Id,
+            sourceRule,
+            sourceBinding: null,
+            check);
+
+        if (AcrobaticsDegree < DegreeOfSuccess.Success)
+            yield return new CancelCommandEffect(NewEffectId(), frame.Id, sourceRule, null, frame.Id, FailureReasons.TumbleThroughFailed);
+    }
+}
+```
+
+Rationale: Reactive Strike still only sees normal movement step commands. Tumble Through extends movement through a generic movement-rule hook rather than teaching the grid about a specific action.
+
+## Cranial Detonation Example: Illustrative Future Complex Feature
+
+This example is intentionally more speculative than the first-pass examples. It is included to test whether the design can support complex future PF2e features. The exact implementation will likely evolve by the time this feat is implemented.
+
+Cranial Detonation is a high-level psychic feat that can trigger after a spell reduces non-mindless enemies to 0 HP, then creates cascading area damage from those enemies. It stresses the design because it needs trigger facts, optional activation, frequency tracking, death effects, area saves, chained detonations, and once-per-use target bookkeeping.
+
+Command and response data:
+
+```csharp
+public sealed record CranialDetonationCommand(
+    RuleBindingId SourceBinding,
+    CreatureId Actor,
+    CommandId TriggeringSpellCommand,
+    ImmutableArray<CreatureId> InitialOrigins,
+    MindshiftMode MindshiftMode)
+    : IRuleCommand<CranialDetonationResponse>;
+
+public sealed record CranialDetonationResponse(
+    CommandId CommandId,
+    CommandOutcome Outcome,
+    FailureReason? FailureReason,
+    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleFact> Facts,
+    ImmutableArray<CreatureId> ExplosionOrigins,
+    ImmutableArray<CreatureId> ResolvedTargets)
+    : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
+```
+
+Rule definition:
+
+```csharp
+public sealed class CranialDetonationRule :
+    IRuleDefinition,
+    ICommandResponseListener<CastSpellCommand, CastSpellResponse>,
+    ICommandHandler<CranialDetonationCommand, CranialDetonationResponse>
+{
+    public RuleSourceId SourceId => RuleSources.Feat("cranial-detonation");
+
+    public void Register(IRuleRegistryBuilder rules)
+    {
+        rules.AfterCommandCommitted<CastSpellCommand, CastSpellResponse>(SourceId, this);
+        rules.Handle<CranialDetonationCommand, CranialDetonationResponse>(this);
+    }
+}
+```
+
+Trigger listener:
+
+```csharp
+public IEnumerable<RuleEffect> OnCommandResolved(
+    ActiveRuleBinding binding,
+    CommandFrame<CastSpellCommand> frame,
+    CastSpellResponse response,
+    RulesSnapshot snapshot)
+{
+    if (binding.Owner != frame.Command.Actor)
+        yield break;
+
+    if (!snapshot.HasUnleashedPsyche(binding.Owner))
+        yield break;
+
+    if (!snapshot.FrequencyAvailable(binding.Owner, SourceId, FrequencyWindow.OncePerRound))
+        yield break;
+
+    var origins = response.Facts
+        .OfType<CreatureReducedToZeroFact>()
+        .Where(f => f.SourceCommand == frame.Id)
+        .Where(f => snapshot.IsEnemy(binding.Owner, f.Creature))
+        .Where(f => !snapshot.HasTrait(f.Creature, CreatureTrait.Mindless))
+        .Select(f => f.Creature)
+        .Distinct()
+        .ToImmutableArray();
+
+    if (origins.Length == 0)
+        yield break;
+
+    yield return new PromptChoiceEffect(
+        NewEffectId(),
+        frame.Id,
+        SourceId,
+        binding.Id,
+        Chooser: binding.Owner,
+        Prompt: PromptIds.UseCranialDetonation,
+        Options: ImmutableArray.Create(
+            PromptOption.Decline(),
+            PromptOption.SubmitCommand("Detonate", new CranialDetonationCommand(
+                binding.Id,
+                binding.Owner,
+                frame.Id,
+                origins,
+                MindshiftMode.Normal))));
+}
+```
+Handler:
+
+```csharp
+public RuleProgram<CranialDetonationResponse> HandleCommand(
+    CommandFrame<CranialDetonationCommand> frame,
+    RulesSnapshot snapshot,
+    ResolutionContext context)
+{
+    var command = frame.Command;
+    var binding = snapshot.GetActiveBinding(command.SourceBinding);
+
+    if (binding.SourceId != SourceId || binding.Owner != command.Actor)
+        return Response.Invalid<CranialDetonationResponse>(frame.Id, FailureReasons.InvalidRuleBinding);
+
+    if (!CanStillActivate(command, snapshot, context.EventLog))
+        return Response.Invalid<CranialDetonationResponse>(frame.Id, FailureReasons.InvalidTrigger);
+
+    yield return new SpendFrequencyEffect(
+        context.NewEffectId(),
+        frame.Id,
+        SourceId,
+        binding.Id,
+        command.Actor,
+        SourceId,
+        FrequencyWindow.OncePerRound);
+
+    var detonated = ImmutableHashSet<CreatureId>.Empty;
+    var resolvedTargets = ImmutableHashSet<CreatureId>.Empty;
+    var frontier = command.InitialOrigins;
+
+    while (frontier.Length > 0)
+    {
+        foreach (var origin in frontier)
+        {
+            detonated = detonated.Add(origin);
+            yield return new SetLifeStateEffect(
+                context.NewEffectId(),
+                frame.Id,
+                SourceId,
+                binding.Id,
+                origin,
+                LifeState.Dead);
+        }
+
+        var area = AreaShape.Union(frontier.Select(origin => AreaShape.EmanationFromCreature(origin, Feet.Of(15))));
+        var targets = snapshot.CreaturesInArea(area)
+            .Where(target => !resolvedTargets.Contains(target))
+            .Where(target => snapshot.CanBeDamaged(target))
+            .ToImmutableArray();
+
+        if (targets.Length == 0)
+            break;
+
+        var damageSpec = CranialDetonationDamage(command.MindshiftMode);
+
+        var areaDamage = new AreaBasicSaveDamageCommand(
+            Actor: command.Actor,
+            Targets: targets,
+            Area: area,
+            Save: damageSpec.Save,
+            Dc: snapshot.ResolveFeatureDc(command.Actor, SourceId),
+            Damage: damageSpec.Damage,
+            Traits: damageSpec.Traits,
+            SourceRule: SourceId);
+
+        var areaResponse = yield return new RunNestedCommandEffect<AreaBasicSaveDamageCommand, AreaDamageResponse>(
+            context.NewEffectId(),
+            frame.Id,
+            SourceId,
+            binding.Id,
+            areaDamage);
+
+        resolvedTargets = resolvedTargets.Union(targets);
+
+        frontier = areaResponse.Facts
+            .OfType<CreatureReducedToZeroFact>()
+            .Where(f => snapshot.IsEnemy(command.Actor, f.Creature))
+            .Where(f => !detonated.Contains(f.Creature))
+            .Select(f => f.Creature)
+            .Distinct()
+            .ToImmutableArray();
+    }
+
+    return new CranialDetonationResponse(
+        frame.Id,
+        CommandOutcome.Succeeded,
+        null,
+        context.ProducedEffects,
+        context.Facts,
+        detonated.ToImmutableArray(),
+        resolvedTargets.ToImmutableArray());
+}
+```
+
+The area damage is generic:
+
+```csharp
+public sealed record AreaBasicSaveDamageCommand(
+    CreatureId Actor,
+    ImmutableArray<CreatureId> Targets,
+    AreaShape Area,
+    SaveType Save,
+    DifficultyClass Dc,
+    DamageExpression Damage,
+    ImmutableArray<CommandTrait> Traits,
+    RuleSourceId SourceRule)
+    : IRuleCommand<AreaDamageResponse>;
+```
+
+The generic area-damage handler emits nested saves and damage effects. It is not specific to Cranial Detonation.
+
+```csharp
+foreach (var target in command.Targets)
+{
+    var save = yield return new RunNestedCommandEffect<SavingThrowCommand, SavingThrowResponse>(
+        NewEffectId(),
+        frame.Id,
+        command.SourceRule,
+        frame.SourceBinding,
+        new SavingThrowCommand(target, command.Save, command.Dc));
+
+    var adjustedDamage = BasicSaveDamage.Apply(damageRoll, save.Degree);
+
+    yield return new ApplyDamageEffect(
+        NewEffectId(),
+        frame.Id,
+        command.SourceRule,
+        frame.SourceBinding,
+        target,
+        adjustedDamage);
+}
+```
+
+Important design lessons from this example:
+
+- `CastSpellResponse` must contain facts rich enough to detect enemies reduced to 0 HP by that spell.
+- Prompt effects need to carry follow-up command data.
+- Frequency spending should be a generic effect.
+- Chained damage should use generic area damage, saves, and damage effects.
+- The feat-specific handler owns only the detonation queue and once-per-use target bookkeeping.
+- The implementation should mark a creature resolved once it was included in a detonation wave, even if it critically succeeded and took no damage, to preserve the likely intent that one use cannot affect the same creature repeatedly.
+
+## Incremental Migration Plan
+
+The migration should be vertical by feature, not horizontal by subsystem. Existing `EntityAction`, HUD, AI, and grid-selection code can continue to call wrappers while individual actions move their resolution into commands.
+
+Current useful seams:
+
+- `StrikeResolutionPipeline` already separates much Strike math from action wrappers.
+- `RageRule` already separates some Unity-free Rage decisions from Unity mutation.
+- `PreparedCharacter` already derives owned PF2e items, roll options, modifiers, damage dice, and active effects.
+- `Conditions` already tracks visible named conditions.
+- `IPf2eModifierProvider` and modifier collections already provide a direction for effect-granted modifiers.
+
+Current patterns to migrate away from:
+
+- `DefinedAbilities` using `GameObject` callbacks.
+- `ActionController` directly owning all action/reaction/MAP mutation for feature code.
+- grid states directly executing rule-relevant movement.
+- static or Unity events as hidden rule subscriptions.
+- `UnityRuleEffectApplier` as a generic mutation switch.
+
+### Compatibility Wrapper
+
+A temporary command-backed action wrapper lets the current HUD and AI submit commands without a full action roster rewrite.
+
+```csharp
+public abstract class CommandBackedEntityAction<TCommand, TResponse> : MultiFrameEntityAction
+    where TCommand : IRuleCommand<TResponse>
+    where TResponse : CommandResponse
+{
+    protected override IEnumerator MFInvoke(GameObject actorObject)
+    {
+        var actor = unityLookup.GetCreatureId(actorObject);
+        var selection = yield return GatherSelection(actorObject);
+        var command = BuildCommand(actor, selection);
+        var response = yield return ruleEngine.Execute(command);
+        unityPresenter.ApplyResponse(response);
+    }
+
+    protected abstract TCommand BuildCommand(CreatureId actor, ActionSelection selection);
+}
+```
+
+The wrapper is allowed to touch Unity because it is an adapter. The command it builds must not contain Unity references.
+
+### Migration Order
+
+1. **Reload**
+   Add `ReloadWeaponCommand` and `ReloadWeaponResponse`. Keep the wrapper responsible only for selecting the item and submitting the command.
+
+2. **Rage**
+   Convert `RageRule` to `RageCommand` and `EndRageCommand`. Replace direct use of `UnityRuleEffectApplier` with generic effects such as `SpendActionEffect`, `ApplyActiveEffectEffect`, and `GrantTemporaryHitPointsEffect`.
+
+3. **Strike**
+   Wrap the existing `StrikeResolutionPipeline` in `StrikeCommand`. Move action cost, MAP increment, attack roll facts, damage facts, and reduced-to-zero facts into the command/effect path.
+
+4. **Stride and Movement**
+   Keep grid states for path selection and preview. Move path execution into `MovementCommand`, which emits a `MovementStepCommand` per step. Path preview and committed movement should share movement cost providers.
+
+5. **Conditions and Turn Start**
+   Migrate action restoration and condition turn hooks to `StartTurnCommand` or `ResetActionPointsCommand`. Conditions such as Slowed should no longer install hidden UnityEvent callbacks.
+
+6. **Combat Start and End**
+   Replace direct `Pf2eRulesEngine.ApplyCombatStartRules` and `EndEncounter` feature calls with `CombatStartCommand` and `CombatEndCommand` listeners. Quick-Tempered becomes a listener that emits a zero-cost `RageCommand`.
+
+7. **Static Rule Events**
+   Keep static events temporarily as compatibility adapters for audio/UI. Rule behavior should move to command responses and facts.
+
+8. **Action Roster and AI**
+   Replace `ActionController.Actions`, `Movements`, and `Reactions` with action providers that return `ActionDefinition` objects. AI evaluates definitions and selections instead of type-checking concrete action classes.
+
+9. **Remove `EntityAction` Execution**
+   Once HUD and AI submit commands directly, delete the command-backed wrappers and remove `EntityAction` as a rules execution abstraction.
+
+A feature is fully migrated when:
+
+- it has data-only command and response types;
+- its behavior is owned by a rule definition or generic service;
+- all state changes are emitted as effects and applied by the engine;
+- its old wrapper, if present, only gathers Unity input and submits commands;
+- tests cover the command path rather than legacy direct mutation.
 
 ## First-Pass Scope
 
-Implement this in stages to avoid a broad rewrite.
+The first pass should establish the architectural constraints without trying to implement every future PF2e edge case.
 
-1. Add `RuleCommand<TResponse>`, `CommandResponse`, `BasicCommandResponse`, `CommandFact`, command traits, failure reasons, command frame, and listener registration.
-2. Assign parent id, root id, actor, targets, traits, and source feature id for every command.
-3. Add typed listener priority and lifecycle phases.
-4. Add small action-economy commands for action spending, reaction spending, and MAP increment.
-5. Add a `RollService` seam used by new command handlers.
-6. Add `CommandBackedEntityAction` so current HUD and AI paths can submit commands one feature at a time.
-7. Migrate Reload and Rage as the first low-risk command-backed features.
-8. Add `ActiveEffectTracker`, condition/effect commands, and prepared-state synchronization for visible effects.
-9. Wrap `StrikeResolutionPipeline` in `StrikeCommand` while preserving existing target selection.
-10. Add the movement cost provider hook and ensure path preview and movement execution share it.
-11. Move Stride execution into `MovementCommand` and emit `MovementStepCommand` around each step.
-12. Implement Bless as the first active-effect aura.
-13. Implement Reactive Strike using `MovementStepCommand.Begin` and trait-aware `ICommandPhaseListener` handling for manipulate commands.
-14. Implement Tumble Through using movement command rules.
+1. Define immutable command, response, effect, fact, and frame types.
+2. Define rules-domain IDs and remove Unity references from new rules-layer data.
+3. Add rule registry, active rule bindings, command handlers, and response/start listeners.
+4. Add central effect application and fact recording.
+5. Add action economy effects/commands for actions, reactions, and MAP.
+6. Add a `RollService` seam for new command handlers.
+7. Add compatibility wrappers for existing `EntityAction` flows.
+8. Migrate Reload and Rage first.
+9. Wrap Strike through `StrikeCommand` while preserving existing target selection.
+10. Add movement command and movement step command.
+11. Add visible active effect storage and synchronization with modifier/predicate state.
+12. Implement Bless as the first visible aura/effect example.
+13. Implement Reactive Strike using movement step start and trait-aware listeners.
+14. Implement Tumble Through using action-scoped movement rules.
+
+Pending next-command hooks are not required for the first pass, but the design should reserve space for them because spellshape-style features will need them.
 
 ## Deferred Scope
 
-These are intentionally not first-pass requirements, but the model should leave room for them.
+- full replacement of `EntityAction` with `ActionDefinition`;
+- complete Unity-free rewrite of Strike internals;
+- generic spell result modeling for every spell shape;
+- persistent areas and hazardous terrain;
+- teleport and forced movement taxonomy;
+- replacement effects;
+- fortune/misfortune/reroll arbitration;
+- complete replay/rewind tooling;
+- data-driven compilation of imported PF2e rule elements into action definitions, listeners, modifiers, and active effects;
+- broad migration of static event consumers to command facts.
 
-- full replacement of `EntityAction` with `ActionDefinition` after wrappers migrate
-- replacing rule-relevant static events with command fact adapters
-- pending next-command effects, such as spellshape benefits
-- persistent area effects and hazardous terrain zones
-- teleport and forced movement taxonomy
-- full spell result modeling
-- generalized data-driven rule-element registration into action definitions, listeners, effects, and modifier providers
-- fortune and misfortune arbitration
-- chained damage and defeat resolution
-- generic replacement effects
-- renaming or replacing the Grid FSM after it is reduced to input/preview only
+## Design Review Findings
 
-Pending next-command effects can be documented as a future hook without implementing storage, invalidation, UI, or tests in v1.
+### The Design Is Stronger With Data-Only Commands
 
-```csharp
-public interface IPendingCommandEffect
-{
-    bool AppliesTo(IRuleCommand command);
-    IEnumerator Apply(IRuleCommand command, CommandFrame frame);
-    void Expire(PendingEffectExpireReason reason);
-}
-```
+Separating command request data from execution logic is worth the upfront cost. It improves replay, testing, logging, UI transparency, and future Unity detachment. The cost is extra boilerplate, especially for simple actions. The recommended mitigation is not to collapse logic back into commands, but to keep simple rule definitions small and use shared services for common math.
 
-## Caveats
+### Rule Definitions Should Usually Own Their Own Hooks
 
-Listener priority is not optional. PF2e has many reactions and triggered effects; component order is not a valid rules engine.
+For bespoke PF2e features, a single class implementing its own listeners and handlers is more maintainable than separate trigger and handler classes by default. This keeps feature behavior local. Split only when reuse or complexity justifies it.
 
-Prompting must be coroutine-safe. A command listener can pause a parent command while waiting for UI or AI choice, but the parent command must remain visible in the command frame for cancellation and logs.
+### Active Bindings Are Better Than Live Subscriptions
 
-Reaction spending should be centralized. Features can request reaction spending, but the reaction service must own availability, one-reaction-per-round behavior, and UI state.
+Do not attach listener instances to creatures at combat start. Hidden subscriptions are hard to replay, save, undo, inspect, and update when effects are gained or lost mid-combat. Store active bindings in rules state and let dispatch query the snapshot.
 
-Cancellation should mutate the parent command directly. Prefer `command.Cancel(source, reason)` over a loose `CancelEvent` targeting another event by id.
+### Facts Are Required For Advanced Triggers
 
-Effect state should be visible and mechanical. If a player should know they are affected, use `ActiveEffectTracker`. If a value only matters for the immediate roll, pass it as a contextual modifier.
+Features like Cranial Detonation and Foreseen Failure cannot be implemented cleanly if spell and damage responses only say `Succeeded`. Commands must emit meaningful facts such as damage applied, spell had no effect, creature reduced to zero, modifier granted, action disrupted, movement completed, and effect expired.
 
-Keep commands typed. A generic `RuleCommand` with arbitrary tags would be harder to search, test, and refactor.
+### Effect Application Is The Key Invariant Boundary
 
-Keep responses typed. Feature logic should inspect `StrikeCommandResponse`, `MovementStepResponse`, and similar explicit response types rather than downcasting a generic result object.
+If handlers directly mutate HP, position, actions, reactions, conditions, or active effects, the architecture loses most of its value. The effect applier is where state changes, facts, logs, and UI notifications should be coordinated.
 
-Keep facts generic. Cross-cutting logs and delayed triggers can inspect `CommandFact` without depending on every response type.
+### UI Transparency Requires Current Effect Projections
+
+Waiting until roll time to discover modifiers is mechanically workable but poor UX. The current rules snapshot must be able to answer what effects currently apply to a creature. Some effects should be stored active effects; others can be derived projections. Both should be queryable by UI.
+
+### Coarse Command Phases Are Enough Only With Domain Pipelines
+
+The command lifecycle should remain small. Complex domains such as Strike damage, spell resolution, afflictions, and persistent damage can have their own internal services or pipelines. Do not turn the global command phase enum into every PF2e timing hook.
+
+### Replay Requires More Than Commands
+
+This design makes replay feasible, but not automatic. Full replay also requires stable IDs, deterministic command ordering, recorded rolls, recorded prompt choices, versioned data, and probably periodic snapshots or deltas.
+
+### Action Economy And Rolls Need First-Class Seams
+
+Action points, reactions, MAP, and rolls should be first-pass engine concepts. They can start as thin wrappers around existing `ActionController`, `D20`, and `Dice` behavior, but new rule code should request these through effects, commands, or services. Direct mutation and direct randomness are two of the easiest ways to lose replayability.
+
+### Grid FSM Should Become Input And Preview Only
+
+The existing grid FSM still has value for selecting targets, paths, and areas. Long term it should not execute movement, spend resources, apply damage, or resolve rule triggers. Movement execution belongs in `MovementCommand`, and the same movement-cost providers should serve both preview and committed movement.
+
+### Data-Driven Rule Elements Should Compile Into Runtime Rules
+
+`PreparedCharacter` already converts imported PF2e data into modifiers, roll options, damage dice, and active effects. Long term, supported imported rule elements should compile into action definitions, modifier definitions, active effects, derived effects, or active rule bindings. They should not expand `DefinedAbilities` or `Pf2eRulesEngine` into larger static switchboards.
+
+### Listener Ordering Must Be Deterministic
+
+Multiple rules can react to the same command. Listener priority and stable tie-breaking by rule source are required. Component order, registration order from scene objects, and dictionary iteration order are not acceptable rules ordering mechanisms.
 
 ## Test Expectations
 
 Prefer deterministic EditMode tests for:
 
-- command lifecycle ordering
-- typed command responses
-- typed blocked/cancelled responses with failure reasons
-- command fact recording
-- parent id and root id propagation
-- command trait propagation and trait-based listeners
-- nested command execution
-- cancellation behavior
-- listener priority
-- command-backed `EntityAction` compatibility for each migrated action
-- action economy commands for AP, reactions, and MAP
-- deterministic roll service usage in command handlers
-- active effect add/remove behavior
-- movement cost provider parity between preview and execution
-- Bless modifier stacking through `Pf2eModifierResolver`
-- Reload and Rage command parity with legacy behavior
-- Strike command parity with `StrikeResolutionPipeline` behavior
-- Reactive Strike reaction spending and MAP exemption
-- Tumble Through skill check and movement stop behavior
+- immutable command and response construction;
+- absence of Unity references in rules-layer data;
+- command frame provenance and nesting;
+- active binding dispatch;
+- handler and listener ordering;
+- effect application order;
+- fact emission from effect appliers;
+- blocked and cancelled typed responses;
+- action economy effects;
+- roll service determinism;
+- Strike command parity with current behavior;
+- Bless visible effect add/remove behavior;
+- Reactive Strike prompt, reaction spending, and nested Strike behavior;
+- Tumble Through movement-rule behavior;
+- Cranial Detonation-style chained fact handling in pure rules tests when that feature is eventually implemented.
 
 Use PlayMode tests for:
 
-- HUD action compatibility through existing `EntityAction` wrappers
-- AI action compatibility through command-backed wrappers
-- visible active effect updates after movement
-- reaction prompts during movement
-- grid movement behavior for Tumble Through
+- compatibility wrapper behavior through existing HUD actions;
+- AI compatibility during the migration period;
+- visible active effect updates in the real UI;
+- reaction prompts during movement;
+- grid movement animation after command-applied movement state.
 
 Run Unity tests with the project Unity version and do not pass `-quit`.
