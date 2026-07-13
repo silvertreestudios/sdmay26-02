@@ -419,6 +419,10 @@ public sealed record EffectApplicationResult(
 public sealed class ResolutionContext
 {
     public IRulesSnapshot CurrentSnapshot { get; }
+    public bool Cancelled { get; }
+    public IRollService Rolls { get; }
+    public IModifierService Modifiers { get; }
+    public IEventLog EventLog { get; }
 }
 ```
 
@@ -724,6 +728,7 @@ public sealed record ActiveEffectInstance(
     CreatureId? Owner,
     CreatureId? Target,
     string DisplayName,
+    EffectSlug? Slug = null,
     Duration Duration,
     ImmutableArray<ModifierDefinition> Modifiers,
     ImmutableArray<ActiveRuleBinding> Bindings);
