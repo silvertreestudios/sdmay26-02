@@ -44,16 +44,16 @@ public abstract record CommandResponse(
     CommandId CommandId,
     CommandOutcome Outcome,
     FailureReason? FailureReason,
-    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleEffect> AppliedEffects,
     ImmutableArray<RuleFact> Facts);
 
 public sealed record BasicCommandResponse(
     CommandId CommandId,
     CommandOutcome Outcome,
     FailureReason? FailureReason,
-    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleEffect> AppliedEffects,
     ImmutableArray<RuleFact> Facts)
-    : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
+    : CommandResponse(CommandId, Outcome, FailureReason, AppliedEffects, Facts);
 ```
 
 `IRuleCommand` is intentionally only a marker and typed-response relationship. Registration, validation, and execution belong to rule definitions and handlers, not command data objects.
@@ -67,6 +67,15 @@ Rationale: if commands execute themselves, every command becomes a small service
 Provenance should be attached through command frames and effect/fact metadata rather than through mutable fields on the command payload.
 
 ```csharp
+public enum ReactionTriggerKind
+{
+    ManipulateActionUsed,
+    MoveActionUsed,
+    RangedAttackMade,
+    SquareLeftDuringMoveAction
+}
+
+
 public interface ICommandFrame
 {
     CommandId Id { get; }
@@ -76,9 +85,11 @@ public interface ICommandFrame
     RuleSourceId? SourceRule { get; }
     CreatureId? Actor { get; }
     Type CommandType { get; }
+    ImmutableArray<ReactionTriggerKind> ReactionTriggers { get; }
     ImmutableArray<Trait> Traits { get; }
 
     EffectId NewEffectId();
+    FactId NewFactId();
     EffectInstanceId NewEffectInstanceId();
     RuleBindingId NewBindingId();
 }
@@ -92,15 +103,17 @@ public sealed record CommandFrame<TCommand>(
     CreatureId? Actor,
     Type CommandType,
     TCommand Command,
-    ImmutableArray<Trait> Traits) : ICommandFrame
+    ImmutableArray<Trait> Traits,
+    ImmutableArray<ReactionTriggerKind> ReactionTriggers) : ICommandFrame
 {
     public EffectId NewEffectId() { /* deterministic frame-scoped ID */ }
+    public FactId NewFactId() { /* deterministic frame-scoped ID */ }
     public EffectInstanceId NewEffectInstanceId() { /* deterministic frame-scoped ID */ }
     public RuleBindingId NewBindingId() { /* deterministic frame-scoped ID */ }
 }
 ```
 
-`ICommandFrame` is the common metadata view for any code that needs to inspect a command without reading command-specific payload. Broad listeners should use frame metadata such as actor, traits, command type, source rule, source binding, and provenance. If a rule needs `StrikeCommand`-specific fields, it should register a typed `ICommandStartListener<StrikeCommand, StrikeResponse>` instead of casting through a generic listener.
+`ICommandFrame` is the common metadata view for any code that needs to inspect a command without reading command-specific payload. Broad listeners should use frame metadata such as actor, traits, reaction trigger kinds, command type, source rule, source binding, and provenance. If a rule needs `StrikeCommand`-specific fields, it should register a typed `ICommandStartListener<StrikeCommand, StrikeResponse>` instead of casting through a generic listener.
 
 Rationale: provenance is required for combat logs, once-per-trigger validation, response listeners, nested command ancestry, generic trait/predicate triggers, and replay. Keeping it on the frame also keeps command payloads focused on semantic input.
 
@@ -133,7 +146,7 @@ Rationale: PF2e rules should be portable, deterministic, and testable without a 
 
 ### Handlers Do Not Mutate State Directly
 
-Handlers resolve command intent and emit effect data. The engine applies those effects and records the resulting facts.
+Handlers resolve command intent and yield effect data. The engine applies each yielded effect before control returns to the handler, then gives the handler the resulting facts and outcome.
 
 ```csharp
 public interface ICommandHandler<TCommand, TResponse>
@@ -147,12 +160,20 @@ public interface ICommandHandler<TCommand, TResponse>
 }
 ```
 
-A handler should emit data:
+A handler should yield data and branch on the application result before doing dependent work:
 
 ```csharp
-yield return new SpendActionEffect(actor, ActionCost.One);
-yield return new ApplyDamageEffect(target, damage, source: frame.Id);
-yield return new MoveTokenEffect(token, from, to, source: frame.Id);
+var spend = yield return new SpendActionEffect(actor, ActionCost.One);
+if (!spend.Succeeded)
+    return Response.Invalid<MyResponse>(frame.Id, spend.FailureReason);
+
+var damage = yield return new ApplyDamageEffect(target, amount, source: frame.Id);
+if (!damage.Succeeded)
+    return Response.Invalid<MyResponse>(frame.Id, damage.FailureReason);
+
+var movement = yield return new MoveTokenEffect(token, from, to, source: frame.Id);
+if (!movement.Succeeded)
+    return Response.Invalid<MyResponse>(frame.Id, movement.FailureReason);
 ```
 
 It should not directly mutate runtime state:
@@ -163,7 +184,7 @@ targetCreature.TakeDamage(amount);
 token.transform.position = nextWorldPosition;
 ```
 
-Rationale: central effect application gives us one place to enforce invariants, emit facts, update visible state, update predicate state, write combat logs, and preserve replayable history.
+Rationale: central effect application gives us one place to enforce invariants, emit facts, update visible state, update predicate state, write combat logs, and preserve replayable history. Applying yielded effects immediately also prevents double application while still allowing handlers to branch on facts such as reduced-to-zero, action-spent, movement-blocked, and command-cancelled.
 
 ### Handlers And Listeners
 
@@ -275,6 +296,7 @@ public interface IRulesSnapshot
     public bool HasTrait(CreatureId creature, Trait trait);
     public bool HasCondition(CreatureId creature, ConditionId condition);
     public ImmutableArray<CreatureId> CreaturesInArea(AreaShape area);
+    public bool CanBeDamaged(CreatureId creature);
     public DifficultyClass ResolveFeatureDc(CreatureId owner, RuleSourceId source);
 }
 ```
@@ -359,6 +381,16 @@ public sealed record CreatureReducedToZeroFact(
     CreatureId Creature,
     CreatureId? CausedBy)
     : RuleFact(Id, SourceCommand, SourceRule, SourceBinding);
+
+public sealed record SquareLeftDuringMoveActionFact(
+    FactId Id,
+    CommandId SourceCommand,
+    RuleSourceId? SourceRule,
+    RuleBindingId? SourceBinding,
+    CreatureId Actor,
+    GridPosition From,
+    bool SimulatedByFailure)
+    : RuleFact(Id, SourceCommand, SourceRule, SourceBinding);
 ```
 
 Rationale: response listeners should not scrape logs or inspect mutated components. They should react to typed, provenance-rich facts. Facts should also drive the in-game combat log: the log renderer can listen to committed facts and conditionally render entries such as damage dealt, conditions applied, effects expired, movement disrupted, or a creature reduced to 0 HP.
@@ -377,12 +409,30 @@ public interface IRuleEffectApplier<TEffect>
         EffectApplicationContext context);
 }
 
+public enum EffectApplicationOutcome
+{
+    Succeeded,
+    Failed,
+    Cancelled
+}
+
 public sealed record EffectApplicationResult(
+    EffectApplicationOutcome Outcome,
+    FailureReason? FailureReason,
+    RuleEffect? AppliedEffect,
     ImmutableArray<RuleFact> Facts,
-    ImmutableArray<RuleEffect> FollowUpEffects);
+    ImmutableArray<RuleEffect> FollowUpEffects)
+{
+    public bool Succeeded => Outcome == EffectApplicationOutcome.Succeeded;
+}
+
+public sealed class ResolutionContext
+{
+    public IRulesSnapshot CurrentSnapshot { get; }
+}
 ```
 
-Rationale: applying damage, moving tokens, changing action points, and changing active effects all become auditable state transitions. This also gives Unity adapters a clean place to observe changes and schedule animations after rules state has advanced.
+Rationale: applying damage, moving tokens, changing action points, and changing active effects all become auditable state transitions. Invariant-enforcing effects must fail or cancel explicitly when their preconditions are no longer true, so dependent rule code can stop before rolling, damaging, moving, or spending again. After every successful mutating effect, the runtime refreshes `ResolutionContext.CurrentSnapshot`; continuing rule programs should query that snapshot instead of assuming their original parameter is still current. This also gives Unity adapters a clean place to observe changes and schedule animations after rules state has advanced.
 
 ## Rule Registration And Active Bindings
 
@@ -470,7 +520,6 @@ public enum CommandPhase
 {
     Begin,
     Handler,
-    CommitEffects,
     AfterCommitted,
     Cancelled
 }
@@ -484,28 +533,25 @@ public RuleProgram<TResponse> Execute<TCommand, TResponse>(TCommand command)
     where TResponse : CommandResponse
 {
     var frame = frameFactory.Create(command);
+    var context = resolutionContextFactory.Create(frame);
 
-    yield return DispatchBeginListeners(frame);
+    yield return DispatchBeginListeners(frame, context);
 
     if (context.Cancelled)
         return BuildCancelledResponse<TResponse>(frame, context);
 
     var handler = registry.GetHandler<TCommand, TResponse>();
-    var proposed = yield return handler.HandleCommand(frame, snapshot, context);
+    var response = yield return handler.HandleCommand(frame, context.CurrentSnapshot, context);
 
-    var applied = yield return effectPipeline.Apply(proposed.Effects);
-
-    var response = responseFactory.AttachEffectsAndFacts(proposed.Response, applied);
-
-    yield return DispatchAfterCommittedListeners(frame, response);
+    yield return DispatchAfterCommittedListeners(frame, response, context.CurrentSnapshot);
 
     return response;
 }
 ```
 
-`Begin` listeners are for prevention, replacement, and preemption. `AfterCommitted` listeners are for triggers that depend on what actually happened. The command handler proposes effects. The effect pipeline applies them and emits facts.
+`Begin` listeners are for prevention, replacement, and preemption. `AfterCommitted` listeners are for triggers that depend on what actually happened. The rule-program runner applies each yielded effect once, immediately, and returns `EffectApplicationResult` to the yielding handler or listener.
 
-`AfterCommandCommitted` is intentionally more specific than `AfterCommand`. It means the handler has completed, its effects have been applied to rules state, and the response includes the resulting facts. If a future rule needs to inspect proposed effects before they commit, that should be a distinct pre-commit hook such as `BeforeEffectsCommitted`, not an ambiguous `AfterCommand` phase.
+`AfterCommandCommitted` is intentionally more specific than `AfterCommand`. It means the handler has completed, all yielded effects that succeeded have been applied to rules state, and the response includes the resulting facts. If a future rule needs to inspect an effect before it commits, that should be a distinct hook such as `BeforeEffectApplied`, not an ambiguous `AfterCommand` phase.
 
 Rationale: a small global lifecycle prevents the command system from becoming an enormous PF2e phase enum. Strike damage dice, resistance, weakness, degree of success, persistent damage, and spell internals should live in domain services or pipelines, not global command phases.
 
@@ -538,6 +584,30 @@ public interface ICommandFrameTraitProvider<TCommand>
 
 This provider exists because some traits are not intrinsic to the command payload alone. For example, `CastSpellCommand` traits depend on the selected spell, rank, action count, and spellshape state. A `StrikeCommand` might derive traits from the selected weapon or unarmed profile. Keeping that derivation outside command objects preserves the data-only command constraint.
 
+Traits are not enough to model every reaction trigger. Some PF2e actions have the `move` trait but explicitly suppress movement reactions. For example, Step has the `move` trait but should not emit Reactive Strike movement triggers. Action definitions and movement commands should therefore expose reaction trigger metadata separately from traits.
+
+```csharp
+public enum MovementReactionProfile
+{
+    TriggersMoveReactions,
+    SuppressesMoveReactions
+}
+
+public enum MovementCostPolicy
+{
+    ConsumesAction,
+    FreeWithinActivity
+}
+
+public interface ICommandFrameReactionTriggerProvider<TCommand>
+{
+    ImmutableArray<ReactionTriggerKind> GetReactionTriggers(
+        TCommand command,
+        IRulesSnapshot snapshot);
+}
+```
+
+Stride and Tumble Through movement normally use `MovementReactionProfile.TriggersMoveReactions`. Step uses `MovementReactionProfile.SuppressesMoveReactions`; it can still carry `Trait.Move`, but its command frame must not include `ReactionTriggerKind.MoveActionUsed` or `ReactionTriggerKind.SquareLeftDuringMoveAction`.
 Predicate listeners are the escape hatch for rules that care about traits or broad command shape instead of a single concrete command type.
 
 ```csharp
@@ -879,13 +949,13 @@ public sealed record StrikeResponse(
     CommandId CommandId,
     CommandOutcome Outcome,
     FailureReason? FailureReason,
-    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleEffect> AppliedEffects,
     ImmutableArray<RuleFact> Facts,
     D20Roll AttackRoll,
     DegreeOfSuccess Degree,
     DamageValue DamageApplied,
     bool TargetReducedToZero)
-    : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
+    : CommandResponse(CommandId, Outcome, FailureReason, AppliedEffects, Facts);
 ```
 
 Handler sketch:
@@ -912,29 +982,43 @@ public sealed class StrikeRule :
         var facts = ImmutableArray.CreateBuilder<RuleFact>();
         var effects = ImmutableArray.CreateBuilder<RuleEffect>();
 
-        var resolution = StrikeService.Resolve(command, snapshot, context.Rolls, context.Modifiers);
-
         if (command.CostsAction)
         {
             var spend = new SpendActionEffect(frame.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Actor, ActionCost.One);
+            var spendResult = yield return spend;
+            if (!spendResult.Succeeded)
+                return Response.Invalid<StrikeResponse>(frame.Id, spendResult.FailureReason);
+
             effects.Add(spend);
-            facts.AddRange((yield return spend).Facts);
+            facts.AddRange(spendResult.Facts);
+            snapshot = context.CurrentSnapshot;
         }
+
+        var resolution = StrikeService.Resolve(command, snapshot, context.Rolls, context.Modifiers);
 
         if (resolution.Hit)
         {
             var damage = new ApplyDamageEffect(frame.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Target, resolution.Damage);
-            effects.Add(damage);
+            var damageResult = yield return damage;
+            if (!damageResult.Succeeded)
+                return Response.Invalid<StrikeResponse>(frame.Id, damageResult.FailureReason);
 
             // ApplyDamageEffect is where HP changes and reduced-to-zero facts are produced.
-            facts.AddRange((yield return damage).Facts);
+            effects.Add(damage);
+            facts.AddRange(damageResult.Facts);
+            snapshot = context.CurrentSnapshot;
         }
 
         if (command.IncrementsMultipleAttackPenalty)
         {
             var map = new IncrementMultipleAttackPenaltyEffect(frame.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Actor, resolution.MapIncrement);
+            var mapResult = yield return map;
+            if (!mapResult.Succeeded)
+                return Response.Invalid<StrikeResponse>(frame.Id, mapResult.FailureReason);
+
             effects.Add(map);
-            facts.AddRange((yield return map).Facts);
+            facts.AddRange(mapResult.Facts);
+            snapshot = context.CurrentSnapshot;
         }
 
         return new StrikeResponse(
@@ -957,7 +1041,7 @@ The existing `StrikeResolutionPipeline` remains useful. In the first migration, 
 
 Reactive Strike is a rule definition with listeners and its own command. The listeners detect valid triggers; the command handles the optional reaction, nested Strike, and possible disruption.
 
-Reactive Strike's trigger covers four cases: a creature within reach uses a `manipulate` action, uses a `move` action, makes a ranged attack, or leaves a square during a move action. The first three can be detected from command traits or Strike profile data. The last one requires per-step movement commands. The broad move-trait listener excludes `MovementStepCommand` so a movement step does not produce duplicate prompts; movement steps are handled by the typed listener that can inspect the square being left.
+Reactive Strike's trigger covers four cases: a creature within reach uses a `manipulate` action, uses a reaction-triggering `move` action, makes a ranged attack, or leaves a square during a reaction-triggering move action. Traits help classify commands, but trigger metadata decides whether the command actually provokes. Step still has `Trait.Move`, but its reaction profile suppresses `MoveActionUsed` and `SquareLeftDuringMoveAction` trigger metadata. Per-step movement commands are still needed for the square-left trigger.
 
 ```csharp
 public sealed record ReactiveStrikeCommand(
@@ -966,6 +1050,7 @@ public sealed record ReactiveStrikeCommand(
     CreatureId Target,
     CommandId TriggeringCommand,
     ImmutableArray<Trait> TriggerTraits,
+    ImmutableArray<ReactionTriggerKind> TriggerReactionKinds,
     StrikeProfileId StrikeProfile)
     : IRuleCommand<ReactiveStrikeResponse>;
 
@@ -973,10 +1058,10 @@ public sealed record ReactiveStrikeResponse(
     CommandId CommandId,
     CommandOutcome Outcome,
     FailureReason? FailureReason,
-    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleEffect> AppliedEffects,
     ImmutableArray<RuleFact> Facts,
     StrikeResponse? Strike)
-    : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
+    : CommandResponse(CommandId, Outcome, FailureReason, AppliedEffects, Facts);
 ```
 
 ```csharp
@@ -1001,9 +1086,8 @@ public sealed class ReactiveStrikeRule :
 
     public bool AppliesTo(ICommandFrame frame)
     {
-        return frame.Traits.Contains(Trait.Manipulate)
-            || (frame.Traits.Contains(Trait.Move)
-                && frame.CommandType != typeof(MovementStepCommand));
+        return frame.ReactionTriggers.Contains(ReactionTriggerKind.ManipulateActionUsed)
+            || frame.ReactionTriggers.Contains(ReactionTriggerKind.MoveActionUsed);
     }
 
     public IEnumerable<RuleEffect> OnCommandStarting(
@@ -1036,6 +1120,9 @@ public sealed class ReactiveStrikeRule :
         CommandFrame<MovementStepCommand> trigger,
         IRulesSnapshot snapshot)
     {
+        if (!trigger.ReactionTriggers.Contains(ReactionTriggerKind.SquareLeftDuringMoveAction))
+            yield break;
+
         if (!snapshot.HasReactionAvailable(binding.Owner))
             yield break;
 
@@ -1060,6 +1147,7 @@ public sealed class ReactiveStrikeRule :
             Target: trigger.Actor!.Value,
             TriggeringCommand: trigger.Id,
             TriggerTraits: trigger.Traits,
+            TriggerReactionKinds: trigger.ReactionTriggers,
             StrikeProfile: ChooseMeleeProfile(binding.Owner));
 
         return new PromptChoiceEffect(
@@ -1091,8 +1179,13 @@ public sealed class ReactiveStrikeRule :
             return Response.Invalid<ReactiveStrikeResponse>(frame.Id, FailureReasons.NoReactionAvailable);
 
         var spend = new SpendReactionEffect(frame.NewEffectId(), frame.Id, SourceId, binding.Id, command.Actor);
+        var spendResult = yield return spend;
+        if (!spendResult.Succeeded)
+            return Response.Invalid<ReactiveStrikeResponse>(frame.Id, spendResult.FailureReason);
+
         effects.Add(spend);
-        facts.AddRange((yield return spend).Facts);
+        facts.AddRange(spendResult.Facts);
+        snapshot = context.CurrentSnapshot;
 
         var strikeCommand = new StrikeCommand(
             Actor: command.Actor,
@@ -1109,10 +1202,19 @@ public sealed class ReactiveStrikeRule :
             binding.Id,
             strikeCommand);
 
-        effects.AddRange(strike.ProducedEffects);
+        effects.AddRange(strike.AppliedEffects);
         facts.AddRange(strike.Facts);
 
-        if (command.TriggerTraits.Contains(Trait.Manipulate) && strike.Degree == DegreeOfSuccess.CriticalSuccess)
+        if (strike.Outcome != CommandOutcome.Succeeded)
+            return new ReactiveStrikeResponse(
+                frame.Id,
+                strike.Outcome,
+                strike.FailureReason,
+                effects.ToImmutable(),
+                facts.ToImmutable(),
+                strike);
+
+        if (command.TriggerReactionKinds.Contains(ReactionTriggerKind.ManipulateActionUsed) && strike.Degree == DegreeOfSuccess.CriticalSuccess)
         {
             var disrupt = new CancelCommandEffect(
                 frame.NewEffectId(),
@@ -1122,8 +1224,12 @@ public sealed class ReactiveStrikeRule :
                 TargetCommand: command.TriggeringCommand,
                 Reason: FailureReasons.Disrupted);
 
+            var disruptResult = yield return disrupt;
+            if (!disruptResult.Succeeded)
+                return Response.Invalid<ReactiveStrikeResponse>(frame.Id, disruptResult.FailureReason);
+
             effects.Add(disrupt);
-            facts.AddRange((yield return disrupt).Facts);
+            facts.AddRange(disruptResult.Facts);
         }
 
         return new ReactiveStrikeResponse(
@@ -1137,7 +1243,7 @@ public sealed class ReactiveStrikeRule :
 }
 ```
 
-Rationale: movement, manipulate actions, and ranged Strikes do not know Reactive Strike exists. They expose generic command data and traits. Reactive Strike owns its own trigger detection and reaction resolution, and the command frame preserves the triggering command needed for disruption.
+Rationale: movement, manipulate actions, and ranged Strikes do not know Reactive Strike exists. They expose generic command data, traits, and reaction trigger metadata. Reactive Strike owns its own trigger detection and reaction resolution, and the command frame preserves the triggering command needed for disruption. This avoids treating every `move` trait as reaction-triggering movement.
 
 ## Bless Example
 
@@ -1288,12 +1394,12 @@ public sealed record TumbleThroughResponse(
     CommandId CommandId,
     CommandOutcome Outcome,
     FailureReason? FailureReason,
-    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleEffect> AppliedEffects,
     ImmutableArray<RuleFact> Facts,
     SkillCheckResponse? AcrobaticsCheck,
     bool PassedThroughTargetSpace,
     MovementResponse Movement)
-    : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
+    : CommandResponse(CommandId, Outcome, FailureReason, AppliedEffects, Facts);
 ```
 
 Handler sketch:
@@ -1326,6 +1432,15 @@ public sealed class TumbleThroughRule :
         SkillCheckResponse? acrobatics = null;
         bool passedThrough = false;
 
+        var spend = new SpendActionEffect(frame.NewEffectId(), frame.Id, SourceId, frame.SourceBinding, command.Actor, ActionCost.One);
+        var spendResult = yield return spend;
+        if (!spendResult.Succeeded)
+            return Response.Invalid<TumbleThroughResponse>(frame.Id, spendResult.FailureReason);
+
+        effects.Add(spend);
+        facts.AddRange(spendResult.Facts);
+        snapshot = context.CurrentSnapshot;
+
         if (split.BeforeTarget.Length > 0)
         {
             movement = yield return new RunNestedCommandEffect<MovementCommand, MovementResponse>(
@@ -1337,10 +1452,13 @@ public sealed class TumbleThroughRule :
                     Actor: command.Actor,
                     Path: split.BeforeTarget,
                     Traits: ImmutableArray.Create(Trait.Move),
-                    Permissions: ImmutableArray<MovementPermission>.Empty));
+                    Permissions: ImmutableArray<MovementPermission>.Empty,
+                    CostPolicy: MovementCostPolicy.FreeWithinActivity,
+                    ReactionProfile: MovementReactionProfile.TriggersMoveReactions));
 
-            effects.AddRange(movement.ProducedEffects);
+            effects.AddRange(movement.AppliedEffects);
             facts.AddRange(movement.Facts);
+            snapshot = context.CurrentSnapshot;
 
             if (movement.Outcome != CommandOutcome.Succeeded)
             {
@@ -1368,11 +1486,22 @@ public sealed class TumbleThroughRule :
                     Skill: SkillIds.Acrobatics,
                     Dc: snapshot.GetReflexDc(command.TargetEnemy)));
 
-            effects.AddRange(acrobatics.ProducedEffects);
+            effects.AddRange(acrobatics.AppliedEffects);
             facts.AddRange(acrobatics.Facts);
+            snapshot = context.CurrentSnapshot;
 
             if (acrobatics.Degree < DegreeOfSuccess.Success)
             {
+                var failedEntryTrigger = new SquareLeftDuringMoveActionFact(
+                    frame.NewFactId(),
+                    frame.Id,
+                    SourceId,
+                    frame.SourceBinding,
+                    command.Actor,
+                    snapshot.GetCreaturePosition(command.Actor),
+                    SimulatedByFailure: true);
+                facts.Add(failedEntryTrigger);
+
                 return new TumbleThroughResponse(
                     frame.Id,
                     CommandOutcome.Succeeded,
@@ -1403,11 +1532,17 @@ public sealed class TumbleThroughRule :
                     Path: pathAfterCheck,
                     Traits: ImmutableArray.Create(Trait.Move),
                     Permissions: passedThrough
-                        ? ImmutableArray.Create(MovementPermission.EnterOccupiedSpace(command.TargetEnemy, SourceId))
-                        : ImmutableArray<MovementPermission>.Empty));
+                        ? ImmutableArray.Create(MovementPermission.EnterOccupiedSpace(
+                            command.TargetEnemy,
+                            SourceId,
+                            TreatAsDifficultTerrain: true))
+                        : ImmutableArray<MovementPermission>.Empty,
+                    CostPolicy: MovementCostPolicy.FreeWithinActivity,
+                    ReactionProfile: MovementReactionProfile.TriggersMoveReactions));
 
-            effects.AddRange(movement.ProducedEffects);
+            effects.AddRange(movement.AppliedEffects);
             facts.AddRange(movement.Facts);
+            snapshot = context.CurrentSnapshot;
         }
 
         return new TumbleThroughResponse(
@@ -1423,7 +1558,7 @@ public sealed class TumbleThroughRule :
 }
 ```
 
-Rationale: Reactive Strike still only sees normal movement step commands. Tumble Through coordinates a skill check and grants action-scoped movement permission through generic movement commands. If movement-specific rule hooks become more complex later, this can be refactored into reusable movement rule objects, but the first implementation should keep the data flow explicit.
+Rationale: Tumble Through spends one action at the activity level. The split movement commands are explicitly free movement inside that action, while still using `MovementReactionProfile.TriggersMoveReactions` so normal movement-step reaction hooks can observe them. The Acrobatics success grants only action-scoped permission to enter the enemy's space and treats that space as difficult terrain. On failure, the rule emits the PF2e synthetic movement trigger from the square where the failed entry was attempted. If movement-specific rule hooks become more complex later, this can be refactored into reusable movement rule objects, but the first implementation should keep the data flow explicit.
 
 ## Cranial Detonation Example: Illustrative Future Complex Feature
 
@@ -1446,11 +1581,11 @@ public sealed record CranialDetonationResponse(
     CommandId CommandId,
     CommandOutcome Outcome,
     FailureReason? FailureReason,
-    ImmutableArray<RuleEffect> ProducedEffects,
+    ImmutableArray<RuleEffect> AppliedEffects,
     ImmutableArray<RuleFact> Facts,
     ImmutableArray<CreatureId> ExplosionOrigins,
     ImmutableArray<CreatureId> ResolvedTargets)
-    : CommandResponse(CommandId, Outcome, FailureReason, ProducedEffects, Facts);
+    : CommandResponse(CommandId, Outcome, FailureReason, AppliedEffects, Facts);
 ```
 
 Rule definition:
@@ -1539,8 +1674,14 @@ public sealed class CranialDetonationRule :
             command.Actor,
             SourceId,
             FrequencyWindow.OncePerRound);
+
+        var spendResult = yield return spend;
+        if (!spendResult.Succeeded)
+            return Response.Invalid<CranialDetonationResponse>(frame.Id, spendResult.FailureReason);
+
         effects.Add(spend);
-        facts.AddRange((yield return spend).Facts);
+        facts.AddRange(spendResult.Facts);
+        snapshot = context.CurrentSnapshot;
 
         var detonated = ImmutableHashSet<CreatureId>.Empty;
         var resolvedTargets = ImmutableHashSet<CreatureId>.Empty;
@@ -1559,10 +1700,17 @@ public sealed class CranialDetonationRule :
                     binding.Id,
                     origin,
                     ConditionIds.Dead);
+
+                var deadResult = yield return dead;
+                if (!deadResult.Succeeded)
+                    return Response.Invalid<CranialDetonationResponse>(frame.Id, deadResult.FailureReason);
+
                 effects.Add(dead);
-                facts.AddRange((yield return dead).Facts);
+                facts.AddRange(deadResult.Facts);
+                snapshot = context.CurrentSnapshot;
             }
 
+            snapshot = context.CurrentSnapshot;
             var area = AreaShape.Union(frontier.Select(origin => AreaShape.EmanationFromCreature(origin, Feet.Of(15))));
             var targets = snapshot.CreaturesInArea(area)
                 .Where(target => !resolvedTargets.Contains(target))
@@ -1591,8 +1739,22 @@ public sealed class CranialDetonationRule :
                 binding.Id,
                 areaDamage);
 
-            effects.AddRange(areaResponse.ProducedEffects);
+            effects.AddRange(areaResponse.AppliedEffects);
             facts.AddRange(areaResponse.Facts);
+            snapshot = context.CurrentSnapshot;
+
+            if (areaResponse.Outcome != CommandOutcome.Succeeded)
+            {
+                return new CranialDetonationResponse(
+                    frame.Id,
+                    areaResponse.Outcome,
+                    areaResponse.FailureReason,
+                    effects.ToImmutable(),
+                    facts.ToImmutable(),
+                    detonated.ToImmutableArray(),
+                    resolvedTargets.ToImmutableArray());
+            }
+
             resolvedTargets = resolvedTargets.Union(targets);
 
             frontier = areaResponse.Facts
@@ -1645,13 +1807,17 @@ foreach (var target in command.Targets)
 
     var adjustedDamage = BasicSaveDamage.Apply(damageRoll, save.Degree);
 
-    yield return new ApplyDamageEffect(
+    var damage = new ApplyDamageEffect(
         frame.NewEffectId(),
         frame.Id,
         command.SourceRule,
         frame.SourceBinding,
         target,
         adjustedDamage);
+
+    var damageResult = yield return damage;
+    if (!damageResult.Succeeded)
+        return Response.Invalid<AreaDamageResponse>(frame.Id, damageResult.FailureReason);
 }
 ```
 
@@ -1664,6 +1830,7 @@ Important design lessons from this example:
 - The feat-specific handler owns only the detonation queue and once-per-use target bookkeeping.
 - Final death state should likely be represented as applying the `Dead` condition rather than inventing a separate `LifeState` enum. However, effects such as Breath of Life trigger when a creature would die, so the damage/death pipeline still needs a pre-commit `CreatureWouldDieFact` or `BeforeConditionApplied(Dead)` hook before the `Dead` condition is committed.
 - The implementation should mark a creature resolved once it was included in a detonation wave, even if it critically succeeded and took no damage, to preserve the likely intent that one use cannot affect the same creature repeatedly.
+- Continuing rule programs must query `context.CurrentSnapshot` after each successful mutation. Cranial Detonation cannot safely calculate later waves from the original trigger snapshot because earlier waves can add Dead conditions, consume frequency, and change targetability.
 
 ## Incremental Migration Plan
 
