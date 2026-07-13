@@ -67,15 +67,6 @@ Rationale: if commands execute themselves, every command becomes a small service
 Provenance should be attached through command frames and effect/fact metadata rather than through mutable fields on the command payload.
 
 ```csharp
-public enum ReactionTriggerKind
-{
-    ManipulateActionUsed,
-    MoveActionUsed,
-    RangedAttackMade,
-    SquareLeftDuringMoveAction
-}
-
-
 public interface ICommandFrame
 {
     CommandId Id { get; }
@@ -85,11 +76,9 @@ public interface ICommandFrame
     RuleSourceId? SourceRule { get; }
     CreatureId? Actor { get; }
     Type CommandType { get; }
-    ImmutableArray<ReactionTriggerKind> ReactionTriggers { get; }
     ImmutableArray<Trait> Traits { get; }
 
     EffectId NewEffectId();
-    FactId NewFactId();
     EffectInstanceId NewEffectInstanceId();
     RuleBindingId NewBindingId();
 }
@@ -103,17 +92,15 @@ public sealed record CommandFrame<TCommand>(
     CreatureId? Actor,
     Type CommandType,
     TCommand Command,
-    ImmutableArray<Trait> Traits,
-    ImmutableArray<ReactionTriggerKind> ReactionTriggers) : ICommandFrame
+    ImmutableArray<Trait> Traits) : ICommandFrame
 {
     public EffectId NewEffectId() { /* deterministic frame-scoped ID */ }
-    public FactId NewFactId() { /* deterministic frame-scoped ID */ }
     public EffectInstanceId NewEffectInstanceId() { /* deterministic frame-scoped ID */ }
     public RuleBindingId NewBindingId() { /* deterministic frame-scoped ID */ }
 }
 ```
 
-`ICommandFrame` is the common metadata view for any code that needs to inspect a command without reading command-specific payload. Broad listeners should use frame metadata such as actor, traits, reaction trigger kinds, command type, source rule, source binding, and provenance. If a rule needs `StrikeCommand`-specific fields, it should register a typed `ICommandStartListener<StrikeCommand, StrikeResponse>` instead of casting through a generic listener.
+`ICommandFrame` is the common metadata view for any code that needs to inspect a command without reading command-specific payload. Broad listeners should use frame metadata such as actor, traits, command type, source rule, source binding, and provenance. If a rule needs `StrikeCommand`-specific fields, it should register a typed `ICommandStartListener<StrikeCommand, StrikeResponse>` instead of casting through a generic listener.
 
 Rationale: provenance is required for combat logs, once-per-trigger validation, response listeners, nested command ancestry, generic trait/predicate triggers, and replay. Keeping it on the frame also keeps command payloads focused on semantic input.
 
@@ -175,6 +162,18 @@ var movement = yield return new MoveTokenEffect(token, from, to, source: frame.I
 if (!movement.Succeeded)
     return Response.Invalid<MyResponse>(frame.Id, movement.FailureReason);
 ```
+
+The production API should provide syntactic sugar for effects whose failure simply invalidates the current command. For example:
+
+```csharp
+var spend = yield return context.Require<MyResponse>(
+    new SpendActionEffect(actor, ActionCost.One));
+
+var damage = yield return context.Require<MyResponse>(
+    new ApplyDamageEffect(target, amount, source: frame.Id));
+```
+
+`Require<TResponse>` means: apply this effect, and if the applier returns a failure or cancellation, stop the rule program with `Response.Invalid<TResponse>(frame.Id, failure)`. Handlers should keep the explicit result-check form when they need custom recovery, partial responses, or different failure behavior.
 
 It should not directly mutate runtime state:
 
@@ -382,15 +381,6 @@ public sealed record CreatureReducedToZeroFact(
     CreatureId? CausedBy)
     : RuleFact(Id, SourceCommand, SourceRule, SourceBinding);
 
-public sealed record SquareLeftDuringMoveActionFact(
-    FactId Id,
-    CommandId SourceCommand,
-    RuleSourceId? SourceRule,
-    RuleBindingId? SourceBinding,
-    CreatureId Actor,
-    GridPosition From,
-    bool SimulatedByFailure)
-    : RuleFact(Id, SourceCommand, SourceRule, SourceBinding);
 ```
 
 Rationale: response listeners should not scrape logs or inspect mutated components. They should react to typed, provenance-rich facts. Facts should also drive the in-game combat log: the log renderer can listen to committed facts and conditionally render entries such as damage dealt, conditions applied, effects expired, movement disrupted, or a creature reduced to 0 HP.
@@ -584,30 +574,7 @@ public interface ICommandFrameTraitProvider<TCommand>
 
 This provider exists because some traits are not intrinsic to the command payload alone. For example, `CastSpellCommand` traits depend on the selected spell, rank, action count, and spellshape state. A `StrikeCommand` might derive traits from the selected weapon or unarmed profile. Keeping that derivation outside command objects preserves the data-only command constraint.
 
-Traits are not enough to model every reaction trigger. Some PF2e actions have the `move` trait but explicitly suppress movement reactions. For example, Step has the `move` trait but should not emit Reactive Strike movement triggers. Action definitions and movement commands should therefore expose reaction trigger metadata separately from traits.
 
-```csharp
-public enum MovementReactionProfile
-{
-    TriggersMoveReactions,
-    SuppressesMoveReactions
-}
-
-public enum MovementCostPolicy
-{
-    ConsumesAction,
-    FreeWithinActivity
-}
-
-public interface ICommandFrameReactionTriggerProvider<TCommand>
-{
-    ImmutableArray<ReactionTriggerKind> GetReactionTriggers(
-        TCommand command,
-        IRulesSnapshot snapshot);
-}
-```
-
-Stride and Tumble Through movement normally use `MovementReactionProfile.TriggersMoveReactions`. Step uses `MovementReactionProfile.SuppressesMoveReactions`; it can still carry `Trait.Move`, but its command frame must not include `ReactionTriggerKind.MoveActionUsed` or `ReactionTriggerKind.SquareLeftDuringMoveAction`.
 Predicate listeners are the escape hatch for rules that care about traits or broad command shape instead of a single concrete command type.
 
 ```csharp
@@ -621,7 +588,7 @@ public interface ICommandPredicateListener
 }
 ```
 
-Predicate listeners receive `ICommandFrame`. That keeps broad listeners focused on generic trigger metadata. If a listener needs command-specific fields, it should use a typed listener registration for that command type.
+Predicate listeners receive `ICommandFrame`. That keeps broad listeners focused on generic frame metadata and traits. If a listener needs command-specific fields, it should use a typed listener registration for that command type.
 
 Rationale: without trait-based listeners, features would need to register against many unrelated concrete command types. Traits give rules a generic trigger surface without giving up typed command data.
 
@@ -1041,7 +1008,7 @@ The existing `StrikeResolutionPipeline` remains useful. In the first migration, 
 
 Reactive Strike is a rule definition with listeners and its own command. The listeners detect valid triggers; the command handles the optional reaction, nested Strike, and possible disruption.
 
-Reactive Strike's trigger covers four cases: a creature within reach uses a `manipulate` action, uses a reaction-triggering `move` action, makes a ranged attack, or leaves a square during a reaction-triggering move action. Traits help classify commands, but trigger metadata decides whether the command actually provokes. Step still has `Trait.Move`, but its reaction profile suppresses `MoveActionUsed` and `SquareLeftDuringMoveAction` trigger metadata. Per-step movement commands are still needed for the square-left trigger.
+Reactive Strike's trigger covers four cases: a creature within reach uses a `manipulate` action, uses a `move` action, makes a ranged attack, or leaves a square during a move action it is using. The example below keeps the trigger surface trait/listener-based and illustrative. Exact movement edge cases, including actions that carry the `move` trait but should not trigger reactions, should be resolved during the concrete Reactive Strike implementation rather than encoded into the generic command-frame contract here.
 
 ```csharp
 public sealed record ReactiveStrikeCommand(
@@ -1050,7 +1017,6 @@ public sealed record ReactiveStrikeCommand(
     CreatureId Target,
     CommandId TriggeringCommand,
     ImmutableArray<Trait> TriggerTraits,
-    ImmutableArray<ReactionTriggerKind> TriggerReactionKinds,
     StrikeProfileId StrikeProfile)
     : IRuleCommand<ReactiveStrikeResponse>;
 
@@ -1086,8 +1052,9 @@ public sealed class ReactiveStrikeRule :
 
     public bool AppliesTo(ICommandFrame frame)
     {
-        return frame.ReactionTriggers.Contains(ReactionTriggerKind.ManipulateActionUsed)
-            || frame.ReactionTriggers.Contains(ReactionTriggerKind.MoveActionUsed);
+        return frame.Traits.Contains(Trait.Manipulate)
+            || (frame.Traits.Contains(Trait.Move)
+                && frame.CommandType != typeof(MovementStepCommand));
     }
 
     public IEnumerable<RuleEffect> OnCommandStarting(
@@ -1120,9 +1087,6 @@ public sealed class ReactiveStrikeRule :
         CommandFrame<MovementStepCommand> trigger,
         IRulesSnapshot snapshot)
     {
-        if (!trigger.ReactionTriggers.Contains(ReactionTriggerKind.SquareLeftDuringMoveAction))
-            yield break;
-
         if (!snapshot.HasReactionAvailable(binding.Owner))
             yield break;
 
@@ -1147,7 +1111,6 @@ public sealed class ReactiveStrikeRule :
             Target: trigger.Actor!.Value,
             TriggeringCommand: trigger.Id,
             TriggerTraits: trigger.Traits,
-            TriggerReactionKinds: trigger.ReactionTriggers,
             StrikeProfile: ChooseMeleeProfile(binding.Owner));
 
         return new PromptChoiceEffect(
@@ -1214,7 +1177,7 @@ public sealed class ReactiveStrikeRule :
                 facts.ToImmutable(),
                 strike);
 
-        if (command.TriggerReactionKinds.Contains(ReactionTriggerKind.ManipulateActionUsed) && strike.Degree == DegreeOfSuccess.CriticalSuccess)
+        if (command.TriggerTraits.Contains(Trait.Manipulate) && strike.Degree == DegreeOfSuccess.CriticalSuccess)
         {
             var disrupt = new CancelCommandEffect(
                 frame.NewEffectId(),
@@ -1243,7 +1206,7 @@ public sealed class ReactiveStrikeRule :
 }
 ```
 
-Rationale: movement, manipulate actions, and ranged Strikes do not know Reactive Strike exists. They expose generic command data, traits, and reaction trigger metadata. Reactive Strike owns its own trigger detection and reaction resolution, and the command frame preserves the triggering command needed for disruption. This avoids treating every `move` trait as reaction-triggering movement.
+Rationale: movement, manipulate actions, and ranged Strikes do not know Reactive Strike exists. They expose generic command data and traits. Reactive Strike owns its own trigger detection and reaction resolution, and the command frame preserves the triggering command needed for disruption. The exact edge cases around move actions that suppress reactions are deferred to the real Reactive Strike implementation.
 
 ## Bless Example
 
@@ -1453,8 +1416,7 @@ public sealed class TumbleThroughRule :
                     Path: split.BeforeTarget,
                     Traits: ImmutableArray.Create(Trait.Move),
                     Permissions: ImmutableArray<MovementPermission>.Empty,
-                    CostPolicy: MovementCostPolicy.FreeWithinActivity,
-                    ReactionProfile: MovementReactionProfile.TriggersMoveReactions));
+                    CostsAction: false));
 
             effects.AddRange(movement.AppliedEffects);
             facts.AddRange(movement.Facts);
@@ -1492,16 +1454,6 @@ public sealed class TumbleThroughRule :
 
             if (acrobatics.Degree < DegreeOfSuccess.Success)
             {
-                var failedEntryTrigger = new SquareLeftDuringMoveActionFact(
-                    frame.NewFactId(),
-                    frame.Id,
-                    SourceId,
-                    frame.SourceBinding,
-                    command.Actor,
-                    snapshot.GetCreaturePosition(command.Actor),
-                    SimulatedByFailure: true);
-                facts.Add(failedEntryTrigger);
-
                 return new TumbleThroughResponse(
                     frame.Id,
                     CommandOutcome.Succeeded,
@@ -1537,8 +1489,7 @@ public sealed class TumbleThroughRule :
                             SourceId,
                             TreatAsDifficultTerrain: true))
                         : ImmutableArray<MovementPermission>.Empty,
-                    CostPolicy: MovementCostPolicy.FreeWithinActivity,
-                    ReactionProfile: MovementReactionProfile.TriggersMoveReactions));
+                    CostsAction: false));
 
             effects.AddRange(movement.AppliedEffects);
             facts.AddRange(movement.Facts);
@@ -1558,7 +1509,7 @@ public sealed class TumbleThroughRule :
 }
 ```
 
-Rationale: Tumble Through spends one action at the activity level. The split movement commands are explicitly free movement inside that action, while still using `MovementReactionProfile.TriggersMoveReactions` so normal movement-step reaction hooks can observe them. The Acrobatics success grants only action-scoped permission to enter the enemy's space and treats that space as difficult terrain. On failure, the rule emits the PF2e synthetic movement trigger from the square where the failed entry was attempted. If movement-specific rule hooks become more complex later, this can be refactored into reusable movement rule objects, but the first implementation should keep the data flow explicit.
+Rationale: Tumble Through spends one action at the activity level. The split movement commands are explicitly action-free inside that activity, so splitting the path around the Acrobatics check does not spend multiple actions. The Acrobatics success grants only action-scoped permission to enter the enemy's space and treats that space as difficult terrain. If movement-specific rule hooks become more complex later, this can be refactored into reusable movement rule objects, but the first implementation should keep the data flow explicit.
 
 ## Cranial Detonation Example: Illustrative Future Complex Feature
 
