@@ -1,0 +1,670 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 685a7619c40b466468b21a591a41a4b2, type: 3}
+  m_Name: KayKitAnimationLibrary
+  m_EditorClassIdentifier: MainGameAssembly::Game.KayKit.KayKitAnimationLibrary
+  entries:
+  - id: animation/combatmelee/melee_1h_attack_chop
+    sourceCategory: CombatMelee
+    clip: {fileID: 4043807988371827432, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.0666667
+  - id: animation/combatmelee/melee_1h_attack_jump_chop
+    sourceCategory: CombatMelee
+    clip: {fileID: 4995259511414573042, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.3333334
+  - id: animation/combatmelee/melee_1h_attack_slice_diagonal
+    sourceCategory: CombatMelee
+    clip: {fileID: 5034251128425565466, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1
+  - id: animation/combatmelee/melee_1h_attack_slice_horizontal
+    sourceCategory: CombatMelee
+    clip: {fileID: -8653722278162725603, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.3666668
+  - id: animation/combatmelee/melee_1h_attack_stab
+    sourceCategory: CombatMelee
+    clip: {fileID: -929289162156707164, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.6000001
+  - id: animation/combatmelee/melee_2h_attack_chop
+    sourceCategory: CombatMelee
+    clip: {fileID: -3183232228448455838, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.6333334
+  - id: animation/combatmelee/melee_2h_attack_slice
+    sourceCategory: CombatMelee
+    clip: {fileID: 6561345739285688216, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.1
+  - id: animation/combatmelee/melee_2h_attack_spin
+    sourceCategory: CombatMelee
+    clip: {fileID: -302032850544529770, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 2.4
+  - id: animation/combatmelee/melee_2h_attack_spinning
+    sourceCategory: CombatMelee
+    clip: {fileID: 4710205103915999847, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 0.6666667
+  - id: animation/combatmelee/melee_2h_attack_stab
+    sourceCategory: CombatMelee
+    clip: {fileID: 5005478036900451222, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.6000001
+  - id: animation/combatmelee/melee_2h_idle
+    sourceCategory: CombatMelee
+    clip: {fileID: -1623133897597549358, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/combatmelee/melee_block
+    sourceCategory: CombatMelee
+    clip: {fileID: 5428728673001133709, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.0666667
+  - id: animation/combatmelee/melee_block_attack
+    sourceCategory: CombatMelee
+    clip: {fileID: -2762736084733417904, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.0666667
+  - id: animation/combatmelee/melee_block_hit
+    sourceCategory: CombatMelee
+    clip: {fileID: 7887112853433613186, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.0666667
+  - id: animation/combatmelee/melee_blocking
+    sourceCategory: CombatMelee
+    clip: {fileID: 6824622970789808875, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/combatmelee/melee_dualwield_attack_chop
+    sourceCategory: CombatMelee
+    clip: {fileID: 7499313430951911929, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.2666668
+  - id: animation/combatmelee/melee_dualwield_attack_slice
+    sourceCategory: CombatMelee
+    clip: {fileID: 1231959210303231270, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.1666667
+  - id: animation/combatmelee/melee_dualwield_attack_stab
+    sourceCategory: CombatMelee
+    clip: {fileID: -4620666395454361804, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.6000001
+  - id: animation/combatmelee/melee_unarmed_attack_kick
+    sourceCategory: CombatMelee
+    clip: {fileID: 4422042881024832256, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 0.9333334
+  - id: animation/combatmelee/melee_unarmed_attack_punch_a
+    sourceCategory: CombatMelee
+    clip: {fileID: -1789925693099948884, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 0
+    duration: 1.1666667
+  - id: animation/combatmelee/melee_unarmed_idle
+    sourceCategory: CombatMelee
+    clip: {fileID: -252589354938087612, guid: 7fd2930ca95864f41bef4717bd171f0c, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/combatranged/ranged_1h_aiming
+    sourceCategory: CombatRanged
+    clip: {fileID: 3522209230858616809, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/combatranged/ranged_1h_reload
+    sourceCategory: CombatRanged
+    clip: {fileID: -874035235834337175, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 1.1666667
+  - id: animation/combatranged/ranged_1h_shoot
+    sourceCategory: CombatRanged
+    clip: {fileID: 3433596340313048746, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 1.0666667
+  - id: animation/combatranged/ranged_1h_shooting
+    sourceCategory: CombatRanged
+    clip: {fileID: 8447088436964320739, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 1
+    duration: 1.6000001
+  - id: animation/combatranged/ranged_2h_aiming
+    sourceCategory: CombatRanged
+    clip: {fileID: -344612289506265405, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 1
+    duration: 1.6000001
+  - id: animation/combatranged/ranged_2h_reload
+    sourceCategory: CombatRanged
+    clip: {fileID: -3392515364123630709, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 1.6000001
+  - id: animation/combatranged/ranged_2h_shoot
+    sourceCategory: CombatRanged
+    clip: {fileID: 384764189124304619, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 1.0666667
+  - id: animation/combatranged/ranged_2h_shooting
+    sourceCategory: CombatRanged
+    clip: {fileID: -783918219615172242, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/combatranged/ranged_bow_aiming_idle
+    sourceCategory: CombatRanged
+    clip: {fileID: 3187361540735442547, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 1
+    duration: 1.8333334
+  - id: animation/combatranged/ranged_bow_draw
+    sourceCategory: CombatRanged
+    clip: {fileID: -4457504429419621214, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 1.3333334
+  - id: animation/combatranged/ranged_bow_draw_up
+    sourceCategory: CombatRanged
+    clip: {fileID: -179111974726513152, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 1.3333334
+  - id: animation/combatranged/ranged_bow_idle
+    sourceCategory: CombatRanged
+    clip: {fileID: 1916961860785133836, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 1
+    duration: 1.5666667
+  - id: animation/combatranged/ranged_bow_release
+    sourceCategory: CombatRanged
+    clip: {fileID: 1020120997136478934, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 1.3333334
+  - id: animation/combatranged/ranged_bow_release_up
+    sourceCategory: CombatRanged
+    clip: {fileID: -763324781632951077, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 1.3666668
+  - id: animation/combatranged/ranged_magic_raise
+    sourceCategory: CombatRanged
+    clip: {fileID: 7719806121101089419, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 2.1000001
+  - id: animation/combatranged/ranged_magic_shoot
+    sourceCategory: CombatRanged
+    clip: {fileID: 4467039709948147482, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 0.9333334
+  - id: animation/combatranged/ranged_magic_spellcasting
+    sourceCategory: CombatRanged
+    clip: {fileID: 5420664022460959746, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 0.6666667
+  - id: animation/combatranged/ranged_magic_spellcasting_long
+    sourceCategory: CombatRanged
+    clip: {fileID: -4515646335448768399, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 2.5333335
+  - id: animation/combatranged/ranged_magic_summon
+    sourceCategory: CombatRanged
+    clip: {fileID: 3076280148986900518, guid: c6d4d13de612df945a6cfbe7fa439443, type: 3}
+    loop: 0
+    duration: 4.3
+  - id: animation/general/death_a
+    sourceCategory: General
+    clip: {fileID: -1923750366902163184, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 0.8000001
+  - id: animation/general/death_a_pose
+    sourceCategory: General
+    clip: {fileID: -1764627894708832522, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 0.033333335
+  - id: animation/general/death_b
+    sourceCategory: General
+    clip: {fileID: 3311174667178009610, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 2.6333334
+  - id: animation/general/death_b_pose
+    sourceCategory: General
+    clip: {fileID: 2926267936692278293, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 0.033333335
+  - id: animation/general/hit_a
+    sourceCategory: General
+    clip: {fileID: 2825485217256495706, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 0.6666667
+  - id: animation/general/hit_b
+    sourceCategory: General
+    clip: {fileID: 5929533664354034034, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 0.86666673
+  - id: animation/general/idle_a
+    sourceCategory: General
+    clip: {fileID: -5624545281902316504, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/general/idle_b
+    sourceCategory: General
+    clip: {fileID: 345275505875579249, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 1
+    duration: 2.1333334
+  - id: animation/general/interact
+    sourceCategory: General
+    clip: {fileID: 1701519168366769839, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 1.3000001
+  - id: animation/general/pickup
+    sourceCategory: General
+    clip: {fileID: 4787742288682755051, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 1.3000001
+  - id: animation/general/spawn_air
+    sourceCategory: General
+    clip: {fileID: 2613239370480212521, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 1.3000001
+  - id: animation/general/spawn_ground
+    sourceCategory: General
+    clip: {fileID: 6802492928670190411, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 1.3000001
+  - id: animation/general/throw
+    sourceCategory: General
+    clip: {fileID: -6185155371445809522, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 1.3666668
+  - id: animation/general/use_item
+    sourceCategory: General
+    clip: {fileID: 7417917891377754313, guid: 0e15df3d87e8bdf438d5fae9809558aa, type: 3}
+    loop: 0
+    duration: 1.6000001
+  - id: animation/movementadvanced/crawling
+    sourceCategory: MovementAdvanced
+    clip: {fileID: -8582564530929982758, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/movementadvanced/crouching
+    sourceCategory: MovementAdvanced
+    clip: {fileID: 5147928276633869896, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/movementadvanced/dodge_backward
+    sourceCategory: MovementAdvanced
+    clip: {fileID: 650242174318006946, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 0
+    duration: 0.40000004
+  - id: animation/movementadvanced/dodge_forward
+    sourceCategory: MovementAdvanced
+    clip: {fileID: -3851722262833059593, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 0
+    duration: 0.40000004
+  - id: animation/movementadvanced/dodge_left
+    sourceCategory: MovementAdvanced
+    clip: {fileID: -8338831036711338807, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 0
+    duration: 0.40000004
+  - id: animation/movementadvanced/dodge_right
+    sourceCategory: MovementAdvanced
+    clip: {fileID: 2188323905074769703, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 0
+    duration: 0.40000004
+  - id: animation/movementadvanced/running_holdingbow
+    sourceCategory: MovementAdvanced
+    clip: {fileID: -8238821394337881913, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 1
+    duration: 0.8000001
+  - id: animation/movementadvanced/running_holdingrifle
+    sourceCategory: MovementAdvanced
+    clip: {fileID: 8109067013064585702, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 1
+    duration: 0.8000001
+  - id: animation/movementadvanced/running_strafe_left
+    sourceCategory: MovementAdvanced
+    clip: {fileID: -1640272175068026219, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 1
+    duration: 0.8000001
+  - id: animation/movementadvanced/running_strafe_right
+    sourceCategory: MovementAdvanced
+    clip: {fileID: -6877218540166537120, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 1
+    duration: 0.8000001
+  - id: animation/movementadvanced/sneaking
+    sourceCategory: MovementAdvanced
+    clip: {fileID: -2142295610736234269, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 1
+    duration: 2.1333334
+  - id: animation/movementadvanced/walking_backwards
+    sourceCategory: MovementAdvanced
+    clip: {fileID: -6411013857362534180, guid: 7847579882ae05246a6b891ab5f43b8e, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/movementbasic/jump_full_long
+    sourceCategory: MovementBasic
+    clip: {fileID: -8358797001615306126, guid: e714d764416a6a2419eeca5242a11aaf, type: 3}
+    loop: 0
+    duration: 2.3333335
+  - id: animation/movementbasic/jump_full_short
+    sourceCategory: MovementBasic
+    clip: {fileID: 1683828920807373193, guid: e714d764416a6a2419eeca5242a11aaf, type: 3}
+    loop: 0
+    duration: 1.1666667
+  - id: animation/movementbasic/jump_idle
+    sourceCategory: MovementBasic
+    clip: {fileID: 5069180758234724613, guid: e714d764416a6a2419eeca5242a11aaf, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/movementbasic/jump_land
+    sourceCategory: MovementBasic
+    clip: {fileID: 3282281275607961068, guid: e714d764416a6a2419eeca5242a11aaf, type: 3}
+    loop: 0
+    duration: 0.6666667
+  - id: animation/movementbasic/jump_start
+    sourceCategory: MovementBasic
+    clip: {fileID: -6402709644054655732, guid: e714d764416a6a2419eeca5242a11aaf, type: 3}
+    loop: 0
+    duration: 0.6
+  - id: animation/movementbasic/running_a
+    sourceCategory: MovementBasic
+    clip: {fileID: 3543698089625107784, guid: e714d764416a6a2419eeca5242a11aaf, type: 3}
+    loop: 1
+    duration: 0.8000001
+  - id: animation/movementbasic/running_b
+    sourceCategory: MovementBasic
+    clip: {fileID: -1640158340307531623, guid: e714d764416a6a2419eeca5242a11aaf, type: 3}
+    loop: 1
+    duration: 0.8000001
+  - id: animation/movementbasic/walking_a
+    sourceCategory: MovementBasic
+    clip: {fileID: 7060811993321468294, guid: e714d764416a6a2419eeca5242a11aaf, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/movementbasic/walking_b
+    sourceCategory: MovementBasic
+    clip: {fileID: 3174661419259135242, guid: e714d764416a6a2419eeca5242a11aaf, type: 3}
+    loop: 1
+    duration: 1.0666667
+  - id: animation/movementbasic/walking_c
+    sourceCategory: MovementBasic
+    clip: {fileID: 455867200774271528, guid: e714d764416a6a2419eeca5242a11aaf, type: 3}
+    loop: 1
+    duration: 1.6000001
+  - id: animation/simulation/cheering
+    sourceCategory: Simulation
+    clip: {fileID: -3554408864086334942, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 0
+    duration: 1.6666667
+  - id: animation/simulation/lie_down
+    sourceCategory: Simulation
+    clip: {fileID: -6400525968468801866, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 0
+    duration: 3.0000002
+  - id: animation/simulation/lie_idle
+    sourceCategory: Simulation
+    clip: {fileID: 1569655004370500264, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 1
+    duration: 2.6666667
+  - id: animation/simulation/lie_standup
+    sourceCategory: Simulation
+    clip: {fileID: -6781150235111872194, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 0
+    duration: 2.3333335
+  - id: animation/simulation/push_ups
+    sourceCategory: Simulation
+    clip: {fileID: 7109596313260351717, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 1
+    duration: 1.0333334
+  - id: animation/simulation/sit_chair_down
+    sourceCategory: Simulation
+    clip: {fileID: 3145453540645391641, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 0
+    duration: 0.8000001
+  - id: animation/simulation/sit_chair_idle
+    sourceCategory: Simulation
+    clip: {fileID: 7779023693546330386, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 1
+    duration: 3.6000001
+  - id: animation/simulation/sit_chair_standup
+    sourceCategory: Simulation
+    clip: {fileID: -5731682596848902973, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 0
+    duration: 0.8000001
+  - id: animation/simulation/sit_floor_down
+    sourceCategory: Simulation
+    clip: {fileID: -134765771845422922, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 0
+    duration: 1
+  - id: animation/simulation/sit_floor_idle
+    sourceCategory: Simulation
+    clip: {fileID: 1789385927864635141, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 1
+    duration: 4
+  - id: animation/simulation/sit_floor_standup
+    sourceCategory: Simulation
+    clip: {fileID: 2401692041250751285, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 0
+    duration: 1.1333334
+  - id: animation/simulation/sit_ups
+    sourceCategory: Simulation
+    clip: {fileID: 7803031104487891924, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 0
+    duration: 1.7333335
+  - id: animation/simulation/waving
+    sourceCategory: Simulation
+    clip: {fileID: 3848355206397108983, guid: 616f17aa2b2f052428d099afd2d676a6, type: 3}
+    loop: 0
+    duration: 2.1333334
+  - id: animation/special/experimental_medium_transform
+    sourceCategory: Special
+    clip: {fileID: 8801312192958762609, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 0
+    duration: 1
+  - id: animation/special/skeletons_awaken_floor
+    sourceCategory: Special
+    clip: {fileID: -5207089531524238507, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 0
+    duration: 2.3000002
+  - id: animation/special/skeletons_awaken_floor_long
+    sourceCategory: Special
+    clip: {fileID: -2365055575146815877, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 0
+    duration: 3.8333335
+  - id: animation/special/skeletons_awaken_standing
+    sourceCategory: Special
+    clip: {fileID: 3718727294246812939, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 0
+    duration: 1
+  - id: animation/special/skeletons_death
+    sourceCategory: Special
+    clip: {fileID: -742123907766471018, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 0
+    duration: 2
+  - id: animation/special/skeletons_death_pose
+    sourceCategory: Special
+    clip: {fileID: -1503138281452508818, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 0
+    duration: 0.033333335
+  - id: animation/special/skeletons_death_resurrect
+    sourceCategory: Special
+    clip: {fileID: 4061070667553504992, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 0
+    duration: 2.7
+  - id: animation/special/skeletons_idle
+    sourceCategory: Special
+    clip: {fileID: -8597891682817377953, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 1
+    duration: 4.266667
+  - id: animation/special/skeletons_inactive_floor_pose
+    sourceCategory: Special
+    clip: {fileID: 173667399216329291, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 1
+    duration: 0.033333335
+  - id: animation/special/skeletons_inactive_standing_pose
+    sourceCategory: Special
+    clip: {fileID: 5749186706607790509, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 1
+    duration: 0.033333335
+  - id: animation/special/skeletons_spawn_ground
+    sourceCategory: Special
+    clip: {fileID: -6323456399483579408, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 0
+    duration: 3.5666668
+  - id: animation/special/skeletons_taunt
+    sourceCategory: Special
+    clip: {fileID: -1194160379755043611, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 0
+    duration: 1.0333334
+  - id: animation/special/skeletons_taunt_longer
+    sourceCategory: Special
+    clip: {fileID: -8346915788690770684, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 0
+    duration: 3.0000002
+  - id: animation/special/skeletons_walking
+    sourceCategory: Special
+    clip: {fileID: -3442526711835081435, guid: 19d69ef7aee1004468c6d7ba20232308, type: 3}
+    loop: 1
+    duration: 1.6000001
+  - id: animation/tools/chop
+    sourceCategory: Tools
+    clip: {fileID: -7753227349842223383, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 4.3333335
+  - id: animation/tools/chopping
+    sourceCategory: Tools
+    clip: {fileID: -466390992164120760, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 1.3333334
+  - id: animation/tools/dig
+    sourceCategory: Tools
+    clip: {fileID: 4641199700979352940, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 4.666667
+  - id: animation/tools/digging
+    sourceCategory: Tools
+    clip: {fileID: -1457069560952101480, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 1.4000001
+  - id: animation/tools/fishing_bite
+    sourceCategory: Tools
+    clip: {fileID: 3585749539326915064, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 2.2333333
+  - id: animation/tools/fishing_cast
+    sourceCategory: Tools
+    clip: {fileID: 682439012901230241, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 1.9333334
+  - id: animation/tools/fishing_catch
+    sourceCategory: Tools
+    clip: {fileID: 4007048052664091502, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 3.2333336
+  - id: animation/tools/fishing_idle
+    sourceCategory: Tools
+    clip: {fileID: 1126551348971261944, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 2.3333335
+  - id: animation/tools/fishing_reeling
+    sourceCategory: Tools
+    clip: {fileID: -2515188067166443674, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 1.6000001
+  - id: animation/tools/fishing_struggling
+    sourceCategory: Tools
+    clip: {fileID: -2233654548116399876, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 3.4333334
+  - id: animation/tools/fishing_tug
+    sourceCategory: Tools
+    clip: {fileID: 4197908552500076055, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 1.9000001
+  - id: animation/tools/hammer
+    sourceCategory: Tools
+    clip: {fileID: -8700722811047252711, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 4.3333335
+  - id: animation/tools/hammering
+    sourceCategory: Tools
+    clip: {fileID: 6321179255590106015, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 2.6666667
+  - id: animation/tools/holding_a
+    sourceCategory: Tools
+    clip: {fileID: -8256903289916493199, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 1
+  - id: animation/tools/holding_b
+    sourceCategory: Tools
+    clip: {fileID: 5372052051251159157, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 1
+  - id: animation/tools/holding_c
+    sourceCategory: Tools
+    clip: {fileID: 93416500785551809, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 1
+  - id: animation/tools/lockpick
+    sourceCategory: Tools
+    clip: {fileID: -849733124728272601, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 3.0000002
+  - id: animation/tools/lockpicking
+    sourceCategory: Tools
+    clip: {fileID: -7602338828053724958, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 2.3333335
+  - id: animation/tools/pickaxe
+    sourceCategory: Tools
+    clip: {fileID: -3011872284337834065, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 6.033334
+  - id: animation/tools/pickaxing
+    sourceCategory: Tools
+    clip: {fileID: -7958710800561063327, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 3.7333336
+  - id: animation/tools/saw
+    sourceCategory: Tools
+    clip: {fileID: -6364245039269364273, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 2.4
+  - id: animation/tools/sawing
+    sourceCategory: Tools
+    clip: {fileID: 7306311048131245232, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 0.6666667
+  - id: animation/tools/work_a
+    sourceCategory: Tools
+    clip: {fileID: 6876499582031414822, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 2.5333335
+  - id: animation/tools/work_b
+    sourceCategory: Tools
+    clip: {fileID: 8700606532380916414, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 3.1000001
+  - id: animation/tools/work_c
+    sourceCategory: Tools
+    clip: {fileID: 1867277403437700289, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 0
+    duration: 3.6666667
+  - id: animation/tools/working_a
+    sourceCategory: Tools
+    clip: {fileID: 3658574863637141787, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 1.5000001
+  - id: animation/tools/working_b
+    sourceCategory: Tools
+    clip: {fileID: 4563674774000884617, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 2.5333335
+  - id: animation/tools/working_c
+    sourceCategory: Tools
+    clip: {fileID: -2476674297938920168, guid: bfa6751a81dff0942887d019bb2ce534, type: 3}
+    loop: 1
+    duration: 2
