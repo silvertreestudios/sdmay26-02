@@ -1,10 +1,10 @@
 # Operations-Based Rules Architecture
 
-- **Status:** Alternative design proposal
+- **Status:** Proposed architecture
 - **Audience:** Gameplay and rules engineers
 - **Scope:** Rules execution, reactions, state changes, active effects, and rule-facing Unity integration
 
-This document proposes an alternative to the [command-based rules proposal](Command_Based_Rules_Proposal.md). It uses a Redux-like unidirectional data flow, extended with typed results, nested operations, and explicit lifecycle operations for Pathfinder 2e timing rules.
+This architecture uses a Redux-like unidirectional data flow, extended with typed results, nested operations, and explicit lifecycle operations for Pathfinder 2e timing rules.
 
 The central idea is deliberately small:
 
@@ -58,7 +58,7 @@ validate -> reduce authoritative state -> emit facts
 
 The Op and the Facts must remain separate because a request is not proof of success. Damage might be prevented, reduced, redirected, or rejected. Code that reacts to a creature actually reaching 0 HP should listen for `CreatureReducedToZeroFact`, not for `ApplyDamageOp`.
 
-There is no separate general-purpose `Event` hierarchy. A pre-commit lifecycle message is an Op because it is work that can be handled, intercepted, and given a typed result. A post-commit notification is a Fact because it describes something already true. This keeps the model to two message concepts instead of Commands, Effects, Events, and Facts with overlapping responsibilities.
+There is no separate general-purpose `Event` hierarchy. A pre-commit lifecycle message is an Op because it is work that can be handled, intercepted, and given a typed result. A post-commit notification is a Fact because it describes something already true. The rules engine therefore has two public message concepts with distinct timing and responsibilities: Ops for requested work and Facts for committed changes.
 
 The engine also needs interception points before some changes commit. These are modeled as ordinary, explicit Ops:
 
