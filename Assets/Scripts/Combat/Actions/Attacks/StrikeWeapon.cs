@@ -5,6 +5,7 @@ using UnityEngine;
 using GridPublic;
 using GridPrivate;
 using Game.Creature.Rules;
+using Game.KayKit;
 
 namespace Game.Strikes
 {
@@ -196,6 +197,7 @@ public class StrikeWeapon : MultiFrameEntityAction
             }
 
             CombatLog.GetInstance().Log("- " + attacker.name + " strikes " + target.Value.Target.name + " with " + weaponName + ".");
+            attacker.GetComponent<CreaturePresentation>()?.PlayAttack(Weapon);
             StrikeResolutionPipeline.Resolve(new StrikeResolutionRequest
             {
                 Attacker = attacker,

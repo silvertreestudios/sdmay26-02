@@ -1,200 +1,207 @@
 using System;
-using System.Collections.Generic;
 using Game.Creature;
+using Game.KayKit;
 using UnityEngine;
 
 public class TokenMeshSelection : MonoBehaviour
 {
     public TokenMeshes[] TokenOptions = new TokenMeshes[1];
     public BaseMeshes[] BaseOptions = new BaseMeshes[1];
-    GameObject tokenObject;
-    GameObject baseObject;
-    CreatureComponent creatureComponent;
-    MeshRenderer TokenMeshRenderer;
-    MeshFilter TokenMeshFilter;
-    MeshRenderer BaseMeshRenderer;
-    MeshFilter BaseMeshFilter;
 
-    protected string TokenMeshToFind; // Changed to protected so ViewModel can access it
+    [SerializeField] private CreatureVisualCatalog visualCatalog;
+    [SerializeField] private Transform visualRoot;
 
-    #if UNITY_EDITOR
-    void OnValidate()
-    {
-        // Only update in editor when values change and object is in a scene
-        if (gameObject.scene.IsValid())
-        {
-            UnityEditor.EditorApplication.delayCall += () =>
-            {
-                if (this != null && gameObject != null)
-                    UpdateTokenMesh();
-            };
-        }
-    }
-    #endif
+    private GameObject tokenObject;
+    private GameObject baseObject;
+    private GameObject animatedVisualInstance;
+    private CreatureComponent creatureComponent;
+    private MeshRenderer tokenMeshRenderer;
+    private MeshFilter tokenMeshFilter;
+    private MeshRenderer baseMeshRenderer;
+    private MeshFilter baseMeshFilter;
 
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
-    protected void Start()
+    protected string TokenMeshToFind;
+
+    public CreatureVisualCatalog VisualCatalog => visualCatalog;
+    public GameObject ActiveVisualInstance => animatedVisualInstance;
+    public bool UsingAnimatedVisual => animatedVisualInstance != null;
+
+    protected virtual void Start()
     {
         UpdateTokenMesh();
     }
- 
-    protected void UpdateTokenMesh() // Changed to protected so ViewModel can call it
+
+    protected virtual void Update()
     {
-        // Safety check for destroyed objects
-        if (this == null || gameObject == null) return;
+    }
+
+    protected void UpdateTokenMesh()
+    {
+        if (this == null || gameObject == null)
+            return;
+
+        creatureComponent = GetComponentInParent<CreatureComponent>();
+        TokenMeshToFind = creatureComponent != null ? creatureComponent.name : "Wizard";
+        ApplySelection(TokenMeshToFind, false);
+    }
+
+    protected void UpdateTokenMesh(string meshName)
+    {
+        if (this == null || gameObject == null)
+            return;
+
+        creatureComponent = GetComponentInParent<CreatureComponent>();
+        TokenMeshToFind = meshName;
+        ApplySelection(TokenMeshToFind, true);
+    }
+
+    public void RefreshVisual()
+    {
+        UpdateTokenMesh();
+    }
+
+    public void ConfigureAnimatedCatalog(CreatureVisualCatalog catalog, Transform targetVisualRoot)
+    {
+        visualCatalog = catalog;
+        visualRoot = targetVisualRoot;
+    }
+
+    private void ApplySelection(string key, bool warnOnMissingLegacy)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            return;
+
+        CacheLegacyObjects();
+        ClearAnimatedVisual();
+
+        if (visualCatalog != null && visualCatalog.TryResolve(key, out CreatureVisualCatalogEntry entry))
+        {
+            Transform parent = ResolveVisualRoot();
+            animatedVisualInstance = Instantiate(entry.VisualPrefab, parent, false);
+            animatedVisualInstance.name = entry.VisualPrefab.name;
+            animatedVisualInstance.transform.localPosition = Vector3.zero;
+            animatedVisualInstance.transform.localRotation = Quaternion.identity;
+            animatedVisualInstance.transform.localScale = Vector3.one;
+            SetLegacyTokenVisible(false);
+            BindPresentation(animatedVisualInstance);
+            return;
+        }
+
+        BindPresentation(null);
+        SetLegacyTokenVisible(true);
+        ApplyLegacyMesh(key, warnOnMissingLegacy);
+    }
+
+    private void CacheLegacyObjects()
+    {
+        if (transform.childCount < 2)
+            return;
 
         tokenObject = transform.GetChild(0).gameObject;
         baseObject = transform.GetChild(1).gameObject;
+        tokenMeshFilter = tokenObject.GetComponent<MeshFilter>();
+        tokenMeshRenderer = tokenObject.GetComponent<MeshRenderer>();
+        baseMeshFilter = baseObject.GetComponent<MeshFilter>();
+        baseMeshRenderer = baseObject.GetComponent<MeshRenderer>();
+    }
 
-        TokenMeshFilter = tokenObject.GetComponent<MeshFilter>();
-        TokenMeshRenderer = tokenObject.GetComponent<MeshRenderer>();
-
-        BaseMeshFilter = baseObject.GetComponent<MeshFilter>();
-        BaseMeshRenderer = baseObject.GetComponent<MeshRenderer>();
-
-        if (TokenMeshFilter == null)
+    private void ApplyLegacyMesh(string key, bool warnOnMissing)
+    {
+        if (tokenMeshFilter == null)
         {
-            Debug.LogWarning("No MeshFilter component found!");
+            Debug.LogWarning("No MeshFilter component found!", this);
             return;
         }
 
-        creatureComponent = GetComponentInParent<CreatureComponent>();
-        
-        if (creatureComponent != null)
-        {
-            TokenMeshToFind = creatureComponent.name;
-        }
-        else
-        {
-            TokenMeshToFind = "Wizard"; // Default mesh name if no CreatureComponent found
-        }
-        
-        // Don't proceed if we have nothing to search for
-        if (string.IsNullOrEmpty(TokenMeshToFind))
-        {
-            return;
-        }
         bool meshFound = false;
-
-        foreach (TokenMeshes entry in TokenOptions)
+        if (TokenOptions != null)
         {
-            if (entry != null && entry.Name == TokenMeshToFind)
+            foreach (TokenMeshes entry in TokenOptions)
             {
-                if (entry.mesh != null)
-                {
-                    TokenMeshFilter.sharedMesh = entry.mesh;
-                    //Debug.Log($"Selected {entry.Name} Mesh");
-                    meshFound = true;
-                    break;
-                }
-                else
-                {
-                    Debug.LogError($"Mesh for {entry.Name} is null!");
-                    meshFound = true;
-                    break;
-                }
+                if (entry == null || entry.Name != key)
+                    continue;
+                tokenMeshFilter.sharedMesh = entry.mesh;
+                if (entry.mesh == null)
+                    Debug.LogError($"Mesh for {entry.Name} is null!", this);
+                meshFound = true;
+                break;
             }
         }
 
-        BaseMeshFilter.sharedMesh = BaseOptions[0].mesh;
+        if (baseMeshFilter != null && BaseOptions != null && BaseOptions.Length > 0 &&
+            BaseOptions[0] != null)
+            baseMeshFilter.sharedMesh = BaseOptions[0].mesh;
 
         if (!meshFound)
         {
-            //Debug.LogError($"No mesh found with name: {TokenMeshToFind}");
-            TokenMeshFilter.sharedMesh = null;
+            if (warnOnMissing)
+                Debug.LogError($"No mesh found with name: {key}", this);
+            tokenMeshFilter.sharedMesh = null;
         }
     }
 
-
-
-    // overloaded method for providing a name via viewmodel
-     protected void UpdateTokenMesh(String meshName) // Changed to protected so ViewModel can call it
+    private Transform ResolveVisualRoot()
     {
-        // Safety check for destroyed objects
-        if (this == null || gameObject == null) return;
+        if (visualRoot != null)
+            return visualRoot;
 
-        tokenObject = transform.GetChild(0).gameObject;
-        baseObject = transform.GetChild(1).gameObject;
-
-        TokenMeshFilter = tokenObject.GetComponent<MeshFilter>();
-        TokenMeshRenderer = tokenObject.GetComponent<MeshRenderer>();
-
-        BaseMeshFilter = baseObject.GetComponent<MeshFilter>();
-        BaseMeshRenderer = baseObject.GetComponent<MeshRenderer>();
-
-        if (TokenMeshFilter == null)
+        Transform owner = creatureComponent != null ? creatureComponent.transform : transform;
+        Transform existing = owner.Find("VisualRoot");
+        if (existing != null)
         {
-            Debug.LogWarning("No MeshFilter component found!");
+            visualRoot = existing;
+            return visualRoot;
+        }
+
+        GameObject created = new("VisualRoot");
+        visualRoot = created.transform;
+        visualRoot.SetParent(owner, false);
+        return visualRoot;
+    }
+
+    private void ClearAnimatedVisual()
+    {
+        if (animatedVisualInstance == null)
             return;
-        }
 
-        creatureComponent = GetComponentInParent<CreatureComponent>();
-        
-        if (creatureComponent != null)
-        {
-            TokenMeshToFind = meshName;
-        }
+        animatedVisualInstance.SetActive(false);
+        if (Application.isPlaying)
+            Destroy(animatedVisualInstance);
         else
-        {
-            TokenMeshToFind = "Wizard"; // Default mesh name if no CreatureComponent found
-        }
-        
-        // Don't proceed if we have nothing to search for
-        if (string.IsNullOrEmpty(TokenMeshToFind))
-        {
-            return;
-        }
-        //Debug.Log("Looking for mesh: " + TokenMeshToFind);
-        bool meshFound = false;
-
-        foreach (TokenMeshes entry in TokenOptions)
-        {
-            if (entry != null && entry.Name == TokenMeshToFind)
-            {
-                if (entry.mesh != null)
-                {
-                    TokenMeshFilter.sharedMesh = entry.mesh;
-                    //Debug.Log($"Selected {entry.Name} Mesh");
-                    meshFound = true;
-                    break;
-                }
-                else
-                {
-                    Debug.LogError($"Mesh for {entry.Name} is null!");
-                    meshFound = true;
-                    break;
-                }
-            }
-        }
-
-        BaseMeshFilter.sharedMesh = BaseOptions[0].mesh;
-
-        if (!meshFound)
-        {
-            Debug.LogError($"No mesh found with name: {TokenMeshToFind}");
-            TokenMeshFilter.sharedMesh = null;
-        }
+            DestroyImmediate(animatedVisualInstance);
+        animatedVisualInstance = null;
     }
 
-    // Update is called once per frame
-    protected void Update()
+    private void BindPresentation(GameObject visualInstance)
     {
+        if (creatureComponent == null)
+            return;
 
+        CreaturePresentation presentation = creatureComponent.GetComponent<CreaturePresentation>();
+        if (presentation == null)
+            return;
+        presentation.Bind(
+            visualInstance != null ? visualInstance.GetComponent<CreatureAnimationController>() : null,
+            visualInstance != null ? visualInstance.GetComponent<CreatureEquipmentVisuals>() : null);
+    }
+
+    private void SetLegacyTokenVisible(bool visible)
+    {
+        if (tokenMeshRenderer != null)
+            tokenMeshRenderer.enabled = visible;
     }
 }
 
-[System.Serializable]
+[Serializable]
 public class TokenMeshes
 {
     public Mesh mesh;
     public string Name = "default";
-    
 }
 
-[System.Serializable]
+[Serializable]
 public class BaseMeshes
 {
     public Mesh mesh;
-    public int level = 0;
-    
+    public int level;
 }

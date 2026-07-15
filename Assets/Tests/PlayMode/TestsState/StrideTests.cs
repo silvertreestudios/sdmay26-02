@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 using GridPrivate;
+using Game.KayKit;
 
 namespace TestsState
 {
@@ -55,7 +56,12 @@ namespace TestsState
 
             // Get FSM and simulate left click
             GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
+            CreaturePresentation presentation = player.GetComponent<CreaturePresentation>();
+            Assert.That(presentation.AnimationController, Is.Not.Null);
             gridBase.Fsm.CurrentState.Leftclick();
+
+            yield return null;
+            Assert.That(presentation.AnimationController.IsMoving, Is.True);
 
             // Wait for movement to finish (FSM returns to idle)
             yield return WaitUntilWithTimeout(timeout, () => gridBase.Fsm.CurrentState is StateIdle);
@@ -63,6 +69,7 @@ namespace TestsState
             Assert.IsTrue(gridBase.Fsm.CurrentState is StateIdle, "FSM did not return to StateIdle after movement.");
             Vector3 endPos = player.transform.position;
             Assert.AreEqual(targetPos, Vector3Int.RoundToInt(endPos), "Player did not move to the specified target position.");
+            Assert.That(presentation.AnimationController.IsMoving, Is.False);
         }
 
         /// <summary>

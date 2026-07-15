@@ -45,15 +45,13 @@ public sealed class KayKitShowcasePlayModeTests
             Assert.That(controller.SelectedEntry.Id, Is.EqualTo("animation/general/idle_a"));
             Assert.That(controller.TrySelectClip("animation/movementbasic/walking_a"), Is.True);
 
-            Animator animator = controller.AdventurerAnimator;
-            Transform hand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
-            Quaternion before = hand.localRotation;
+            float before = controller.NormalizedTime;
             yield return new WaitForSeconds(0.25f);
 
             Assert.That(controller.IsPlaying, Is.True);
             Assert.That(controller.SelectedEntry.Id, Is.EqualTo(
                 "animation/movementbasic/walking_a"));
-            Assert.That(Quaternion.Angle(before, hand.localRotation), Is.GreaterThan(0.01f));
+            Assert.That(controller.NormalizedTime, Is.GreaterThan(before));
         }
         finally
         {

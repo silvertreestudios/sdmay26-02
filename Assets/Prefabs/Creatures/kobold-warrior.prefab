@@ -331,6 +331,39 @@ MonoBehaviour:
   BaseOptions:
   - mesh: {fileID: 1431553746238890192, guid: 111aee36d4b234665ac7a1c809067fca, type: 3}
     level: 0
+  visualCatalog: {fileID: 11400000, guid: 3f56255865ecfe54b8b0e110adb54d6a, type: 2}
+  visualRoot: {fileID: 914748244347107534}
+--- !u!1 &7431087535756857738
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 914748244347107534}
+  m_Layer: 0
+  m_Name: VisualRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &914748244347107534
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7431087535756857738}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7437372328704202929}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &8560756850187711930
 GameObject:
   m_ObjectHideFlags: 0
@@ -346,6 +379,7 @@ GameObject:
   - component: {fileID: 595625853908541617}
   - component: {fileID: 7176228834526781552}
   - component: {fileID: 3506466034673221079}
+  - component: {fileID: 3871086405716181263}
   m_Layer: 6
   m_Name: kobold-warrior
   m_TagString: Untagged
@@ -368,6 +402,7 @@ Transform:
   m_Children:
   - {fileID: 1128262203659440710}
   - {fileID: 7107556277909000450}
+  - {fileID: 914748244347107534}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &8914976665182790947
@@ -475,6 +510,7 @@ MonoBehaviour:
   _reactions: []
   _passives:
   - Sneak Attack
+  _auras: []
   _equippedArmor:
     name: Leather Armor
     type: armor
@@ -604,6 +640,7 @@ MonoBehaviour:
   _buildClassFeatName: 
   _buildTrainedSkills: []
   _buildRuleSelections: []
+  _traits: []
 --- !u!114 &5049490658535004338
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -667,3 +704,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MindlessController
   <ActionPoints>k__BackingField: 0
   _actionNames: []
+--- !u!114 &3871086405716181263
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8560756850187711930}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2e584dabbf74fd34cbc33e771cfdd988, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: MainGameAssembly::Game.KayKit.CreaturePresentation

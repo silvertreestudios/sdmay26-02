@@ -72,6 +72,8 @@ MonoBehaviour:
   BaseOptions:
   - mesh: {fileID: 1431553746238890192, guid: 111aee36d4b234665ac7a1c809067fca, type: 3}
     level: 0
+  visualCatalog: {fileID: 11400000, guid: 3f56255865ecfe54b8b0e110adb54d6a, type: 2}
+  visualRoot: {fileID: 4171557540462667750}
 --- !u!1 &2224113196253347433
 GameObject:
   m_ObjectHideFlags: 0
@@ -170,6 +172,7 @@ GameObject:
   - component: {fileID: 6350745496835950004}
   - component: {fileID: 8104092470783750296}
   - component: {fileID: 8690248463442255981}
+  - component: {fileID: 2655864268557234763}
   m_Layer: 6
   m_Name: Lena
   m_TagString: Untagged
@@ -192,6 +195,7 @@ Transform:
   m_Children:
   - {fileID: 6108589608884837471}
   - {fileID: 6355275355888791999}
+  - {fileID: 4171557540462667750}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &6197473034669037648
@@ -262,6 +266,7 @@ MonoBehaviour:
   - Shortbow
   _reactions: []
   _passives: []
+  _auras: []
   _equippedArmor:
     name: Leather Armor
     type: armor
@@ -397,6 +402,7 @@ MonoBehaviour:
   _buildRuleSelections:
   - flag: roguesRacket
     selection: Compendium.pf2e.classfeatures.Item.Thief
+  _traits: []
 --- !u!114 &8804960640706277664
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -460,6 +466,49 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b7abd518a3f004508b6611b61ca45c9a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
+--- !u!114 &2655864268557234763
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3791866971907940300}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2e584dabbf74fd34cbc33e771cfdd988, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: MainGameAssembly::Game.KayKit.CreaturePresentation
+--- !u!1 &3836261064009643872
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4171557540462667750}
+  m_Layer: 0
+  m_Name: VisualRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4171557540462667750
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3836261064009643872}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 3137934423639863562}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &4207922799397934250
 GameObject:
   m_ObjectHideFlags: 0

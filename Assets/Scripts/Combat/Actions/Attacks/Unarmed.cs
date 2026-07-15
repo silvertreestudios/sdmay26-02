@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections;
 using UnityEngine;
 using GridPublic;
+using Game.KayKit;
 
 namespace Game.Strikes
 {
@@ -48,6 +49,7 @@ public class Unarmed : MultiFrameEntityAction
         {
             CombatLog.GetInstance().Log("- " + attacker.name + " attacks " + target.Value.Target.name + " with unarmed strike.");
             Debug.Log(attacker + " Striking " + target.Value.Target);
+            attacker.GetComponent<CreaturePresentation>()?.PlayAttack(AnimationStyle.Unarmed);
             StrikeResolutionPipeline.Resolve(new StrikeResolutionRequest
             {
                 Attacker = attacker,

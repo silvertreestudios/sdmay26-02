@@ -7,6 +7,7 @@ using Game.Rules;
 using GridPublic;
 using Game.Creature.Rules;
 using Game.Combat.Spells;
+using Game.KayKit;
 
 namespace Game.Creature
 {
@@ -38,6 +39,9 @@ namespace Game.Creature
     /// </summary>
     public class CreatureComponent : MonoBehaviour
     {
+        public event Action EquipmentChanged;
+
+        private bool defeated;
 
         // Basic stats
         [Header("Basic Stats")]
@@ -152,9 +156,33 @@ namespace Game.Creature
 
         // TODO: properly implement
         public List<string> equipment { get => _equipment; set => _equipment = value ?? new List<string>(); }
-        public EquipmentArmor equippedArmor { get => _equippedArmor; set => _equippedArmor = value; }
-        public EquipmentWeapon equippedRightHand { get => _equippedRightHand; set => _equippedRightHand = value; }
-        public EquipmentWeapon equippedLeftHand { get => _equippedLeftHand; set => _equippedLeftHand = value; }
+        public EquipmentArmor equippedArmor
+        {
+            get => _equippedArmor;
+            set
+            {
+                _equippedArmor = value;
+                NotifyEquipmentChanged();
+            }
+        }
+        public EquipmentWeapon equippedRightHand
+        {
+            get => _equippedRightHand;
+            set
+            {
+                _equippedRightHand = value;
+                NotifyEquipmentChanged();
+            }
+        }
+        public EquipmentWeapon equippedLeftHand
+        {
+            get => _equippedLeftHand;
+            set
+            {
+                _equippedLeftHand = value;
+                NotifyEquipmentChanged();
+            }
+        }
         public List<string> weaponsList { get => _weaponsList; set => _weaponsList = value ?? new List<string>(); }
         public List<EquipmentWeapon> weapons { get => _weapons; set => _weapons = value ?? new List<EquipmentWeapon>(); }
         public List<AmmoCount> ammunition { get => _ammunition; set => _ammunition = value ?? new List<AmmoCount>(); }
@@ -609,6 +637,8 @@ namespace Game.Creature
             _hp = Mathf.Max(0, _hp);
             if (_hp == 0)
                 Defeat();
+            else if (damage > 0)
+                GetComponent<CreaturePresentation>()?.PlayHit();
         }
 
         public void TakeDamage(uint amount)
@@ -625,21 +655,43 @@ namespace Game.Creature
             }
             if (_hp == 0)
                 Defeat();
+            else if (amount > 0)
+                GetComponent<CreaturePresentation>()?.PlayHit();
         }
 
         //helper function to signal to CombatManager when a player is defeated, so they can be removed from the turn queue and combat
         //this function also clears the character's position from the grid memory and deactivates their game object
         private void Defeat()
         {
+            if (defeated)
+                return;
+            defeated = true;
+
             var ac = gameObject.GetComponent<ActionController>();
             if (ac != null && CombatManagerInterface.GetInstance() != null)
                 CombatManagerInterface.GetInstance().Remove(ac);
 
             GridAPI.GetInstance().DestroyToken(this.gameObject);
+            DisableGameplayInteraction(ac);
             OnDeath.Invoke(gameObject); // Trigger the death event
             CombatLog.GetInstance().Log("- " + this.gameObject.name + " was defeated!");
 
-            gameObject.SetActive(false);
+            CreaturePresentation presentation = GetComponent<CreaturePresentation>();
+            bool deathStarted = presentation != null && presentation.PlayDeath(() =>
+            {
+                if (this != null && gameObject != null)
+                    gameObject.SetActive(false);
+            });
+            if (!deathStarted)
+                gameObject.SetActive(false);
+        }
+
+        private void DisableGameplayInteraction(ActionController actionController)
+        {
+            if (actionController != null)
+                actionController.enabled = false;
+            foreach (Collider targetCollider in GetComponentsInChildren<Collider>(true))
+                targetCollider.enabled = false;
         }
 
         public void Heal(int healAmount)
@@ -754,7 +806,7 @@ namespace Game.Creature
                 Debug.Log($"Cannot equip {weapon.name} in left hand because right hand has a two-handed weapon");
                 return;
             }
-            _equippedLeftHand = weapon;
+            equippedLeftHand = weapon;
         }
         public void EquipWeaponRight(EquipmentWeapon weapon)
         {
@@ -764,15 +816,15 @@ namespace Game.Creature
                 Debug.Log($"Cannot equip {weapon.name} in right hand because left hand has a two-handed weapon");
                 return;
             }
-            _equippedRightHand = weapon;
+            equippedRightHand = weapon;
         }
         public void UnequipWeaponLeft()
         {
-            _equippedLeftHand = null;
+            equippedLeftHand = null;
         }
         public void UnequipWeaponRight()
         {
-            _equippedRightHand = null;
+            equippedRightHand = null;
         }
 
         // Helper: check if left hand has a valid equipped weapon
@@ -794,12 +846,17 @@ namespace Game.Creature
         public void EquipArmor(EquipmentArmor armor)
         {
             if (armor == null) return;
-            _equippedArmor = armor;
+            equippedArmor = armor;
         }
 
         public void UnequipArmor()
         {
-            _equippedArmor = null;
+            equippedArmor = null;
+        }
+
+        private void NotifyEquipmentChanged()
+        {
+            EquipmentChanged?.Invoke();
         }
 
         public void CalculateAC()

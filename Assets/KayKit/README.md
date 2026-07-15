@@ -53,6 +53,42 @@ Use Tools > KayKit > Reimport Vendor Tree for a forced path-scoped reimport,
 then regenerate and run Tools > KayKit > Validate Setup. Repeating those steps
 must not create materials, duplicate entries, or unrelated serialized changes.
 
+## Animated creature presentation
+
+Tools > KayKit > Regenerate Animated Creatures creates the shared Animator
+Controller, `CreatureVisualCatalog`, `EquipmentVisualCatalog`, and the eight
+project-owned wrappers under `Assets/KayKit/Prefabs/Animated`. It also wires
+the existing creature and character-preview prefabs to the optional animated
+path. Lena, Torgrim, both undead types, and the five character-creation classes
+resolve through the catalog. Goblins, kobolds, and unknown keys continue to use
+their existing static token meshes.
+
+Each wrapper keeps root motion disabled, uses a generated Humanoid avatar and a
+project atlas material, and owns its animation/equipment components. Hand props
+resolve through Humanoid hand bones. Back and quiver sockets are project-owned
+children of the Humanoid torso. Two-handed props use the right-hand socket and
+the authored two-handed pose; no procedural IK is used.
+
+The character-creation `VisualRoot` applies a preview-only scale so complete
+models and their longest default props remain inside the existing portrait
+camera framing. Combat instances retain their authored wrapper scale.
+
+`CreatureAnimationController.PlayClip` accepts every stable ID in
+`KayKitAnimationLibrary`. Looping clips continue until `StopAction`; one-shots
+return to locomotion after their catalog duration. The generator validates all
+default locomotion, action, hit, and death IDs against the pinned imported
+library and fails with the missing IDs when the package or catalog is stale.
+
+Equipment resolution prefers an exact species/item mapping, then an exact
+generic item mapping, then species and generic weapon-style fallbacks. Unknown
+items and animation IDs degrade safely and emit one development warning per ID.
+Armor remains gameplay-only because each KayKit character has a fixed outfit.
+
+Runtime movement, strikes, spells, damage, and defeat only notify the optional
+root `CreaturePresentation` component. They never wait for animation events.
+Defeat removes combat/grid interaction and disables colliders immediately,
+then allows the visual-only death clip to finish for at most five seconds.
+
 ## Showcase scene
 
 Open `Assets/KayKit/Scenes/KayKitShowcase.unity` and press Play to inspect the

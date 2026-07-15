@@ -513,6 +513,12 @@ namespace Game.KayKit.Editor
                 if (!Mathf.Approximately(entry.Duration, entry.Clip.length))
                     errors.Add($"Animation duration is stale for {entry.Id}.");
             }
+
+            foreach (string requiredId in CreatureAnimationController.RequiredDefaultClipIds())
+            {
+                if (!library.TryGet(requiredId, out KayKitAnimationEntry entry) || entry.Clip == null)
+                    errors.Add($"Required animated-creature default is missing: {requiredId}");
+            }
         }
 
         private static void ValidateManifest(

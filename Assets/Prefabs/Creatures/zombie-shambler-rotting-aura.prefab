@@ -98,6 +98,7 @@ GameObject:
   - component: {fileID: 8680472399921432885}
   - component: {fileID: 3803095863079408250}
   - component: {fileID: 2871730123765800682}
+  - component: {fileID: 3734976948607087775}
   m_Layer: 6
   m_Name: zombie-shambler-rotting-aura
   m_TagString: Untagged
@@ -120,6 +121,7 @@ Transform:
   m_Children:
   - {fileID: 5174390717181780656}
   - {fileID: 4039331796724329574}
+  - {fileID: 8158057634263398148}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &9021065096158343592
@@ -132,7 +134,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ab40f563b33ddbb4d910714452a24c99, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Game.Creature.CreatureComponent
   _name: Zombie Shambler (Rotting Aura)
   _level: -1
@@ -204,58 +206,58 @@ MonoBehaviour:
     - disease
     - void
   _equippedArmor:
-    name:
-    type:
-    category:
+    name: 
+    type: 
+    category: 
     price: 0
     acBonus: 0
     dexCap: 0
     checkPenalty: 0
     speedPenalty: 0
     strengthRequirement: 0
-    description:
+    description: 
     bulk: 0
-    group:
+    group: 
     armorTraits: []
   _equippedRightHand:
-    name:
-    type:
-    group:
-    category:
+    name: 
+    type: 
+    group: 
+    category: 
     hands: 0
     damage:
       numberOfDice: 0
       sidesPerDie: 0
-      damageType:
-    description:
+      damageType: 
+    description: 
     traits: []
-    materialType:
-    materialGrade:
+    materialType: 
+    materialGrade: 
     runes: []
     price: 0
     range: 0
-    reload:
-    ammo:
+    reload: 
+    ammo: 
     bulk: 0
   _equippedLeftHand:
-    name:
-    type:
-    group:
-    category:
+    name: 
+    type: 
+    group: 
+    category: 
     hands: 0
     damage:
       numberOfDice: 0
       sidesPerDie: 0
-      damageType:
-    description:
+      damageType: 
+    description: 
     traits: []
-    materialType:
-    materialGrade:
+    materialType: 
+    materialGrade: 
     runes: []
     price: 0
     range: 0
-    reload:
-    ammo:
+    reload: 
+    ammo: 
     bulk: 0
   _equipment: []
   _weaponsList: []
@@ -264,9 +266,9 @@ MonoBehaviour:
   _unloadedWeapons: []
   _armorList: []
   _armor: []
-  _buildClassName:
-  _buildSubclassName:
-  _buildClassFeatName:
+  _buildClassName: 
+  _buildSubclassName: 
+  _buildClassFeatName: 
   _buildTrainedSkills: []
   _buildRuleSelections: []
   _traits:
@@ -284,7 +286,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Team
   <Name>k__BackingField: NoTeam
 --- !u!114 &447183227362616933
@@ -297,7 +299,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 71d1db035c27ebe40a39e376ad920775, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Conditions
 --- !u!114 &8680472399921432885
 MonoBehaviour:
@@ -309,7 +311,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b8e71b0452ab057489cfcc5a10f4ebbc, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Token
 --- !u!114 &3803095863079408250
 MonoBehaviour:
@@ -321,7 +323,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b7abd518a3f004508b6611b61ca45c9a, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: '::'
 --- !u!114 &2871730123765800682
 MonoBehaviour:
@@ -333,10 +335,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 97518c29693e5e544b3fbdd1324b642d, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MindlessController
   <ActionPoints>k__BackingField: 0
   _actionNames: []
+--- !u!114 &3734976948607087775
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3529646480320815615}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2e584dabbf74fd34cbc33e771cfdd988, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: MainGameAssembly::Game.KayKit.CreaturePresentation
 --- !u!1 &3770439333547851504
 GameObject:
   m_ObjectHideFlags: 0
@@ -426,6 +440,37 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!1 &6270104070050428464
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8158057634263398148}
+  m_Layer: 0
+  m_Name: VisualRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &8158057634263398148
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6270104070050428464}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1482348887408822193}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &7813980764033942848
 GameObject:
   m_ObjectHideFlags: 0
@@ -470,7 +515,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 87a96a4edfed340c8adf702c6db3d943, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TokenMeshSelection
   TokenOptions:
   - mesh: {fileID: 7240564204133861249, guid: f1a9de5bda18b48eb83ee4c127002d5d, type: 3}
@@ -496,6 +541,8 @@ MonoBehaviour:
   BaseOptions:
   - mesh: {fileID: 1431553746238890192, guid: 111aee36d4b234665ac7a1c809067fca, type: 3}
     level: 0
+  visualCatalog: {fileID: 11400000, guid: 3f56255865ecfe54b8b0e110adb54d6a, type: 2}
+  visualRoot: {fileID: 8158057634263398148}
 --- !u!1 &8872958642587033193
 GameObject:
   m_ObjectHideFlags: 0

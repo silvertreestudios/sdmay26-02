@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 using GridPrivate;
+using Game.KayKit;
 
 
 namespace TestsState
@@ -110,6 +111,9 @@ namespace TestsState
             Assert.IsTrue(gridBase.Fsm.CurrentState is StateIdle, "FSM should be in StateIdle after attempting to select any target");
             // check that the player still has 3 AP
             Assert.IsTrue(player.GetComponent<PlayerActionController>().ActionPoints == 2, "Player should have 2 AP after attempting to strike a valid target");
+            CreatureAnimationController animation = player.GetComponent<CreaturePresentation>().AnimationController;
+            Assert.That(animation.CurrentClipId, Is.EqualTo("animation/combatmelee/melee_unarmed_attack_punch_a"));
+            Assert.That(animation.IsActionPlaying, Is.True, "Strike resolution should not wait for the presentation animation.");
         }
 
         /// <summary>

@@ -2,30 +2,24 @@ using UnityEngine;
 
 public class ViewModel : TokenMeshSelection
 {
-    public bool rotate {get; set;}
-    public float rotationSpeed {get; set;}
-    
+    public bool rotate { get; set; }
+    public float rotationSpeed { get; set; }
 
-    protected new void Start()
+    protected override void Start()
     {
         base.Start();
-        rotate = true; 
+        rotate = true;
         rotationSpeed = 20f;
     }
 
-    // use this to change the mesh 
     public void setMeshName(string name)
     {
         UpdateTokenMesh(name);
     }
 
-    
-    protected new void Update()
+    protected override void Update()
     {
         if (rotate)
-        {
             transform.Rotate(Vector3.up, rotationSpeed * Time.deltaTime);
-        }
-        
     }
 }

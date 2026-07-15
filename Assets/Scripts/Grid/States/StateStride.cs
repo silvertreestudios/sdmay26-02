@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Game.Creature;
 using GridPublic;
 using System.Collections;
+using Game.KayKit;
 
 namespace GridPrivate
 {
@@ -66,6 +67,12 @@ namespace GridPrivate
         //called by FSM machine once a state change is triggered
         public override void Exit()
         {
+            if (Character != null)
+            {
+                CreaturePresentation presentation = Character.GetComponent<CreaturePresentation>();
+                if (presentation != null)
+                    presentation.SetMoving(false, 0.0f);
+            }
             OnHighlightRangeEnd.Invoke();
             OnHover.RemoveListener(HighlightPath);
             OnHoverEnd.RemoveListener(HideHighlightPath);
@@ -136,25 +143,35 @@ namespace GridPrivate
         protected IEnumerator ExecutePlayerMovement(List<PathNode> path)
         {
             TokenMovement movement = TokenMovement.GetInstance();
+            CreaturePresentation presentation = Character.GetComponent<CreaturePresentation>();
+            float movementSpeed = Character.GetComponent<CreatureComponent>()?.speed ?? 25.0f;
+            presentation?.SetMoving(true, movementSpeed);
 
-            int i = 1;
-            PathNode step;
-            while (i < Path.Count && (step = path[i++]) != null && step.Dist <= MaxMoveDist)
+            try
             {
-                // Remove from tile
-                CurrentPosition = Vector3Int.RoundToInt(Character.transform.position);
-                Tile tile = Tiles[CurrentPosition.x, CurrentPosition.z];
-                Ref<bool> prevented = new(false);
-                yield return tile.RemoveToken(Character, prevented);
-                if (prevented.Value)
-                    break;
+                int i = 1;
+                PathNode step;
+                while (i < Path.Count && (step = path[i++]) != null && step.Dist <= MaxMoveDist)
+                {
+                    // Remove from tile
+                    CurrentPosition = Vector3Int.RoundToInt(Character.transform.position);
+                    Tile tile = Tiles[CurrentPosition.x, CurrentPosition.z];
+                    Ref<bool> prevented = new(false);
+                    yield return tile.RemoveToken(Character, prevented);
+                    if (prevented.Value)
+                        break;
 
-                // Move to new tile
-                yield return movement.Hop(Character.transform, step.Location);
+                    // Move to new tile
+                    yield return movement.Hop(Character.transform, step.Location);
 
-                // Add to tile
-                tile = Tiles[step.Location.x, step.Location.z];
-                yield return tile.PlaceToken(Character);
+                    // Add to tile
+                    tile = Tiles[step.Location.x, step.Location.z];
+                    yield return tile.PlaceToken(Character);
+                }
+            }
+            finally
+            {
+                presentation?.SetMoving(false, 0.0f);
             }
             canCancel = true;
             Fsm.ChangeState(new StateIdle());
