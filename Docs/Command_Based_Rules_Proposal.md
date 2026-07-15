@@ -60,7 +60,7 @@ public sealed record BasicCommandResponse(
 
 `CommandResponse` is an abstract record because responses are immutable result data with a shared envelope. It is not just a capability contract.
 
-Rationale: if commands execute themselves, every command becomes a small service object and replay becomes harder. Keeping commands as data lets the engine log, serialize, replay, inspect, and test requests without hidden behavior.
+Why this matters: if commands execute themselves, every command becomes a small service object and replay becomes harder. Keeping commands as data lets the engine log, serialize, replay, inspect, and test requests without hidden behavior.
 
 ### Commands And Responses Carry Provenance
 
@@ -77,10 +77,6 @@ public interface ICommandFrame
     CreatureId? Actor { get; }
     Type CommandType { get; }
     ImmutableArray<Trait> Traits { get; }
-
-    EffectId NewEffectId();
-    EffectInstanceId NewEffectInstanceId();
-    RuleBindingId NewBindingId();
 }
 
 public sealed record CommandFrame<TCommand>(
@@ -94,15 +90,15 @@ public sealed record CommandFrame<TCommand>(
     TCommand Command,
     ImmutableArray<Trait> Traits) : ICommandFrame
 {
-    public EffectId NewEffectId() { /* deterministic frame-scoped ID */ }
-    public EffectInstanceId NewEffectInstanceId() { /* deterministic frame-scoped ID */ }
-    public RuleBindingId NewBindingId() { /* deterministic frame-scoped ID */ }
+    // Initialized by the dispatcher. This is engine bookkeeping, not part of
+    // the public frame contract that rules inspect.
+    internal required FrameIdSequence GeneratedIds { get; init; }
 }
 ```
 
 `ICommandFrame` is the common metadata view for any code that needs to inspect a command without reading command-specific payload. Broad listeners should use frame metadata such as actor, traits, command type, source rule, source binding, and provenance. If a rule needs `StrikeCommand`-specific fields, it should register a typed `ICommandStartListener<StrikeCommand, StrikeResponse>` instead of casting through a generic listener.
 
-Rationale: provenance is required for combat logs, once-per-trigger validation, response listeners, nested command ancestry, generic trait/predicate triggers, and replay. Keeping it on the frame also keeps command payloads focused on semantic input.
+Why this matters: a frame tells us where a command came from and how it relates to nested commands. Combat logs, once-per-trigger checks, listeners, and replay all need that history, while the command itself stays focused on what the caller requested.
 
 ### No Unity References In Rules Data
 
@@ -129,7 +125,7 @@ public interface IUnityTokenLookup
 }
 ```
 
-Rationale: PF2e rules should be portable, deterministic, and testable without a Unity scene. Unity should host the rules engine, not be embedded inside every rule object.
+Why this matters: PF2e rules should be portable, deterministic, and testable without a Unity scene. Unity should host the rules engine, not be embedded inside every rule object.
 
 ### Handlers Do Not Mutate State Directly
 
@@ -146,6 +142,8 @@ public interface ICommandHandler<TCommand, TResponse>
         ResolutionContext context);
 }
 ```
+
+In plain language, a handler is a recipe that can pause. It asks the engine to make one state change, waits for the engine's receipt, and then decides what to do next. For a Strike, the recipe might ask to spend an action, stop if that failed, calculate the attack, ask to apply damage, and finally return the Strike result. `RuleProgram<TResponse>` represents that paused recipe and its eventual response; it is not a normal `IEnumerable` iterator. Before adopting this proposal, a vertical slice must implement it as executable C#—for example, an explicit state machine or a custom awaitable—and replace the illustrative `yield return` syntax below with that API.
 
 A handler should yield data and branch on the application result before doing dependent work:
 
@@ -183,7 +181,7 @@ targetCreature.TakeDamage(amount);
 token.transform.position = nextWorldPosition;
 ```
 
-Rationale: central effect application gives us one place to enforce invariants, emit facts, update visible state, update predicate state, write combat logs, and preserve replayable history. Applying yielded effects immediately also prevents double application while still allowing handlers to branch on facts such as reduced-to-zero, action-spent, movement-blocked, and command-cancelled.
+Why this matters: when every state change passes through the engine, the same place can validate it, record what happened, update the snapshot, and notify the UI. Applying each requested effect once before the handler resumes also lets later steps react to results such as “action spent,” “movement blocked,” or “target reduced to zero.”
 
 ### Handlers And Listeners
 
@@ -218,7 +216,7 @@ public interface ICommandResponseListener<TCommand, TResponse>
 
 Listeners receive an `ActiveRuleBinding` so the same rule definition can run once for each active owner or effect instance. The listener object itself is stateless and globally registered; the binding is the per-creature or per-effect state that says this listener currently applies.
 
-Rationale: this avoids hidden live subscriptions while still supporting many active copies of the same rule. It also makes tests clearer: construct a snapshot with the active bindings you want, dispatch a command, and inspect the yielded effects.
+Why this matters: the current snapshot, rather than a hidden event subscription, tells the engine which copies of a rule are active. A test can therefore create the bindings it needs, dispatch a command, and inspect the result without setting up Unity objects or global callbacks.
 
 ### Rule Definitions Own Feature Logic
 
@@ -271,9 +269,7 @@ public sealed class BlessRule :
 }
 ```
 
-Rationale: separate listener and handler classes are still allowed, but they should not be the default. For thousands of PF2e features, locality matters. A reviewer should usually be able to open one feature rule file and see its trigger, activation, validation, and emitted effects. Split helper classes only when the helper is reused, the feature class becomes difficult to scan, or the helper has its own meaningful test surface.
-
-`Register` is intentionally explicit in the first pass. Reflection or convention-based registration could reduce boilerplate later, but it also makes ordering and IL2CPP/AOT behavior less obvious in Unity. A future helper such as `rules.RegisterImplementedHooks(this)` or a source-generated registry would be reasonable after the interfaces settle; the initial design should prefer explicit, searchable registration.
+Why this matters: a junior engineer should usually be able to open one feature file and see when the feature runs, what it checks, and what changes it requests. Separate helper classes are still useful when code is reused or when one file becomes hard to read, but splitting every hook into its own class would make a single PF2e feature harder to follow.
 
 ## Command Frames, Snapshots, Effects, And Facts
 
@@ -300,7 +296,30 @@ public interface IRulesSnapshot
 }
 ```
 
-Rationale: handlers should be easy to test with constructed `IRulesSnapshot` implementations. They should not need scene objects, singletons, or Unity component lookup.
+Why this matters: handlers should be easy to test with a constructed `IRulesSnapshot`. They should not need a running Unity scene, singleton lookup, or a particular `GameObject` hierarchy.
+
+### Frame-Scoped IDs
+
+Rules often create more than one effect, active-effect instance, or binding while handling a command. The dispatcher gives each frame a deterministic `FrameIdSequence`. Extension methods expose the useful operations without making ID creation part of the broad `ICommandFrame` inspection interface:
+
+```csharp
+public static class CommandFrameIdExtensions
+{
+    public static EffectId NewEffectId<TCommand>(
+        this CommandFrame<TCommand> frame) =>
+        frame.GeneratedIds.NextEffectId();
+
+    public static EffectInstanceId NewEffectInstanceId<TCommand>(
+        this CommandFrame<TCommand> frame) =>
+        frame.GeneratedIds.NextEffectInstanceId();
+
+    public static RuleBindingId NewBindingId<TCommand>(
+        this CommandFrame<TCommand> frame) =>
+        frame.GeneratedIds.NextBindingId();
+}
+```
+
+The dispatcher, not a caller or rule feature, initializes the sequence. That keeps generated IDs repeatable during replay and makes the familiar `frame.NewEffectId()` call available only where the concrete frame type is known.
 
 ### Rule Effects
 
@@ -348,7 +367,7 @@ Reusable effects should cover common state transitions:
 - `RunNestedCommandEffect<TCommand, TResponse>`
 - `RecordRuleFactEffect`
 
-Rationale: generic effects keep feature implementations small. Avoid one-off effects when a generic effect captures the actual side effect.
+Why this matters: shared effects keep feature code small and give common changes—such as spending an action or applying a condition—one consistent implementation. Create a feature-specific effect only when no shared effect describes the requested change.
 
 ### Rule Facts
 
@@ -383,7 +402,7 @@ public sealed record CreatureReducedToZeroFact(
 
 ```
 
-Rationale: response listeners should not scrape logs or inspect mutated components. They should react to typed, provenance-rich facts. Facts should also drive the in-game combat log: the log renderer can listen to committed facts and conditionally render entries such as damage dealt, conditions applied, effects expired, movement disrupted, or a creature reduced to 0 HP.
+Why this matters: a listener should receive a clear statement such as `DamageAppliedFact`, not search text logs or inspect a Unity component to guess what changed. The same committed facts can drive combat-log entries for damage, conditions, expired effects, disrupted movement, and creatures reduced to 0 HP.
 
 ### Effect Application
 
@@ -426,7 +445,9 @@ public sealed class ResolutionContext
 }
 ```
 
-Rationale: applying damage, moving tokens, changing action points, and changing active effects all become auditable state transitions. Invariant-enforcing effects must fail or cancel explicitly when their preconditions are no longer true, so dependent rule code can stop before rolling, damaging, moving, or spending again. After every successful mutating effect, the runtime refreshes `ResolutionContext.CurrentSnapshot`; continuing rule programs should query that snapshot instead of assuming their original parameter is still current. This also gives Unity adapters a clean place to observe changes and schedule animations after rules state has advanced.
+Why this matters: damage, movement, action spending, and active effects all pass through one auditable boundary. If a request is no longer legal, its applier returns a clear failure so dependent work can stop. After a successful change, the runtime refreshes `ResolutionContext.CurrentSnapshot`; the handler reads that new snapshot instead of relying on stale data. Unity can then animate the committed result without owning the rules state.
+
+`IRuleEffectApplier` is one of this proposal's highest-risk seams, not a settled abstraction. Before migration, a small vertical slice should implement action spending, movement, damage, a nested prompt, and replay through the runner. If that prototype produces a large routing switch, command-specific appliers, or complicated resume behavior, this proposal should not be adopted as written; the reducer-based Ops design in `Ops_Based_Reles_Proposal.md` is the simpler fallback.
 
 ## Rule Registration And Active Bindings
 
@@ -503,7 +524,7 @@ foreach (var registration in registry.AfterCommittedListenersFor<TCommand, TResp
 }
 ```
 
-Rationale: this avoids hidden mutable subscriptions. It also handles mid-combat feature gain/loss naturally. If a condition, spell, item, stance, or aura creates or removes an active binding, the next command dispatch sees the new snapshot.
+Why this matters: active bindings in state are easier to inspect than hidden subscriptions. If a condition, spell, item, stance, or aura adds or removes a binding during combat, the next command automatically sees the updated set.
 
 ## Command Lifecycle
 
@@ -547,7 +568,7 @@ public RuleProgram<TResponse> Execute<TCommand, TResponse>(TCommand command)
 
 `AfterCommandCommitted` is intentionally more specific than `AfterCommand`. It means the handler has completed, all yielded effects that succeeded have been applied to rules state, and the response includes the resulting facts. If a future rule needs to inspect an effect before it commits, that should be a distinct hook such as `BeforeEffectApplied`, not an ambiguous `AfterCommand` phase.
 
-Rationale: a small global lifecycle prevents the command system from becoming an enormous PF2e phase enum. Strike damage dice, resistance, weakness, degree of success, persistent damage, and spell internals should live in domain services or pipelines, not global command phases.
+Why this matters: a short global lifecycle is understandable and reusable. Detailed Strike, damage, persistent-damage, and spell steps stay in their own services instead of becoming phases that every command must know about.
 
 ## Traits And Predicate Listeners
 
@@ -594,7 +615,7 @@ public interface ICommandPredicateListener
 
 Predicate listeners receive `ICommandFrame`. That keeps broad listeners focused on generic frame metadata and traits. If a listener needs command-specific fields, it should use a typed listener registration for that command type.
 
-Rationale: without trait-based listeners, features would need to register against many unrelated concrete command types. Traits give rules a generic trigger surface without giving up typed command data.
+Why this matters: a rule that refers to the `manipulate` trait should not need a separate registration for every command that can have that trait. Traits provide the shared match, while typed listeners still provide command-specific data when needed.
 
 ## Nested Commands And Prompts
 
@@ -635,7 +656,7 @@ public sealed record PromptOption(
     IRuleCommand? CommandToSubmit);
 ```
 
-Rationale: prompts must be replayable. During replay, the engine can consume recorded prompt choices instead of opening UI. During AI control, the prompt resolver can choose from policy. During normal play, the UI observes the prompt effect and returns a decision.
+Why this matters: the same prompt can be answered by a player, an AI policy, or a recorded replay choice. The rules do not need separate code paths for each caller.
 
 ## Commands Versus Queries
 
@@ -670,7 +691,7 @@ Good service/query candidates:
 - DC calculation
 - action roster queries
 
-Rationale: turning every read into a command would add noise and reduce clarity. The command boundary should mark meaningful rules operations.
+Why this matters: reads do not need the logging and lifecycle machinery of commands. Commands should represent meaningful attempts to do something, while queries simply inspect the current snapshot.
 
 ## Rule Services
 
@@ -713,7 +734,7 @@ public interface IRollService
 }
 ```
 
-Rationale: services keep shared math centralized without giving up the command/effect architecture. Static helpers are fine for pure deterministic calculations. Interfaces are preferable for snapshot access, randomness, data catalogs, and anything a test may need to replace.
+Why this matters: shared services prevent each feature from reimplementing the same math. A pure calculation can be a static helper; snapshot access, randomness, catalogs, and other test-replaceable behavior should use interfaces.
 
 ## Visible Effects And Derived Effects
 
@@ -764,15 +785,9 @@ yield return new ActiveEffectAppliedFact(
     target,
     appliedEffect);
 
-// Unity presentation reacts to the fact through a registered presenter.
-public sealed class BlessEffectPresenter : IUnityFactPresenter<ActiveEffectAppliedFact>
-{
-    public void Present(ActiveEffectAppliedFact fact, UnityPresentationContext context)
-    {
-        if (fact.Effect.SourceRule == BlessRule.SourceId)
-            context.HudEffects.RefreshCreatureEffects(fact.Target);
-    }
-}
+// UnityRulesBridge receives the committed fact and invokes the registered
+// BlessEffectPresenter. That presenter asks the snapshot for the target's
+// current effects and refreshes the existing HUDController.
 ```
 
 In that flow, the rules snapshot owns the active effect and its modifier. Unity does not become the source of truth; it refreshes token badges, current-effect lists, and tooltips from `snapshot.ActiveEffectsFor(creature)`.
@@ -797,7 +812,7 @@ var visibleEffects = snapshot.ActiveEffectsFor(creature)
 
 Derived effects are useful when no individual creature needs a stored effect instance yet. The UI can still show them in current-effect panels, aura overlays, movement previews, or targeting hints, but there is no apply/remove churn when creatures move in and out unless a concrete rule needs stored state.
 
-Rationale: not every aura should eagerly mutate every creature on every movement step. Bless benefits from stored visible effects on affected allies. Some terrain or aura effects may be cleaner as projections queried by movement preview, current-effects UI, and movement execution.
+Why this matters: updating every creature after every movement step can create unnecessary work and stale bookkeeping. Store a real effect when the target needs its own lasting state; otherwise derive a view from the current positions and active sources.
 
 ## Unity Boundary
 
@@ -818,54 +833,103 @@ Rules-facing responsibilities:
 - emit immutable effects and facts;
 - update `MutableRulesState` through effect appliers.
 
-A Unity adapter can then project rules facts and effects into scene/UI work through registered presenters instead of one central switchboard:
+A Unity adapter can project committed facts into scene and UI work through registered presenters. In this project, the adapter should be a `MonoBehaviour` attached beside `GameManager`, because Unity lifecycle methods provide a clear place to subscribe and unsubscribe:
 
 ```csharp
-public interface IUnityFactPresenter<TFact>
+public interface IUnityFactPresenter<in TFact>
     where TFact : RuleFact
 {
-    void Present(TFact fact, UnityPresentationContext context);
+    void Present(TFact fact, IRulesSnapshot snapshot);
 }
 
-public interface IUnityEffectPresenter<TEffect>
-    where TEffect : RuleEffect
+[RequireComponent(typeof(GameManager))]
+public sealed class UnityRulesBridge : MonoBehaviour
 {
-    void Present(TEffect effect, UnityPresentationContext context);
-}
+    [SerializeField] private HUDController hud;
 
-public sealed class UnityRulesPresenter
-{
-    public void OnFactCommitted(RuleFact fact)
+    private IRulesRuntime rules;
+    private UnityFactPresenterRegistry presenters;
+
+    private void Awake()
     {
-        factPresenters.For(fact).Present(fact, context);
+        // GameManager becomes the composition root that owns the rules runtime.
+        rules = GetComponent<GameManager>().Rules;
+
+        presenters = new UnityFactPresenterRegistry();
+        presenters.Register(new BlessEffectPresenter(hud));
+        presenters.Register(new MovementPresenter(
+            this,
+            UnityTokenLookup.Instance,
+            GridPositionMapper.Instance));
+        presenters.Register(new CombatLogFactPresenter(
+            CombatLog.GetInstance()));
     }
 
-    public void OnEffectApplied(RuleEffect effect)
+    private void OnEnable()
     {
-        effectPresenters.For(effect).Present(effect, context);
+        rules.FactCommitted += OnFactCommitted;
+    }
+
+    private void OnDisable()
+    {
+        rules.FactCommitted -= OnFactCommitted;
+    }
+
+    private void OnFactCommitted(CommittedRuleFact committed)
+    {
+        presenters.Present(committed.Fact, committed.CurrentSnapshot);
     }
 }
 
 public sealed class BlessEffectPresenter : IUnityFactPresenter<ActiveEffectAppliedFact>
 {
-    public void Present(ActiveEffectAppliedFact fact, UnityPresentationContext context)
+    private readonly HUDController hud;
+
+    public BlessEffectPresenter(HUDController hud)
     {
-        if (fact.Effect.SourceRule == BlessRule.SourceId)
-            context.HudEffects.ShowEffect(fact.Target, fact.Effect.DisplayName);
+        this.hud = hud;
+    }
+
+    public void Present(ActiveEffectAppliedFact fact, IRulesSnapshot snapshot)
+    {
+        if (fact.Effect.SourceRule != BlessRule.SourceId)
+            return;
+
+        hud.RefreshCreatureEffects(
+            fact.Target,
+            snapshot.ActiveEffectsFor(fact.Target));
     }
 }
 
-public sealed class MovementPresenter : IUnityEffectPresenter<MoveTokenEffect>
+public sealed class MovementPresenter : IUnityFactPresenter<TokenMovedFact>
 {
-    public void Present(MoveTokenEffect effect, UnityPresentationContext context)
+    private readonly MonoBehaviour coroutineHost;
+    private readonly IUnityTokenLookup tokens;
+    private readonly IGridPositionMapper positions;
+
+    public MovementPresenter(
+        MonoBehaviour coroutineHost,
+        IUnityTokenLookup tokens,
+        IGridPositionMapper positions)
     {
-        context.TokenAnimator.EnqueueMove(effect.Token, effect.From, effect.To);
+        this.coroutineHost = coroutineHost;
+        this.tokens = tokens;
+        this.positions = positions;
+    }
+
+    public void Present(TokenMovedFact fact, IRulesSnapshot snapshot)
+    {
+        var token = tokens.GetTokenObject(fact.Token).transform;
+        var destination = positions.ToWorld(fact.To);
+        coroutineHost.StartCoroutine(
+            GridPrivate.TokenMovement.GetInstance().Hop(token, destination));
     }
 }
 ```
 
+`GameManager.Rules`, `HUDController.RefreshCreatureEffects`, `UnityTokenLookup`, `GridPositionMapper`, and the typed presenter registry are narrow adapters to add during migration; they are not claimed as existing APIs. `CombatLogFactPresenter` converts typed facts to the project's existing `CombatLogEntry` and calls `CombatLog.LogEntry`. `TokenMovedFact` is emitted only after `MoveTokenEffect` commits, so `TokenMovement.Hop` animates an accepted state change rather than deciding whether movement succeeds. A single bridge may own many small plain-C# presenters; they do not each need to be `MonoBehaviour` components.
 
-Rationale: this gives us an incremental path out of `GameObject`-centric rules while still letting the current Unity project host the engine.
+Why this matters: the project can keep its existing `GameManager`, HUD, combat log, and token animation while moving rules decisions into plain C# a feature at a time.
 
 ## Action Definitions And Selection
 
@@ -901,11 +965,13 @@ public sealed record ActionSelection(
     SpellId? SelectedSpell);
 ```
 
-Rationale: action definitions answer what can be selected. Commands answer what is being attempted. Handlers answer what happens. Keeping those separate prevents UI targeting, AI planning, and rules resolution from collapsing back into one action class.
+Why this matters: action definitions describe available choices, commands record a chosen attempt, and handlers resolve it. Keeping those jobs separate lets UI and AI share the same rules without putting everything back into one large action class.
 
 ## Normal Strike Example
 
 Normal Strike becomes a typed command. Existing `Unarmed` and `StrikeWeapon` wrappers can submit it during migration.
+
+The code below is a design sketch, not a second implementation to maintain. Once Strike is migrated, replace this sketch with links to the production handler and its focused tests so the document cannot silently drift away from the real behavior.
 
 ```csharp
 public sealed record StrikeCommand(
@@ -1108,7 +1174,9 @@ public sealed class ReactiveStrikeRule :
             && CanReachEnemy(binding.Owner, triggerActor.Value, snapshot);
     }
 
-    private RuleEffect PromptForReactiveStrike(ActiveRuleBinding binding, ICommandFrame trigger)
+    private RuleEffect PromptForReactiveStrike<TCommand>(
+        ActiveRuleBinding binding,
+        CommandFrame<TCommand> trigger)
     {
         var command = new ReactiveStrikeCommand(
             SourceBinding: binding.Id,
@@ -1211,7 +1279,7 @@ public sealed class ReactiveStrikeRule :
 }
 ```
 
-Rationale: movement, manipulate actions, and ranged Strikes do not know Reactive Strike exists. They expose generic command data and traits. Reactive Strike owns its own trigger detection and reaction resolution, and the command frame preserves the triggering command needed for disruption. The exact edge cases around move actions that suppress reactions are deferred to the real Reactive Strike implementation.
+Why this matters: movement, manipulate actions, and ranged Strikes expose general facts about themselves without depending on Reactive Strike. Reactive Strike decides whether those facts match its trigger, and the frame preserves the original command so a critical hit can disrupt it. Movement that suppresses reactions still needs an explicit, shared rule during implementation.
 
 ## Bless Example
 
@@ -1345,7 +1413,7 @@ public sealed class BlessRule :
 
 When the blessed creature attacks, Strike asks the generic modifier service for attack-roll modifiers. Strike does not know Bless exists.
 
-Rationale: Bless is transparent in the UI and still mechanically generic. It also demonstrates the distinction between stored visible effects and roll-time modifier resolution. Source-specific IDs such as the Bless effect slug and modifier slug stay local to `BlessRule`, avoiding giant shared registries that grow with every PF2e feature.
+Why this matters: players can see who currently benefits from Bless, while attack resolution still gathers the bonus through the shared modifier system. Bless-specific IDs stay beside `BlessRule` instead of growing one global list that every new feature must edit.
 
 ## Tumble Through Example
 
@@ -1514,7 +1582,7 @@ public sealed class TumbleThroughRule :
 }
 ```
 
-Rationale: Tumble Through spends one action at the activity level. The split movement commands are explicitly action-free inside that activity, so splitting the path around the Acrobatics check does not spend multiple actions. The Acrobatics success grants only action-scoped permission to enter the enemy's space and treats that space as difficult terrain. If movement-specific rule hooks become more complex later, this can be refactored into reusable movement rule objects, but the first implementation should keep the data flow explicit.
+Why this matters: Tumble Through spends one action for the whole activity. Its nested movement commands are action-free, so splitting the path around the Acrobatics check does not charge extra actions. A successful check grants permission only for this action to enter the enemy's space, which remains difficult terrain.
 
 ## Cranial Detonation Example: Illustrative Future Complex Feature
 

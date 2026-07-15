@@ -82,7 +82,7 @@ This keeps the public model close to Redux—messages enter a dispatcher and sta
 | `IRuleOp` | Marker for an immutable request sent to the rules engine. |
 | `IRuleOp<TResult>` | An Op whose caller expects a typed result. |
 | `ActionOp<TResult>` | An Op representing a PF2e action, reaction, or free action. |
-| `ActionProfile` | Frozen rules metadata for one invocation of an `ActionOp`: cost, traits, and start triggers. |
+| `ActionProfile` | Frozen rules metadata for one invocation of an `ActionOp`: cost, traits, and whether it can trigger reactions. |
 | Handler | Orchestrates an Op, often by dispatching smaller Ops. It cannot directly mutate rules state. |
 | Reducer | Validates and atomically changes authoritative rules state for a small state-changing Op. |
 | Middleware | Wraps resolution of a selected Op type and can run before or after the next resolver. |
@@ -153,7 +153,7 @@ public sealed record StrikeActionOp(
 
         return ActionProfile.OneAction(
             traits: weapon.Traits.Add(Trait.Attack),
-            startTriggers: ActionTriggerCatalog.ForStrike(weapon));
+            canTriggerReactions: true);
     }
 }
 ```
@@ -167,7 +167,7 @@ public sealed record ActionProfile(
     ActionCost Cost,
     ImmutableArray<RuleCost> AdditionalCosts,
     ImmutableHashSet<Trait> Traits,
-    ImmutableHashSet<ActionStartTrigger> StartTriggers);
+    bool CanTriggerReactions = true);
 ```
 
 The fields have different jobs:
@@ -175,9 +175,16 @@ The fields have different jobs:
 - `Cost` is the PF2e action-economy cost: zero, one to three actions, reaction, or free action.
 - `AdditionalCosts` contains consumable costs such as a spell slot, Focus Point, ammunition, or once-per-round use.
 - `Traits` classify the action for rules that refer to traits.
-- `StartTriggers` state which lifecycle events occur when this invocation begins.
+- `CanTriggerReactions` is a blanket eligibility flag. It defaults to `true`; Step and other actions that explicitly trigger no reactions set it to `false`.
 
-Traits and triggers are intentionally separate. A Step has the move trait but does not trigger reactions based on movement. It therefore retains `Trait.Move` while omitting the movement start trigger.
+Traits do not determine reaction eligibility by themselves. A Step still has `Trait.Move`, but its profile sets `CanTriggerReactions` to `false`. When the flag is false, the engine does not open action-start or nested movement reaction windows. Individual reactions remain responsible for matching their own trigger wording against eligible lifecycle Ops, the originating Op, its traits, and any needed geometry.
+
+```csharp
+public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
+    ActionProfile.OneAction(
+        traits: [Trait.Move],
+        canTriggerReactions: false); // Step triggers no reactions.
+```
 
 `Trait` is an open, data-backed slug type shared with character, item, spell, and action definitions. Common traits may have helpers such as `Trait.Attack`, but the engine does not use a closed enum that must be edited for every new PF2e trait.
 
@@ -198,7 +205,7 @@ The resolver handles state-dependent changes such as:
 - a condition preventing reactions;
 - Quickened Casting changing a spell's action cost;
 - Conceal Spell adding traits;
-- a stance or feat changing trigger semantics;
+- a stance or feat changing whether the action can trigger reactions;
 - the selected spell variant changing components, cost, or traits.
 
 The effective profile is frozen in the `OpFrame` for that invocation. Validation, cost commitment, lifecycle middleware, and the handler all see the same value even if nested rules later change state.
@@ -486,7 +493,7 @@ The dispatcher recognizes `ActionOp<TResult>` and applies this template around i
 2. Build and freeze the effective ActionProfile.
 3. Run pure validation.
 4. Atomically commit all action and additional costs.
-5. Dispatch ActionBegunOp for the frozen profile's start triggers.
+5. If the profile can trigger reactions, dispatch ActionBegunOp.
 6. If ActionBegunOp reports disruption, return Interrupted.
 7. Otherwise invoke the feature handler.
 8. Complete the result and publish committed Facts.
@@ -516,11 +523,14 @@ private async ValueTask<OpResult<TResult>> DispatchAction<TResult>(
     if (costs.Status != OpStatus.Resolved)
         return OpResult.Invalid<TResult>(costs.InvalidReason!);
 
-    var begun = await DispatchNested(
-        frame,
-        new ActionBegunOp(frame.Id));
-    if (begun.Value.Decision == ActionStartDecision.Interrupted)
-        return OpResult.Interrupted<TResult>();
+    if (profile.CanTriggerReactions)
+    {
+        var begun = await DispatchNested(
+            frame,
+            new ActionBegunOp(frame.Id));
+        if (begun.Value.Decision == ActionStartDecision.Interrupted)
+            return OpResult.Interrupted<TResult>();
+    }
 
     return await InvokeHandler(frame);
 }
@@ -549,7 +559,7 @@ If a future trigger needs information that is not universal to actions, it shoul
 - typed data from the originating action Op, obtained from the frame; or
 - a more specific lifecycle Op at the actual timing point.
 
-For example, leaving a threatened square is represented by `MovementLeavingSquareOp`, because it occurs during movement and contains square-level geometry. It is not inferred from a generic move trait.
+For example, leaving a threatened square is represented by `MovementLeavingSquareOp`, because it occurs during movement and contains square-level geometry. The movement workflow inherits `CanTriggerReactions` from its parent action and skips this lifecycle Op when the flag is false.
 
 ### 5.6 Nested operations and prompts
 
@@ -725,7 +735,7 @@ Bless is the motivating example. Whether a creature receives its bonus is a func
 
 The Bless binding can calculate that during `CollectAttackModifiersOp`. Movement does not need to maintain a second list of child bonuses, and teleportation cannot make that list stale.
 
-Presentation uses the same selectors to show aura geometry and visible bonus icons. UI projections are derived views, not authoritative rule state.
+Presentation uses the same selectors to show aura geometry and visible bonus icons. UI projections are derived views, not authoritative rule state. The Unity bridge does not poll these selectors every frame; Section 7.2 describes how committed Facts invalidate and push only the projections that might have changed.
 
 ---
 
@@ -812,6 +822,76 @@ For example, when a player clicks the Strike button, Unity gathers a `StrikeSele
 
 Animations may lag behind committed state. A presentation queue can translate Facts into movement, hit, floating-number, condition, and death animations in order. Presentation completion must not determine whether the rules change occurred.
 
+The current project can host this boundary in a `MonoBehaviour` attached beside `GameManager`. That bridge subscribes to the rules runtime in `OnEnable`, unsubscribes in `OnDisable`, and delegates to small presenter classes for the HUD, combat log, tokens, and animations. It should not grow a feature-specific `if` chain.
+
+Derived visible effects use push-based invalidation rather than per-frame polling:
+
+```csharp
+[RequireComponent(typeof(GameManager))]
+public sealed class RulesUnityBridge : MonoBehaviour
+{
+    [SerializeField] private HUDController hud;
+    [SerializeField] private CombatLog combatLog;
+
+    private IRulesRuntime rules;
+    private IUnityFactPresenterRegistry factPresenters;
+    private IVisibleEffectProjectionSelector visibleEffects;
+    private IDerivedEffectInvalidator effectInvalidator;
+
+    private void Awake()
+    {
+        // GameManager is the composition root in the current project. These
+        // collaborators can be plain C# objects or focused MonoBehaviours.
+        rules = GetComponent<GameManager>().Rules;
+        factPresenters = RulesPresentationComposition.BuildPresenters(this);
+        visibleEffects = RulesPresentationComposition.BuildEffectSelector();
+        effectInvalidator = RulesPresentationComposition.BuildInvalidator();
+    }
+
+    private void OnEnable()
+    {
+        rules.FactCommitted += OnFactCommitted;
+    }
+
+    private void OnDisable()
+    {
+        rules.FactCommitted -= OnFactCommitted;
+    }
+
+    private void OnFactCommitted(CommittedRuleFact committed)
+    {
+        // Registered presenters handle concrete side effects such as token
+        // movement, hit animation, floating numbers, and condition visuals.
+        factPresenters.Present(committed.Fact, committed.CurrentSnapshot);
+
+        // The existing CombatLog remains a Unity UI Toolkit component. A
+        // projector converts the typed Fact into its player-facing entry.
+        var logEntry = CombatLogFactProjector.TryProject(committed.Fact);
+        if (logEntry is not null)
+            combatLog.LogEntry(logEntry);
+
+        // Recompute only tokens whose visible-effect projection could change.
+        // TokenMovedFact includes old/new positions, so moving an aura source
+        // can invalidate candidates near both locations. Effect creation,
+        // removal, state changes, and team changes have similar invalidators.
+        foreach (var creature in effectInvalidator.AffectedCreatures(
+            committed.Fact,
+            committed.PreviousSnapshot,
+            committed.CurrentSnapshot))
+        {
+            var projection = visibleEffects.ForCreature(
+                committed.CurrentSnapshot,
+                creature);
+            hud.RefreshVisibleEffects(creature, projection);
+        }
+    }
+}
+```
+
+`IVisibleEffectProjectionSelector.ForCreature` returns one UI-facing list containing both stored active effects and derived effects such as “currently inside Bless.” Selecting a token can query that list immediately, while committed movement, team, and active-effect Facts keep displayed tokens current. This gives the player an a priori Bless indicator without storing a second per-target rules effect or running a selector from `Update()`.
+
+`GameManager.Rules`, `HUDController.RefreshVisibleEffects`, the presentation registry, selector, and invalidator are narrow adapters proposed for the migration; they are not claimed as current APIs. The existing `CombatLog.LogEntry` and `GridPrivate.TokenMovement` remain the final Unity-facing components behind those adapters.
+
 ---
 
 ## 8. Worked example: normal Strike
@@ -832,7 +912,7 @@ public sealed record StrikeActionOp(
 
         return ActionProfile.OneAction(
             traits: weapon.Traits.Add(Trait.Attack),
-            startTriggers: ActionTriggerCatalog.ForStrike(weapon));
+            canTriggerReactions: true);
     }
 }
 
@@ -1010,18 +1090,12 @@ The existing `StrikeResolutionPipeline.Resolve` reaches `ApplyDefenseAndDamageAd
 
 ## 9. Worked example: Reactive Strike
 
-Reactive Strike demonstrates pre-emption, reactions, trusted provenance, and the difference between action-level and movement-level timing. The trigger representation is still under discussion in the PR; this block keeps the current proposal together so its data flow can be evaluated as one unit.
+Reactive Strike demonstrates pre-emption, reactions, trusted provenance, and the difference between action-level and movement-level timing. Reactive Strike owns its trigger matching; the engine supplies lifecycle Ops only when the originating action's profile allows reactions.
 
 ```csharp
-public enum ActionStartTrigger
-{
-    ManipulateActionBegun,
-    MoveActionBegun,
-    RangedAttackBegun
-}
-
 // Movement workflows dispatch this immediately before a qualifying departure.
-// Step does not dispatch it. Tumble Through can dispatch a synthetic instance.
+// A parent action with CanTriggerReactions=false suppresses it. Tumble Through
+// can dispatch a synthetic instance when its failure rule requires one.
 public sealed record MovementLeavingSquareOp(
     CreatureId Mover,
     GridPosition From,
@@ -1039,7 +1113,7 @@ public sealed record ReactiveStrikeActionOp(
     public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
         ActionProfile.Reaction(
             traits: [Trait.Attack],
-            startTriggers: []);
+            canTriggerReactions: true);
 }
 
 // All Reactive Strike registrations and trigger matching remain local to this
@@ -1079,7 +1153,15 @@ public static class ReactiveStrikeRule
         }
 
         var triggering = context.Trace.GetAction(frame.Op.ActionOpId);
-        if (!MatchesReactiveStrike(triggering.ActionProfile!.StartTriggers) ||
+        var traits = triggering.ActionProfile!.Traits;
+        var matchesTrigger =
+            traits.Contains(Trait.Manipulate) ||
+            traits.Contains(Trait.Move) ||
+            context.ActionSemantics.IsRangedAttack(
+                triggering,
+                context.Snapshot);
+
+        if (!matchesTrigger ||
             !CanReact(binding, triggering.Actor, context.Snapshot))
         {
             return current;
@@ -1183,17 +1265,10 @@ public static class ReactiveStrikeRule
         var triggeringAction = context.Trace.TryGetAction(
             frame.Op.TriggeringOpId);
         var disrupts = strike.Value.Degree == DegreeOfSuccess.CriticalSuccess &&
-            triggeringAction?.ActionProfile?.StartTriggers.Contains(
-                ActionStartTrigger.ManipulateActionBegun) == true;
+            triggeringAction?.ActionProfile?.Traits.Contains(Trait.Manipulate) == true;
 
         return new ReactiveStrikeOutcome(strike.Value, disrupts);
     }
-
-    private static bool MatchesReactiveStrike(
-        ImmutableHashSet<ActionStartTrigger> triggers) =>
-        triggers.Contains(ActionStartTrigger.ManipulateActionBegun) ||
-        triggers.Contains(ActionStartTrigger.MoveActionBegun) ||
-        triggers.Contains(ActionStartTrigger.RangedAttackBegun);
 
     // These helpers include enemy/reach/reaction/trigger-deduplication checks.
     private static bool CanReact(
@@ -1239,7 +1314,7 @@ public sealed record CastSpellActionOp(
             variant.ActionCost,
             [new SpellSlotCost(Slot)],
             variant.Traits,
-            variant.StartTriggers);
+            CanTriggerReactions: true);
     }
 }
 
@@ -1256,7 +1331,7 @@ public sealed record SustainBlessActionOp(
     public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
         ActionProfile.OneAction(
             traits: [Trait.Concentrate],
-            startTriggers: []);
+            canTriggerReactions: true);
 }
 
 public static class BlessRule
@@ -1414,7 +1489,7 @@ public static class BlessRule
 }
 ```
 
-Stride, forced movement, teleportation, spawning, and aura expansion all use current snapshot positions, so no stored child bonus can become stale. The open PR discussion will decide whether the player-facing projection remains derived or is additionally represented by per-target marker effects.
+Stride, forced movement, teleportation, spawning, and aura expansion all use current snapshot positions, so no stored child bonus can become stale. The player-facing Bless indicator is the derived projection described in Sections 6.3 and 7.2; it is pushed to affected displays after relevant Facts commit rather than stored as a second per-target rules effect.
 
 ---
 
@@ -1438,7 +1513,7 @@ public sealed record TumbleThroughActionOp(
     public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
         ActionProfile.OneAction(
             traits: [Trait.Move],
-            startTriggers: [ActionStartTrigger.MoveActionBegun]);
+            canTriggerReactions: true);
 }
 
 // This is nested movement work, not another PF2e action. Both calls below use
@@ -1876,7 +1951,7 @@ The five examples exercise the architecture's main extension points:
 
 | Requirement | Mechanism | Example |
 | --- | --- | --- |
-| PF2e action cost and traits | `ActionOp` plus frozen `ActionProfile` | Strike, Cast Spell, Tumble Through |
+| PF2e action cost, traits, and reaction eligibility | `ActionOp` plus frozen `ActionProfile` | Strike, Step, Cast Spell, Tumble Through |
 | Disruption after costs commit | Middleware on `ActionBegunOp` | Reactive Strike |
 | Trigger during movement | `MovementLeavingSquareOp` | Reactive Strike, failed Tumble Through |
 | Dynamic bonus contribution | Middleware on `CollectAttackModifiersOp` | Bless |
@@ -1907,7 +1982,7 @@ These rules should be enforced in code review and tests:
 8. **Ordinary check failure is a resolved outcome, not an invalid Op.**
 9. **The dispatcher creates frame IDs, ancestry, causation, and invocation policy.**
 10. **Nested-only Ops reject external dispatch.**
-11. **Traits do not implicitly create lifecycle triggers.**
+11. **`CanTriggerReactions` controls whether reaction lifecycle Ops occur; each reaction owns its own matching logic.**
 12. **Active rule state lives in the store, not in middleware instances or Unity objects.**
 13. **Rule ordering is deterministic.**
 14. **Each migrated field has one authoritative owner.**
@@ -1932,7 +2007,7 @@ In development builds, the dispatcher should record a compact resolution trace:
 
 ```text
 [root 81] StrikeActionOp actor=A target=B
-  profile: 1 action; attack; trigger=Attack
+  profile: 1 action; attack; can-trigger-reactions=true
   CommitActionCostsOp -> Resolved
     fact: ActionCostSpentFact(1)
   ActionBegunOp -> Resolved
@@ -1975,7 +2050,7 @@ Most engine tests should be EditMode tests against an in-memory `RulesState`, de
 
 - illegal triggering action does not prompt;
 - manipulate action commits costs before a disrupting critical hit;
-- Step does not emit the movement trigger;
+- Step sets `CanTriggerReactions = false` and opens no action or movement reaction window;
 - qualifying Stride departure does emit it;
 - spent reaction prevents a second use;
 - multiple reactors resolve in deterministic order.
