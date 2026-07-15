@@ -291,6 +291,10 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             Portrait portraitScript = Players[i].GetComponent<Portrait>();
             if (portraitScript != null) {
                 Texture2D portraitSnapshot = portraitScript.GetPortraitSnapshot();
+                if (portraitSnapshot == null) {
+                    portraitScript.RefreshSnapshot();
+                    portraitSnapshot = portraitScript.GetPortraitSnapshot();
+                }
                 if (portraitSnapshot != null && portraitImage != null) {
                     portraitImage.image = portraitSnapshot;
                 }

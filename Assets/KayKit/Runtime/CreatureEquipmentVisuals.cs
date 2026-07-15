@@ -137,6 +137,7 @@ namespace Game.KayKit
             instance.transform.localPosition = attachment.LocalPosition;
             instance.transform.localRotation = Quaternion.Euler(attachment.LocalEulerAngles);
             instance.transform.localScale = attachment.LocalScale;
+            CreaturePresentation.SetLayerRecursively(instance, gameObject.layer);
             if (attachment.Material != null)
             {
                 foreach (Renderer renderer in instance.GetComponentsInChildren<Renderer>(true))

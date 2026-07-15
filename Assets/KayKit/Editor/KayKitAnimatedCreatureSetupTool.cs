@@ -16,6 +16,7 @@ namespace Game.KayKit.Editor
         public const string CreatureVisualCatalogPath = KayKitSetupTool.CatalogRoot + "/CreatureVisualCatalog.asset";
         public const string EquipmentVisualCatalogPath = KayKitSetupTool.CatalogRoot + "/EquipmentVisualCatalog.asset";
         public const string AnimatorControllerPath = KayKitSetupTool.ProjectRoot + "/Animation/KayKitCreatureAnimator.controller";
+        public const float AnimatedCreatureVisualScale = 0.75f;
         public const float CharacterPreviewVisualScale = 0.62f;
 
         private const string AdventurerModelRoot = "Assets/ThirdParty/KayKit/Adventurers_2.0/Characters/fbx";
@@ -117,6 +118,10 @@ namespace Game.KayKit.Editor
                 if (prefab.GetComponent<CreatureAnimationController>() == null ||
                     prefab.GetComponent<CreatureEquipmentVisuals>() == null)
                     errors.Add("Animated visual is missing presentation components: " + path);
+                if (Vector3.Distance(
+                        prefab.transform.localScale,
+                        Vector3.one * AnimatedCreatureVisualScale) > 0.001f)
+                    errors.Add("Animated visual is not configured at the approved combat scale: " + path);
                 controllerAssetOwner = prefab;
             }
             _ = controllerAssetOwner;
@@ -222,6 +227,7 @@ namespace Game.KayKit.Editor
                 GameObject model = RequireAsset<GameObject>(definition.ModelPath);
                 Material material = RequireAsset<Material>(definition.MaterialPath);
                 GameObject root = new(definition.PrefabName);
+                root.transform.localScale = Vector3.one * AnimatedCreatureVisualScale;
                 try
                 {
                     GameObject modelInstance = PrefabUtility.InstantiatePrefab(model) as GameObject;

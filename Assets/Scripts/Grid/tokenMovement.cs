@@ -24,6 +24,7 @@ namespace GridPrivate
         protected Vector3 StartPoint;
         protected Vector3 EndPoint;
         protected Vector3 Direction;
+        protected bool UseHop;
 
         public void LookAt(Vector3 target, Transform token)
         {
@@ -34,6 +35,16 @@ namespace GridPrivate
 
         public IEnumerator Hop(Transform token, Vector3 next)
         {
+            yield return BeginMovement(token, next, true);
+        }
+
+        public IEnumerator Walk(Transform token, Vector3 next)
+        {
+            yield return BeginMovement(token, next, false);
+        }
+
+        private IEnumerator BeginMovement(Transform token, Vector3 next, bool useHop)
+        {
             if (IsMoving)
                 yield break;
 
@@ -43,6 +54,7 @@ namespace GridPrivate
             EndPoint = next;
             StartPoint = token.position;
             Direction = (EndPoint - StartPoint).normalized;
+            UseHop = useHop;
             yield return new WaitUntil(() => Token == null);
         }
 
@@ -53,18 +65,21 @@ namespace GridPrivate
                 CurrentTime += Time.deltaTime;
                 float time = Mathf.Clamp01(CurrentTime / JumpTime);
                 Vector3 position = Vector3.Lerp(StartPoint, EndPoint, PtLerp.Evaluate(time));
-                position.y += StepHeight * YLerp.Evaluate(time);
+                if (UseHop)
+                    position.y += StepHeight * YLerp.Evaluate(time);
                 Token.position = position;
-                // Tilt forward during jump
-                Vector3 tiltEuler = new Vector3(
-                    MaxRotation * YLerp.Evaluate(time),
-                    0,
-                    0
-                );
                 // Look towards movement direction.
                 Quaternion lookRotation = Quaternion.LookRotation(Direction);
-                Quaternion tiltRotation = Quaternion.Euler(tiltEuler);
-                Quaternion finalRotation = lookRotation * tiltRotation;
+                Quaternion finalRotation = lookRotation;
+                if (UseHop)
+                {
+                    Vector3 tiltEuler = new Vector3(
+                        MaxRotation * YLerp.Evaluate(time),
+                        0,
+                        0
+                    );
+                    finalRotation *= Quaternion.Euler(tiltEuler);
+                }
                 Token.rotation = Quaternion.Slerp(Token.rotation, finalRotation, Time.deltaTime * 20f);
                 if (time >= 1.0f)
                 {

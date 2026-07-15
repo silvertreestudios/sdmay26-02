@@ -197,7 +197,7 @@ public class StrikeWeapon : MultiFrameEntityAction
             }
 
             CombatLog.GetInstance().Log("- " + attacker.name + " strikes " + target.Value.Target.name + " with " + weaponName + ".");
-            attacker.GetComponent<CreaturePresentation>()?.PlayAttack(Weapon);
+            attacker.GetComponent<CreaturePresentation>()?.PlayAttack(Weapon, target.Value.Target.transform.position);
             StrikeResolutionPipeline.Resolve(new StrikeResolutionRequest
             {
                 Attacker = attacker,

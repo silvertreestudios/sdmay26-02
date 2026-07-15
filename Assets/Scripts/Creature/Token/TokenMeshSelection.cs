@@ -81,15 +81,20 @@ public class TokenMeshSelection : MonoBehaviour
             animatedVisualInstance.name = entry.VisualPrefab.name;
             animatedVisualInstance.transform.localPosition = Vector3.zero;
             animatedVisualInstance.transform.localRotation = Quaternion.identity;
-            animatedVisualInstance.transform.localScale = Vector3.one;
+            animatedVisualInstance.transform.localScale = entry.VisualPrefab.transform.localScale;
+            CreaturePresentation.SetLayerRecursively(
+                animatedVisualInstance,
+                creatureComponent != null ? creatureComponent.gameObject.layer : gameObject.layer);
             SetLegacyTokenVisible(false);
             BindPresentation(animatedVisualInstance);
+            RefreshPortrait();
             return;
         }
 
         BindPresentation(null);
         SetLegacyTokenVisible(true);
         ApplyLegacyMesh(key, warnOnMissingLegacy);
+        RefreshPortrait();
     }
 
     private void CacheLegacyObjects()
@@ -189,6 +194,15 @@ public class TokenMeshSelection : MonoBehaviour
     {
         if (tokenMeshRenderer != null)
             tokenMeshRenderer.enabled = visible;
+        if (baseMeshRenderer != null)
+            baseMeshRenderer.enabled = visible;
+    }
+
+    private void RefreshPortrait()
+    {
+        if (!Application.isPlaying || creatureComponent == null)
+            return;
+        creatureComponent.GetComponent<Portrait>()?.RefreshSnapshot();
     }
 }
 

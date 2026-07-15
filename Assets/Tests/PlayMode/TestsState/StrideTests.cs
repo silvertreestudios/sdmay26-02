@@ -63,12 +63,20 @@ namespace TestsState
             yield return null;
             Assert.That(presentation.AnimationController.IsMoving, Is.True);
 
-            // Wait for movement to finish (FSM returns to idle)
-            yield return WaitUntilWithTimeout(timeout, () => gridBase.Fsm.CurrentState is StateIdle);
+            // Wait for movement to finish while proving the animated model stays
+            // level instead of using the legacy token hop.
+            float maxHeight = player.transform.position.y;
+            float deadline = Time.realtimeSinceStartup + timeout;
+            while (!(gridBase.Fsm.CurrentState is StateIdle) && Time.realtimeSinceStartup < deadline)
+            {
+                maxHeight = Mathf.Max(maxHeight, player.transform.position.y);
+                yield return null;
+            }
             
             Assert.IsTrue(gridBase.Fsm.CurrentState is StateIdle, "FSM did not return to StateIdle after movement.");
             Vector3 endPos = player.transform.position;
             Assert.AreEqual(targetPos, Vector3Int.RoundToInt(endPos), "Player did not move to the specified target position.");
+            Assert.That(maxHeight, Is.EqualTo(startPos.y).Within(0.001f), "Animated stride should not hop above the grid.");
             Assert.That(presentation.AnimationController.IsMoving, Is.False);
         }
 

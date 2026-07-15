@@ -49,7 +49,9 @@ public class Unarmed : MultiFrameEntityAction
         {
             CombatLog.GetInstance().Log("- " + attacker.name + " attacks " + target.Value.Target.name + " with unarmed strike.");
             Debug.Log(attacker + " Striking " + target.Value.Target);
-            attacker.GetComponent<CreaturePresentation>()?.PlayAttack(AnimationStyle.Unarmed);
+            attacker.GetComponent<CreaturePresentation>()?.PlayAttack(
+                AnimationStyle.Unarmed,
+                target.Value.Target.transform.position);
             StrikeResolutionPipeline.Resolve(new StrikeResolutionRequest
             {
                 Attacker = attacker,

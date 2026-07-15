@@ -162,7 +162,10 @@ namespace GridPrivate
                         break;
 
                     // Move to new tile
-                    yield return movement.Hop(Character.transform, step.Location);
+                    if (presentation?.AnimationController != null)
+                        yield return movement.Walk(Character.transform, step.Location);
+                    else
+                        yield return movement.Hop(Character.transform, step.Location);
 
                     // Add to tile
                     tile = Tiles[step.Location.x, step.Location.z];

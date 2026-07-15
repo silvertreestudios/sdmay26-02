@@ -133,6 +133,52 @@ namespace TestsUI
         }
 
         [UnityTest]
+        public IEnumerator PlayerCardsShowRenderedCreaturePortraits()
+        {
+            VisualElement cardHolder = null;
+            List<GameObject> combatants = null;
+            yield return WaitUntilWithTimeout(timeout, () =>
+            {
+                cardHolder = root.Q<VisualElement>("CardHolder");
+                combatants = CombatManagerInterface.GetInstance().GetCombatants();
+                if (cardHolder == null || combatants == null || cardHolder.childCount != combatants.Count)
+                    return false;
+                for (int i = 0; i < cardHolder.childCount; i++)
+                {
+                    Image image = cardHolder.ElementAt(i).Q<Image>("PortraitImage");
+                    if (image == null || image.image == null)
+                        return false;
+                }
+                return true;
+            });
+
+            Assert.IsNotNull(cardHolder, "CardHolder not found in UI.");
+            Assert.IsNotNull(combatants, "Combatants were not ready.");
+            Assert.AreEqual(combatants.Count, cardHolder.childCount, "Every combatant should have an initiative card.");
+
+            for (int i = 0; i < combatants.Count; i++)
+            {
+                Image portraitImage = cardHolder.ElementAt(i).Q<Image>("PortraitImage");
+                Portrait portrait = combatants[i].GetComponent<Portrait>();
+                Texture2D snapshot = portrait != null ? portrait.GetPortraitSnapshot() : null;
+                Texture2D displayedPortrait = portraitImage != null ? portraitImage.image as Texture2D : null;
+                Assert.IsNotNull(portraitImage, combatants[i].name + " card is missing its portrait element.");
+                Assert.IsNotNull(snapshot, combatants[i].name + " did not capture a portrait texture.");
+                Assert.IsNotNull(displayedPortrait, "Initiative card " + i + " is not displaying a portrait texture.");
+
+                bool hasVisiblePixel = false;
+                foreach (Color32 pixel in displayedPortrait.GetPixels32())
+                {
+                    if (pixel.a == 0)
+                        continue;
+                    hasVisiblePixel = true;
+                    break;
+                }
+                Assert.IsTrue(hasVisiblePixel, combatants[i].name + " portrait is fully transparent.");
+            }
+        }
+
+        [UnityTest]
         public IEnumerator CombatTrackerShowsReducedActionsForSlowedCreature()
         {
             VisualElement cardHolder = null;

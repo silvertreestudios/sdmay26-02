@@ -66,6 +66,13 @@ public sealed class KayKitAnimatedCreatureTests
             selector.RefreshVisual();
             Assert.That(selector.UsingAnimatedVisual, Is.True);
             Assert.That(selector.ActiveVisualInstance.GetComponentsInChildren<Animator>(true), Has.Length.EqualTo(1));
+            Assert.That(
+                selector.ActiveVisualInstance.transform.localScale,
+                Is.EqualTo(Vector3.one * KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale));
+            Assert.That(selector.transform.GetChild(0).GetComponent<MeshRenderer>().enabled, Is.False);
+            Assert.That(selector.transform.GetChild(1).GetComponent<MeshRenderer>().enabled, Is.False);
+            foreach (Renderer renderer in selector.ActiveVisualInstance.GetComponentsInChildren<Renderer>(true))
+                Assert.That(renderer.gameObject.layer, Is.EqualTo(instance.layer), renderer.name);
 
             selector.RefreshVisual();
 
@@ -93,6 +100,7 @@ public sealed class KayKitAnimatedCreatureTests
 
             Assert.That(selector.UsingAnimatedVisual, Is.False);
             Assert.That(selector.transform.GetChild(0).GetComponent<MeshRenderer>().enabled, Is.True);
+            Assert.That(selector.transform.GetChild(1).GetComponent<MeshRenderer>().enabled, Is.True);
             Assert.That(selector.transform.GetChild(0).GetComponent<MeshFilter>().sharedMesh, Is.Not.Null);
         }
         finally
@@ -117,12 +125,54 @@ public sealed class KayKitAnimatedCreatureTests
                 viewModel.setMeshName(key);
                 Assert.That(viewModel.UsingAnimatedVisual, Is.True, key);
                 Assert.That(viewModel.transform.Find("VisualRoot").childCount, Is.EqualTo(1), key);
+                Assert.That(
+                    viewModel.ActiveVisualInstance.transform.localScale,
+                    Is.EqualTo(Vector3.one * KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale),
+                    key);
                 Assert.That(viewModel.ActiveVisualInstance.GetComponentsInChildren<Animator>(true), Has.Length.EqualTo(1), key);
             }
         }
         finally
         {
             Object.DestroyImmediate(instance);
+        }
+    }
+
+    [Test]
+    public void AnimatedVisualPrefabs_UseApprovedReducedScale()
+    {
+        HashSet<GameObject> checkedPrefabs = new();
+        foreach (CreatureVisualCatalogEntry entry in visualCatalog.Entries)
+        {
+            if (entry.VisualPrefab == null || !checkedPrefabs.Add(entry.VisualPrefab))
+                continue;
+            Assert.That(
+                entry.VisualPrefab.transform.localScale,
+                Is.EqualTo(Vector3.one * KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale),
+                entry.VisualPrefab.name);
+        }
+        Assert.That(checkedPrefabs.Count, Is.EqualTo(8));
+    }
+
+    [Test]
+    public void CreaturePresentation_FaceTowardsUsesHorizontalTargetDirection()
+    {
+        GameObject owner = new("Facing test");
+        try
+        {
+            owner.transform.position = new Vector3(2.0f, 4.0f, 3.0f);
+            CreaturePresentation presentation = owner.AddComponent<CreaturePresentation>();
+
+            Assert.That(presentation.FaceTowards(new Vector3(8.0f, 20.0f, -1.0f)), Is.True);
+
+            Vector3 expected = new Vector3(6.0f, 0.0f, -4.0f).normalized;
+            Assert.That(Vector3.Dot(owner.transform.forward, expected), Is.GreaterThan(0.999f));
+            Assert.That(Mathf.Abs(owner.transform.forward.y), Is.LessThan(0.001f));
+            Assert.That(presentation.FaceTowards(owner.transform.position), Is.False);
+        }
+        finally
+        {
+            Object.DestroyImmediate(owner);
         }
     }
 

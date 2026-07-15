@@ -101,6 +101,7 @@ namespace TestsState
             OnHover.Invoke(new System.Collections.Generic.List<Vector3Int> { targetPos });
 
             GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
+            GameObject target = gridBase.GetTiles()[targetPos.x, targetPos.z].Occupants[0];
             gridBase.Fsm.CurrentState.Leftclick();
             // Wait a frame for events to process
             yield return null;
@@ -114,6 +115,12 @@ namespace TestsState
             CreatureAnimationController animation = player.GetComponent<CreaturePresentation>().AnimationController;
             Assert.That(animation.CurrentClipId, Is.EqualTo("animation/combatmelee/melee_unarmed_attack_punch_a"));
             Assert.That(animation.IsActionPlaying, Is.True, "Strike resolution should not wait for the presentation animation.");
+            Vector3 targetDirection = target.transform.position - player.transform.position;
+            targetDirection.y = 0.0f;
+            Assert.That(
+                Vector3.Dot(player.transform.forward, targetDirection.normalized),
+                Is.GreaterThan(0.999f),
+                "The attacker should face its selected target before the attack animation starts.");
         }
 
         /// <summary>

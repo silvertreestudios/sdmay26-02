@@ -69,6 +69,13 @@ resolve through Humanoid hand bones. Back and quiver sockets are project-owned
 children of the Humanoid torso. Two-handed props use the right-hand socket and
 the authored two-handed pose; no procedural IK is used.
 
+Animated wrappers use a shared 0.75 presentation scale. Their legacy token mesh
+and base plate are hidden at runtime, while unmapped legacy creatures keep both.
+Animated Stride movement stays level and uses the walk clip instead of the old
+token hop. Strikes rotate the creature root toward the selected target before
+the attack clip begins. Animated models and equipment inherit the creature
+rendering layer so the existing initiative portrait cameras include them.
+
 The character-creation `VisualRoot` applies a preview-only scale so complete
 models and their longest default props remain inside the existing portrait
 camera framing. Combat instances retain their authored wrapper scale.

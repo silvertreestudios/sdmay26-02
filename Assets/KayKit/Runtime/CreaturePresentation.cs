@@ -38,6 +38,28 @@ namespace Game.KayKit
             AnimationController?.PlayAttack(style);
         }
 
+        public void PlayAttack(AnimationStyle style, Vector3 targetPosition)
+        {
+            FaceTowards(targetPosition);
+            PlayAttack(style);
+        }
+
+        public void PlayAttack(EquipmentWeapon weapon, Vector3 targetPosition)
+        {
+            FaceTowards(targetPosition);
+            PlayAttack(weapon);
+        }
+
+        public bool FaceTowards(Vector3 targetPosition)
+        {
+            Vector3 direction = targetPosition - transform.position;
+            direction.y = 0.0f;
+            if (direction.sqrMagnitude <= 0.0001f)
+                return false;
+            transform.rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
+            return true;
+        }
+
         public void PlayHit()
         {
             AnimationController?.PlayHit();
@@ -54,6 +76,14 @@ namespace Game.KayKit
         private void OnDisable()
         {
             AnimationController?.SetMoving(false, 0.0f);
+        }
+
+        internal static void SetLayerRecursively(GameObject root, int layer)
+        {
+            if (root == null)
+                return;
+            foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
+                child.gameObject.layer = layer;
         }
     }
 }
