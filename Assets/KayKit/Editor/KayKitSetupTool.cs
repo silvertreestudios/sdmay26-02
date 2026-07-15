@@ -22,6 +22,12 @@ namespace Game.KayKit.Editor
         private const string DownloadDate = "2026-07-14";
         private const string LicenseName = "CC0-1.0";
 
+        private static readonly IReadOnlyDictionary<string, string> SourceAtlasByModel =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "arrow_bow", "ranger_texture" }
+            };
+
         private static readonly PackDescriptor[] Packs =
         {
             new(
@@ -393,19 +399,34 @@ namespace Game.KayKit.Editor
 
         private static Material SelectMaterial(IReadOnlyList<Material> materials, string modelPath)
         {
+            if (materials.Count == 0)
+                throw new InvalidOperationException($"No project materials are available for {modelPath}.");
+            if (materials.Count == 1)
+                return materials[0];
+
             string modelName = Path.GetFileNameWithoutExtension(modelPath);
+            SourceAtlasByModel.TryGetValue(modelName, out string sourceAtlasName);
             Material match = materials.FirstOrDefault(material =>
             {
                 string textureName = material.mainTexture == null
                     ? string.Empty
                     : material.mainTexture.name;
+                if (!string.IsNullOrEmpty(sourceAtlasName))
+                    return string.Equals(textureName, sourceAtlasName, StringComparison.OrdinalIgnoreCase);
+
                 const string suffix = "_texture";
                 string key = textureName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
                     ? textureName.Substring(0, textureName.Length - suffix.Length)
                     : textureName;
                 return modelName.StartsWith(key, StringComparison.OrdinalIgnoreCase);
             });
-            return match ?? materials.First();
+            if (match == null)
+            {
+                throw new InvalidOperationException(
+                    $"Could not determine the source texture atlas for model: {modelPath}");
+            }
+
+            return match;
         }
 
         private static void CreateWrapper(
@@ -478,8 +499,17 @@ namespace Game.KayKit.Editor
                 errors);
             foreach (KayKitAnimationEntry entry in library.Entries)
             {
-                if (KayKitPathUtility.ClassifyClip(entry.Clip.name) == KayKitClipSemantics.SetupPose)
+                if (entry.Clip == null)
+                    continue;
+
+                KayKitClipSemantics semantics = KayKitPathUtility.ClassifyClip(entry.Clip.name);
+                bool shouldLoop = semantics == KayKitClipSemantics.Loop;
+                if (semantics == KayKitClipSemantics.SetupPose)
                     errors.Add($"Setup T-pose is playable in the animation library: {entry.Id}");
+                if (entry.Loop != shouldLoop)
+                    errors.Add($"Animation loop metadata is stale for {entry.Id}.");
+                if (entry.Clip.isLooping != shouldLoop)
+                    errors.Add($"Imported animation loop setting is incorrect for {entry.Id}.");
                 if (!Mathf.Approximately(entry.Duration, entry.Clip.length))
                     errors.Add($"Animation duration is stale for {entry.Id}.");
             }
@@ -538,7 +568,49 @@ namespace Game.KayKit.Editor
                         errors.Add($"Humanoid import is required for: {path}");
                     if (!humanoid && model.importAnimation)
                         errors.Add($"Animation import must be disabled for: {path}");
+                    if (KayKitPathUtility.IsAnimationSource(path))
+                        ValidateAnimationImporter(path, model, errors);
                 }
+            }
+        }
+
+        private static void ValidateAnimationImporter(
+            string path,
+            ModelImporter importer,
+            ICollection<string> errors)
+        {
+            ModelImporterClipAnimation[] clips = importer.clipAnimations;
+            if (clips.Length == 0)
+            {
+                errors.Add($"Animation clip overrides are missing for: {path}");
+                return;
+            }
+
+            AnimationClip[] importedClips = AssetDatabase.LoadAllAssetsAtPath(path)
+                .OfType<AnimationClip>()
+                .Where(clip => !clip.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            foreach (AnimationClip importedClip in importedClips)
+            {
+                ModelImporterClipAnimation settings = clips.FirstOrDefault(clip =>
+                    string.Equals(clip.name, importedClip.name, StringComparison.Ordinal));
+                if (settings == null)
+                {
+                    errors.Add($"Animation clip override is missing for {path}/{importedClip.name}.");
+                    continue;
+                }
+
+                bool shouldLoop =
+                    KayKitPathUtility.ClassifyClip(importedClip.name) == KayKitClipSemantics.Loop;
+                if (settings.loopTime != shouldLoop || settings.loopPose != shouldLoop ||
+                    !settings.lockRootRotation || !settings.lockRootHeightY ||
+                    !settings.lockRootPositionXZ)
+                {
+                    errors.Add(
+                        $"Animation clip import settings are incorrect for {path}/{importedClip.name}.");
+                }
+                if (importedClip.isLooping != shouldLoop)
+                    errors.Add($"Imported animation loop setting is incorrect for {path}/{importedClip.name}.");
             }
         }
 

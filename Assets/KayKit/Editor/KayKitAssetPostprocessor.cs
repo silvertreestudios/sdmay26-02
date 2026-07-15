@@ -22,7 +22,6 @@ namespace Game.KayKit.Editor
             if (KayKitPathUtility.IsAnimationSource(assetPath))
             {
                 ConfigureHumanoid(importer, true);
-                ConfigureAnimationClips(importer);
             }
             else if (KayKitPathUtility.IsCharacterModel(assetPath))
             {
@@ -33,6 +32,14 @@ namespace Game.KayKit.Editor
                 importer.animationType = ModelImporterAnimationType.None;
                 importer.importAnimation = false;
             }
+        }
+
+        private void OnPreprocessAnimation()
+        {
+            if (!KayKitPathUtility.IsAnimationSource(assetPath))
+                return;
+
+            ConfigureAnimationClips((ModelImporter)assetImporter);
         }
 
         private void OnPreprocessTexture()

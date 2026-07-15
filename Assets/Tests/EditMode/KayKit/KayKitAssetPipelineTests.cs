@@ -45,6 +45,75 @@ public sealed class KayKitAssetPipelineTests
     }
 
     [Test]
+    public void AnimationClips_UseClassifiedLoopSettings()
+    {
+        string[] paths = AssetDatabase.FindAssets(
+                string.Empty,
+                new[] { KayKitPathUtility.AnimationsRoot })
+            .Select(AssetDatabase.GUIDToAssetPath)
+            .Where(KayKitPathUtility.IsAnimationSource)
+            .ToArray();
+
+        Assert.That(paths, Has.Length.EqualTo(8));
+        foreach (string path in paths)
+        {
+            ModelImporter importer = AssetImporter.GetAtPath(path) as ModelImporter;
+            Assert.That(importer, Is.Not.Null, path);
+            Assert.That(importer.clipAnimations, Is.Not.Empty, path);
+
+            foreach (AnimationClip clip in AssetDatabase.LoadAllAssetsAtPath(path)
+                         .OfType<AnimationClip>()
+                         .Where(clip => !clip.name.StartsWith(
+                             "__preview__",
+                             StringComparison.OrdinalIgnoreCase)))
+            {
+                bool shouldLoop =
+                    KayKitPathUtility.ClassifyClip(clip.name) == KayKitClipSemantics.Loop;
+                ModelImporterClipAnimation settings = importer.clipAnimations.SingleOrDefault(candidate =>
+                    string.Equals(candidate.name, clip.name, StringComparison.Ordinal));
+
+                Assert.That(settings, Is.Not.Null, $"{path}/{clip.name}");
+                Assert.That(settings.loopTime, Is.EqualTo(shouldLoop), $"{path}/{clip.name}");
+                Assert.That(settings.loopPose, Is.EqualTo(shouldLoop), $"{path}/{clip.name}");
+                Assert.That(settings.lockRootRotation, Is.True, $"{path}/{clip.name}");
+                Assert.That(settings.lockRootHeightY, Is.True, $"{path}/{clip.name}");
+                Assert.That(settings.lockRootPositionXZ, Is.True, $"{path}/{clip.name}");
+                Assert.That(clip.isLooping, Is.EqualTo(shouldLoop), $"{path}/{clip.name}");
+            }
+        }
+    }
+
+    [Test]
+    public void Validation_ReportsMissingClipWithoutThrowing()
+    {
+        KayKitAnimationLibrary library =
+            AssetDatabase.LoadAssetAtPath<KayKitAnimationLibrary>(KayKitSetupTool.AnimationLibraryPath);
+        KayKitAnimationEntry[] original = library.Entries.ToArray();
+        KayKitAnimationEntry first = original[0];
+        KayKitAnimationEntry missing = new(
+            first.Id,
+            first.SourceCategory,
+            null,
+            first.Loop,
+            first.Duration);
+        KayKitValidationReport report = null;
+
+        try
+        {
+            library.ReplaceEntries(new[] { missing }.Concat(original.Skip(1)));
+
+            Assert.DoesNotThrow(() => report = KayKitSetupTool.Validate());
+            Assert.That(
+                report.Errors,
+                Does.Contain($"Animation library contains a missing reference: {first.Id}"));
+        }
+        finally
+        {
+            library.ReplaceEntries(original);
+        }
+    }
+
+    [Test]
     public void DungeonCatalog_ReferencesEveryImportedDungeonFbx()
     {
         KayKitDungeonCatalog catalog =
@@ -139,6 +208,21 @@ public sealed class KayKitAssetPipelineTests
                 Is.True,
                 path);
         }
+    }
+
+    [Test]
+    public void RepresentativeAccessory_UsesRangerSourceAtlas()
+    {
+        string path = KayKitSetupTool.PrefabRoot + "/RepresentativeAccessory.prefab";
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+        string[] textureNames = prefab.GetComponentsInChildren<Renderer>(true)
+            .SelectMany(renderer => renderer.sharedMaterials)
+            .Where(material => material != null && material.mainTexture != null)
+            .Select(material => material.mainTexture.name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        Assert.That(textureNames, Is.EqualTo(new[] { "ranger_texture" }), path);
     }
 
     [Test]
