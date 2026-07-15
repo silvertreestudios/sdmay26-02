@@ -35,3 +35,8 @@
 # *.mp3 filter=lfs diff=lfs merge=lfs -text
 # *.ogg filter=lfs diff=lfs merge=lfs -text
 # *.unitypackage filter=lfs diff=lfs merge=lfs -text
+
+# Scoped-new-assets exception to #60. Only the immutable KayKit vendor payload
+# is tracked through LFS; existing repository binaries remain ordinary Git blobs.
+Assets/ThirdParty/KayKit/**/*.fbx filter=lfs diff=lfs merge=lfs -text
+Assets/ThirdParty/KayKit/**/*.png filter=lfs diff=lfs merge=lfs -text

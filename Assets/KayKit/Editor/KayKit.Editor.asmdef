@@ -1,0 +1,18 @@
+{
+    "name": "KayKit.Editor",
+    "rootNamespace": "Game.KayKit.Editor",
+    "references": [
+        "MainGameAssembly"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
