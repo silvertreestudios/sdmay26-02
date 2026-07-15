@@ -177,7 +177,7 @@ The fields have different jobs:
 - `Traits` classify the action for rules that refer to traits.
 - `CanTriggerReactions` is a blanket eligibility flag. It defaults to `true`; Step and other actions that explicitly trigger no reactions set it to `false`.
 
-Traits do not determine reaction eligibility by themselves. A Step still has `Trait.Move`, but its profile sets `CanTriggerReactions` to `false`. When the flag is false, the engine does not open action-start or nested movement reaction windows. Individual reactions remain responsible for matching their own trigger wording against eligible lifecycle Ops, the originating Op, its traits, and any needed geometry.
+Traits do not determine reaction eligibility by themselves. A Step still has `Trait.Move`, but its profile sets `CanTriggerReactions` to `false`. Lifecycle Ops still occur for consistency and so non-reaction rules can observe what happened. Each reaction must inspect the originating action's frozen profile and return without prompting when `CanTriggerReactions` is `false`; it then matches its own trigger wording against the originating Op, its traits, and any needed geometry.
 
 ```csharp
 public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
@@ -484,7 +484,7 @@ Fact listeners may dispatch Ops. Those Ops form a new, causally linked resolutio
 
 ### 5.4 ActionOp has a mandatory lifecycle
 
-An `ActionOp` is specifically an Op for a PF2e action, such as Strike, Stride, Cast a Spell, a reaction, or a free action. These rules have a shared order for validation, paying costs, opening reaction windows, and resolving the action's own behavior. The mandatory lifecycle puts that shared order in one engine-owned pipeline instead of repeating it in every action handler.
+An `ActionOp` is specifically an Op for a PF2e action, such as Strike, Stride, Cast a Spell, a reaction, or a free action. These rules have a shared order for validation, paying costs, publishing the action-begun timing point, and resolving the action's own behavior. The mandatory lifecycle puts that shared order in one engine-owned pipeline instead of repeating it in every action handler.
 
 The dispatcher recognizes `ActionOp<TResult>` and applies this template around its feature handler:
 
@@ -493,7 +493,7 @@ The dispatcher recognizes `ActionOp<TResult>` and applies this template around i
 2. Build and freeze the effective ActionProfile.
 3. Run pure validation.
 4. Atomically commit all action and additional costs.
-5. If the profile can trigger reactions, dispatch ActionBegunOp.
+5. Dispatch ActionBegunOp.
 6. If ActionBegunOp reports disruption, return Interrupted.
 7. Otherwise invoke the feature handler.
 8. Complete the result and publish committed Facts.
@@ -523,14 +523,11 @@ private async ValueTask<OpResult<TResult>> DispatchAction<TResult>(
     if (costs.Status != OpStatus.Resolved)
         return OpResult.Invalid<TResult>(costs.InvalidReason!);
 
-    if (profile.CanTriggerReactions)
-    {
-        var begun = await DispatchNested(
-            frame,
-            new ActionBegunOp(frame.Id));
-        if (begun.Value.Decision == ActionStartDecision.Interrupted)
-            return OpResult.Interrupted<TResult>();
-    }
+    var begun = await DispatchNested(
+        frame,
+        new ActionBegunOp(frame.Id));
+    if (begun.Value.Decision == ActionStartDecision.Interrupted)
+        return OpResult.Interrupted<TResult>();
 
     return await InvokeHandler(frame);
 }
@@ -552,14 +549,14 @@ public sealed record ActionBegunOp(OpId ActionOpId)
     : IRuleOp<ActionStartOutcome>;
 ```
 
-Middleware follows `ActionOpId` to its trusted frame and reads the frozen `ActionProfile`, actor, target data, and provenance there. The action handler is not responsible for predicting all information future reactions might need.
+Middleware follows `ActionOpId` to its trusted frame and reads the frozen `ActionProfile`, actor, target data, and provenance there. Reaction middleware first checks `ActionProfile.CanTriggerReactions`; other middleware may observe the lifecycle Op regardless of that flag. The action handler is not responsible for predicting all information future listeners might need.
 
 If a future trigger needs information that is not universal to actions, it should use either:
 
 - typed data from the originating action Op, obtained from the frame; or
 - a more specific lifecycle Op at the actual timing point.
 
-For example, leaving a threatened square is represented by `MovementLeavingSquareOp`, because it occurs during movement and contains square-level geometry. The movement workflow inherits `CanTriggerReactions` from its parent action and skips this lifecycle Op when the flag is false.
+For example, leaving a threatened square is represented by `MovementLeavingSquareOp`, because it occurs during movement and contains square-level geometry. It identifies the originating action so reaction middleware can read that action's frozen profile before matching the departure trigger. The movement workflow dispatches this lifecycle Op even when reactions are ineligible.
 
 ### 5.6 Nested operations and prompts
 
@@ -580,6 +577,7 @@ if (check.Status != OpStatus.Resolved)
 if (check.Value.Degree < DegreeOfSuccess.Success)
 {
     await context.Dispatch(new MovementLeavingSquareOp(
+        frame.Id,
         actor,
         startingSquare,
         startingSquare,
@@ -823,6 +821,8 @@ For example, when a player clicks the Strike button, Unity gathers a `StrikeSele
 Animations may lag behind committed state. A presentation queue can translate Facts into movement, hit, floating-number, condition, and death animations in order. Presentation completion must not determine whether the rules change occurred.
 
 The current project can host this boundary in a `MonoBehaviour` attached beside `GameManager`. That bridge subscribes to the rules runtime in `OnEnable`, unsubscribes in `OnDisable`, and delegates to small presenter classes for the HUD, combat log, tokens, and animations. It should not grow a feature-specific `if` chain.
+
+The following bridge is intentionally illustrative. It shows the proposed ownership and data flow, not the exact interfaces, class names, or invalidation code that must be implemented. Those details should be grounded against the real Unity code when this boundary is built.
 
 Derived visible effects use push-based invalidation rather than per-frame polling:
 
@@ -1090,13 +1090,14 @@ The existing `StrikeResolutionPipeline.Resolve` reaches `ApplyDefenseAndDamageAd
 
 ## 9. Worked example: Reactive Strike
 
-Reactive Strike demonstrates pre-emption, reactions, trusted provenance, and the difference between action-level and movement-level timing. Reactive Strike owns its trigger matching; the engine supplies lifecycle Ops only when the originating action's profile allows reactions.
+Reactive Strike demonstrates pre-emption, reactions, trusted provenance, and the difference between action-level and movement-level timing. The engine always supplies lifecycle Ops for valid actions and movement timing points. Reactive Strike owns both the `CanTriggerReactions` eligibility check and its feature-specific trigger matching.
 
 ```csharp
 // Movement workflows dispatch this immediately before a qualifying departure.
-// A parent action with CanTriggerReactions=false suppresses it. Tumble Through
-// can dispatch a synthetic instance when its failure rule requires one.
+// Reaction middleware follows ActionOpId and checks CanTriggerReactions before
+// prompting. Tumble Through can dispatch a synthetic instance when required.
 public sealed record MovementLeavingSquareOp(
+    OpId ActionOpId,
     CreatureId Mover,
     GridPosition From,
     GridPosition To,
@@ -1153,7 +1154,11 @@ public static class ReactiveStrikeRule
         }
 
         var triggering = context.Trace.GetAction(frame.Op.ActionOpId);
-        var traits = triggering.ActionProfile!.Traits;
+        var profile = triggering.ActionProfile!;
+        if (!profile.CanTriggerReactions)
+            return current;
+
+        var traits = profile.Traits;
         var matchesTrigger =
             traits.Contains(Trait.Manipulate) ||
             traits.Contains(Trait.Move) ||
@@ -1197,7 +1202,11 @@ public static class ReactiveStrikeRule
             OpNext<MovementTriggerOutcome> next)
     {
         var current = await next();
-        if (current.Status != OpStatus.Resolved ||
+        if (current.Status != OpStatus.Resolved)
+            return current;
+
+        var triggering = context.Trace.GetAction(frame.Op.ActionOpId);
+        if (!triggering.ActionProfile!.CanTriggerReactions ||
             !CanReactToDeparture(binding, frame.Op, context.Snapshot))
         {
             return current;
@@ -1676,6 +1685,7 @@ public sealed class TumbleThroughHandler
         // Failure triggers reactions as though the actor had left the square
         // where the action began. A stable TriggerId supports deduplication.
         await context.Dispatch(new MovementLeavingSquareOp(
+            frame.Id,
             frame.Op.Actor,
             actionStartingSquare,
             actionStartingSquare,
@@ -1982,7 +1992,7 @@ These rules should be enforced in code review and tests:
 8. **Ordinary check failure is a resolved outcome, not an invalid Op.**
 9. **The dispatcher creates frame IDs, ancestry, causation, and invocation policy.**
 10. **Nested-only Ops reject external dispatch.**
-11. **`CanTriggerReactions` controls whether reaction lifecycle Ops occur; each reaction owns its own matching logic.**
+11. **Lifecycle Ops occur consistently; each reaction checks `CanTriggerReactions` before applying its own matching logic.**
 12. **Active rule state lives in the store, not in middleware instances or Unity objects.**
 13. **Rule ordering is deterministic.**
 14. **Each migrated field has one authoritative owner.**
@@ -2050,8 +2060,8 @@ Most engine tests should be EditMode tests against an in-memory `RulesState`, de
 
 - illegal triggering action does not prompt;
 - manipulate action commits costs before a disrupting critical hit;
-- Step sets `CanTriggerReactions = false` and opens no action or movement reaction window;
-- qualifying Stride departure does emit it;
+- Step emits the normal action and movement lifecycle Ops, but `CanTriggerReactions = false` prevents every reaction prompt;
+- a qualifying Stride departure can prompt Reactive Strike;
 - spent reaction prevents a second use;
 - multiple reactors resolve in deterministic order.
 
