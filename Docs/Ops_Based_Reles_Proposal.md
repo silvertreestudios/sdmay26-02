@@ -149,7 +149,7 @@ public sealed record StrikeActionOp(
 {
     public override ActionProfile GetBaseProfile(IActionCatalog catalog)
     {
-        var weapon = catalog.GetWeapon(Weapon);
+        var weapon = catalog.GetWeaponDefinition(Weapon);
 
         return ActionProfile.OneAction(
             traits: weapon.Traits.Add(Trait.Attack),
@@ -178,6 +178,8 @@ The fields have different jobs:
 - `StartTriggers` state which lifecycle events occur when this invocation begins.
 
 Traits and triggers are intentionally separate. A Step has the move trait but does not trigger reactions based on movement. It therefore retains `Trait.Move` while omitting the movement start trigger.
+
+`Trait` is an open, data-backed slug type shared with character, item, spell, and action definitions. Common traits may have helpers such as `Trait.Attack`, but the engine does not use a closed enum that must be edited for every new PF2e trait.
 
 The base profile is resolved against the authoritative snapshot before validation:
 
@@ -379,6 +381,8 @@ Useful Facts include:
 
 No Fact is emitted for a rejected mutation. If damage resolves to zero, the reducer can return a zero-damage outcome without emitting `DamageAppliedFact`. Facts are records of reality, not requested intent.
 
+Committed Facts also drive the player-facing combat log. A Unity log presenter can listen for relevant Facts and render messages for damage, movement, conditions, disruption, effect expiration, and creatures reaching 0 HP without requiring each feature handler to construct log strings.
+
 ### 4.4 Commit and notification timing
 
 Reducers apply one atomic state transition and enqueue its Facts. Typed fact listeners are notified after the current resolution batch commits. A listener therefore cannot retroactively prevent that state change.
@@ -410,17 +414,7 @@ public interface IOpHandler<TOp, TResult>
 
 A handler can read `context.Snapshot`, call pure services, roll through an injected deterministic roll service, prompt through an Op, and dispatch child Ops.
 
-```csharp
-var damage = await context.Dispatch(
-    new ApplyDamageOp(target, packet, source));
-
-if (damage.Status != OpStatus.Resolved)
-    return MyOutcome.NoDamage;
-
-// context.Snapshot is refreshed after the child reducer commits.
-```
-
-This is normal `async` C#. No custom `yield return` syntax or iterator return channel is required.
+The worked examples later in this document show complete handlers. In each one, the handler uses the typed result of one child Op to decide whether to stop, recover, or dispatch the next child Op. `context.Snapshot` is refreshed after a child reducer commits.
 
 ### 5.2 Middleware wraps selected Ops
 
@@ -445,7 +439,7 @@ Middleware is appropriate when a rule needs to inspect or alter an in-progress o
 - a replacement effect around a damage lifecycle Op;
 - a reaction around `MovementLeavingSquareOp`.
 
-Middleware ordering is deterministic: phase, rules-defined priority, active binding creation order, then binding ID. Features must not depend on dictionary or scene traversal order.
+Middleware ordering is deterministic, using explicit lifecycle phase followed by active binding creation order and binding ID. The first-pass design does not expose numeric priorities, which would create hard-to-see dependencies across unrelated rules. If two rules need meaningful ordering, represent that relationship with distinct lifecycle Ops or phases.
 
 Middleware may dispatch nested Ops and await their typed results. It cannot directly mutate state.
 
@@ -482,6 +476,8 @@ The runner groups the batch by committed root and delivers it only after that ro
 Fact listeners may dispatch Ops. Those Ops form a new, causally linked resolution batch. They still pass through normal validation and reducer rules.
 
 ### 5.4 ActionOp has a mandatory lifecycle
+
+An `ActionOp` is specifically an Op for a PF2e action, such as Strike, Stride, Cast a Spell, a reaction, or a free action. These rules have a shared order for validation, paying costs, opening reaction windows, and resolving the action's own behavior. The mandatory lifecycle puts that shared order in one engine-owned pipeline instead of repeating it in every action handler.
 
 The dispatcher recognizes `ActionOp<TResult>` and applies this template around its feature handler:
 
@@ -560,11 +556,47 @@ For example, leaving a threatened square is represented by `MovementLeavingSquar
 Composite rules dispatch ordinary child Ops:
 
 ```csharp
-var check = await context.Dispatch(
-    new SkillCheckOp(actor, Skill.Acrobatics, reflexDc));
+// A Tumble Through handler first resolves the check.
+var check = await context.Dispatch(new SkillCheckOp(
+    actor,
+    Skill.Acrobatics,
+    context.Snapshot.ReflexDc(enemy)));
 
-var answer = await context.Dispatch(
-    new PromptChoiceOp<bool>(player, request));
+if (check.Status != OpStatus.Resolved)
+    return TumbleThroughOutcome.InvalidCheck(check.InvalidReason!);
+
+// A legal failed check changes control flow: movement ends and the rule
+// exposes the synthetic departure reaction window required by Tumble Through.
+if (check.Value.Degree < DegreeOfSuccess.Success)
+{
+    await context.Dispatch(new MovementLeavingSquareOp(
+        actor,
+        startingSquare,
+        startingSquare,
+        MovementTriggerKind.TumbleThroughFailure,
+        context.NewTriggerId()));
+
+    return TumbleThroughOutcome.FailedCheck(check.Value.Degree);
+}
+
+// Only a successful check reaches the movement Op. Its committed Facts,
+// rather than the successful check, determine whether traversal occurred.
+var movement = await context.Dispatch(new MovePathOp(
+    actor,
+    crossingPath,
+    movementBudget,
+    tumbleThroughPermission));
+
+if (movement.Status != OpStatus.Resolved)
+    return TumbleThroughOutcome.InvalidMovement(movement.InvalidReason!);
+
+var passedThrough = movement.Facts
+    .OfType<OccupiedSpaceTraversedFact>()
+    .Any(fact => fact.Occupant == enemy);
+
+return passedThrough
+    ? TumbleThroughOutcome.PassedThrough(check.Value.Degree, movement.Value)
+    : TumbleThroughOutcome.CouldNotPass(movement.Value);
 ```
 
 The player implementation, AI implementation, replay implementation, and tests provide adapters for `PromptChoiceOp<TChoice>`. A handler does not directly open UI or pause a coroutine.
@@ -623,6 +655,7 @@ public sealed record ActiveEffectInstance(
     RuleDefinitionId DefinitionId,
     CreatureId Source,
     EffectDuration Duration,
+    EffectStateVersion Version,
     IEffectState State);
 
 public interface IEffectState
@@ -637,6 +670,44 @@ public sealed record UpdateActiveEffectStateOp<TState>(
 ```
 
 The generic reducer checks that the definition accepts `TState`, verifies the expected version, updates it, and emits `ActiveEffectStateChangedFact`.
+
+For example, Bless creates one aura effect whose instance state starts at a 15-foot radius. Sustaining it updates that same effect rather than replacing it or writing to a Bless-specific dictionary:
+
+```csharp
+public sealed record BlessAuraState(
+    int RadiusFeet,
+    RoundNumber CreatedRound,
+    RoundNumber? LastExpandedRound) : IEffectState;
+
+var aura = new ActiveEffectInstance(
+    Id: context.NewActiveEffectId(),
+    DefinitionId: BlessRule.AuraDefinitionId,
+    Source: caster,
+    Duration: EffectDuration.OneMinute,
+    Version: EffectStateVersion.Initial,
+    State: new BlessAuraState(
+        RadiusFeet: 15,
+        CreatedRound: context.Snapshot.Round,
+        LastExpandedRound: null));
+
+var created = await context.Dispatch(new CreateActiveEffectOp(aura));
+if (created.Status != OpStatus.Resolved)
+    return CastSpellOutcome.EffectFailed(created.InvalidReason!);
+
+// On an eligible later turn, Sustain Bless reads the current version and state.
+var current = context.Snapshot.ActiveEffects.Get(aura.Id);
+var bless = current.GetState<BlessAuraState>();
+
+var expanded = await context.Dispatch(
+    new UpdateActiveEffectStateOp<BlessAuraState>(
+        EffectId: aura.Id,
+        ExpectedVersion: current.Version,
+        NewState: bless with
+        {
+            RadiusFeet = bless.RadiusFeet + 10,
+            LastExpandedRound = context.Snapshot.Round
+        }));
+```
 
 This prevents every stateful rule from inventing a parallel dictionary or adding a field to a central switch. Bless can store its radius; a stance can store its selected mode; a once-per-target effect can store target IDs.
 
@@ -662,7 +733,13 @@ Presentation uses the same selectors to show aura geometry and visible bonus ico
 
 ### 7.1 Selection payloads are typed per action
 
-A single record with nullable weapon, target, path, spell, and area fields will not scale. Each action definition owns its selection type.
+A single record with nullable weapon, target, path, spell, and area fields will not scale. Each action definition therefore owns the exact selection data its UI workflow must produce.
+
+An action definition connects the generic action bar to a concrete `ActionOp`:
+
+- `GetAvailability` tells the action bar whether to show the action as usable and, when it is unavailable, why.
+- `CreateSelectionWorkflow` tells Unity which choices to collect. Strike asks for a weapon and one creature; Tumble Through asks for a path and enemy; a spell might ask for several targets or an area orientation.
+- `CreateOp` converts the completed, typed selection into the immutable root Op sent to the rules engine.
 
 ```csharp
 public interface IActionDefinition<TSelection, TOp, TResult>
@@ -678,12 +755,34 @@ public interface IActionDefinition<TSelection, TOp, TResult>
 
     TOp CreateOp(CreatureId actor, TSelection selection);
 }
-```
 
-Examples:
-
-```csharp
 public sealed record StrikeSelection(ItemId Weapon, CreatureId Target);
+
+public sealed class StrikeActionDefinition
+    : IActionDefinition<StrikeSelection, StrikeActionOp, StrikeOutcome>
+{
+    public ActionAvailability GetAvailability(
+        RulesSnapshot snapshot,
+        CreatureId actor) =>
+        snapshot.ActionEconomy.CanSpend(actor, ActionCost.One) &&
+        snapshot.Equipment.HasWieldedStrikeWeapon(actor)
+            ? ActionAvailability.Available
+            : ActionAvailability.Unavailable("No usable Strike");
+
+    public SelectionWorkflow<StrikeSelection> CreateSelectionWorkflow(
+        RulesSnapshot snapshot,
+        CreatureId actor) =>
+        SelectionWorkflow
+            .ChooseOne(snapshot.Equipment.WieldedStrikeWeapons(actor))
+            .ThenChooseOne((weapon, current) =>
+                current.Targeting.LegalStrikeTargets(actor, weapon))
+            .Select((weapon, target) => new StrikeSelection(weapon, target));
+
+    public StrikeActionOp CreateOp(
+        CreatureId actor,
+        StrikeSelection selection) =>
+        new(actor, selection.Weapon, selection.Target);
+}
 
 public sealed record TumbleThroughSelection(
     ImmutableArray<GridPosition> Path,
@@ -696,7 +795,9 @@ public sealed record CastSpellSelection(
     ISpellTargetSelection Targets);
 ```
 
-`SelectionWorkflow<TSelection>` may be one click, a path plus target, multiple creatures, an area template and orientation, or several ordered choices. The generic action bar only handles availability and launches the definition's workflow.
+When the player clicks Strike, the action bar asks `StrikeActionDefinition` for its workflow. Unity runs the two choices, receives a `StrikeSelection`, calls `CreateOp`, and dispatches the resulting `StrikeActionOp`. AI can produce the same selection without using Unity UI. The rules handler receives only the completed Op and still performs authoritative validation, since preview state may have changed before dispatch.
+
+`SelectionWorkflow<TSelection>` may be one click, a path plus target, multiple creatures, an area template and orientation, or several ordered choices. The generic action bar only handles availability and launches the definition's workflow; it does not need nullable fields or a switch for every PF2e action.
 
 ### 7.2 Unity is an adapter, not the rules authority
 
@@ -707,7 +808,7 @@ Unity-facing code has four jobs:
 3. Observe committed Facts and snapshots.
 4. Animate and render the result.
 
-Rules code does not read a `Transform` to decide range and does not call `Creature.TakeDamage`. It reads a `GridPosition` from `RulesSnapshot` and dispatches `ApplyDamageOp`.
+For example, when a player clicks the Strike button, Unity gathers a `StrikeSelection` and dispatches `StrikeActionOp`. The nested Strike rules may later dispatch `ApplyDamageOp`, but UI, AI, and other external callers cannot submit that nested-only mutation directly. Rules code reads positions from `RulesSnapshot`; it does not read a `Transform` or call `Creature.TakeDamage`.
 
 Animations may lag behind committed state. A presentation queue can translate Facts into movement, hit, floating-number, condition, and death animations in order. Presentation completion must not determine whether the rules change occurred.
 
@@ -715,11 +816,10 @@ Animations may lag behind committed state. A presentation queue can translate Fa
 
 ## 8. Worked example: normal Strike
 
-This example shows the basic action lifecycle, modifier collection, attack resolution, damage mutation, and MAP.
-
-### 8.1 Public action Op
+This complete sketch keeps the action data, validation, action handler, and reusable strike-resolution handler together. The engine-provided `ActionOp` pipeline still owns validation/cost/lifecycle ordering.
 
 ```csharp
+// This is the public root Op created by UI or AI.
 public sealed record StrikeActionOp(
     CreatureId Actor,
     ItemId Weapon,
@@ -728,20 +828,152 @@ public sealed record StrikeActionOp(
 {
     public override ActionProfile GetBaseProfile(IActionCatalog catalog)
     {
-        var weapon = catalog.GetWeapon(Weapon);
+        var weapon = catalog.GetWeaponDefinition(Weapon);
 
         return ActionProfile.OneAction(
             traits: weapon.Traits.Add(Trait.Attack),
             startTriggers: ActionTriggerCatalog.ForStrike(weapon));
     }
 }
-```
 
-Validation checks that the actor can act, owns or wields the weapon, can target the creature, and satisfies range and line-of-effect requirements. It does not roll and does not mutate state.
+// Validators run before the action cost or ActionBegunOp. They only read state.
+public sealed class StrikeActionValidator
+    : IActionValidator<StrikeActionOp>
+{
+    private readonly IActionCatalog actionCatalog;
+    private readonly ITargetingService targeting;
+    private readonly ILineOfEffectService lineOfEffect;
 
-### 8.2 Handler
+    public StrikeActionValidator(
+        IActionCatalog actionCatalog,
+        ITargetingService targeting,
+        ILineOfEffectService lineOfEffect)
+    {
+        this.actionCatalog = actionCatalog;
+        this.targeting = targeting;
+        this.lineOfEffect = lineOfEffect;
+    }
 
-```csharp
+    public ValidationResult Validate(
+        OpFrame<StrikeActionOp> frame,
+        RulesSnapshot snapshot)
+    {
+        var op = frame.Op;
+
+        if (!snapshot.Creatures.CanAct(op.Actor))
+            return ValidationResult.Invalid("Actor cannot act");
+
+        if (!snapshot.Equipment.IsWieldedBy(op.Weapon, op.Actor))
+            return ValidationResult.Invalid("Weapon is not wielded by actor");
+
+        if (!snapshot.Creatures.Exists(op.Target) ||
+            !targeting.IsLegalAttackTarget(op.Actor, op.Target, snapshot))
+        {
+            return ValidationResult.Invalid("Target is not a legal creature");
+        }
+
+        var weapon = actionCatalog.GetWeaponDefinition(op.Weapon);
+        if (!targeting.IsInStrikeRange(
+                op.Actor,
+                op.Target,
+                weapon.Range,
+                snapshot))
+        {
+            return ValidationResult.Invalid("Target is out of range");
+        }
+
+        if (!lineOfEffect.Exists(op.Actor, op.Target, snapshot))
+            return ValidationResult.Invalid("No line of effect");
+
+        return ValidationResult.Valid;
+    }
+}
+
+// This nested-only Op contains reusable attack work. It does not spend an
+// action and it never changes MAP. Its purpose is authorized from its parent
+// frame, so an external caller cannot request the privileged reaction mode.
+public sealed record ResolveStrikeOp(
+    CreatureId Attacker,
+    ItemId Weapon,
+    CreatureId Target,
+    StrikePurpose Purpose,
+    DamageSource Source) : IRuleOp<StrikeResolution>;
+
+public sealed class ResolveStrikeHandler
+    : IOpHandler<ResolveStrikeOp, StrikeResolution>
+{
+    private readonly IActionCatalog actionCatalog;
+    private readonly IAttackRollService attacks;
+    private readonly IStrikeDamageService damage;
+
+    public ResolveStrikeHandler(
+        IActionCatalog actionCatalog,
+        IAttackRollService attacks,
+        IStrikeDamageService damage)
+    {
+        this.actionCatalog = actionCatalog;
+        this.attacks = attacks;
+        this.damage = damage;
+    }
+
+    public async ValueTask<StrikeResolution> Handle(
+        OpFrame<ResolveStrikeOp> frame,
+        OpContext context)
+    {
+        var op = frame.Op;
+        var weapon = actionCatalog.GetWeaponDefinition(op.Weapon);
+
+        // Bless and similar active rules contribute through middleware here.
+        var modifiers = await context.Dispatch(
+            new CollectAttackModifiersOp(
+                op.Attacker,
+                op.Target,
+                op.Weapon,
+                CheckSource.From(frame.Id)));
+
+        if (modifiers.Status != OpStatus.Resolved)
+            return StrikeResolution.Aborted(modifiers.InvalidReason!);
+
+        // Reactive Strike is authorized to ignore MAP. A normal Strike reads
+        // the actor's current penalty but increments it only after this Op.
+        var mapPenalty = op.Purpose == StrikePurpose.Normal
+            ? context.Snapshot.MultipleAttackPenalty.ForNextAttack(op.Attacker)
+            : 0;
+
+        var roll = attacks.Roll(
+            op.Attacker,
+            weapon,
+            modifiers.Value,
+            mapPenalty,
+            context.Rolls);
+        var armorClass = context.Snapshot.Defenses.ArmorClass(op.Target);
+        var degree = DegreeOfSuccessResolver.Resolve(roll.Total, armorClass);
+
+        if (degree < DegreeOfSuccess.Success)
+            return StrikeResolution.Miss(roll, degree, modifiers.Value);
+
+        // Calculation is pure. It must not call TakeDamage.
+        var packet = damage.Calculate(
+            op.Attacker,
+            weapon,
+            degree,
+            context.Snapshot,
+            context.Rolls);
+
+        // ApplyDamageReducer is the one authoritative HP mutation path.
+        var applied = await context.Dispatch(
+            new ApplyDamageOp(op.Target, packet, op.Source));
+
+        return StrikeResolution.Hit(
+            roll,
+            degree,
+            modifiers.Value,
+            applied.Status == OpStatus.Resolved
+                ? applied.Value
+                : DamageOutcome.None);
+    }
+}
+
 public sealed class StrikeActionHandler
     : IOpHandler<StrikeActionOp, StrikeOutcome>
 {
@@ -749,88 +981,36 @@ public sealed class StrikeActionHandler
         OpFrame<StrikeActionOp> frame,
         OpContext context)
     {
-        var strike = await context.Dispatch(
-            new ResolveStrikeOp(
-                frame.Op.Actor,
-                frame.Op.Weapon,
-                frame.Op.Target,
-                StrikePurpose.Normal,
-                DamageSource.From(frame.Id)));
+        // The ActionOp pipeline has already validated the action, spent one
+        // action, and completed ActionBegunOp before this method runs.
+        var strike = await context.Dispatch(new ResolveStrikeOp(
+            frame.Op.Actor,
+            frame.Op.Weapon,
+            frame.Op.Target,
+            StrikePurpose.Normal,
+            DamageSource.From(frame.Id)));
 
         if (strike.Status != OpStatus.Resolved)
-            return StrikeOutcome.From(strike);
+            return StrikeOutcome.Aborted(strike.InvalidReason!);
 
-        await context.Dispatch(
+        // Every legally resolved normal Strike changes MAP, including a miss.
+        var map = await context.Dispatch(
             new IncrementMultipleAttackPenaltyOp(frame.Op.Actor));
 
-        return StrikeOutcome.From(strike.Value);
+        return new StrikeOutcome(
+            strike.Value,
+            MapIncremented: map.Status == OpStatus.Resolved);
     }
 }
 ```
 
-The standard `ActionOp` wrapper has already validated the Strike, spent one action, and opened `ActionBegunOp` before this handler runs.
-
-`ResolveStrikeOp` is nested-only. It performs the reusable attack work but does not spend actions and does not change MAP:
-
-```csharp
-public sealed record ResolveStrikeOp(
-    CreatureId Attacker,
-    ItemId Weapon,
-    CreatureId Target,
-    StrikePurpose Purpose,
-    DamageSource Source) : IRuleOp<StrikeResolution>;
-```
-
-The handler for `ResolveStrikeOp`:
-
-1. dispatches `CollectAttackModifiersOp`;
-2. adds MAP from the current snapshot;
-3. rolls the attack through `IRollService`;
-4. calculates degree of success against the target's AC;
-5. on success, calculates a damage packet without changing HP;
-6. dispatches `ApplyDamageOp` once;
-7. returns the roll, degree, and damage outcome.
-
-Bless and similar rules wrap `CollectAttackModifiersOp`. Damage resistance and immunity are handled in the damage workflow. `ApplyDamageReducer` is the only code that changes HP.
-
-### 8.3 Required change to the current Strike pipeline
-
-The existing `StrikeResolutionPipeline.Resolve` reaches `ApplyDefenseAndDamageAdjustment.Apply`, which calls `TakeDamage`. It cannot be wrapped and then followed by `ApplyDamageOp`, because that would apply damage twice and bypass the reducer invariant.
-
-Before migrating Strike, split the current pipeline into:
-
-- pure validation, roll, degree-of-success, and damage calculation; and
-- one authoritative HP mutation through `ApplyDamageOp`.
-
-Compatibility code may adapt the calculated result, but it must not call both mutation paths.
-
-### 8.4 Resulting resolution tree
-
-```text
-StrikeActionOp
-  CommitActionCostsOp
-    ActionCostSpentFact
-  ActionBegunOp
-  ResolveStrikeOp
-    CollectAttackModifiersOp
-    ApplyDamageOp
-      DamageAppliedFact
-      CreatureReducedToZeroFact?
-  IncrementMultipleAttackPenaltyOp
-    MultipleAttackPenaltyChangedFact
-```
-
-The runner attaches those committed Facts to the root result automatically. The Strike handler does not copy them.
+The existing `StrikeResolutionPipeline.Resolve` reaches `ApplyDefenseAndDamageAdjustment.Apply`, which calls `TakeDamage`. Before migrating Strike, split that pipeline into pure roll/damage calculation and one HP mutation through `ApplyDamageOp`; otherwise damage would be applied twice. The runner attaches action-cost, damage, reduced-to-zero, and MAP Facts to the root result automatically.
 
 ---
 
 ## 9. Worked example: Reactive Strike
 
-Reactive Strike demonstrates pre-emption, reactions, trusted provenance, and the difference between action-level and movement-level triggers.
-
-### 9.1 Trigger model
-
-The effective `ActionProfile` explicitly lists action-start triggers. Relevant examples include:
+Reactive Strike demonstrates pre-emption, reactions, trusted provenance, and the difference between action-level and movement-level timing. The trigger representation is still under discussion in the PR; this block keeps the current proposal together so its data flow can be evaluated as one unit.
 
 ```csharp
 public enum ActionStartTrigger
@@ -839,77 +1019,16 @@ public enum ActionStartTrigger
     MoveActionBegun,
     RangedAttackBegun
 }
-```
 
-The action's base profile declares these from its concrete definition. The profile resolver may then add, remove, or replace them based on current rule state. Middleware never assumes that every action with the move trait emits `MoveActionBegun`. Step is the simplest counterexample.
-
-Leaving a square is not an action-start trigger:
-
-```csharp
+// Movement workflows dispatch this immediately before a qualifying departure.
+// Step does not dispatch it. Tumble Through can dispatch a synthetic instance.
 public sealed record MovementLeavingSquareOp(
     CreatureId Mover,
     GridPosition From,
     GridPosition To,
     MovementTriggerKind Kind,
     TriggerId TriggerId) : IRuleOp<MovementTriggerOutcome>;
-```
 
-Stride and other movement workflows dispatch this nested-only Op immediately before a qualifying departure. Step omits it. Tumble Through can dispatch a synthetic departure when its failure rule requires one.
-
-### 9.2 Active binding middleware
-
-Owning Reactive Strike creates an active binding with middleware for both `ActionBegunOp` and `MovementLeavingSquareOp`.
-
-Representative action-start middleware:
-
-```csharp
-public async ValueTask<OpResult<ActionStartOutcome>> Invoke(
-    OpFrame<ActionBegunOp> frame,
-    OpContext context,
-    OpNext<ActionStartOutcome> next)
-{
-    var outcome = await next();
-    if (outcome.Status != OpStatus.Resolved)
-        return outcome;
-
-    if (outcome.Value.Decision == ActionStartDecision.Interrupted)
-        return outcome;
-
-    var actionFrame = context.Trace.GetAction(frame.Op.ActionOpId);
-    var profile = actionFrame.ActionProfile!;
-
-    if (!Matches(profile.StartTriggers) ||
-        !IsEligibleReactor(binding.Owner, actionFrame, context.Snapshot))
-    {
-        return outcome;
-    }
-
-    var choice = await context.Dispatch(
-        PromptForReactiveStrike(binding, actionFrame));
-    if (!choice.Value.Accepted)
-        return outcome;
-
-    var reaction = await context.DispatchAuthorized(
-        binding,
-        new ReactiveStrikeActionOp(
-            binding.Owner,
-            actionFrame.Actor,
-            actionFrame.Id,
-            binding.Id));
-
-    if (reaction.Status == OpStatus.Resolved &&
-        reaction.Value.DisruptsTriggeringAction)
-        return OpResult.Resolved(ActionStartOutcome.Interrupted);
-
-    return outcome;
-}
-```
-
-The exact call structure may run `next` before or after a middleware's opportunity according to the registered phase. The important contract is deterministic ordering and a single shared `ActionStartOutcome` that later middleware can observe.
-
-### 9.3 The reaction is its own ActionOp
-
-```csharp
 public sealed record ReactiveStrikeActionOp(
     CreatureId Actor,
     CreatureId Target,
@@ -922,38 +1041,189 @@ public sealed record ReactiveStrikeActionOp(
             traits: [Trait.Attack],
             startTriggers: []);
 }
+
+// All Reactive Strike registrations and trigger matching remain local to this
+// rule. The registry invokes these delegates once for each active binding.
+public static class ReactiveStrikeRule
+{
+    public static readonly RuleDefinitionId DefinitionId =
+        RuleIds.Feat("reactive-strike");
+
+    public static void Register(IRuleRegistryBuilder rules)
+    {
+        rules.ActiveMiddleware<ActionBegunOp, ActionStartOutcome>(
+            DefinitionId,
+            OnActionBegun);
+        rules.ActiveMiddleware<MovementLeavingSquareOp, MovementTriggerOutcome>(
+            DefinitionId,
+            OnLeavingSquare);
+        rules.Validate<ReactiveStrikeActionOp>(
+            DefinitionId,
+            ValidateReaction);
+        rules.Handle<ReactiveStrikeActionOp, ReactiveStrikeOutcome>(
+            DefinitionId,
+            HandleReaction);
+    }
+
+    private static async ValueTask<OpResult<ActionStartOutcome>> OnActionBegun(
+        ActiveRuleBinding binding,
+        OpFrame<ActionBegunOp> frame,
+        OpContext context,
+        OpNext<ActionStartOutcome> next)
+    {
+        var current = await next();
+        if (current.Status != OpStatus.Resolved ||
+            current.Value.Decision == ActionStartDecision.Interrupted)
+        {
+            return current;
+        }
+
+        var triggering = context.Trace.GetAction(frame.Op.ActionOpId);
+        if (!MatchesReactiveStrike(triggering.ActionProfile!.StartTriggers) ||
+            !CanReact(binding, triggering.Actor, context.Snapshot))
+        {
+            return current;
+        }
+
+        var choice = await context.Dispatch(new PromptChoiceOp<bool>(
+            context.Snapshot.PlayerFor(binding.Owner),
+            ReactiveStrikePrompt.For(binding.Owner, triggering.Actor)));
+
+        if (choice.Status != OpStatus.Resolved || !choice.Value.Choice)
+            return current;
+
+        // DispatchAuthorized proves this Op came from the active feat binding.
+        var reaction = await context.DispatchAuthorized(
+            binding,
+            new ReactiveStrikeActionOp(
+                binding.Owner,
+                triggering.Actor,
+                triggering.Id,
+                binding.Id));
+
+        return reaction.Status == OpStatus.Resolved &&
+               reaction.Value.DisruptsTriggeringAction
+            ? OpResult.Resolved(ActionStartOutcome.Interrupted)
+            : current;
+    }
+
+    private static async ValueTask<OpResult<MovementTriggerOutcome>>
+        OnLeavingSquare(
+            ActiveRuleBinding binding,
+            OpFrame<MovementLeavingSquareOp> frame,
+            OpContext context,
+            OpNext<MovementTriggerOutcome> next)
+    {
+        var current = await next();
+        if (current.Status != OpStatus.Resolved ||
+            !CanReactToDeparture(binding, frame.Op, context.Snapshot))
+        {
+            return current;
+        }
+
+        var choice = await context.Dispatch(new PromptChoiceOp<bool>(
+            context.Snapshot.PlayerFor(binding.Owner),
+            ReactiveStrikePrompt.For(binding.Owner, frame.Op.Mover)));
+
+        if (choice.Status == OpStatus.Resolved && choice.Value.Choice)
+        {
+            await context.DispatchAuthorized(
+                binding,
+                new ReactiveStrikeActionOp(
+                    binding.Owner,
+                    frame.Op.Mover,
+                    frame.Id,
+                    binding.Id));
+        }
+
+        return current;
+    }
+
+    private static ValidationResult ValidateReaction(
+        OpFrame<ReactiveStrikeActionOp> frame,
+        RulesSnapshot snapshot,
+        ResolutionTrace trace)
+    {
+        var op = frame.Op;
+        var binding = snapshot.RuleBindings.Find(op.AuthorizedBinding);
+
+        if (binding is null ||
+            binding.DefinitionId != DefinitionId ||
+            binding.Owner != op.Actor)
+        {
+            return ValidationResult.Invalid("Binding does not grant reaction");
+        }
+
+        if (!snapshot.ActionEconomy.HasReaction(op.Actor) ||
+            !trace.Exists(op.TriggeringOpId) ||
+            !snapshot.Targeting.IsEnemyInMeleeReach(op.Actor, op.Target))
+        {
+            return ValidationResult.Invalid("Reactive Strike is no longer legal");
+        }
+
+        return ValidationResult.Valid;
+    }
+
+    private static async ValueTask<ReactiveStrikeOutcome> HandleReaction(
+        OpFrame<ReactiveStrikeActionOp> frame,
+        OpContext context)
+    {
+        // The ActionOp pipeline has now atomically spent the reaction.
+        var strike = await context.Dispatch(new ResolveStrikeOp(
+            frame.Op.Actor,
+            context.Snapshot.Equipment.PreferredMeleeWeapon(frame.Op.Actor),
+            frame.Op.Target,
+            StrikePurpose.Reaction,
+            DamageSource.From(frame.Id)));
+
+        if (strike.Status != OpStatus.Resolved)
+            return ReactiveStrikeOutcome.Aborted(strike.InvalidReason!);
+
+        // The nested-only reaction purpose neither applies nor increments MAP.
+        var triggeringAction = context.Trace.TryGetAction(
+            frame.Op.TriggeringOpId);
+        var disrupts = strike.Value.Degree == DegreeOfSuccess.CriticalSuccess &&
+            triggeringAction?.ActionProfile?.StartTriggers.Contains(
+                ActionStartTrigger.ManipulateActionBegun) == true;
+
+        return new ReactiveStrikeOutcome(strike.Value, disrupts);
+    }
+
+    private static bool MatchesReactiveStrike(
+        ImmutableHashSet<ActionStartTrigger> triggers) =>
+        triggers.Contains(ActionStartTrigger.ManipulateActionBegun) ||
+        triggers.Contains(ActionStartTrigger.MoveActionBegun) ||
+        triggers.Contains(ActionStartTrigger.RangedAttackBegun);
+
+    // These helpers include enemy/reach/reaction/trigger-deduplication checks.
+    private static bool CanReact(
+        ActiveRuleBinding binding,
+        CreatureId target,
+        RulesSnapshot snapshot) =>
+        snapshot.ActionEconomy.HasReaction(binding.Owner) &&
+        snapshot.Targeting.IsEnemyInMeleeReach(binding.Owner, target);
+
+    private static bool CanReactToDeparture(
+        ActiveRuleBinding binding,
+        MovementLeavingSquareOp movement,
+        RulesSnapshot snapshot) =>
+        CanReact(binding, movement.Mover, snapshot) &&
+        snapshot.Targeting.ThreatensSquare(binding.Owner, movement.From);
+}
 ```
 
-Authorization verifies that:
-
-- the supplied binding is active and grants Reactive Strike to the actor;
-- the triggering frame exists and matches that binding's trigger;
-- the target, reach, enemy relationship, and reaction availability remain valid;
-- this binding has not already responded to the same `TriggerId` where the rules prohibit it.
-
-The action wrapper atomically spends the reaction before opening its own action-begun window.
-
-Its handler dispatches `ResolveStrikeOp` with `StrikePurpose.Reaction`. It does not dispatch `IncrementMultipleAttackPenaltyOp`, and `ResolveStrikeOp` does not apply MAP for that purpose. These privileges follow from the trusted `ReactiveStrikeActionOp` frame and active binding, not three public booleans on `StrikeActionOp`.
-
-If the attack critically succeeds and the triggering action has the manipulate trigger, the reaction returns `DisruptsTriggeringAction = true`. The parent `ActionBegunOp` returns interruption. The triggering action's costs remain spent because they committed before this reaction window.
-
-### 9.4 Movement departures use the same reaction implementation
-
-Middleware on `MovementLeavingSquareOp` checks reach and eligibility, prompts, then dispatches the same `ReactiveStrikeActionOp`. The reaction targets the mover and cites the movement trigger frame as its trusted origin.
-
-The movement workflow continues only if the lifecycle outcome allows it. This avoids feature-specific type exclusions such as “move trait except `MovementStepCommand`” and gives future movement modes one canonical place to declare whether a departure triggers reactions.
+The triggering action has already committed its costs before this middleware runs, so critical manipulate disruption does not refund them. The same authorized reaction action handles action-start and square-departure triggers without accepting caller-controlled MAP or action-cost flags.
 
 ---
 
 ## 10. Worked example: Bless
 
-Bless demonstrates spellcasting costs, active effect state, derived bonuses, stacking, sustaining, and movement-safe area membership.
-
-The project data defines Bless as a two-action spell with aura, concentrate, manipulate, and mental traits; a 15-foot emanation; a one-minute duration; and a Sustain option that increases the radius on later turns.
-
-### 10.1 Casting uses the common spell ActionOp
+Bless demonstrates spellcasting costs, active effect state, derived bonuses, stacking, sustaining, and movement-safe aura membership. Project data supplies its two-action cost, traits, 15-foot starting emanation, one-minute duration, and 10-foot Sustain expansion.
 
 ```csharp
+// Cast a Spell is shared by all spells. The chosen spell variant supplies the
+// PF2e action profile; the engine commits its actions and slot before opening
+// ActionBegunOp, so manipulate disruption retains both costs.
 public sealed record CastSpellActionOp(
     CreatureId Actor,
     SpellSlotId Slot,
@@ -965,7 +1235,6 @@ public sealed record CastSpellActionOp(
     public override ActionProfile GetBaseProfile(IActionCatalog catalog)
     {
         var variant = catalog.GetSpellVariant(Spell, Variant);
-
         return new ActionProfile(
             variant.ActionCost,
             [new SpellSlotCost(Slot)],
@@ -973,72 +1242,12 @@ public sealed record CastSpellActionOp(
             variant.StartTriggers);
     }
 }
-```
 
-The action wrapper validates the chosen slot and variant, atomically spends two actions plus the spell slot, and then dispatches `ActionBegunOp`. A Reactive Strike can disrupt the cast because its frozen profile contains the manipulate trigger. The slot and actions remain spent on disruption.
-
-After that standard lifecycle, `CastSpellHandler` delegates to the selected spell implementation. Bless dispatches `CreateActiveEffectOp`.
-
-### 10.2 Bless stores only source-of-truth state
-
-```csharp
 public sealed record BlessAuraState(
     int RadiusFeet,
     RoundNumber CreatedRound,
     RoundNumber? LastExpandedRound) : IEffectState;
-```
 
-The created effect contains:
-
-- the caster as source and aura center;
-- the Bless rule definition;
-- a one-minute duration;
-- `BlessAuraState` with a 15-foot radius;
-- an active Bless binding.
-
-It does not create a child bonus effect on every ally.
-
-### 10.3 Bless contributes during modifier collection
-
-The active binding registers middleware for `CollectAttackModifiersOp`:
-
-```csharp
-public async ValueTask<OpResult<ModifierCollection>> Invoke(
-    OpFrame<CollectAttackModifiersOp> frame,
-    OpContext context,
-    OpNext<ModifierCollection> next)
-{
-    var result = await next();
-    var effect = context.Snapshot.ActiveEffects.Get(binding.EffectId!.Value);
-    var state = effect.GetState<BlessAuraState>();
-
-    if (IsAlly(effect.Source, frame.Op.Attacker, context.Snapshot) &&
-        IsWithinEmanation(
-            effect.Source,
-            frame.Op.Attacker,
-            state.RadiusFeet,
-            context.Snapshot))
-    {
-        return result.Map(modifiers => modifiers.Add(
-            Modifier.StatusBonus(
-                amount: 1,
-                source: binding.Source,
-                appliesTo: CheckType.AttackRoll)));
-    }
-
-    return result;
-}
-```
-
-The central modifier resolver applies PF2e typed-bonus stacking after all contributors run. Multiple Bless auras can contribute candidates without stacking multiple status bonuses.
-
-Because membership is derived from current positions, Stride, forced movement, teleportation, spawning, and aura expansion all work without feature-specific movement listeners. No stored bonus can become stale.
-
-### 10.4 Sustain updates typed instance state
-
-The Bless action definition exposes a Sustain action while the effect is active and eligible:
-
-```csharp
 public sealed record SustainBlessActionOp(
     CreatureId Actor,
     ActiveEffectId BlessEffect)
@@ -1049,30 +1258,169 @@ public sealed record SustainBlessActionOp(
             traits: [Trait.Concentrate],
             startTriggers: []);
 }
+
+public static class BlessRule
+{
+    public static readonly RuleDefinitionId AuraDefinitionId =
+        RuleIds.SpellEffect("bless-aura");
+
+    public static void Register(IRuleRegistryBuilder rules)
+    {
+        // CastSpellHandler delegates Bless's selected spell effect here.
+        rules.ResolveSpell(SpellIds.Bless, HandleCast);
+
+        // Every active Bless binding contributes to attack modifiers.
+        rules.ActiveMiddleware<CollectAttackModifiersOp, ModifierCollection>(
+            AuraDefinitionId,
+            AddAttackModifier);
+
+        rules.Validate<SustainBlessActionOp>(
+            AuraDefinitionId,
+            ValidateSustain);
+        rules.Handle<SustainBlessActionOp, SustainBlessOutcome>(
+            AuraDefinitionId,
+            HandleSustain);
+    }
+
+    private static async ValueTask<CastSpellOutcome> HandleCast(
+        OpFrame<CastSpellActionOp> frame,
+        OpContext context)
+    {
+        // Store only the aura's source-of-truth instance state. Creating the
+        // effect also activates the binding registered above.
+        var aura = new ActiveEffectInstance(
+            Id: context.NewActiveEffectId(),
+            DefinitionId: AuraDefinitionId,
+            Source: frame.Op.Actor,
+            Duration: EffectDuration.OneMinute,
+            Version: EffectStateVersion.Initial,
+            State: new BlessAuraState(
+                RadiusFeet: 15,
+                CreatedRound: context.Snapshot.Round,
+                LastExpandedRound: null));
+
+        var created = await context.Dispatch(
+            new CreateActiveEffectOp(aura));
+
+        return created.Status == OpStatus.Resolved
+            ? CastSpellOutcome.Applied(aura.Id)
+            : CastSpellOutcome.EffectFailed(created.InvalidReason!);
+    }
+
+    private static async ValueTask<OpResult<ModifierCollection>>
+        AddAttackModifier(
+            ActiveRuleBinding binding,
+            OpFrame<CollectAttackModifiersOp> frame,
+            OpContext context,
+            OpNext<ModifierCollection> next)
+    {
+        var result = await next();
+        if (result.Status != OpStatus.Resolved)
+            return result;
+
+        var effect = context.Snapshot.ActiveEffects.Get(
+            binding.EffectId!.Value);
+        var state = effect.GetState<BlessAuraState>();
+
+        if (!IsAlly(effect.Source, frame.Op.Attacker, context.Snapshot) ||
+            !IsWithinEmanation(
+                effect.Source,
+                frame.Op.Attacker,
+                state.RadiusFeet,
+                context.Snapshot))
+        {
+            return result;
+        }
+
+        // The central modifier resolver performs typed-bonus stacking after
+        // every binding contributes. Multiple Bless auras still give only the
+        // highest applicable status bonus.
+        return result.Map(modifiers => modifiers.Add(
+            Modifier.StatusBonus(
+                amount: 1,
+                source: binding.Source,
+                appliesTo: CheckType.AttackRoll)));
+    }
+
+    private static ValidationResult ValidateSustain(
+        OpFrame<SustainBlessActionOp> frame,
+        RulesSnapshot snapshot)
+    {
+        var effect = snapshot.ActiveEffects.Find(frame.Op.BlessEffect);
+        if (effect is null ||
+            effect.DefinitionId != AuraDefinitionId ||
+            effect.Source != frame.Op.Actor)
+        {
+            return ValidationResult.Invalid("Actor does not own this Bless");
+        }
+
+        var state = effect.GetState<BlessAuraState>();
+        if (effect.Duration.HasExpired(snapshot) ||
+            snapshot.Round <= state.CreatedRound ||
+            state.LastExpandedRound == snapshot.Round)
+        {
+            return ValidationResult.Invalid("Bless cannot expand this round");
+        }
+
+        return ValidationResult.Valid;
+    }
+
+    private static async ValueTask<SustainBlessOutcome> HandleSustain(
+        OpFrame<SustainBlessActionOp> frame,
+        OpContext context)
+    {
+        var effect = context.Snapshot.ActiveEffects.Get(frame.Op.BlessEffect);
+        var state = effect.GetState<BlessAuraState>();
+
+        var updated = await context.Dispatch(
+            new UpdateActiveEffectStateOp<BlessAuraState>(
+                effect.Id,
+                effect.Version,
+                state with
+                {
+                    RadiusFeet = state.RadiusFeet + 10,
+                    LastExpandedRound = context.Snapshot.Round
+                }));
+
+        return updated.Status == OpStatus.Resolved
+            ? SustainBlessOutcome.Expanded(state.RadiusFeet + 10)
+            : SustainBlessOutcome.Failed(updated.InvalidReason!);
+    }
+
+    // The HUD/aura renderer uses the same range and alliance helpers as the
+    // modifier middleware. It can show the aura, current radius, affected
+    // creatures, and +1 source before the player chooses to Strike.
+    public static VisibleEffectProjection GetPresentation(
+        ActiveEffectInstance effect,
+        CreatureId viewedCreature,
+        RulesSnapshot snapshot)
+    {
+        var state = effect.GetState<BlessAuraState>();
+        var affectsCreature = IsAlly(effect.Source, viewedCreature, snapshot) &&
+            IsWithinEmanation(
+                effect.Source,
+                viewedCreature,
+                state.RadiusFeet,
+                snapshot);
+
+        return VisibleEffectProjection.Aura(
+            effect.Id,
+            displayName: "Bless",
+            center: snapshot.PositionOf(effect.Source),
+            radiusFeet: state.RadiusFeet,
+            affectsViewedCreature: affectsCreature,
+            detail: "+1 status bonus to attack rolls");
+    }
+}
 ```
 
-Validation checks ownership, that the one-minute duration has not elapsed, that this is a subsequent turn, and that the radius has not already increased this round. Its handler dispatches the generic `UpdateActiveEffectStateOp<BlessAuraState>` with `RadiusFeet + 10` and the current round as `LastExpandedRound`.
-
-The state update emits `ActiveEffectStateChangedFact`. The aura renderer and modifier middleware read the new radius immediately.
-
-### 10.5 Visible state
-
-A `BlessPresentationSelector` derives:
-
-- the caster-centered aura geometry;
-- the current radius;
-- which creatures currently appear affected;
-- the visible source text for the +1 status bonus.
-
-This selector shares its range and alliance helpers with the rules middleware. The UI does not become a second rules implementation.
+Stride, forced movement, teleportation, spawning, and aura expansion all use current snapshot positions, so no stored child bonus can become stale. The open PR discussion will decide whether the player-facing projection remains derived or is additionally represented by per-target marker effects.
 
 ---
 
 ## 11. Worked example: Tumble Through
 
 Tumble Through demonstrates a composite move action, a skill check, occupied-space permission, movement Facts, and a synthetic reaction trigger on failure.
-
-### 11.1 Selection and profile
 
 ```csharp
 public sealed record TumbleThroughSelection(
@@ -1092,165 +1440,183 @@ public sealed record TumbleThroughActionOp(
             traits: [Trait.Move],
             startTriggers: [ActionStartTrigger.MoveActionBegun]);
 }
-```
 
-Root validation checks that the path is well-formed, the enemy is on the proposed path, the movement mode is available, and the request is plausible. Dynamic blockers are still handled by movement resolution.
-
-The standard wrapper spends one action and opens the action-level move trigger before the handler begins.
-
-### 11.2 Movement is reusable nested work
-
-```csharp
+// This is nested movement work, not another PF2e action. Both calls below use
+// one budget and therefore cannot spend two actions or reset the actor's Speed.
 public sealed record MovePathOp(
     CreatureId Mover,
     ImmutableArray<GridPosition> Path,
     MovementBudgetId Budget,
     MovementPermission Permission)
     : IRuleOp<MovePathOutcome>;
-```
 
-`MovePathOp` is not an `ActionOp`. It is nested movement work, so it cannot accidentally spend another action or open another generic action-start window. It does dispatch square-level lifecycle Ops and reducers as movement progresses.
-
-A scoped `MovementPermission` may authorize this Tumble Through frame to enter the chosen enemy's occupied spaces and treat those spaces as difficult terrain. The permission is engine-issued, names the parent Op and enemy, and cannot be reused by another caller.
-
-### 11.3 Handler flow
-
-Representative orchestration:
-
-```csharp
-public async ValueTask<TumbleThroughOutcome> Handle(
-    OpFrame<TumbleThroughActionOp> frame,
-    OpContext context)
+public sealed class TumbleThroughValidator
+    : IActionValidator<TumbleThroughActionOp>
 {
-    var startingSquare = context.Snapshot.PositionOf(frame.Op.Actor);
-    var split = pathPlanner.SplitAtCreature(
-        frame.Op.Path,
-        frame.Op.Enemy,
-        context.Snapshot);
-    var budget = context.MovementBudgets.Create(
-        frame.Op.Actor,
-        frame.Op.Mode,
-        context.Snapshot);
+    private readonly IPathRules pathRules;
 
-    var approach = await context.Dispatch(
-        new MovePathOp(
-            frame.Op.Actor,
+    public TumbleThroughValidator(IPathRules pathRules)
+    {
+        this.pathRules = pathRules;
+    }
+
+    public ValidationResult Validate(
+        OpFrame<TumbleThroughActionOp> frame,
+        RulesSnapshot snapshot)
+    {
+        var op = frame.Op;
+        if (!snapshot.Creatures.CanUseMovementMode(op.Actor, op.Mode))
+            return ValidationResult.Invalid("Movement mode is unavailable");
+
+        if (!snapshot.Creatures.IsEnemy(op.Actor, op.Enemy))
+            return ValidationResult.Invalid("Chosen creature is not an enemy");
+
+        if (!pathRules.IsContiguous(op.Path, op.Mode, snapshot) ||
+            !pathRules.CrossesCreature(op.Path, op.Enemy, snapshot))
+        {
+            return ValidationResult.Invalid("Path does not cross the enemy");
+        }
+
+        return ValidationResult.Valid;
+    }
+}
+
+public sealed class TumbleThroughHandler
+    : IOpHandler<TumbleThroughActionOp, TumbleThroughOutcome>
+{
+    private readonly IPathPlanner pathPlanner;
+
+    public TumbleThroughHandler(IPathPlanner pathPlanner)
+    {
+        this.pathPlanner = pathPlanner;
+    }
+
+    public async ValueTask<TumbleThroughOutcome> Handle(
+        OpFrame<TumbleThroughActionOp> frame,
+        OpContext context)
+    {
+        // The common ActionOp lifecycle has spent one action and opened the
+        // action-level move timing point before this method begins.
+        var op = frame.Op;
+        var startingSquare = context.Snapshot.PositionOf(op.Actor);
+        var split = pathPlanner.SplitAtCreature(
+            op.Path,
+            op.Enemy,
+            context.Snapshot);
+        var budget = context.MovementBudgets.Create(
+            op.Actor,
+            op.Mode,
+            context.Snapshot);
+
+        // Move normally to the last legal square before the enemy.
+        var approach = await context.Dispatch(new MovePathOp(
+            op.Actor,
             split.BeforeEnemy,
             budget,
             MovementPermission.Normal));
 
-    if (!approach.Value.ReachedDestination)
-        return TumbleThroughOutcome.MovementEnded(approach.Value);
+        if (approach.Status != OpStatus.Resolved)
+            return TumbleThroughOutcome.InvalidMovement(
+                approach.InvalidReason!);
 
-    var check = await context.Dispatch(
-        new SkillCheckOp(
-            frame.Op.Actor,
+        if (!approach.Value.ReachedDestination)
+            return TumbleThroughOutcome.MovementEnded(approach.Value);
+
+        var check = await context.Dispatch(new SkillCheckOp(
+            op.Actor,
             Skill.Acrobatics,
-            context.Snapshot.ReflexDc(frame.Op.Enemy),
+            context.Snapshot.ReflexDc(op.Enemy),
             CheckSource.From(frame.Id)));
 
-    if (check.Value.Degree < DegreeOfSuccess.Success)
-    {
-        await DispatchFailedEntryTrigger(frame, startingSquare, context);
-        return TumbleThroughOutcome.FailedCheck(check.Value.Degree);
-    }
+        if (check.Status != OpStatus.Resolved)
+            return TumbleThroughOutcome.InvalidCheck(check.InvalidReason!);
 
-    var permission = context.MovementPermissions.ForTumbleThrough(
-        frame,
-        frame.Op.Enemy);
+        if (check.Value.Degree < DegreeOfSuccess.Success)
+        {
+            await DispatchFailedEntryTrigger(
+                frame,
+                startingSquare,
+                context);
+            return TumbleThroughOutcome.FailedCheck(check.Value.Degree);
+        }
 
-    var crossing = await context.Dispatch(
-        new MovePathOp(
-            frame.Op.Actor,
+        // Success alone is not enough. Before entering an occupied square,
+        // reserve enough remaining movement to reach the first legal exit.
+        // Enemy spaces use difficult-terrain cost. A failed preflight commits
+        // no occupied-space movement and uses the same failure timing below.
+        var crossingPlan = pathPlanner.PreflightOccupiedCrossing(
             split.FromEnemyThroughExit,
+            op.Enemy,
+            budget,
+            difficultTerrain: true,
+            context.Snapshot);
+
+        if (!crossingPlan.CanComplete)
+        {
+            await DispatchFailedEntryTrigger(
+                frame,
+                startingSquare,
+                context);
+            return TumbleThroughOutcome.CouldNotPass(
+                MovePathOutcome.InsufficientMovement);
+        }
+
+        // This engine-issued permission is scoped to this frame and enemy. A
+        // different caller cannot reuse it to enter occupied spaces.
+        var permission = context.MovementPermissions.ForTumbleThrough(
+            frame,
+            op.Enemy,
+            crossingPlan.Reservation);
+
+        var crossing = await context.Dispatch(new MovePathOp(
+            op.Actor,
+            crossingPlan.PathThroughExit,
             budget,
             permission));
 
-    var passedThrough = crossing.Facts
-        .OfType<OccupiedSpaceTraversedFact>()
-        .Any(fact => fact.Occupant == frame.Op.Enemy);
+        // Only a committed traversal Fact proves that the rule succeeded.
+        var passedThrough = crossing.Facts
+            .OfType<OccupiedSpaceTraversedFact>()
+            .Any(fact => fact.Occupant == op.Enemy);
 
-    if (!passedThrough)
-    {
-        await DispatchFailedEntryTrigger(frame, startingSquare, context);
-        return TumbleThroughOutcome.CouldNotPass(crossing.Value);
+        if (!passedThrough)
+        {
+            await DispatchFailedEntryTrigger(
+                frame,
+                startingSquare,
+                context);
+            return TumbleThroughOutcome.CouldNotPass(crossing.Value);
+        }
+
+        return TumbleThroughOutcome.PassedThrough(
+            check.Value.Degree,
+            crossing.Value);
     }
 
-    return TumbleThroughOutcome.PassedThrough(
-        check.Value.Degree,
-        crossing.Value);
+    private static async ValueTask DispatchFailedEntryTrigger(
+        OpFrame<TumbleThroughActionOp> frame,
+        GridPosition actionStartingSquare,
+        OpContext context)
+    {
+        // Failure triggers reactions as though the actor had left the square
+        // where the action began. A stable TriggerId supports deduplication.
+        await context.Dispatch(new MovementLeavingSquareOp(
+            frame.Op.Actor,
+            actionStartingSquare,
+            actionStartingSquare,
+            MovementTriggerKind.TumbleThroughFailure,
+            context.NewTriggerId()));
+    }
 }
 ```
 
-This is a sketch, not a requirement to allocate arrays or use LINQ in a hot path.
-
-### 11.4 Important correctness details
-
-The implementation must preserve these details:
-
-- The movement budget spans both nested `MovePathOp` calls. Entering occupied spaces uses the rule's difficult-terrain cost.
-- The occupied segment is preflighted and reserved through the first legal exit before its first movement reducer commits. If the remaining budget or current blockers cannot complete that crossing, the actor stays in the last legal square outside the enemy's space.
-- A successful Acrobatics check is not proof that the actor traversed the enemy's space. `PassedThrough` is derived from `OccupiedSpaceTraversedFact`, emitted only after movement commits.
-- If the check fails, or the creature lacks enough movement to get through after succeeding, movement ends and the handler dispatches the required synthetic departure trigger from the square where the action began.
-- The synthetic event uses `MovementLeavingSquareOp` with `MovementTriggerKind.TumbleThroughFailure`, so Reactive Strike and future movement reactions use the same canonical path as real departures.
-- Each trigger has a stable `TriggerId`. Reaction frequency and per-trigger deduplication prevent accidental repeated responses.
-- If movement is interrupted before entering the occupied square, no traversal Fact exists and the outcome cannot claim success.
-
-The exact reaction opportunities caused by the action beginning and by the failure departure remain distinct rules timing points. The engine represents both explicitly rather than hiding one in a trait heuristic.
+The action-begin timing point and the failed-entry synthetic departure are distinct. If movement is blocked before traversal, no `OccupiedSpaceTraversedFact` exists and the response cannot claim that the enemy's space was crossed.
 
 ---
 
 ## 12. Worked example: Cranial Detonation
 
-Cranial Detonation is intentionally a stress test. It combines a completed spell trigger, a prompt, once-per-round use, forced death, overlapping emanations, basic saves, alternate mode selection, and chained explosions.
-
-### 12.1 Trigger from committed Facts
-
-An active Cranial Detonation binding registers an `IFactBatchListener<CreatureReducedToZeroFact>`.
-
-For each matching Fact in the committed batch, the listener checks:
-
-- the owner currently satisfies the feature's state requirement, such as unleashed psyche;
-- the reduced creature is an enemy;
-- the creature is not mindless;
-- the feature is available this round;
-- the damage's causation trace leads to a spell cast by the owner.
-
-It does not compare `fact.SourceOpId` directly with the `CastSpellActionOp` frame ID. Damage is commonly applied by nested save and damage Ops. Instead it uses the engine-owned causal trace:
-
-```csharp
-var cast = context.Trace.FindCausingAncestor<CastSpellActionOp>(
-    fact.SourceOpId,
-    fact.Source);
-
-if (cast is null || cast.Op.Actor != binding.Owner)
-    return;
-```
-
-The listener groups eligible creatures by the causing cast. Because it receives the batch only after the root finishes, it prompts once per qualifying cast rather than once per creature.
-
-```csharp
-var choice = await context.Dispatch(
-    new PromptChoiceOp<CranialDetonationChoice>(
-        ownerPlayer,
-        BuildCranialPrompt(eligibleOrigins)));
-
-if (!choice.Value.Accepted)
-    return;
-
-await context.DispatchAuthorized(
-    binding,
-    new CranialDetonationActionOp(
-        binding.Owner,
-        binding.Id,
-        cast.Id,
-        eligibleOrigins,
-        choice.Value.Mode));
-```
-
-The prompt itself does not spend the feature. Declining has no cost.
-
-### 12.2 Authorized free action and frequency cost
+Cranial Detonation is intentionally a stress test. It combines a completed spell trigger, one prompt for multiple initial creatures, once-per-round use, forced death, overlapping emanations, basic saves, alternate mode selection, and chained explosions.
 
 ```csharp
 public sealed record CranialDetonationActionOp(
@@ -1267,115 +1633,240 @@ public sealed record CranialDetonationActionOp(
         new(
             ActionCost.FreeAction,
             [RuleCost.OncePerRound(AuthorizedBinding)],
-            TraitsFor(Mode),
+            CranialDetonationRule.TraitsFor(Mode),
             []);
 }
-```
 
-Authorization and validation recheck the binding, owner state, triggering cast, causal relationship, enemy relationship, non-mindless trait, current 0-HP state, and frequency availability. This protects against a stale prompt and against callers constructing the Op directly.
-
-The common action wrapper atomically commits the once-per-round cost before the handler kills an origin or deals damage.
-
-### 12.3 Chained resolution
-
-The handler maintains three sets:
-
-```csharp
-var frontier = new Queue<CreatureId>(validatedInitialOrigins);
-var detonatedOrigins = new HashSet<CreatureId>();
-var resolvedTargets = new HashSet<CreatureId>();
-```
-
-Resolution proceeds in waves:
-
-1. Remove all current frontier origins from the queue.
-2. Revalidate that each origin is an enemy, at 0 HP, non-mindless, and not already detonated.
-3. Dispatch the domain death workflow for each accepted origin and inspect its result.
-4. Build the union of 15-foot emanations from the origins whose detonation committed.
-5. Select creatures in that union that are not already in `resolvedTargets`.
-6. Add all selected creatures to `resolvedTargets` before applying damage.
-7. Roll one damage value for the wave and dispatch a generic area basic-save-and-damage Op.
-8. Inspect committed `CreatureReducedToZeroFact` descendants from that area Op.
-9. Add newly reduced enemies to the next frontier only if they are non-mindless and have not detonated.
-10. Repeat until the frontier is empty.
-
-Representative core:
-
-```csharp
-while (frontier.Count > 0)
+public static class CranialDetonationRule
 {
-    var origins = TakeWave(frontier)
-        .Where(origin => IsEligibleOrigin(
-            origin,
-            detonatedOrigins,
-            context.Snapshot))
-        .ToImmutableArray();
+    public static readonly RuleDefinitionId DefinitionId =
+        RuleIds.Feat("cranial-detonation");
 
-    if (origins.IsEmpty)
-        continue;
-
-    var explodingOrigins = ImmutableArray.CreateBuilder<CreatureId>();
-    foreach (var origin in origins)
+    public static void Register(IRuleRegistryBuilder rules)
     {
-        var death = await context.Dispatch(
-            new ApplyRuleDeathOp(
-                origin,
-                DeathSource.From(frame.Id)));
-        detonatedOrigins.Add(origin);
-
-        if (death.Status == OpStatus.Resolved && death.Value.Died)
-            explodingOrigins.Add(origin);
+        rules.ActiveFactBatchListener<CreatureReducedToZeroFact>(
+            DefinitionId,
+            OnCreaturesReducedToZero);
+        rules.Validate<CranialDetonationActionOp>(
+            DefinitionId,
+            ValidateAction);
+        rules.Handle<CranialDetonationActionOp, CranialDetonationOutcome>(
+            DefinitionId,
+            HandleAction);
     }
 
-    if (explodingOrigins.Count == 0)
-        continue;
-
-    var area = areaService.UnionEmanations(
-        explodingOrigins.ToImmutable(),
-        radiusFeet: 15,
-        context.Snapshot);
-    var targets = area.Creatures
-        .Where(target => resolvedTargets.Add(target))
-        .ToImmutableArray();
-
-    var wave = await context.Dispatch(
-        new AreaBasicSaveDamageOp(
-            targets,
-            SaveFor(frame.Op.Mode),
-            RollDamage(frame.Op.Mode, context.Rolls),
-            DamageSource.From(frame.Id),
-            TraitsFor(frame.Op.Mode)));
-
-    foreach (var reduced in wave.Facts
-        .OfType<CreatureReducedToZeroFact>())
+    private static async ValueTask OnCreaturesReducedToZero(
+        ActiveRuleBinding binding,
+        CommittedFactBatch<CreatureReducedToZeroFact> batch,
+        FactContext context)
     {
-        if (IsEnemy(frame.Op.Actor, reduced.Creature, context.Snapshot) &&
-            !context.Snapshot.HasTrait(reduced.Creature, Trait.Mindless) &&
-            !detonatedOrigins.Contains(reduced.Creature))
+        var snapshot = context.Snapshot;
+        if (!snapshot.Psychic.IsPsycheUnleashed(binding.Owner) ||
+            !snapshot.Frequencies.IsAvailableThisRound(binding.Id))
         {
-            frontier.Enqueue(reduced.Creature);
+            return;
+        }
+
+        // ApplyDamageOp is normally nested under saves and spell handlers, so
+        // SourceOpId will not equal CastSpellActionOp.Id. Follow the trusted
+        // causation trace and group every eligible origin by its causing cast.
+        var byCast = new Dictionary<OpId, List<CreatureId>>();
+        foreach (var fact in batch.Facts)
+        {
+            var cast = context.Trace.FindCausingAncestor<CastSpellActionOp>(
+                fact.SourceOpId,
+                fact.Source);
+
+            if (cast is null || cast.Op.Actor != binding.Owner ||
+                !IsEligibleOrigin(binding.Owner, fact.Creature, snapshot))
+            {
+                continue;
+            }
+
+            if (!byCast.TryGetValue(cast.Id, out var creatures))
+            {
+                creatures = new List<CreatureId>();
+                byCast.Add(cast.Id, creatures);
+            }
+
+            creatures.Add(fact.Creature);
+        }
+
+        // A spell that reduced several enemies creates one prompt, not one
+        // prompt per fact. Declining never dispatches the ActionOp and therefore
+        // does not spend the once-per-round frequency.
+        foreach (var (castId, candidates) in byCast)
+        {
+            if (!context.Snapshot.Frequencies.IsAvailableThisRound(binding.Id))
+                break;
+
+            var origins = candidates.Distinct().ToImmutableArray();
+            var choice = await context.Dispatch(
+                new PromptChoiceOp<CranialDetonationChoice>(
+                    snapshot.PlayerFor(binding.Owner),
+                    CranialDetonationPrompt.For(origins)));
+
+            if (choice.Status != OpStatus.Resolved ||
+                !choice.Value.Choice.Accepted)
+            {
+                continue;
+            }
+
+            await context.DispatchAuthorized(
+                binding,
+                new CranialDetonationActionOp(
+                    binding.Owner,
+                    binding.Id,
+                    castId,
+                    origins,
+                    choice.Value.Choice.Mode));
         }
     }
+
+    private static ValidationResult ValidateAction(
+        OpFrame<CranialDetonationActionOp> frame,
+        RulesSnapshot snapshot,
+        ResolutionTrace trace)
+    {
+        var op = frame.Op;
+        var binding = snapshot.RuleBindings.Find(op.AuthorizedBinding);
+        if (binding is null ||
+            binding.DefinitionId != DefinitionId ||
+            binding.Owner != op.Actor ||
+            !snapshot.Psychic.IsPsycheUnleashed(op.Actor) ||
+            !snapshot.Frequencies.IsAvailableThisRound(binding.Id))
+        {
+            return ValidationResult.Invalid("Feat is not currently available");
+        }
+
+        if (!trace.Is<CastSpellActionOp>(op.TriggeringCast) ||
+            op.InitialOrigins.IsEmpty ||
+            op.InitialOrigins.Any(origin =>
+                !IsEligibleOrigin(op.Actor, origin, snapshot) ||
+                !trace.WasReducedToZeroBy(origin, op.TriggeringCast)))
+        {
+            return ValidationResult.Invalid("Triggering spell or origins are stale");
+        }
+
+        return ValidationResult.Valid;
+    }
+
+    private static async ValueTask<CranialDetonationOutcome> HandleAction(
+        OpFrame<CranialDetonationActionOp> frame,
+        OpContext context)
+    {
+        // The ActionOp pipeline has atomically spent the once-per-round use.
+        var frontier = new Queue<CreatureId>(frame.Op.InitialOrigins);
+        var attemptedOrigins = new HashSet<CreatureId>();
+        var resolvedTargets = new HashSet<CreatureId>();
+        var detonations = 0;
+
+        while (frontier.Count > 0)
+        {
+            // Process only the origins present at the start of this wave. New
+            // zero-HP facts become the next wave instead of altering iteration.
+            var count = frontier.Count;
+            var origins = ImmutableArray.CreateBuilder<CreatureId>();
+            for (var i = 0; i < count; i++)
+            {
+                var candidate = frontier.Dequeue();
+                if (attemptedOrigins.Add(candidate) &&
+                    IsEligibleOrigin(
+                        frame.Op.Actor,
+                        candidate,
+                        context.Snapshot))
+                {
+                    origins.Add(candidate);
+                }
+            }
+
+            var exploding = ImmutableArray.CreateBuilder<CreatureId>();
+            foreach (var origin in origins)
+            {
+                // ApplyRuleDeathOp owns the would-die lifecycle, then applies
+                // Dead through its reducer. A prevented/replaced death cannot
+                // silently become a committed detonation origin.
+                var death = await context.Dispatch(new ApplyRuleDeathOp(
+                    origin,
+                    DeathSource.From(frame.Id)));
+
+                if (death.Status == OpStatus.Resolved && death.Value.Died)
+                    exploding.Add(origin);
+            }
+
+            if (exploding.Count == 0)
+                continue;
+
+            detonations += exploding.Count;
+            var area = context.Areas.UnionEmanations(
+                exploding.ToImmutable(),
+                radiusFeet: 15,
+                context.Snapshot);
+
+            // Add targets to the set before damage. Overlap in this wave or a
+            // later wave can never damage the same creature twice in this use.
+            var targets = area.Creatures
+                .Where(target => resolvedTargets.Add(target))
+                .ToImmutableArray();
+
+            var damage = RollDamage(frame.Op.Mode, context.Rolls);
+            var wave = await context.Dispatch(new AreaBasicSaveDamageOp(
+                targets,
+                SaveFor(frame.Op.Mode),
+                damage,
+                DamageSource.From(frame.Id),
+                TraitsFor(frame.Op.Mode)));
+
+            // AreaBasicSaveDamageOp dispatches SavingThrowOp and ApplyDamageOp
+            // per target. The runner returns their committed descendant Facts.
+            foreach (var reduced in wave.Facts
+                .OfType<CreatureReducedToZeroFact>())
+            {
+                // Repeat every eligibility check on every wave. In particular,
+                // a later mindless casualty must never become a chain origin.
+                if (IsEligibleOrigin(
+                        frame.Op.Actor,
+                        reduced.Creature,
+                        context.Snapshot) &&
+                    !attemptedOrigins.Contains(reduced.Creature))
+                {
+                    frontier.Enqueue(reduced.Creature);
+                }
+            }
+        }
+
+        return new CranialDetonationOutcome(
+            DetonatedOrigins: detonations,
+            ResolvedTargets: resolvedTargets.Count);
+    }
+
+    private static bool IsEligibleOrigin(
+        CreatureId owner,
+        CreatureId creature,
+        RulesSnapshot snapshot) =>
+        snapshot.Creatures.IsEnemy(owner, creature) &&
+        snapshot.HitPoints.Current(creature) == 0 &&
+        !snapshot.Creatures.HasTrait(creature, Trait.Mindless);
+
+    public static ImmutableHashSet<Trait> TraitsFor(
+        CranialDetonationMode mode) =>
+        mode == CranialDetonationMode.Mindshift
+            ? [Trait.Death, Trait.Mental, Trait.Mindshift, Trait.Psyche]
+            : [Trait.Death, Trait.Psyche];
+
+    private static SaveKind SaveFor(CranialDetonationMode mode) =>
+        mode == CranialDetonationMode.Mindshift
+            ? SaveKind.Will
+            : SaveKind.Reflex;
+
+    private static DamagePacket RollDamage(
+        CranialDetonationMode mode,
+        IRollService rolls) =>
+        CranialDetonationDamage.Roll(mode, rolls);
 }
 ```
 
-Every wave repeats the non-mindless filter. Applying it only to the initial origins would allow a mindless creature reduced in a later wave to become an illegal new origin.
-
-### 12.4 Generic supporting workflows
-
-`ApplyRuleDeathOp` owns the “would die” timing window, then commits the dead state if no rule prevents or replaces it. The feature handler never sets a `Dead` field directly.
-
-`AreaBasicSaveDamageOp` is reusable. It:
-
-- rolls or receives one base damage value according to the calling rule;
-- dispatches a `SavingThrowOp` for each target;
-- applies the basic-save multiplier;
-- dispatches `ApplyDamageOp` with preserved causation;
-- returns all committed descendant Facts automatically.
-
-The Cranial Detonation mode changes the save, damage type, and traits supplied to this generic workflow. It does not require a second copy of the chain algorithm.
-
-The union area and `resolvedTargets` set guarantee that a creature takes this feature's damage at most once per use, even when emanations overlap or a later wave also reaches it.
+`AreaBasicSaveDamageOp` and `ApplyRuleDeathOp` are generic engine workflows, not Cranial-specific mutation shortcuts. The union area and `resolvedTargets` set enforce damage at most once per use, while the refreshed snapshot and repeated non-mindless filter make chained waves terminate legally.
 
 ---
 
