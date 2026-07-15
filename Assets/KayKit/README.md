@@ -69,7 +69,7 @@ resolve through Humanoid hand bones. Back and quiver sockets are project-owned
 children of the Humanoid torso. Two-handed props use the right-hand socket and
 the authored two-handed pose; no procedural IK is used.
 
-Animated wrappers use a shared 0.75 presentation scale. Their legacy token mesh
+Animated wrappers use a shared 0.50 presentation scale. Their legacy token mesh
 and base plate are hidden at runtime, while unmapped legacy creatures keep both.
 Animated Stride movement stays level and uses the walk clip instead of the old
 token hop. Strikes rotate the creature root toward the selected target before

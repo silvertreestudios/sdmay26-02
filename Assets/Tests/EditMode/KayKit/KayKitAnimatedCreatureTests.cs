@@ -141,6 +141,8 @@ public sealed class KayKitAnimatedCreatureTests
     [Test]
     public void AnimatedVisualPrefabs_UseApprovedReducedScale()
     {
+        Assert.That(KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale, Is.EqualTo(0.50f));
+
         HashSet<GameObject> checkedPrefabs = new();
         foreach (CreatureVisualCatalogEntry entry in visualCatalog.Entries)
         {

@@ -16,7 +16,7 @@ namespace Game.KayKit.Editor
         public const string CreatureVisualCatalogPath = KayKitSetupTool.CatalogRoot + "/CreatureVisualCatalog.asset";
         public const string EquipmentVisualCatalogPath = KayKitSetupTool.CatalogRoot + "/EquipmentVisualCatalog.asset";
         public const string AnimatorControllerPath = KayKitSetupTool.ProjectRoot + "/Animation/KayKitCreatureAnimator.controller";
-        public const float AnimatedCreatureVisualScale = 0.75f;
+        public const float AnimatedCreatureVisualScale = 0.50f;
         public const float CharacterPreviewVisualScale = 0.62f;
 
         private const string AdventurerModelRoot = "Assets/ThirdParty/KayKit/Adventurers_2.0/Characters/fbx";

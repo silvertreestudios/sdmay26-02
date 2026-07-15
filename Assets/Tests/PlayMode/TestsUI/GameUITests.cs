@@ -163,6 +163,7 @@ namespace TestsUI
                 Texture2D snapshot = portrait != null ? portrait.GetPortraitSnapshot() : null;
                 Texture2D displayedPortrait = portraitImage != null ? portraitImage.image as Texture2D : null;
                 Assert.IsNotNull(portraitImage, combatants[i].name + " card is missing its portrait element.");
+                Assert.AreEqual(ScaleMode.ScaleToFit, portraitImage.scaleMode, combatants[i].name + " portrait should preserve its aspect ratio.");
                 Assert.IsNotNull(snapshot, combatants[i].name + " did not capture a portrait texture.");
                 Assert.IsNotNull(displayedPortrait, "Initiative card " + i + " is not displaying a portrait texture.");
 
