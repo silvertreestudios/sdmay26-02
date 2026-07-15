@@ -53,6 +53,16 @@ Use Tools > KayKit > Reimport Vendor Tree for a forced path-scoped reimport,
 then regenerate and run Tools > KayKit > Validate Setup. Repeating those steps
 must not create materials, duplicate entries, or unrelated serialized changes.
 
+## Showcase scene
+
+Open `Assets/KayKit/Scenes/KayKitShowcase.unity` and press Play to inspect the
+representative adventurer, skeleton, ranger bow, dungeon floor, wall, and prop.
+The on-screen panel previews every clip in `KayKitAnimationLibrary` on both
+Humanoid rigs. It supports category and text filtering, previous/next selection,
+play/pause, restart, timeline scrubbing, playback speed, visibility toggles, and
+camera orbit/zoom controls. The scene is intentionally excluded from player
+build settings and is a project-only art and animation review tool.
+
 ## Git LFS
 
 Issue #107 is the scoped-new-assets exception to the repository-wide LFS
