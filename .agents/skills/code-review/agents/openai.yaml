@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Review"
+  short_description: "Review changes independently and rigorously"
+  default_prompt: "Use $code-review to independently review this change for correctness, regressions, scope, and test gaps."

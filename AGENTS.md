@@ -60,10 +60,21 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 - Keep worktrees under the sibling folder `../sdmay26-02-worktrees/`.
 - Use descriptive worktree names tied to the task, for example `../sdmay26-02-worktrees/issue-62-tokenmesh-log-noise`.
 - Create task branches from the intended base branch inside the worktree.
-- When implementation is complete and verified for a GitHub issue, always push the task branch and create a draft PR linked to the issue.
+- After implementation passes the local agent-review gates below, push the task branch and create a draft PR linked to the issue.
 - Delete task worktrees after the PR is merged, closed, or the work is abandoned.
 - Before deleting a worktree, verify there are no uncommitted changes that should be preserved.
 - Never delete another user's worktree or branch without explicit approval.
+
+## Agentic Delivery Workflow
+
+- Use `.agents/skills/iterative-pr-delivery` for every task or issue intended to become a PR, together with the applicable domain skills.
+- Implement with `gpt-5.6` at medium reasoning. Before opening a PR, hand the exact head SHA to a fresh `gpt-5.6` xhigh session using `.agents/skills/code-review`.
+- Address accepted findings with `gpt-5.6` at high reasoning. Carefully validate every requested change; reject incorrect or harmful advice with evidence and capture legitimate out-of-scope work through `gh-issue-capture`.
+- Repeat fresh xhigh review and high-reasoning fixes until the current head has no actionable findings. A review applies only to its recorded SHA and any code change invalidates it.
+- Only then push and create a draft PR. Request GitHub Copilot code review, triage its comments with the same care, fix accepted findings, and re-request review after each fix push until Copilot has reviewed the latest head with no actionable findings.
+- After local tests, CI, PR evidence, local review, and Copilot review are clean, mark the PR ready and request review from `clausman`.
+- Never merge or enable auto-merge. Every PR requires explicit approval from `clausman` before merge.
+- If the current environment cannot launch the required model, reasoning level, or fresh session, leave a handoff under `.agent-temp/delivery/<branch>/` and stop at that gate rather than silently substituting.
 
 ## Coding
 

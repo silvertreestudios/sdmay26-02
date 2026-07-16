@@ -16,7 +16,7 @@ Use this skill to record follow-up work in GitHub Issues with consistent detail 
 4. Create the issue with `gh issue create --title "<title>" --body-file <file> --label "<label>"`.
 5. If user approval is expected before remote writes, draft the issue body and labels first.
 
-When implementation starts from an issue, use a task-specific Git worktree under `../sdmay26-02-worktrees/` and delete that worktree after the PR is merged, closed, or abandoned.
+When implementation starts from an issue, use `iterative-pr-delivery` and a task-specific Git worktree under `../sdmay26-02-worktrees/`. Delete that worktree after the PR is merged, closed, or abandoned.
 
 ## Title
 

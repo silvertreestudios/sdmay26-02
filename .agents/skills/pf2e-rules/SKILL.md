@@ -21,6 +21,7 @@ Use this skill when changing Pathfinder 2e rules behavior or data in this reposi
 3. Add deterministic tests for rules math before refactoring broad behavior.
 4. Cover PF2e-sensitive areas: degree of success, multiple attack penalty, action economy, damage dice, resistances/weaknesses, conditions, proficiency, and item bonuses.
 5. Keep UI labels and player-facing text short and source-safe.
+6. For work intended for a PR, use `iterative-pr-delivery` after the rules implementation and verification steps.
 
 ## Data Rules
 

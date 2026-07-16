@@ -14,6 +14,7 @@ Use this skill for art briefs, generated bitmap concepts, import checklists, pre
 3. Use Unity MCP when connected for import settings, material setup, prefab wiring, thumbnails, scene previews, and console validation. Use manual Unity review when MCP cannot expose the needed visual or importer detail.
 4. Track binary and large assets with Git LFS according to `.gitattributes`.
 5. Verify in context: scene lighting, scale, collider bounds, UI readability, audio levels, or animation preview as relevant.
+6. For work intended for a PR, use `iterative-pr-delivery` and carry the required visual evidence through every review round.
 
 ## Guardrails
 

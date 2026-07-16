@@ -1,6 +1,6 @@
 ---
 name: github-workflow
-description: Work with GitHub issues, native sub-issues, pull requests, PR descriptions, issue comments, inline PR review comments, review-comment replies, and gists through safer Python wrappers around the gh CLI. Use when Codex needs to create or update issues, post or edit comments, reply to PR review comments, update PR bodies, fetch comments, or upload temporary review assets while avoiding PowerShell quoting, JSON, and Hashtable string-conversion problems.
+description: Work with GitHub issues, native sub-issues, draft pull requests, PR descriptions, review requests, checks, submitted reviews, inline review threads, replies, thread resolution, and gists through safer Python wrappers around the gh CLI. Use when Codex needs to create or update GitHub work, run the iterative PR review workflow, or avoid PowerShell quoting and JSON corruption.
 ---
 
 # GitHub Workflow
@@ -12,6 +12,7 @@ Use this skill for GitHub operations where multiline text, JSON payloads, review
 - Use markdown body files for all comment, issue, and PR body text. Do not pass multiline bodies inline through PowerShell.
 - Put temporary body files and generated workflow artifacts under `.agent-temp/` at the checkout root. Create it on demand and delete task-specific files when done.
 - Run mutating commands with `--dry-run` first unless the user explicitly asks for the write and the payload is already reviewed.
+- Use `iterative-pr-delivery` for the quality gates around implementation, review rounds, Copilot review, and human handoff. This skill supplies transport primitives; it does not decide that a PR is ready.
 - Keep authentication delegated to `gh`; these scripts call `gh api` and do not manage tokens.
 - Distinguish comment types:
   - Issue comments and PR conversation comments use `/repos/{owner}/{repo}/issues/{number}/comments`.
@@ -39,18 +40,31 @@ python .agents/skills/github-workflow/scripts/gh_issue.py list-comments --repo s
 ### Pull Requests
 
 ```powershell
+python .agents/skills/github-workflow/scripts/gh_pr.py create --repo silvertreestudios/sdmay26-02 --title "[Agent] Add workflow" --head task-branch --base main --body-file .agent-temp/pr-body.md --draft --dry-run
+python .agents/skills/github-workflow/scripts/gh_pr.py get --repo silvertreestudios/sdmay26-02 --pr 123
 python .agents/skills/github-workflow/scripts/gh_pr.py update-body --repo silvertreestudios/sdmay26-02 --pr 123 --body-file .agent-temp/pr-body.md --dry-run
 python .agents/skills/github-workflow/scripts/gh_pr.py comment --repo silvertreestudios/sdmay26-02 --pr 123 --body-file .agent-temp/comment.md --dry-run
 python .agents/skills/github-workflow/scripts/gh_pr.py list-comments --repo silvertreestudios/sdmay26-02 --pr 123
+python .agents/skills/github-workflow/scripts/gh_pr.py request-review --repo silvertreestudios/sdmay26-02 --pr 123 --reviewer "@copilot" --dry-run
+python .agents/skills/github-workflow/scripts/gh_pr.py list-reviews --repo silvertreestudios/sdmay26-02 --pr 123
+python .agents/skills/github-workflow/scripts/gh_pr.py list-review-requests --repo silvertreestudios/sdmay26-02 --pr 123
+python .agents/skills/github-workflow/scripts/gh_pr.py checks --repo silvertreestudios/sdmay26-02 --pr 123
+python .agents/skills/github-workflow/scripts/gh_pr.py ready --repo silvertreestudios/sdmay26-02 --pr 123 --dry-run
 ```
+
+`request-review` accepts repeated `--reviewer` values. It normalizes `@copilot` to GitHub's Copilot code-review bot account. Re-request Copilot after each fix push unless automatic review of new pushes is proven enabled.
 
 ### Inline PR Review Comments
 
 ```powershell
 python .agents/skills/github-workflow/scripts/gh_review_comments.py list --repo silvertreestudios/sdmay26-02 --pr 123
+python .agents/skills/github-workflow/scripts/gh_review_comments.py list-threads --repo silvertreestudios/sdmay26-02 --pr 123
 python .agents/skills/github-workflow/scripts/gh_review_comments.py reply --repo silvertreestudios/sdmay26-02 --pr 123 --comment-id 456789 --body-file .agent-temp/reply.md --dry-run
 python .agents/skills/github-workflow/scripts/gh_review_comments.py update --repo silvertreestudios/sdmay26-02 --comment-id 456789 --body-file .agent-temp/reply.md --dry-run
+python .agents/skills/github-workflow/scripts/gh_review_comments.py resolve-thread --repo silvertreestudios/sdmay26-02 --thread-id PRRT_kwDOExample --dry-run
 ```
+
+Use `list-threads` to inspect `isResolved` and the complete conversation before disposition. Resolve only a GraphQL thread ID returned by that command, and only after the current code and response justify resolution.
 
 ### Gists
 
@@ -67,6 +81,7 @@ When changing this skill, run:
 ```powershell
 python C:\Users\Josh\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents/skills/github-workflow
 python -c "from pathlib import Path; [compile(p.read_text(encoding='utf-8'), str(p), 'exec') for p in Path('.agents/skills/github-workflow/scripts').glob('*.py')]"
+python -m unittest discover .agents/skills/github-workflow/tests -v
 python .agents/skills/github-workflow/scripts/gh_create_issue.py --help
 python .agents/skills/github-workflow/scripts/gh_issue.py --help
 python .agents/skills/github-workflow/scripts/gh_pr.py --help

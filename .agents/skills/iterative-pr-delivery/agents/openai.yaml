@@ -1,0 +1,4 @@
+interface:
+  display_name: "Iterative PR Delivery"
+  short_description: "Drive changes through independent review gates"
+  default_prompt: "Use $iterative-pr-delivery to implement this issue through independent agent review, Copilot review, and human handoff."
