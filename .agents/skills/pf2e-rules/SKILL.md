@@ -16,12 +16,11 @@ Use this skill when changing Pathfinder 2e rules behavior or data in this reposi
 
 ## Implementation Workflow
 
-1. For work intended for a PR, start `iterative-pr-delivery` alongside this skill before implementation begins.
-2. Locate the affected JSON under `Assets/Resources/DataFiles` and the loading/mapping code in `Assets/Scripts/Creature`.
-3. Locate the runtime calculation path in combat, creature, equipment, action, or condition code.
-4. Add deterministic tests for rules math before refactoring broad behavior.
-5. Cover PF2e-sensitive areas: degree of success, multiple attack penalty, action economy, damage dice, resistances/weaknesses, conditions, proficiency, and item bonuses.
-6. Keep UI labels and player-facing text short and source-safe.
+1. Locate the affected JSON under `Assets/Resources/DataFiles` and the loading/mapping code in `Assets/Scripts/Creature`.
+2. Locate the runtime calculation path in combat, creature, equipment, action, or condition code.
+3. Add deterministic tests for rules math before refactoring broad behavior.
+4. Cover PF2e-sensitive areas: degree of success, multiple attack penalty, action economy, damage dice, resistances/weaknesses, conditions, proficiency, and item bonuses.
+5. Keep UI labels and player-facing text short and source-safe.
 
 ## Data Rules
 

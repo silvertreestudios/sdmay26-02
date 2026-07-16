@@ -13,10 +13,8 @@ Use this skill to record follow-up work in GitHub Issues with consistent detail 
    `gh issue list --search "<keywords> in:title,body" --state all`
 2. Classify the work with labels using the schema below.
 3. Write an issue body that preserves reproduction context and a clear finish line.
-4. Create the issue with `gh issue create --title "<title>" --body-file <file> --label "<label>"`.
-5. If user approval is expected before remote writes, draft the issue body and labels first.
-
-When implementation starts from an issue, use `iterative-pr-delivery` and a task-specific Git worktree under `../sdmay26-02-worktrees/`. Delete that worktree after the PR is merged, closed, or abandoned.
+4. Ask a human to approve the proposed title, body, and labels. Never create an issue without explicit human approval, including for follow-up work discovered during review, testing, or agent work.
+5. After approval, create the issue with `gh issue create --title "<title>" --body-file <file> --label "<label>"`.
 
 ## Title
 

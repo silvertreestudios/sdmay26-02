@@ -60,22 +60,11 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 - Keep worktrees under the sibling folder `../sdmay26-02-worktrees/`.
 - Use descriptive worktree names tied to the task, for example `../sdmay26-02-worktrees/issue-62-tokenmesh-log-noise`.
 - Create task branches from the intended base branch inside the worktree.
-- After implementation passes the local agent-review gates below, push the task branch and create a draft PR linked to the issue.
+- When assigned a GitHub issue that requires implementation work, follow `.agents/skills/iterative-pr-delivery` together with the applicable domain skills.
+- When implementation is complete and verified for a GitHub issue, push the task branch and create a draft PR linked to the issue.
 - Delete task worktrees after the PR is merged, closed, or the work is abandoned.
 - Before deleting a worktree, verify there are no uncommitted changes that should be preserved.
 - Never delete another user's worktree or branch without explicit approval.
-
-## Agentic Delivery Workflow
-
-- Use `.agents/skills/iterative-pr-delivery` for every task or issue intended to become a PR, together with the applicable domain skills.
-- Implement with `gpt-5.6-sol` at medium reasoning. Before opening a PR, start a fresh `gpt-5.6-sol` xhigh built-in Codex review against the intended base branch: use `/review` and choose **Review against a base branch**, or use `codex review --base <base>` for non-interactive automation.
-- Every built-in Codex review must read and follow `.agents/review/code_review.md` as additional repository-specific guidance. Do not replace the built-in reviewer with a standalone review prompt or skill.
-- Address accepted findings with `gpt-5.6-sol` at high reasoning. Carefully validate every requested change; reject incorrect or harmful advice with evidence and capture legitimate out-of-scope work through `gh-issue-capture`.
-- Repeat fresh xhigh review and high-reasoning fixes until the current head has no actionable findings. A review applies only to its recorded SHA and any code change invalidates it.
-- Only then push and create a draft PR. Request GitHub Copilot code review and triage its comments with the same care. After any Copilot-driven fix, repeat the fresh local xhigh gate before pushing and re-requesting Copilot. Continue until the same exact head is clean under both gates.
-- After local tests, CI, PR evidence, local review, and Copilot review are clean, mark the PR ready and request review from `clausman`.
-- Never merge or enable auto-merge. Every PR requires explicit approval from `clausman` before merge.
-- If the current environment cannot launch the required model, reasoning level, or fresh session, leave a handoff under `.agent-temp/delivery/<branch>/` and stop at that gate rather than silently substituting.
 
 ## Coding
 
@@ -106,4 +95,4 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 - For scene, prefab, UI, level, or art changes, verify in the Unity Editor or with PlayMode/screenshots before considering the change done.
 - For any visual change, including UI, models, scenes, levels, materials, VFX, animation, or art assets, include one or more real full Game View or Unity Editor screenshots in the PR description. For gameplay or HUD/UI changes, prefer full Game View screenshots that show the complete screen framing, not cropped UI-panel renders or edge-clipped captures. Do not use fake screenshots, generated mockups, hand-drawn renderings, or programmatic stand-ins as PR visual evidence. Before attaching screenshots, inspect them carefully and confirm they clearly show the feature, behavior, or visual change the PR is meant to demonstrate. Never commit PR screenshot artifacts to the branch; upload them to a GitHub gist and embed/link the gist-hosted artifact in the PR description.
 - Review Unity serialized diffs carefully for unintended scene or prefab churn.
-- Capture deferred follow-up work as GitHub Issues using the repo issue label schema in `.agents/skills/gh-issue-capture`.
+- Do not open follow-up GitHub Issues without explicit human approval. Record deferred work in the PR on the applicable code when possible so the approved reviewer team can decide its disposition.

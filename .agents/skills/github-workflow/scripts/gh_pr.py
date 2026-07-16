@@ -8,6 +8,7 @@ from gh_common import (
     add_repo_argument,
     gh_api,
     gh_command,
+    parse_repo,
     read_body,
     repo_path,
 )
@@ -15,13 +16,23 @@ from gh_common import (
 COPILOT_REVIEWER = "copilot-pull-request-reviewer[bot]"
 
 
-def normalize_reviewer(value: str) -> str:
+def normalize_reviewer(value: str, repo_owner: str) -> tuple[str, str]:
     reviewer = value.strip().lstrip("@")
     if reviewer.lower() == "copilot":
-        return COPILOT_REVIEWER
+        return "user", COPILOT_REVIEWER
     if not reviewer:
         raise SystemExit("--reviewer values cannot be empty")
-    return reviewer
+    if "/" not in reviewer:
+        return "user", reviewer
+
+    team_owner, team_slug = reviewer.split("/", 1)
+    if not team_owner or not team_slug or "/" in team_slug:
+        raise SystemExit("team reviewers must use owner/team-slug format")
+    if team_owner.casefold() != repo_owner.casefold():
+        raise SystemExit(
+            f"team reviewer {reviewer} must belong to repository owner {repo_owner}"
+        )
+    return "team", team_slug
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--reviewer",
         required=True,
         action="append",
-        help="Repeat for multiple reviewers; use @copilot for Copilot code review.",
+        help="Repeat for users or owner/team-slug values; use @copilot for Copilot code review.",
     )
     add_dry_run_argument(request_review)
 
@@ -120,8 +131,20 @@ def main() -> int:
         return gh_api(f"{base}/issues/{args.pr}/comments", paginate=True)
 
     if args.command == "request-review":
-        reviewers = list(dict.fromkeys(normalize_reviewer(value) for value in args.reviewer))
-        payload = {"reviewers": reviewers}
+        repo_owner, _ = parse_repo(args.repo)
+        reviewers: list[str] = []
+        team_reviewers: list[str] = []
+        for value in args.reviewer:
+            kind, reviewer = normalize_reviewer(value, repo_owner)
+            target = reviewers if kind == "user" else team_reviewers
+            if reviewer not in target:
+                target.append(reviewer)
+
+        payload: dict[str, list[str]] = {}
+        if reviewers:
+            payload["reviewers"] = reviewers
+        if team_reviewers:
+            payload["team_reviewers"] = team_reviewers
         endpoint = f"{base}/pulls/{args.pr}/requested_reviewers"
         return gh_api(endpoint, method="POST", payload=payload, dry_run=args.dry_run)
 

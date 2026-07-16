@@ -75,7 +75,7 @@ class PullRequestScriptTests(unittest.TestCase):
             dry_run=False,
         )
 
-    def test_request_review_normalizes_copilot_and_deduplicates(self) -> None:
+    def test_request_review_normalizes_users_teams_and_deduplicates(self) -> None:
         argv = [
             "gh_pr.py",
             "request-review",
@@ -86,9 +86,13 @@ class PullRequestScriptTests(unittest.TestCase):
             "--reviewer",
             "@copilot",
             "--reviewer",
-            "clausman",
+            "reviewer-one",
             "--reviewer",
-            "clausman",
+            "reviewer-one",
+            "--reviewer",
+            "owner/pf2e-game",
+            "--reviewer",
+            "owner/pf2e-game",
             "--dry-run",
         ]
 
@@ -98,9 +102,33 @@ class PullRequestScriptTests(unittest.TestCase):
         api.assert_called_once_with(
             "/repos/owner/repo/pulls/42/requested_reviewers",
             method="POST",
-            payload={"reviewers": ["copilot-pull-request-reviewer[bot]", "clausman"]},
+            payload={
+                "reviewers": ["copilot-pull-request-reviewer[bot]", "reviewer-one"],
+                "team_reviewers": ["pf2e-game"],
+            },
             dry_run=True,
         )
+
+    def test_request_review_rejects_team_from_another_owner(self) -> None:
+        argv = [
+            "gh_pr.py",
+            "request-review",
+            "--repo",
+            "owner/repo",
+            "--pr",
+            "42",
+            "--reviewer",
+            "other-owner/pf2e-game",
+        ]
+
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(gh_pr, "gh_api") as api,
+            self.assertRaisesRegex(SystemExit, "must belong to repository owner owner"),
+        ):
+            gh_pr.main()
+
+        api.assert_not_called()
 
     def test_ready_uses_noninteractive_gh_command(self) -> None:
         argv = ["gh_pr.py", "ready", "--repo", "owner/repo", "--pr", "42", "--dry-run"]
@@ -215,6 +243,117 @@ class ReviewCommentScriptTests(unittest.TestCase):
         self.assertEqual(api.call_count, 2)
         variables = api.call_args_list[1].kwargs["payload"]["variables"]
         self.assertEqual(variables, {"threadId": "thread-1", "cursor": "comments-next"})
+
+    def test_create_review_comment_dry_run_declares_head_scope(self) -> None:
+        argv = [
+            "gh_review_comments.py",
+            "create",
+            "--repo",
+            "owner/repo",
+            "--pr",
+            "42",
+            "--commit-id",
+            "abc123",
+            "--path",
+            "Assets/Scripts/Example.cs",
+            "--line",
+            "17",
+            "--side",
+            "RIGHT",
+            "--body-file",
+            ".agent-temp/deferred.md",
+            "--dry-run",
+        ]
+        output = io.StringIO()
+
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(gh_review_comments, "read_body", return_value="Deferred finding\n"),
+            patch.object(gh_review_comments, "gh_api") as api,
+            patch.object(gh_review_comments, "gh_api_json") as api_json,
+            contextlib.redirect_stdout(output),
+        ):
+            self.assertEqual(gh_review_comments.main(), 0)
+
+        plan = json.loads(output.getvalue())
+        self.assertEqual(
+            plan["verification"],
+            {"repository": "owner/repo", "pull_request": 42, "expected_head": "abc123"},
+        )
+        self.assertEqual(
+            plan["payload"],
+            {
+                "body": "Deferred finding\n",
+                "commit_id": "abc123",
+                "path": "Assets/Scripts/Example.cs",
+                "line": 17,
+                "side": "RIGHT",
+                "subject_type": "line",
+            },
+        )
+        api.assert_not_called()
+        api_json.assert_not_called()
+
+    def test_create_review_comment_rejects_stale_head(self) -> None:
+        with (
+            patch.object(
+                gh_review_comments,
+                "gh_api_json",
+                return_value={"head": {"sha": "current-head"}},
+            ),
+            patch.object(gh_review_comments, "gh_api") as api,
+            self.assertRaisesRegex(SystemExit, "head is current-head, not stale-head"),
+        ):
+            gh_review_comments.create_review_comment(
+                "owner/repo",
+                42,
+                "stale-head",
+                "Assets/Scripts/Example.cs",
+                17,
+                "RIGHT",
+                "Deferred finding\n",
+                dry_run=False,
+            )
+
+        api.assert_not_called()
+
+    def test_create_review_comment_verifies_head_before_mutating(self) -> None:
+        payload = {
+            "body": "Deferred finding\n",
+            "commit_id": "current-head",
+            "path": "Assets/Scripts/Example.cs",
+            "line": 17,
+            "side": "RIGHT",
+            "subject_type": "line",
+        }
+        with (
+            patch.object(
+                gh_review_comments,
+                "gh_api_json",
+                return_value={"head": {"sha": "current-head"}},
+            ) as api_json,
+            patch.object(gh_review_comments, "gh_api", return_value=0) as api,
+        ):
+            self.assertEqual(
+                gh_review_comments.create_review_comment(
+                    "owner/repo",
+                    42,
+                    "current-head",
+                    "Assets/Scripts/Example.cs",
+                    17,
+                    "RIGHT",
+                    "Deferred finding\n",
+                    dry_run=False,
+                ),
+                0,
+            )
+
+        api_json.assert_called_once_with("/repos/owner/repo/pulls/42")
+        api.assert_called_once_with(
+            "/repos/owner/repo/pulls/42/comments",
+            method="POST",
+            payload=payload,
+        )
 
     def test_resolve_thread_dry_run_declares_scope_without_mutating(self) -> None:
         argv = [

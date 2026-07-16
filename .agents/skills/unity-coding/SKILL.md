@@ -16,7 +16,6 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
 5. Add EditMode tests for pure rules/data behavior. Add PlayMode tests for scene, prefab, UI, lifecycle, and interaction behavior.
 6. Run the narrowest useful Unity test command, then broaden when shared behavior changes.
 7. When Unity MCP is connected, prefer MCP for Editor-backed compilation refreshes, console reads, Unity Test Runner jobs, and scene/prefab validation. Use `UNITY_MCP.md` for setup and limitations.
-8. For work intended for a PR, use `iterative-pr-delivery` for the required implementation, fresh review, fix, Copilot, and human-review gates.
 
 ## Guardrails
 

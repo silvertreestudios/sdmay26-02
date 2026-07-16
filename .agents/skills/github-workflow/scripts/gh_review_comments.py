@@ -100,6 +100,19 @@ def build_parser() -> argparse.ArgumentParser:
     add_repo_argument(list_threads)
     list_threads.add_argument("--pr", required=True, type=int)
 
+    create = subparsers.add_parser(
+        "create",
+        help="Create a top-level inline review comment on the current PR head.",
+    )
+    add_repo_argument(create)
+    create.add_argument("--pr", required=True, type=int)
+    create.add_argument("--commit-id", required=True, help="Expected current PR head SHA.")
+    create.add_argument("--path", required=True, help="Repository-relative path in the PR diff.")
+    create.add_argument("--line", required=True, type=int, help="Line number in the diff blob.")
+    create.add_argument("--side", choices=("LEFT", "RIGHT"), default="RIGHT")
+    add_body_file_argument(create)
+    add_dry_run_argument(create)
+
     get = subparsers.add_parser("get", help="Get one inline review comment by comment id.")
     add_repo_argument(get)
     get.add_argument("--comment-id", required=True, type=int)
@@ -127,6 +140,54 @@ def build_parser() -> argparse.ArgumentParser:
     add_dry_run_argument(resolve)
 
     return parser
+
+
+def create_review_comment(
+    repo: str,
+    pr: int,
+    commit_id: str,
+    path: str,
+    line: int,
+    side: str,
+    body: str,
+    *,
+    dry_run: bool,
+) -> int:
+    if line < 1:
+        raise SystemExit("--line must be a positive integer")
+
+    base = repo_path(repo)
+    payload = {
+        "body": body,
+        "commit_id": commit_id,
+        "path": path,
+        "line": line,
+        "side": side,
+        "subject_type": "line",
+    }
+    endpoint = f"{base}/pulls/{pr}/comments"
+    if dry_run:
+        plan = {
+            "dry_run": True,
+            "verification": {
+                "repository": repo,
+                "pull_request": pr,
+                "expected_head": commit_id,
+            },
+            "method": "POST",
+            "endpoint": endpoint,
+            "payload": payload,
+        }
+        print(json.dumps(plan, indent=2, ensure_ascii=False))
+        return 0
+
+    pull_request = gh_api_json(f"{base}/pulls/{pr}")
+    actual_head = pull_request["head"]["sha"]
+    if actual_head != commit_id:
+        raise SystemExit(
+            f"pull request {repo}#{pr} head is {actual_head}, not {commit_id}"
+        )
+    return gh_api(endpoint, method="POST", payload=payload)
 
 
 def complete_thread_comments(thread: dict[str, object]) -> None:
@@ -230,6 +291,18 @@ def main() -> int:
 
     if args.command == "list-threads":
         return list_review_threads(args.repo, args.pr)
+
+    if args.command == "create":
+        return create_review_comment(
+            args.repo,
+            args.pr,
+            args.commit_id,
+            args.path,
+            args.line,
+            args.side,
+            read_body(args.body_file),
+            dry_run=args.dry_run,
+        )
 
     if args.command == "get":
         return gh_api(f"{base}/pulls/comments/{args.comment_id}")

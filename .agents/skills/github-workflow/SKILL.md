@@ -12,14 +12,13 @@ Use this skill for GitHub operations where multiline text, JSON payloads, review
 - Use markdown body files for all comment, issue, and PR body text. Do not pass multiline bodies inline through PowerShell.
 - Put temporary body files and generated workflow artifacts under `.agent-temp/` at the checkout root. Create it on demand and delete task-specific files when done.
 - Run mutating commands with `--dry-run` first unless the user explicitly asks for the write and the payload is already reviewed.
-- Use `iterative-pr-delivery` for the quality gates around implementation, review rounds, Copilot review, and human handoff. This skill supplies transport primitives; it does not decide that a PR is ready.
 - Keep authentication delegated to `gh`; these scripts call `gh api` and do not manage tokens.
 - Distinguish comment types:
   - Issue comments and PR conversation comments use `/repos/{owner}/{repo}/issues/{number}/comments`.
   - Inline PR review comments use `/repos/{owner}/{repo}/pulls/{pull_number}/comments`.
   - Replies to inline review comments use `/repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies`.
   - Editing inline review comments uses `/repos/{owner}/{repo}/pulls/comments/{comment_id}`.
-- Use `gh-issue-capture` as well when the task is to create a durable follow-up issue that should follow this repo's issue schema.
+- Use `gh-issue-capture` after a human explicitly approves creating a durable follow-up issue that should follow this repo's issue schema.
 
 ## Scripts
 
@@ -46,25 +45,27 @@ python .agents/skills/github-workflow/scripts/gh_pr.py update-body --repo silver
 python .agents/skills/github-workflow/scripts/gh_pr.py comment --repo silvertreestudios/sdmay26-02 --pr 123 --body-file .agent-temp/comment.md --dry-run
 python .agents/skills/github-workflow/scripts/gh_pr.py list-comments --repo silvertreestudios/sdmay26-02 --pr 123
 python .agents/skills/github-workflow/scripts/gh_pr.py request-review --repo silvertreestudios/sdmay26-02 --pr 123 --reviewer "@copilot" --dry-run
+python .agents/skills/github-workflow/scripts/gh_pr.py request-review --repo silvertreestudios/sdmay26-02 --pr 123 --reviewer "silvertreestudios/pf2e-game" --dry-run
 python .agents/skills/github-workflow/scripts/gh_pr.py list-reviews --repo silvertreestudios/sdmay26-02 --pr 123
 python .agents/skills/github-workflow/scripts/gh_pr.py list-review-requests --repo silvertreestudios/sdmay26-02 --pr 123
 python .agents/skills/github-workflow/scripts/gh_pr.py checks --repo silvertreestudios/sdmay26-02 --pr 123
 python .agents/skills/github-workflow/scripts/gh_pr.py ready --repo silvertreestudios/sdmay26-02 --pr 123 --dry-run
 ```
 
-`request-review` accepts repeated `--reviewer` values. It normalizes `@copilot` to GitHub's Copilot code-review bot account. Re-request Copilot after each fix push unless automatic review of new pushes is proven enabled.
+`request-review` accepts repeated `--reviewer` values. It normalizes `@copilot` to GitHub's Copilot code-review bot account and an `owner/team-slug` value to GitHub's `team_reviewers` payload after verifying that the owner matches the repository. Re-request Copilot after each fix push unless automatic review of new pushes is proven enabled.
 
 ### Inline PR Review Comments
 
 ```powershell
 python .agents/skills/github-workflow/scripts/gh_review_comments.py list --repo silvertreestudios/sdmay26-02 --pr 123
 python .agents/skills/github-workflow/scripts/gh_review_comments.py list-threads --repo silvertreestudios/sdmay26-02 --pr 123
+python .agents/skills/github-workflow/scripts/gh_review_comments.py create --repo silvertreestudios/sdmay26-02 --pr 123 --commit-id HEAD_SHA --path Assets/Scripts/Example.cs --line 42 --side RIGHT --body-file .agent-temp/deferred.md --dry-run
 python .agents/skills/github-workflow/scripts/gh_review_comments.py reply --repo silvertreestudios/sdmay26-02 --pr 123 --comment-id 456789 --body-file .agent-temp/reply.md --dry-run
 python .agents/skills/github-workflow/scripts/gh_review_comments.py update --repo silvertreestudios/sdmay26-02 --comment-id 456789 --body-file .agent-temp/reply.md --dry-run
 python .agents/skills/github-workflow/scripts/gh_review_comments.py resolve-thread --repo silvertreestudios/sdmay26-02 --pr 123 --thread-id PRRT_kwDOExample --dry-run
 ```
 
-Use `list-threads` to inspect `isResolved` and the complete paginated conversation before disposition. `resolve-thread` verifies that the GraphQL thread belongs to the declared repository and PR before a live mutation. Resolve only a thread ID returned by `list-threads`, and only after the current code and response justify resolution.
+Use `create` to surface deferred work on an applicable diff line for the approved reviewer team; this does not authorize creating a follow-up issue. It verifies that `--commit-id` is the current PR head before a live mutation. Use `list-threads` to inspect `isResolved` and the complete paginated conversation before disposition. `resolve-thread` verifies that the GraphQL thread belongs to the declared repository and PR before a live mutation. Resolve only a thread ID returned by `list-threads`, and only after the current code and response justify resolution.
 
 ### Gists
 

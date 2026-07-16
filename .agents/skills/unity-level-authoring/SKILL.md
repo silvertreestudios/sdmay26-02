@@ -15,7 +15,6 @@ Use this skill for scene, prefab, grid map, level layout, lighting, camera, and 
 4. Avoid raw YAML edits to `.unity`, `.prefab`, `.asset`, `.mat`, and `.meta` files unless the change is narrow and fully understood.
 5. Verify level changes with PlayMode tests, an Editor screenshot, or a documented Editor validation pass.
 6. After MCP scene or prefab changes, inspect serialized diffs for unrelated churn before continuing.
-7. For work intended for a PR, use `iterative-pr-delivery` and carry the required Editor/Game View evidence through every review round.
 
 ## Review Checklist
 
