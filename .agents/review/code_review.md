@@ -5,6 +5,7 @@ This guidance augments Codex's built-in `/review` and `codex review` behavior. D
 ## Review contract
 
 - Review the complete diff from the intended base branch or merge base to the exact head SHA. State both SHAs; any later code change invalidates the review.
+- For `iterative-pr-delivery`, this built-in exact-SHA review is the pre-PR local gate. After the first Copilot review starts, follow that skill's Copilot-only fix/re-review phase rather than returning to local review for each batch.
 - Keep the review session independent and non-mutating. Read the task, acceptance criteria, `AGENTS.md`, and any domain skill relevant to the changed files before judging the implementation.
 - Distinguish verified behavior from assumptions. Record commands and evidence inspected, and state any verification that could not be performed.
 - Report only concrete, actionable defects caused or exposed by the change. Include the smallest useful file/line location, reachable evidence, concrete impact, and the property a correct fix must preserve.

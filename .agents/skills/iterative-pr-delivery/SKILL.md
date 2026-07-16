@@ -12,7 +12,7 @@ Use this quality gate around the domain skill that performs the work. Keep one i
 | Stage | Required agent | Rule |
 | --- | --- | --- |
 | Implement | `gpt-5.6-sol`, medium | Work only in the task worktree and agreed scope. |
-| Review | Fresh `gpt-5.6-sol`, xhigh, using built-in `/review` | Review against the intended base; never reuse an implementation or fixer session. |
+| Pre-PR review | Fresh `gpt-5.6-sol`, xhigh, using built-in `/review` | Review against the intended base; never reuse an implementation or fixer session. |
 | Fix | `gpt-5.6-sol`, high | Assess every finding before changing code. |
 | PR review | GitHub Copilot code review | Review every pushed head that contains fixes. |
 | Human review | `silvertreestudios/pf2e-game` | Request the approved reviewer team only after every agentic gate passes. |
@@ -56,7 +56,7 @@ Do not create a PR until local independent review reaches zero actionable findin
 5. After any code change, verify and commit, then start another fresh xhigh full review.
 6. Repeat until the current head has zero actionable findings.
 
-A clean review applies only to its recorded SHA. Any later code change invalidates it.
+A clean local review applies only to its recorded SHA during the pre-PR phase. Any code change before the first Copilot review invalidates it and requires another fresh local review. Once the first Copilot review starts, stage 5 is authoritative: keep Copilot-driven fixes in the Copilot fix/re-review loop and do not return to stage 3 for each batch.
 
 ### 4. Open the draft PR
 
