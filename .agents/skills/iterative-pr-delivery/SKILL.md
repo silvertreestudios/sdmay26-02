@@ -12,7 +12,7 @@ Use this quality gate around the domain skill that performs the work. Keep one i
 | Stage | Required agent | Rule |
 | --- | --- | --- |
 | Implement | `gpt-5.6`, medium | Work only in the task worktree and agreed scope. |
-| Review | Fresh `gpt-5.6`, xhigh, using `code-review` | Never reuse an implementation or fixer session. |
+| Review | Fresh `gpt-5.6`, xhigh, using built-in `/review` | Review against the intended base; never reuse an implementation or fixer session. |
 | Fix | `gpt-5.6`, high | Assess every finding before changing code. |
 | PR review | GitHub Copilot code review | Review every pushed head that contains fixes. |
 | Human review | `clausman` | Request only after every agentic gate passes. |
@@ -46,8 +46,8 @@ Do not create a PR until local independent review reaches zero actionable findin
 
 ### 3. Review and fix locally
 
-1. Start a fresh `gpt-5.6` xhigh session using `code-review`.
-2. Review the entire base-to-head change and record findings against the exact head SHA.
+1. Start a fresh `gpt-5.6` xhigh session and launch Codex's built-in `/review` with **Review against a base branch**. For non-interactive automation, use `codex review --base <base>`.
+2. Follow `.agents/review/code_review.md`, review the entire base-to-head change, and record findings against the exact head SHA.
 3. In a `gpt-5.6` high fix session, classify each finding:
    - `accepted`: correct and in scope; fix and test it;
    - `rejected`: incorrect or harmful; preserve concise evidence;

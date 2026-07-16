@@ -68,7 +68,8 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 ## Agentic Delivery Workflow
 
 - Use `.agents/skills/iterative-pr-delivery` for every task or issue intended to become a PR, together with the applicable domain skills.
-- Implement with `gpt-5.6` at medium reasoning. Before opening a PR, hand the exact head SHA to a fresh `gpt-5.6` xhigh session using `.agents/skills/code-review`.
+- Implement with `gpt-5.6` at medium reasoning. Before opening a PR, start a fresh `gpt-5.6` xhigh built-in Codex review against the intended base branch: use `/review` and choose **Review against a base branch**, or use `codex review --base <base>` for non-interactive automation.
+- Every built-in Codex review must read and follow `.agents/review/code_review.md` as additional repository-specific guidance. Do not replace the built-in reviewer with a standalone review prompt or skill.
 - Address accepted findings with `gpt-5.6` at high reasoning. Carefully validate every requested change; reject incorrect or harmful advice with evidence and capture legitimate out-of-scope work through `gh-issue-capture`.
 - Repeat fresh xhigh review and high-reasoning fixes until the current head has no actionable findings. A review applies only to its recorded SHA and any code change invalidates it.
 - Only then push and create a draft PR. Request GitHub Copilot code review and triage its comments with the same care. After any Copilot-driven fix, repeat the fresh local xhigh gate before pushing and re-requesting Copilot. Continue until the same exact head is clean under both gates.
@@ -100,6 +101,7 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 
 ## Review Expectations
 
+- For `/review`, `codex review`, and agentic pull-request reviews, read `.agents/review/code_review.md` in addition to these repository instructions.
 - End substantial code changes with targeted tests or a clear note explaining why tests could not be run.
 - For scene, prefab, UI, level, or art changes, verify in the Unity Editor or with PlayMode/screenshots before considering the change done.
 - For any visual change, including UI, models, scenes, levels, materials, VFX, animation, or art assets, include one or more real full Game View or Unity Editor screenshots in the PR description. For gameplay or HUD/UI changes, prefer full Game View screenshots that show the complete screen framing, not cropped UI-panel renders or edge-clipped captures. Do not use fake screenshots, generated mockups, hand-drawn renderings, or programmatic stand-ins as PR visual evidence. Before attaching screenshots, inspect them carefully and confirm they clearly show the feature, behavior, or visual change the PR is meant to demonstrate. Never commit PR screenshot artifacts to the branch; upload them to a GitHub gist and embed/link the gist-hosted artifact in the PR description.
