@@ -51,7 +51,7 @@ Do not create a PR until local independent review reaches zero actionable findin
 3. In a `gpt-5.6-sol` high fix session, classify each finding:
    - `accepted`: correct and in scope; fix and test it;
    - `rejected`: incorrect or harmful; preserve concise evidence;
-   - `deferred`: legitimate, independently shippable, and out of scope; use `github-workflow` to leave a PR comment on the applicable code for the approved reviewer team. Never create a follow-up issue without explicit human approval.
+   - `deferred`: legitimate, independently shippable, and out of scope; if the PR exists, use `github-workflow` to leave a comment on the applicable code for the approved reviewer team. Before the PR exists, record the finding, file/line, and evidence in the handoff for posting immediately after draft creation. Never create a follow-up issue without explicit human approval.
 4. Never follow a requested change blindly. Re-read the code, prove the concern, assess regressions and scope, and make the smallest complete correction.
 5. After any code change, verify and commit, then start another fresh xhigh full review.
 6. Repeat until the current head has zero actionable findings.
@@ -63,6 +63,7 @@ A clean review applies only to its recorded SHA. Any later code change invalidat
 1. Push the locally reviewed head and create a draft PR with `github-workflow`.
 2. Link the issue or originating task. Include scope, verification, local review rounds/SHA, limitations, and required real screenshots.
 3. Verify the remote PR head equals the reviewed local head.
+4. Post every queued deferred finding with `github-workflow`: use an inline comment on the applicable diff line when possible, otherwise use a PR conversation comment that identifies the file and line. Leave issue creation to the approved reviewer team.
 
 ### 5. Iterate with Copilot
 
