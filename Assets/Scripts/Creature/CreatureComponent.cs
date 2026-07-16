@@ -118,6 +118,7 @@ namespace Game.Creature
         private CharacterBuild _build;
 
         // Public properties for interface
+        public bool IsDefeated => defeated;
         public new string name { get => _name; set { _name = value; base.name = value; } }
         public int level { get => _level; set => _level = value; }
         public int initiative { get => _initiative; set => _initiative = value; }

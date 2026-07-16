@@ -100,7 +100,8 @@ namespace Game.Combat.Spells
                 controller.IsTakingAction = false;
             }
             result.Success = true;
-            context.Caster.GetComponent<CreaturePresentation>()?.PlayAttack(AnimationStyle.Magic);
+            if (!creature.IsDefeated)
+                context.Caster.GetComponent<CreaturePresentation>()?.PlayAttack(AnimationStyle.Magic);
             CombatLogInterface log = UnityEngine.Object.FindFirstObjectByType<CombatLogInterface>();
             log?.Log("- " + context.Caster.name + " casts " + context.Spell.Name + ".");
             return result;

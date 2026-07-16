@@ -112,6 +112,52 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         Assert.That(controller.IsTakingAction, Is.False);
     }
 
+    [UnityTest]
+    public IEnumerator SuccessfulSelfDefeatingSpellKeepsDeathAnimationUntilDeactivation()
+    {
+        clericObject = new GameObject("Self-Defeating Animated Caster");
+        CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
+        cleric.level = 1;
+        cleric.hp = 1;
+        cleric.maxHp = 1;
+        cleric.wisMod = 4;
+        cleric.Build = new CharacterBuild { ClassName = "Cleric" };
+        cleric.Prepared = Pf2eCharacterPreparer.Prepare(cleric, cleric.Build);
+        clericObject.AddComponent<Team>().Name = "players";
+        PlayerActionController controller = clericObject.AddComponent<PlayerActionController>();
+        clericController = controller;
+
+        GameObject visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+            "Assets/KayKit/Prefabs/Animated/MageStaffAnimated.prefab");
+        GameObject visual = Object.Instantiate(visualPrefab, clericObject.transform);
+        CreatureAnimationController animationController = visual.GetComponent<CreatureAnimationController>();
+        CreaturePresentation presentation = clericObject.AddComponent<CreaturePresentation>();
+        presentation.Bind(animationController, visual.GetComponent<CreatureEquipmentVisuals>());
+        yield return null;
+
+        PreparedSpell light = cleric.Prepared.Spellcasting.PreparedSpells.First(spell => spell.Slug == "light");
+        controller.StartTurn();
+        SpellCastContext context = new(
+            clericObject,
+            light,
+            1,
+            spendActions: true,
+            new SelfDefeatingSpellDefinition());
+
+        CastSpellResult result = context.Cast(SpellTargetSelection.None);
+
+        Assert.That(result.Success, Is.True);
+        Assert.That(animationController.IsDeathPlaying, Is.True,
+            "A successful cast must not replace a death animation started by its own spell effects.");
+
+        float deadline = Time.realtimeSinceStartup + 6.0f;
+        while (clericObject.activeSelf && Time.realtimeSinceStartup < deadline)
+            yield return null;
+
+        Assert.That(clericObject.activeSelf, Is.False,
+            "The death animation completion callback must still deactivate the defeated caster.");
+    }
+
     private sealed class ConfirmableSpellDefinition : ISpellDefinition
     {
         private readonly bool shouldCast;
@@ -151,5 +197,26 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         {
             selectionComplete = true;
         }
+    }
+
+    private sealed class SelfDefeatingSpellDefinition : ISpellDefinition
+    {
+        public string Slug => "light";
+
+        public IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => new[] { 1u };
+
+        public IEnumerator SelectAndCast(SpellCastContext context)
+        {
+            yield break;
+        }
+
+        public bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result)
+        {
+            context.CasterCreature.TakeDamage(1u);
+            result.Targets.Add(context.Caster);
+            return true;
+        }
+
+        public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
     }
 }
