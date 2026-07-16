@@ -71,7 +71,7 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 - Implement with `gpt-5.6` at medium reasoning. Before opening a PR, hand the exact head SHA to a fresh `gpt-5.6` xhigh session using `.agents/skills/code-review`.
 - Address accepted findings with `gpt-5.6` at high reasoning. Carefully validate every requested change; reject incorrect or harmful advice with evidence and capture legitimate out-of-scope work through `gh-issue-capture`.
 - Repeat fresh xhigh review and high-reasoning fixes until the current head has no actionable findings. A review applies only to its recorded SHA and any code change invalidates it.
-- Only then push and create a draft PR. Request GitHub Copilot code review, triage its comments with the same care, fix accepted findings, and re-request review after each fix push until Copilot has reviewed the latest head with no actionable findings.
+- Only then push and create a draft PR. Request GitHub Copilot code review and triage its comments with the same care. After any Copilot-driven fix, repeat the fresh local xhigh gate before pushing and re-requesting Copilot. Continue until the same exact head is clean under both gates.
 - After local tests, CI, PR evidence, local review, and Copilot review are clean, mark the PR ready and request review from `clausman`.
 - Never merge or enable auto-merge. Every PR requires explicit approval from `clausman` before merge.
 - If the current environment cannot launch the required model, reasoning level, or fresh session, leave a handoff under `.agent-temp/delivery/<branch>/` and stop at that gate rather than silently substituting.

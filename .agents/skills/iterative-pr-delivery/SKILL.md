@@ -69,10 +69,11 @@ A clean review applies only to its recorded SHA. Any later code change invalidat
 1. Request `@copilot` review on the draft.
 2. Wait for a Copilot review on the current head; Copilot comments do not count as approval.
 3. Fetch review summaries, inline comments, and threads. Apply the same accepted/rejected/deferred triage.
-4. Use `gpt-5.6` high for accepted fixes, verify, commit, and push them.
-5. Re-request Copilot after every fix push unless automatic review of new pushes is proven enabled.
-6. Audit all comments and threads again. Resolve repeated comments by evidence, not duplicate changes.
-7. Repeat until Copilot reviewed the latest head and no actionable Copilot finding remains.
+4. Use `gpt-5.6` high for accepted fixes, verify, and commit them.
+5. Return to the fresh local xhigh review/fix loop for the new SHA. Do not push until that exact head is locally clean again.
+6. Push the locally clean fix and re-request Copilot unless automatic review of new pushes is proven enabled.
+7. Audit all comments and threads again. Resolve repeated comments by evidence, not duplicate changes.
+8. Repeat the cross-gate loop until the same exact head has zero actionable local findings and a Copilot review with no actionable findings.
 
 Replies to Copilot comments are for human readers; Copilot does not converse through them. Resolve a thread only after its disposition and current code are verified.
 
