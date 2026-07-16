@@ -68,9 +68,9 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 ## Agentic Delivery Workflow
 
 - Use `.agents/skills/iterative-pr-delivery` for every task or issue intended to become a PR, together with the applicable domain skills.
-- Implement with `gpt-5.6` at medium reasoning. Before opening a PR, start a fresh `gpt-5.6` xhigh built-in Codex review against the intended base branch: use `/review` and choose **Review against a base branch**, or use `codex review --base <base>` for non-interactive automation.
+- Implement with `gpt-5.6-sol` at medium reasoning. Before opening a PR, start a fresh `gpt-5.6-sol` xhigh built-in Codex review against the intended base branch: use `/review` and choose **Review against a base branch**, or use `codex review --base <base>` for non-interactive automation.
 - Every built-in Codex review must read and follow `.agents/review/code_review.md` as additional repository-specific guidance. Do not replace the built-in reviewer with a standalone review prompt or skill.
-- Address accepted findings with `gpt-5.6` at high reasoning. Carefully validate every requested change; reject incorrect or harmful advice with evidence and capture legitimate out-of-scope work through `gh-issue-capture`.
+- Address accepted findings with `gpt-5.6-sol` at high reasoning. Carefully validate every requested change; reject incorrect or harmful advice with evidence and capture legitimate out-of-scope work through `gh-issue-capture`.
 - Repeat fresh xhigh review and high-reasoning fixes until the current head has no actionable findings. A review applies only to its recorded SHA and any code change invalidates it.
 - Only then push and create a draft PR. Request GitHub Copilot code review and triage its comments with the same care. After any Copilot-driven fix, repeat the fresh local xhigh gate before pushing and re-requesting Copilot. Continue until the same exact head is clean under both gates.
 - After local tests, CI, PR evidence, local review, and Copilot review are clean, mark the PR ready and request review from `clausman`.

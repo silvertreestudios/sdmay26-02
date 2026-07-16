@@ -11,9 +11,9 @@ Use this quality gate around the domain skill that performs the work. Keep one i
 
 | Stage | Required agent | Rule |
 | --- | --- | --- |
-| Implement | `gpt-5.6`, medium | Work only in the task worktree and agreed scope. |
-| Review | Fresh `gpt-5.6`, xhigh, using built-in `/review` | Review against the intended base; never reuse an implementation or fixer session. |
-| Fix | `gpt-5.6`, high | Assess every finding before changing code. |
+| Implement | `gpt-5.6-sol`, medium | Work only in the task worktree and agreed scope. |
+| Review | Fresh `gpt-5.6-sol`, xhigh, using built-in `/review` | Review against the intended base; never reuse an implementation or fixer session. |
+| Fix | `gpt-5.6-sol`, high | Assess every finding before changing code. |
 | PR review | GitHub Copilot code review | Review every pushed head that contains fixes. |
 | Human review | `clausman` | Request only after every agentic gate passes. |
 
@@ -36,7 +36,7 @@ Give a fresh reviewer only authoritative inputs: task, repository instructions, 
 
 ### 2. Implement
 
-1. Use applicable domain skills with `gpt-5.6` medium.
+1. Use applicable domain skills with `gpt-5.6-sol` medium.
 2. Preserve unrelated work and avoid opportunistic cleanup.
 3. Add tests proportional to risk; run narrow checks, then all suites required by the task and `AGENTS.md`.
 4. Inspect status, the complete base-to-head diff, generated files, and Unity serialized changes.
@@ -46,9 +46,9 @@ Do not create a PR until local independent review reaches zero actionable findin
 
 ### 3. Review and fix locally
 
-1. Start a fresh `gpt-5.6` xhigh session and launch Codex's built-in `/review` with **Review against a base branch**. For non-interactive automation, use `codex review --base <base>`.
+1. Start a fresh `gpt-5.6-sol` xhigh session and launch Codex's built-in `/review` with **Review against a base branch**. For non-interactive automation, use `codex review --base <base>`.
 2. Follow `.agents/review/code_review.md`, review the entire base-to-head change, and record findings against the exact head SHA.
-3. In a `gpt-5.6` high fix session, classify each finding:
+3. In a `gpt-5.6-sol` high fix session, classify each finding:
    - `accepted`: correct and in scope; fix and test it;
    - `rejected`: incorrect or harmful; preserve concise evidence;
    - `deferred`: legitimate, independently shippable, and out of scope; search for duplicates and use `gh-issue-capture` when warranted.
@@ -69,7 +69,7 @@ A clean review applies only to its recorded SHA. Any later code change invalidat
 1. Request `@copilot` review on the draft.
 2. Wait for a Copilot review on the current head; Copilot comments do not count as approval.
 3. Fetch review summaries, inline comments, and threads. Apply the same accepted/rejected/deferred triage.
-4. Use `gpt-5.6` high for accepted fixes, verify, and commit them.
+4. Use `gpt-5.6-sol` high for accepted fixes, verify, and commit them.
 5. Return to the fresh local xhigh review/fix loop for the new SHA. Do not push until that exact head is locally clean again.
 6. Push the locally clean fix and re-request Copilot unless automatic review of new pushes is proven enabled.
 7. Audit all comments and threads again. Resolve repeated comments by evidence, not duplicate changes.
