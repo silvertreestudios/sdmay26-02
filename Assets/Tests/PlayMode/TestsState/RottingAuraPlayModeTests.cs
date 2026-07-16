@@ -188,6 +188,17 @@ namespace TestsState
         public IEnumerator CombatManagerSkipsAndDoesNotRequeueActorDefeatedDuringTurnStart()
         {
             yield return base.Setup();
+            GameManager sceneGameManager = Object.FindFirstObjectByType<GameManager>();
+            if (sceneGameManager != null)
+            {
+                // This test replaces the combat queue below. Prevent the scene's delayed
+                // auto-start coroutine from overwriting that controlled state on the next frame.
+                sceneGameManager.StopAllCoroutines();
+                sceneGameManager.enabled = false;
+            }
+            foreach (HUDController hud in Object.FindObjectsByType<HUDController>(FindObjectsSortMode.None))
+                hud.enabled = false;
+
             GridBase grid = Object.FindFirstObjectByType<GridBase>();
             Tile[,] tiles = grid.GetTiles();
             FindOpenLineOfThreeCells(tiles, out Vector3Int defeatedCell, out Vector3Int survivorCell, out Vector3Int hostileCell);
