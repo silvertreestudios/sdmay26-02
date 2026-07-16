@@ -45,6 +45,7 @@ When UI or serialized Unity content changes, inspect:
 - Use Unity `6000.2.1f1` and the commands in `AGENTS.md`; never add `-quit` to this project's Unity Test Framework runs.
 - Keep test outputs outside tracked asset folders. Inspect Unity console or compilation evidence when Editor state matters.
 - Inspect `git status`, the complete diff, generated files, and serialized diffs. Treat green CI or narrow tests as supporting evidence, not proof of unrelated behavior.
+- For GitHub REST, GraphQL, or `gh` wrapper changes, verify claimed identifiers and fields against current official documentation or an authenticated read-only query. Do not report remembered API behavior as an actionable defect when that verification is unavailable.
 - For visual changes, verify that the PR body contains the required real screenshots and that they show the full feature without clipping or misleading framing.
 
 ## Review handoff
