@@ -64,6 +64,11 @@ namespace GridPrivate
         public Tile[,] GetTiles();
 
         /// <summary>
+        /// Returns cells that block line of sight independently from movement walkability.
+        /// </summary>
+        public bool[,] GetLineOfSightBlocks();
+
+        /// <summary>
         /// Returns the Pathfinder for the grid
         /// </summary>
         /// <returns></returns>

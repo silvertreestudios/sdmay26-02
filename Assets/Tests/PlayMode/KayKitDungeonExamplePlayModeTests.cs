@@ -1,0 +1,257 @@
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using Game.Creature;
+using Game.KayKit;
+using GridPrivate;
+using NUnit.Framework;
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.SceneManagement;
+using UnityEngine.TestTools;
+using Object = UnityEngine.Object;
+
+public sealed class KayKitDungeonExamplePlayModeTests
+{
+    private const string ScenePath = "Assets/Scenes/KayKitDungeonExample.unity";
+    private static int cleanupSceneIndex;
+
+    [UnitySetUp]
+    public IEnumerator LoadStandaloneExample()
+    {
+        Time.timeScale = 0f;
+        AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
+            ScenePath,
+            new LoadSceneParameters(LoadSceneMode.Single));
+        Assert.That(load, Is.Not.Null, $"Could not start loading {ScenePath}.");
+        while (!load.isDone)
+            yield return null;
+
+        float deadline = Time.realtimeSinceStartup + 10f;
+        while ((Object.FindFirstObjectByType<GridBase>() == null ||
+                Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None).Length != 6) &&
+               Time.realtimeSinceStartup < deadline)
+        {
+            yield return null;
+        }
+
+        GridInput input = Object.FindFirstObjectByType<GridInput>();
+        if (input != null)
+            input.enabled = false;
+    }
+
+    [UnityTearDown]
+    public IEnumerator UnloadStandaloneExample()
+    {
+        Time.timeScale = 1f;
+        Scene gameplayScene = SceneManager.GetActiveScene();
+        if (!gameplayScene.IsValid() || !gameplayScene.isLoaded)
+            yield break;
+
+        Scene cleanupScene = SceneManager.CreateScene("KayKitDungeonCleanup" + cleanupSceneIndex++);
+        SceneManager.SetActiveScene(cleanupScene);
+        AsyncOperation unload = SceneManager.UnloadSceneAsync(gameplayScene);
+        while (unload != null && !unload.isDone)
+            yield return null;
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator SceneInitializesGeneratedMapAndAuthoredEncounter()
+    {
+        Assert.That(SceneManager.GetActiveScene().name, Is.EqualTo("KayKitDungeonExample"));
+        Assert.That(
+            EditorBuildSettings.scenes.Any(scene => scene.path == ScenePath),
+            Is.False,
+            "The standalone example must not enter the campaign build sequence.");
+
+        Map map = Object.FindFirstObjectByType<Map>();
+        GridBase grid = Object.FindFirstObjectByType<GridBase>();
+        GeneratedMapRoot generated = Object.FindFirstObjectByType<GeneratedMapRoot>();
+        Assert.That(map, Is.Not.Null);
+        Assert.That(map.SourceMode, Is.EqualTo(MapSourceMode.Json));
+        Assert.That(map.JsonSource, Is.Not.Null);
+        Assert.That(map.JsonSource.name, Is.EqualTo("KayKitDungeonExample"));
+        Assert.That(map.DungeonCatalog, Is.Not.Null);
+        Assert.That(grid, Is.Not.Null);
+        Assert.That(grid.GridData.GetLength(0), Is.EqualTo(16));
+        Assert.That(grid.GridData.GetLength(1), Is.EqualTo(12));
+        Assert.That(generated, Is.Not.Null);
+        Assert.That(generated.transform.Find("Structure"), Is.Not.Null);
+        Assert.That(generated.transform.Find("Objects"), Is.Not.Null);
+        Assert.That(generated.transform.Find("Objects").childCount, Is.EqualTo(10));
+
+        ActionController[] combatants = Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None);
+        Assert.That(combatants, Has.Length.EqualTo(6));
+        Assert.That(combatants.Count(controller => TeamName(controller) == "Players"), Is.EqualTo(2));
+        Assert.That(combatants.Count(controller => TeamName(controller) == "Enemies"), Is.EqualTo(4));
+        Assert.That(combatants.Count(controller => controller is PlayerActionController), Is.EqualTo(2));
+        Assert.That(combatants.Count(controller => controller is MindlessController), Is.EqualTo(4));
+        CollectionAssert.AreEquivalent(
+            new[]
+            {
+                "Lena",
+                "Torgrim",
+                "Zombie Shambler A",
+                "Zombie Shambler B",
+                "Skeleton Guard A",
+                "Skeleton Guard B"
+            },
+            combatants.Select(controller => controller.name));
+
+        Tile[,] tiles = grid.GetTiles();
+        HashSet<Vector3Int> occupiedCells = new();
+        foreach (ActionController combatant in combatants)
+        {
+            Vector3Int cell = Vector3Int.RoundToInt(combatant.transform.position);
+            Assert.That(cell.x, Is.InRange(0, tiles.GetLength(0) - 1), combatant.name);
+            Assert.That(cell.z, Is.InRange(0, tiles.GetLength(1) - 1), combatant.name);
+            Assert.That(tiles[cell.x, cell.z], Is.Not.Null, $"{combatant.name} must spawn on a walkable tile.");
+            Assert.That(tiles[cell.x, cell.z].Occupants, Does.Contain(combatant.gameObject), combatant.name);
+            Assert.That(occupiedCells.Add(cell), Is.True, $"Duplicate combatant spawn at {cell}.");
+        }
+
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator DoorsObstaclesPathsAndLineOfSightUseRuntimeGridRules()
+    {
+        GridBase grid = Object.FindFirstObjectByType<GridBase>();
+        Tile[,] tiles = grid.GetTiles();
+        bool[,] lineOfSight = grid.GetLineOfSightBlocks();
+
+        Assert.That(grid.GridData[0, 0], Is.EqualTo(TileType.Wall));
+        Assert.That(grid.GridData[7, 9], Is.EqualTo(TileType.Door));
+        Assert.That(grid.GridData[2, 8], Is.EqualTo(TileType.Obstacle));
+        Assert.That(tiles[0, 0], Is.Null);
+        Assert.That(tiles[7, 9], Is.Not.Null, "An open doorway remains walkable.");
+        Assert.That(tiles[2, 8], Is.Null, "A blocking prop is not a structural wall, but is unwalkable.");
+        Assert.That(lineOfSight[0, 0], Is.True);
+        Assert.That(lineOfSight[7, 9], Is.False);
+        Assert.That(lineOfSight[2, 8], Is.True, "Stacked crates block line of sight.");
+        Assert.That(lineOfSight[2, 10], Is.False, "The chest blocks movement without blocking line of sight.");
+
+        Assert.That(
+            StrikeTargeting.CountClearRays(tiles, new Vector3Int(1, 0, 8), new Vector3Int(3, 0, 8)),
+            Is.Zero,
+            "The collider-backed stacked crates must block the lane behind them.");
+        Assert.That(
+            StrikeTargeting.CountClearRays(tiles, new Vector3Int(1, 0, 5), new Vector3Int(14, 0, 5)),
+            Is.EqualTo(16),
+            "The central ranged lane remains clear through decorative rubble.");
+
+        ActionController[] players = CombatantsForTeam("Players");
+        ActionController[] enemies = CombatantsForTeam("Enemies");
+        foreach (ActionController player in players)
+        {
+            foreach (ActionController enemy in enemies)
+            {
+                Vector3Int start = Vector3Int.RoundToInt(player.transform.position);
+                Vector3Int end = Vector3Int.RoundToInt(enemy.transform.position);
+                List<PathNode> path = grid.GetPathfinder().Pathfind(null, start, end);
+                Assert.That(path, Is.Not.Null.And.Not.Empty, $"No path from {player.name} to {enemy.name}.");
+                Assert.That(path[0].Location, Is.EqualTo(start));
+                Assert.That(path[^1].Location, Is.EqualTo(end));
+            }
+        }
+
+        List<PathNode> meleeRoute = grid.GetPathfinder().Pathfind(
+            null,
+            new Vector3Int(2, 0, 1),
+            new Vector3Int(13, 0, 10));
+        Assert.That(
+            meleeRoute.Any(node => grid.GridData[node.Location.x, node.Location.z] == TileType.Door),
+            Is.True,
+            "The opposing sides must connect through the authored doorway route.");
+
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator EveryEncounterArchetypeCanStartATurnWithExpectedAttacks()
+    {
+        string[] representatives =
+        {
+            "Lena",
+            "Torgrim",
+            "Zombie Shambler A",
+            "Skeleton Guard A"
+        };
+
+        foreach (string name in representatives)
+        {
+            ActionController controller = FindCombatant(name);
+            Assert.That(controller.GetMovements(), Is.Not.Empty, $"{name} needs Stride.");
+            Assert.That(controller.GetActions(), Is.Not.Empty, $"{name} needs at least one combat action.");
+            controller.StartTurn();
+            Assert.That(controller.ActionPoints, Is.GreaterThan(0), $"{name} failed to initialize a turn.");
+        }
+
+        ActionController skeleton = FindCombatant("Skeleton Guard A");
+        CollectionAssert.IsSubsetOf(
+            new[] { "Scimitar", "Shortbow" },
+            skeleton.GetActions().Select(action => action.ActionName).ToArray());
+        CreatureComponent skeletonCreature = skeleton.GetComponent<CreatureComponent>();
+        Assert.That(skeletonCreature.weapons.Any(weapon => weapon.name == "Scimitar" && weapon.range == 0), Is.True);
+        Assert.That(skeletonCreature.weapons.Any(weapon => weapon.name == "Shortbow" && weapon.range > 0), Is.True);
+
+        ActionController zombie = FindCombatant("Zombie Shambler A");
+        CreatureComponent zombieCreature = zombie.GetComponent<CreatureComponent>();
+        Assert.That(zombieCreature.weapons, Is.Empty, "Zombies are intentionally unarmed.");
+        Assert.That(
+            zombie.GetActions().Any(action => action.ActionName == "Unarmed Strike"),
+            Is.True,
+            "The unarmed zombie still needs a usable strike.");
+
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator RemovingDefeatedEnemyTeamCompletesEncounterAsPlayerVictory()
+    {
+        CombatManagerInterface manager = Object.FindFirstObjectByType<CombatManager>();
+        Assert.That(manager, Is.Not.Null);
+
+        bool? playerVictory = null;
+        UnityAction<bool> outcomeListener = result => playerVictory = result;
+        OnCombatOutcome.AddListener(outcomeListener);
+        try
+        {
+            foreach (ActionController enemy in CombatantsForTeam("Enemies"))
+                manager.Remove(enemy);
+
+            Assert.That(manager.CheckForEndOfGame(), Is.True);
+            Assert.That(playerVictory, Is.True);
+            Assert.That(manager.GetCombatants().All(combatant => combatant.GetComponent<Team>().Name == "Players"), Is.True);
+        }
+        finally
+        {
+            OnCombatOutcome.RemoveListener(outcomeListener);
+        }
+
+        yield return null;
+    }
+
+    private static ActionController FindCombatant(string name)
+    {
+        ActionController result = Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None)
+            .SingleOrDefault(controller => controller.name == name);
+        Assert.That(result, Is.Not.Null, $"Missing combatant {name}.");
+        return result;
+    }
+
+    private static ActionController[] CombatantsForTeam(string teamName)
+    {
+        return Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None)
+            .Where(controller => TeamName(controller) == teamName)
+            .ToArray();
+    }
+
+    private static string TeamName(ActionController controller)
+    {
+        return controller.GetComponent<Team>()?.Name;
+    }
+}

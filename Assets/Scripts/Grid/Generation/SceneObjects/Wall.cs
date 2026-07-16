@@ -1,122 +1,127 @@
+using System;
 using UnityEngine;
 
-namespace GridPrivate 
+namespace GridPrivate
 {
-    public class Wall : MonoBehaviour, IOnGridGeneration
+    public enum WallVariant
     {
-        [SerializeField]
-        protected Transform wall;
-        [SerializeField]
-        protected Transform cap;
-        [SerializeField]
-        protected Transform corner;
-        [SerializeField]
-        protected Transform crossIntersection;
-        [SerializeField]
-        protected Transform pillar;
-        [SerializeField]
-        protected Transform tIntersection;
+        Straight,
+        Endcap,
+        Corner,
+        Crossing,
+        Pillar,
+        TIntersection
+    }
 
-        public void OnGeneration(Vector3Int position, in TileType[,] gridData)
+    public readonly struct WallResolution
+    {
+        public WallVariant Variant { get; }
+        public int Rotation { get; }
+
+        public WallResolution(WallVariant variant, int rotation)
+        {
+            Variant = variant;
+            Rotation = rotation;
+        }
+    }
+
+    public static class WallStructuralResolver
+    {
+        public static WallResolution Resolve(Vector3Int position, in TileType[,] gridData)
         {
             int x = position.x;
             int z = position.z;
-            // Check the four cardinal directions for neighboring walls
-            bool up = (z < gridData.GetLength(1) - 1) && (gridData[x, z + 1] == TileType.Wall);
-            bool down = (z > 0) && (gridData[x, z - 1] == TileType.Wall);
-            bool left = (x < gridData.GetLength(0) - 1) && (gridData[x + 1, z] == TileType.Wall);
-            bool right = (x > 0) && (gridData[x - 1, z] == TileType.Wall);
+            bool north = IsStructure(gridData, x, z + 1);
+            bool south = IsStructure(gridData, x, z - 1);
+            bool east = IsStructure(gridData, x + 1, z);
+            bool west = IsStructure(gridData, x - 1, z);
+            int count = Convert.ToInt32(north) + Convert.ToInt32(south) +
+                        Convert.ToInt32(east) + Convert.ToInt32(west);
 
+            if (count == 4)
+                return new WallResolution(WallVariant.Crossing, 0);
 
-            bool upDoor = (z < gridData.GetLength(1) - 1) && (gridData[x, z + 1] == TileType.Door);
-            bool downDoor = (z > 0) && (gridData[x, z - 1] == TileType.Door);
-            bool leftDoor = (x < gridData.GetLength(0) - 1) && (gridData[x + 1, z] == TileType.Door);
-            bool rightDoor = (x > 0) && (gridData[x - 1, z] == TileType.Door);
+            if (count == 3)
+            {
+                int rotation = !north ? 270
+                    : !south ? 90
+                    : !east ? 0
+                    : 180;
+                return new WallResolution(WallVariant.TIntersection, rotation);
+            }
 
-            bool isCrossIntersection = up && down && left && right;
-            bool isWall = (up && down) || (left && right);
-            bool isDoorAdjacent = upDoor || downDoor || leftDoor || rightDoor;
-            bool isCorner = (up && right) || (up && left) || (down && right) || (down && left);
-            bool isTIntersection = (up && left && right) || (down && left && right) || (left && up && down) || (right && up && down);
-            bool isCap = (up || down || left || right);
-            bool isPillar = !up && !down && !left && !right;
+            if (count == 2)
+            {
+                if (north && south)
+                    return new WallResolution(WallVariant.Straight, 90);
+                if (east && west)
+                    return new WallResolution(WallVariant.Straight, 0);
 
+                int rotation = north && west ? 0
+                    : north && east ? 90
+                    : south && west ? 270
+                    : 180;
+                return new WallResolution(WallVariant.Corner, rotation);
+            }
 
-            if (isCrossIntersection)
+            if (count == 1)
             {
-                crossIntersection.GetComponent<MeshRenderer>().enabled = true;
-                // Debug.Log($"Setting wall style at ({x}, {z}) to Cross Intersection");
-                return;
+                int rotation = east ? 0
+                    : west ? 180
+                    : north ? 270
+                    : 90;
+                return new WallResolution(WallVariant.Endcap, rotation);
             }
-            else if (isTIntersection)
+
+            return new WallResolution(WallVariant.Pillar, 0);
+        }
+
+        public static bool IsStructure(TileType[,] gridData, int x, int z)
+        {
+            if (gridData == null || x < 0 || z < 0 ||
+                x >= gridData.GetLength(0) || z >= gridData.GetLength(1))
             {
-                tIntersection.GetComponent<MeshRenderer>().enabled = true;
-                // Debug.Log($"Setting wall style at ({x}, {z}) to T Intersection");
-                if (!up) transform.rotation = Quaternion.Euler(0, 270, 0);
-                else if (!down) transform.rotation = Quaternion.Euler(0, 90, 0);
-                else if (!left) transform.rotation = Quaternion.Euler(0, 0, 0);
-                else if (!right) transform.rotation = Quaternion.Euler(0, 180, 0);
-                return;
+                return false;
             }
-            else if (isCorner)
-            {
-                corner.GetComponent<MeshRenderer>().enabled = true;
-                // Debug.Log($"Setting wall style at ({x}, {z}) to Corner");
-                if (up && right) transform.rotation = Quaternion.Euler(0, 0, 0);
-                else if (up && left) transform.rotation = Quaternion.Euler(0, 90, 0);
-                else if (down && right) transform.rotation = Quaternion.Euler(0, 270, 0);
-                else if (down && left) transform.rotation = Quaternion.Euler(0, 180, 0);
+
+            TileType tile = gridData[x, z];
+            return tile == TileType.Wall || tile == TileType.Door;
+        }
+    }
+
+    public class Wall : MonoBehaviour, IOnGridGeneration
+    {
+        [SerializeField] protected Transform wall;
+        [SerializeField] protected Transform cap;
+        [SerializeField] protected Transform corner;
+        [SerializeField] protected Transform crossIntersection;
+        [SerializeField] protected Transform pillar;
+        [SerializeField] protected Transform tIntersection;
+
+        public WallVariant SelectedVariant { get; private set; }
+
+        public void OnGeneration(Vector3Int position, in TileType[,] gridData)
+        {
+            WallResolution resolution = WallStructuralResolver.Resolve(position, gridData);
+            SelectedVariant = resolution.Variant;
+            transform.localRotation = Quaternion.Euler(0f, resolution.Rotation, 0f);
+
+            SetVisible(wall, resolution.Variant == WallVariant.Straight);
+            SetVisible(cap, resolution.Variant == WallVariant.Endcap);
+            SetVisible(corner, resolution.Variant == WallVariant.Corner);
+            SetVisible(crossIntersection, resolution.Variant == WallVariant.Crossing);
+            SetVisible(pillar, resolution.Variant == WallVariant.Pillar);
+            SetVisible(tIntersection, resolution.Variant == WallVariant.TIntersection);
+        }
+
+        private static void SetVisible(Transform target, bool visible)
+        {
+            if (target == null)
                 return;
-            }
-            else if (isDoorAdjacent)
-            {
-                wall.GetComponent<MeshRenderer>().enabled = true;
-                // Debug.Log($"Setting wall style at ({x}, {z}) to Door Adjacent");
-                if (upDoor || downDoor) transform.rotation = Quaternion.Euler(0, 90, 0);
-                else transform.rotation = Quaternion.Euler(0, 0, 0);
-                return;
-            }
-            else if (isWall)
-            {
-                wall.GetComponent<MeshRenderer>().enabled = true;
-                // Debug.Log($"Setting wall style at ({x}, {z}) to Wall");
-                if (up && down)
-                    transform.rotation = Quaternion.Euler(0, 90, 0);
-                else
-                    transform.rotation = Quaternion.Euler(0, 0, 0);
-                return;
-            }
-            else if (isCap)
-            {
-                cap.GetComponent<MeshRenderer>().enabled = true;
-                if (left)
-                {
-                    //Debug.Log($"Setting wall style at ({x}, {z}) to Cap");
-                    transform.rotation = Quaternion.Euler(0, 0, 0);
-                }
-                else if (right)
-                {
-                    //Debug.Log($"Setting wall style at ({x}, {z}) to Cap");
-                    transform.rotation = Quaternion.Euler(0, 180, 0);
-                }
-                else if (up)
-                {
-                    //Debug.Log($"Setting wall style at ({x}, {z}) to Cap");
-                    transform.rotation = Quaternion.Euler(0, 270, 0);
-                }
-                else if (down)
-                {
-                    //Debug.Log($"Setting wall style at ({x}, {z}) to Cap");
-                    transform.rotation = Quaternion.Euler(0, 90, 0);
-                }
-                return;
-            }
-            else if (isPillar)
-            {
-                pillar.GetComponent<MeshRenderer>().enabled = true;
-                // Debug.Log($"Setting wall style at ({x}, {z}) to Pillar");
-                return;
-            }
+
+            target.gameObject.SetActive(visible);
+            foreach (Renderer renderer in target.GetComponentsInChildren<Renderer>(true))
+                renderer.enabled = visible;
         }
     }
 }

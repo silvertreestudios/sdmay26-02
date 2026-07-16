@@ -11,6 +11,7 @@ namespace GridPrivate
     public class GridBase : GridAPI, GridAPIPrivate
     {
         public TileType[,] GridData {get; set;}
+        public bool[,] LineOfSightBlocks { get; private set; }
         protected Tile[,] Tiles;
         IPathfinder Pathfinder;
         public GridFSM Fsm { get; private set; } = new GridFSM();
@@ -25,26 +26,24 @@ namespace GridPrivate
             base.Awake();
             Map map = GetComponent<Map>();
             GridData = map.GetMapData();
+            LineOfSightBlocks = map.GetLineOfSightBlocks();
             Tiles = new Tile[GridData.GetLength(0), GridData.GetLength(1)];
 
             for(int x = 0; x < GridData.GetLength(0); x++)
             {
                 for (int y = 0; y < GridData.GetLength(1); y++)
                 {
-                    switch(GridData[x,y])
-                    {
-                        case TileType.Ground:
-                        case TileType.Door:
-                            Tiles[x, y] = new Tile();
-                            break;
-                        default: // Forever uninhabitable, purely cosmetic and/or padding
-                            Tiles[x, y] = null;
-                            break;
-                    }
+                    Tiles[x, y] = IsWalkableTile(GridData[x, y]) ? new Tile() : null;
                 }
             }
 
             Pathfinder = new Dijkstra(Tiles);
+            GridLineOfSightData.Register(Tiles, LineOfSightBlocks, GridData);
+        }
+
+        protected void OnDestroy()
+        {
+            GridLineOfSightData.Unregister(Tiles);
         }
 
         public void Update()
@@ -98,6 +97,16 @@ namespace GridPrivate
         public Tile[,] GetTiles()
         {
             return Tiles;
+        }
+
+        public bool[,] GetLineOfSightBlocks()
+        {
+            return LineOfSightBlocks;
+        }
+
+        public static bool IsWalkableTile(TileType tile)
+        {
+            return tile == TileType.Ground || tile == TileType.Door;
         }
     }
 }

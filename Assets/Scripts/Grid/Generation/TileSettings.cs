@@ -39,6 +39,22 @@ namespace GridPrivate
             return GetInfo(pixel);
         }
 
+        public bool TryGetTileInfo(
+            Color32 pixel,
+            out (TileType Tile, GameObject Prefab, Material Floor) tileInfo)
+        {
+            BuildCache();
+            pixel.a = 255;
+            if (FastAccess.TryGetValue(pixel, out var value))
+            {
+                tileInfo = (value.Item1, value.Item2, value.Item3);
+                return true;
+            }
+
+            tileInfo = (TileType.Empty, null, null);
+            return false;
+        }
+
         public TileType GetTileType(Color32 pixel)
         {
             return GetInfo(pixel).Item1;
@@ -51,28 +67,29 @@ namespace GridPrivate
 
         protected (TileType, GameObject, Material) GetInfo(Color32 color)
         {
-            // Construct fast access if necessary
-            if (FastAccess == null)
-            {
-                FastAccess = new();
-                for (int i = 0; i < TileDefinitions.Count; i++)
-                {
-                    TileDefinition def = TileDefinitions[i];
-
-                    // Only go off RBG values
-                    def.Color.a = 255;
-                    FastAccess.Add(def.Color, (def.Tile, def.Prefab, def.Floor));
-                }
-            }
-
-            (TileType, GameObject, Material) output;
-
-            Color32 rgb_pixel = color;
-            rgb_pixel.a = 255;
-            if (FastAccess.TryGetValue(rgb_pixel, out output))
+            if (TryGetTileInfo(color, out var output))
                 return output;
             Debug.LogError("Undefined color used in tile image: " + color + "\nPlease define color in TileSettings on MapGenerator");
             return (TileType.Empty, null, null);
+        }
+
+        private void BuildCache()
+        {
+            if (FastAccess != null)
+                return;
+
+            FastAccess = new();
+            if (TileDefinitions == null)
+                return;
+
+            for (int i = 0; i < TileDefinitions.Count; i++)
+            {
+                TileDefinition definition = TileDefinitions[i];
+                definition.Color.a = 255;
+                FastAccess.Add(
+                    definition.Color,
+                    (definition.Tile, definition.Prefab, definition.Floor));
+            }
         }
     }
 
@@ -81,7 +98,8 @@ namespace GridPrivate
         Empty,
         Ground,
         Wall,
-        Door
+        Door,
+        Obstacle
     }
 
 }
