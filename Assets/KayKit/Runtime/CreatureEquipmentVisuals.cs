@@ -34,6 +34,7 @@ namespace Game.KayKit
         private void OnDisable()
         {
             BindCreature(null);
+            ClearActiveWeaponOverride();
             ClearAccessories();
         }
 
@@ -104,10 +105,22 @@ namespace Game.KayKit
             if (creature == target)
                 return;
             if (creature != null)
-                creature.EquipmentChanged -= Refresh;
+                creature.EquipmentChanged -= HandleEquipmentChanged;
             creature = target;
             if (creature != null)
-                creature.EquipmentChanged += Refresh;
+                creature.EquipmentChanged += HandleEquipmentChanged;
+        }
+
+        private void HandleEquipmentChanged()
+        {
+            ClearActiveWeaponOverride();
+            Refresh();
+        }
+
+        private void ClearActiveWeaponOverride()
+        {
+            activeWeapon = null;
+            hasActiveWeaponOverride = false;
         }
 
         private EquipmentWeapon SelectDisplayedWeapon()

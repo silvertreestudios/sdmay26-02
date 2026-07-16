@@ -5,7 +5,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using Game.KayKit;
 
 namespace Game.Combat.Spells
 {
@@ -70,7 +69,6 @@ namespace Game.Combat.Spells
             }
 
             SpellCastContext context = new(caster, spell, variantActionCost, spendActions: true, definition);
-            caster.GetComponent<CreaturePresentation>()?.PlayAttack(AnimationStyle.Magic);
             yield return definition.SelectAndCast(context);
         }
 

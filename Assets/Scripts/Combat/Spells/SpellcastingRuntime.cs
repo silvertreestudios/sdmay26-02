@@ -1,5 +1,6 @@
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.KayKit;
 using GridPrivate;
 using GridPublic;
 using System;
@@ -99,6 +100,7 @@ namespace Game.Combat.Spells
                 controller.IsTakingAction = false;
             }
             result.Success = true;
+            context.Caster.GetComponent<CreaturePresentation>()?.PlayAttack(AnimationStyle.Magic);
             CombatLogInterface log = UnityEngine.Object.FindFirstObjectByType<CombatLogInterface>();
             log?.Log("- " + context.Caster.name + " casts " + context.Spell.Name + ".");
             return result;

@@ -158,26 +158,42 @@ public class CombatManager : CombatManagerInterface
 
     public override void NextTurn()
     {
-        if(CheckForEndOfGame())
+        if(CheckForEndOfGame() || TurnQueue.Count == 0)
             return;
         // Take the next turn.
         TurnStep e = TurnQueue[0];
         TurnQueue.RemoveAt(0);
         if (e.Player)
         {
+            if (!CanTakeTurn(e.Player))
+            {
+                NextTurn();
+                return;
+            }
+
             TurnTaker = e.Player;
             OnNextTurn.Invoke(TurnTaker.gameObject);
-            ApplyTurnStartAuras(TurnTaker);
-            if (e.Player.gameObject.activeSelf)
+            if (CanTakeTurn(e.Player))
+                ApplyTurnStartAuras(TurnTaker);
+            if (CanTakeTurn(e.Player))
                 e.Trigger();
+
+            if (CanTakeTurn(e.Player))
+                TurnQueue.Add(e);
+            else
+                NextTurn();
+            return;
         }
-        else
-        {
-            e.Trigger();
-        }
-        // Only re-queue if the combatant is still active (not killed during their turn)
-        if (e.Player == null || e.Player.gameObject.activeSelf)
-            TurnQueue.Add(e);
+
+        e.Trigger();
+        TurnQueue.Add(e);
+    }
+
+    private static bool CanTakeTurn(ActionController actionController)
+    {
+        return actionController != null &&
+               actionController.gameObject.activeSelf &&
+               actionController.isActiveAndEnabled;
     }
 
     private void ApplyTurnStartAuras(ActionController acting)

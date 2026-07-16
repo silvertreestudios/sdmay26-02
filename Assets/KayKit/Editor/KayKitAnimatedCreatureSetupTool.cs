@@ -82,6 +82,12 @@ namespace Game.KayKit.Editor
             }
 
             CreatureVisualCatalog visualCatalog = AssetDatabase.LoadAssetAtPath<CreatureVisualCatalog>(CreatureVisualCatalogPath);
+            AnimatorController animatorController = AssetDatabase.LoadAssetAtPath<AnimatorController>(AnimatorControllerPath);
+            if (animatorController == null)
+                errors.Add("Missing KayKit creature Animator Controller.");
+            else if (!HasRestartableActionTransition(animatorController))
+                errors.Add("KayKit creature Action transition must allow self-entry for consecutive animations.");
+
             Dictionary<string, string> expectedMappings = new(StringComparer.OrdinalIgnoreCase)
             {
                 { "Lena", "adventurers/ranger" },
@@ -138,7 +144,10 @@ namespace Game.KayKit.Editor
         {
             AnimatorController existing = AssetDatabase.LoadAssetAtPath<AnimatorController>(AnimatorControllerPath);
             if (existing != null)
+            {
+                EnableActionSelfTransition(existing);
                 return existing;
+            }
 
             AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(AnimatorControllerPath);
             controller.AddParameter(CreatureAnimationController.IdleParameter, AnimatorControllerParameterType.Bool);
@@ -167,7 +176,7 @@ namespace Game.KayKit.Editor
 
             AnimatorStateTransition actionTransition = machine.AddAnyStateTransition(action);
             actionTransition.duration = 0.05f;
-            actionTransition.canTransitionToSelf = false;
+            actionTransition.canTransitionToSelf = true;
             actionTransition.AddCondition(AnimatorConditionMode.If, 0, CreatureAnimationController.ActionTrigger);
             AnimatorStateTransition deathTransition = machine.AddAnyStateTransition(death);
             deathTransition.duration = 0.05f;
@@ -175,6 +184,34 @@ namespace Game.KayKit.Editor
             deathTransition.AddCondition(AnimatorConditionMode.If, 0, CreatureAnimationController.DeathTrigger);
             EditorUtility.SetDirty(controller);
             return controller;
+        }
+
+        private static void EnableActionSelfTransition(AnimatorController controller)
+        {
+            AnimatorStateTransition transition = FindActionTransition(controller);
+            if (transition == null)
+                throw new InvalidOperationException("KayKit creature Animator Controller is missing its Any State -> Action transition.");
+            if (transition.canTransitionToSelf)
+                return;
+
+            transition.canTransitionToSelf = true;
+            EditorUtility.SetDirty(transition);
+            EditorUtility.SetDirty(controller);
+        }
+
+        private static bool HasRestartableActionTransition(AnimatorController controller)
+        {
+            AnimatorStateTransition transition = FindActionTransition(controller);
+            return transition != null && transition.canTransitionToSelf;
+        }
+
+        private static AnimatorStateTransition FindActionTransition(AnimatorController controller)
+        {
+            if (controller == null || controller.layers.Length == 0)
+                return null;
+            return controller.layers[0].stateMachine.anyStateTransitions.FirstOrDefault(
+                transition => transition.destinationState != null &&
+                              transition.destinationState.name == "Action");
         }
 
         private static EquipmentVisualCatalog GenerateEquipmentCatalog()

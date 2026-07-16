@@ -6,6 +6,7 @@ using Game.KayKit;
 using Game.KayKit.Editor;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEditor.Animations;
 using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
@@ -154,6 +155,18 @@ public sealed class KayKitAnimatedCreatureTests
                 entry.VisualPrefab.name);
         }
         Assert.That(checkedPrefabs.Count, Is.EqualTo(8));
+    }
+
+    [Test]
+    public void AnimatorController_ActionTransitionAllowsConsecutiveAnimations()
+    {
+        AnimatorController controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(
+            KayKitAnimatedCreatureSetupTool.AnimatorControllerPath);
+        Assert.That(controller, Is.Not.Null);
+
+        AnimatorStateTransition transition = controller.layers[0].stateMachine.anyStateTransitions.Single(
+            candidate => candidate.destinationState != null && candidate.destinationState.name == "Action");
+        Assert.That(transition.canTransitionToSelf, Is.True);
     }
 
     [Test]

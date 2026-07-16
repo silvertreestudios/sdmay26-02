@@ -123,6 +123,52 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator ConsecutiveActionRequestsRestartTheActionState()
+    {
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(RangerPrefabPath);
+        GameObject instance = Object.Instantiate(prefab);
+        try
+        {
+            yield return null;
+            CreatureAnimationController controller = instance.GetComponent<CreatureAnimationController>();
+            Animator animator = controller.Animator;
+            const string loopClip = "animation/general/idle_a";
+
+            Assert.That(controller.PlayClip(loopClip), Is.True);
+            float deadline = Time.realtimeSinceStartup + 3.0f;
+            AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
+            while ((!state.IsName("Base Layer.Action") || state.normalizedTime < 0.35f) &&
+                   Time.realtimeSinceStartup < deadline)
+            {
+                yield return null;
+                state = animator.GetCurrentAnimatorStateInfo(0);
+            }
+            Assert.That(state.IsName("Base Layer.Action"), Is.True);
+            Assert.That(state.normalizedTime, Is.GreaterThanOrEqualTo(0.35f));
+            float normalizedTimeBeforeRestart = state.normalizedTime;
+
+            Assert.That(controller.PlayClip(loopClip), Is.True);
+            yield return null;
+            deadline = Time.realtimeSinceStartup + 1.0f;
+            while (animator.IsInTransition(0) && Time.realtimeSinceStartup < deadline)
+                yield return null;
+            yield return null;
+
+            AnimatorStateInfo restarted = animator.GetCurrentAnimatorStateInfo(0);
+            Assert.That(restarted.IsName("Base Layer.Action"), Is.True);
+            Assert.That(
+                restarted.normalizedTime,
+                Is.LessThan(normalizedTimeBeforeRestart),
+                "A consecutive action request should restart Action from the beginning.");
+            controller.StopAction();
+        }
+        finally
+        {
+            Object.Destroy(instance);
+        }
+    }
+
+    [UnityTest]
     public IEnumerator EquipmentReplacementUsesActiveStrikeWeaponWithoutDuplicates()
     {
         GameObject creatureObject = new("Equipment owner");
@@ -152,6 +198,16 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
             presentation.PlayAttack(AnimationStyle.Unarmed);
             Assert.That(equipment.CurrentEntry.Id, Is.EqualTo("unarmed"));
             Assert.That(equipment.AccessoryInstanceCount, Is.Zero);
+
+            EquipmentWeapon dogslicer = Weapon("Dogslicer", "sword", 1, 0);
+            presentation.PlayAttack(shortbow);
+            Assert.That(equipment.CurrentEntry.Id, Is.EqualTo("shortbow"));
+
+            creature.equippedRightHand = dogslicer;
+
+            Assert.That(equipment.ActiveWeapon, Is.Null);
+            Assert.That(equipment.CurrentEntry.Id, Is.EqualTo("dogslicer"));
+            Assert.That(equipment.AccessoryInstanceCount, Is.EqualTo(1));
         }
         finally
         {
