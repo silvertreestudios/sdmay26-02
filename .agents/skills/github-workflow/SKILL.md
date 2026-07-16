@@ -61,10 +61,10 @@ python .agents/skills/github-workflow/scripts/gh_review_comments.py list --repo 
 python .agents/skills/github-workflow/scripts/gh_review_comments.py list-threads --repo silvertreestudios/sdmay26-02 --pr 123
 python .agents/skills/github-workflow/scripts/gh_review_comments.py reply --repo silvertreestudios/sdmay26-02 --pr 123 --comment-id 456789 --body-file .agent-temp/reply.md --dry-run
 python .agents/skills/github-workflow/scripts/gh_review_comments.py update --repo silvertreestudios/sdmay26-02 --comment-id 456789 --body-file .agent-temp/reply.md --dry-run
-python .agents/skills/github-workflow/scripts/gh_review_comments.py resolve-thread --repo silvertreestudios/sdmay26-02 --thread-id PRRT_kwDOExample --dry-run
+python .agents/skills/github-workflow/scripts/gh_review_comments.py resolve-thread --repo silvertreestudios/sdmay26-02 --pr 123 --thread-id PRRT_kwDOExample --dry-run
 ```
 
-Use `list-threads` to inspect `isResolved` and the complete conversation before disposition. Resolve only a GraphQL thread ID returned by that command, and only after the current code and response justify resolution.
+Use `list-threads` to inspect `isResolved` and the complete paginated conversation before disposition. `resolve-thread` verifies that the GraphQL thread belongs to the declared repository and PR before a live mutation. Resolve only a thread ID returned by `list-threads`, and only after the current code and response justify resolution.
 
 ### Gists
 

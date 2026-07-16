@@ -34,10 +34,43 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
               url
               createdAt
             }
+            pageInfo { hasNextPage endCursor }
           }
         }
         pageInfo { hasNextPage endCursor }
       }
+    }
+  }
+}
+"""
+
+REVIEW_THREAD_COMMENTS_QUERY = """
+query($threadId: ID!, $cursor: String!) {
+  node(id: $threadId) {
+    ... on PullRequestReviewThread {
+      comments(first: 100, after: $cursor) {
+        nodes {
+          databaseId
+          author { login }
+          body
+          url
+          createdAt
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+"""
+
+REVIEW_THREAD_SCOPE_QUERY = """
+query($threadId: ID!) {
+  node(id: $threadId) {
+    __typename
+    ... on PullRequestReviewThread {
+      id
+      repository { nameWithOwner }
+      pullRequest { number }
     }
   }
 }
@@ -89,10 +122,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Resolve a verified PR review thread by GraphQL node id.",
     )
     add_repo_argument(resolve)
+    resolve.add_argument("--pr", required=True, type=int)
     resolve.add_argument("--thread-id", required=True)
     add_dry_run_argument(resolve)
 
     return parser
+
+
+def complete_thread_comments(thread: dict[str, object]) -> None:
+    comments = thread["comments"]
+    if not isinstance(comments, dict):
+        raise SystemExit(f"review thread {thread['id']} returned invalid comments data")
+
+    while comments["pageInfo"]["hasNextPage"]:
+        cursor = comments["pageInfo"]["endCursor"]
+        if not cursor:
+            raise SystemExit(f"review thread {thread['id']} has no comment pagination cursor")
+
+        payload = {
+            "query": REVIEW_THREAD_COMMENTS_QUERY,
+            "variables": {"threadId": thread["id"], "cursor": cursor},
+        }
+        result = gh_api_json("graphql", method="POST", payload=payload)
+        node = result["data"]["node"]
+        if node is None:
+            raise SystemExit(f"review thread {thread['id']} was not found while paginating comments")
+
+        next_comments = node["comments"]
+        comments["nodes"].extend(next_comments["nodes"])
+        comments["pageInfo"] = next_comments["pageInfo"]
 
 
 def list_review_threads(repo: str, pr: int) -> int:
@@ -109,7 +167,9 @@ def list_review_threads(repo: str, pr: int) -> int:
             raise SystemExit(f"pull request {repo}#{pr} was not found")
 
         connection = pull_request["reviewThreads"]
-        threads.extend(connection["nodes"])
+        for thread in connection["nodes"]:
+            complete_thread_comments(thread)
+            threads.append(thread)
         page_info = connection["pageInfo"]
         if not page_info["hasNextPage"]:
             break
@@ -117,6 +177,48 @@ def list_review_threads(repo: str, pr: int) -> int:
 
     print(json.dumps(threads, indent=2, ensure_ascii=False))
     return 0
+
+
+def verify_thread_scope(repo: str, pr: int, thread_id: str) -> None:
+    payload = {
+        "query": REVIEW_THREAD_SCOPE_QUERY,
+        "variables": {"threadId": thread_id},
+    }
+    result = gh_api_json("graphql", method="POST", payload=payload)
+    thread = result["data"]["node"]
+    if thread is None or thread.get("__typename") != "PullRequestReviewThread":
+        raise SystemExit(f"review thread {thread_id} was not found")
+
+    actual_repo = thread["repository"]["nameWithOwner"]
+    actual_pr = thread["pullRequest"]["number"]
+    if actual_repo.casefold() != repo.casefold() or actual_pr != pr:
+        raise SystemExit(
+            f"review thread {thread_id} belongs to {actual_repo}#{actual_pr}, not {repo}#{pr}"
+        )
+
+
+def resolve_review_thread(repo: str, pr: int, thread_id: str, *, dry_run: bool) -> int:
+    payload = {
+        "query": RESOLVE_THREAD_MUTATION,
+        "variables": {"threadId": thread_id},
+    }
+    if dry_run:
+        plan = {
+            "dry_run": True,
+            "verification": {
+                "repository": repo,
+                "pull_request": pr,
+                "thread_id": thread_id,
+            },
+            "method": "POST",
+            "endpoint": "graphql",
+            "payload": payload,
+        }
+        print(json.dumps(plan, indent=2, ensure_ascii=False))
+        return 0
+
+    verify_thread_scope(repo, pr, thread_id)
+    return gh_api("graphql", method="POST", payload=payload)
 
 
 def main() -> int:
@@ -147,11 +249,12 @@ def main() -> int:
         )
 
     if args.command == "resolve-thread":
-        payload = {
-            "query": RESOLVE_THREAD_MUTATION,
-            "variables": {"threadId": args.thread_id},
-        }
-        return gh_api("graphql", method="POST", payload=payload, dry_run=args.dry_run)
+        return resolve_review_thread(
+            args.repo,
+            args.pr,
+            args.thread_id,
+            dry_run=args.dry_run,
+        )
 
     raise AssertionError(args.command)
 

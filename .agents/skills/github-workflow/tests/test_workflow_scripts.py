@@ -6,7 +6,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -134,8 +134,34 @@ class ReviewCommentScriptTests(unittest.TestCase):
 
     def test_list_threads_paginates_and_prints_one_array(self) -> None:
         pages = [
-            self.page([{"id": "thread-1", "isResolved": False}], True, "next"),
-            self.page([{"id": "thread-2", "isResolved": True}], False, None),
+            self.page(
+                [
+                    {
+                        "id": "thread-1",
+                        "isResolved": False,
+                        "comments": {
+                            "nodes": [],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        },
+                    }
+                ],
+                True,
+                "next",
+            ),
+            self.page(
+                [
+                    {
+                        "id": "thread-2",
+                        "isResolved": True,
+                        "comments": {
+                            "nodes": [],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        },
+                    }
+                ],
+                False,
+                None,
+            ),
         ]
         output = io.StringIO()
 
@@ -150,33 +176,142 @@ class ReviewCommentScriptTests(unittest.TestCase):
         self.assertIsNone(first_variables["cursor"])
         self.assertEqual(second_variables["cursor"], "next")
 
-    def test_resolve_thread_uses_graphql_node_id(self) -> None:
+    def test_list_threads_paginates_each_comment_connection(self) -> None:
+        first_comment = {"databaseId": 1}
+        second_comment = {"databaseId": 2}
+        pages = [
+            self.page(
+                [
+                    {
+                        "id": "thread-1",
+                        "comments": {
+                            "nodes": [first_comment],
+                            "pageInfo": {"hasNextPage": True, "endCursor": "comments-next"},
+                        },
+                    }
+                ],
+                False,
+                None,
+            ),
+            {
+                "data": {
+                    "node": {
+                        "comments": {
+                            "nodes": [second_comment],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            },
+        ]
+        output = io.StringIO()
+
+        with patch.object(gh_review_comments, "gh_api_json", side_effect=pages) as api:
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(gh_review_comments.list_review_threads("owner/repo", 42), 0)
+
+        comments = json.loads(output.getvalue())[0]["comments"]["nodes"]
+        self.assertEqual([comment["databaseId"] for comment in comments], [1, 2])
+        self.assertEqual(api.call_count, 2)
+        variables = api.call_args_list[1].kwargs["payload"]["variables"]
+        self.assertEqual(variables, {"threadId": "thread-1", "cursor": "comments-next"})
+
+    def test_resolve_thread_dry_run_declares_scope_without_mutating(self) -> None:
         argv = [
             "gh_review_comments.py",
             "resolve-thread",
             "--repo",
             "owner/repo",
+            "--pr",
+            "42",
             "--thread-id",
             "PRRT_example",
             "--dry-run",
         ]
+        output = io.StringIO()
 
-        with patch.object(sys, "argv", argv), patch.object(gh_review_comments, "gh_api", return_value=0) as api:
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(gh_review_comments, "gh_api") as api,
+            patch.object(gh_review_comments, "gh_api_json") as api_json,
+            contextlib.redirect_stdout(output),
+        ):
             self.assertEqual(gh_review_comments.main(), 0)
 
-        api.assert_has_calls(
-            [
-                call(
-                    "graphql",
-                    method="POST",
-                    payload={
-                        "query": gh_review_comments.RESOLVE_THREAD_MUTATION,
-                        "variables": {"threadId": "PRRT_example"},
-                    },
-                    dry_run=True,
-                )
-            ]
+        plan = json.loads(output.getvalue())
+        self.assertEqual(
+            plan["verification"],
+            {"repository": "owner/repo", "pull_request": 42, "thread_id": "PRRT_example"},
         )
+        api.assert_not_called()
+        api_json.assert_not_called()
+
+    def test_resolve_thread_verifies_scope_before_mutating(self) -> None:
+        scope_result = {
+            "data": {
+                "node": {
+                    "__typename": "PullRequestReviewThread",
+                    "id": "PRRT_example",
+                    "repository": {"nameWithOwner": "Owner/Repo"},
+                    "pullRequest": {"number": 42},
+                }
+            }
+        }
+        with (
+            patch.object(gh_review_comments, "gh_api_json", return_value=scope_result) as api_json,
+            patch.object(gh_review_comments, "gh_api", return_value=0) as api,
+        ):
+            self.assertEqual(
+                gh_review_comments.resolve_review_thread(
+                    "owner/repo",
+                    42,
+                    "PRRT_example",
+                    dry_run=False,
+                ),
+                0,
+            )
+
+        api_json.assert_called_once_with(
+            "graphql",
+            method="POST",
+            payload={
+                "query": gh_review_comments.REVIEW_THREAD_SCOPE_QUERY,
+                "variables": {"threadId": "PRRT_example"},
+            },
+        )
+        api.assert_called_once_with(
+            "graphql",
+            method="POST",
+            payload={
+                "query": gh_review_comments.RESOLVE_THREAD_MUTATION,
+                "variables": {"threadId": "PRRT_example"},
+            },
+        )
+
+    def test_resolve_thread_rejects_wrong_scope(self) -> None:
+        scope_result = {
+            "data": {
+                "node": {
+                    "__typename": "PullRequestReviewThread",
+                    "id": "PRRT_example",
+                    "repository": {"nameWithOwner": "owner/other"},
+                    "pullRequest": {"number": 99},
+                }
+            }
+        }
+        with (
+            patch.object(gh_review_comments, "gh_api_json", return_value=scope_result),
+            patch.object(gh_review_comments, "gh_api") as api,
+            self.assertRaisesRegex(SystemExit, "belongs to owner/other#99"),
+        ):
+            gh_review_comments.resolve_review_thread(
+                "owner/repo",
+                42,
+                "PRRT_example",
+                dry_run=False,
+            )
+
+        api.assert_not_called()
 
 
 if __name__ == "__main__":
