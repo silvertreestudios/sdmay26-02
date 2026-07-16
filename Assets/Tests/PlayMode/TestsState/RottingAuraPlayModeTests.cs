@@ -1,10 +1,13 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.KayKit;
 using GridPrivate;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -181,6 +184,67 @@ namespace TestsState
             Assert.That(secondTargetCreature.hp, Is.LessThan(12), "The second wounded creature should take aura damage at the beginning of its own turn.");
         }
 
+        [UnityTest]
+        public IEnumerator CombatManagerSkipsAndDoesNotRequeueActorDefeatedDuringTurnStart()
+        {
+            yield return base.Setup();
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            Tile[,] tiles = grid.GetTiles();
+            FindOpenLineOfThreeCells(tiles, out Vector3Int defeatedCell, out Vector3Int survivorCell, out Vector3Int hostileCell);
+
+            CombatManager manager = Object.FindFirstObjectByType<CombatManager>();
+            GameObject defeatedActor = CreateTarget("defeated during turn start", 1, 20);
+            TestActionController defeatedController = defeatedActor.GetComponent<TestActionController>();
+            AddTeam(defeatedActor, "Players");
+            MoveCombatant(tiles, defeatedActor, defeatedCell);
+
+            GameObject visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                "Assets/KayKit/Prefabs/Animated/RangerAnimated.prefab");
+            GameObject visual = Object.Instantiate(visualPrefab, defeatedActor.transform);
+            CreaturePresentation presentation = defeatedActor.AddComponent<CreaturePresentation>();
+            presentation.Bind(
+                visual.GetComponent<CreatureAnimationController>(),
+                visual.GetComponent<CreatureEquipmentVisuals>());
+
+            GameObject survivor = CreateTarget("surviving player", 10, 10);
+            TestActionController survivorController = survivor.GetComponent<TestActionController>();
+            AddTeam(survivor, "Players");
+            MoveCombatant(tiles, survivor, survivorCell);
+
+            GameObject hostile = CreateTarget("hostile actor", 10, 10);
+            TestActionController hostileController = hostile.GetComponent<TestActionController>();
+            AddTeam(hostile, "Enemies");
+            MoveCombatant(tiles, hostile, hostileCell);
+
+            SetCombatState(
+                manager,
+                new List<ActionController> { defeatedController, survivorController, hostileController },
+                new List<TurnStep>
+                {
+                    new(defeatedController),
+                    new(survivorController),
+                    new(hostileController)
+                },
+                null);
+
+            OnNextTurn.AddListener(actor =>
+            {
+                if (actor == defeatedActor)
+                    defeatedActor.GetComponent<CreatureComponent>().TakeDamage(1u);
+            });
+
+            yield return null;
+            manager.NextTurn();
+
+            Assert.That(defeatedActor.activeSelf, Is.True, "The death presentation should still be playing.");
+            Assert.That(defeatedController.enabled, Is.False);
+            Assert.That(defeatedController.StartTurnCount, Is.Zero, "A defeated actor must not execute StartTurn.");
+            Assert.That(survivorController.StartTurnCount, Is.EqualTo(1), "Turn processing should advance to the next eligible actor.");
+
+            List<TurnStep> queue = GetPrivateField<List<TurnStep>>(manager, "TurnQueue");
+            Assert.That(queue.Any(step => step.Player == defeatedController), Is.False, "A defeated actor must not be requeued.");
+        }
+
         private GameObject CreateTarget(string name, int hp, int maxHp)
         {
             GameObject obj = new(name);
@@ -286,6 +350,13 @@ namespace TestsState
             field.SetValue(manager, value);
         }
 
+        private static T GetPrivateField<T>(CombatManager manager, string fieldName)
+        {
+            FieldInfo field = typeof(CombatManager).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(field, "Could not find CombatManager field " + fieldName);
+            return (T)field.GetValue(manager);
+        }
+
         private sealed class FixedDiceRoller : IPf2eDiceRoller
         {
             private readonly int valuePerDie;
@@ -304,9 +375,11 @@ namespace TestsState
         private sealed class TestActionController : ActionController
         {
             public int HpAtStartTurn { get; private set; } = -1;
+            public int StartTurnCount { get; private set; }
 
             public override void StartTurn()
             {
+                StartTurnCount++;
                 CreatureComponent creature = GetComponent<CreatureComponent>();
                 HpAtStartTurn = creature == null ? -1 : creature.hp;
                 base.StartTurn();

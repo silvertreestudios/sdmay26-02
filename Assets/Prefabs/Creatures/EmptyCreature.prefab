@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 1093093337166745848}
   - component: {fileID: 4128878197974401738}
   - component: {fileID: 5066060619351042451}
+  - component: {fileID: 5206695137502084569}
   m_Layer: 6
   m_Name: EmptyCreature
   m_TagString: Untagged
@@ -37,6 +38,7 @@ Transform:
   m_Children:
   - {fileID: 6488031759795266120}
   - {fileID: 2515266081574908505}
+  - {fileID: 2275472175387574717}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &6819483576359709902
@@ -62,6 +64,7 @@ MonoBehaviour:
   _attackBonus: 7
   _damageBonus: 0
   _weaponBonuses: []
+  _weaponActionBonuses: []
   _armorBonuses: []
   _weaknesses: []
   _resistances: []
@@ -105,7 +108,7 @@ MonoBehaviour:
   - Goblin Scuttle
   _reactions: []
   _passives: []
-  _conditions: []
+  _auras: []
   _equippedArmor:
     name: 
     type: 
@@ -137,6 +140,7 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 0
   _equippedLeftHand:
@@ -156,6 +160,7 @@ MonoBehaviour:
     runes: []
     price: 0
     range: 0
+    reload: 
     ammo: 
     bulk: 0
   _equipment:
@@ -165,8 +170,16 @@ MonoBehaviour:
   - Arrows
   _weaponsList: []
   _weapons: []
+  _ammunition: []
+  _unloadedWeapons: []
   _armorList: []
   _armor: []
+  _buildClassName: 
+  _buildSubclassName: 
+  _buildClassFeatName: 
+  _buildTrainedSkills: []
+  _buildRuleSelections: []
+  _traits: []
 --- !u!114 &-2800045436435895595
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -230,6 +243,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b7abd518a3f004508b6611b61ca45c9a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
+--- !u!114 &5206695137502084569
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4250615070516425197}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2e584dabbf74fd34cbc33e771cfdd988, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: MainGameAssembly::Game.KayKit.CreaturePresentation
 --- !u!1 &5791139501262925988
 GameObject:
   m_ObjectHideFlags: 0
@@ -472,6 +497,8 @@ MonoBehaviour:
   BaseOptions:
   - mesh: {fileID: 1431553746238890192, guid: 111aee36d4b234665ac7a1c809067fca, type: 3}
     level: 0
+  visualCatalog: {fileID: 11400000, guid: 3f56255865ecfe54b8b0e110adb54d6a, type: 2}
+  visualRoot: {fileID: 2275472175387574717}
 --- !u!1 &8702933331957744273
 GameObject:
   m_ObjectHideFlags: 0
@@ -561,3 +588,34 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!1 &8864957238683347861
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2275472175387574717}
+  m_Layer: 0
+  m_Name: VisualRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2275472175387574717
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8864957238683347861}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 6933968513404160077}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}

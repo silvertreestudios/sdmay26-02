@@ -287,10 +287,17 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             cardInstance.Q<VisualElement>("Card").style.backgroundColor = new StyleColor(cardColor);
 
             var portraitImage = cardInstance.Q<Image>("PortraitImage");
+            if (portraitImage != null) {
+                portraitImage.scaleMode = ScaleMode.ScaleToFit;
+            }
             // Get portrait snapshot and display it
             Portrait portraitScript = Players[i].GetComponent<Portrait>();
             if (portraitScript != null) {
                 Texture2D portraitSnapshot = portraitScript.GetPortraitSnapshot();
+                if (portraitSnapshot == null) {
+                    portraitScript.RefreshSnapshot();
+                    portraitSnapshot = portraitScript.GetPortraitSnapshot();
+                }
                 if (portraitSnapshot != null && portraitImage != null) {
                     portraitImage.image = portraitSnapshot;
                 }

@@ -41,6 +41,27 @@ namespace Game.KayKit
 
         public IReadOnlyList<KayKitAnimationEntry> Entries => entries;
 
+        public bool TryGet(string id, out KayKitAnimationEntry entry)
+        {
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                foreach (KayKitAnimationEntry candidate in entries)
+                {
+                    if (candidate != null && string.Equals(
+                            candidate.Id,
+                            id,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        entry = candidate;
+                        return true;
+                    }
+                }
+            }
+
+            entry = null;
+            return false;
+        }
+
 #if UNITY_EDITOR
         public void ReplaceEntries(IEnumerable<KayKitAnimationEntry> replacement)
         {

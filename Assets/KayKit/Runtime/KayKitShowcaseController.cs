@@ -72,6 +72,7 @@ namespace Game.KayKit
             selectedEntryIndex < playableEntries.Count
                 ? playableEntries[selectedEntryIndex]
                 : null;
+        public float NormalizedTime => GetNormalizedTime();
 
         public void Configure(
             KayKitAnimationLibrary library,

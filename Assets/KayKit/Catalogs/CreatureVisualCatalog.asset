@@ -1,0 +1,55 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a638a7bcbf1a5964db1c9c26bac52d94, type: 3}
+  m_Name: CreatureVisualCatalog
+  m_EditorClassIdentifier: MainGameAssembly::Game.KayKit.CreatureVisualCatalog
+  entries:
+  - key: Lena
+    visualId: adventurers/ranger
+    species: adventurer
+    visualPrefab: {fileID: 2867515110854153683, guid: 22eeb04415e0c9048b6c69faaa26db15, type: 3}
+  - key: Torgrim
+    visualId: adventurers/barbarian
+    species: adventurer
+    visualPrefab: {fileID: 7414870073480884844, guid: 040bacb249ba42748b21a7608d59df8c, type: 3}
+  - key: Zombie Shambler
+    visualId: skeletons/skeleton_minion
+    species: skeleton
+    visualPrefab: {fileID: 3564433047412427673, guid: aac6fef25af0ee14cbe35bcf08b8aace, type: 3}
+  - key: Zombie Shambler (Rotting Aura)
+    visualId: skeletons/skeleton_minion
+    species: skeleton
+    visualPrefab: {fileID: 3564433047412427673, guid: aac6fef25af0ee14cbe35bcf08b8aace, type: 3}
+  - key: Skeleton Guard
+    visualId: skeletons/skeleton_warrior
+    species: skeleton
+    visualPrefab: {fileID: 8873203331801157471, guid: 719ab43b2c9d53447827692e3504742e, type: 3}
+  - key: Fighter
+    visualId: adventurers/knight
+    species: adventurer
+    visualPrefab: {fileID: 7232565805095911037, guid: 5ce1d4762f3515c4286adbb7204b7923, type: 3}
+  - key: Cleric
+    visualId: adventurers/mage
+    species: adventurer
+    visualPrefab: {fileID: 593748648648291684, guid: f5ee3d665d5d11a40940d845c3c519cd, type: 3}
+  - key: Rogue
+    visualId: adventurers/rogue_hooded
+    species: adventurer
+    visualPrefab: {fileID: 286120375451794299, guid: 7548dc6c20ee1c44eadf0213588ab4d7, type: 3}
+  - key: Sorcerer
+    visualId: adventurers/mage
+    species: adventurer
+    visualPrefab: {fileID: 577311152902915783, guid: 73c05ff7743f9924ebee8797df69c0a6, type: 3}
+  - key: Barbarian
+    visualId: adventurers/barbarian
+    species: adventurer
+    visualPrefab: {fileID: 7414870073480884844, guid: 040bacb249ba42748b21a7608d59df8c, type: 3}
