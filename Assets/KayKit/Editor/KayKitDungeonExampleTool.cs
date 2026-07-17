@@ -20,6 +20,13 @@ namespace Game.KayKit.Editor
             TextAsset source = RequireAsset<TextAsset>(JsonPath);
             KayKitDungeonCatalog catalog = RequireAsset<KayKitDungeonCatalog>(
                 KayKitSetupTool.DungeonCatalogPath);
+            if (!ConfirmSceneTransition(
+                    HasDirtyOpenScenes(),
+                    EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo))
+            {
+                return;
+            }
+
             Scene scene = EditorSceneManager.OpenScene(SourceScenePath, OpenSceneMode.Single);
 
             Map map = Object.FindFirstObjectByType<Map>();
@@ -51,6 +58,22 @@ namespace Game.KayKit.Editor
                 throw new InvalidOperationException($"Could not save generated scene at {ScenePath}.");
             AssetDatabase.SaveAssets();
             Debug.Log($"Generated standalone KayKit dungeon example at {ScenePath}.");
+        }
+
+        private static bool HasDirtyOpenScenes()
+        {
+            for (int index = 0; index < SceneManager.sceneCount; index++)
+            {
+                if (SceneManager.GetSceneAt(index).isDirty)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool ConfirmSceneTransition(bool hasDirtyScenes, Func<bool> savePrompt)
+        {
+            return !hasDirtyScenes || savePrompt();
         }
 
         private static void CreateEncounter()

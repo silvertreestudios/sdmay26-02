@@ -70,6 +70,11 @@ namespace Game.KayKit
         public GameObject WallPrefab => wallPrefab;
         public GameObject DoorwayPrefab => doorwayPrefab;
 
+        private void OnValidate()
+        {
+            InvalidateLookup();
+        }
+
         public bool TryGet(string id, out KayKitDungeonCatalogEntry entry)
         {
             if (entriesById == null)
@@ -87,7 +92,7 @@ namespace Game.KayKit
         public void ReplaceEntries(IEnumerable<KayKitDungeonCatalogEntry> replacement)
         {
             entries = new List<KayKitDungeonCatalogEntry>(replacement);
-            entriesById = null;
+            InvalidateLookup();
         }
 
         public void ConfigureStructure(
@@ -102,5 +107,10 @@ namespace Game.KayKit
             doorwayPrefab = doorway;
         }
 #endif
+
+        private void InvalidateLookup()
+        {
+            entriesById = null;
+        }
     }
 }

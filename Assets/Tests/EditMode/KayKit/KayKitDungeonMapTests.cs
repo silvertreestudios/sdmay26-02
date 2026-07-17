@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Game.KayKit;
 using Game.KayKit.Editor;
 using GridPrivate;
@@ -180,6 +181,113 @@ public sealed class KayKitDungeonMapTests
         Assert.That(catalog.DoorwayPrefab, Is.Not.Null);
         Assert.That(catalog.DefaultMaterial, Is.Not.Null);
         Assert.That(catalog.Entries.Any(entry => entry.Id.EndsWith("/stairs")), Is.True);
+    }
+
+    [Test]
+    public void CatalogLookup_TracksInspectorAddRenameAndRemoveEdits()
+    {
+        KayKitDungeonCatalog catalog = Catalog(Entry("original", Vector2Int.one, false, false));
+        Assert.That(catalog.TryGet("original", out _), Is.True);
+
+        SerializedObject serialized = new(catalog);
+        SerializedProperty entries = serialized.FindProperty("entries");
+        entries.GetArrayElementAtIndex(0).FindPropertyRelative("id").stringValue = "renamed";
+        serialized.ApplyModifiedProperties();
+
+        Assert.That(catalog.TryGet("original", out _), Is.False);
+        Assert.That(catalog.TryGet("renamed", out _), Is.True);
+
+        serialized.Update();
+        entries = serialized.FindProperty("entries");
+        entries.InsertArrayElementAtIndex(1);
+        entries.GetArrayElementAtIndex(1).FindPropertyRelative("id").stringValue = "added";
+        serialized.ApplyModifiedProperties();
+
+        Assert.That(catalog.TryGet("added", out _), Is.True);
+
+        serialized.Update();
+        entries = serialized.FindProperty("entries");
+        entries.DeleteArrayElementAtIndex(0);
+        serialized.ApplyModifiedProperties();
+
+        Assert.That(catalog.TryGet("renamed", out _), Is.False);
+        Assert.That(catalog.TryGet("added", out _), Is.True);
+    }
+
+    [Test]
+    public void JsonMode_RejectsNonUnitSpacingWithoutMutatingGeneratedContent()
+    {
+        GameObject mapObject = Track(new GameObject("JSON Spacing Contract"));
+        Map map = mapObject.AddComponent<Map>();
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        TextAsset source = AssetDatabase.LoadAssetAtPath<TextAsset>(
+            KayKitDungeonExampleTool.JsonPath);
+        map.ConfigureJson(source, catalog);
+        Assert.That(map.TryGenerate(out _), Is.True);
+        Transform generated = mapObject.transform.Find("GeneratedMap");
+        string[] before = Snapshot(generated);
+
+        map.ConfigureJson(source, catalog, 2f);
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.False);
+
+        Assert.That(validation.Errors, Has.Some.Contains("requires tile spacing 1"));
+        Assert.That(mapObject.transform.Find("GeneratedMap"), Is.SameAs(generated));
+        Assert.That(Snapshot(generated), Is.EqualTo(before));
+    }
+
+    [Test]
+    public void BitmapMode_ContinuesToAllowCustomSpacing()
+    {
+        GameObject mapObject = Track(new GameObject("Bitmap Spacing Compatibility"));
+        Map map = mapObject.AddComponent<Map>();
+        Texture2D image = Track(new Texture2D(1, 1));
+        image.SetPixel(0, 0, Color.red);
+        image.Apply();
+
+        FieldInfo settingsField = typeof(Map).GetField(
+            "Settings",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(settingsField, Is.Not.Null);
+        settingsField.SetValue(map, new TileSettings());
+        SerializedObject serialized = new(map);
+        serialized.FindProperty("ImageMap").objectReferenceValue = image;
+        serialized.FindProperty("spacing").floatValue = 2f;
+        SerializedProperty definitions = serialized.FindProperty("Settings.TileDefinitions");
+        definitions.arraySize = 1;
+        SerializedProperty definition = definitions.GetArrayElementAtIndex(0);
+        definition.FindPropertyRelative("Color").colorValue = Color.red;
+        definition.FindPropertyRelative("Tile").enumValueIndex = (int)TileType.Ground;
+        serialized.ApplyModifiedPropertiesWithoutUndo();
+
+        MapSourceValidationResult validation = map.ValidateSource();
+
+        Assert.That(validation.IsValid, Is.True, string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(map.Spacing, Is.EqualTo(2f));
+    }
+
+    [Test]
+    public void RegenerationSceneGuard_SkipsPromptWhenNoSceneIsDirty()
+    {
+        bool result = ConfirmSceneTransition(false, () =>
+            throw new AssertionException("The save prompt must not run for clean scenes."));
+
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public void RegenerationSceneGuard_AbortsWhenDirtySceneSaveIsCancelled()
+    {
+        int prompts = 0;
+
+        bool result = ConfirmSceneTransition(true, () =>
+        {
+            prompts++;
+            return false;
+        });
+
+        Assert.That(result, Is.False);
+        Assert.That(prompts, Is.EqualTo(1));
     }
 
     [Test]
@@ -394,6 +502,15 @@ public sealed class KayKitDungeonMapTests
         List<string> values = new();
         Visit(root, root.name, values);
         return values.ToArray();
+    }
+
+    private static bool ConfirmSceneTransition(bool hasDirtyScenes, Func<bool> savePrompt)
+    {
+        MethodInfo method = typeof(KayKitDungeonExampleTool).GetMethod(
+            "ConfirmSceneTransition",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(method, Is.Not.Null);
+        return (bool)method.Invoke(null, new object[] { hasDirtyScenes, savePrompt });
     }
 
     private static void Visit(Transform current, string path, ICollection<string> values)

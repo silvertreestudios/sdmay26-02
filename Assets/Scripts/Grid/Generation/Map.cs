@@ -30,6 +30,8 @@ public sealed class MapSourceValidationResult
 [ExecuteAlways]
 public class Map : MonoBehaviour
 {
+    public const float JsonTileSpacing = 1f;
+
     [SerializeField] protected Texture2D ImageMap;
     [SerializeField] protected float spacing = 1f;
     [SerializeField] private TileSettings Settings;
@@ -60,7 +62,10 @@ public class Map : MonoBehaviour
 #endif
     }
 
-    public void ConfigureJson(TextAsset source, KayKitDungeonCatalog catalog, float tileSpacing = 1f)
+    public void ConfigureJson(
+        TextAsset source,
+        KayKitDungeonCatalog catalog,
+        float tileSpacing = JsonTileSpacing)
     {
         sourceMode = MapSourceMode.Json;
         jsonSource = source;
@@ -204,6 +209,12 @@ public class Map : MonoBehaviour
 
         KayKitDungeonMapParseResult parsed = KayKitDungeonMapParser.Parse(jsonSource.text, dungeonCatalog);
         List<string> errors = new(parsed.Errors);
+        if (spacing != JsonTileSpacing)
+        {
+            errors.Add(
+                $"JSON mode requires tile spacing {JsonTileSpacing}; found {spacing}. " +
+                "Bitmap mode continues to support custom spacing.");
+        }
         if (parsed.Map != null)
         {
             if (ContainsAny(parsed.Map.GridData, TileType.Ground, TileType.Door, TileType.Obstacle) &&
