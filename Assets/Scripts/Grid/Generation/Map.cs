@@ -54,6 +54,8 @@ public class Map : MonoBehaviour
 #if UNITY_EDITOR
         if (previousSourceMode == MapSourceMode.Bitmap && sourceMode == MapSourceMode.Json)
             legacyBitmapSpacing = spacing;
+        else if (previousSourceMode == MapSourceMode.Json && sourceMode == MapSourceMode.Bitmap)
+            spacing = legacyBitmapSpacing;
         previousSourceMode = sourceMode;
         InvalidateCache();
         if (PrefabUtility.IsPartOfPrefabAsset(this) || sourceMode != MapSourceMode.Bitmap)

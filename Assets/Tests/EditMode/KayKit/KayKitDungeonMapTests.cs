@@ -267,6 +267,40 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void InspectorSourceModeRoundTrip_RestoresBitmapSpacingBeforeRegeneration()
+    {
+        GameObject mapObject = Track(new GameObject("Bitmap Spacing Round Trip"));
+        Map map = mapObject.AddComponent<Map>();
+        Texture2D image = Track(new Texture2D(2, 1));
+        image.SetPixels(new[] { Color.red, Color.red });
+        image.Apply();
+        Material floor = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Dirt.mat");
+        ConfigureBitmapSource(map, image, floor, 2f);
+
+        SerializedObject serialized = new(map);
+        serialized.FindProperty("sourceMode").enumValueIndex = (int)MapSourceMode.Json;
+        serialized.ApplyModifiedPropertiesWithoutUndo();
+        serialized.Update();
+        serialized.FindProperty("spacing").floatValue = Map.JsonTileSpacing;
+        serialized.ApplyModifiedPropertiesWithoutUndo();
+
+        Assert.That(map.SourceMode, Is.EqualTo(MapSourceMode.Json));
+        Assert.That(map.Spacing, Is.EqualTo(Map.JsonTileSpacing));
+
+        serialized.Update();
+        serialized.FindProperty("sourceMode").enumValueIndex = (int)MapSourceMode.Bitmap;
+        serialized.ApplyModifiedPropertiesWithoutUndo();
+
+        Assert.That(map.SourceMode, Is.EqualTo(MapSourceMode.Bitmap));
+        Assert.That(map.Spacing, Is.EqualTo(2f));
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
+            string.Join(Environment.NewLine, validation.Errors));
+        AssertWorldPosition(
+            mapObject.transform.Find("GeneratedMap/Structure/Floor_001_000"),
+            new Vector3(2f, 0f, 0f));
+    }
+
+    [Test]
     public void BitmapGeneration_PreservesWorldGridUnderTransformedMapRoot()
     {
         GameObject ancestor = Track(new GameObject("Bitmap Map Ancestor"));
