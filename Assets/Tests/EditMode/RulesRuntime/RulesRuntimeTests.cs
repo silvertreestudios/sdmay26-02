@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using NUnit.Framework;
 
 namespace Game.Rules.Runtime.Tests
@@ -37,10 +38,6 @@ namespace Game.Rules.Runtime.Tests
         public void SeedProvidesEveryNamedSliceWithoutSharingCallerCollections()
         {
             List<Trait> callerTraits = new List<Trait> { Trait.FromSlug("humanoid") };
-            Dictionary<RuleValueKey, RuleValue> callerValues = new Dictionary<RuleValueKey, RuleValue>
-            {
-                [RuleValueKey.FromName("radius feet")] = RuleValue.FromInt(15)
-            };
 
             PlayerId player = new PlayerId("player-1");
             ConditionState condition = new ConditionState(
@@ -58,9 +55,7 @@ namespace Game.Rules.Runtime.Tests
                 new ActiveEffectId("effect-1"),
                 new RuleDefinitionId("bless-aura"),
                 Creature,
-                TestSource,
-                0,
-                new RuleValueMap(callerValues));
+                TestSource);
             RuleBindingState binding = new RuleBindingState(
                 new BindingId("binding-1"),
                 effect.DefinitionId,
@@ -83,7 +78,6 @@ namespace Game.Rules.Runtime.Tests
 
             InMemoryRulesStore store = new InMemoryRulesStore(seed);
             callerTraits.Add(Trait.FromSlug("added-later"));
-            callerValues[RuleValueKey.FromName("radius feet")] = RuleValue.FromInt(99);
             seed.SeedHealth(Creature, new HealthState(1, 20));
 
             RulesSnapshot snapshot = store.Snapshot;
@@ -94,7 +88,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(snapshot.MultipleAttackPenalty[Creature].AttackCount, Is.Zero);
             Assert.That(snapshot.Conditions[condition.Id], Is.EqualTo(condition));
             Assert.That(snapshot.Equipment[item.Id], Is.EqualTo(item));
-            Assert.That(snapshot.ActiveEffects[effect.Id].Values[RuleValueKey.FromName("radius feet")], Is.EqualTo(RuleValue.FromInt(15)));
+            Assert.That(snapshot.ActiveEffects[effect.Id], Is.EqualTo(effect));
             Assert.That(snapshot.RuleBindings[binding.Id], Is.EqualTo(binding));
             Assert.That(snapshot.Frequencies[binding.Id], Is.EqualTo(new FrequencyState(2, 0)));
         }
@@ -124,12 +118,11 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void RejectedReductionRollsBackEverySliceAndNeverMaterializesFacts()
+        public void RejectedReductionRollsBackEverySliceAndNeverStampsFacts()
         {
             InMemoryRulesStore store = CreateStore(20);
             RulesSnapshot before = store.Snapshot;
-            int factoryCalls = 0;
-            RejectAfterWritesReducer reducer = new RejectAfterWritesReducer(() => factoryCalls++);
+            RejectAfterWritesReducer reducer = new RejectAfterWritesReducer();
 
             ReductionResult<int> result = store.Reduce(
                 Context(new AdjustHealthOp(Creature, -20)),
@@ -139,7 +132,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result.DidCommit, Is.False);
             Assert.That(result.RejectionReason, Is.EqualTo("rejected for test"));
             Assert.That(result.Facts, Is.Empty);
-            Assert.That(factoryCalls, Is.Zero);
+            Assert.That(reducer.StagedFact.IsStamped, Is.False);
             Assert.That(store.Snapshot, Is.SameAs(before));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(20));
             Assert.That(store.Snapshot.Positions[Creature], Is.EqualTo(new GridPosition(0, 0, 0)));
@@ -160,6 +153,98 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result.Facts, Is.Empty);
             Assert.That(result.Snapshot, Is.SameAs(before));
             Assert.That(result.Snapshot.Version, Is.Zero);
+        }
+
+        [Test]
+        public void WriteThenRevertWithoutFactPreservesSnapshotAndVersion()
+        {
+            InMemoryRulesStore store = CreateStore(20);
+            RulesSnapshot before = store.Snapshot;
+
+            ReductionResult<int> result = store.Reduce(
+                Context(new AdjustHealthOp(Creature, -5)),
+                new RevertDraftReducer());
+
+            Assert.That(result.IsAccepted, Is.True);
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(result.Snapshot, Is.SameAs(before));
+            Assert.That(result.Snapshot.Version, Is.Zero);
+        }
+
+        [Test]
+        public void StateChangeWithoutFactFailsInvariantAndRollsBack()
+        {
+            InMemoryRulesStore store = CreateStore(20);
+            RulesSnapshot before = store.Snapshot;
+
+            InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => store.Reduce(
+                Context(new AdjustHealthOp(Creature, -1)),
+                new UnreportedHealthReducer()));
+
+            Assert.That(exception.Message, Does.Contain("requires at least one domain Fact"));
+            Assert.That(store.Snapshot, Is.SameAs(before));
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(20));
+        }
+
+        [Test]
+        public void ReductionProvenanceCanOnlyBeConstructedInsideRuntimeAssembly()
+        {
+            ConstructorInfo[] publicConstructors = typeof(ReductionContext<AdjustHealthOp>).GetConstructors();
+            ConstructorInfo[] internalConstructors = typeof(ReductionContext<AdjustHealthOp>).GetConstructors(
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.That(publicConstructors, Is.Empty);
+            Assert.That(internalConstructors, Has.Length.EqualTo(1));
+            Assert.That(typeof(IRulesStore).Assembly.GetType("Game.Rules.Runtime.IRuleOp"), Is.Null);
+            Assert.That(typeof(FactSink).GetMethod(nameof(FactSink.Stage)).GetParameters()[0].ParameterType,
+                Is.EqualTo(typeof(RuleFact)));
+        }
+
+        [Test]
+        public void StateValueConstructorsRejectDefaultRequiredIdsAndSources()
+        {
+            PlayerId player = new PlayerId("player-1");
+            RuleDefinitionId definition = new RuleDefinitionId("definition-1");
+            ActiveEffectId effect = new ActiveEffectId("effect-1");
+
+            Assert.Throws<ArgumentException>(() => new CreatureState(default, player));
+            Assert.Throws<ArgumentException>(() => new CreatureState(Creature, default));
+            Assert.Throws<ArgumentException>(() => new CreatureState(Creature, player, new[] { default(Trait) }));
+            Assert.Throws<ArgumentException>(() => new ConditionState(default, definition, Creature, 1, TestSource));
+            Assert.Throws<ArgumentException>(() => new ConditionState(new ConditionId("condition-1"), default, Creature, 1, TestSource));
+            Assert.Throws<ArgumentException>(() => new ConditionState(new ConditionId("condition-1"), definition, default, 1, TestSource));
+            Assert.Throws<ArgumentException>(() => new ConditionState(new ConditionId("condition-1"), definition, Creature, 1, default));
+            Assert.Throws<ArgumentException>(() => new EquipmentState(default, new ItemDefinitionId("item-definition-1"), Creature, true));
+            Assert.Throws<ArgumentException>(() => new EquipmentState(new ItemId("item-1"), default, Creature, true));
+            Assert.Throws<ArgumentException>(() => new EquipmentState(new ItemId("item-1"), new ItemDefinitionId("item-definition-1"), default, true));
+            Assert.Throws<ArgumentException>(() => new ActiveEffectState(default, definition, Creature, TestSource));
+            Assert.Throws<ArgumentException>(() => new ActiveEffectState(effect, default, Creature, TestSource));
+            Assert.Throws<ArgumentException>(() => new ActiveEffectState(effect, definition, default, TestSource));
+            Assert.Throws<ArgumentException>(() => new ActiveEffectState(effect, definition, Creature, default));
+            Assert.Throws<ArgumentException>(() => new RuleBindingState(default, definition, Creature, effect, TestSource, 0));
+            Assert.Throws<ArgumentException>(() => new RuleBindingState(new BindingId("binding-1"), default, Creature, effect, TestSource, 0));
+            Assert.Throws<ArgumentException>(() => new RuleBindingState(new BindingId("binding-1"), definition, default, effect, TestSource, 0));
+            Assert.Throws<ArgumentException>(() => new RuleBindingState(new BindingId("binding-1"), definition, Creature, default(ActiveEffectId), TestSource, 0));
+            Assert.Throws<ArgumentException>(() => new RuleBindingState(new BindingId("binding-1"), definition, Creature, effect, default, 0));
+        }
+
+        [Test]
+        public void SeedAndDraftBoundariesRejectDefaultKeys()
+        {
+            RulesStateSeed seed = new RulesStateSeed();
+
+            Assert.Throws<ArgumentException>(() => seed.SeedHealth(default, new HealthState(1, 1)));
+            Assert.Throws<ArgumentException>(() => seed.SeedPosition(default, new GridPosition(0, 0, 0)));
+            Assert.Throws<ArgumentException>(() => seed.SeedActionEconomy(default, new ActionEconomyState(3, true)));
+            Assert.Throws<ArgumentException>(() => seed.SeedMultipleAttackPenalty(default, new MultipleAttackPenaltyState(0)));
+            Assert.Throws<ArgumentException>(() => seed.SeedFrequency(default, new FrequencyState(0, 0)));
+
+            InMemoryRulesStore store = CreateStore(20);
+            Assert.Throws<ArgumentException>(() => store.Reduce(
+                Context(new AdjustHealthOp(Creature, 0)),
+                new EmptyIdDraftReducer()));
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(20));
         }
 
         [Test]
@@ -196,21 +281,6 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void RuleValueMapDefensivelyCopiesCallerOwnedOperationData()
-        {
-            RuleValueKey key = RuleValueKey.FromName("selected mode");
-            Dictionary<RuleValueKey, RuleValue> callerValues = new Dictionary<RuleValueKey, RuleValue>
-            {
-                [key] = new RuleValue("normal")
-            };
-            DataOp op = new DataOp(new RuleValueMap(callerValues));
-
-            callerValues[key] = new RuleValue("caller-mutated");
-
-            Assert.That(op.Values[key], Is.EqualTo(new RuleValue("normal")));
-        }
-
-        [Test]
         public void EquivalentReductionsAreDeterministic()
         {
             InMemoryRulesStore left = CreateStore(20);
@@ -236,7 +306,7 @@ namespace Game.Rules.Runtime.Tests
             InMemoryRulesStore store = CreateStore(20);
             store.Reduce(
                 Context(new AdjustHealthOp(Creature, -20)),
-                new RejectAfterWritesReducer(() => { }));
+                new RejectAfterWritesReducer());
 
             ReductionResult<int> committed = store.Reduce(
                 Context(new AdjustHealthOp(Creature, -1)),
@@ -258,7 +328,7 @@ namespace Game.Rules.Runtime.Tests
             return new ReductionContext<AdjustHealthOp>(op, new OpId(2), new OpId(1), TestSource);
         }
 
-        private sealed class AdjustHealthOp : IRuleOp<int>
+        private sealed class AdjustHealthOp
         {
             public CreatureId Creature { get; }
             public int Delta { get; }
@@ -268,12 +338,6 @@ namespace Game.Rules.Runtime.Tests
                 Creature = creature;
                 Delta = delta;
             }
-        }
-
-        private sealed class DataOp : IRuleOp<bool>
-        {
-            public RuleValueMap Values { get; }
-            public DataOp(RuleValueMap values) => Values = values ?? throw new ArgumentNullException(nameof(values));
         }
 
         private sealed class HealthAdjustedFact : RuleFact
@@ -302,7 +366,7 @@ namespace Game.Rules.Runtime.Tests
                     : throw new InvalidOperationException("Missing health seed.");
                 int current = previous.Current + context.Op.Delta;
                 state.Health.Set(context.Op.Creature, new HealthState(current, previous.Maximum, previous.Temporary));
-                facts.Stage(() => new HealthAdjustedFact(context.Op.Creature, previous.Current, current));
+                facts.Stage(new HealthAdjustedFact(context.Op.Creature, previous.Current, current));
                 return ReductionResult<int>.Accept(current);
             }
         }
@@ -322,12 +386,7 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class RejectAfterWritesReducer : IOpReducer<AdjustHealthOp, int>
         {
-            private readonly Action onFactMaterialized;
-
-            public RejectAfterWritesReducer(Action onFactMaterialized)
-            {
-                this.onFactMaterialized = onFactMaterialized;
-            }
+            public HealthAdjustedFact StagedFact { get; private set; }
 
             public ReductionResult<int> Reduce(
                 ReductionContext<AdjustHealthOp> context,
@@ -337,12 +396,52 @@ namespace Game.Rules.Runtime.Tests
                 state.Health.TryGet(context.Op.Creature, out HealthState health);
                 state.Health.Set(context.Op.Creature, new HealthState(0, health.Maximum));
                 state.Positions.Set(context.Op.Creature, new GridPosition(9, 0, 9));
-                facts.Stage(() =>
-                {
-                    onFactMaterialized();
-                    return new HealthAdjustedFact(context.Op.Creature, health.Current, 0);
-                });
+                StagedFact = new HealthAdjustedFact(context.Op.Creature, health.Current, 0);
+                facts.Stage(StagedFact);
                 return ReductionResult<int>.Reject("rejected for test");
+            }
+        }
+
+        private sealed class RevertDraftReducer : IOpReducer<AdjustHealthOp, int>
+        {
+            public ReductionResult<int> Reduce(
+                ReductionContext<AdjustHealthOp> context,
+                RulesStateDraft state,
+                FactSink facts)
+            {
+                state.Health.TryGet(context.Op.Creature, out HealthState health);
+                state.Positions.TryGet(context.Op.Creature, out GridPosition position);
+                state.Health.Set(context.Op.Creature, new HealthState(health.Current + context.Op.Delta, health.Maximum));
+                state.Health.Set(context.Op.Creature, health);
+                state.Positions.Remove(context.Op.Creature);
+                state.Positions.Set(context.Op.Creature, position);
+                return ReductionResult<int>.Accept(health.Current);
+            }
+        }
+
+        private sealed class UnreportedHealthReducer : IOpReducer<AdjustHealthOp, int>
+        {
+            public ReductionResult<int> Reduce(
+                ReductionContext<AdjustHealthOp> context,
+                RulesStateDraft state,
+                FactSink facts)
+            {
+                state.Health.TryGet(context.Op.Creature, out HealthState health);
+                int current = health.Current + context.Op.Delta;
+                state.Health.Set(context.Op.Creature, new HealthState(current, health.Maximum));
+                return ReductionResult<int>.Accept(current);
+            }
+        }
+
+        private sealed class EmptyIdDraftReducer : IOpReducer<AdjustHealthOp, int>
+        {
+            public ReductionResult<int> Reduce(
+                ReductionContext<AdjustHealthOp> context,
+                RulesStateDraft state,
+                FactSink facts)
+            {
+                state.Health.Set(default, new HealthState(1, 1));
+                return ReductionResult<int>.Accept(1);
             }
         }
 
@@ -363,6 +462,7 @@ namespace Game.Rules.Runtime.Tests
                 state.Health.TryGet(context.Op.Creature, out HealthState health);
                 int current = health.Current + context.Op.Delta;
                 state.Health.Set(context.Op.Creature, new HealthState(current, health.Maximum));
+                facts.Stage(new HealthAdjustedFact(context.Op.Creature, health.Current, current));
                 capture(state);
                 return ReductionResult<int>.Accept(current);
             }

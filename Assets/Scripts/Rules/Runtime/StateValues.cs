@@ -15,9 +15,16 @@ namespace Game.Rules.Runtime
 
         public CreatureState(CreatureId id, PlayerId player, IEnumerable<Trait> traits = null)
         {
+            if (id.IsEmpty)
+                throw new ArgumentException("A creature ID is required.", nameof(id));
+            if (player.IsEmpty)
+                throw new ArgumentException("A player ID is required.", nameof(player));
+
             Id = id;
             Player = player;
             Trait[] copied = (traits ?? Array.Empty<Trait>()).Distinct().ToArray();
+            if (copied.Any(trait => trait.IsEmpty))
+                throw new ArgumentException("Creature traits cannot contain an empty trait.", nameof(traits));
             this.traits = Array.AsReadOnly(copied);
         }
 
@@ -111,6 +118,14 @@ namespace Game.Rules.Runtime
         {
             if (value < 0)
                 throw new ArgumentOutOfRangeException(nameof(value));
+            if (id.IsEmpty)
+                throw new ArgumentException("A condition ID is required.", nameof(id));
+            if (definitionId.IsEmpty)
+                throw new ArgumentException("A rule definition ID is required.", nameof(definitionId));
+            if (owner.IsEmpty)
+                throw new ArgumentException("An owner creature ID is required.", nameof(owner));
+            if (source.IsEmpty)
+                throw new ArgumentException("A rule source is required.", nameof(source));
             Id = id;
             DefinitionId = definitionId;
             Owner = owner;
@@ -134,6 +149,12 @@ namespace Game.Rules.Runtime
 
         public EquipmentState(ItemId id, ItemDefinitionId definitionId, CreatureId holder, bool isWielded)
         {
+            if (id.IsEmpty)
+                throw new ArgumentException("An item ID is required.", nameof(id));
+            if (definitionId.IsEmpty)
+                throw new ArgumentException("An item definition ID is required.", nameof(definitionId));
+            if (holder.IsEmpty)
+                throw new ArgumentException("A holder creature ID is required.", nameof(holder));
             Id = id;
             DefinitionId = definitionId;
             Holder = holder;
@@ -153,33 +174,32 @@ namespace Game.Rules.Runtime
         public RuleDefinitionId DefinitionId { get; }
         public CreatureId SourceCreature { get; }
         public RuleSource Source { get; }
-        public long Version { get; }
-        public RuleValueMap Values { get; }
 
         public ActiveEffectState(
             ActiveEffectId id,
             RuleDefinitionId definitionId,
             CreatureId sourceCreature,
-            RuleSource source,
-            long version,
-            RuleValueMap values = null)
+            RuleSource source)
         {
-            if (version < 0)
-                throw new ArgumentOutOfRangeException(nameof(version));
+            if (id.IsEmpty)
+                throw new ArgumentException("An active effect ID is required.", nameof(id));
+            if (definitionId.IsEmpty)
+                throw new ArgumentException("A rule definition ID is required.", nameof(definitionId));
+            if (sourceCreature.IsEmpty)
+                throw new ArgumentException("A source creature ID is required.", nameof(sourceCreature));
+            if (source.IsEmpty)
+                throw new ArgumentException("A rule source is required.", nameof(source));
             Id = id;
             DefinitionId = definitionId;
             SourceCreature = sourceCreature;
             Source = source;
-            Version = version;
-            Values = values == null ? RuleValueMap.Empty : new RuleValueMap(values);
         }
 
         public bool Equals(ActiveEffectState other) =>
             other != null && Id == other.Id && DefinitionId == other.DefinitionId &&
-            SourceCreature == other.SourceCreature && Source == other.Source &&
-            Version == other.Version && Values.Equals(other.Values);
+            SourceCreature == other.SourceCreature && Source == other.Source;
         public override bool Equals(object obj) => obj is ActiveEffectState other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(Id, DefinitionId, SourceCreature, Source, Version);
+        public override int GetHashCode() => HashCode.Combine(Id, DefinitionId, SourceCreature, Source);
     }
 
     public sealed class RuleBindingState : IEquatable<RuleBindingState>
@@ -201,6 +221,16 @@ namespace Game.Rules.Runtime
         {
             if (creationOrder < 0)
                 throw new ArgumentOutOfRangeException(nameof(creationOrder));
+            if (id.IsEmpty)
+                throw new ArgumentException("A binding ID is required.", nameof(id));
+            if (definitionId.IsEmpty)
+                throw new ArgumentException("A rule definition ID is required.", nameof(definitionId));
+            if (owner.IsEmpty)
+                throw new ArgumentException("An owner creature ID is required.", nameof(owner));
+            if (effectId.HasValue && effectId.Value.IsEmpty)
+                throw new ArgumentException("An effect ID cannot be empty when supplied.", nameof(effectId));
+            if (source.IsEmpty)
+                throw new ArgumentException("A rule source is required.", nameof(source));
             Id = id;
             DefinitionId = definitionId;
             Owner = owner;

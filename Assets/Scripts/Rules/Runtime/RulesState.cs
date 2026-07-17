@@ -36,7 +36,25 @@ namespace Game.Rules.Runtime
             this.isValidEntry = isValidEntry;
         }
 
-        internal bool IsDirty => writable != null;
+        internal bool IsDirty
+        {
+            get
+            {
+                if (writable == null || writable.Count != original.Count)
+                    return writable != null;
+
+                foreach (KeyValuePair<TKey, TValue> pair in writable)
+                {
+                    if (!original.TryGetValue(pair.Key, out TValue originalValue) ||
+                        !EqualityComparer<TValue>.Default.Equals(pair.Value, originalValue))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
         private Dictionary<TKey, TValue> Current => writable ?? original;
 
         public int Count => Current.Count;
@@ -105,24 +123,28 @@ namespace Game.Rules.Runtime
 
         public RulesStateSeed SeedHealth(CreatureId creature, HealthState value)
         {
+            RequireCreatureId(creature, nameof(creature));
             Health[creature] = value;
             return this;
         }
 
         public RulesStateSeed SeedPosition(CreatureId creature, GridPosition value)
         {
+            RequireCreatureId(creature, nameof(creature));
             Positions[creature] = value;
             return this;
         }
 
         public RulesStateSeed SeedActionEconomy(CreatureId creature, ActionEconomyState value)
         {
+            RequireCreatureId(creature, nameof(creature));
             ActionEconomy[creature] = value;
             return this;
         }
 
         public RulesStateSeed SeedMultipleAttackPenalty(CreatureId creature, MultipleAttackPenaltyState value)
         {
+            RequireCreatureId(creature, nameof(creature));
             MultipleAttackPenalty[creature] = value;
             return this;
         }
@@ -161,8 +183,16 @@ namespace Game.Rules.Runtime
 
         public RulesStateSeed SeedFrequency(BindingId binding, FrequencyState value)
         {
+            if (binding.IsEmpty)
+                throw new ArgumentException("A binding ID is required.", nameof(binding));
             Frequencies[binding] = value;
             return this;
+        }
+
+        private static void RequireCreatureId(CreatureId creature, string parameterName)
+        {
+            if (creature.IsEmpty)
+                throw new ArgumentException("A creature ID is required.", parameterName);
         }
     }
 
@@ -268,16 +298,16 @@ namespace Game.Rules.Runtime
 
         internal RulesStateDraft(RulesStateData data)
         {
-            Creatures = new StateSliceDraft<CreatureId, CreatureState>(data.Creatures, (id, value) => value != null && id == value.Id);
-            Health = new StateSliceDraft<CreatureId, HealthState>(data.Health);
-            Positions = new StateSliceDraft<CreatureId, GridPosition>(data.Positions);
-            ActionEconomy = new StateSliceDraft<CreatureId, ActionEconomyState>(data.ActionEconomy);
-            MultipleAttackPenalty = new StateSliceDraft<CreatureId, MultipleAttackPenaltyState>(data.MultipleAttackPenalty);
-            Conditions = new StateSliceDraft<ConditionId, ConditionState>(data.Conditions, (id, value) => value != null && id == value.Id);
-            Equipment = new StateSliceDraft<ItemId, EquipmentState>(data.Equipment, (id, value) => value != null && id == value.Id);
-            ActiveEffects = new StateSliceDraft<ActiveEffectId, ActiveEffectState>(data.ActiveEffects, (id, value) => value != null && id == value.Id);
-            RuleBindings = new StateSliceDraft<BindingId, RuleBindingState>(data.RuleBindings, (id, value) => value != null && id == value.Id);
-            Frequencies = new StateSliceDraft<BindingId, FrequencyState>(data.Frequencies);
+            Creatures = new StateSliceDraft<CreatureId, CreatureState>(data.Creatures, (id, value) => !id.IsEmpty && value != null && id == value.Id);
+            Health = new StateSliceDraft<CreatureId, HealthState>(data.Health, (id, value) => !id.IsEmpty);
+            Positions = new StateSliceDraft<CreatureId, GridPosition>(data.Positions, (id, value) => !id.IsEmpty);
+            ActionEconomy = new StateSliceDraft<CreatureId, ActionEconomyState>(data.ActionEconomy, (id, value) => !id.IsEmpty);
+            MultipleAttackPenalty = new StateSliceDraft<CreatureId, MultipleAttackPenaltyState>(data.MultipleAttackPenalty, (id, value) => !id.IsEmpty);
+            Conditions = new StateSliceDraft<ConditionId, ConditionState>(data.Conditions, (id, value) => !id.IsEmpty && value != null && id == value.Id);
+            Equipment = new StateSliceDraft<ItemId, EquipmentState>(data.Equipment, (id, value) => !id.IsEmpty && value != null && id == value.Id);
+            ActiveEffects = new StateSliceDraft<ActiveEffectId, ActiveEffectState>(data.ActiveEffects, (id, value) => !id.IsEmpty && value != null && id == value.Id);
+            RuleBindings = new StateSliceDraft<BindingId, RuleBindingState>(data.RuleBindings, (id, value) => !id.IsEmpty && value != null && id == value.Id);
+            Frequencies = new StateSliceDraft<BindingId, FrequencyState>(data.Frequencies, (id, value) => !id.IsEmpty);
         }
 
         internal bool IsDirty =>

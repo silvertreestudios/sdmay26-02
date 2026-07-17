@@ -1,28 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("RulesRuntime.EditMode.Tests")]
 
 namespace Game.Rules.Runtime
 {
-    public interface IRuleOp
-    {
-    }
-
-    public interface IRuleOp<TResult> : IRuleOp
-    {
-    }
-
     /// <summary>
     /// The small trusted boundary supplied by the future dispatcher. Full frames and traces belong to issue #120.
     /// </summary>
     public sealed class ReductionContext<TOp>
-        where TOp : IRuleOp
     {
         public TOp Op { get; }
         public OpId SourceOpId { get; }
         public OpId RootOpId { get; }
         public RuleSource Source { get; }
 
-        public ReductionContext(TOp op, OpId sourceOpId, OpId rootOpId, RuleSource source)
+        internal ReductionContext(TOp op, OpId sourceOpId, OpId rootOpId, RuleSource source)
         {
             if (ReferenceEquals(op, null))
                 throw new ArgumentNullException(nameof(op));
@@ -62,11 +56,11 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Stages domain Fact factories. Fact instances and envelopes are created only after a reduction is accepted.
+    /// Stages immutable domain Facts. Identity and provenance are added only after a reduction is accepted.
     /// </summary>
     public sealed class FactSink
     {
-        private readonly List<Func<RuleFact>> stagedFacts = new List<Func<RuleFact>>();
+        private readonly List<RuleFact> stagedFacts = new List<RuleFact>();
 
         internal FactSink()
         {
@@ -74,25 +68,19 @@ namespace Game.Rules.Runtime
 
         internal int Count => stagedFacts.Count;
 
-        public void Stage(Func<RuleFact> factFactory)
+        public void Stage(RuleFact fact)
         {
-            if (factFactory == null)
-                throw new ArgumentNullException(nameof(factFactory));
-            stagedFacts.Add(factFactory);
+            if (fact == null)
+                throw new ArgumentNullException(nameof(fact));
+            if (fact.IsStamped)
+                throw new InvalidOperationException("Feature code cannot stage a pre-stamped Fact.");
+
+            stagedFacts.Add(fact);
         }
 
-        internal RuleFact[] Materialize()
+        internal RuleFact[] GetStagedFacts()
         {
-            RuleFact[] facts = new RuleFact[stagedFacts.Count];
-            for (int index = 0; index < stagedFacts.Count; index++)
-            {
-                facts[index] = stagedFacts[index]();
-                if (facts[index] == null)
-                    throw new InvalidOperationException("A staged Fact factory returned null.");
-                if (facts[index].IsStamped)
-                    throw new InvalidOperationException("Feature code cannot supply a pre-stamped Fact.");
-            }
-            return facts;
+            return stagedFacts.ToArray();
         }
     }
 
@@ -155,7 +143,6 @@ namespace Game.Rules.Runtime
     }
 
     public interface IOpReducer<TOp, TResult>
-        where TOp : IRuleOp<TResult>
     {
         ReductionResult<TResult> Reduce(
             ReductionContext<TOp> context,
@@ -169,8 +156,7 @@ namespace Game.Rules.Runtime
 
         ReductionResult<TResult> Reduce<TOp, TResult>(
             ReductionContext<TOp> context,
-            IOpReducer<TOp, TResult> reducer)
-            where TOp : IRuleOp<TResult>;
+            IOpReducer<TOp, TResult> reducer);
     }
 
     public sealed class InMemoryRulesStore : IRulesStore
@@ -201,7 +187,6 @@ namespace Game.Rules.Runtime
         public ReductionResult<TResult> Reduce<TOp, TResult>(
             ReductionContext<TOp> context,
             IOpReducer<TOp, TResult> reducer)
-            where TOp : IRuleOp<TResult>
         {
             if (context == null)
                 throw new ArgumentNullException(nameof(context));
@@ -223,7 +208,10 @@ namespace Game.Rules.Runtime
                 if (!draft.IsDirty && factSink.Count == 0)
                     return decision.Complete(startingState.Snapshot, Array.AsReadOnly(Array.Empty<RuleFact>()), false);
 
-                RuleFact[] committedFacts = factSink.Materialize();
+                if (draft.IsDirty && factSink.Count == 0)
+                    throw new InvalidOperationException("A committed state change requires at least one domain Fact.");
+
+                RuleFact[] committedFacts = factSink.GetStagedFacts();
                 long pendingFactId = nextFactId;
                 foreach (RuleFact fact in committedFacts)
                 {
