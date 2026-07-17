@@ -653,17 +653,21 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Exposes handler-scoped rules state, trace data, and nested dispatch.
+    /// Exposes callback-scoped rules state, trace data, and nested dispatch.
     /// </summary>
     /// <remarks>
-    /// The dispatcher owns the context. It is valid only while its handler is actively executing.
-    /// A handler may have at most one child dispatch in flight and must await that child before
-    /// returning or starting another child.
+    /// The dispatcher owns the context. It is valid only while the handler or middleware callback
+    /// that received it is actively executing. Each callback may have at most one child dispatch
+    /// in flight and must await that child before returning or starting another child.
     /// </remarks>
     public sealed class OpContext
     {
+        private readonly object gate = new object();
         private readonly RuleDispatcher dispatcher;
         private readonly OpId parentId;
+        private readonly ActiveRuleBinding activeBinding;
+        private bool isActive = true;
+        private TaskCompletionSource<bool> activeDispatch;
 
         internal OpContext(
             RuleDispatcher dispatcher,
@@ -672,7 +676,7 @@ namespace Game.Rules.Runtime
         {
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
             this.parentId = parentId;
-            ActiveBinding = activeBinding;
+            this.activeBinding = activeBinding;
         }
 
 #nullable enable annotations
@@ -680,26 +684,54 @@ namespace Game.Rules.Runtime
         /// Gets the active binding authorizing a middleware invocation, or <see langword="null"/>
         /// when the context belongs to the operation's ordinary handler.
         /// </summary>
-        public ActiveRuleBinding? ActiveBinding { get; }
+        public ActiveRuleBinding? ActiveBinding
+        {
+            get
+            {
+                RequireActive();
+                return activeBinding;
+            }
+        }
 
         /// <summary>
         /// Gets the active binding's stable rule source, or <see langword="null"/> for an ordinary handler.
         /// </summary>
-        public RuleSource? Source => ActiveBinding?.Source;
+        public RuleSource? Source
+        {
+            get
+            {
+                RequireActive();
+                return activeBinding?.Source;
+            }
+        }
 #nullable restore annotations
 
         /// <summary>
         /// Gets the latest committed rules snapshot.
         /// </summary>
-        public RulesSnapshot Snapshot => dispatcher.Snapshot;
+        public RulesSnapshot Snapshot
+        {
+            get
+            {
+                RequireActive();
+                return dispatcher.Snapshot;
+            }
+        }
 
         /// <summary>
         /// Gets the dispatcher's trace, including the current frame and previously recorded frames.
         /// </summary>
-        public ResolutionTrace Trace => dispatcher.Trace;
+        public ResolutionTrace Trace
+        {
+            get
+            {
+                RequireActive();
+                return dispatcher.Trace;
+            }
+        }
 
         /// <summary>
-        /// Dispatches a child operation under the handler that owns this context.
+        /// Dispatches a child operation under the callback that owns this context.
         /// </summary>
         /// <typeparam name="TResult">The successful result type of the child operation.</typeparam>
         /// <param name="op">The child operation to resolve.</param>
@@ -708,8 +740,80 @@ namespace Game.Rules.Runtime
         /// <exception cref="InvalidOperationException">
         /// The context is no longer active, another child is in flight, or no compatible resolver is registered.
         /// </exception>
-        public ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op) =>
-            dispatcher.DispatchNested(op, parentId);
+        public ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
+        {
+            if (op == null)
+                throw new ArgumentNullException(nameof(op));
+
+            TaskCompletionSource<bool> settlement;
+            lock (gate)
+            {
+                if (!isActive)
+                {
+                    throw new InvalidOperationException(
+                        "An operation context is not actively executing after its callback returns.");
+                }
+                if (activeDispatch != null)
+                {
+                    throw new InvalidOperationException(
+                        $"Operation {parentId.Value} cannot begin an overlapping child dispatch. " +
+                        "Await the active child before dispatching another.");
+                }
+
+                settlement = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                activeDispatch = settlement;
+            }
+
+            return DispatchAndSettle(op, settlement);
+        }
+
+        internal async ValueTask<bool> CompleteInvocation()
+        {
+            Task pending = null;
+            lock (gate)
+            {
+                if (!isActive)
+                    throw new InvalidOperationException("An operation context completed more than once.");
+                isActive = false;
+                if (activeDispatch != null)
+                    pending = activeDispatch.Task;
+            }
+
+            if (pending == null)
+                return false;
+
+            await pending;
+            return true;
+        }
+
+        private async ValueTask<OpResult<TResult>> DispatchAndSettle<TResult>(
+            IRuleOp<TResult> op,
+            TaskCompletionSource<bool> settlement)
+        {
+            try
+            {
+                return await dispatcher.DispatchNested(op, parentId);
+            }
+            finally
+            {
+                lock (gate)
+                {
+                    if (ReferenceEquals(activeDispatch, settlement))
+                        activeDispatch = null;
+                }
+                settlement.TrySetResult(true);
+            }
+        }
+
+        private void RequireActive()
+        {
+            lock (gate)
+            {
+                if (!isActive)
+                    throw new InvalidOperationException("An operation context cannot be used after its callback returns.");
+            }
+        }
     }
 
     /// <summary>
@@ -1042,6 +1146,34 @@ namespace Game.Rules.Runtime
                 reducer);
         }
 
+        internal void CaptureCommittedFacts(
+            IFrameInvocation invocation,
+            IReadOnlyList<RuleFact> facts)
+        {
+            if (invocation == null)
+                throw new ArgumentNullException(nameof(invocation));
+            if (facts == null)
+                throw new ArgumentNullException(nameof(facts));
+
+            lock (gate)
+            {
+                if (activeRoot == null || activeRoot.RootId != invocation.FrameView.RootId)
+                    throw new InvalidOperationException("Reducer Facts crossed resolution root ownership.");
+
+                // Reducer Facts enter the root batch at the store commit point. Middleware may
+                // replace the structural result or commit later children while it unwinds, neither
+                // of which may discard or reorder an already committed Fact.
+                invocation.CaptureDirectFacts(facts);
+                foreach (RuleFact fact in facts)
+                {
+                    activeRoot.AddFact(
+                        fact,
+                        invocation.FrameView.Id,
+                        invocation.FrameView.RootId);
+                }
+            }
+        }
+
         private async ValueTask<OpResult<TResult>> DispatchRoot<TResult>(
             IRuleOp<TResult> op,
             IRegistration registration,
@@ -1107,13 +1239,24 @@ namespace Game.Rules.Runtime
                 delivery.Binding,
                 delivery.RootId,
                 causeId);
+            ValueTask listenerInvocation;
             try
             {
-                await delivery.Registration.Invoke(
+                listenerInvocation = delivery.Registration.Invoke(
                     delivery.Binding,
                     delivery.RootId,
                     facts,
                     context);
+            }
+            catch
+            {
+                await context.CompleteInvocation();
+                throw;
+            }
+
+            try
+            {
+                await listenerInvocation;
             }
             catch
             {
@@ -1185,13 +1328,7 @@ namespace Game.Rules.Runtime
                 lock (gate)
                 {
                     RequireActiveResolution(resolution);
-                    IReadOnlyList<RuleFact> directFacts = NoFacts;
-                    if (registration.IsReducer)
-                    {
-                        directFacts = result.Facts;
-                        foreach (RuleFact fact in directFacts)
-                            resolution.AddFact(fact, id, rootId);
-                    }
+                    IReadOnlyList<RuleFact> directFacts = invocation.DirectFacts;
 
                     int subtreeFactCount = resolution.Facts.Count - firstFact;
                     IReadOnlyList<RuleFact> subtreeFacts = NoFacts;
@@ -1419,18 +1556,32 @@ namespace Game.Rules.Runtime
     internal interface IFrameInvocation
     {
         IOpFrameView FrameView { get; }
+        IReadOnlyList<RuleFact> DirectFacts { get; }
+        void CaptureDirectFacts(IReadOnlyList<RuleFact> facts);
     }
 
     internal sealed class FrameInvocation<TOp> : IFrameInvocation
         where TOp : IRuleOp
     {
+        private static readonly IReadOnlyList<RuleFact> NoDirectFacts =
+            Array.AsReadOnly(Array.Empty<RuleFact>());
+        private IReadOnlyList<RuleFact> directFacts = NoDirectFacts;
+
         public OpFrame<TOp> Frame { get; }
         public IOpFrameView FrameView { get; }
+        public IReadOnlyList<RuleFact> DirectFacts => directFacts;
 
         public FrameInvocation(OpFrame<TOp> frame)
         {
             Frame = frame ?? throw new ArgumentNullException(nameof(frame));
             FrameView = new OpFrameView<TOp>(frame);
+        }
+
+        public void CaptureDirectFacts(IReadOnlyList<RuleFact> facts)
+        {
+            if (!ReferenceEquals(directFacts, NoDirectFacts))
+                throw new InvalidOperationException("A resolver captured its direct Facts more than once.");
+            directFacts = facts ?? throw new ArgumentNullException(nameof(facts));
         }
     }
 
@@ -1486,7 +1637,23 @@ namespace Game.Rules.Runtime
             RuleDispatcher dispatcher)
         {
             OpFrame<TOp> frame = GetFrame(invocation);
-            TResult value = await handler.Handle(frame, new OpContext(dispatcher, frame.Id));
+            OpContext context = new OpContext(dispatcher, frame.Id);
+            TResult value;
+            try
+            {
+                value = await handler.Handle(frame, context);
+            }
+            catch
+            {
+                await context.CompleteInvocation();
+                throw;
+            }
+
+            if (await context.CompleteInvocation())
+            {
+                throw new InvalidOperationException(
+                    $"Operation {frame.Id.Value} returned before awaiting its active child dispatch.");
+            }
             return OpResult<TResult>.Resolved(value);
         }
     }
@@ -1512,6 +1679,7 @@ namespace Game.Rules.Runtime
         {
             OpFrame<TOp> frame = GetFrame(invocation);
             ReductionResult<TResult> reduced = dispatcher.Reduce(frame, reducer, source);
+            dispatcher.CaptureCommittedFacts(invocation, reduced.Facts);
             OpResult<TResult> result = reduced.IsAccepted
                 ? OpResult<TResult>.Resolved(reduced.Value)
                 : OpResult<TResult>.Invalid(reduced.RejectionReason);

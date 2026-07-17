@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Runtime.ExceptionServices;
+using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Sources;
 
 namespace Game.Rules.Runtime
 {
@@ -167,7 +170,7 @@ namespace Game.Rules.Runtime
         private readonly RuleDispatcher dispatcher;
         private readonly OpId causeId;
         private bool isActive = true;
-        private TaskCompletionSource<bool> activeDispatch;
+        private IFactDispatch activeDispatch;
 
         internal FactContext(
             RuleDispatcher dispatcher,
@@ -224,7 +227,7 @@ namespace Game.Rules.Runtime
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
 
-            TaskCompletionSource<bool> settlement;
+            FactDispatch<TResult> dispatch;
             lock (gate)
             {
                 if (!isActive)
@@ -235,49 +238,146 @@ namespace Game.Rules.Runtime
                         "A Fact listener cannot overlap dispatched roots. Await the active dispatch first.");
                 }
 
-                settlement = new TaskCompletionSource<bool>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                activeDispatch = settlement;
+                dispatch = new FactDispatch<TResult>(
+                    this,
+                    dispatcher,
+                    op,
+                    CommittedRootId,
+                    causeId);
+                activeDispatch = dispatch;
             }
 
-            return DispatchAndSettle(op, settlement);
+            dispatch.Start();
+            return dispatch.AsValueTask();
         }
 
         internal async ValueTask<bool> CompleteInvocation()
         {
-            Task pending = null;
+            IFactDispatch pending = null;
             lock (gate)
             {
                 if (!isActive)
                     throw new InvalidOperationException("A Fact context completed more than once.");
                 isActive = false;
-                if (activeDispatch != null)
-                    pending = activeDispatch.Task;
+                pending = activeDispatch;
             }
 
             if (pending == null)
                 return false;
 
-            await pending;
-            return true;
+            await pending.Completion;
+            pending.ThrowIfFailed();
+            return !pending.WasConsumed;
         }
 
-        private async ValueTask<OpResult<TResult>> DispatchAndSettle<TResult>(
-            IRuleOp<TResult> op,
-            TaskCompletionSource<bool> settlement)
+        private void ReleaseDispatch(IFactDispatch dispatch)
         {
-            try
+            lock (gate)
             {
-                return await dispatcher.DispatchFromFact(op, CommittedRootId, causeId);
+                if (ReferenceEquals(activeDispatch, dispatch))
+                    activeDispatch = null;
             }
-            finally
+        }
+
+        private interface IFactDispatch
+        {
+            Task Completion { get; }
+
+            bool WasConsumed { get; }
+
+            void ThrowIfFailed();
+        }
+
+        private sealed class FactDispatch<TResult> :
+            IFactDispatch,
+            IValueTaskSource<OpResult<TResult>>
+        {
+            private readonly FactContext owner;
+            private readonly RuleDispatcher dispatcher;
+            private readonly IRuleOp<TResult> op;
+            private readonly OpId committedRootId;
+            private readonly OpId causeId;
+            private readonly TaskCompletionSource<bool> completion =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private ManualResetValueTaskSourceCore<OpResult<TResult>> source;
+            private ExceptionDispatchInfo failure;
+            private int wasConsumed;
+            private int wasStarted;
+
+            public FactDispatch(
+                FactContext owner,
+                RuleDispatcher dispatcher,
+                IRuleOp<TResult> op,
+                OpId committedRootId,
+                OpId causeId)
             {
-                lock (gate)
+                this.owner = owner;
+                this.dispatcher = dispatcher;
+                this.op = op;
+                this.committedRootId = committedRootId;
+                this.causeId = causeId;
+                source.RunContinuationsAsynchronously = true;
+            }
+
+            public Task Completion => completion.Task;
+
+            public bool WasConsumed => Volatile.Read(ref wasConsumed) != 0;
+
+            public ValueTask<OpResult<TResult>> AsValueTask() =>
+                new ValueTask<OpResult<TResult>>(this, source.Version);
+
+            public void Start()
+            {
+                if (Interlocked.Exchange(ref wasStarted, 1) != 0)
+                    throw new InvalidOperationException("A Fact dispatch cannot start more than once.");
+
+                _ = Run();
+            }
+
+            public void ThrowIfFailed() => failure?.Throw();
+
+            public OpResult<TResult> GetResult(short token)
+            {
+                if (Interlocked.Exchange(ref wasConsumed, 1) != 0)
+                    throw new InvalidOperationException("A Fact dispatch result may be consumed only once.");
+
+                try
                 {
-                    if (ReferenceEquals(activeDispatch, settlement))
-                        activeDispatch = null;
+                    return source.GetResult(token);
                 }
-                settlement.TrySetResult(true);
+                finally
+                {
+                    owner.ReleaseDispatch(this);
+                }
+            }
+
+            public ValueTaskSourceStatus GetStatus(short token) =>
+                source.GetStatus(token);
+
+            public void OnCompleted(
+                Action<object> continuation,
+                object state,
+                short token,
+                ValueTaskSourceOnCompletedFlags flags) =>
+                source.OnCompleted(continuation, state, token, flags);
+
+            private async Task Run()
+            {
+                try
+                {
+                    OpResult<TResult> result =
+                        await dispatcher.DispatchFromFact(op, committedRootId, causeId);
+                    source.SetResult(result);
+                }
+                catch (Exception exception)
+                {
+                    failure = ExceptionDispatchInfo.Capture(exception);
+                    source.SetException(exception);
+                }
+                finally
+                {
+                    completion.TrySetResult(true);
+                }
             }
         }
     }
@@ -770,25 +870,48 @@ namespace Game.Rules.Runtime
 
             MiddlewareContinuation<TResult> continuation =
                 new MiddlewareContinuation<TResult>(next);
+            OpContext context = new OpContext(dispatcher, typed.Frame.Id, binding);
             OpResult<TResult> result;
             try
             {
                 result = await middleware.Invoke(
                     binding,
                     typed.Frame,
-                    new OpContext(dispatcher, typed.Frame.Id, binding),
+                    context,
                     continuation.Invoke);
             }
             catch
             {
-                await continuation.CompleteInvocation();
+                try
+                {
+                    await continuation.CompleteInvocation();
+                }
+                finally
+                {
+                    await context.CompleteInvocation();
+                }
                 throw;
             }
 
-            if (await continuation.CompleteInvocation())
+            bool continuationWasActive = false;
+            bool contextWasActive;
+            try
+            {
+                continuationWasActive = await continuation.CompleteInvocation();
+            }
+            finally
+            {
+                contextWasActive = await context.CompleteInvocation();
+            }
+            if (continuationWasActive)
             {
                 throw new InvalidOperationException(
                     $"Middleware for {typeof(TOp).Name} returned before awaiting its continuation.");
+            }
+            if (contextWasActive)
+            {
+                throw new InvalidOperationException(
+                    $"Middleware for {typeof(TOp).Name} returned before awaiting its child dispatch.");
             }
             if (result == null)
                 throw new InvalidOperationException($"Middleware for {typeof(TOp).Name} returned a null result.");
@@ -800,6 +923,7 @@ namespace Game.Rules.Runtime
     {
         private readonly object gate = new object();
         private readonly Func<ValueTask<object>> next;
+        private bool isActive = true;
         private bool wasInvoked;
         private TaskCompletionSource<bool> settlement;
 
@@ -811,6 +935,8 @@ namespace Game.Rules.Runtime
             TaskCompletionSource<bool> current;
             lock (gate)
             {
+                if (!isActive)
+                    throw new InvalidOperationException("Middleware cannot continue after its callback returns.");
                 if (wasInvoked)
                     throw new InvalidOperationException("Middleware may invoke its continuation at most once.");
                 wasInvoked = true;
@@ -825,7 +951,12 @@ namespace Game.Rules.Runtime
         {
             Task pending;
             lock (gate)
+            {
+                if (!isActive)
+                    throw new InvalidOperationException("A middleware continuation completed more than once.");
+                isActive = false;
                 pending = settlement?.Task;
+            }
             if (pending == null || pending.IsCompleted)
                 return false;
             await pending;
