@@ -1,6 +1,6 @@
 ---
 name: iterative-pr-delivery
-description: Deliver a repository task or GitHub issue through implementation, independent agent review, review fixes, draft PR creation, iterative GitHub Copilot review, CI verification, and final human handoff. Use for any change intended for a pull request, when resuming one of those stages, or when deciding whether a PR is ready for human review.
+description: Deliver a repository task or GitHub issue through implementation, a one-time independent local review gate, direct post-gate fixes, draft PR creation, iterative GitHub Copilot review, CI verification, and final human handoff. Use for any change intended for a pull request, when resuming one of those stages, or when deciding whether a PR is ready for human review.
 ---
 
 # Iterative PR Delivery
@@ -13,15 +13,16 @@ Use this quality gate around the domain skill that performs the work. Keep one i
 | --- | --- | --- |
 | Implement | `gpt-5.6-sol`, medium | Work only in the task worktree and agreed scope. |
 | Pre-PR review | Fresh `gpt-5.6-sol`, xhigh, using built-in `/review` | Review against the intended base; never reuse an implementation or fixer session. |
-| Fix | `gpt-5.6-sol`, high | Assess every finding before changing code. |
+| Pre-PR review fix | `gpt-5.6-sol`, high | Assess every finding while the one-time local review gate is still open. |
+| Post-gate change | Active delivery agent | Make and verify CI, Copilot, or human-requested fixes directly without reopening local review. |
 | PR review | GitHub Copilot code review | Review every pushed head that contains fixes. |
 | Human review | `silvertreestudios/pf2e-game` | Request the approved reviewer team only after every agentic gate passes. |
 
-If the environment cannot select the required model, reasoning level, or fresh session, write the handoff and stop at that gate. Never silently substitute a configuration or claim the gate passed.
+If the environment cannot select the required model, reasoning level, or fresh session, write the handoff and stop at that gate. Never silently substitute a configuration or claim the gate passed. These model and fresh-session requirements apply only while their listed stage is active; after the local review gate passes, they must not block direct post-gate changes.
 
 ## Handoff evidence
 
-Keep uncommitted handoffs under `.agent-temp/delivery/<branch>/`. Record the task URL and criteria, worktree, branch, base/head SHAs, verification commands/results, next role and model, and blockers.
+Keep uncommitted handoffs under `.agent-temp/delivery/<branch>/`. Record the task URL and criteria, worktree, branch, base/head SHAs, verification commands/results, next role and model, and blockers. Record the SHA that passed the one-time local review separately from the current PR head when later changes make them differ.
 
 Give a fresh reviewer only authoritative inputs: task, repository instructions, base/head SHAs, complete diff, and test evidence. Do not leak implementation rationale, suspected defects, or prior findings before its independent full pass. On re-review, inspect the whole diff first, then verify prior dispositions.
 
@@ -44,7 +45,7 @@ Give a fresh reviewer only authoritative inputs: task, repository instructions, 
 
 Do not create a PR until local independent review reaches zero actionable findings.
 
-### 3. Review and fix locally
+### 3. Complete the one-time local review gate
 
 1. Start a fresh `gpt-5.6-sol` xhigh session and launch Codex's built-in `/review` with **Review against a base branch**. For non-interactive automation, use `codex review --base <base>`.
 2. Follow `.agents/review/code_review.md`, review the entire base-to-head change, and record findings against the exact head SHA.
@@ -56,38 +57,44 @@ Do not create a PR until local independent review reaches zero actionable findin
 5. After any code change, verify and commit, then start another fresh xhigh full review.
 6. Repeat until the current head has zero actionable findings.
 
-A clean local review applies only to its recorded SHA during the pre-PR phase. Any code change before the first Copilot review invalidates it and requires another fresh local review. Once the first Copilot review starts, stage 5 is authoritative: keep Copilot-driven fixes in the Copilot fix/re-review loop and do not return to stage 3 for each batch.
+Stage 3 is a one-time gate. It completes when a fresh full review reports zero actionable findings; record that reviewed SHA. Once complete, the gate remains complete for the lifetime of that PR. No later code, test, documentation, CI fix, base sync, Copilot-requested change, or human-requested change reopens Stage 3, even if the change occurs before the first Copilot review.
+
+The clean local review is evidence only for its recorded SHA; do not claim that it reviewed later heads. Gate completion and exact-SHA coverage are distinct: later changes require proportionate verification and the applicable remote gates, but never another local `/review`, fresh local reviewer, or local review-fix loop.
 
 ### 4. Open the draft PR
 
-1. Push the locally reviewed head and create a draft PR with `github-workflow`.
-2. Link the issue or originating task. Include scope, verification, local review rounds/SHA, limitations, and required real screenshots.
-3. Verify the remote PR head equals the reviewed local head.
+1. After the one-time local gate passes, push the current head and create a draft PR with `github-workflow`.
+2. Link the issue or originating task. Include scope, verification, the one-time local review rounds/SHA, any later verified changes, limitations, and required real screenshots.
+3. Verify the remote PR head equals the current local head.
 4. Post every queued deferred finding with `github-workflow`: use an inline comment on the applicable diff line when possible, otherwise use a PR conversation comment that identifies the file and line. Leave issue creation to the approved reviewer team.
 
-### 5. Iterate with Copilot
+### 5. Iterate after the local gate
 
 1. Request `@copilot` review on the draft using `github-workflow`.
 2. Wait for a Copilot review on the current head; Copilot comments do not count as approval.
 3. Fetch review summaries, inline comments, and threads. Apply the same accepted/rejected/deferred triage.
-4. Use `gpt-5.6-sol` high for accepted fixes, verify, commit, and push them.
+4. Make accepted Copilot fixes and any CI repairs directly in the active delivery session. Verify, commit, and push them without starting a local review or local review-fix loop.
 5. Re-request Copilot unless automatic review of new pushes is proven enabled.
 6. Audit all comments and threads again. Resolve repeated comments by evidence, not duplicate changes, and repeat the Copilot review/fix loop until the current head has no actionable Copilot findings.
 
 Replies to Copilot comments are for human readers; Copilot does not converse through them. Resolve a thread only after its disposition and current code are verified.
+
+Apply the same rule to every post-gate change, including CI fixes, base synchronization, and changes requested during human review: make the smallest correct change, verify it proportionately, and continue the applicable CI, Copilot, and human-review gates. Never return to Stage 3.
 
 ### 6. Hand off to the human
 
 Verify current local and remote evidence proves:
 
 - the focused PR head matches the final local commit;
-- the pre-PR local review gate reached zero actionable findings;
-- Copilot reviewed that SHA and no actionable thread remains;
+- the one-time local review gate reached zero actionable findings at its recorded SHA;
+- Copilot reviewed the current PR head and no actionable thread remains;
 - required local tests and CI pass, or unavoidable limitations are explicit;
 - the PR body, task link, screenshots, and verification are current;
 - no temporary, generated, or unrelated files are included.
 
 Then mark the PR ready and request `silvertreestudios/pf2e-game` using `github-workflow`. Never merge, enable auto-merge, or substitute an agent review for human approval.
+
+If a human reviewer requests changes, implement and verify them directly without local review. Push the new head, rerun required CI, obtain any required Copilot re-review, and return it to the human reviewer.
 
 ## GitHub operations
 
