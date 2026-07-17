@@ -132,7 +132,11 @@ public class Map : MonoBehaviour
         if (!validation.IsValid)
             return false;
 
-        ClearGeneratedContent();
+        if (!TryClearGeneratedContent(out string clearFailure))
+        {
+            validation = new MapSourceValidationResult(new[] { clearFailure });
+            return false;
+        }
 
         GameObject generatedMap = new("GeneratedMap");
         generatedMap.AddComponent<GeneratedMapRoot>();
@@ -171,6 +175,13 @@ public class Map : MonoBehaviour
     [ContextMenu("Clear Generated Content")]
     public void ClearGeneratedContent()
     {
+        if (!TryClearGeneratedContent(out string failure))
+            Debug.LogError($"Map generated-content clear failed: {failure}", this);
+    }
+
+    private bool TryClearGeneratedContent(out string failure)
+    {
+        failure = null;
         HashSet<GameObject> owned = new();
         Transform[] children = DirectChildrenSnapshot();
         bool hasGeneratedMapRoot = false;
@@ -187,8 +198,11 @@ public class Map : MonoBehaviour
         {
             if (!hasGeneratedMapRoot)
             {
-                foreach (GameObject legacy in FindLegacyBitmapGeneratedContent(children))
-                    owned.Add(legacy);
+                if (!TryFindLegacyBitmapGeneratedContent(children, out GameObject[] legacy, out failure))
+                    return false;
+
+                foreach (GameObject legacyObject in legacy)
+                    owned.Add(legacyObject);
             }
 
             CompleteLegacyBitmapMigration();
@@ -198,6 +212,7 @@ public class Map : MonoBehaviour
             DestroyOwned(target);
 
         InvalidateCache();
+        return true;
     }
 
     public void ClearLegacyBitmapGeneratedContent()
@@ -213,10 +228,15 @@ public class Map : MonoBehaviour
         return children;
     }
 
-    private GameObject[] FindLegacyBitmapGeneratedContent(IEnumerable<Transform> children)
+    private bool TryFindLegacyBitmapGeneratedContent(
+        IEnumerable<Transform> children,
+        out GameObject[] legacyContent,
+        out string failure)
     {
+        legacyContent = Array.Empty<GameObject>();
+        failure = null;
         if (ImageMap == null || Settings == null)
-            return Array.Empty<GameObject>();
+            return true;
 
         List<GameObject> candidates = children
             .Where(child => child != null && !child.TryGetComponent(out GeneratedMapRoot _))
@@ -256,12 +276,17 @@ public class Map : MonoBehaviour
                 }
             }
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            return Array.Empty<GameObject>();
+            failure =
+                $"Legacy bitmap migration remains pending because Image Map '{ImageMap.name}' " +
+                $"and its Tile Settings could not be inspected ({exception.GetType().Name}: {exception.Message}). " +
+                "Make the legacy bitmap readable and correct its tile settings, then retry generation or clearing.";
+            return false;
         }
 
-        return legacy.ToArray();
+        legacyContent = legacy.ToArray();
+        return true;
     }
 
     private void CompleteLegacyBitmapMigration()

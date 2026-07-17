@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Game.KayKit;
 using Game.KayKit.Editor;
 using GridPrivate;
@@ -554,6 +555,96 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void UnreadableLegacySource_LeavesMigrationPendingUntilCorrectedRegeneration()
+    {
+        GameObject mapObject = Track(new GameObject("Unreadable Legacy Migration"));
+        Map map = mapObject.AddComponent<Map>();
+        Texture2D unreadableImage = Track(new Texture2D(1, 1));
+        unreadableImage.name = "Unreadable Legacy Bitmap";
+        unreadableImage.SetPixel(0, 0, Color.red);
+        unreadableImage.Apply(false, true);
+        Material floor = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Dirt.mat");
+        ConfigureBitmapSource(map, unreadableImage, floor);
+
+        GameObject legacyFloor = Track(GameObject.CreatePrimitive(PrimitiveType.Quad));
+        legacyFloor.name = "Quad";
+        legacyFloor.GetComponent<MeshRenderer>().sharedMaterial = floor;
+        legacyFloor.transform.SetParent(mapObject.transform, true);
+        GameObject manual = Track(new GameObject("Manual Infrastructure"));
+        manual.transform.SetParent(mapObject.transform, false);
+
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        TextAsset json = Track(new TextAsset(
+            @"{""version"":1,""rows"":["".""],""objects"":[]}"));
+        map.ConfigureJson(json, catalog);
+        SetLegacyBitmapMigrationPending(map);
+
+        string clearError = null;
+        Type logAssertType = AppDomain.CurrentDomain.GetAssemblies()
+            .Select(assembly => assembly.GetType("UnityEngine.TestTools.LogAssert"))
+            .First(type => type != null);
+        MethodInfo expectLog = logAssertType.GetMethod(
+            "Expect",
+            new[] { typeof(LogType), typeof(Regex) });
+        Assert.That(expectLog, Is.Not.Null);
+        expectLog.Invoke(null, new object[]
+        {
+            LogType.Error,
+            new Regex(
+                "Map generated-content clear failed: Legacy bitmap migration remains pending.*readable.*retry",
+                RegexOptions.IgnoreCase)
+        });
+        void CaptureClearError(string condition, string _, LogType type)
+        {
+            if (type == LogType.Error && condition.StartsWith("Map generated-content clear failed:"))
+                clearError = condition;
+        }
+
+        Application.logMessageReceived += CaptureClearError;
+        try
+        {
+            map.ClearGeneratedContent();
+        }
+        finally
+        {
+            Application.logMessageReceived -= CaptureClearError;
+        }
+
+        Assert.That(clearError, Does.Contain("migration remains pending").IgnoreCase);
+        Assert.That(clearError, Does.Contain("readable").IgnoreCase);
+        Assert.That(clearError, Does.Contain("retry").IgnoreCase);
+        Assert.That(MigrationVersion(map), Is.Zero);
+        Assert.That(legacyFloor, Is.Not.Null);
+        Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
+        Assert.That(mapObject.GetComponentsInChildren<GeneratedMapRoot>(true), Is.Empty);
+
+        Assert.That(map.TryGenerate(out MapSourceValidationResult failedValidation), Is.False);
+        Assert.That(failedValidation.Errors.Count, Is.EqualTo(1));
+        Assert.That(failedValidation.Errors[0], Does.Contain("migration remains pending").IgnoreCase);
+        Assert.That(failedValidation.Errors[0], Does.Contain("readable").IgnoreCase);
+        Assert.That(failedValidation.Errors[0], Does.Contain("retry").IgnoreCase);
+        Assert.That(MigrationVersion(map), Is.Zero);
+        Assert.That(legacyFloor, Is.Not.Null);
+        Assert.That(mapObject.GetComponentsInChildren<GeneratedMapRoot>(true), Is.Empty);
+
+        Texture2D correctedImage = Track(new Texture2D(1, 1));
+        correctedImage.SetPixel(0, 0, Color.red);
+        correctedImage.Apply();
+        SerializedObject serialized = new(map);
+        serialized.FindProperty("ImageMap").objectReferenceValue = correctedImage;
+        serialized.ApplyModifiedPropertiesWithoutUndo();
+
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
+            string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(legacyFloor == null, Is.True);
+        Assert.That(MigrationVersion(map), Is.GreaterThan(0));
+        Assert.That(mapObject.GetComponentsInChildren<GeneratedMapRoot>(true), Has.Length.EqualTo(1));
+        Assert.That(manual, Is.Not.Null);
+        Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
+    }
+
+    [Test]
     public void RegenerationSceneGuard_SkipsPromptWhenNoSceneIsDirty()
     {
         bool result = ConfirmSceneTransition(false, () =>
@@ -859,6 +950,12 @@ public sealed class KayKitDungeonMapTests
         SerializedObject serialized = new(map);
         serialized.FindProperty("legacyBitmapMigrationVersion").intValue = 0;
         serialized.ApplyModifiedPropertiesWithoutUndo();
+    }
+
+    private static int MigrationVersion(Map map)
+    {
+        SerializedObject serialized = new(map);
+        return serialized.FindProperty("legacyBitmapMigrationVersion").intValue;
     }
 
     private static string[] Snapshot(Transform root)

@@ -48,6 +48,7 @@ namespace GridPrivate
 
             Pathfinder = new Dijkstra(Tiles);
             GridLineOfSightData.Register(Tiles, LineOfSightBlocks, GridData);
+            NotifyReady();
         }
 
         protected void OnDestroy()

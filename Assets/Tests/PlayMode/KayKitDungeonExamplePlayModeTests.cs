@@ -495,6 +495,177 @@ public sealed class InvalidGridInitializationPlayModeTests
             singletonField.SetValue(null, previousSingleton);
         }
     }
+
+    [Test]
+    public void TokenBeforeGrid_RegistersExactlyOnceWhenGridBecomesReady()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
+            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(singletonField, Is.Not.Null);
+
+        object previousSingleton = singletonField.GetValue(null);
+        GameObject gridObject = null;
+        GameObject tokenObject = null;
+        TextAsset source = null;
+        try
+        {
+            singletonField.SetValue(null, null);
+            tokenObject = new GameObject("Early Token");
+            Token token = tokenObject.AddComponent<Token>();
+            Assert.That(singletonField.GetValue(null), Is.Null);
+
+            gridObject = new GameObject("Later Valid Grid");
+            gridObject.SetActive(false);
+            source = new TextAsset(@"{""version"":1,""rows"":["".""],""objects"":[]}");
+            KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+            Map map = gridObject.AddComponent<Map>();
+            map.ConfigureJson(source, catalog);
+            GridBase grid = gridObject.AddComponent<GridBase>();
+            gridObject.SetActive(true);
+
+            Tile tile = grid.GetTiles()[0, 0];
+            Assert.That(tile.Occupants, Has.Count.EqualTo(1));
+            Assert.That(tile.Occupants[0], Is.SameAs(tokenObject));
+
+            token.enabled = false;
+            token.enabled = true;
+
+            Assert.That(tile.Occupants, Has.Count.EqualTo(1));
+            Assert.That(tile.Occupants[0], Is.SameAs(tokenObject));
+            LogAssert.NoUnexpectedReceived();
+        }
+        finally
+        {
+            if (tokenObject != null)
+                Object.DestroyImmediate(tokenObject);
+            if (gridObject != null)
+                Object.DestroyImmediate(gridObject);
+            if (source != null)
+                Object.DestroyImmediate(source);
+            singletonField.SetValue(null, previousSingleton);
+        }
+    }
+
+    [Test]
+    public void InvalidGridThenValidGrid_RegistersWaitingTokenWithoutLogCascade()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
+            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(singletonField, Is.Not.Null);
+
+        object previousSingleton = singletonField.GetValue(null);
+        GameObject invalidGridObject = null;
+        GameObject validGridObject = null;
+        GameObject tokenObject = null;
+        TextAsset invalidSource = null;
+        TextAsset validSource = null;
+        try
+        {
+            singletonField.SetValue(null, null);
+            tokenObject = new GameObject("Waiting Token");
+            tokenObject.AddComponent<Token>();
+
+            invalidGridObject = new GameObject("Invalid Early Grid");
+            invalidGridObject.SetActive(false);
+            invalidSource = new TextAsset(@"{""version"":2,""rows"":["".""],""objects"":[]}");
+            KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+            Map invalidMap = invalidGridObject.AddComponent<Map>();
+            invalidMap.ConfigureJson(invalidSource, catalog);
+            GridBase invalidGrid = invalidGridObject.AddComponent<GridBase>();
+            LogAssert.Expect(
+                LogType.Error,
+                "Map data is invalid: JSON map version must equal 1; found 2.");
+            invalidGridObject.SetActive(true);
+
+            Assert.That(invalidGrid.enabled, Is.False);
+            Assert.That(singletonField.GetValue(null), Is.Null);
+
+            validGridObject = new GameObject("Valid Later Grid");
+            validGridObject.SetActive(false);
+            validSource = new TextAsset(@"{""version"":1,""rows"":["".""],""objects"":[]}");
+            Map validMap = validGridObject.AddComponent<Map>();
+            validMap.ConfigureJson(validSource, catalog);
+            GridBase validGrid = validGridObject.AddComponent<GridBase>();
+            validGridObject.SetActive(true);
+
+            Assert.That(validGrid.GetTiles()[0, 0].Occupants, Has.Count.EqualTo(1));
+            Assert.That(validGrid.GetTiles()[0, 0].Occupants[0], Is.SameAs(tokenObject));
+            LogAssert.NoUnexpectedReceived();
+        }
+        finally
+        {
+            if (tokenObject != null)
+                Object.DestroyImmediate(tokenObject);
+            if (validGridObject != null)
+                Object.DestroyImmediate(validGridObject);
+            if (invalidGridObject != null)
+                Object.DestroyImmediate(invalidGridObject);
+            if (validSource != null)
+                Object.DestroyImmediate(validSource);
+            if (invalidSource != null)
+                Object.DestroyImmediate(invalidSource);
+            singletonField.SetValue(null, previousSingleton);
+        }
+    }
+
+    [UnityTest]
+    public IEnumerator DisabledAndDestroyedWaitingTokens_DoNotLeakGridReadyCallbacks()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
+            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(singletonField, Is.Not.Null);
+
+        object previousSingleton = singletonField.GetValue(null);
+        GameObject gridObject = null;
+        GameObject destroyedTokenObject = null;
+        GameObject disabledTokenObject = null;
+        TextAsset source = null;
+        try
+        {
+            singletonField.SetValue(null, null);
+            destroyedTokenObject = new GameObject("Destroyed Waiting Token");
+            destroyedTokenObject.AddComponent<Token>();
+            disabledTokenObject = new GameObject("Disabled Waiting Token");
+            Token disabledToken = disabledTokenObject.AddComponent<Token>();
+            disabledToken.enabled = false;
+
+            Object.Destroy(destroyedTokenObject);
+            yield return null;
+            Assert.That(destroyedTokenObject == null, Is.True);
+
+            gridObject = new GameObject("Grid After Token Cleanup");
+            gridObject.SetActive(false);
+            source = new TextAsset(@"{""version"":1,""rows"":["".""],""objects"":[]}");
+            KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+            Map map = gridObject.AddComponent<Map>();
+            map.ConfigureJson(source, catalog);
+            GridBase grid = gridObject.AddComponent<GridBase>();
+            gridObject.SetActive(true);
+
+            Tile tile = grid.GetTiles()[0, 0];
+            Assert.That(tile.Occupants, Is.Empty);
+
+            disabledToken.enabled = true;
+            Assert.That(tile.Occupants, Has.Count.EqualTo(1));
+            Assert.That(tile.Occupants[0], Is.SameAs(disabledTokenObject));
+            LogAssert.NoUnexpectedReceived();
+        }
+        finally
+        {
+            if (disabledTokenObject != null)
+                Object.DestroyImmediate(disabledTokenObject);
+            if (destroyedTokenObject != null)
+                Object.DestroyImmediate(destroyedTokenObject);
+            if (gridObject != null)
+                Object.DestroyImmediate(gridObject);
+            if (source != null)
+                Object.DestroyImmediate(source);
+            singletonField.SetValue(null, previousSingleton);
+        }
+    }
 }
 
 public sealed class MapGenerationLifecyclePlayModeTests
