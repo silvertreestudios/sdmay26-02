@@ -86,6 +86,13 @@ namespace Game.KayKit
                 return Invalid("JSON map source is empty.");
             if (catalog == null)
                 return Invalid("JSON map source requires a KayKitDungeonCatalog.");
+            if (catalog.DuplicateIds.Count > 0)
+            {
+                return new KayKitDungeonMapParseResult(
+                    null,
+                    catalog.DuplicateIds.Select(id =>
+                        $"KayKit dungeon catalog contains duplicate id '{id}'."));
+            }
 
             JObject root;
             try

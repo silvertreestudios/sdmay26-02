@@ -68,12 +68,21 @@ namespace Game.KayKit
         [SerializeField] private GameObject doorwayPrefab;
 
         private Dictionary<string, KayKitDungeonCatalogEntry> entriesById;
+        private HashSet<string> duplicateIds;
 
         public IReadOnlyList<KayKitDungeonCatalogEntry> Entries => entries;
         public Material DefaultMaterial => defaultMaterial;
         public GameObject FloorPrefab => floorPrefab;
         public GameObject WallPrefab => wallPrefab;
         public GameObject DoorwayPrefab => doorwayPrefab;
+        public IReadOnlyList<string> DuplicateIds
+        {
+            get
+            {
+                EnsureLookup();
+                return duplicateIds.OrderBy(id => id, StringComparer.Ordinal).ToArray();
+            }
+        }
 
         private void OnValidate()
         {
@@ -82,15 +91,26 @@ namespace Game.KayKit
 
         public bool TryGet(string id, out KayKitDungeonCatalogEntry entry)
         {
-            if (entriesById == null)
-            {
-                entriesById = entries
-                    .Where(candidate => candidate != null && !string.IsNullOrWhiteSpace(candidate.Id))
-                    .GroupBy(candidate => candidate.Id, StringComparer.Ordinal)
-                    .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-            }
-
+            EnsureLookup();
             return entriesById.TryGetValue(id ?? string.Empty, out entry);
+        }
+
+        private void EnsureLookup()
+        {
+            if (entriesById != null)
+                return;
+
+            entriesById = new Dictionary<string, KayKitDungeonCatalogEntry>(StringComparer.Ordinal);
+            duplicateIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (IGrouping<string, KayKitDungeonCatalogEntry> group in entries
+                         .Where(candidate => candidate != null && !string.IsNullOrWhiteSpace(candidate.Id))
+                         .GroupBy(candidate => candidate.Id, StringComparer.Ordinal))
+            {
+                if (group.Count() == 1)
+                    entriesById.Add(group.Key, group.First());
+                else
+                    duplicateIds.Add(group.Key);
+            }
         }
 
 #if UNITY_EDITOR
@@ -116,6 +136,7 @@ namespace Game.KayKit
         private void InvalidateLookup()
         {
             entriesById = null;
+            duplicateIds = null;
         }
     }
 }

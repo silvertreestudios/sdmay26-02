@@ -81,6 +81,23 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void JsonMap_RejectsDuplicateCatalogIds()
+    {
+        KayKitDungeonCatalog catalog = Catalog(
+            Entry("duplicate", Vector2Int.one, false, false),
+            Entry("duplicate", Vector2Int.one, false, false));
+
+        KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
+            @"{""version"":1,""rows"":["".""],""objects"":[]}",
+            catalog);
+
+        Assert.That(catalog.TryGet("duplicate", out _), Is.False);
+        Assert.That(result.Map, Is.Null);
+        Assert.That(result.Errors, Has.Some.EqualTo(
+            "KayKit dungeon catalog contains duplicate id 'duplicate'."));
+    }
+
+    [Test]
     public void RotatedBlockingFootprint_OverlaysObstacleCells()
     {
         KayKitDungeonCatalog catalog = Catalog(
