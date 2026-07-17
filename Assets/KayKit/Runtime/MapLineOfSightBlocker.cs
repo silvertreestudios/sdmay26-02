@@ -24,8 +24,10 @@ namespace Game.KayKit
                 distance,
                 Physics.DefaultRaycastLayers,
                 QueryTriggerInteraction.UseGlobal);
+            if (ContainsBlocker(RaycastBuffer, hitCount))
+                return true;
             if (hitCount < RaycastBuffer.Length)
-                return ContainsBlocker(RaycastBuffer, hitCount);
+                return false;
 
             RaycastHit[] allHits = Physics.RaycastAll(
                 start,

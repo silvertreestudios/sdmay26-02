@@ -44,10 +44,19 @@ namespace GridPublic
             if (registered || !isActiveAndEnabled || grid is not GridAPIPrivate privateGrid)
                 return registered;
 
+            Vector3Int position = Vector3Int.RoundToInt(transform.position);
+            if (!GridTargeting.IsInBounds(privateGrid.GetTiles(), position))
+            {
+                Debug.LogWarning(
+                    $"Failed to register token '{name}' at grid cell ({position.x}, {position.z}). " +
+                    "The cell is outside the grid bounds.",
+                    this);
+                return false;
+            }
+
             registered = privateGrid.AddToken(gameObject);
             if (!registered)
             {
-                Vector3Int position = Vector3Int.RoundToInt(transform.position);
                 Debug.LogWarning(
                     $"Failed to register token '{name}' at grid cell ({position.x}, {position.z}). " +
                     "The cell may be blocked or already occupied.",

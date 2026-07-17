@@ -533,6 +533,54 @@ public sealed class InvalidGridInitializationPlayModeTests
     }
 
     [Test]
+    public void OutOfBoundsToken_LogsWarningWithoutThrowing()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
+            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(singletonField, Is.Not.Null);
+
+        object previousSingleton = singletonField.GetValue(null);
+        GameObject gridObject = null;
+        GameObject tokenObject = null;
+        TextAsset source = null;
+        try
+        {
+            singletonField.SetValue(null, null);
+            gridObject = new GameObject("Bounds Grid");
+            gridObject.SetActive(false);
+            source = new TextAsset(@"{""version"":1,""rows"":["".""],""objects"":[]}");
+            KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+            Map map = gridObject.AddComponent<Map>();
+            map.ConfigureJson(source, catalog);
+            GridBase grid = gridObject.AddComponent<GridBase>();
+            gridObject.SetActive(true);
+
+            tokenObject = new GameObject("Out of Bounds Combatant");
+            tokenObject.transform.position = Vector3.right;
+            tokenObject.SetActive(false);
+            tokenObject.AddComponent<Token>();
+            LogAssert.Expect(
+                LogType.Warning,
+                "Failed to register token 'Out of Bounds Combatant' at grid cell (1, 0). The cell is outside the grid bounds.");
+            tokenObject.SetActive(true);
+
+            Assert.That(grid.GetTiles()[0, 0].Occupants, Is.Empty);
+            LogAssert.NoUnexpectedReceived();
+        }
+        finally
+        {
+            if (tokenObject != null)
+                Object.DestroyImmediate(tokenObject);
+            if (gridObject != null)
+                Object.DestroyImmediate(gridObject);
+            if (source != null)
+                Object.DestroyImmediate(source);
+            singletonField.SetValue(null, previousSingleton);
+        }
+    }
+
+    [Test]
     public void TokenBeforeGrid_RegistersExactlyOnceWhenGridBecomesReady()
     {
         FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
