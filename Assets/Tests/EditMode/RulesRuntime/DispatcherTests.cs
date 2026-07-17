@@ -187,6 +187,120 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(error.Message, Does.Contain("across resolution roots"));
         }
 
+        [Test]
+        public async Task StaleContextIsRejectedBeforeAllocatingOrMutatingWhileAnotherRootIsSuspended()
+        {
+            InMemoryRulesStore store = CreateStore(10);
+            CountingOpIdProvider ids = new CountingOpIdProvider(500);
+            ContextCapturingHandler capturing = new ContextCapturingHandler();
+            SuspendedRootHandler suspended = new SuspendedRootHandler();
+            CountingIncrementReducer reducer = new CountingIncrementReducer();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store, ids)
+                .RegisterHandler<CaptureContextOp, int>(capturing)
+                .RegisterHandler<SuspendedRootOp, int>(suspended)
+                .RegisterReducer<IncrementOp, int>(reducer, Source)
+                .Build();
+
+            await dispatcher.Dispatch(new CaptureContextOp());
+            Task<OpResult<int>> activeRoot = dispatcher.Dispatch(new SuspendedRootOp()).AsTask();
+            await suspended.Started;
+
+            InvalidOperationException error = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await capturing.Context.Dispatch(new IncrementOp(100)));
+
+            Assert.That(error.Message, Does.Contain("not actively executing"));
+            Assert.That(ids.Calls, Is.EqualTo(2), "A rejected stale context must not allocate a frame ID.");
+            Assert.That(reducer.Calls, Is.Zero, "A rejected stale context must not invoke its reducer.");
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(10));
+            Assert.That(dispatcher.Trace.OrderedFrames.Count, Is.EqualTo(2));
+            Assert.That(dispatcher.Trace.OrderedFrames.All(frame =>
+                frame.ParentId == null && frame.RootId == frame.Id), Is.True);
+
+            suspended.Release();
+            OpResult<int> completedRoot = await activeRoot;
+
+            Assert.That(completedRoot.Facts, Is.Empty);
+            Assert.That(ids.Calls, Is.EqualTo(2));
+            Assert.That(reducer.Calls, Is.Zero);
+        }
+
+        [Test]
+        public async Task OverlappingSiblingIsRejectedThenSequentialSiblingsAggregateOnlyTheirOwnFacts()
+        {
+            InMemoryRulesStore store = CreateStore(10);
+            SuspendedNestedHandler suspended = new SuspendedNestedHandler();
+            OverlappingRootHandler handler = new OverlappingRootHandler(suspended);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    store,
+                    new SequentialOpIdProvider(600))
+                .RegisterHandler<OverlappingRootOp, int>(handler)
+                .RegisterHandler<SuspendedNestedOp, int>(
+                    suspended,
+                    InvocationPolicy.NestedOnly)
+                .RegisterHandler<NestedHandlerOp, int>(
+                    new NestedHandler(),
+                    InvocationPolicy.NestedOnly)
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+
+            OpResult<int> result = await dispatcher.Dispatch(new OverlappingRootOp());
+
+            Assert.That(handler.OverlapError, Is.Not.Null);
+            Assert.That(handler.OverlapError.Message, Does.Contain("overlapping child dispatch"));
+            Assert.That(result.Value, Is.EqualTo(13));
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(13));
+            Assert.That(result.Facts, Has.Count.EqualTo(2));
+            Assert.That(result.Facts.Distinct().Count(), Is.EqualTo(2));
+            Assert.That(result.Facts.Select(fact => fact.Id),
+                Is.EqualTo(new[] { new FactId(1), new FactId(2) }));
+
+            Assert.That(handler.FirstChildResult.Facts, Has.Count.EqualTo(1));
+            Assert.That(handler.SequentialSiblingResult.Facts, Has.Count.EqualTo(1));
+            Assert.That(handler.FirstChildResult.Facts[0], Is.SameAs(result.Facts[0]));
+            Assert.That(handler.SequentialSiblingResult.Facts[0], Is.SameAs(result.Facts[1]));
+            Assert.That(handler.FirstChildResult.Facts[0].SourceOpId, Is.EqualTo(new OpId(602)));
+            Assert.That(handler.SequentialSiblingResult.Facts[0].SourceOpId, Is.EqualTo(new OpId(604)));
+            Assert.That(result.Facts.All(fact => fact.RootOpId == new OpId(600)), Is.True);
+            Assert.That(dispatcher.Trace.OrderedFrames.Count, Is.EqualTo(5),
+                "The rejected overlapping sibling must not allocate or trace a frame.");
+            Assert.That(dispatcher.Trace.Get<SuspendedNestedOp>(new OpId(601)).ParentId,
+                Is.EqualTo(new OpId(600)));
+            Assert.That(dispatcher.Trace.Get<NestedHandlerOp>(new OpId(603)).ParentId,
+                Is.EqualTo(new OpId(600)));
+        }
+
+        [Test]
+        public async Task ExceptionalChildReleasesFrameAndReservationForLaterDispatchesAndRoots()
+        {
+            InMemoryRulesStore store = CreateStore(10);
+            RecoveringRootHandler handler = new RecoveringRootHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    store,
+                    new SequentialOpIdProvider(700))
+                .RegisterHandler<RecoveringRootOp, int>(handler)
+                .RegisterHandler<ThrowingNestedOp, int>(
+                    new ThrowingNestedHandler(),
+                    InvocationPolicy.NestedOnly)
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+
+            OpResult<int> recovered = await dispatcher.Dispatch(new RecoveringRootOp());
+            OpResult<int> laterRoot = await dispatcher.Dispatch(new SingleIncrementRootOp());
+
+            Assert.That(handler.ChildError, Is.Not.Null);
+            Assert.That(handler.ChildError.Message, Does.Contain("expected nested failure"));
+            Assert.That(recovered.Value, Is.EqualTo(11));
+            Assert.That(recovered.Facts, Has.Count.EqualTo(1));
+            Assert.That(recovered.Facts[0].SourceOpId, Is.EqualTo(new OpId(702)));
+            Assert.That(recovered.Facts[0].RootOpId, Is.EqualTo(new OpId(700)));
+            Assert.That(laterRoot.Value, Is.EqualTo(12));
+            Assert.That(laterRoot.Facts, Has.Count.EqualTo(1));
+            Assert.That(laterRoot.Facts[0].SourceOpId, Is.EqualTo(new OpId(704)));
+            Assert.That(laterRoot.Facts[0].RootOpId, Is.EqualTo(new OpId(703)));
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(12));
+        }
+
         private static async Task<string> ResolveDiagnostic()
         {
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
@@ -294,6 +408,146 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
+        private sealed class CaptureContextOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class ContextCapturingHandler : IOpHandler<CaptureContextOp, int>
+        {
+            public OpContext Context { get; private set; }
+
+            public ValueTask<int> Handle(OpFrame<CaptureContextOp> frame, OpContext context)
+            {
+                Context = context;
+                return new ValueTask<int>(0);
+            }
+        }
+
+        private sealed class SuspendedRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class SuspendedRootHandler : IOpHandler<SuspendedRootOp, int>
+        {
+            private readonly TaskCompletionSource<bool> started =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource<bool> release =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public Task Started => started.Task;
+
+            public void Release() => release.TrySetResult(true);
+
+            public async ValueTask<int> Handle(OpFrame<SuspendedRootOp> frame, OpContext context)
+            {
+                started.TrySetResult(true);
+                await release.Task;
+                return 0;
+            }
+        }
+
+        private sealed class OverlappingRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class OverlappingRootHandler : IOpHandler<OverlappingRootOp, int>
+        {
+            private readonly SuspendedNestedHandler suspended;
+
+            public InvalidOperationException OverlapError { get; private set; }
+            public OpResult<int> FirstChildResult { get; private set; }
+            public OpResult<int> SequentialSiblingResult { get; private set; }
+
+            public OverlappingRootHandler(SuspendedNestedHandler suspended) =>
+                this.suspended = suspended;
+
+            public async ValueTask<int> Handle(OpFrame<OverlappingRootOp> frame, OpContext context)
+            {
+                Task<OpResult<int>> firstChild =
+                    context.Dispatch(new SuspendedNestedOp(1)).AsTask();
+                await suspended.Started;
+                try
+                {
+                    await context.Dispatch(new IncrementOp(100));
+                }
+                catch (InvalidOperationException error)
+                {
+                    OverlapError = error;
+                }
+                finally
+                {
+                    suspended.Release();
+                }
+
+                FirstChildResult = await firstChild;
+                SequentialSiblingResult = await context.Dispatch(new NestedHandlerOp(2));
+                return SequentialSiblingResult.Value;
+            }
+        }
+
+        private sealed class SuspendedNestedOp : IRuleOp<int>
+        {
+            public int Amount { get; }
+            public SuspendedNestedOp(int amount) => Amount = amount;
+        }
+
+        private sealed class SuspendedNestedHandler : IOpHandler<SuspendedNestedOp, int>
+        {
+            private readonly TaskCompletionSource<bool> started =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource<bool> release =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public Task Started => started.Task;
+
+            public void Release() => release.TrySetResult(true);
+
+            public async ValueTask<int> Handle(OpFrame<SuspendedNestedOp> frame, OpContext context)
+            {
+                started.TrySetResult(true);
+                await release.Task;
+                OpResult<int> changed = await context.Dispatch(new IncrementOp(frame.Op.Amount));
+                return changed.Value;
+            }
+        }
+
+        private sealed class RecoveringRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class RecoveringRootHandler : IOpHandler<RecoveringRootOp, int>
+        {
+            public InvalidOperationException ChildError { get; private set; }
+
+            public async ValueTask<int> Handle(OpFrame<RecoveringRootOp> frame, OpContext context)
+            {
+                try
+                {
+                    await context.Dispatch(new ThrowingNestedOp());
+                }
+                catch (InvalidOperationException error)
+                {
+                    ChildError = error;
+                }
+
+                OpResult<int> changed = await context.Dispatch(new IncrementOp(1));
+                return changed.Value;
+            }
+        }
+
+        private sealed class ThrowingNestedOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class ThrowingNestedHandler : IOpHandler<ThrowingNestedOp, int>
+        {
+            public async ValueTask<int> Handle(OpFrame<ThrowingNestedOp> frame, OpContext context)
+            {
+                await Task.Yield();
+                throw new InvalidOperationException("expected nested failure");
+            }
+        }
+
         private sealed class RejectRootOp : IRuleOp<OpStatus>
         {
         }
@@ -333,6 +587,33 @@ namespace Game.Rules.Runtime.Tests
         private sealed class ConstantIdProvider : IOpIdProvider
         {
             public OpId Next() => new OpId(1);
+        }
+
+        private sealed class CountingOpIdProvider : IOpIdProvider
+        {
+            private readonly long firstValue;
+
+            public int Calls { get; private set; }
+
+            public CountingOpIdProvider(long firstValue) => this.firstValue = firstValue;
+
+            public OpId Next() => new OpId(firstValue + Calls++);
+        }
+
+        private sealed class CountingIncrementReducer : IOpReducer<IncrementOp, int>
+        {
+            private readonly IncrementReducer inner = new IncrementReducer();
+
+            public int Calls { get; private set; }
+
+            public ReductionResult<int> Reduce(
+                ReductionContext<IncrementOp> context,
+                RulesStateDraft state,
+                FactSink facts)
+            {
+                Calls++;
+                return inner.Reduce(context, state, facts);
+            }
         }
 
         private sealed class PoisonToStringOp : IRuleOp<int>

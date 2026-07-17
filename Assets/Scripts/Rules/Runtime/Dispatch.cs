@@ -437,10 +437,11 @@ namespace Game.Rules.Runtime
                     $"{op.GetType().Name} is nested-only and cannot be externally dispatched.");
 
             OpId rootId = ids.Next();
-            activeRoot = new RootResolution(rootId);
+            RootResolution resolution = new RootResolution(rootId);
+            activeRoot = resolution;
             try
             {
-                return await DispatchCore(op, registration, rootId, null, null);
+                return await DispatchCore(op, registration, resolution, rootId, null, null);
             }
             finally
             {
@@ -448,7 +449,7 @@ namespace Game.Rules.Runtime
             }
         }
 
-        internal ValueTask<OpResult<TResult>> DispatchNested<TResult>(
+        internal async ValueTask<OpResult<TResult>> DispatchNested<TResult>(
             IRuleOp<TResult> op,
             OpId parentId)
         {
@@ -457,8 +458,23 @@ namespace Game.Rules.Runtime
             if (activeRoot == null)
                 throw new InvalidOperationException("Nested dispatch requires an active root resolution.");
 
-            IRegistration registration = RequireRegistration(op.GetType(), typeof(TResult));
-            return DispatchCore(op, registration, activeRoot.RootId, parentId, parentId);
+            RootResolution resolution = activeRoot;
+            resolution.ReserveChild(parentId);
+            try
+            {
+                IRegistration registration = RequireRegistration(op.GetType(), typeof(TResult));
+                return await DispatchCore(
+                    op,
+                    registration,
+                    resolution,
+                    resolution.RootId,
+                    parentId,
+                    parentId);
+            }
+            finally
+            {
+                resolution.ReleaseChild(parentId);
+            }
         }
 
         internal ReductionResult<TResult> Reduce<TOp, TResult>(
@@ -475,35 +491,43 @@ namespace Game.Rules.Runtime
         private async ValueTask<OpResult<TResult>> DispatchCore<TResult>(
             IRuleOp<TResult> op,
             IRegistration registration,
+            RootResolution resolution,
             OpId rootId,
             OpId? parentId,
             OpId? causeId)
         {
             OpId id = parentId.HasValue ? ids.Next() : rootId;
-            int firstFact = activeRoot.Facts.Count;
+            int firstFact = resolution.Facts.Count;
             IFrameInvocation invocation = registration.CreateInvocation(
                 id, rootId, parentId, causeId, op, store.Snapshot);
             Trace.Add(invocation.FrameView);
-
-            object resultObject = await registration.Invoke(invocation, this);
-            if (!(resultObject is OpResult<TResult> result))
-                throw new InvalidOperationException(
-                    $"Resolver for {op.GetType().Name} returned an impossible result type.");
-
-            IReadOnlyList<RuleFact> directFacts = Array.AsReadOnly(Array.Empty<RuleFact>());
-            if (registration.IsReducer)
+            resolution.EnterFrame(id, rootId);
+            try
             {
-                directFacts = result.Facts;
-                foreach (RuleFact fact in directFacts)
-                    activeRoot.AddFact(fact, id, rootId);
-            }
+                object resultObject = await registration.Invoke(invocation, this);
+                if (!(resultObject is OpResult<TResult> result))
+                    throw new InvalidOperationException(
+                        $"Resolver for {op.GetType().Name} returned an impossible result type.");
 
-            IReadOnlyList<RuleFact> subtreeFacts = Array.AsReadOnly(activeRoot.Facts
-                .Skip(firstFact)
-                .ToArray());
-            OpResult<TResult> completed = result.WithFacts(subtreeFacts);
-            Diagnostics.Complete(id, completed.Status, directFacts);
-            return completed;
+                IReadOnlyList<RuleFact> directFacts = Array.AsReadOnly(Array.Empty<RuleFact>());
+                if (registration.IsReducer)
+                {
+                    directFacts = result.Facts;
+                    foreach (RuleFact fact in directFacts)
+                        resolution.AddFact(fact, id, rootId);
+                }
+
+                IReadOnlyList<RuleFact> subtreeFacts = Array.AsReadOnly(resolution.Facts
+                    .Skip(firstFact)
+                    .ToArray());
+                OpResult<TResult> completed = result.WithFacts(subtreeFacts);
+                Diagnostics.Complete(id, completed.Status, directFacts);
+                return completed;
+            }
+            finally
+            {
+                resolution.ExitFrame(id, rootId);
+            }
         }
 
         private IRegistration RequireRegistration(Type opType, Type resultType)
@@ -518,6 +542,8 @@ namespace Game.Rules.Runtime
 
         private sealed class RootResolution
         {
+            private readonly HashSet<OpId> activeFrames = new HashSet<OpId>();
+            private readonly HashSet<OpId> parentsWithActiveChildren = new HashSet<OpId>();
             private readonly HashSet<FactId> factIds = new HashSet<FactId>();
             private readonly HashSet<RuleFact> factReferences =
                 new HashSet<RuleFact>(ReferenceEqualityComparer<RuleFact>.Instance);
@@ -526,6 +552,44 @@ namespace Game.Rules.Runtime
             public List<RuleFact> Facts { get; } = new List<RuleFact>();
 
             public RootResolution(OpId rootId) => RootId = rootId;
+
+            public void EnterFrame(OpId id, OpId rootId)
+            {
+                RequireCurrentRoot(rootId);
+                if (!activeFrames.Add(id))
+                    throw new InvalidOperationException($"Operation {id.Value} began executing more than once.");
+            }
+
+            public void ExitFrame(OpId id, OpId rootId)
+            {
+                RequireCurrentRoot(rootId);
+                if (!activeFrames.Remove(id))
+                    throw new InvalidOperationException($"Operation {id.Value} was not actively executing.");
+            }
+
+            public void ReserveChild(OpId parentId)
+            {
+                if (!activeFrames.Contains(parentId))
+                {
+                    throw new InvalidOperationException(
+                        $"Operation context {parentId.Value} is not actively executing in the current root resolution.");
+                }
+                if (!parentsWithActiveChildren.Add(parentId))
+                {
+                    throw new InvalidOperationException(
+                        $"Operation {parentId.Value} cannot begin an overlapping child dispatch. " +
+                        "Await the active child before dispatching another.");
+                }
+            }
+
+            public void ReleaseChild(OpId parentId)
+            {
+                if (!parentsWithActiveChildren.Remove(parentId))
+                {
+                    throw new InvalidOperationException(
+                        $"Operation {parentId.Value} has no active child dispatch reservation.");
+                }
+            }
 
             public void AddFact(RuleFact fact, OpId sourceId, OpId rootId)
             {
@@ -538,6 +602,12 @@ namespace Game.Rules.Runtime
                 if (!factIds.Add(fact.Id) || !factReferences.Add(fact))
                     throw new InvalidOperationException("A committed Fact was aggregated more than once.");
                 Facts.Add(fact);
+            }
+
+            private void RequireCurrentRoot(OpId rootId)
+            {
+                if (rootId != RootId)
+                    throw new InvalidOperationException("An operation frame crossed resolution roots.");
             }
         }
     }
