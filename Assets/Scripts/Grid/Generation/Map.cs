@@ -42,6 +42,9 @@ public class Map : MonoBehaviour
     [SerializeField, HideInInspector] private MapSourceMode previousSourceMode = MapSourceMode.Bitmap;
     [SerializeField, HideInInspector] private float legacyBitmapSpacing = JsonTileSpacing;
     [SerializeField, HideInInspector] private int legacyBitmapMigrationVersion;
+#if UNITY_EDITOR
+    [NonSerialized] private bool delayedBitmapGenerationQueued;
+#endif
 
     protected TileType[,] GridData { get; set; }
     protected bool[,] LineOfSightBlocks { get; set; }
@@ -82,18 +85,38 @@ public class Map : MonoBehaviour
         if (PrefabUtility.IsPartOfPrefabAsset(this) || sourceMode != MapSourceMode.Bitmap)
             return;
 
-        EditorApplication.delayCall += () =>
-        {
-            if (this != null &&
-                !Application.isPlaying &&
-                sourceMode == MapSourceMode.Bitmap &&
-                !PrefabUtility.IsPartOfPrefabAsset(this))
-            {
-                Generate();
-            }
-        };
+        QueueDelayedBitmapGeneration();
 #endif
     }
+
+#if UNITY_EDITOR
+    private void QueueDelayedBitmapGeneration()
+    {
+        if (delayedBitmapGenerationQueued)
+            return;
+
+        delayedBitmapGenerationQueued = true;
+        EditorApplication.delayCall += GenerateDelayedBitmap;
+    }
+
+    private void GenerateDelayedBitmap()
+    {
+        delayedBitmapGenerationQueued = false;
+        if (this != null &&
+            !Application.isPlaying &&
+            sourceMode == MapSourceMode.Bitmap &&
+            !PrefabUtility.IsPartOfPrefabAsset(this))
+        {
+            Generate();
+        }
+    }
+
+    private void OnDisable()
+    {
+        EditorApplication.delayCall -= GenerateDelayedBitmap;
+        delayedBitmapGenerationQueued = false;
+    }
+#endif
 
     public void ConfigureJson(
         TextAsset source,

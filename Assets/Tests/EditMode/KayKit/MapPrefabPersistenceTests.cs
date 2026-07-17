@@ -128,14 +128,16 @@ public sealed class MapPrefabPersistenceTests
     }
 
     [Test]
-    public void DelayedBitmapRebuild_SkipsAfterJsonConversionAndSceneSave()
+    public void DelayedBitmapRebuild_DeduplicatesAndSkipsAfterJsonConversionAndSceneSave()
     {
         CreateBitmapMapPrefab(false);
         Scene scene = CreateSceneWithPrefabInstance();
         Map map = FindMap(scene);
 
+        map.SendMessage("OnDisable");
         EditorApplication.CallbackFunction callbacksBefore = EditorApplication.delayCall;
         int callbackCountBefore = callbacksBefore?.GetInvocationList().Length ?? 0;
+        map.SendMessage("OnValidate");
         map.SendMessage("OnValidate");
         System.Delegate[] scheduledCallbacks = EditorApplication.delayCall
             .GetInvocationList()

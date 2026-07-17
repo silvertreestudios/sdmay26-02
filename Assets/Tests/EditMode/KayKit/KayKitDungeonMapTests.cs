@@ -1043,6 +1043,31 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void ColliderBackedBlocker_NonAllocQueryPreservesCorrectnessWhenBufferSaturates()
+    {
+        for (int index = 0; index < 40; index++)
+        {
+            GameObject nonBlocker = Track(new GameObject($"Non-blocking Collider {index}"));
+            nonBlocker.transform.position = new Vector3(0.5f + index * 0.04f, 0.75f, 0.5f);
+            BoxCollider collider = nonBlocker.AddComponent<BoxCollider>();
+            collider.size = new Vector3(0.02f, 1f, 0.5f);
+        }
+
+        GameObject blocker = Track(new GameObject("Saturated Query Line Of Sight Blocker"));
+        blocker.transform.position = new Vector3(2.5f, 0.75f, 0.5f);
+        BoxCollider blockerCollider = blocker.AddComponent<BoxCollider>();
+        blockerCollider.size = new Vector3(0.1f, 1f, 0.5f);
+        blocker.AddComponent<MapLineOfSightBlocker>();
+        Physics.SyncTransforms();
+
+        Assert.That(
+            MapLineOfSightBlocker.BlocksSegment(
+                new Vector3(0f, 0.75f, 0.5f),
+                new Vector3(3f, 0.75f, 0.5f)),
+            Is.True);
+    }
+
+    [Test]
     public void NewMapComponents_DefaultToBitmapMode()
     {
         GameObject mapObject = Track(new GameObject("Bitmap Compatibility"));

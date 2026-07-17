@@ -235,23 +235,7 @@ namespace GridPrivate
 
             Vector3 rayStart3D = new(rayStart.x, 0.75f, rayStart.y);
             Vector3 rayEnd3D = new(rayEnd.x, 0.75f, rayEnd.y);
-            Vector3 direction = rayEnd3D - rayStart3D;
-            float rayDistance = direction.magnitude;
-            if (rayDistance <= Mathf.Epsilon)
-                return false;
-
-            foreach (RaycastHit hit in Physics.RaycastAll(
-                         rayStart3D,
-                         direction / rayDistance,
-                         rayDistance,
-                         ~0,
-                         QueryTriggerInteraction.Collide))
-            {
-                if (hit.collider.GetComponentInParent<MapLineOfSightBlocker>() != null)
-                    return true;
-            }
-
-            return false;
+            return MapLineOfSightBlocker.BlocksSegment(rayStart3D, rayEnd3D);
         }
 
         private static bool IsInBounds(Tile[,] tiles, Vector3Int cell)
