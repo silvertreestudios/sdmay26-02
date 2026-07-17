@@ -402,6 +402,7 @@ namespace Game.Rules.Runtime
 
     public sealed class RuleDispatcher
     {
+        private readonly object gate = new object();
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
         private readonly IReadOnlyDictionary<Type, IRegistration> registrations;
@@ -428,24 +429,45 @@ namespace Game.Rules.Runtime
         {
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
-            if (activeRoot != null)
-                throw new InvalidOperationException("A root operation cannot interleave with an active resolution.");
 
-            IRegistration registration = RequireRegistration(op.GetType(), typeof(TResult));
-            if (registration.Policy != InvocationPolicy.ExternalAllowed)
-                throw new InvalidOperationException(
-                    $"{op.GetType().Name} is nested-only and cannot be externally dispatched.");
-
-            OpId rootId = ids.Next();
-            RootResolution resolution = new RootResolution(rootId);
-            activeRoot = resolution;
+            RootResolution resolution = new RootResolution();
             try
             {
+                lock (gate)
+                {
+                    if (activeRoot != null)
+                    {
+                        throw new InvalidOperationException(
+                            "A root operation cannot interleave with an active resolution.");
+                    }
+
+                    activeRoot = resolution;
+                }
+
+                IRegistration registration = RequireRegistration(op.GetType(), typeof(TResult));
+                if (registration.Policy != InvocationPolicy.ExternalAllowed)
+                {
+                    throw new InvalidOperationException(
+                        $"{op.GetType().Name} is nested-only and cannot be externally dispatched.");
+                }
+
+                OpId rootId;
+                lock (gate)
+                {
+                    RequireActiveResolution(resolution);
+                    rootId = ids.Next();
+                    resolution.Initialize(rootId);
+                }
+
                 return await DispatchCore(op, registration, resolution, rootId, null, null);
             }
             finally
             {
-                activeRoot = null;
+                lock (gate)
+                {
+                    if (ReferenceEquals(activeRoot, resolution))
+                        activeRoot = null;
+                }
             }
         }
 
@@ -455,11 +477,18 @@ namespace Game.Rules.Runtime
         {
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
-            if (activeRoot == null)
-                throw new InvalidOperationException("Nested dispatch requires an active root resolution.");
 
-            RootResolution resolution = activeRoot;
-            resolution.ReserveChild(parentId);
+            RootResolution resolution;
+            ChildReservation reservation;
+            lock (gate)
+            {
+                if (activeRoot == null)
+                    throw new InvalidOperationException("Nested dispatch requires an active root resolution.");
+
+                resolution = activeRoot;
+                reservation = resolution.ReserveChild(parentId);
+            }
+
             try
             {
                 IRegistration registration = RequireRegistration(op.GetType(), typeof(TResult));
@@ -473,7 +502,15 @@ namespace Game.Rules.Runtime
             }
             finally
             {
-                resolution.ReleaseChild(parentId);
+                try
+                {
+                    lock (gate)
+                        resolution.ReleaseChild(reservation);
+                }
+                finally
+                {
+                    reservation.Settle();
+                }
             }
         }
 
@@ -496,38 +533,96 @@ namespace Game.Rules.Runtime
             OpId? parentId,
             OpId? causeId)
         {
-            OpId id = parentId.HasValue ? ids.Next() : rootId;
-            int firstFact = resolution.Facts.Count;
-            IFrameInvocation invocation = registration.CreateInvocation(
-                id, rootId, parentId, causeId, op, store.Snapshot);
-            Trace.Add(invocation.FrameView);
-            resolution.EnterFrame(id, rootId);
+            OpId id;
+            int firstFact;
+            IFrameInvocation invocation;
+            lock (gate)
+            {
+                RequireActiveResolution(resolution);
+                id = parentId.HasValue ? ids.Next() : rootId;
+                firstFact = resolution.Facts.Count;
+                invocation = registration.CreateInvocation(
+                    id, rootId, parentId, causeId, op, store.Snapshot);
+                Trace.Add(invocation.FrameView);
+                resolution.EnterFrame(id, rootId);
+            }
+
             try
             {
-                object resultObject = await registration.Invoke(invocation, this);
+                object resultObject;
+                try
+                {
+                    resultObject = await registration.Invoke(invocation, this);
+                }
+                catch
+                {
+                    await SettleActiveChild(resolution, id);
+                    throw;
+                }
+
+                if (await SettleActiveChild(resolution, id))
+                {
+                    throw new InvalidOperationException(
+                        $"Operation {id.Value} returned before awaiting its active child dispatch.");
+                }
+
                 if (!(resultObject is OpResult<TResult> result))
                     throw new InvalidOperationException(
                         $"Resolver for {op.GetType().Name} returned an impossible result type.");
 
-                IReadOnlyList<RuleFact> directFacts = Array.AsReadOnly(Array.Empty<RuleFact>());
-                if (registration.IsReducer)
+                lock (gate)
                 {
-                    directFacts = result.Facts;
-                    foreach (RuleFact fact in directFacts)
-                        resolution.AddFact(fact, id, rootId);
-                }
+                    RequireActiveResolution(resolution);
+                    IReadOnlyList<RuleFact> directFacts = Array.AsReadOnly(Array.Empty<RuleFact>());
+                    if (registration.IsReducer)
+                    {
+                        directFacts = result.Facts;
+                        foreach (RuleFact fact in directFacts)
+                            resolution.AddFact(fact, id, rootId);
+                    }
 
-                IReadOnlyList<RuleFact> subtreeFacts = Array.AsReadOnly(resolution.Facts
-                    .Skip(firstFact)
-                    .ToArray());
-                OpResult<TResult> completed = result.WithFacts(subtreeFacts);
-                Diagnostics.Complete(id, completed.Status, directFacts);
-                return completed;
+                    IReadOnlyList<RuleFact> subtreeFacts = Array.AsReadOnly(resolution.Facts
+                        .Skip(firstFact)
+                        .ToArray());
+                    OpResult<TResult> completed = result.WithFacts(subtreeFacts);
+                    Diagnostics.Complete(id, completed.Status, directFacts);
+                    return completed;
+                }
             }
             finally
             {
-                resolution.ExitFrame(id, rootId);
+                lock (gate)
+                    resolution.ExitFrame(id, rootId);
             }
+        }
+
+        private async ValueTask<bool> SettleActiveChild(RootResolution resolution, OpId parentId)
+        {
+            Task settlement;
+            lock (gate)
+            {
+                RequireActiveResolution(resolution);
+                settlement = resolution.GetActiveChildSettlement(parentId);
+                if (settlement == null)
+                    resolution.SealFrame(parentId);
+            }
+
+            if (settlement == null)
+                return false;
+
+            await settlement;
+            lock (gate)
+            {
+                RequireActiveResolution(resolution);
+                resolution.SealFrame(parentId);
+            }
+            return true;
+        }
+
+        private void RequireActiveResolution(RootResolution resolution)
+        {
+            if (!ReferenceEquals(activeRoot, resolution))
+                throw new InvalidOperationException("An operation crossed resolution root ownership.");
         }
 
         private IRegistration RequireRegistration(Type opType, Type resultType)
@@ -543,15 +638,24 @@ namespace Game.Rules.Runtime
         private sealed class RootResolution
         {
             private readonly HashSet<OpId> activeFrames = new HashSet<OpId>();
-            private readonly HashSet<OpId> parentsWithActiveChildren = new HashSet<OpId>();
+            private readonly HashSet<OpId> sealedFrames = new HashSet<OpId>();
+            private readonly Dictionary<OpId, ChildReservation> activeChildren =
+                new Dictionary<OpId, ChildReservation>();
             private readonly HashSet<FactId> factIds = new HashSet<FactId>();
             private readonly HashSet<RuleFact> factReferences =
                 new HashSet<RuleFact>(ReferenceEqualityComparer<RuleFact>.Instance);
 
-            public OpId RootId { get; }
+            public OpId RootId { get; private set; }
             public List<RuleFact> Facts { get; } = new List<RuleFact>();
 
-            public RootResolution(OpId rootId) => RootId = rootId;
+            public void Initialize(OpId rootId)
+            {
+                if (!RootId.IsEmpty)
+                    throw new InvalidOperationException("A root resolution was initialized more than once.");
+                if (rootId.IsEmpty)
+                    throw new ArgumentException("A root resolution requires an operation ID.", nameof(rootId));
+                RootId = rootId;
+            }
 
             public void EnterFrame(OpId id, OpId rootId)
             {
@@ -563,32 +667,61 @@ namespace Game.Rules.Runtime
             public void ExitFrame(OpId id, OpId rootId)
             {
                 RequireCurrentRoot(rootId);
+                if (activeChildren.ContainsKey(id))
+                {
+                    throw new InvalidOperationException(
+                        $"Operation {id.Value} cannot exit while its child dispatch is active.");
+                }
                 if (!activeFrames.Remove(id))
                     throw new InvalidOperationException($"Operation {id.Value} was not actively executing.");
+                sealedFrames.Remove(id);
             }
 
-            public void ReserveChild(OpId parentId)
+            public ChildReservation ReserveChild(OpId parentId)
             {
-                if (!activeFrames.Contains(parentId))
+                if (!activeFrames.Contains(parentId) || sealedFrames.Contains(parentId))
                 {
                     throw new InvalidOperationException(
                         $"Operation context {parentId.Value} is not actively executing in the current root resolution.");
                 }
-                if (!parentsWithActiveChildren.Add(parentId))
+                if (activeChildren.ContainsKey(parentId))
                 {
                     throw new InvalidOperationException(
                         $"Operation {parentId.Value} cannot begin an overlapping child dispatch. " +
                         "Await the active child before dispatching another.");
                 }
+
+                ChildReservation reservation = new ChildReservation(parentId);
+                activeChildren.Add(parentId, reservation);
+                return reservation;
             }
 
-            public void ReleaseChild(OpId parentId)
+            public void ReleaseChild(ChildReservation reservation)
             {
-                if (!parentsWithActiveChildren.Remove(parentId))
+                if (reservation == null ||
+                    !activeChildren.TryGetValue(reservation.ParentId, out ChildReservation active) ||
+                    !ReferenceEquals(active, reservation))
                 {
                     throw new InvalidOperationException(
-                        $"Operation {parentId.Value} has no active child dispatch reservation.");
+                        $"Operation {reservation?.ParentId.Value} does not own its active child reservation.");
                 }
+                activeChildren.Remove(reservation.ParentId);
+            }
+
+            public Task GetActiveChildSettlement(OpId parentId) =>
+                activeChildren.TryGetValue(parentId, out ChildReservation reservation)
+                    ? reservation.Settlement
+                    : null;
+
+            public void SealFrame(OpId id)
+            {
+                if (!activeFrames.Contains(id) || activeChildren.ContainsKey(id))
+                {
+                    throw new InvalidOperationException(
+                        $"Operation {id.Value} cannot stop accepting children in its current state.");
+                }
+                if (!sealedFrames.Add(id))
+                    throw new InvalidOperationException($"Operation {id.Value} stopped executing more than once.");
             }
 
             public void AddFact(RuleFact fact, OpId sourceId, OpId rootId)
@@ -609,6 +742,19 @@ namespace Game.Rules.Runtime
                 if (rootId != RootId)
                     throw new InvalidOperationException("An operation frame crossed resolution roots.");
             }
+        }
+
+        private sealed class ChildReservation
+        {
+            private readonly TaskCompletionSource<bool> settled =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public OpId ParentId { get; }
+            public Task Settlement => settled.Task;
+
+            public ChildReservation(OpId parentId) => ParentId = parentId;
+
+            public void Settle() => settled.TrySetResult(true);
         }
     }
 
