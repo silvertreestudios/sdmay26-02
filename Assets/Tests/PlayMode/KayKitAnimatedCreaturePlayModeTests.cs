@@ -232,6 +232,10 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
                 Assert.That(viewModel.transform.Find("VisualRoot").childCount, Is.EqualTo(1), key);
                 Assert.That(viewModel.ActiveVisualInstance.GetComponentsInChildren<Animator>(true), Has.Length.EqualTo(1), key);
             }
+
+            // The first frame after prefab instantiation can report a zero delta time in
+            // headless Linux runs, so wait for a real interval before asserting rotation.
+            yield return new WaitForSeconds(0.05f);
             Assert.That(viewModel.rotate, Is.True);
             Assert.That(viewModel.rotationSpeed, Is.EqualTo(20.0f));
             Assert.That(Quaternion.Angle(beforeRotation, viewModel.transform.rotation), Is.GreaterThan(0.0f));
