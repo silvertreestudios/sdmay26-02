@@ -95,9 +95,12 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Reserved frame data for the action lifecycle introduced by issue #122.
-    /// Dispatch issue #120 intentionally never supplies a value for this slot.
+    /// Defines the action-lifecycle metadata slot carried by operation frames.
     /// </summary>
+    /// <remarks>
+    /// The typed dispatch runtime currently leaves this slot empty. Keeping the placeholder in the
+    /// frame contract allows action-specific metadata to be added without replacing frame APIs.
+    /// </remarks>
     public sealed class ActionProfile
     {
         internal ActionProfile()
