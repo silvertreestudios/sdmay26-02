@@ -799,7 +799,11 @@ namespace Game.Rules.Runtime.Tests
             {
                 releaseContinuations.Set();
                 continuationQueued.Set();
-                thread.Join(TimeSpan.FromSeconds(5));
+                if (!thread.Join(TimeSpan.FromSeconds(5)))
+                    throw new TimeoutException("The controlled dispatcher thread did not stop.");
+                dispatchStarted.Dispose();
+                continuationQueued.Dispose();
+                releaseContinuations.Dispose();
             }
 
             private void Run()
