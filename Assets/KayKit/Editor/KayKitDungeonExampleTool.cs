@@ -15,8 +15,8 @@ namespace Game.KayKit.Editor
         private const string SourceScenePath = "Assets/Scenes/UnitTestingScene.unity";
         private const float CameraMinY = 2f;
         private const float CameraMaxY = 7f;
-        private static readonly Vector3 CameraPosition = new(7.5f, 6f, -13f);
-        private static readonly Vector3 CameraLookAt = new(7.5f, 0f, 5.5f);
+        private static readonly Vector3 CameraPosition = new(24.5f, 6f, 6f);
+        private static readonly Quaternion CameraRotation = Quaternion.Euler(35f, 0f, 0f);
 
         [MenuItem("Tools/KayKit/Regenerate Dungeon Example")]
         public static void RegenerateScene()
@@ -84,28 +84,28 @@ namespace Game.KayKit.Editor
 
         private static void CreateEncounter()
         {
-            InstantiateCreature("Assets/Prefabs/Creatures/Lena.prefab", "Lena", "Players", new Vector3(2f, 0f, 1f));
-            InstantiateCreature("Assets/Prefabs/Creatures/Torgrim.prefab", "Torgrim", "Players", new Vector3(2f, 0f, 3f));
+            InstantiateCreature("Assets/Prefabs/Creatures/Lena.prefab", "Lena", "Players", new Vector3(21f, 0f, 22f));
+            InstantiateCreature("Assets/Prefabs/Creatures/Torgrim.prefab", "Torgrim", "Players", new Vector3(21f, 0f, 24f));
             InstantiateCreature(
                 "Assets/Prefabs/Creatures/zombie-shambler.prefab",
                 "Zombie Shambler A",
                 "Enemies",
-                new Vector3(13f, 0f, 10f));
+                new Vector3(28f, 0f, 27f));
             InstantiateCreature(
                 "Assets/Prefabs/Creatures/zombie-shambler.prefab",
                 "Zombie Shambler B",
                 "Enemies",
-                new Vector3(12f, 0f, 8f));
+                new Vector3(27f, 0f, 25f));
             InstantiateCreature(
                 "Assets/Prefabs/Creatures/skeleton-guard.prefab",
                 "Skeleton Guard A",
                 "Enemies",
-                new Vector3(13f, 0f, 5f));
+                new Vector3(28f, 0f, 22f));
             InstantiateCreature(
                 "Assets/Prefabs/Creatures/skeleton-guard.prefab",
                 "Skeleton Guard B",
                 "Enemies",
-                new Vector3(6f, 0f, 9f));
+                new Vector3(24f, 0f, 27f));
         }
 
         private static void InstantiateCreature(
@@ -162,11 +162,11 @@ namespace Game.KayKit.Editor
         private static void ApplyCameraConfiguration(Camera camera)
         {
             camera.orthographic = false;
-            camera.fieldOfView = 60f;
+            camera.fieldOfView = 30f;
             camera.nearClipPlane = 0.1f;
             camera.farClipPlane = 100f;
             camera.transform.position = CameraPosition;
-            camera.transform.LookAt(CameraLookAt);
+            camera.transform.rotation = CameraRotation;
             camera.backgroundColor = new Color(0.035f, 0.045f, 0.065f, 1f);
             EditorUtility.SetDirty(camera);
             EditorUtility.SetDirty(camera.transform);

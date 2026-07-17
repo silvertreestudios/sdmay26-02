@@ -12,6 +12,7 @@ namespace Game.KayKit.Editor
 {
     public static class KayKitDungeonSetupTool
     {
+        public const float DungeonVisualScale = 0.50f;
         public const string DungeonPrefabRoot = KayKitSetupTool.PrefabRoot + "/Dungeon";
         public const string FloorPrefabPath = DungeonPrefabRoot + "/DungeonFloorSmall.prefab";
         public const string WallStraightPrefabPath = DungeonPrefabRoot + "/DungeonWallStraight.prefab";
@@ -123,6 +124,7 @@ namespace Game.KayKit.Editor
                 GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(model);
                 instance.name = "Model";
                 instance.transform.SetParent(root.transform, false);
+                instance.transform.localScale = Vector3.one * DungeonVisualScale;
                 foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
                 {
                     renderer.sharedMaterials = Enumerable

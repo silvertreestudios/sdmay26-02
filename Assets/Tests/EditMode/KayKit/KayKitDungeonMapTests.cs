@@ -218,6 +218,30 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void GeneratedDungeonModels_UseTheSameHalfScaleAsCreatureVisuals()
+    {
+        Assert.That(
+            KayKitDungeonSetupTool.DungeonVisualScale,
+            Is.EqualTo(KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale));
+
+        GameObject[] wrappers = AssetDatabase.FindAssets(
+                "t:Prefab",
+                new[] { KayKitDungeonSetupTool.DungeonPrefabRoot })
+            .Select(AssetDatabase.GUIDToAssetPath)
+            .Select(AssetDatabase.LoadAssetAtPath<GameObject>)
+            .Where(prefab => prefab != null && prefab.transform.Find("Model") != null)
+            .ToArray();
+        Assert.That(wrappers, Is.Not.Empty);
+        foreach (GameObject wrapper in wrappers)
+        {
+            Assert.That(
+                wrapper.transform.Find("Model").localScale,
+                Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.DungeonVisualScale),
+                wrapper.name);
+        }
+    }
+
+    [Test]
     public void OpenDoorwayPrefab_UsesLeafFreeGeometryAndLeavesCenterPassageClear()
     {
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
@@ -816,8 +840,11 @@ public sealed class KayKitDungeonMapTests
         Assert.That(selected, Is.SameAs(gameplay));
         Assert.That(selectedFromReversedInput, Is.SameAs(gameplay));
         Assert.That(gameplay.orthographic, Is.False);
-        Assert.That(gameplay.fieldOfView, Is.EqualTo(60f));
-        Assert.That(gameplay.transform.position, Is.EqualTo(new Vector3(7.5f, 6f, -13f)));
+        Assert.That(gameplay.fieldOfView, Is.EqualTo(30f));
+        Assert.That(gameplay.transform.position, Is.EqualTo(new Vector3(24.5f, 6f, 6f)));
+        Assert.That(
+            Quaternion.Angle(gameplay.transform.rotation, Quaternion.Euler(35f, 0f, 0f)),
+            Is.LessThan(0.001f));
 
         Assert.That(disabledPortrait.enabled, Is.False);
         Assert.That(disabledPortrait.orthographic, Is.False);

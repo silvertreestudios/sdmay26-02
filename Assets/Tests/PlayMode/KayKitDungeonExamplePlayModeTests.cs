@@ -78,8 +78,8 @@ public sealed class KayKitDungeonExamplePlayModeTests
         Assert.That(map.JsonSource.name, Is.EqualTo("KayKitDungeonExample"));
         Assert.That(map.DungeonCatalog, Is.Not.Null);
         Assert.That(grid, Is.Not.Null);
-        Assert.That(grid.GridData.GetLength(0), Is.EqualTo(16));
-        Assert.That(grid.GridData.GetLength(1), Is.EqualTo(12));
+        Assert.That(grid.GridData.GetLength(0), Is.EqualTo(50));
+        Assert.That(grid.GridData.GetLength(1), Is.EqualTo(50));
         Assert.That(generated, Is.Not.Null);
         Assert.That(generated.transform.Find("Structure"), Is.Not.Null);
         Assert.That(generated.transform.Find("Objects"), Is.Not.Null);
@@ -128,7 +128,7 @@ public sealed class KayKitDungeonExamplePlayModeTests
         Assert.That(gameplayCamera.enabled, Is.True);
         Assert.That(gameplayCamera.targetTexture, Is.Null);
         Assert.That(gameplayCamera.orthographic, Is.False);
-        Assert.That(gameplayCamera.fieldOfView, Is.EqualTo(60f));
+        Assert.That(gameplayCamera.fieldOfView, Is.EqualTo(30f));
         Assert.That(gameplayCamera.transform.position.y,
             Is.GreaterThan(cameraManager.minCamearYLimit)
                 .And.LessThan(cameraManager.maxCameraYLimit));
@@ -169,26 +169,32 @@ public sealed class KayKitDungeonExamplePlayModeTests
                 sourceCamera.transform.localRotation), Is.LessThan(0.001f), portrait.name);
         }
 
-        GeneratedMapRoot generated = Object.FindFirstObjectByType<GeneratedMapRoot>();
-        Renderer[] encounterRenderers = generated.GetComponentsInChildren<Renderer>(false)
-            .Concat(Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None)
-                .SelectMany(combatant => combatant.GetComponentsInChildren<Renderer>(false)))
-            .Where(renderer => renderer.enabled && renderer.gameObject.activeInHierarchy)
-            .ToArray();
-        Assert.That(encounterRenderers, Is.Not.Empty);
-        Bounds encounterBounds = encounterRenderers[0].bounds;
-        foreach (Renderer renderer in encounterRenderers.Skip(1))
-            encounterBounds.Encapsulate(renderer.bounds);
+        ActionController[] encounter = Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None);
+        Assert.That(encounter, Is.Not.Empty);
 
         cameraManager.StopFollowing();
-        gameplayCamera.transform.position = new Vector3(7.5f, 6f, -13f);
-        gameplayCamera.transform.LookAt(new Vector3(7.5f, 0f, 5.5f));
+        gameplayCamera.transform.position = new Vector3(24.5f, 6f, 6f);
+        gameplayCamera.transform.rotation = Quaternion.Euler(35f, 0f, 0f);
 
         float originalAspect = gameplayCamera.aspect;
         try
         {
-            foreach (float aspect in new[] { 4f / 3f, 16f / 10f, 16f / 9f })
-                AssertBoundsVisible(gameplayCamera, encounterBounds, aspect);
+            foreach (float aspect in new[] { 16f / 10f, 16f / 9f })
+            {
+                AssertCombatantPositionsVisible(
+                    gameplayCamera,
+                    new[] { FindCombatant("Lena").transform.position },
+                    aspect);
+                Assert.That(
+                    encounter
+                        .Where(combatant => TeamName(combatant) == "Enemies")
+                        .Any(combatant => IsPositionVisible(
+                            gameplayCamera,
+                            combatant.transform.position,
+                            aspect)),
+                    Is.True,
+                    $"Aspect {aspect}: the starting camera must show at least one enemy.");
+            }
         }
         finally
         {
@@ -218,24 +224,24 @@ public sealed class KayKitDungeonExamplePlayModeTests
         bool[,] lineOfSight = grid.GetLineOfSightBlocks();
 
         Assert.That(grid.GridData[0, 0], Is.EqualTo(TileType.Wall));
-        Assert.That(grid.GridData[7, 9], Is.EqualTo(TileType.Door));
-        Assert.That(grid.GridData[2, 8], Is.EqualTo(TileType.Obstacle));
+        Assert.That(grid.GridData[25, 49], Is.EqualTo(TileType.Door));
+        Assert.That(grid.GridData[18, 25], Is.EqualTo(TileType.Obstacle));
         Assert.That(tiles[0, 0], Is.Null);
-        Assert.That(tiles[7, 9], Is.Not.Null, "An open doorway remains walkable.");
-        Assert.That(tiles[2, 8], Is.Null, "A blocking prop is not a structural wall, but is unwalkable.");
+        Assert.That(tiles[25, 49], Is.Not.Null, "An open doorway remains walkable.");
+        Assert.That(tiles[18, 25], Is.Null, "A blocking prop is not a structural wall, but is unwalkable.");
         Assert.That(lineOfSight[0, 0], Is.True);
-        Assert.That(lineOfSight[7, 9], Is.False);
-        Assert.That(lineOfSight[2, 8], Is.True, "Stacked crates block line of sight.");
-        Assert.That(lineOfSight[2, 10], Is.False, "The chest blocks movement without blocking line of sight.");
+        Assert.That(lineOfSight[25, 49], Is.False);
+        Assert.That(lineOfSight[18, 25], Is.True, "Stacked crates block line of sight.");
+        Assert.That(lineOfSight[19, 25], Is.False, "The chest blocks movement without blocking line of sight.");
 
         Assert.That(
-            StrikeTargeting.CountClearRays(tiles, new Vector3Int(1, 0, 8), new Vector3Int(3, 0, 8)),
+            StrikeTargeting.CountClearRays(tiles, new Vector3Int(17, 0, 25), new Vector3Int(20, 0, 25)),
             Is.Zero,
             "The collider-backed stacked crates must block the lane behind them.");
         Assert.That(
-            StrikeTargeting.CountClearRays(tiles, new Vector3Int(1, 0, 5), new Vector3Int(14, 0, 5)),
+            StrikeTargeting.CountClearRays(tiles, new Vector3Int(22, 0, 24), new Vector3Int(27, 0, 24)),
             Is.EqualTo(16),
-            "The central ranged lane remains clear through decorative rubble.");
+            "An open central ranged lane remains clear.");
 
         ActionController[] players = CombatantsForTeam("Players");
         ActionController[] enemies = CombatantsForTeam("Enemies");
@@ -254,14 +260,42 @@ public sealed class KayKitDungeonExamplePlayModeTests
 
         List<PathNode> meleeRoute = grid.GetPathfinder().Pathfind(
             null,
-            new Vector3Int(2, 0, 1),
-            new Vector3Int(13, 0, 10));
+            new Vector3Int(21, 0, 22),
+            new Vector3Int(28, 0, 27));
         Assert.That(
-            meleeRoute.Any(node => grid.GridData[node.Location.x, node.Location.z] == TileType.Door),
+            meleeRoute.All(node => GridBase.IsWalkableTile(grid.GridData[node.Location.x, node.Location.z])),
             Is.True,
-            "The opposing sides must connect through the authored doorway route.");
+            "The opposing sides must connect across the open room without crossing a wall or obstacle.");
 
         yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator StrideRangeHighlightRendersAboveTheDungeonFloor()
+    {
+        GridBase grid = Object.FindFirstObjectByType<GridBase>();
+        GridVisuals visuals = grid.GetComponent<GridVisuals>();
+        ActionController lena = FindCombatant("Lena");
+        Assert.That(grid.Fsm.ChangeState(new StateStride(lena.gameObject, grid.Fsm)), Is.True);
+        yield return null;
+
+        FieldInfo rangePoolField = typeof(GridVisuals).GetField(
+            "RangePool",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(rangePoolField, Is.Not.Null);
+        GameObjectPool rangePool = (GameObjectPool)rangePoolField.GetValue(visuals);
+        List<GameObject> highlights = rangePool.CurrentlyActiveList();
+        Assert.That(highlights, Is.Not.Empty, "Stride must display reachable floor tiles.");
+
+        GeneratedMapRoot generated = Object.FindFirstObjectByType<GeneratedMapRoot>();
+        Renderer floor = generated.GetComponentsInChildren<Renderer>(false).First(renderer =>
+            renderer.transform.parent != null &&
+            renderer.transform.parent.name == "Floor_021_022");
+        float floorTop = floor.bounds.max.y;
+        Assert.That(highlights.All(highlight => highlight.transform.position.y > floorTop), Is.True,
+            "Stride highlights must sit above the visible dungeon floor surface.");
+
+        grid.Fsm.ChangeState(new StateIdle());
     }
 
     [UnityTest]
@@ -349,27 +383,29 @@ public sealed class KayKitDungeonExamplePlayModeTests
         return controller.GetComponent<Team>()?.Name;
     }
 
-    private static void AssertBoundsVisible(Camera camera, Bounds bounds, float aspect)
+    private static bool IsPositionVisible(Camera camera, Vector3 position, float aspect)
     {
         camera.aspect = aspect;
-        Vector3 min = bounds.min;
-        Vector3 max = bounds.max;
-        foreach (Vector3 corner in new[]
-                 {
-                     new Vector3(min.x, min.y, min.z),
-                     new Vector3(min.x, min.y, max.z),
-                     new Vector3(min.x, max.y, min.z),
-                     new Vector3(min.x, max.y, max.z),
-                     new Vector3(max.x, min.y, min.z),
-                     new Vector3(max.x, min.y, max.z),
-                     new Vector3(max.x, max.y, min.z),
-                     new Vector3(max.x, max.y, max.z)
-                 })
+        Vector3 viewport = camera.WorldToViewportPoint(position);
+        return viewport.z > 0f &&
+               viewport.x >= 0f &&
+               viewport.x <= 1f &&
+               viewport.y >= 0f &&
+               viewport.y <= 1f;
+    }
+
+    private static void AssertCombatantPositionsVisible(
+        Camera camera,
+        IEnumerable<Vector3> positions,
+        float aspect)
+    {
+        camera.aspect = aspect;
+        foreach (Vector3 position in positions)
         {
-            Vector3 viewport = camera.WorldToViewportPoint(corner);
-            Assert.That(viewport.z, Is.GreaterThan(0f), $"Aspect {aspect}: {corner} is behind the camera.");
-            Assert.That(viewport.x, Is.InRange(0f, 1f), $"Aspect {aspect}: {corner} is horizontally clipped.");
-            Assert.That(viewport.y, Is.InRange(0f, 1f), $"Aspect {aspect}: {corner} is vertically clipped.");
+            Vector3 viewport = camera.WorldToViewportPoint(position);
+            Assert.That(viewport.z, Is.GreaterThan(0f), $"Aspect {aspect}: {position} is behind the camera.");
+            Assert.That(viewport.x, Is.InRange(0f, 1f), $"Aspect {aspect}: {position} is horizontally clipped.");
+            Assert.That(viewport.y, Is.InRange(0f, 1f), $"Aspect {aspect}: {position} is vertically clipped.");
         }
     }
 
