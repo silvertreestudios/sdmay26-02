@@ -236,7 +236,17 @@ public class Map : MonoBehaviour
         legacyContent = Array.Empty<GameObject>();
         failure = null;
         if (ImageMap == null || Settings == null)
-            return true;
+        {
+            string missingMetadata = ImageMap == null && Settings == null
+                ? "Image Map and Tile Settings metadata are missing"
+                : ImageMap == null
+                    ? "Image Map metadata is missing"
+                    : "Tile Settings metadata is missing";
+            failure =
+                $"Legacy bitmap migration remains pending because its {missingMetadata}. " +
+                "Restore the legacy bitmap metadata, then retry generation or clearing.";
+            return false;
+        }
 
         List<GameObject> candidates = children
             .Where(child => child != null && !child.TryGetComponent(out GeneratedMapRoot _))

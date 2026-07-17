@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Game.KayKit;
 using UnityEngine;
 
 namespace GridPrivate
@@ -113,6 +114,21 @@ namespace GridPrivate
                 if (IsBlocking(tiles, cell))
                     return true;
             }
+
+            Vector3 rayStart3D = new(rayStart.x, 0.75f, rayStart.y);
+            Vector3 rayEnd3D = new(rayEnd.x, 0.75f, rayEnd.y);
+            Vector3 direction = rayEnd3D - rayStart3D;
+            foreach (RaycastHit hit in Physics.RaycastAll(
+                         rayStart3D,
+                         direction / distance,
+                         distance,
+                         ~0,
+                         QueryTriggerInteraction.Collide))
+            {
+                if (hit.collider.GetComponentInParent<MapLineOfSightBlocker>() != null)
+                    return true;
+            }
+
             return false;
         }
     }

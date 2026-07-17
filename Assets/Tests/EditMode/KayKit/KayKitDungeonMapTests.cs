@@ -644,6 +644,58 @@ public sealed class KayKitDungeonMapTests
         Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
     }
 
+    [TestCase(true, "Image Map")]
+    [TestCase(false, "Tile Settings")]
+    public void MissingLegacyBitmapMetadata_LeavesMigrationPendingAndPreservesDirectChildren(
+        bool removeImageMap,
+        string expectedMetadata)
+    {
+        GameObject mapObject = Track(new GameObject("Missing Legacy Metadata"));
+        Map map = mapObject.AddComponent<Map>();
+        Texture2D image = Track(new Texture2D(1, 1));
+        image.SetPixel(0, 0, Color.red);
+        image.Apply();
+        Material floor = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Dirt.mat");
+        ConfigureBitmapSource(map, image, floor);
+
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        TextAsset json = Track(new TextAsset(
+            @"{""version"":1,""rows"":["".""],""objects"":[]}"));
+        map.ConfigureJson(json, catalog);
+        SetLegacyBitmapMigrationPending(map);
+
+        if (removeImageMap)
+        {
+            SerializedObject serialized = new(map);
+            serialized.FindProperty("ImageMap").objectReferenceValue = null;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+        }
+        else
+        {
+            FieldInfo settingsField = typeof(Map).GetField(
+                "Settings",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(settingsField, Is.Not.Null);
+            settingsField.SetValue(map, null);
+        }
+
+        GameObject legacyDirectChild = Track(GameObject.CreatePrimitive(PrimitiveType.Quad));
+        legacyDirectChild.name = "Quad";
+        legacyDirectChild.GetComponent<MeshRenderer>().sharedMaterial = floor;
+        legacyDirectChild.transform.SetParent(mapObject.transform, true);
+
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.False);
+        Assert.That(validation.Errors.Count, Is.EqualTo(1));
+        Assert.That(validation.Errors[0], Does.Contain("migration remains pending").IgnoreCase);
+        Assert.That(validation.Errors[0], Does.Contain(expectedMetadata).IgnoreCase);
+        Assert.That(validation.Errors[0], Does.Contain("retry").IgnoreCase);
+        Assert.That(MigrationVersion(map), Is.Zero);
+        Assert.That(legacyDirectChild, Is.Not.Null);
+        Assert.That(legacyDirectChild.transform.parent, Is.SameAs(mapObject.transform));
+        Assert.That(mapObject.GetComponentsInChildren<GeneratedMapRoot>(true), Is.Empty);
+    }
+
     [Test]
     public void RegenerationSceneGuard_SkipsPromptWhenNoSceneIsDirty()
     {
@@ -852,16 +904,16 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
-    public void ColliderBackedBlocker_AffectsCurrentLineOfSightChecks()
+    public void ColliderBackedBlocker_AffectsStrikeAndSharedLineOfEffectChecks()
     {
         Tile[,] tiles = { { new Tile() }, { new Tile() }, { new Tile() } };
         bool[,] blockers = { { false }, { false }, { false } };
         GridLineOfSightData.Register(tiles, blockers);
         GameObject blocker = Track(new GameObject("Line Of Sight Blocker"));
-        blocker.transform.position = new Vector3(1f, 0f, 0f);
+        blocker.transform.position = new Vector3(1.5f, 0f, 0.25f);
         BoxCollider collider = blocker.AddComponent<BoxCollider>();
         collider.center = new Vector3(0f, 0.75f, 0f);
-        collider.size = new Vector3(0.9f, 1.5f, 0.9f);
+        collider.size = new Vector3(0.8f, 1.5f, 1.8f);
         blocker.AddComponent<MapLineOfSightBlocker>();
         Physics.SyncTransforms();
         try
@@ -870,6 +922,18 @@ public sealed class KayKitDungeonMapTests
                 StrikeTargeting.CountClearRays(
                     tiles,
                     Vector3Int.zero,
+                    new Vector3Int(2, 0, 0)),
+                Is.Zero);
+            Assert.That(
+                GridTargeting.CountClearRays(
+                    tiles,
+                    Vector3Int.zero,
+                    new Vector3Int(2, 0, 0)),
+                Is.Zero);
+            Assert.That(
+                GridTargeting.CountClearRaysFromPoint(
+                    tiles,
+                    Vector2.zero,
                     new Vector3Int(2, 0, 0)),
                 Is.Zero);
         }
