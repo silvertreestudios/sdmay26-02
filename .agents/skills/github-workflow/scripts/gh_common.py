@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -61,7 +62,13 @@ def require_gh() -> None:
         raise SystemExit("GitHub CLI 'gh' was not found on PATH")
 
 
-def print_plan(method: str, endpoint: str, payload: dict[str, Any] | None, paginate: bool = False) -> int:
+def print_plan(
+    method: str,
+    endpoint: str,
+    payload: dict[str, Any] | None,
+    paginate: bool = False,
+    auth_account: str | None = None,
+) -> int:
     plan = {
         "dry_run": True,
         "method": method,
@@ -69,8 +76,41 @@ def print_plan(method: str, endpoint: str, payload: dict[str, Any] | None, pagin
         "paginate": paginate,
         "payload": payload,
     }
+    if auth_account is not None:
+        plan["auth_account"] = auth_account
     print(json.dumps(plan, indent=2, ensure_ascii=False))
     return 0
+
+
+def gh_auth_environment(account: str) -> dict[str, str]:
+    account = account.strip()
+    if not account:
+        raise SystemExit("GitHub authentication account cannot be empty")
+
+    require_gh()
+    token_lookup_environment = os.environ.copy()
+    token_lookup_environment.pop("GH_TOKEN", None)
+    token_lookup_environment.pop("GITHUB_TOKEN", None)
+    completed = subprocess.run(
+        ["gh", "auth", "token", "--hostname", "github.com", "--user", account],
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        check=False,
+        env=token_lookup_environment,
+    )
+    if completed.returncode != 0:
+        if completed.stderr:
+            print(completed.stderr, end="", file=sys.stderr)
+        raise SystemExit(completed.returncode)
+
+    token = completed.stdout.strip()
+    if not token:
+        raise SystemExit(f"GitHub CLI returned no token for account {account}")
+
+    environment = os.environ.copy()
+    environment["GH_TOKEN"] = token
+    return environment
 
 
 def gh_api(
@@ -80,10 +120,11 @@ def gh_api(
     payload: dict[str, Any] | None = None,
     paginate: bool = False,
     dry_run: bool = False,
+    auth_account: str | None = None,
 ) -> int:
     method = method.upper()
     if dry_run:
-        return print_plan(method, endpoint, payload, paginate)
+        return print_plan(method, endpoint, payload, paginate, auth_account)
 
     require_gh()
     args = [
@@ -105,12 +146,15 @@ def gh_api(
         args.extend(["--input", "-"])
         stdin = json.dumps(payload, ensure_ascii=False)
 
+    environment = gh_auth_environment(auth_account) if auth_account is not None else None
+
     completed = subprocess.run(
         args,
         input=stdin,
         text=True,
         encoding="utf-8",
         check=False,
+        env=environment,
     )
     return completed.returncode
 
