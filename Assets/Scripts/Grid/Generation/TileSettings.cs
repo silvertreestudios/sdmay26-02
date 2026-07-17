@@ -45,7 +45,7 @@ namespace GridPrivate
         {
             BuildCache();
             pixel.a = 255;
-            if (FastAccess.TryGetValue(pixel, out var value))
+            if (FastAccess != null && FastAccess.TryGetValue(pixel, out var value))
             {
                 tileInfo = (value.Item1, value.Item2, value.Item3);
                 return true;

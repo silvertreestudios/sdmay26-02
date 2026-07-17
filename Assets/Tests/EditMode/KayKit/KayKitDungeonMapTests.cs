@@ -103,14 +103,14 @@ public sealed class KayKitDungeonMapTests
         KayKitDungeonCatalog catalog = Catalog(
             Entry("blocking", new Vector2Int(2, 1), true, false));
         KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
-            @"{""version"":1,""rows"":[""..."",""..."",""...""],""objects"":[{""assetId"":""blocking"",""x"":1,""z"":0,""rotation"":90}]}",
+            @"{""version"":1,""rows"":[""....."",""....."",""....."",""....."","".....""],""objects"":[{""assetId"":""blocking"",""x"":2,""z"":1,""rotation"":90}]}",
             catalog);
 
         Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
         Assert.That(result.Map.Objects[0].Footprint, Is.EqualTo(new Vector2Int(1, 2)));
-        Assert.That(result.Map.GridData[1, 0], Is.EqualTo(TileType.Obstacle));
-        Assert.That(result.Map.GridData[1, 1], Is.EqualTo(TileType.Obstacle));
-        Assert.That(result.Map.LineOfSightBlocks[1, 0], Is.False);
+        Assert.That(result.Map.GridData[2, 1], Is.EqualTo(TileType.Obstacle));
+        Assert.That(result.Map.GridData[2, 2], Is.EqualTo(TileType.Obstacle));
+        Assert.That(result.Map.LineOfSightBlocks[2, 1], Is.False);
     }
 
     [Test]
@@ -162,7 +162,7 @@ public sealed class KayKitDungeonMapTests
         @"{""version"":1,""rows"":[""..."",""..."",""...""],""objects"":[{""assetId"":""blocking"",""x"":0,""z"":1}]}",
         "map boundary")]
     [TestCase(
-        @"{""version"":1,""rows"":[""..""],""objects"":[{""assetId"":""blocking"",""x"":0,""z"":0},{""assetId"":""blocking"",""x"":0,""z"":0}]}",
+        @"{""version"":1,""rows"":[""..."",""..."",""...""],""objects"":[{""assetId"":""blocking"",""x"":1,""z"":1},{""assetId"":""blocking"",""x"":1,""z"":1}]}",
         "overlaps another blocking")]
     public void InvalidBlockingFootprints_FailBeforeProducingMap(string json, string expected)
     {
@@ -247,14 +247,14 @@ public sealed class KayKitDungeonMapTests
         Assert.That(regeneratedBarrel.BlocksLineOfSight, Is.False);
 
         KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
-            $"{{\"version\":1,\"rows\":[\"#.\"],\"objects\":[{{\"assetId\":\"{wall.Id}\",\"x\":1,\"z\":0}}]}}",
+            $"{{\"version\":1,\"rows\":[\"###\",\"...\",\"...\"],\"objects\":[{{\"assetId\":\"{wall.Id}\",\"x\":1,\"z\":1}}]}}",
             catalog);
 
         Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
-        Assert.That(result.Map.GridData[0, 0], Is.EqualTo(TileType.Wall));
-        Assert.That(result.Map.GridData[1, 0], Is.EqualTo(TileType.Obstacle));
-        Assert.That(result.Map.LineOfSightBlocks[0, 0], Is.True);
-        Assert.That(result.Map.LineOfSightBlocks[1, 0], Is.True);
+        Assert.That(result.Map.GridData[0, 2], Is.EqualTo(TileType.Wall));
+        Assert.That(result.Map.GridData[1, 1], Is.EqualTo(TileType.Obstacle));
+        Assert.That(result.Map.LineOfSightBlocks[0, 2], Is.True);
+        Assert.That(result.Map.LineOfSightBlocks[1, 1], Is.True);
     }
 
     [Test]
