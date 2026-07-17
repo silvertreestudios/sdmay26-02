@@ -68,7 +68,11 @@ namespace Game.KayKit.Editor
             Vector2Int footprint = string.Equals(name, "table_long", StringComparison.OrdinalIgnoreCase)
                 ? new Vector2Int(2, 1)
                 : Vector2Int.one;
-            bool blocksMovement = IsOneOf(
+            bool wrapperBlocksPlacement =
+                wrapper != null &&
+                wrapper.GetComponent<Collider>() != null &&
+                wrapper.GetComponent<MapLineOfSightBlocker>() != null;
+            bool blocksMovement = wrapperBlocksPlacement || IsOneOf(
                 name,
                 "barrel_small",
                 "column",
@@ -76,7 +80,7 @@ namespace Game.KayKit.Editor
                 "chest",
                 "table_long",
                 "shelf_large");
-            bool blocksLineOfSight = IsOneOf(
+            bool blocksLineOfSight = wrapperBlocksPlacement || IsOneOf(
                 name,
                 "barrel_small",
                 "column",

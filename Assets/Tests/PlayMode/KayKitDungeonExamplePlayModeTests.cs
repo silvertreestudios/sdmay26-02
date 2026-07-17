@@ -311,6 +311,65 @@ public sealed class InvalidGridInitializationPlayModeTests
 public sealed class MapGenerationLifecyclePlayModeTests
 {
     [UnityTest]
+    public IEnumerator CatalogWallPlacement_HasConsistentGridTargetingAndPhysicsBlocking()
+    {
+        GameObject mapObject = null;
+        TextAsset source = null;
+        Tile[,] tiles = null;
+        try
+        {
+            KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+            KayKitDungeonCatalogEntry wall = catalog.Entries.Single(entry =>
+                entry.Id.EndsWith("/wall", System.StringComparison.Ordinal));
+            source = new TextAsset(
+                $"{{\"version\":1,\"rows\":[\"...\"],\"objects\":[{{\"assetId\":\"{wall.Id}\",\"x\":1,\"z\":0}}]}}");
+            mapObject = new GameObject("Wall Placement Semantics");
+            Map map = mapObject.AddComponent<Map>();
+            map.ConfigureJson(source, catalog);
+
+            Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
+                string.Join("\n", validation.Errors));
+            TileType[,] gridData = map.GetMapData();
+            bool[,] lineOfSightBlocks = map.GetLineOfSightBlocks();
+            tiles = new[,] { { new Tile() }, { (Tile)null }, { new Tile() } };
+            GridLineOfSightData.Register(tiles, lineOfSightBlocks, gridData);
+            Transform placedWall = mapObject.transform.Find(
+                "GeneratedMap/Objects/Object_000_dungeon_assets_fbx_unity__wall");
+
+            Assert.That(gridData[1, 0], Is.EqualTo(TileType.Obstacle));
+            Assert.That(GridBase.IsWalkableTile(gridData[1, 0]), Is.False);
+            Assert.That(lineOfSightBlocks[1, 0], Is.True);
+            Assert.That(GridTargeting.IsBlocking(tiles, new Vector3Int(1, 0, 0)), Is.True);
+            Assert.That(
+                GridTargeting.CountClearRays(tiles, Vector3Int.zero, new Vector3Int(2, 0, 0)),
+                Is.Zero);
+            Assert.That(placedWall, Is.Not.Null);
+            Assert.That(placedWall.GetComponent<BoxCollider>(), Is.Not.Null);
+            Assert.That(placedWall.GetComponent<MapLineOfSightBlocker>(), Is.Not.Null);
+
+            Physics.SyncTransforms();
+            RaycastHit[] hits = Physics.RaycastAll(
+                new Vector3(0f, 0.75f, 0f),
+                Vector3.right,
+                2f,
+                ~0,
+                QueryTriggerInteraction.Collide);
+            Assert.That(hits.Any(hit =>
+                hit.collider.GetComponentInParent<MapLineOfSightBlocker>() != null), Is.True);
+            yield return null;
+        }
+        finally
+        {
+            GridLineOfSightData.Unregister(tiles);
+            if (mapObject != null)
+                Object.DestroyImmediate(mapObject);
+            if (source != null)
+                Object.DestroyImmediate(source);
+        }
+    }
+
+    [UnityTest]
     public IEnumerator RegenerationAndClear_DetachOwnedContentBeforeDeferredDestroy()
     {
         GameObject mapObject = null;
@@ -325,6 +384,7 @@ public sealed class MapGenerationLifecyclePlayModeTests
             image.Apply();
             Material floor = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Dirt.mat");
             ConfigureBitmapSource(map, image, floor, 2f);
+            SetLegacyBitmapMigrationPending(map);
 
             GameObject legacyFloor = GameObject.CreatePrimitive(PrimitiveType.Quad);
             legacyFloor.name = "Quad";
@@ -350,19 +410,33 @@ public sealed class MapGenerationLifecyclePlayModeTests
             Assert.That(mapObject.transform.childCount, Is.EqualTo(2));
             Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
 
+            GameObject manualLookalike = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            manualLookalike.name = "Quad";
+            manualLookalike.GetComponent<MeshRenderer>().sharedMaterial = floor;
+            manualLookalike.transform.SetParent(mapObject.transform, true);
+            GameObject spacedManualLookalike = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            spacedManualLookalike.name = "Quad";
+            spacedManualLookalike.transform.position = new Vector3(2f, 0f, 0f);
+            spacedManualLookalike.GetComponent<MeshRenderer>().sharedMaterial = floor;
+            spacedManualLookalike.transform.SetParent(mapObject.transform, true);
+
             Assert.That(map.TryGenerate(out MapSourceValidationResult secondResult), Is.True,
                 string.Join("\n", secondResult.Errors));
             Transform secondGenerated = mapObject.transform.Find("GeneratedMap");
             Assert.That(secondGenerated.GetInstanceID(), Is.Not.EqualTo(firstGeneratedId));
-            Assert.That(mapObject.transform.childCount, Is.EqualTo(2));
+            Assert.That(mapObject.transform.childCount, Is.EqualTo(4));
             Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
+            Assert.That(manualLookalike.transform.parent, Is.SameAs(mapObject.transform));
+            Assert.That(spacedManualLookalike.transform.parent, Is.SameAs(mapObject.transform));
 
             yield return null;
 
             map.ClearGeneratedContent();
             Assert.That(mapObject.transform.Find("GeneratedMap"), Is.Null);
-            Assert.That(mapObject.transform.childCount, Is.EqualTo(1));
+            Assert.That(mapObject.transform.childCount, Is.EqualTo(3));
             Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
+            Assert.That(manualLookalike.transform.parent, Is.SameAs(mapObject.transform));
+            Assert.That(spacedManualLookalike.transform.parent, Is.SameAs(mapObject.transform));
 
             yield return null;
         }
@@ -397,6 +471,13 @@ public sealed class MapGenerationLifecyclePlayModeTests
         definition.FindPropertyRelative("Color").colorValue = Color.red;
         definition.FindPropertyRelative("Tile").enumValueIndex = (int)TileType.Ground;
         definition.FindPropertyRelative("Floor").objectReferenceValue = floor;
+        serialized.ApplyModifiedPropertiesWithoutUndo();
+    }
+
+    private static void SetLegacyBitmapMigrationPending(Map map)
+    {
+        SerializedObject serialized = new(map);
+        serialized.FindProperty("legacyBitmapMigrationVersion").intValue = 0;
         serialized.ApplyModifiedPropertiesWithoutUndo();
     }
 }

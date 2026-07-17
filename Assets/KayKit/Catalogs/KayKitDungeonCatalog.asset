@@ -1451,8 +1451,8 @@ MonoBehaviour:
     footprint: {x: 1, y: 1}
     defaultRotation: 0
     defaultYOffset: 0
-    blocksMovement: 0
-    blocksLineOfSight: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_arched
     model: {fileID: 919132149155446097, guid: 5584e78c63ac9894bbb31a9cb550d641, type: 3}
     wrapperPrefab: {fileID: 0}
@@ -1499,8 +1499,8 @@ MonoBehaviour:
     footprint: {x: 1, y: 1}
     defaultRotation: 0
     defaultYOffset: 0
-    blocksMovement: 0
-    blocksLineOfSight: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_corner_gated
     model: {fileID: 919132149155446097, guid: 4858dad18c60c2e4d8d334248a2a5629, type: 3}
     wrapperPrefab: {fileID: 0}
@@ -1539,8 +1539,8 @@ MonoBehaviour:
     footprint: {x: 1, y: 1}
     defaultRotation: 0
     defaultYOffset: 0
-    blocksMovement: 0
-    blocksLineOfSight: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_doorway
     model: {fileID: 919132149155446097, guid: dec878103b8229f47b71ccf1c5ae1b83, type: 3}
     wrapperPrefab: {fileID: 1742584549298960230, guid: 641c65f6a675c3142b00a9b453c0f9f0, type: 3}
@@ -1579,8 +1579,8 @@ MonoBehaviour:
     footprint: {x: 1, y: 1}
     defaultRotation: 0
     defaultYOffset: 0
-    blocksMovement: 0
-    blocksLineOfSight: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_gated
     model: {fileID: 919132149155446097, guid: 9d5e38ed28f90a0458bc67aae879b0f6, type: 3}
     wrapperPrefab: {fileID: 0}
@@ -1627,8 +1627,8 @@ MonoBehaviour:
     footprint: {x: 1, y: 1}
     defaultRotation: 0
     defaultYOffset: 0
-    blocksMovement: 0
-    blocksLineOfSight: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_scaffold
     model: {fileID: 919132149155446097, guid: 0619cf3b6754144448fa2e7beb938b52, type: 3}
     wrapperPrefab: {fileID: 0}
@@ -1659,8 +1659,8 @@ MonoBehaviour:
     footprint: {x: 1, y: 1}
     defaultRotation: 0
     defaultYOffset: 0
-    blocksMovement: 0
-    blocksLineOfSight: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_tsplit_sloped
     model: {fileID: 919132149155446097, guid: 488521f37ee69b3468d6e932058c0d18, type: 3}
     wrapperPrefab: {fileID: 0}

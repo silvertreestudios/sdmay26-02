@@ -31,6 +31,7 @@ public sealed class MapSourceValidationResult
 public class Map : MonoBehaviour
 {
     public const float JsonTileSpacing = 1f;
+    private const int CurrentLegacyBitmapMigrationVersion = 1;
 
     [SerializeField] protected Texture2D ImageMap;
     [SerializeField] protected float spacing = 1f;
@@ -40,6 +41,7 @@ public class Map : MonoBehaviour
     [SerializeField] private KayKitDungeonCatalog dungeonCatalog;
     [SerializeField, HideInInspector] private MapSourceMode previousSourceMode = MapSourceMode.Bitmap;
     [SerializeField, HideInInspector] private float legacyBitmapSpacing = JsonTileSpacing;
+    [SerializeField, HideInInspector] private int legacyBitmapMigrationVersion;
 
     protected TileType[,] GridData { get; set; }
     protected bool[,] LineOfSightBlocks { get; set; }
@@ -48,6 +50,11 @@ public class Map : MonoBehaviour
     public TextAsset JsonSource => jsonSource;
     public KayKitDungeonCatalog DungeonCatalog => dungeonCatalog;
     public float Spacing => spacing;
+
+    private void Reset()
+    {
+        legacyBitmapMigrationVersion = CurrentLegacyBitmapMigrationVersion;
+    }
 
     private void OnValidate()
     {
@@ -146,14 +153,27 @@ public class Map : MonoBehaviour
     public void ClearGeneratedContent()
     {
         HashSet<GameObject> owned = new();
-        foreach (Transform child in DirectChildrenSnapshot())
+        Transform[] children = DirectChildrenSnapshot();
+        bool hasGeneratedMapRoot = false;
+        foreach (Transform child in children)
         {
             if (child != null && child.TryGetComponent(out GeneratedMapRoot _))
+            {
+                hasGeneratedMapRoot = true;
                 owned.Add(child.gameObject);
+            }
         }
 
-        foreach (GameObject legacy in FindLegacyBitmapGeneratedContent())
-            owned.Add(legacy);
+        if (legacyBitmapMigrationVersion < CurrentLegacyBitmapMigrationVersion)
+        {
+            if (!hasGeneratedMapRoot)
+            {
+                foreach (GameObject legacy in FindLegacyBitmapGeneratedContent(children))
+                    owned.Add(legacy);
+            }
+
+            CompleteLegacyBitmapMigration();
+        }
 
         foreach (GameObject target in owned)
             DestroyOwned(target);
@@ -174,12 +194,12 @@ public class Map : MonoBehaviour
         return children;
     }
 
-    private GameObject[] FindLegacyBitmapGeneratedContent()
+    private GameObject[] FindLegacyBitmapGeneratedContent(IEnumerable<Transform> children)
     {
         if (ImageMap == null || Settings == null)
             return Array.Empty<GameObject>();
 
-        List<GameObject> candidates = DirectChildrenSnapshot()
+        List<GameObject> candidates = children
             .Where(child => child != null && !child.TryGetComponent(out GeneratedMapRoot _))
             .Select(child => child.gameObject)
             .ToList();
@@ -223,6 +243,15 @@ public class Map : MonoBehaviour
         }
 
         return legacy.ToArray();
+    }
+
+    private void CompleteLegacyBitmapMigration()
+    {
+        legacyBitmapMigrationVersion = CurrentLegacyBitmapMigrationVersion;
+#if UNITY_EDITOR
+        if (!Application.isPlaying)
+            EditorUtility.SetDirty(this);
+#endif
     }
 
     private static void MoveFirstMatch(

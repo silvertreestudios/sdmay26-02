@@ -24,8 +24,13 @@ namespace Game.KayKit
         public Vector2Int Footprint => footprint;
         public int DefaultRotation => defaultRotation;
         public float DefaultYOffset => defaultYOffset;
-        public bool BlocksMovement => blocksMovement;
-        public bool BlocksLineOfSight => blocksLineOfSight;
+        public bool BlocksMovement => blocksMovement || WrapperBlocksPlacement;
+        public bool BlocksLineOfSight => blocksLineOfSight || WrapperBlocksPlacement;
+
+        private bool WrapperBlocksPlacement =>
+            wrapperPrefab != null &&
+            wrapperPrefab.GetComponent<Collider>() != null &&
+            wrapperPrefab.GetComponent<MapLineOfSightBlocker>() != null;
 
         public KayKitDungeonCatalogEntry(string id, GameObject model)
             : this(id, model, null, Vector2Int.one, 0, 0f, false, false)

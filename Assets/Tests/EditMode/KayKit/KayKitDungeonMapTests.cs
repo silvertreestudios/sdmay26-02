@@ -184,6 +184,39 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void CatalogWallPlacements_BlockMovementLineOfSightAndPhysicsWithoutChangingStructuralWalls()
+    {
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        KayKitDungeonCatalogEntry wall = catalog.Entries.Single(entry =>
+            entry.Id.EndsWith("/wall", StringComparison.Ordinal));
+        KayKitDungeonCatalogEntry regenerated =
+            KayKitDungeonSetupTool.CreateCatalogEntry(wall.Id, wall.Model);
+        KayKitDungeonCatalogEntry doorway = catalog.Entries.Single(entry =>
+            entry.Id.EndsWith("/wall_doorway", StringComparison.Ordinal));
+
+        Assert.That(wall.PlacementPrefab, Is.Not.Null);
+        Assert.That(wall.PlacementPrefab.GetComponent<BoxCollider>(), Is.Not.Null);
+        Assert.That(wall.PlacementPrefab.GetComponent<MapLineOfSightBlocker>(), Is.Not.Null);
+        Assert.That(wall.BlocksMovement, Is.True);
+        Assert.That(wall.BlocksLineOfSight, Is.True);
+        Assert.That(regenerated.BlocksMovement, Is.True);
+        Assert.That(regenerated.BlocksLineOfSight, Is.True);
+        Assert.That(doorway.BlocksMovement, Is.False);
+        Assert.That(doorway.BlocksLineOfSight, Is.False);
+
+        KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
+            $"{{\"version\":1,\"rows\":[\"#.\"],\"objects\":[{{\"assetId\":\"{wall.Id}\",\"x\":1,\"z\":0}}]}}",
+            catalog);
+
+        Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
+        Assert.That(result.Map.GridData[0, 0], Is.EqualTo(TileType.Wall));
+        Assert.That(result.Map.GridData[1, 0], Is.EqualTo(TileType.Obstacle));
+        Assert.That(result.Map.LineOfSightBlocks[0, 0], Is.True);
+        Assert.That(result.Map.LineOfSightBlocks[1, 0], Is.True);
+    }
+
+    [Test]
     public void CatalogLookup_TracksInspectorAddRenameAndRemoveEdits()
     {
         KayKitDungeonCatalog catalog = Catalog(Entry("original", Vector2Int.one, false, false));
@@ -441,6 +474,7 @@ public sealed class KayKitDungeonMapTests
         image.Apply();
         Material floor = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Dirt.mat");
         ConfigureBitmapSource(map, image, floor, 2f);
+        SetLegacyBitmapMigrationPending(map);
 
         GameObject legacyFloor = Track(GameObject.CreatePrimitive(PrimitiveType.Quad));
         legacyFloor.name = "Quad";
@@ -478,10 +512,45 @@ public sealed class KayKitDungeonMapTests
         Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
             string.Join(Environment.NewLine, validation.Errors));
 
-        Assert.That(legacyFloor == null, Is.True);
-        Assert.That(spacedLegacyFloor == null, Is.True);
+        Assert.That(legacyFloor, Is.Not.Null);
+        Assert.That(spacedLegacyFloor, Is.Not.Null);
         Assert.That(mapObject.transform.Find("GeneratedMap"), Is.Not.Null);
         Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
+
+        map.ClearGeneratedContent();
+        map.ClearGeneratedContent();
+
+        Assert.That(mapObject.transform.Find("GeneratedMap"), Is.Null);
+        Assert.That(legacyFloor.transform.parent, Is.SameAs(mapObject.transform));
+        Assert.That(spacedLegacyFloor.transform.parent, Is.SameAs(mapObject.transform));
+    }
+
+    [Test]
+    public void ExistingGeneratedRoot_ProvesMigrationAndPreservesUnownedLegacyLookalike()
+    {
+        GameObject mapObject = Track(new GameObject("Owned Migration Marker"));
+        Map map = mapObject.AddComponent<Map>();
+        Texture2D image = Track(new Texture2D(1, 1));
+        image.SetPixel(0, 0, Color.red);
+        image.Apply();
+        Material floor = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Dirt.mat");
+        ConfigureBitmapSource(map, image, floor);
+        SetLegacyBitmapMigrationPending(map);
+
+        GameObject generated = Track(new GameObject("GeneratedMap"));
+        generated.AddComponent<GeneratedMapRoot>();
+        generated.transform.SetParent(mapObject.transform, false);
+        GameObject manualLookalike = Track(GameObject.CreatePrimitive(PrimitiveType.Quad));
+        manualLookalike.name = "Quad";
+        manualLookalike.GetComponent<MeshRenderer>().sharedMaterial = floor;
+        manualLookalike.transform.SetParent(mapObject.transform, true);
+
+        map.ClearGeneratedContent();
+        map.ClearGeneratedContent();
+
+        Assert.That(generated == null, Is.True);
+        Assert.That(manualLookalike, Is.Not.Null);
+        Assert.That(manualLookalike.transform.parent, Is.SameAs(mapObject.transform));
     }
 
     [Test]
@@ -681,6 +750,8 @@ public sealed class KayKitDungeonMapTests
         Map map = mapObject.AddComponent<Map>();
 
         Assert.That(map.SourceMode, Is.EqualTo(MapSourceMode.Bitmap));
+        SerializedObject serialized = new(map);
+        Assert.That(serialized.FindProperty("legacyBitmapMigrationVersion").intValue, Is.GreaterThan(0));
     }
 
     private KayKitDungeonCatalog Catalog(params KayKitDungeonCatalogEntry[] entries)
@@ -735,6 +806,13 @@ public sealed class KayKitDungeonMapTests
         definition.FindPropertyRelative("Color").colorValue = Color.red;
         definition.FindPropertyRelative("Tile").enumValueIndex = (int)TileType.Ground;
         definition.FindPropertyRelative("Floor").objectReferenceValue = floor;
+        serialized.ApplyModifiedPropertiesWithoutUndo();
+    }
+
+    private static void SetLegacyBitmapMigrationPending(Map map)
+    {
+        SerializedObject serialized = new(map);
+        serialized.FindProperty("legacyBitmapMigrationVersion").intValue = 0;
         serialized.ApplyModifiedPropertiesWithoutUndo();
     }
 
