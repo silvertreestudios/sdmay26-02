@@ -1052,8 +1052,11 @@ namespace Game.Rules.Runtime
                     !activeChildren.TryGetValue(reservation.ParentId, out ChildReservation active) ||
                     !ReferenceEquals(active, reservation))
                 {
+                    string owner = reservation == null
+                        ? "<unknown>"
+                        : reservation.ParentId.Value.ToString();
                     throw new InvalidOperationException(
-                        $"Operation {reservation?.ParentId.Value} does not own its active child reservation.");
+                        $"Operation {owner} does not own its active child reservation.");
                 }
                 activeChildren.Remove(reservation.ParentId);
             }
