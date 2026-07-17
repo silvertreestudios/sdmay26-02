@@ -263,11 +263,33 @@ public enum OpStatus
     Cancelled
 }
 
-public sealed record OpResult<TResult>(
-    OpStatus Status,
-    TResult? Value,
-    ImmutableArray<RuleFact> Facts,
-    InvalidReason? InvalidReason = null);
+public abstract class OpResult<TResult>
+{
+    public abstract OpStatus Status { get; }
+    public ImmutableArray<RuleFact> Facts { get; }
+}
+
+public sealed class ResolvedOpResult<TResult> : OpResult<TResult>
+{
+    public TResult Value { get; }
+    public override OpStatus Status => OpStatus.Resolved;
+}
+
+public sealed class InvalidOpResult<TResult> : OpResult<TResult>
+{
+    public string Reason { get; }
+    public override OpStatus Status => OpStatus.Invalid;
+}
+
+public sealed class InterruptedOpResult<TResult> : OpResult<TResult>
+{
+    public override OpStatus Status => OpStatus.Interrupted;
+}
+
+public sealed class CancelledOpResult<TResult> : OpResult<TResult>
+{
+    public override OpStatus Status => OpStatus.Cancelled;
+}
 ```
 
 The meanings are important:
@@ -276,6 +298,17 @@ The meanings are important:
 - `Invalid`: the request could not legally begin. It spends no cost and opens no action lifecycle window.
 - `Interrupted`: it legally began and committed its costs, but a rule disrupted it before its main effect.
 - `Cancelled`: an explicit workflow ended without committing its intended state change. This is used sparingly; declining a prompt usually resolves the prompt rather than cancelling its parent.
+
+The four outcomes are sealed structural cases, not one record containing conditionally valid fields. Only
+`ResolvedOpResult<TResult>` exposes `Value`, and only `InvalidOpResult<TResult>` exposes `Reason`.
+`Status` is derived from the concrete type for tracing and compact diagnostics; it is not a separate
+discriminator that makes another base-class property safe to read. Callers pattern-match the concrete
+case whenever they need outcome-specific data and explicitly decide how Invalid, Interrupted, and
+Cancelled propagate through a composite workflow.
+
+Factories on `OpResult<TResult>` construct the four cases without exposing their constructors:
+`Resolved(value)`, `Invalid(reason)`, `Interrupted()`, and `Cancelled()`. The dispatcher preserves
+the concrete case when it attaches the completed subtree's Facts.
 
 The runner automatically includes committed descendant Facts in the result envelope. Handlers never maintain parallel “effects applied” or “facts emitted” builders.
 
@@ -515,19 +548,29 @@ private async ValueTask<OpResult<TResult>> DispatchAction<TResult>(
 
     var validation = validators.Validate(frame, store.Snapshot);
     if (!validation.IsValid)
-        return OpResult.Invalid<TResult>(validation.Reason);
+        return OpResult<TResult>.Invalid(validation.Reason);
 
     var costs = await DispatchNested(
         frame,
         new CommitActionCostsOp(action.Actor, profile));
-    if (costs.Status != OpStatus.Resolved)
-        return OpResult.Invalid<TResult>(costs.InvalidReason!);
+    if (costs is InvalidOpResult<ActionCostsOutcome> invalidCosts)
+        return OpResult<TResult>.Invalid(invalidCosts.Reason);
+    if (costs is not ResolvedOpResult<ActionCostsOutcome>)
+    {
+        throw new InvalidOperationException(
+            "Atomic cost commitment can only resolve or reject before an action begins.");
+    }
 
     var begun = await DispatchNested(
         frame,
         new ActionBegunOp(frame.Id));
-    if (begun.Value.Decision == ActionStartDecision.Interrupted)
-        return OpResult.Interrupted<TResult>();
+    if (begun is not ResolvedOpResult<ActionStartOutcome> resolvedBegun)
+    {
+        throw new InvalidOperationException(
+            "ActionBegunOp reports disruption through ActionStartOutcome.");
+    }
+    if (resolvedBegun.Value.Decision == ActionStartDecision.Interrupted)
+        return OpResult<TResult>.Interrupted();
 
     return await InvokeHandler(frame);
 }
@@ -569,12 +612,14 @@ var check = await context.Dispatch(new SkillCheckOp(
     Skill.Acrobatics,
     context.Snapshot.ReflexDc(enemy)));
 
-if (check.Status != OpStatus.Resolved)
-    return TumbleThroughOutcome.InvalidCheck(check.InvalidReason!);
+if (check is InvalidOpResult<CheckOutcome> invalidCheck)
+    return TumbleThroughOutcome.InvalidCheck(invalidCheck.Reason);
+if (check is not ResolvedOpResult<CheckOutcome> resolvedCheck)
+    throw new InvalidOperationException("A skill check cannot be interrupted or cancelled.");
 
 // A legal failed check changes control flow: movement ends and the rule
 // exposes the synthetic departure reaction window required by Tumble Through.
-if (check.Value.Degree < DegreeOfSuccess.Success)
+if (resolvedCheck.Value.Degree < DegreeOfSuccess.Success)
 {
     await context.Dispatch(new MovementLeavingSquareOp(
         frame.Id,
@@ -584,7 +629,7 @@ if (check.Value.Degree < DegreeOfSuccess.Success)
         MovementTriggerKind.TumbleThroughFailure,
         context.NewTriggerId()));
 
-    return TumbleThroughOutcome.FailedCheck(check.Value.Degree);
+    return TumbleThroughOutcome.FailedCheck(resolvedCheck.Value.Degree);
 }
 
 // Only a successful check reaches the movement Op. Its committed Facts,
@@ -595,16 +640,18 @@ var movement = await context.Dispatch(new MovePathOp(
     movementBudget,
     tumbleThroughPermission));
 
-if (movement.Status != OpStatus.Resolved)
-    return TumbleThroughOutcome.InvalidMovement(movement.InvalidReason!);
+if (movement is InvalidOpResult<MovePathOutcome> invalidMovement)
+    return TumbleThroughOutcome.InvalidMovement(invalidMovement.Reason);
+if (movement is not ResolvedOpResult<MovePathOutcome> resolvedMovement)
+    throw new InvalidOperationException("Nested path movement cannot be interrupted or cancelled.");
 
 var passedThrough = movement.Facts
     .OfType<OccupiedSpaceTraversedFact>()
     .Any(fact => fact.Occupant == enemy);
 
 return passedThrough
-    ? TumbleThroughOutcome.PassedThrough(check.Value.Degree, movement.Value)
-    : TumbleThroughOutcome.CouldNotPass(movement.Value);
+    ? TumbleThroughOutcome.PassedThrough(resolvedCheck.Value.Degree, resolvedMovement.Value)
+    : TumbleThroughOutcome.CouldNotPass(resolvedMovement.Value);
 ```
 
 The player implementation, AI implementation, replay implementation, and tests provide adapters for `PromptChoiceOp<TChoice>`. A handler does not directly open UI or pause a coroutine.
@@ -699,8 +746,10 @@ var aura = new ActiveEffectInstance(
         LastExpandedRound: null));
 
 var created = await context.Dispatch(new CreateActiveEffectOp(aura));
-if (created.Status != OpStatus.Resolved)
-    return CastSpellOutcome.EffectFailed(created.InvalidReason!);
+if (created is InvalidOpResult<ActiveEffectCreationOutcome> invalidCreation)
+    return CastSpellOutcome.EffectFailed(invalidCreation.Reason);
+if (created is not ResolvedOpResult<ActiveEffectCreationOutcome>)
+    throw new InvalidOperationException("Effect creation cannot be interrupted or cancelled.");
 
 // On an eligible later turn, Sustain Bless reads the current version and state.
 var current = context.Snapshot.ActiveEffects.Get(aura.Id);
@@ -1011,8 +1060,11 @@ public sealed class ResolveStrikeHandler
                 op.Weapon,
                 CheckSource.From(frame.Id)));
 
-        if (modifiers.Status != OpStatus.Resolved)
-            return StrikeResolution.Aborted(modifiers.InvalidReason!);
+        if (modifiers is InvalidOpResult<ModifierCollection> invalidModifiers)
+            return StrikeResolution.Aborted(invalidModifiers.Reason);
+        if (modifiers is not ResolvedOpResult<ModifierCollection> resolvedModifiers)
+            throw new InvalidOperationException(
+                "Modifier collection cannot be interrupted or cancelled.");
 
         // Reactive Strike is authorized to ignore MAP. A normal Strike reads
         // the actor's current penalty but increments it only after this Op.
@@ -1023,14 +1075,14 @@ public sealed class ResolveStrikeHandler
         var roll = attacks.Roll(
             op.Attacker,
             weapon,
-            modifiers.Value,
+            resolvedModifiers.Value,
             mapPenalty,
             context.Rolls);
         var armorClass = context.Snapshot.Defenses.ArmorClass(op.Target);
         var degree = DegreeOfSuccessResolver.Resolve(roll.Total, armorClass);
 
         if (degree < DegreeOfSuccess.Success)
-            return StrikeResolution.Miss(roll, degree, modifiers.Value);
+            return StrikeResolution.Miss(roll, degree, resolvedModifiers.Value);
 
         // Calculation is pure. It must not call TakeDamage.
         var packet = damage.Calculate(
@@ -1044,13 +1096,19 @@ public sealed class ResolveStrikeHandler
         var applied = await context.Dispatch(
             new ApplyDamageOp(op.Target, packet, op.Source));
 
+        var damageOutcome = applied switch
+        {
+            ResolvedOpResult<DamageOutcome> resolvedDamage => resolvedDamage.Value,
+            InvalidOpResult<DamageOutcome> => DamageOutcome.None,
+            _ => throw new InvalidOperationException(
+                "Damage application cannot be interrupted or cancelled.")
+        };
+
         return StrikeResolution.Hit(
             roll,
             degree,
-            modifiers.Value,
-            applied.Status == OpStatus.Resolved
-                ? applied.Value
-                : DamageOutcome.None);
+            resolvedModifiers.Value,
+            damageOutcome);
     }
 }
 
@@ -1070,16 +1128,19 @@ public sealed class StrikeActionHandler
             StrikePurpose.Normal,
             DamageSource.From(frame.Id)));
 
-        if (strike.Status != OpStatus.Resolved)
-            return StrikeOutcome.Aborted(strike.InvalidReason!);
+        if (strike is InvalidOpResult<StrikeResolution> invalidStrike)
+            return StrikeOutcome.Aborted(invalidStrike.Reason);
+        if (strike is not ResolvedOpResult<StrikeResolution> resolvedStrike)
+            throw new InvalidOperationException(
+                "Nested strike resolution cannot be interrupted or cancelled.");
 
         // Every legally resolved normal Strike changes MAP, including a miss.
         var map = await context.Dispatch(
             new IncrementMultipleAttackPenaltyOp(frame.Op.Actor));
 
         return new StrikeOutcome(
-            strike.Value,
-            MapIncremented: map.Status == OpStatus.Resolved);
+            resolvedStrike.Value,
+            MapIncremented: map is ResolvedOpResult<MultipleAttackPenaltyOutcome>);
     }
 }
 ```
@@ -1147,8 +1208,8 @@ public static class ReactiveStrikeRule
         OpNext<ActionStartOutcome> next)
     {
         var current = await next();
-        if (current.Status != OpStatus.Resolved ||
-            current.Value.Decision == ActionStartDecision.Interrupted)
+        if (current is not ResolvedOpResult<ActionStartOutcome> resolvedCurrent ||
+            resolvedCurrent.Value.Decision == ActionStartDecision.Interrupted)
         {
             return current;
         }
@@ -1176,7 +1237,8 @@ public static class ReactiveStrikeRule
             context.Snapshot.PlayerFor(binding.Owner),
             ReactiveStrikePrompt.For(binding.Owner, triggering.Actor)));
 
-        if (choice.Status != OpStatus.Resolved || !choice.Value.Choice)
+        if (choice is not ResolvedOpResult<ChoiceResult<bool>> resolvedChoice ||
+            !resolvedChoice.Value.Choice)
             return current;
 
         // DispatchAuthorized proves this Op came from the active feat binding.
@@ -1188,9 +1250,9 @@ public static class ReactiveStrikeRule
                 triggering.Id,
                 binding.Id));
 
-        return reaction.Status == OpStatus.Resolved &&
-               reaction.Value.DisruptsTriggeringAction
-            ? OpResult.Resolved(ActionStartOutcome.Interrupted)
+        return reaction is ResolvedOpResult<ReactiveStrikeOutcome> resolvedReaction &&
+               resolvedReaction.Value.DisruptsTriggeringAction
+            ? OpResult<ActionStartOutcome>.Resolved(ActionStartOutcome.Interrupted)
             : current;
     }
 
@@ -1202,7 +1264,7 @@ public static class ReactiveStrikeRule
             OpNext<MovementTriggerOutcome> next)
     {
         var current = await next();
-        if (current.Status != OpStatus.Resolved)
+        if (current is not ResolvedOpResult<MovementTriggerOutcome>)
             return current;
 
         var triggering = context.Trace.GetAction(frame.Op.ActionOpId);
@@ -1216,7 +1278,8 @@ public static class ReactiveStrikeRule
             context.Snapshot.PlayerFor(binding.Owner),
             ReactiveStrikePrompt.For(binding.Owner, frame.Op.Mover)));
 
-        if (choice.Status == OpStatus.Resolved && choice.Value.Choice)
+        if (choice is ResolvedOpResult<ChoiceResult<bool>> resolvedChoice &&
+            resolvedChoice.Value.Choice)
         {
             await context.DispatchAuthorized(
                 binding,
@@ -1267,16 +1330,19 @@ public static class ReactiveStrikeRule
             StrikePurpose.Reaction,
             DamageSource.From(frame.Id)));
 
-        if (strike.Status != OpStatus.Resolved)
-            return ReactiveStrikeOutcome.Aborted(strike.InvalidReason!);
+        if (strike is InvalidOpResult<StrikeResolution> invalidStrike)
+            return ReactiveStrikeOutcome.Aborted(invalidStrike.Reason);
+        if (strike is not ResolvedOpResult<StrikeResolution> resolvedStrike)
+            throw new InvalidOperationException(
+                "Nested strike resolution cannot be interrupted or cancelled.");
 
         // The nested-only reaction purpose neither applies nor increments MAP.
         var triggeringAction = context.Trace.TryGetAction(
             frame.Op.TriggeringOpId);
-        var disrupts = strike.Value.Degree == DegreeOfSuccess.CriticalSuccess &&
+        var disrupts = resolvedStrike.Value.Degree == DegreeOfSuccess.CriticalSuccess &&
             triggeringAction?.ActionProfile?.Traits.Contains(Trait.Manipulate) == true;
 
-        return new ReactiveStrikeOutcome(strike.Value, disrupts);
+        return new ReactiveStrikeOutcome(resolvedStrike.Value, disrupts);
     }
 
     // These helpers include enemy/reach/reaction/trigger-deduplication checks.
@@ -1386,9 +1452,13 @@ public static class BlessRule
         var created = await context.Dispatch(
             new CreateActiveEffectOp(aura));
 
-        return created.Status == OpStatus.Resolved
-            ? CastSpellOutcome.Applied(aura.Id)
-            : CastSpellOutcome.EffectFailed(created.InvalidReason!);
+        if (created is InvalidOpResult<ActiveEffectCreationOutcome> invalidCreation)
+            return CastSpellOutcome.EffectFailed(invalidCreation.Reason);
+        if (created is not ResolvedOpResult<ActiveEffectCreationOutcome>)
+            throw new InvalidOperationException(
+                "Effect creation cannot be interrupted or cancelled.");
+
+        return CastSpellOutcome.Applied(aura.Id);
     }
 
     private static async ValueTask<OpResult<ModifierCollection>>
@@ -1399,7 +1469,7 @@ public static class BlessRule
             OpNext<ModifierCollection> next)
     {
         var result = await next();
-        if (result.Status != OpStatus.Resolved)
+        if (result is not ResolvedOpResult<ModifierCollection> resolvedResult)
             return result;
 
         var effect = context.Snapshot.ActiveEffects.Get(
@@ -1419,7 +1489,7 @@ public static class BlessRule
         // The central modifier resolver performs typed-bonus stacking after
         // every binding contributes. Multiple Bless auras still give only the
         // highest applicable status bonus.
-        return result.Map(modifiers => modifiers.Add(
+        return OpResult<ModifierCollection>.Resolved(resolvedResult.Value.Add(
             Modifier.StatusBonus(
                 amount: 1,
                 source: binding.Source,
@@ -1466,9 +1536,13 @@ public static class BlessRule
                     LastExpandedRound = context.Snapshot.Round
                 }));
 
-        return updated.Status == OpStatus.Resolved
-            ? SustainBlessOutcome.Expanded(state.RadiusFeet + 10)
-            : SustainBlessOutcome.Failed(updated.InvalidReason!);
+        if (updated is InvalidOpResult<EffectStateUpdateOutcome> invalidUpdate)
+            return SustainBlessOutcome.Failed(invalidUpdate.Reason);
+        if (updated is not ResolvedOpResult<EffectStateUpdateOutcome>)
+            throw new InvalidOperationException(
+                "Effect-state updates cannot be interrupted or cancelled.");
+
+        return SustainBlessOutcome.Expanded(state.RadiusFeet + 10);
     }
 
     // The HUD/aura renderer uses the same range and alliance helpers as the
@@ -1599,12 +1673,14 @@ public sealed class TumbleThroughHandler
             budget,
             MovementPermission.Normal));
 
-        if (approach.Status != OpStatus.Resolved)
-            return TumbleThroughOutcome.InvalidMovement(
-                approach.InvalidReason!);
+        if (approach is InvalidOpResult<MovePathOutcome> invalidApproach)
+            return TumbleThroughOutcome.InvalidMovement(invalidApproach.Reason);
+        if (approach is not ResolvedOpResult<MovePathOutcome> resolvedApproach)
+            throw new InvalidOperationException(
+                "Nested path movement cannot be interrupted or cancelled.");
 
-        if (!approach.Value.ReachedDestination)
-            return TumbleThroughOutcome.MovementEnded(approach.Value);
+        if (!resolvedApproach.Value.ReachedDestination)
+            return TumbleThroughOutcome.MovementEnded(resolvedApproach.Value);
 
         var check = await context.Dispatch(new SkillCheckOp(
             op.Actor,
@@ -1612,16 +1688,19 @@ public sealed class TumbleThroughHandler
             context.Snapshot.ReflexDc(op.Enemy),
             CheckSource.From(frame.Id)));
 
-        if (check.Status != OpStatus.Resolved)
-            return TumbleThroughOutcome.InvalidCheck(check.InvalidReason!);
+        if (check is InvalidOpResult<CheckOutcome> invalidCheck)
+            return TumbleThroughOutcome.InvalidCheck(invalidCheck.Reason);
+        if (check is not ResolvedOpResult<CheckOutcome> resolvedCheck)
+            throw new InvalidOperationException(
+                "A skill check cannot be interrupted or cancelled.");
 
-        if (check.Value.Degree < DegreeOfSuccess.Success)
+        if (resolvedCheck.Value.Degree < DegreeOfSuccess.Success)
         {
             await DispatchFailedEntryTrigger(
                 frame,
                 startingSquare,
                 context);
-            return TumbleThroughOutcome.FailedCheck(check.Value.Degree);
+            return TumbleThroughOutcome.FailedCheck(resolvedCheck.Value.Degree);
         }
 
         // Success alone is not enough. Before entering an occupied square,
@@ -1658,6 +1737,18 @@ public sealed class TumbleThroughHandler
             budget,
             permission));
 
+        if (crossing is InvalidOpResult<MovePathOutcome> invalidCrossing)
+        {
+            await DispatchFailedEntryTrigger(
+                frame,
+                startingSquare,
+                context);
+            return TumbleThroughOutcome.InvalidMovement(invalidCrossing.Reason);
+        }
+        if (crossing is not ResolvedOpResult<MovePathOutcome> resolvedCrossing)
+            throw new InvalidOperationException(
+                "Nested path movement cannot be interrupted or cancelled.");
+
         // Only a committed traversal Fact proves that the rule succeeded.
         var passedThrough = crossing.Facts
             .OfType<OccupiedSpaceTraversedFact>()
@@ -1669,12 +1760,12 @@ public sealed class TumbleThroughHandler
                 frame,
                 startingSquare,
                 context);
-            return TumbleThroughOutcome.CouldNotPass(crossing.Value);
+            return TumbleThroughOutcome.CouldNotPass(resolvedCrossing.Value);
         }
 
         return TumbleThroughOutcome.PassedThrough(
-            check.Value.Degree,
-            crossing.Value);
+            resolvedCheck.Value.Degree,
+            resolvedCrossing.Value);
     }
 
     private static async ValueTask DispatchFailedEntryTrigger(
@@ -1791,8 +1882,9 @@ public static class CranialDetonationRule
                     snapshot.PlayerFor(binding.Owner),
                     CranialDetonationPrompt.For(origins)));
 
-            if (choice.Status != OpStatus.Resolved ||
-                !choice.Value.Choice.Accepted)
+            if (choice is not ResolvedOpResult<ChoiceResult<CranialDetonationChoice>>
+                    resolvedChoice ||
+                !resolvedChoice.Value.Choice.Accepted)
             {
                 continue;
             }
@@ -1804,7 +1896,7 @@ public static class CranialDetonationRule
                     binding.Id,
                     castId,
                     origins,
-                    choice.Value.Choice.Mode));
+                    resolvedChoice.Value.Choice.Mode));
         }
     }
 
@@ -1875,7 +1967,8 @@ public static class CranialDetonationRule
                     origin,
                     DeathSource.From(frame.Id)));
 
-                if (death.Status == OpStatus.Resolved && death.Value.Died)
+                if (death is ResolvedOpResult<RuleDeathOutcome> resolvedDeath &&
+                    resolvedDeath.Value.Died)
                     exploding.Add(origin);
             }
 
@@ -1997,6 +2090,8 @@ These rules should be enforced in code review and tests:
 13. **Rule ordering is deterministic.**
 14. **Each migrated field has one authoritative owner.**
 15. **Rules assemblies contain no Unity scene-object references.**
+16. **Each operation result is one sealed structural case; only Resolved exposes a value and only Invalid exposes a reason.**
+17. **Attaching descendant Facts preserves the operation result's concrete case.**
 
 ---
 
@@ -2042,6 +2137,7 @@ Most engine tests should be EditMode tests against an in-memory `RulesState`, de
 - invalid action: no cost Fact, no `ActionBegunOp`, no fact listeners;
 - interrupted action: cost Fact exists, feature handler did not run;
 - resolved failed check: `Resolved`, not `Invalid`;
+- result cases expose only their valid payload and retain their case when subtree Facts are attached;
 - nested-only Op rejects root dispatch;
 - child Facts appear in the root result once and with correct ancestry;
 - middleware and fact listeners use stable ordering;

@@ -14,21 +14,44 @@ namespace Game.Rules.Runtime.Tests
         private static readonly RuleSource Source = RuleSource.FromSlug("dispatcher-test");
 
         [Test]
-        public void ResultContractsRepresentEveryStatusExactly()
+        public void ResultContractsUseFourStructuralCasesAndPreserveFacts()
         {
-            OpResult<int> resolvedFailure = OpResult<int>.Resolved(-1);
-            OpResult<int> invalid = OpResult<int>.Invalid("could not begin");
-            OpResult<int> interrupted = OpResult<int>.Interrupted();
-            OpResult<int> cancelled = OpResult<int>.Cancelled();
+            ResolvedOpResult<int> resolvedFailure = OpResult<int>.Resolved(-1);
+            InvalidOpResult<int> invalid = OpResult<int>.Invalid("could not begin");
+            InterruptedOpResult<int> interrupted = OpResult<int>.Interrupted();
+            CancelledOpResult<int> cancelled = OpResult<int>.Cancelled();
 
             Assert.That(resolvedFailure.Status, Is.EqualTo(OpStatus.Resolved));
             Assert.That(resolvedFailure.Value, Is.EqualTo(-1),
                 "A failed domain check is still a legal resolution.");
             Assert.That(invalid.Status, Is.EqualTo(OpStatus.Invalid));
-            Assert.That(invalid.InvalidReason, Is.EqualTo("could not begin"));
+            Assert.That(invalid.Reason, Is.EqualTo("could not begin"));
             Assert.That(interrupted.Status, Is.EqualTo(OpStatus.Interrupted));
             Assert.That(cancelled.Status, Is.EqualTo(OpStatus.Cancelled));
+            Assert.That(typeof(OpResult<int>).IsAbstract, Is.True);
+            Assert.That(typeof(ResolvedOpResult<int>).IsSealed, Is.True);
+            Assert.That(typeof(InvalidOpResult<int>).IsSealed, Is.True);
+            Assert.That(typeof(InterruptedOpResult<int>).IsSealed, Is.True);
+            Assert.That(typeof(CancelledOpResult<int>).IsSealed, Is.True);
+            Assert.That(typeof(OpResult<int>).GetProperty("Value"), Is.Null);
+            Assert.That(typeof(OpResult<int>).GetProperty("Reason"), Is.Null);
             Assert.Throws<ArgumentException>(() => OpResult<int>.Invalid(" "));
+
+            IReadOnlyList<RuleFact> facts = Array.AsReadOnly(
+                new RuleFact[] { new HealthChangedFact(1, 2) });
+            OpResult<int>[] completed =
+            {
+                resolvedFailure.WithFacts(facts),
+                invalid.WithFacts(facts),
+                interrupted.WithFacts(facts),
+                cancelled.WithFacts(facts)
+            };
+
+            Assert.That(completed[0], Is.TypeOf<ResolvedOpResult<int>>());
+            Assert.That(completed[1], Is.TypeOf<InvalidOpResult<int>>());
+            Assert.That(completed[2], Is.TypeOf<InterruptedOpResult<int>>());
+            Assert.That(completed[3], Is.TypeOf<CancelledOpResult<int>>());
+            Assert.That(completed.All(result => ReferenceEquals(result.Facts, facts)), Is.True);
         }
 
         [Test]
@@ -48,8 +71,9 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<int> result = await dispatcher.Dispatch(new RootOp(2));
 
-            Assert.That(result.Status, Is.EqualTo(OpStatus.Resolved));
-            Assert.That(result.Value, Is.EqualTo(14));
+            ResolvedOpResult<int> resolved = RequireResolved(result);
+            Assert.That(resolved.Status, Is.EqualTo(OpStatus.Resolved));
+            Assert.That(resolved.Value, Is.EqualTo(14));
             Assert.That(result.Facts, Has.Count.EqualTo(2));
             Assert.That(result.Facts.Select(fact => fact.Id),
                 Is.EqualTo(new[] { new FactId(1), new FactId(2) }));
@@ -90,8 +114,9 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<OpStatus> result = await dispatcher.Dispatch(new RejectRootOp());
 
-            Assert.That(result.Status, Is.EqualTo(OpStatus.Resolved));
-            Assert.That(result.Value, Is.EqualTo(OpStatus.Invalid));
+            ResolvedOpResult<OpStatus> resolved = RequireResolved(result);
+            Assert.That(resolved.Status, Is.EqualTo(OpStatus.Resolved));
+            Assert.That(resolved.Value, Is.EqualTo(OpStatus.Invalid));
             Assert.That(result.Facts, Is.Empty);
         }
 
@@ -248,7 +273,7 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(handler.OverlapError, Is.Not.Null);
             Assert.That(handler.OverlapError.Message, Does.Contain("overlapping child dispatch"));
-            Assert.That(result.Value, Is.EqualTo(13));
+            Assert.That(RequireResolved(result).Value, Is.EqualTo(13));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(13));
             Assert.That(result.Facts, Has.Count.EqualTo(2));
             Assert.That(result.Facts.Distinct().Count(), Is.EqualTo(2));
@@ -291,11 +316,11 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(handler.ChildError, Is.Not.Null);
             Assert.That(handler.ChildError.Message, Does.Contain("expected nested failure"));
-            Assert.That(recovered.Value, Is.EqualTo(11));
+            Assert.That(RequireResolved(recovered).Value, Is.EqualTo(11));
             Assert.That(recovered.Facts, Has.Count.EqualTo(1));
             Assert.That(recovered.Facts[0].SourceOpId, Is.EqualTo(new OpId(702)));
             Assert.That(recovered.Facts[0].RootOpId, Is.EqualTo(new OpId(700)));
-            Assert.That(laterRoot.Value, Is.EqualTo(12));
+            Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(12));
             Assert.That(laterRoot.Facts, Has.Count.EqualTo(1));
             Assert.That(laterRoot.Facts[0].SourceOpId, Is.EqualTo(new OpId(704)));
             Assert.That(laterRoot.Facts[0].RootOpId, Is.EqualTo(new OpId(703)));
@@ -342,7 +367,7 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<int> laterRoot = await dispatcher.Dispatch(new SingleIncrementRootOp());
 
-            Assert.That(laterRoot.Value, Is.EqualTo(11));
+            Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(11));
             Assert.That(ids.Calls, Is.EqualTo(3));
             Assert.That(dispatcher.Trace.OrderedFrames.Select(frame => frame.Id),
                 Is.EqualTo(new[] { new OpId(800), new OpId(801), new OpId(802) }));
@@ -456,7 +481,7 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<int> laterRoot = await dispatcher.Dispatch(new SingleIncrementRootOp());
 
-            Assert.That(laterRoot.Value, Is.EqualTo(12));
+            Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(12));
             Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(903)));
         }
 
@@ -502,7 +527,7 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<int> laterRoot = await dispatcher.Dispatch(new SingleIncrementRootOp());
 
-            Assert.That(laterRoot.Value, Is.EqualTo(12));
+            Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(12));
             Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(953)));
         }
 
@@ -570,7 +595,7 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<int> laterRoot = await dispatcher.Dispatch(new SingleIncrementRootOp());
 
-            Assert.That(laterRoot.Value, Is.EqualTo(11));
+            Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(11));
             Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(1002)));
             Assert.That(ids.Calls, Is.EqualTo(4));
         }
@@ -590,6 +615,12 @@ namespace Game.Rules.Runtime.Tests
         private static InMemoryRulesStore CreateStore(int health) =>
             new InMemoryRulesStore(new RulesStateSeed()
                 .SeedHealth(Creature, new HealthState(health, 100)));
+
+        private static ResolvedOpResult<TResult> RequireResolved<TResult>(OpResult<TResult> result)
+        {
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<TResult>>());
+            return (ResolvedOpResult<TResult>)result;
+        }
 
         private static void AssertFrame<TOp>(
             OpFrame<TOp> frame,
@@ -629,7 +660,7 @@ namespace Game.Rules.Runtime.Tests
                 AfterFirstVersion = context.Snapshot.Version;
                 OpResult<int> nested = await context.Dispatch(new NestedHandlerOp(frame.Op.Amount));
                 AfterNestedVersion = context.Snapshot.Version;
-                return nested.Value;
+                return RequireResolved(nested).Value;
             }
         }
 
@@ -644,7 +675,7 @@ namespace Game.Rules.Runtime.Tests
             public async ValueTask<int> Handle(OpFrame<NestedHandlerOp> frame, OpContext context)
             {
                 OpResult<int> changed = await context.Dispatch(new IncrementOp(frame.Op.Amount));
-                return changed.Value;
+                return RequireResolved(changed).Value;
             }
         }
 
@@ -900,7 +931,7 @@ namespace Game.Rules.Runtime.Tests
 
                 FirstChildResult = await firstChild;
                 SequentialSiblingResult = await context.Dispatch(new NestedHandlerOp(2));
-                return SequentialSiblingResult.Value;
+                return RequireResolved(SequentialSiblingResult).Value;
             }
         }
 
@@ -926,7 +957,7 @@ namespace Game.Rules.Runtime.Tests
                 started.TrySetResult(true);
                 await release.Task;
                 OpResult<int> changed = await context.Dispatch(new IncrementOp(frame.Op.Amount));
-                return changed.Value;
+                return RequireResolved(changed).Value;
             }
         }
 
@@ -1033,7 +1064,7 @@ namespace Game.Rules.Runtime.Tests
                 }
 
                 OpResult<int> changed = await context.Dispatch(new IncrementOp(1));
-                return changed.Value;
+                return RequireResolved(changed).Value;
             }
         }
 
@@ -1129,7 +1160,7 @@ namespace Game.Rules.Runtime.Tests
             public async ValueTask<int> Handle(OpFrame<PoisonToStringOp> frame, OpContext context)
             {
                 OpResult<int> changed = await context.Dispatch(new IncrementOp(1));
-                return changed.Value;
+                return RequireResolved(changed).Value;
             }
         }
 
@@ -1142,7 +1173,7 @@ namespace Game.Rules.Runtime.Tests
             public async ValueTask<int> Handle(OpFrame<SingleIncrementRootOp> frame, OpContext context)
             {
                 OpResult<int> changed = await context.Dispatch(new IncrementOp(1));
-                return changed.Value;
+                return RequireResolved(changed).Value;
             }
         }
 
