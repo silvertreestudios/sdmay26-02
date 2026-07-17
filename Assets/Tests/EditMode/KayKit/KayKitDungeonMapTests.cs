@@ -64,6 +64,10 @@ public sealed class KayKitDungeonMapTests
     [TestCase(@"{""version"":1,""rows"":["".."","".""]}", "expected 2")]
     [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""missing"",""x"":0,""z"":0}]}", "unknown assetId")]
     [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":45}]}", "rotation must be")]
+    [TestCase(@"{""version"":9223372036854775808,""rows"":["".""]}", "version must equal 1")]
+    [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":9223372036854775808,""z"":0}]}", "integer x and z")]
+    [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":9223372036854775808}]}", "rotation must be")]
+    [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""yOffset"":9223372036854775808}]}", "yOffset must be a finite number")]
     public void InvalidJson_FailsWithActionableMessage(string json, string expected)
     {
         KayKitDungeonCatalog catalog = Catalog(Entry("prop", Vector2Int.one, false, false));
@@ -88,6 +92,45 @@ public sealed class KayKitDungeonMapTests
         Assert.That(result.Map.GridData[1, 0], Is.EqualTo(TileType.Obstacle));
         Assert.That(result.Map.GridData[1, 1], Is.EqualTo(TileType.Obstacle));
         Assert.That(result.Map.LineOfSightBlocks[1, 0], Is.False);
+    }
+
+    [Test]
+    public void RotatedLineOfSightCollider_UsesUnrotatedLocalFootprint()
+    {
+        KayKitDungeonCatalog projectCatalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        GameObject model = projectCatalog.Entries.First(entry => entry.Model != null).Model;
+        KayKitDungeonCatalog catalog = Catalog(new KayKitDungeonCatalogEntry(
+            "non-square",
+            model,
+            null,
+            new Vector2Int(2, 1),
+            0,
+            0f,
+            false,
+            true));
+        catalog.ConfigureStructure(
+            projectCatalog.DefaultMaterial,
+            projectCatalog.FloorPrefab,
+            projectCatalog.WallPrefab,
+            projectCatalog.DoorwayPrefab);
+        GameObject mapObject = Track(new GameObject("Collider Map"));
+        Map map = mapObject.AddComponent<Map>();
+        map.ConfigureJson(
+            Track(new TextAsset(
+                @"{""version"":1,""rows"":[""...."",""....""],""objects"":[{""assetId"":""non-square"",""x"":1,""z"":0,""rotation"":90}]}")),
+            catalog);
+
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
+            string.Join(Environment.NewLine, validation.Errors));
+        Transform instance = mapObject.transform.Find("GeneratedMap/Objects/Object_000_non_square");
+        Assert.That(instance, Is.Not.Null);
+        BoxCollider collider = instance.GetComponent<BoxCollider>();
+
+        Assert.That(instance.localEulerAngles.y, Is.EqualTo(90f).Within(0.01f));
+        Assert.That(collider, Is.Not.Null);
+        Assert.That(collider.size.x, Is.EqualTo(1.8f).Within(0.001f));
+        Assert.That(collider.size.z, Is.EqualTo(0.9f).Within(0.001f));
     }
 
     [TestCase(
@@ -230,6 +273,46 @@ public sealed class KayKitDungeonMapTests
                     Vector3Int.zero,
                     new Vector3Int(2, 0, 0)),
                 Is.EqualTo(16));
+            Assert.That(
+                GridTargeting.CountClearRays(
+                    tiles,
+                    Vector3Int.zero,
+                    new Vector3Int(2, 0, 0)),
+                Is.EqualTo(16));
+        }
+        finally
+        {
+            GridLineOfSightData.Unregister(tiles);
+        }
+    }
+
+    [Test]
+    public void MovementOnlyObstacles_DoNotBlockSharedDiagonalCornerCheck()
+    {
+        Tile[,] tiles =
+        {
+            { new Tile(), null },
+            { null, new Tile() }
+        };
+        bool[,] blockers =
+        {
+            { false, false },
+            { false, false }
+        };
+        TileType[,] gridData =
+        {
+            { TileType.Ground, TileType.Obstacle },
+            { TileType.Obstacle, TileType.Ground }
+        };
+        GridLineOfSightData.Register(tiles, blockers, gridData);
+        try
+        {
+            Assert.That(
+                GridTargeting.BlocksDiagonalCorner(
+                    tiles,
+                    Vector3Int.zero,
+                    new Vector3Int(1, 0, 1)),
+                Is.False);
         }
         finally
         {

@@ -40,7 +40,7 @@ namespace GridPrivate
 
         public static bool IsBlocking(Tile[,] tiles, Vector3Int cell)
         {
-            return !IsInBounds(tiles, cell) || tiles[cell.x, cell.z] == null;
+            return GridLineOfSightData.IsBlocking(tiles, cell);
         }
 
         public static bool BlocksDiagonalCorner(Tile[,] tiles, Vector3Int start, Vector3Int target)

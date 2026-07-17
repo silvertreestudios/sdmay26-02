@@ -23,10 +23,19 @@ namespace GridPrivate
 
         protected override void Awake()
         {
-            base.Awake();
             Map map = GetComponent<Map>();
             GridData = map.GetMapData();
-            LineOfSightBlocks = map.GetLineOfSightBlocks();
+            LineOfSightBlocks = GridData == null ? null : map.GetLineOfSightBlocks();
+            if (GridData == null || LineOfSightBlocks == null)
+            {
+                enabled = false;
+                GridInput input = GetComponent<GridInput>();
+                if (input != null)
+                    input.enabled = false;
+                return;
+            }
+
+            base.Awake();
             Tiles = new Tile[GridData.GetLength(0), GridData.GetLength(1)];
 
             for(int x = 0; x < GridData.GetLength(0); x++)

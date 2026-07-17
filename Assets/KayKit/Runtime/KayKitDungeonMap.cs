@@ -345,8 +345,13 @@ namespace Game.KayKit
         {
             if (token == null || token.Type != JTokenType.Integer)
                 return null;
-            long value = token.Value<long>();
-            return value >= int.MinValue && value <= int.MaxValue ? (int)value : null;
+            return int.TryParse(
+                token.ToString(Formatting.None),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int value)
+                ? value
+                : null;
         }
 
         private static bool TryReadFiniteFloat(JToken token, out float value)
@@ -354,8 +359,15 @@ namespace Game.KayKit
             value = 0f;
             if (token.Type != JTokenType.Integer && token.Type != JTokenType.Float)
                 return false;
-            value = token.Value<float>();
-            return !float.IsNaN(value) && !float.IsInfinity(value);
+            if (token is JValue { Value: System.Numerics.BigInteger })
+                return false;
+            return float.TryParse(
+                       token.ToString(Formatting.None),
+                       NumberStyles.Float,
+                       CultureInfo.InvariantCulture,
+                       out value) &&
+                   !float.IsNaN(value) &&
+                   !float.IsInfinity(value);
         }
 
         private static KayKitDungeonMapParseResult Invalid(string message)

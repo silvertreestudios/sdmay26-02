@@ -17,13 +17,10 @@ namespace Game.KayKit.Editor
         [MenuItem("Tools/KayKit/Regenerate Dungeon Example")]
         public static void RegenerateScene()
         {
-            Scene scene = EditorSceneManager.OpenScene(SourceScenePath, OpenSceneMode.Single);
-            if (!EditorSceneManager.SaveScene(scene, ScenePath, false))
-                throw new InvalidOperationException($"Could not create scene at {ScenePath}.");
-            scene = SceneManager.GetActiveScene();
             TextAsset source = RequireAsset<TextAsset>(JsonPath);
             KayKitDungeonCatalog catalog = RequireAsset<KayKitDungeonCatalog>(
                 KayKitSetupTool.DungeonCatalogPath);
+            Scene scene = EditorSceneManager.OpenScene(SourceScenePath, OpenSceneMode.Single);
 
             Map map = Object.FindFirstObjectByType<Map>();
             if (map == null)
@@ -50,7 +47,7 @@ namespace Game.KayKit.Editor
             }
 
             EditorSceneManager.MarkSceneDirty(scene);
-            if (!EditorSceneManager.SaveScene(scene))
+            if (!EditorSceneManager.SaveScene(scene, ScenePath, false))
                 throw new InvalidOperationException($"Could not save generated scene at {ScenePath}.");
             AssetDatabase.SaveAssets();
             Debug.Log($"Generated standalone KayKit dungeon example at {ScenePath}.");

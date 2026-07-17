@@ -343,7 +343,7 @@ public class Map : MonoBehaviour
             ApplyDefaultMaterial(instance);
 
             if (placement.CatalogEntry.BlocksLineOfSight)
-                AddLineOfSightCollider(instance, placement.Footprint);
+                AddLineOfSightCollider(instance, placement.CatalogEntry.Footprint);
         }
     }
 

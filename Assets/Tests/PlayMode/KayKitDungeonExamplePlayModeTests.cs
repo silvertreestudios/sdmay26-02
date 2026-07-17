@@ -1,9 +1,11 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Game.Creature;
 using Game.KayKit;
 using GridPrivate;
+using GridPublic;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -253,5 +255,55 @@ public sealed class KayKitDungeonExamplePlayModeTests
     private static string TeamName(ActionController controller)
     {
         return controller.GetComponent<Team>()?.Name;
+    }
+}
+
+public sealed class InvalidGridInitializationPlayModeTests
+{
+    [Test]
+    public void InvalidMapLeavesGridDisabledAndUnregistered()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
+            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(singletonField, Is.Not.Null);
+
+        object previousSingleton = singletonField.GetValue(null);
+        GameObject gridObject = null;
+        TextAsset source = null;
+        KayKitDungeonCatalog catalog = null;
+        try
+        {
+            singletonField.SetValue(null, null);
+            gridObject = new GameObject("Invalid Grid");
+            gridObject.SetActive(false);
+            source = new TextAsset(@"{""version"":2,""rows"":["".""]}");
+            catalog = ScriptableObject.CreateInstance<KayKitDungeonCatalog>();
+
+            Map map = gridObject.AddComponent<Map>();
+            map.ConfigureJson(source, catalog);
+            LogAssert.Expect(
+                LogType.Error,
+                "Map data is invalid: JSON map version must equal 1; found 2.");
+
+            GridBase grid = gridObject.AddComponent<GridBase>();
+            gridObject.SetActive(true);
+
+            Assert.That(grid.enabled, Is.False);
+            Assert.That(grid.GetComponent<GridInput>().enabled, Is.False);
+            Assert.That(grid.GridData, Is.Null);
+            Assert.That(grid.GetTiles(), Is.Null);
+            Assert.That(grid.GetPathfinder(), Is.Null);
+            Assert.That(singletonField.GetValue(null), Is.Null);
+        }
+        finally
+        {
+            if (gridObject != null)
+                Object.DestroyImmediate(gridObject);
+            if (source != null)
+                Object.DestroyImmediate(source);
+            if (catalog != null)
+                Object.DestroyImmediate(catalog);
+            singletonField.SetValue(null, previousSingleton);
+        }
     }
 }
