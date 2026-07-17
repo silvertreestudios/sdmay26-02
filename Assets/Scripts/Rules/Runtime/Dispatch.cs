@@ -603,19 +603,13 @@ namespace Game.Rules.Runtime
             {
                 RequireActiveResolution(resolution);
                 settlement = resolution.GetActiveChildSettlement(parentId);
-                if (settlement == null)
-                    resolution.SealFrame(parentId);
+                resolution.SealFrame(parentId);
             }
 
             if (settlement == null)
                 return false;
 
             await settlement;
-            lock (gate)
-            {
-                RequireActiveResolution(resolution);
-                resolution.SealFrame(parentId);
-            }
             return true;
         }
 
@@ -715,7 +709,7 @@ namespace Game.Rules.Runtime
 
             public void SealFrame(OpId id)
             {
-                if (!activeFrames.Contains(id) || activeChildren.ContainsKey(id))
+                if (!activeFrames.Contains(id))
                 {
                     throw new InvalidOperationException(
                         $"Operation {id.Value} cannot stop accepting children in its current state.");

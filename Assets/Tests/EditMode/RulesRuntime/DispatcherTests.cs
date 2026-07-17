@@ -383,6 +383,34 @@ namespace Game.Rules.Runtime.Tests
             return completion.Task;
         }
 
+        private static Task<DispatchAttempt> DispatchOnBackgroundThread(
+            Func<Task<OpResult<int>>> dispatch)
+        {
+            TaskCompletionSource<DispatchAttempt> completion =
+                new TaskCompletionSource<DispatchAttempt>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            Thread thread = new Thread(() =>
+            {
+                try
+                {
+                    completion.TrySetResult(new DispatchAttempt(
+                        dispatch().GetAwaiter().GetResult(),
+                        null));
+                }
+                catch (InvalidOperationException error)
+                {
+                    completion.TrySetResult(new DispatchAttempt(null, error));
+                }
+                catch (Exception error)
+                {
+                    completion.TrySetException(error);
+                }
+            });
+            thread.IsBackground = true;
+            thread.Start();
+            return completion.Task;
+        }
+
         [Test]
         public async Task UnawaitedSuspendedChildKeepsRootOwnedUntilItSettlesThenFailsClearly()
         {
@@ -476,6 +504,75 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(laterRoot.Value, Is.EqualTo(12));
             Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(953)));
+        }
+
+        [Test]
+        [Timeout(10000)]
+        public async Task ReturningFrameRejectsRetainedContextAfterChildReservationSettles()
+        {
+            InMemoryRulesStore store = CreateStore(10);
+            CountingOpIdProvider ids = new CountingOpIdProvider(1000);
+            SettlementRaceRootHandler handler = new SettlementRaceRootHandler();
+            GatedNestedHandler<SettlementRaceFirstChildOp> firstChild =
+                new GatedNestedHandler<SettlementRaceFirstChildOp>();
+            GatedNestedHandler<SettlementRaceLateChildOp> lateChild =
+                new GatedNestedHandler<SettlementRaceLateChildOp>();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store, ids)
+                .RegisterHandler<SettlementRaceRootOp, int>(handler)
+                .RegisterHandler<SettlementRaceFirstChildOp, int>(
+                    firstChild,
+                    InvocationPolicy.NestedOnly)
+                .RegisterHandler<SettlementRaceLateChildOp, int>(
+                    lateChild,
+                    InvocationPolicy.NestedOnly)
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+
+            using (ControlledDispatchThread controlled = new ControlledDispatchThread(
+                () => dispatcher.Dispatch(new SettlementRaceRootOp()).AsTask()))
+            {
+                await firstChild.Started;
+                firstChild.Release();
+                Assert.That(controlled.WaitForContinuation(TimeSpan.FromSeconds(5)), Is.True,
+                    "The returning parent must be paused after its child reservation settles.");
+                Assert.That(controlled.RootTask.IsCompleted, Is.False);
+
+                Task<DispatchAttempt> lateAttempt = DispatchOnBackgroundThread(() =>
+                    handler.Context.Dispatch(new SettlementRaceLateChildOp()).AsTask());
+                Task firstOutcome = await Task.WhenAny(lateAttempt, lateChild.Started);
+                if (firstOutcome == lateChild.Started)
+                    lateChild.Release();
+                DispatchAttempt late = await lateAttempt;
+
+                controlled.ReleaseContinuations();
+                InvalidOperationException unawaited = null;
+                try
+                {
+                    await controlled.RootTask;
+                }
+                catch (InvalidOperationException error)
+                {
+                    unawaited = error;
+                }
+
+                Assert.That(late.Error, Is.Not.Null);
+                Assert.That(late.Error.Message, Does.Contain("not actively executing"));
+                Assert.That(lateChild.Started.IsCompleted, Is.False,
+                    "The retained context must not replace the settled child reservation.");
+                Assert.That(unawaited, Is.Not.Null);
+                Assert.That(unawaited.Message,
+                    Does.Contain("returned before awaiting its active child dispatch"));
+                Assert.That(ids.Calls, Is.EqualTo(2),
+                    "The rejected retained context must not allocate a child frame.");
+                Assert.That(dispatcher.Trace.OrderedFrames.Count, Is.EqualTo(2));
+            }
+
+            OpResult<int> laterRoot = await dispatcher.Dispatch(new SingleIncrementRootOp());
+
+            Assert.That(laterRoot.Value, Is.EqualTo(11));
+            Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(1002)));
+            Assert.That(ids.Calls, Is.EqualTo(4));
         }
 
         private static async Task<string> ResolveDiagnostic()
@@ -661,6 +758,109 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
+        private sealed class ControlledDispatchThread : SynchronizationContext, IDisposable
+        {
+            private readonly Func<Task<OpResult<int>>> dispatch;
+            private readonly Queue<Continuation> continuations = new Queue<Continuation>();
+            private readonly ManualResetEventSlim dispatchStarted = new ManualResetEventSlim();
+            private readonly ManualResetEventSlim continuationQueued = new ManualResetEventSlim();
+            private readonly ManualResetEventSlim releaseContinuations = new ManualResetEventSlim();
+            private readonly Thread thread;
+            private Exception startError;
+
+            public Task<OpResult<int>> RootTask { get; private set; }
+
+            public ControlledDispatchThread(Func<Task<OpResult<int>>> dispatch)
+            {
+                this.dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
+                thread = new Thread(Run) { IsBackground = true };
+                thread.Start();
+                if (!dispatchStarted.Wait(TimeSpan.FromSeconds(5)))
+                    throw new TimeoutException("The controlled dispatcher thread did not start.");
+                if (startError != null)
+                    throw new InvalidOperationException(
+                        "The controlled dispatcher thread failed to start.",
+                        startError);
+            }
+
+            public override void Post(SendOrPostCallback callback, object state)
+            {
+                lock (continuations)
+                    continuations.Enqueue(new Continuation(callback, state));
+                continuationQueued.Set();
+            }
+
+            public bool WaitForContinuation(TimeSpan timeout) =>
+                continuationQueued.Wait(timeout);
+
+            public void ReleaseContinuations() => releaseContinuations.Set();
+
+            public void Dispose()
+            {
+                releaseContinuations.Set();
+                continuationQueued.Set();
+                thread.Join(TimeSpan.FromSeconds(5));
+            }
+
+            private void Run()
+            {
+                SynchronizationContext.SetSynchronizationContext(this);
+                try
+                {
+                    RootTask = dispatch();
+                }
+                catch (Exception error)
+                {
+                    startError = error;
+                }
+                finally
+                {
+                    dispatchStarted.Set();
+                }
+
+                if (RootTask == null)
+                    return;
+
+                releaseContinuations.Wait();
+                while (!RootTask.IsCompleted)
+                {
+                    continuationQueued.Wait();
+                    DrainContinuations();
+                }
+                DrainContinuations();
+            }
+
+            private void DrainContinuations()
+            {
+                while (true)
+                {
+                    Continuation continuation;
+                    lock (continuations)
+                    {
+                        if (continuations.Count == 0)
+                        {
+                            continuationQueued.Reset();
+                            return;
+                        }
+                        continuation = continuations.Dequeue();
+                    }
+                    continuation.Callback(continuation.State);
+                }
+            }
+
+            private sealed class Continuation
+            {
+                public SendOrPostCallback Callback { get; }
+                public object State { get; }
+
+                public Continuation(SendOrPostCallback callback, object state)
+                {
+                    Callback = callback;
+                    State = state;
+                }
+            }
+        }
+
         private sealed class OverlappingRootOp : IRuleOp<int>
         {
         }
@@ -752,6 +952,60 @@ namespace Game.Rules.Runtime.Tests
             {
                 _ = context.Dispatch(new SuspendedNestedOp(1));
                 throw new ApplicationException("original handler failure");
+            }
+        }
+
+        private sealed class SettlementRaceRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class SettlementRaceRootHandler
+            : IOpHandler<SettlementRaceRootOp, int>
+        {
+            public OpContext Context { get; private set; }
+
+            public ValueTask<int> Handle(OpFrame<SettlementRaceRootOp> frame, OpContext context)
+            {
+                Context = context;
+                SynchronizationContext previous = SynchronizationContext.Current;
+                try
+                {
+                    SynchronizationContext.SetSynchronizationContext(null);
+                    _ = context.Dispatch(new SettlementRaceFirstChildOp());
+                }
+                finally
+                {
+                    SynchronizationContext.SetSynchronizationContext(previous);
+                }
+                return new ValueTask<int>(0);
+            }
+        }
+
+        private sealed class SettlementRaceFirstChildOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class SettlementRaceLateChildOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class GatedNestedHandler<TOp> : IOpHandler<TOp, int>
+            where TOp : IRuleOp<int>
+        {
+            private readonly TaskCompletionSource<bool> started =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource<bool> release =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public Task Started => started.Task;
+
+            public void Release() => release.TrySetResult(true);
+
+            public async ValueTask<int> Handle(OpFrame<TOp> frame, OpContext context)
+            {
+                started.TrySetResult(true);
+                await release.Task.ConfigureAwait(false);
+                return 0;
             }
         }
 
