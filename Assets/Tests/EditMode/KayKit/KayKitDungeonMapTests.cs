@@ -156,8 +156,11 @@ public sealed class KayKitDungeonMapTests
         @"{""version"":1,""rows"":["".."",""..""],""objects"":[{""assetId"":""blocking"",""x"":2,""z"":1}]}",
         "out of bounds")]
     [TestCase(
-        @"{""version"":1,""rows"":["".D""],""objects"":[{""assetId"":""blocking"",""x"":1,""z"":0}]}",
+        @"{""version"":1,""rows"":[""..."","".D."",""...""],""objects"":[{""assetId"":""blocking"",""x"":1,""z"":1}]}",
         "entirely on Ground")]
+    [TestCase(
+        @"{""version"":1,""rows"":[""..."",""..."",""...""],""objects"":[{""assetId"":""blocking"",""x"":0,""z"":1}]}",
+        "map boundary")]
     [TestCase(
         @"{""version"":1,""rows"":[""..""],""objects"":[{""assetId"":""blocking"",""x"":0,""z"":0},{""assetId"":""blocking"",""x"":0,""z"":0}]}",
         "overlaps another blocking")]
@@ -169,6 +172,19 @@ public sealed class KayKitDungeonMapTests
 
         Assert.That(result.Map, Is.Null);
         Assert.That(result.Errors.Any(error => error.Contains(expected)), Is.True);
+    }
+
+    [Test]
+    public void TileSettings_RebuildsAfterDefinitionsArePopulated()
+    {
+        MutableTileSettings settings = new();
+        Color32 color = new(11, 22, 33, 255);
+
+        Assert.That(settings.TryGetTileInfo(color, out _), Is.False);
+        settings.SetSingleDefinition(color, TileType.Ground);
+
+        Assert.That(settings.TryGetTileInfo(color, out var resolved), Is.True);
+        Assert.That(resolved.Tile, Is.EqualTo(TileType.Ground));
     }
 
     [Test]
@@ -1173,6 +1189,17 @@ public sealed class KayKitDungeonMapTests
             ScriptableObject.CreateInstance<KayKitDungeonCatalog>());
         catalog.ReplaceEntries(entries);
         return catalog;
+    }
+
+    private sealed class MutableTileSettings : TileSettings
+    {
+        public void SetSingleDefinition(Color32 color, TileType tile)
+        {
+            TileDefinitions = new List<TileDefinition>
+            {
+                new() { Color = color, Tile = tile }
+            };
+        }
     }
 
     private KayKitDungeonCatalogEntry Entry(

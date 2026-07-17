@@ -299,6 +299,16 @@ namespace Game.KayKit
                         continue;
                     }
 
+                    Vector2Int boundaryCell = footprintCells.FirstOrDefault(
+                        cell => IsMapBoundary(grid, cell));
+                    if (footprintCells.Any(cell => IsMapBoundary(grid, cell)))
+                    {
+                        errors.Add(
+                            $"Blocking JSON map object {index} ('{assetId}') may not overlap the map " +
+                            $"boundary; cell ({boundaryCell.x}, {boundaryCell.y}) is on the boundary.");
+                        continue;
+                    }
+
                     Vector2Int invalidCell = footprintCells.FirstOrDefault(
                         cell => grid[cell.x, cell.y] != TileType.Ground);
                     if (footprintCells.Any(cell => grid[cell.x, cell.y] != TileType.Ground))
@@ -346,6 +356,12 @@ namespace Game.KayKit
         {
             return cell.x >= 0 && cell.y >= 0 &&
                    cell.x < grid.GetLength(0) && cell.y < grid.GetLength(1);
+        }
+
+        private static bool IsMapBoundary(TileType[,] grid, Vector2Int cell)
+        {
+            return cell.x == 0 || cell.y == 0 ||
+                   cell.x == grid.GetLength(0) - 1 || cell.y == grid.GetLength(1) - 1;
         }
 
         private static int? ReadInteger(JToken token)

@@ -78,9 +78,10 @@ namespace GridPrivate
             if (FastAccess != null)
                 return;
 
-            FastAccess = new();
             if (TileDefinitions == null)
                 return;
+
+            FastAccess = new();
 
             for (int i = 0; i < TileDefinitions.Count; i++)
             {
