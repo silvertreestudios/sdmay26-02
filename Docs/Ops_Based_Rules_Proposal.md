@@ -466,6 +466,7 @@ public interface IOpMiddleware<TOp, TResult>
     where TOp : IRuleOp<TResult>
 {
     ValueTask<OpResult<TResult>> Invoke(
+        ActiveRuleBinding binding,
         OpFrame<TOp> frame,
         OpContext context,
         OpNext<TResult> next);
@@ -479,7 +480,7 @@ Middleware is appropriate when a rule needs to inspect or alter an in-progress o
 - a replacement effect around a damage lifecycle Op;
 - a reaction around `MovementLeavingSquareOp`.
 
-Middleware ordering is deterministic, using explicit lifecycle phase followed by active binding creation order and binding ID. The first-pass design does not expose numeric priorities, which would create hard-to-see dependencies across unrelated rules. If two rules need meaningful ordering, represent that relationship with distinct lifecycle Ops or phases.
+Middleware ordering is deterministic, using the fixed semantic phases `Prevention`, `Transformation`, `Reaction`, and `Observation`, followed by active binding creation order and binding ID. The first-pass design does not expose numeric priorities, which would create hard-to-see dependencies across unrelated rules. If two rules need meaningful ordering, represent that relationship with distinct lifecycle Ops or phases.
 
 Middleware may dispatch nested Ops and await their typed results. It cannot directly mutate state.
 
@@ -697,10 +698,11 @@ public sealed record ActiveRuleBinding(
     CreatureId Owner,
     ActiveEffectId? EffectId,
     RuleSource Source,
-    long CreationOrder);
+    long CreationOrder,
+    bool IsEnabled = true);
 ```
 
-At dispatch time, the registry selects registrations whose bindings are active in the current snapshot. Removing a condition, expiring a spell, unequipping an item, or spending a temporary granted reaction removes or disables its binding without rebuilding global listener lists.
+At dispatch time, the registry selects registrations whose bindings are active and enabled in the current snapshot. Removing a condition, expiring a spell, unequipping an item, or spending a temporary granted reaction removes or disables its binding without rebuilding global listener lists. A binding activated during an operation begins participating with the next frame; a binding disabled or removed by a committed child operation is skipped immediately if its turn in the current middleware or listener plan has not begun.
 
 ### 6.2 Active effects own typed instance state
 

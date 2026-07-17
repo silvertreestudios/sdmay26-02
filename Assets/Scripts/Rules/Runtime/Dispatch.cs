@@ -665,11 +665,28 @@ namespace Game.Rules.Runtime
         private readonly RuleDispatcher dispatcher;
         private readonly OpId parentId;
 
-        internal OpContext(RuleDispatcher dispatcher, OpId parentId)
+        internal OpContext(
+            RuleDispatcher dispatcher,
+            OpId parentId,
+            ActiveRuleBinding activeBinding = null)
         {
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
             this.parentId = parentId;
+            ActiveBinding = activeBinding;
         }
+
+#nullable enable annotations
+        /// <summary>
+        /// Gets the active binding authorizing a middleware invocation, or <see langword="null"/>
+        /// when the context belongs to the operation's ordinary handler.
+        /// </summary>
+        public ActiveRuleBinding? ActiveBinding { get; }
+
+        /// <summary>
+        /// Gets the active binding's stable rule source, or <see langword="null"/> for an ordinary handler.
+        /// </summary>
+        public RuleSource? Source => ActiveBinding?.Source;
+#nullable restore annotations
 
         /// <summary>
         /// Gets the latest committed rules snapshot.
@@ -708,6 +725,7 @@ namespace Game.Rules.Runtime
             new Dictionary<Type, IRegistration>();
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
+        private RuleRegistry ruleRegistry = RuleRegistry.Empty;
 
         /// <summary>
         /// Initializes a dispatcher builder with its rules store and operation ID source.
@@ -770,10 +788,30 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
+        /// Selects the immutable rule registry used for binding-controlled middleware and Fact listeners.
+        /// </summary>
+        /// <param name="registry">The static registry to validate and attach to the dispatcher.</param>
+        /// <returns>This builder so configuration can be chained.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="registry"/> is <see langword="null"/>.</exception>
+        /// <remarks>
+        /// The registry stores static definitions only. Which registrations participate is decided
+        /// from <see cref="RulesSnapshot.RuleBindings"/> each time rules work is resolved.
+        /// </remarks>
+        public RuleDispatcherBuilder UseRuleRegistry(RuleRegistry registry)
+        {
+            ruleRegistry = registry ?? throw new ArgumentNullException(nameof(registry));
+            return this;
+        }
+
+        /// <summary>
         /// Builds a dispatcher from a snapshot of the current registrations.
         /// </summary>
         /// <returns>A dispatcher that owns its registration map, trace, and diagnostics.</returns>
-        public RuleDispatcher Build() => new RuleDispatcher(store, ids, registrations);
+        public RuleDispatcher Build()
+        {
+            ruleRegistry.ValidateResolvers(registrations);
+            return new RuleDispatcher(store, ids, registrations, ruleRegistry);
+        }
 
         private void Add(IRegistration registration)
         {
@@ -790,8 +828,9 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// Root resolutions are serialized: a dispatcher rejects a second root while one is active.
     /// Handlers may dispatch nested children through <see cref="OpContext"/>, but each active frame
-    /// may own only one child at a time and must await it. Trace and diagnostic history accumulate
-    /// for the lifetime of the dispatcher.
+    /// may own only one child at a time and must await it. Committed-Fact listeners finish before
+    /// the caller regains root ownership; listener-dispatched work runs as serialized causal roots.
+    /// Trace and diagnostic history accumulate for the lifetime of the dispatcher.
     /// </remarks>
     public sealed class RuleDispatcher
     {
@@ -801,17 +840,20 @@ namespace Game.Rules.Runtime
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
         private readonly IReadOnlyDictionary<Type, IRegistration> registrations;
+        private readonly RuleRegistry ruleRegistry;
         private RootResolution activeRoot;
 
         internal RuleDispatcher(
             IRulesStore store,
             IOpIdProvider ids,
-            IDictionary<Type, IRegistration> registrations)
+            IDictionary<Type, IRegistration> registrations,
+            RuleRegistry ruleRegistry)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
             this.registrations = new ReadOnlyDictionary<Type, IRegistration>(
                 new Dictionary<Type, IRegistration>(registrations));
+            this.ruleRegistry = ruleRegistry ?? throw new ArgumentNullException(nameof(ruleRegistry));
             Trace = new ResolutionTrace();
             Diagnostics = new ResolutionDiagnostics(Trace);
         }
@@ -845,8 +887,9 @@ namespace Game.Rules.Runtime
         /// or a handler violates nested-dispatch ownership.
         /// </exception>
         /// <remarks>
-        /// Resolver exceptions propagate to the caller. The dispatcher still releases root ownership
-        /// so a later independent root may be dispatched.
+        /// Resolver, middleware, and post-commit listener exceptions propagate to the caller. State
+        /// already committed by a reducer is not rolled back, but the dispatcher still releases root
+        /// ownership so a later independent root may be dispatched.
         /// </remarks>
         public async ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
         {
@@ -882,7 +925,12 @@ namespace Game.Rules.Runtime
                     resolution.Initialize(rootId);
                 }
 
-                return await DispatchCore(op, registration, resolution, rootId, null, null);
+                return await DispatchRoot(
+                    op,
+                    registration,
+                    resolution,
+                    rootId,
+                    null);
             }
             finally
             {
@@ -937,6 +985,52 @@ namespace Game.Rules.Runtime
             }
         }
 
+        internal async ValueTask<OpResult<TResult>> DispatchFromFact<TResult>(
+            IRuleOp<TResult> op,
+            OpId committedRootId,
+            OpId causeId)
+        {
+            if (op == null)
+                throw new ArgumentNullException(nameof(op));
+
+            IRegistration registration = RequireRegistration(op.GetType(), typeof(TResult));
+            if (registration.Policy != InvocationPolicy.ExternalAllowed)
+            {
+                throw new InvalidOperationException(
+                    $"{op.GetType().Name} is nested-only and cannot begin a Fact-listener batch.");
+            }
+
+            RootResolution owner;
+            RootResolution triggered = new RootResolution();
+            OpId rootId;
+            lock (gate)
+            {
+                if (activeRoot == null || activeRoot.RootId != committedRootId)
+                {
+                    throw new InvalidOperationException(
+                        "Fact-listener dispatch requires its completed root to retain resolution ownership.");
+                }
+
+                owner = activeRoot;
+                rootId = ids.Next();
+                triggered.Initialize(rootId);
+                activeRoot = triggered;
+            }
+
+            try
+            {
+                return await DispatchRoot(op, registration, triggered, rootId, causeId);
+            }
+            finally
+            {
+                lock (gate)
+                {
+                    if (ReferenceEquals(activeRoot, triggered))
+                        activeRoot = owner;
+                }
+            }
+        }
+
         internal ReductionResult<TResult> Reduce<TOp, TResult>(
             OpFrame<TOp> frame,
             IOpReducer<TOp, TResult> reducer,
@@ -946,6 +1040,93 @@ namespace Game.Rules.Runtime
             return store.Reduce(
                 new ReductionContext<TOp>(frame.Op, frame.Id, frame.RootId, source),
                 reducer);
+        }
+
+        private async ValueTask<OpResult<TResult>> DispatchRoot<TResult>(
+            IRuleOp<TResult> op,
+            IRegistration registration,
+            RootResolution resolution,
+            OpId rootId,
+            OpId? causeId)
+        {
+            OpResult<TResult> result = await DispatchCore(
+                op,
+                registration,
+                resolution,
+                rootId,
+                null,
+                causeId);
+
+            if (result.Status != OpStatus.Invalid && result.Facts.Count > 0)
+                await NotifyFactListeners(rootId, result.Facts);
+            return result;
+        }
+
+        private async ValueTask NotifyFactListeners(
+            OpId rootId,
+            IReadOnlyList<RuleFact> facts)
+        {
+            if (facts.Any(fact => fact == null || !fact.IsStamped || fact.RootOpId != rootId))
+                throw new InvalidOperationException("A completed root contains a Fact from another resolution batch.");
+
+            IReadOnlyList<FactListenerDelivery> deliveries =
+                ruleRegistry.SelectFactListeners(rootId, facts, store.Snapshot);
+            foreach (FactListenerDelivery delivery in deliveries)
+            {
+                if (delivery.Registration.IsBatch)
+                {
+                    if (ruleRegistry.IsActive(store.Snapshot, delivery.Binding))
+                    {
+                        await InvokeFactListener(
+                            delivery,
+                            delivery.Facts,
+                            delivery.RootId);
+                    }
+                    continue;
+                }
+
+                foreach (RuleFact fact in delivery.Facts)
+                {
+                    if (!ruleRegistry.IsActive(store.Snapshot, delivery.Binding))
+                        break;
+                    await InvokeFactListener(
+                        delivery,
+                        Array.AsReadOnly(new[] { fact }),
+                        fact.SourceOpId);
+                }
+            }
+        }
+
+        private async ValueTask InvokeFactListener(
+            FactListenerDelivery delivery,
+            IReadOnlyList<RuleFact> facts,
+            OpId causeId)
+        {
+            FactContext context = new FactContext(
+                this,
+                delivery.Binding,
+                delivery.RootId,
+                causeId);
+            try
+            {
+                await delivery.Registration.Invoke(
+                    delivery.Binding,
+                    delivery.RootId,
+                    facts,
+                    context);
+            }
+            catch
+            {
+                await context.CompleteInvocation();
+                throw;
+            }
+
+            if (await context.CompleteInvocation())
+            {
+                throw new InvalidOperationException(
+                    $"Fact listener for {delivery.Registration.FactType.Name} returned before " +
+                    "awaiting its causally linked dispatch.");
+            }
         }
 
         private async ValueTask<OpResult<TResult>> DispatchCore<TResult>(
@@ -959,13 +1140,17 @@ namespace Game.Rules.Runtime
             OpId id;
             int firstFact;
             IFrameInvocation invocation;
+            IReadOnlyList<BoundMiddlewareRegistration> middleware;
             lock (gate)
             {
                 RequireActiveResolution(resolution);
                 id = parentId.HasValue ? ids.Next() : rootId;
                 firstFact = resolution.Facts.Count;
+                RulesSnapshot startSnapshot = store.Snapshot;
                 invocation = registration.CreateInvocation(
-                    id, rootId, parentId, causeId, op, store.Snapshot);
+                    id, rootId, parentId, causeId, op, startSnapshot);
+                middleware = ruleRegistry.SelectMiddleware(
+                    op.GetType(), typeof(TResult), startSnapshot);
                 Trace.Add(invocation.FrameView);
                 resolution.EnterFrame(id, rootId);
             }
@@ -975,7 +1160,11 @@ namespace Game.Rules.Runtime
                 object resultObject;
                 try
                 {
-                    resultObject = await registration.Invoke(invocation, this);
+                    resultObject = await InvokeWithMiddleware(
+                        registration,
+                        invocation,
+                        middleware,
+                        0);
                 }
                 catch
                 {
@@ -1022,6 +1211,34 @@ namespace Game.Rules.Runtime
                 lock (gate)
                     resolution.ExitFrame(id, rootId);
             }
+        }
+
+        private ValueTask<object> InvokeWithMiddleware(
+            IRegistration registration,
+            IFrameInvocation invocation,
+            IReadOnlyList<BoundMiddlewareRegistration> middleware,
+            int index)
+        {
+            while (index < middleware.Count &&
+                !ruleRegistry.IsActive(store.Snapshot, middleware[index].Binding))
+            {
+                index++;
+            }
+
+            if (index >= middleware.Count)
+                return registration.Invoke(invocation, this);
+
+            BoundMiddlewareRegistration current = middleware[index];
+            int nextIndex = index + 1;
+            return current.Registration.Invoke(
+                current.Binding,
+                invocation,
+                this,
+                () => InvokeWithMiddleware(
+                    registration,
+                    invocation,
+                    middleware,
+                    nextIndex));
         }
 
         private async ValueTask<bool> SettleActiveChild(RootResolution resolution, OpId parentId)

@@ -201,22 +201,70 @@ namespace Game.Rules.Runtime
         public override int GetHashCode() => HashCode.Combine(Id, DefinitionId, SourceCreature, Source);
     }
 
-    public sealed class RuleBindingState : IEquatable<RuleBindingState>
+    /// <summary>
+    /// Connects one active rule instance in committed state to a static <see cref="RuleDefinition"/>.
+    /// </summary>
+    /// <remarks>
+    /// Bindings carry identity and provenance only. Mutable feature state belongs in an
+    /// authoritative rules-state slice, such as the active effect identified by
+    /// <see cref="EffectId"/>. Disabling or removing a binding changes runtime participation
+    /// without rebuilding the static <see cref="RuleRegistry"/>.
+    /// </remarks>
+    public sealed class ActiveRuleBinding : IEquatable<ActiveRuleBinding>
     {
+        /// <summary>
+        /// Gets the stable identity used for deterministic ordering and authorization.
+        /// </summary>
         public BindingId Id { get; }
+
+        /// <summary>
+        /// Gets the static rule definition that contributes this binding's extensions.
+        /// </summary>
         public RuleDefinitionId DefinitionId { get; }
+
+        /// <summary>
+        /// Gets the creature that owns or is authorized to use this rule instance.
+        /// </summary>
         public CreatureId Owner { get; }
+
+        /// <summary>
+        /// Gets the associated active effect, or <see langword="null"/> for rules without one.
+        /// </summary>
         public ActiveEffectId? EffectId { get; }
+
+        /// <summary>
+        /// Gets the stable feat, spell, condition, item, or system source for this instance.
+        /// </summary>
         public RuleSource Source { get; }
+
+        /// <summary>
+        /// Gets the monotonic order assigned when the binding was created.
+        /// </summary>
         public long CreationOrder { get; }
 
-        public RuleBindingState(
+        /// <summary>
+        /// Gets whether the binding currently contributes middleware and Fact listeners.
+        /// </summary>
+        public bool IsEnabled { get; }
+
+        /// <summary>
+        /// Initializes an immutable active rule binding.
+        /// </summary>
+        /// <param name="id">The unique binding identity.</param>
+        /// <param name="definitionId">The static definition providing extension registrations.</param>
+        /// <param name="owner">The creature that owns or is authorized by the rule.</param>
+        /// <param name="effectId">The associated active effect, when the rule has instance state.</param>
+        /// <param name="source">The stable source stamped into later authorized work.</param>
+        /// <param name="creationOrder">A non-negative monotonic creation order.</param>
+        /// <param name="isEnabled">Whether the binding should currently participate.</param>
+        public ActiveRuleBinding(
             BindingId id,
             RuleDefinitionId definitionId,
             CreatureId owner,
             ActiveEffectId? effectId,
             RuleSource source,
-            long creationOrder)
+            long creationOrder,
+            bool isEnabled = true)
         {
             if (creationOrder < 0)
                 throw new ArgumentOutOfRangeException(nameof(creationOrder));
@@ -236,14 +284,21 @@ namespace Game.Rules.Runtime
             EffectId = effectId;
             Source = source;
             CreationOrder = creationOrder;
+            IsEnabled = isEnabled;
         }
 
-        public bool Equals(RuleBindingState other) =>
+        /// <inheritdoc/>
+        public bool Equals(ActiveRuleBinding other) =>
             other != null && Id == other.Id && DefinitionId == other.DefinitionId &&
             Owner == other.Owner && EffectId == other.EffectId && Source == other.Source &&
-            CreationOrder == other.CreationOrder;
-        public override bool Equals(object obj) => obj is RuleBindingState other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(Id, DefinitionId, Owner, EffectId, Source, CreationOrder);
+            CreationOrder == other.CreationOrder && IsEnabled == other.IsEnabled;
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) => obj is ActiveRuleBinding other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() =>
+            HashCode.Combine(Id, DefinitionId, Owner, EffectId, Source, CreationOrder, IsEnabled);
     }
 
     public readonly struct FrequencyState : IEquatable<FrequencyState>
