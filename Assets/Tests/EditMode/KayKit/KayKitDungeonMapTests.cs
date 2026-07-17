@@ -944,6 +944,39 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void ColliderBackedBlocker_StrikeRaysUseSampledCellCenterCoordinates()
+    {
+        Tile[,] tiles = { { new Tile() }, { new Tile() }, { new Tile() } };
+        bool[,] blockers = { { false }, { false }, { false } };
+        GridLineOfSightData.Register(tiles, blockers);
+        GameObject blocker = Track(new GameObject("Asymmetric Line Of Sight Blocker"));
+        blocker.transform.position = new Vector3(1.5f, 0f, 0.65f);
+        BoxCollider collider = blocker.AddComponent<BoxCollider>();
+        collider.center = new Vector3(0f, 0.75f, 0f);
+        collider.size = new Vector3(0.1f, 1.5f, 0.08f);
+        blocker.AddComponent<MapLineOfSightBlocker>();
+        Physics.SyncTransforms();
+        try
+        {
+            int sharedClearRays = GridTargeting.CountClearRays(
+                tiles,
+                Vector3Int.zero,
+                new Vector3Int(2, 0, 0));
+            int strikeClearRays = StrikeTargeting.CountClearRays(
+                tiles,
+                Vector3Int.zero,
+                new Vector3Int(2, 0, 0));
+
+            Assert.That(sharedClearRays, Is.EqualTo(14));
+            Assert.That(strikeClearRays, Is.EqualTo(sharedClearRays));
+        }
+        finally
+        {
+            GridLineOfSightData.Unregister(tiles);
+        }
+    }
+
+    [Test]
     public void NewMapComponents_DefaultToBitmapMode()
     {
         GameObject mapObject = Track(new GameObject("Bitmap Compatibility"));

@@ -233,14 +233,8 @@ namespace GridPrivate
                     return true;
             }
 
-            Vector3 rayStart3D = new(
-                start.x + startOffset.x,
-                0.75f,
-                start.z + startOffset.y);
-            Vector3 rayEnd3D = new(
-                target.x + targetOffset.x,
-                0.75f,
-                target.z + targetOffset.y);
+            Vector3 rayStart3D = new(rayStart.x, 0.75f, rayStart.y);
+            Vector3 rayEnd3D = new(rayEnd.x, 0.75f, rayEnd.y);
             Vector3 direction = rayEnd3D - rayStart3D;
             float rayDistance = direction.magnitude;
             if (rayDistance <= Mathf.Epsilon)
