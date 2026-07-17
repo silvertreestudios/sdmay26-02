@@ -119,6 +119,98 @@ public sealed class KayKitDungeonExamplePlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator GameplayCameraPreservesPortraitsFramesEncounterAndAcceptsZoom()
+    {
+        Camera gameplayCamera = Camera.main;
+        CameraManager cameraManager = Object.FindFirstObjectByType<CameraManager>();
+        Assert.That(gameplayCamera, Is.Not.Null);
+        Assert.That(cameraManager, Is.Not.Null);
+        Assert.That(gameplayCamera.enabled, Is.True);
+        Assert.That(gameplayCamera.targetTexture, Is.Null);
+        Assert.That(gameplayCamera.orthographic, Is.False);
+        Assert.That(gameplayCamera.fieldOfView, Is.EqualTo(60f));
+        Assert.That(gameplayCamera.transform.position.y,
+            Is.GreaterThan(cameraManager.minCamearYLimit)
+                .And.LessThan(cameraManager.maxCameraYLimit));
+
+        Camera[] gameplayCandidates = Object.FindObjectsByType<Camera>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None)
+            .Where(candidate =>
+                candidate.enabled &&
+                candidate.gameObject.activeInHierarchy &&
+                candidate.targetTexture == null &&
+                candidate.CompareTag("MainCamera"))
+            .ToArray();
+        Assert.That(gameplayCandidates, Is.EqualTo(new[] { gameplayCamera }));
+
+        Portrait[] portraits = Object.FindObjectsByType<Portrait>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+        Assert.That(portraits, Has.Length.EqualTo(6));
+        foreach (Portrait portrait in portraits)
+        {
+            Camera portraitCamera = portrait.GetComponentInChildren<Camera>(true);
+            Assert.That(portraitCamera, Is.Not.Null, portrait.name);
+            GameObject sourcePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                PortraitPrefabPath(portrait.name));
+            Camera sourceCamera = sourcePrefab.GetComponentInChildren<Camera>(true);
+            Assert.That(sourceCamera, Is.Not.Null, portrait.name);
+            Assert.That(portraitCamera.enabled, Is.False, portrait.name);
+            Assert.That(portraitCamera.CompareTag("MainCamera"), Is.False, portrait.name);
+            Assert.That(portraitCamera.orthographic, Is.EqualTo(sourceCamera.orthographic), portrait.name);
+            Assert.That(portraitCamera.fieldOfView, Is.EqualTo(sourceCamera.fieldOfView), portrait.name);
+            Assert.That(portraitCamera.nearClipPlane, Is.EqualTo(sourceCamera.nearClipPlane), portrait.name);
+            Assert.That(portraitCamera.farClipPlane, Is.EqualTo(sourceCamera.farClipPlane), portrait.name);
+            Assert.That(portraitCamera.transform.localPosition,
+                Is.EqualTo(sourceCamera.transform.localPosition), portrait.name);
+            Assert.That(Quaternion.Angle(
+                portraitCamera.transform.localRotation,
+                sourceCamera.transform.localRotation), Is.LessThan(0.001f), portrait.name);
+        }
+
+        GeneratedMapRoot generated = Object.FindFirstObjectByType<GeneratedMapRoot>();
+        Renderer[] encounterRenderers = generated.GetComponentsInChildren<Renderer>(false)
+            .Concat(Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None)
+                .SelectMany(combatant => combatant.GetComponentsInChildren<Renderer>(false)))
+            .Where(renderer => renderer.enabled && renderer.gameObject.activeInHierarchy)
+            .ToArray();
+        Assert.That(encounterRenderers, Is.Not.Empty);
+        Bounds encounterBounds = encounterRenderers[0].bounds;
+        foreach (Renderer renderer in encounterRenderers.Skip(1))
+            encounterBounds.Encapsulate(renderer.bounds);
+
+        cameraManager.StopFollowing();
+        gameplayCamera.transform.position = new Vector3(7.5f, 6f, -13f);
+        gameplayCamera.transform.LookAt(new Vector3(7.5f, 0f, 5.5f));
+
+        float originalAspect = gameplayCamera.aspect;
+        try
+        {
+            foreach (float aspect in new[] { 4f / 3f, 16f / 10f, 16f / 9f })
+                AssertBoundsVisible(gameplayCamera, encounterBounds, aspect);
+        }
+        finally
+        {
+            gameplayCamera.aspect = originalAspect;
+        }
+
+        MethodInfo tryApplyZoom = typeof(CameraManager).GetMethod(
+            "TryApplyZoom",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(tryApplyZoom, Is.Not.Null);
+        Vector3 initialPosition = gameplayCamera.transform.position;
+        Assert.That((bool)tryApplyZoom.Invoke(cameraManager, new object[] { 0.5f }), Is.True);
+        Assert.That(gameplayCamera.transform.position.y, Is.LessThan(initialPosition.y));
+        gameplayCamera.transform.position = initialPosition;
+        Assert.That((bool)tryApplyZoom.Invoke(cameraManager, new object[] { -0.5f }), Is.True);
+        Assert.That(gameplayCamera.transform.position.y, Is.GreaterThan(initialPosition.y));
+        gameplayCamera.transform.position = initialPosition;
+
+        yield return null;
+    }
+
+    [UnityTest]
     public IEnumerator DoorsObstaclesPathsAndLineOfSightUseRuntimeGridRules()
     {
         GridBase grid = Object.FindFirstObjectByType<GridBase>();
@@ -255,6 +347,44 @@ public sealed class KayKitDungeonExamplePlayModeTests
     private static string TeamName(ActionController controller)
     {
         return controller.GetComponent<Team>()?.Name;
+    }
+
+    private static void AssertBoundsVisible(Camera camera, Bounds bounds, float aspect)
+    {
+        camera.aspect = aspect;
+        Vector3 min = bounds.min;
+        Vector3 max = bounds.max;
+        foreach (Vector3 corner in new[]
+                 {
+                     new Vector3(min.x, min.y, min.z),
+                     new Vector3(min.x, min.y, max.z),
+                     new Vector3(min.x, max.y, min.z),
+                     new Vector3(min.x, max.y, max.z),
+                     new Vector3(max.x, min.y, min.z),
+                     new Vector3(max.x, min.y, max.z),
+                     new Vector3(max.x, max.y, min.z),
+                     new Vector3(max.x, max.y, max.z)
+                 })
+        {
+            Vector3 viewport = camera.WorldToViewportPoint(corner);
+            Assert.That(viewport.z, Is.GreaterThan(0f), $"Aspect {aspect}: {corner} is behind the camera.");
+            Assert.That(viewport.x, Is.InRange(0f, 1f), $"Aspect {aspect}: {corner} is horizontally clipped.");
+            Assert.That(viewport.y, Is.InRange(0f, 1f), $"Aspect {aspect}: {corner} is vertically clipped.");
+        }
+    }
+
+    private static string PortraitPrefabPath(string instanceName)
+    {
+        if (instanceName == "Lena")
+            return "Assets/Prefabs/Creatures/Lena.prefab";
+        if (instanceName == "Torgrim")
+            return "Assets/Prefabs/Creatures/Torgrim.prefab";
+        if (instanceName.StartsWith("Zombie Shambler", System.StringComparison.Ordinal))
+            return "Assets/Prefabs/Creatures/zombie-shambler.prefab";
+        if (instanceName.StartsWith("Skeleton Guard", System.StringComparison.Ordinal))
+            return "Assets/Prefabs/Creatures/skeleton-guard.prefab";
+
+        throw new AssertionException($"No portrait source prefab is registered for {instanceName}.");
     }
 }
 

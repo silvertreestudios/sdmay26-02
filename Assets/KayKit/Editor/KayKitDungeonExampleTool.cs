@@ -13,6 +13,10 @@ namespace Game.KayKit.Editor
         public const string JsonPath = "Assets/Maps/KayKit/KayKitDungeonExample.json";
         public const string ScenePath = "Assets/Scenes/KayKitDungeonExample.unity";
         private const string SourceScenePath = "Assets/Scenes/UnitTestingScene.unity";
+        private const float CameraMinY = 2f;
+        private const float CameraMaxY = 7f;
+        private static readonly Vector3 CameraPosition = new(7.5f, 6f, -13f);
+        private static readonly Vector3 CameraLookAt = new(7.5f, 0f, 5.5f);
 
         [MenuItem("Tools/KayKit/Regenerate Dungeon Example")]
         public static void RegenerateScene()
@@ -28,6 +32,8 @@ namespace Game.KayKit.Editor
             }
 
             Scene scene = EditorSceneManager.OpenScene(SourceScenePath, OpenSceneMode.Single);
+            source = RequireAsset<TextAsset>(JsonPath);
+            catalog = RequireAsset<KayKitDungeonCatalog>(KayKitSetupTool.DungeonCatalogPath);
 
             Map map = Object.FindFirstObjectByType<Map>();
             if (map == null)
@@ -121,17 +127,49 @@ namespace Game.KayKit.Editor
 
         private static void ConfigureCamera()
         {
-            Camera camera = Object.FindFirstObjectByType<Camera>();
-            if (camera == null)
-                throw new InvalidOperationException("Source scene does not contain a Camera.");
+            Camera camera = SelectGameplayCamera(Object.FindObjectsByType<Camera>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None));
+            CameraManager cameraManager = Object.FindFirstObjectByType<CameraManager>();
+            if (cameraManager == null)
+                throw new InvalidOperationException("Source scene does not contain a CameraManager.");
 
-            camera.orthographic = true;
-            camera.orthographicSize = 8.25f;
+            ApplyCameraConfiguration(camera);
+            cameraManager.minCamearYLimit = CameraMinY;
+            cameraManager.maxCameraYLimit = CameraMaxY;
+            EditorUtility.SetDirty(cameraManager);
+        }
+
+        private static Camera SelectGameplayCamera(Camera[] cameras)
+        {
+            Camera[] candidates = cameras
+                .Where(candidate =>
+                    candidate != null &&
+                    candidate.enabled &&
+                    candidate.gameObject.activeInHierarchy &&
+                    candidate.targetTexture == null &&
+                    candidate.CompareTag("MainCamera"))
+                .ToArray();
+            if (candidates.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Source scene must contain exactly one active, enabled, unbound MainCamera; found {candidates.Length}.");
+            }
+
+            return candidates[0];
+        }
+
+        private static void ApplyCameraConfiguration(Camera camera)
+        {
+            camera.orthographic = false;
+            camera.fieldOfView = 60f;
             camera.nearClipPlane = 0.1f;
             camera.farClipPlane = 100f;
-            camera.transform.position = new Vector3(7.5f, 14f, -2.6f);
-            camera.transform.LookAt(new Vector3(7.5f, 0f, 5.5f));
+            camera.transform.position = CameraPosition;
+            camera.transform.LookAt(CameraLookAt);
             camera.backgroundColor = new Color(0.035f, 0.045f, 0.065f, 1f);
+            EditorUtility.SetDirty(camera);
+            EditorUtility.SetDirty(camera.transform);
         }
 
         private static void ConfigureLighting()

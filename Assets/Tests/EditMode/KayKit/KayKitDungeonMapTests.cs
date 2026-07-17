@@ -578,6 +578,51 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void ExampleCameraSelection_ConfiguresOnlyTheUniqueGameplayCamera()
+    {
+        GameObject disabledPortraitObject = Track(new GameObject("Disabled Portrait Camera"));
+        Camera disabledPortrait = disabledPortraitObject.AddComponent<Camera>();
+        disabledPortrait.enabled = false;
+        disabledPortrait.fieldOfView = 26f;
+        disabledPortrait.nearClipPlane = 0.3f;
+        disabledPortrait.farClipPlane = 1.72f;
+        disabledPortrait.transform.SetPositionAndRotation(
+            new Vector3(0f, 0.836f, 1.226f),
+            Quaternion.Euler(0f, 180f, 0f));
+
+        RenderTexture portraitTexture = Track(new RenderTexture(70, 100, 24));
+        GameObject boundPortraitObject = Track(new GameObject("Bound Portrait Camera"));
+        Camera boundPortrait = boundPortraitObject.AddComponent<Camera>();
+        boundPortrait.targetTexture = portraitTexture;
+
+        GameObject gameplayObject = Track(new GameObject("Gameplay Camera"));
+        gameplayObject.tag = "MainCamera";
+        Camera gameplay = gameplayObject.AddComponent<Camera>();
+
+        Camera selected = SelectGameplayCamera(new[] { disabledPortrait, gameplay, boundPortrait });
+        Camera selectedFromReversedInput = SelectGameplayCamera(
+            new[] { boundPortrait, gameplay, disabledPortrait });
+        ApplyExampleCameraConfiguration(selected);
+
+        Assert.That(selected, Is.SameAs(gameplay));
+        Assert.That(selectedFromReversedInput, Is.SameAs(gameplay));
+        Assert.That(gameplay.orthographic, Is.False);
+        Assert.That(gameplay.fieldOfView, Is.EqualTo(60f));
+        Assert.That(gameplay.transform.position, Is.EqualTo(new Vector3(7.5f, 6f, -13f)));
+
+        Assert.That(disabledPortrait.enabled, Is.False);
+        Assert.That(disabledPortrait.orthographic, Is.False);
+        Assert.That(disabledPortrait.fieldOfView, Is.EqualTo(26f));
+        Assert.That(disabledPortrait.nearClipPlane, Is.EqualTo(0.3f));
+        Assert.That(disabledPortrait.farClipPlane, Is.EqualTo(1.72f));
+        Assert.That(disabledPortrait.transform.position, Is.EqualTo(new Vector3(0f, 0.836f, 1.226f)));
+        Assert.That(Quaternion.Angle(
+            disabledPortrait.transform.rotation,
+            Quaternion.Euler(0f, 180f, 0f)), Is.LessThan(0.001f));
+        Assert.That(boundPortrait.targetTexture, Is.SameAs(portraitTexture));
+    }
+
+    [Test]
     public void Generation_IsDeterministicAndClearPreservesManualInfrastructure()
     {
         GameObject mapObject = Track(new GameObject("Test Map"));
@@ -830,6 +875,24 @@ public sealed class KayKitDungeonMapTests
             BindingFlags.Static | BindingFlags.NonPublic);
         Assert.That(method, Is.Not.Null);
         return (bool)method.Invoke(null, new object[] { hasDirtyScenes, savePrompt });
+    }
+
+    private static Camera SelectGameplayCamera(Camera[] cameras)
+    {
+        MethodInfo method = typeof(KayKitDungeonExampleTool).GetMethod(
+            "SelectGameplayCamera",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(method, Is.Not.Null);
+        return (Camera)method.Invoke(null, new object[] { cameras });
+    }
+
+    private static void ApplyExampleCameraConfiguration(Camera camera)
+    {
+        MethodInfo method = typeof(KayKitDungeonExampleTool).GetMethod(
+            "ApplyCameraConfiguration",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(method, Is.Not.Null);
+        method.Invoke(null, new object[] { camera });
     }
 
     private static void AssertWorldPosition(Transform target, Vector3 expected)
