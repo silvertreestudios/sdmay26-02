@@ -6,31 +6,91 @@ using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>
+    /// Marks a value as an operation that can participate in the rules dispatch pipeline.
+    /// </summary>
+    /// <remarks>
+    /// This non-generic contract lets dispatcher infrastructure track operations without
+    /// discarding the result type carried by <see cref="IRuleOp{TResult}"/>.
+    /// </remarks>
     public interface IRuleOp
     {
     }
 
+    /// <summary>
+    /// Defines a rules operation that resolves to a value of <typeparamref name="TResult"/>.
+    /// </summary>
+    /// <typeparam name="TResult">
+    /// The value produced when the operation resolves successfully.
+    /// </typeparam>
     public interface IRuleOp<TResult> : IRuleOp
     {
     }
 
+    /// <summary>
+    /// Handles a typed operation and may coordinate nested operations through the supplied context.
+    /// </summary>
+    /// <typeparam name="TOp">The concrete operation type handled by this implementation.</typeparam>
+    /// <typeparam name="TResult">The successful result produced by the operation.</typeparam>
     public interface IOpHandler<TOp, TResult>
         where TOp : IRuleOp<TResult>
     {
+        /// <summary>
+        /// Handles one engine-owned operation frame.
+        /// </summary>
+        /// <param name="frame">
+        /// Immutable identity, provenance, and starting-state information for this invocation.
+        /// </param>
+        /// <param name="context">
+        /// Handler-scoped access to current rules state, tracing, and nested dispatch.
+        /// Nested dispatches must be awaited before this method returns.
+        /// </param>
+        /// <returns>
+        /// A task-like value containing the successful operation result. The dispatcher wraps
+        /// the value and any facts committed by the operation subtree in an <see cref="OpResult{TResult}"/>.
+        /// </returns>
         ValueTask<TResult> Handle(OpFrame<TOp> frame, OpContext context);
     }
 
+    /// <summary>
+    /// Specifies where a registered operation may begin execution.
+    /// </summary>
     public enum InvocationPolicy
     {
+        /// <summary>
+        /// The operation may be dispatched as a root operation or as a nested child.
+        /// </summary>
         ExternalAllowed,
+
+        /// <summary>
+        /// The operation may be dispatched only from an active <see cref="OpContext"/>.
+        /// </summary>
         NestedOnly
     }
 
+    /// <summary>
+    /// Describes how an operation resolution completed.
+    /// </summary>
     public enum OpStatus
     {
+        /// <summary>
+        /// The operation completed successfully and produced a value.
+        /// </summary>
         Resolved,
+
+        /// <summary>
+        /// The operation was evaluated but could not produce a valid result.
+        /// </summary>
         Invalid,
+
+        /// <summary>
+        /// The operation stopped because runtime behavior interrupted its normal resolution.
+        /// </summary>
         Interrupted,
+
+        /// <summary>
+        /// The operation was cancelled before normal resolution completed.
+        /// </summary>
         Cancelled
     }
 
@@ -45,14 +105,40 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Captures the status, successful value, and committed facts for an operation subtree.
+    /// </summary>
+    /// <typeparam name="TResult">The value type produced by a successful operation.</typeparam>
+    /// <remarks>
+    /// Facts include commits made directly by the operation and by every nested descendant
+    /// that completed within its frame. Callers should inspect <see cref="Status"/> before
+    /// reading status-specific members such as <see cref="Value"/> or <see cref="InvalidReason"/>.
+    /// </remarks>
     public sealed class OpResult<TResult>
     {
         private static readonly IReadOnlyList<RuleFact> NoFacts =
             Array.AsReadOnly(Array.Empty<RuleFact>());
 
+        /// <summary>
+        /// Gets the final status of the operation.
+        /// </summary>
         public OpStatus Status { get; }
+
+        /// <summary>
+        /// Gets the operation value when <see cref="Status"/> is <see cref="OpStatus.Resolved"/>;
+        /// otherwise, gets the default value of <typeparamref name="TResult"/>.
+        /// </summary>
         public TResult Value { get; }
+
+        /// <summary>
+        /// Gets the committed facts produced by this operation subtree in commit order.
+        /// </summary>
         public IReadOnlyList<RuleFact> Facts { get; }
+
+        /// <summary>
+        /// Gets the explanation when <see cref="Status"/> is <see cref="OpStatus.Invalid"/>;
+        /// otherwise, gets <see langword="null"/>.
+        /// </summary>
         public string InvalidReason { get; }
 
         private OpResult(
@@ -72,15 +158,34 @@ namespace Game.Rules.Runtime
             InvalidReason = invalidReason;
         }
 
+        /// <summary>
+        /// Creates a successful result with no attached facts.
+        /// </summary>
+        /// <param name="value">The value produced by the operation.</param>
+        /// <returns>A resolved result. The dispatcher attaches subtree facts before returning it.</returns>
         public static OpResult<TResult> Resolved(TResult value) =>
             new OpResult<TResult>(OpStatus.Resolved, value, NoFacts, null);
 
+        /// <summary>
+        /// Creates an invalid result with no value or attached facts.
+        /// </summary>
+        /// <param name="reason">A non-empty explanation suitable for diagnostics or callers.</param>
+        /// <returns>An invalid operation result.</returns>
+        /// <exception cref="ArgumentException"><paramref name="reason"/> is empty or whitespace.</exception>
         public static OpResult<TResult> Invalid(string reason) =>
             new OpResult<TResult>(OpStatus.Invalid, default, NoFacts, reason);
 
+        /// <summary>
+        /// Creates a result indicating that runtime behavior interrupted the operation.
+        /// </summary>
+        /// <returns>An interrupted operation result.</returns>
         public static OpResult<TResult> Interrupted() =>
             new OpResult<TResult>(OpStatus.Interrupted, default, NoFacts, null);
 
+        /// <summary>
+        /// Creates a result indicating that the operation was cancelled.
+        /// </summary>
+        /// <returns>A cancelled operation result.</returns>
         public static OpResult<TResult> Cancelled() =>
             new OpResult<TResult>(OpStatus.Cancelled, default, NoFacts, null);
 
@@ -88,16 +193,56 @@ namespace Game.Rules.Runtime
             new OpResult<TResult>(Status, Value, facts, InvalidReason);
     }
 
+    /// <summary>
+    /// Provides immutable, dispatcher-owned identity and provenance for one operation invocation.
+    /// </summary>
+    /// <typeparam name="TOp">The concrete operation stored in the frame.</typeparam>
+    /// <remarks>
+    /// A frame belongs to one root resolution. <see cref="ParentId"/> records execution nesting,
+    /// while <see cref="CauseId"/> records causal provenance so future dispatch features can
+    /// distinguish the two relationships without changing handler contracts.
+    /// </remarks>
     public sealed class OpFrame<TOp>
         where TOp : IRuleOp
     {
+        /// <summary>
+        /// Gets the unique identifier for this invocation.
+        /// </summary>
         public OpId Id { get; }
+
+        /// <summary>
+        /// Gets the identifier of the root invocation that owns this frame.
+        /// </summary>
         public OpId RootId { get; }
+
+        /// <summary>
+        /// Gets the immediately enclosing operation, or <see langword="null"/> for a root frame.
+        /// </summary>
         public OpId? ParentId { get; }
+
+        /// <summary>
+        /// Gets the operation that caused this invocation, or <see langword="null"/> for a root frame.
+        /// </summary>
         public OpId? CauseId { get; }
+
+        /// <summary>
+        /// Gets the registration policy used to invoke this operation.
+        /// </summary>
         public InvocationPolicy InvocationPolicy { get; }
+
+        /// <summary>
+        /// Gets the operation value being handled.
+        /// </summary>
         public TOp Op { get; }
+
+        /// <summary>
+        /// Gets the immutable rules snapshot captured immediately before this frame began.
+        /// </summary>
         public RulesSnapshot StartSnapshot { get; }
+
+        /// <summary>
+        /// Gets reserved action-lifecycle data, or <see langword="null"/> until action profiles are implemented.
+        /// </summary>
         public ActionProfile ActionProfile { get; }
 
         internal OpFrame(
@@ -125,15 +270,36 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Supplies unique operation identifiers to a <see cref="RuleDispatcher"/>.
+    /// </summary>
     public interface IOpIdProvider
     {
+        /// <summary>
+        /// Returns the next non-empty operation identifier.
+        /// </summary>
+        /// <returns>An identifier that has not previously been returned by this provider.</returns>
         OpId Next();
     }
 
+    /// <summary>
+    /// Generates deterministic, monotonically increasing operation identifiers.
+    /// </summary>
+    /// <remarks>
+    /// This provider is intended for deterministic runtime behavior and tests. A provider instance
+    /// is consumed by one dispatcher and is not synchronized for concurrent direct access.
+    /// </remarks>
     public sealed class SequentialOpIdProvider : IOpIdProvider
     {
         private long next;
 
+        /// <summary>
+        /// Initializes a sequence at the specified positive value.
+        /// </summary>
+        /// <param name="firstValue">The value returned by the first call to <see cref="Next"/>.</param>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="firstValue"/> is zero or negative.
+        /// </exception>
         public SequentialOpIdProvider(long firstValue = 1)
         {
             if (firstValue <= 0)
@@ -141,6 +307,8 @@ namespace Game.Rules.Runtime
             next = firstValue;
         }
 
+        /// <inheritdoc/>
+        /// <exception cref="InvalidOperationException">The sequence has no remaining positive values.</exception>
         public OpId Next()
         {
             if (next == long.MaxValue)
@@ -175,6 +343,14 @@ namespace Game.Rules.Runtime
         public object TypedFrame => frame;
     }
 
+    /// <summary>
+    /// Stores immutable operation frames and exposes execution and causal ancestry queries.
+    /// </summary>
+    /// <remarks>
+    /// A dispatcher appends each frame before invoking its resolver. Frames remain available for
+    /// the lifetime of the trace, so diagnostics and later handlers can inspect completed roots.
+    /// Ancestry queries are strict: an operation is not considered its own ancestor or cause.
+    /// </remarks>
     public sealed class ResolutionTrace
     {
         private readonly Dictionary<OpId, IOpFrameView> frames =
@@ -187,8 +363,22 @@ namespace Game.Rules.Runtime
             frames.Add(frame.Id, frame);
         }
 
+        /// <summary>
+        /// Determines whether a frame with the specified identifier has been recorded.
+        /// </summary>
+        /// <param name="id">The operation identifier to look up.</param>
+        /// <returns><see langword="true"/> when the trace contains the frame; otherwise, <see langword="false"/>.</returns>
         public bool Exists(OpId id) => frames.ContainsKey(id);
 
+        /// <summary>
+        /// Gets a recorded frame and verifies its concrete operation type.
+        /// </summary>
+        /// <typeparam name="TOp">The operation type expected by the caller.</typeparam>
+        /// <param name="id">The identifier of the frame to retrieve.</param>
+        /// <returns>The recorded frame with its original typed operation.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// No frame has the identifier, or the recorded operation is not <typeparamref name="TOp"/>.
+        /// </exception>
         public OpFrame<TOp> Get<TOp>(OpId id)
             where TOp : IRuleOp
         {
@@ -199,16 +389,58 @@ namespace Game.Rules.Runtime
                 $"Operation {id.Value} is {view.OpType.Name}, not {typeof(TOp).Name}.");
         }
 
+        /// <summary>
+        /// Determines whether an operation is nested beneath another operation.
+        /// </summary>
+        /// <param name="candidateId">The possible descendant.</param>
+        /// <param name="ancestorId">The possible strict ancestor.</param>
+        /// <returns>
+        /// <see langword="true"/> when following parent links from the candidate reaches the ancestor;
+        /// otherwise, <see langword="false"/>.
+        /// </returns>
+        /// <exception cref="InvalidOperationException">
+        /// The candidate is absent, a referenced frame is absent, or the ancestry contains a cycle.
+        /// </exception>
         public bool IsDescendantOf(OpId candidateId, OpId ancestorId) =>
             Follows(candidateId, ancestorId, frame => frame.ParentId);
 
+        /// <summary>
+        /// Determines whether an operation's causal chain contains another operation.
+        /// </summary>
+        /// <param name="candidateId">The operation whose causal chain is inspected.</param>
+        /// <param name="causeId">The possible strict cause.</param>
+        /// <returns>
+        /// <see langword="true"/> when following cause links reaches <paramref name="causeId"/>;
+        /// otherwise, <see langword="false"/>.
+        /// </returns>
+        /// <exception cref="InvalidOperationException">
+        /// The candidate is absent, a referenced frame is absent, or the causal chain contains a cycle.
+        /// </exception>
         public bool IsCausedBy(OpId candidateId, OpId causeId) =>
             Follows(candidateId, causeId, frame => frame.CauseId);
 
+        /// <summary>
+        /// Finds the closest parent-chain ancestor with the requested operation type.
+        /// </summary>
+        /// <typeparam name="TOp">The ancestor operation type to find.</typeparam>
+        /// <param name="candidateId">The operation where the search begins.</param>
+        /// <returns>The nearest matching ancestor frame, or <see langword="null"/> when none exists.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// The candidate is absent, a referenced frame is absent, or the ancestry contains a cycle.
+        /// </exception>
         public OpFrame<TOp> FindNearestAncestor<TOp>(OpId candidateId)
             where TOp : IRuleOp =>
             FindFollowing<TOp>(candidateId, frame => frame.ParentId);
 
+        /// <summary>
+        /// Finds the closest causal-chain ancestor with the requested operation type.
+        /// </summary>
+        /// <typeparam name="TOp">The causing operation type to find.</typeparam>
+        /// <param name="candidateId">The operation where the search begins.</param>
+        /// <returns>The nearest matching causal frame, or <see langword="null"/> when none exists.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// The candidate is absent, a referenced frame is absent, or the causal chain contains a cycle.
+        /// </exception>
         public OpFrame<TOp> FindCausingAncestor<TOp>(OpId candidateId)
             where TOp : IRuleOp =>
             FindFollowing<TOp>(candidateId, frame => frame.CauseId);
@@ -262,6 +494,13 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Produces a human-readable view of traced operations, completion states, and direct facts.
+    /// </summary>
+    /// <remarks>
+    /// Diagnostics are intended for logs and debugging rather than machine parsing. The compact
+    /// representation is generated from the associated <see cref="ResolutionTrace"/> on demand.
+    /// </remarks>
     public sealed class ResolutionDiagnostics
     {
         private readonly Dictionary<OpId, DiagnosticCompletion> completions =
@@ -271,6 +510,13 @@ namespace Game.Rules.Runtime
         internal ResolutionDiagnostics(ResolutionTrace trace) =>
             this.trace = trace ?? throw new ArgumentNullException(nameof(trace));
 
+        /// <summary>
+        /// Gets an indented operation tree ordered by operation identifier.
+        /// </summary>
+        /// <remarks>
+        /// Completed operations include their status and directly emitted facts. An operation that
+        /// is still executing appears without a completion suffix.
+        /// </remarks>
         public string Compact
         {
             get
@@ -334,6 +580,14 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Exposes handler-scoped rules state, trace data, and nested dispatch.
+    /// </summary>
+    /// <remarks>
+    /// The dispatcher owns the context. It is valid only while its handler is actively executing.
+    /// A handler may have at most one child dispatch in flight and must await that child before
+    /// returning or starting another child.
+    /// </remarks>
     public sealed class OpContext
     {
         private readonly RuleDispatcher dispatcher;
@@ -345,13 +599,37 @@ namespace Game.Rules.Runtime
             this.parentId = parentId;
         }
 
+        /// <summary>
+        /// Gets the latest committed rules snapshot.
+        /// </summary>
         public RulesSnapshot Snapshot => dispatcher.Snapshot;
+
+        /// <summary>
+        /// Gets the dispatcher's trace, including the current frame and previously recorded frames.
+        /// </summary>
         public ResolutionTrace Trace => dispatcher.Trace;
 
+        /// <summary>
+        /// Dispatches a child operation under the handler that owns this context.
+        /// </summary>
+        /// <typeparam name="TResult">The successful result type of the child operation.</typeparam>
+        /// <param name="op">The child operation to resolve.</param>
+        /// <returns>A task-like value containing the child's status, value, and subtree facts.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="op"/> is <see langword="null"/>.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// The context is no longer active, another child is in flight, or no compatible resolver is registered.
+        /// </exception>
         public ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op) =>
             dispatcher.DispatchNested(op, parentId);
     }
 
+    /// <summary>
+    /// Configures the one-to-one mapping from concrete operation types to handlers or reducers.
+    /// </summary>
+    /// <remarks>
+    /// Each concrete operation type may have exactly one resolver. Building a dispatcher copies
+    /// the current registrations so later builder changes do not mutate an existing dispatcher.
+    /// </remarks>
     public sealed class RuleDispatcherBuilder
     {
         private readonly Dictionary<Type, IRegistration> registrations =
@@ -359,12 +637,31 @@ namespace Game.Rules.Runtime
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
 
+        /// <summary>
+        /// Initializes a dispatcher builder with its rules store and operation ID source.
+        /// </summary>
+        /// <param name="store">The store used for snapshots and reducer commits.</param>
+        /// <param name="ids">
+        /// The identifier provider, or <see langword="null"/> to use a new
+        /// <see cref="SequentialOpIdProvider"/>.
+        /// </param>
+        /// <exception cref="ArgumentNullException"><paramref name="store"/> is <see langword="null"/>.</exception>
         public RuleDispatcherBuilder(IRulesStore store, IOpIdProvider ids = null)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.ids = ids ?? new SequentialOpIdProvider();
         }
 
+        /// <summary>
+        /// Registers an asynchronous handler for a concrete operation type.
+        /// </summary>
+        /// <typeparam name="TOp">The operation handled by <paramref name="handler"/>.</typeparam>
+        /// <typeparam name="TResult">The successful result returned by the handler.</typeparam>
+        /// <param name="handler">The handler instance invoked for the operation.</param>
+        /// <param name="policy">Whether the operation may begin as a root dispatch.</param>
+        /// <returns>This builder so registrations can be chained.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="handler"/> is <see langword="null"/>.</exception>
+        /// <exception cref="InvalidOperationException"><typeparamref name="TOp"/> already has a resolver.</exception>
         public RuleDispatcherBuilder RegisterHandler<TOp, TResult>(
             IOpHandler<TOp, TResult> handler,
             InvocationPolicy policy = InvocationPolicy.ExternalAllowed)
@@ -376,6 +673,17 @@ namespace Game.Rules.Runtime
             return this;
         }
 
+        /// <summary>
+        /// Registers a transactional reducer as a nested-only resolver.
+        /// </summary>
+        /// <typeparam name="TOp">The operation reduced by <paramref name="reducer"/>.</typeparam>
+        /// <typeparam name="TResult">The accepted value produced by the reducer.</typeparam>
+        /// <param name="reducer">The reducer that validates and stages state changes and facts.</param>
+        /// <param name="source">The rule source stamped onto facts committed by this reducer.</param>
+        /// <returns>This builder so registrations can be chained.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="reducer"/> is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentException"><paramref name="source"/> is empty.</exception>
+        /// <exception cref="InvalidOperationException"><typeparamref name="TOp"/> already has a resolver.</exception>
         public RuleDispatcherBuilder RegisterReducer<TOp, TResult>(
             IOpReducer<TOp, TResult> reducer,
             RuleSource source)
@@ -389,6 +697,10 @@ namespace Game.Rules.Runtime
             return this;
         }
 
+        /// <summary>
+        /// Builds a dispatcher from a snapshot of the current registrations.
+        /// </summary>
+        /// <returns>A dispatcher that owns its registration map, trace, and diagnostics.</returns>
         public RuleDispatcher Build() => new RuleDispatcher(store, ids, registrations);
 
         private void Add(IRegistration registration)
@@ -400,6 +712,15 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Resolves typed rules operations while preserving frame provenance, committed facts, and diagnostics.
+    /// </summary>
+    /// <remarks>
+    /// Root resolutions are serialized: a dispatcher rejects a second root while one is active.
+    /// Handlers may dispatch nested children through <see cref="OpContext"/>, but each active frame
+    /// may own only one child at a time and must await it. Trace and diagnostic history accumulate
+    /// for the lifetime of the dispatcher.
+    /// </remarks>
     public sealed class RuleDispatcher
     {
         private readonly object gate = new object();
@@ -421,10 +742,38 @@ namespace Game.Rules.Runtime
             Diagnostics = new ResolutionDiagnostics(Trace);
         }
 
+        /// <summary>
+        /// Gets the latest immutable snapshot committed by the rules store.
+        /// </summary>
         public RulesSnapshot Snapshot => store.Snapshot;
+
+        /// <summary>
+        /// Gets the lifetime trace of operation frames created by this dispatcher.
+        /// </summary>
         public ResolutionTrace Trace { get; }
+
+        /// <summary>
+        /// Gets the human-readable diagnostics associated with <see cref="Trace"/>.
+        /// </summary>
         public ResolutionDiagnostics Diagnostics { get; }
 
+        /// <summary>
+        /// Dispatches an externally allowed operation as a new root resolution.
+        /// </summary>
+        /// <typeparam name="TResult">The successful result type declared by the operation.</typeparam>
+        /// <param name="op">
+        /// The operation to resolve. Its concrete runtime type must have a compatible registration.
+        /// </param>
+        /// <returns>A task-like value containing the root status, value, and all committed subtree facts.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="op"/> is <see langword="null"/>.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Another root is active, the operation is nested-only, no compatible resolver is registered,
+        /// or a handler violates nested-dispatch ownership.
+        /// </exception>
+        /// <remarks>
+        /// Resolver exceptions propagate to the caller. The dispatcher still releases root ownership
+        /// so a later independent root may be dispatched.
+        /// </remarks>
         public async ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
         {
             if (op == null)

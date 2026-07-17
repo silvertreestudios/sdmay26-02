@@ -69,6 +69,10 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 ## Coding
 
 - Follow existing C# style and Unity lifecycle patterns.
+- Follow Microsoft's C# XML documentation comment conventions for new C# APIs. Add XML documentation to every new public type and every non-trivial public or protected constructor, method, property, event, and field; use `<inheritdoc/>` when an inherited contract already explains the member accurately.
+- Document complex internal code where intent, invariants, ownership, lifecycle, concurrency, side effects, failure behavior, or other non-obvious constraints would otherwise be difficult to recover from the implementation.
+- Write documentation for junior contributors: explain why the API exists, how it should be used, and the important guarantees or hazards without merely restating names or implementation steps. Keep shared concepts DRY by documenting them once and linking with `<see>`, `<seealso>`, or `<inheritdoc/>`.
+- Update nearby XML documentation whenever existing code changes make it incomplete, inaccurate, or misleading.
 - Keep gameplay code in the existing assembly boundaries: `MainGameAssembly`, `EditModeAssembly`, and `PlayModeAssembly`.
 - Prefer small vertical changes with targeted EditMode tests first, then PlayMode smoke coverage for scene, UI, or MonoBehaviour behavior.
 - Avoid introducing new singleton/static-event coupling. When refactoring combat or rules logic, add testable seams for dice/randomness, data loading, and combat math.

@@ -5,8 +5,9 @@ This guidance augments Codex's built-in `/review` and `codex review` behavior. D
 ## Review contract
 
 - Review the complete diff from the intended base branch or merge base to the exact head SHA. State both SHAs; any later code change invalidates the review.
-- For `iterative-pr-delivery`, this built-in exact-SHA review is the pre-PR local gate. After the first Copilot review starts, follow that skill's Copilot-only fix/re-review phase rather than returning to local review for each batch.
+- For `iterative-pr-delivery`, this built-in exact-SHA review is the one-time pre-PR local gate. Once that gate passes, never reopen local review for later code, documentation, CI, Copilot, human-review, or base-sync changes; verify those changes proportionately and continue the applicable remote gates.
 - Keep the review session independent and non-mutating. Read the task, acceptance criteria, `AGENTS.md`, and any domain skill relevant to the changed files before judging the implementation.
+- For every new or modified C# API, verify its XML documentation follows the guidance in `AGENTS.md`: new public types and non-trivial public or protected members are documented, complex behavior and hazards are understandable to junior contributors, inherited documentation is reused where appropriate, and comments remain accurate and DRY after the change.
 - Distinguish verified behavior from assumptions. Record commands and evidence inspected, and state any verification that could not be performed.
 - Report only concrete, actionable defects caused or exposed by the change. Include the smallest useful file/line location, reachable evidence, concrete impact, and the property a correct fix must preserve.
 - If no actionable finding remains, state `No actionable findings for <head-sha>.`
