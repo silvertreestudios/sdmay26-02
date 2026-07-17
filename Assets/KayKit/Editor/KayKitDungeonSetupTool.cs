@@ -22,6 +22,7 @@ namespace Game.KayKit.Editor
         public const string WallPillarPrefabPath = DungeonPrefabRoot + "/DungeonWallPillar.prefab";
         public const string WallResolverPrefabPath = DungeonPrefabRoot + "/DungeonWallResolver.prefab";
         public const string DoorwayPrefabPath = DungeonPrefabRoot + "/DungeonDoorwayOpen.prefab";
+        public const string OpenDoorwayModelName = "wall_doorway_sides";
 
         private static readonly WrapperDescriptor[] Wrappers =
         {
@@ -32,7 +33,7 @@ namespace Game.KayKit.Editor
             new("DungeonWallCrossing", "wall_crossing", true, false),
             new("DungeonWallEndcap", "wall_endcap", true, false),
             new("DungeonWallPillar", "wall_pillar", true, false),
-            new("DungeonDoorwayOpen", "wall_doorway", false, true),
+            new("DungeonDoorwayOpen", "wall_doorway", false, true, OpenDoorwayModelName),
             new("BarrelSmall", "barrel_small", false, false),
             new("Column", "column", false, false),
             new("CratesStacked", "crates_stacked", false, false),
@@ -115,7 +116,7 @@ namespace Game.KayKit.Editor
 
         private static void CreateWrapper(WrapperDescriptor descriptor, Material material)
         {
-            GameObject model = LoadDungeonModel(descriptor.ModelName);
+            GameObject model = LoadDungeonModel(descriptor.SourceModelName);
             GameObject root = new(descriptor.PrefabName);
             try
             {
@@ -290,6 +291,7 @@ namespace Game.KayKit.Editor
         {
             public string PrefabName { get; }
             public string ModelName { get; }
+            public string SourceModelName { get; }
             public bool WallCollider { get; }
             public bool OpenDoorway { get; }
 
@@ -297,10 +299,12 @@ namespace Game.KayKit.Editor
                 string prefabName,
                 string modelName,
                 bool wallCollider,
-                bool openDoorway)
+                bool openDoorway,
+                string sourceModelName = null)
             {
                 PrefabName = prefabName;
                 ModelName = modelName;
+                SourceModelName = sourceModelName ?? modelName;
                 WallCollider = wallCollider;
                 OpenDoorway = openDoorway;
             }

@@ -218,6 +218,53 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void OpenDoorwayPrefab_UsesLeafFreeGeometryAndLeavesCenterPassageClear()
+    {
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        GameObject doorwayPrefab = catalog.DoorwayPrefab;
+        KayKitDungeonCatalogEntry doorwayEntry = catalog.Entries.Single(entry =>
+            entry.Id.EndsWith("/wall_doorway", StringComparison.Ordinal));
+        Transform model = doorwayPrefab.transform.Find("Model");
+        Assert.That(model, Is.Not.Null);
+        string[] meshPaths = model
+            .GetComponentsInChildren<MeshFilter>(true)
+            .Select(filter => AssetDatabase.GetAssetPath(filter.sharedMesh))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        Assert.That(doorwayPrefab.GetComponent<OpenDoorway>(), Is.Not.Null);
+        Assert.That(doorwayEntry.PlacementPrefab, Is.SameAs(doorwayPrefab));
+        Assert.That(doorwayEntry.BlocksMovement, Is.False);
+        Assert.That(doorwayEntry.BlocksLineOfSight, Is.False);
+        Assert.That(doorwayPrefab.GetComponent<BoxCollider>(), Is.Null);
+        Assert.That(doorwayPrefab.GetComponent<MapLineOfSightBlocker>(), Is.Null);
+        Assert.That(meshPaths, Is.Not.Empty);
+        Assert.That(meshPaths.All(path =>
+                string.Equals(
+                    System.IO.Path.GetFileNameWithoutExtension(path),
+                    KayKitDungeonSetupTool.OpenDoorwayModelName,
+                    StringComparison.OrdinalIgnoreCase)),
+            Is.True,
+            $"Open doorway meshes must come from {KayKitDungeonSetupTool.OpenDoorwayModelName}, " +
+            $"not the closed wall_doorway model. Found: {string.Join(", ", meshPaths)}");
+
+        GameObject instance = Track((GameObject)PrefabUtility.InstantiatePrefab(doorwayPrefab));
+        Physics.SyncTransforms();
+        RaycastHit[] centerHits = Physics.RaycastAll(
+            new Vector3(0f, 1f, -1f),
+            Vector3.forward,
+            2f,
+            ~0,
+            QueryTriggerInteraction.Collide);
+
+        Assert.That(instance.GetComponentsInChildren<BoxCollider>(), Has.Length.EqualTo(2));
+        Assert.That(centerHits.Any(hit => hit.collider.transform.IsChildOf(instance.transform)),
+            Is.False,
+            "The open doorway center must remain physically passable.");
+    }
+
+    [Test]
     public void CatalogLookup_TracksInspectorAddRenameAndRemoveEdits()
     {
         KayKitDungeonCatalog catalog = Catalog(Entry("original", Vector2Int.one, false, false));
