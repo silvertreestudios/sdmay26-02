@@ -12,7 +12,7 @@ Use this skill for GitHub operations where multiline text, JSON payloads, review
 - Use markdown body files for all comment, issue, and PR body text. Do not pass multiline bodies inline through PowerShell.
 - Put temporary body files and generated workflow artifacts under `.agent-temp/` at the checkout root. Create it on demand and delete task-specific files when done.
 - Run mutating commands with `--dry-run` first unless the user explicitly asks for the write and the payload is already reviewed.
-- Keep authentication delegated to `gh`; these scripts call `gh api` and do not manage tokens.
+- Keep authentication delegated to `gh`. If `GH_ACCOUNT_COPILOT_PERM` is set, `request-review` obtains that account's existing credential with `gh auth token`, scopes it to the Copilot-only API subprocess, and leaves all other requests on the default `gh` identity. Never print or persist the token.
 - Distinguish comment types:
   - Issue comments and PR conversation comments use `/repos/{owner}/{repo}/issues/{number}/comments`.
   - Inline PR review comments use `/repos/{owner}/{repo}/pulls/{pull_number}/comments`.
@@ -53,6 +53,8 @@ python .agents/skills/github-workflow/scripts/gh_pr.py ready --repo silvertreest
 ```
 
 `request-review` accepts repeated `--reviewer` values. It normalizes `@copilot` to GitHub's Copilot code-review bot account and an `owner/team-slug` value to GitHub's `team_reviewers` payload after verifying that the owner matches the repository. Re-request Copilot after each fix push unless automatic review of new pushes is proven enabled.
+
+When the default `gh` account cannot assign Copilot but another authenticated account can, set `GH_ACCOUNT_COPILOT_PERM` to that account login. The helper splits mixed reviewer requests so only Copilot assignment uses the alternate account.
 
 ### Inline PR Review Comments
 

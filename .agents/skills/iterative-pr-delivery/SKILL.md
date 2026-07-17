@@ -99,3 +99,5 @@ If a human reviewer requests changes, implement and verify them directly without
 ## GitHub operations
 
 Use `github-workflow` for draft PR creation, review requests, review/check retrieval, inline deferred comments, thread replies/resolution, readiness, and PR body updates. Dry-run mutations first unless the exact payload was already reviewed.
+
+If `GH_ACCOUNT_COPILOT_PERM` is configured, let `github-workflow` scope that account to the Copilot assignment request; do not reuse its token for checks, comments, readiness, or human review requests.
