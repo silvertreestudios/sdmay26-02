@@ -691,6 +691,25 @@ public sealed class KayKitDungeonMapTests
         Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
     }
 
+    [Test]
+    public void MissingLegacyBitmapMetadata_EmptyMapGeneratesJsonAndCompletesMigration()
+    {
+        GameObject mapObject = Track(new GameObject("Empty Map Without Legacy Metadata"));
+        Map map = mapObject.AddComponent<Map>();
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        TextAsset json = Track(new TextAsset(
+            @"{""version"":1,""rows"":["".""],""objects"":[]}"));
+        map.ConfigureJson(json, catalog);
+        SetLegacyBitmapMigrationPending(map);
+
+        Assert.That(mapObject.transform.childCount, Is.Zero);
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
+            string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(MigrationVersion(map), Is.GreaterThan(0));
+        Assert.That(mapObject.GetComponentsInChildren<GeneratedMapRoot>(true), Has.Length.EqualTo(1));
+    }
+
     [TestCase(true, "Image Map")]
     [TestCase(false, "Tile Settings")]
     public void MissingLegacyBitmapMetadata_LeavesMigrationPendingAndPreservesDirectChildren(

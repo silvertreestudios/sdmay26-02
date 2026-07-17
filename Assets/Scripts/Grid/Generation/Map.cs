@@ -235,8 +235,15 @@ public class Map : MonoBehaviour
     {
         legacyContent = Array.Empty<GameObject>();
         failure = null;
+        List<GameObject> candidates = children
+            .Where(child => child != null && !child.TryGetComponent(out GeneratedMapRoot _))
+            .Select(child => child.gameObject)
+            .ToList();
         if (ImageMap == null || Settings == null)
         {
+            if (candidates.Count == 0)
+                return true;
+
             string missingMetadata = ImageMap == null && Settings == null
                 ? "Image Map and Tile Settings metadata are missing"
                 : ImageMap == null
@@ -248,10 +255,6 @@ public class Map : MonoBehaviour
             return false;
         }
 
-        List<GameObject> candidates = children
-            .Where(child => child != null && !child.TryGetComponent(out GeneratedMapRoot _))
-            .Select(child => child.gameObject)
-            .ToList();
         List<GameObject> legacy = new();
 
         try
