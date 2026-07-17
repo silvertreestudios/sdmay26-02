@@ -7,13 +7,33 @@ using System.Runtime.CompilerServices;
 namespace Game.Rules.Runtime
 {
     /// <summary>
-    /// The small trusted boundary supplied by the future dispatcher. Full frames and traces belong to issue #120.
+    /// Carries the typed operation and dispatcher-owned provenance into a rules reducer.
     /// </summary>
+    /// <typeparam name="TOp">The operation being reduced.</typeparam>
+    /// <remarks>
+    /// Reducers receive mutable state and fact staging through separate parameters. Keeping identity
+    /// and provenance in this context prevents feature code from forging operation or rule-source data.
+    /// </remarks>
     public sealed class ReductionContext<TOp>
     {
+        /// <summary>
+        /// Gets the operation being reduced.
+        /// </summary>
         public TOp Op { get; }
+
+        /// <summary>
+        /// Gets the operation frame that directly requested this reduction.
+        /// </summary>
         public OpId SourceOpId { get; }
+
+        /// <summary>
+        /// Gets the root operation that owns the complete resolution.
+        /// </summary>
         public OpId RootOpId { get; }
+
+        /// <summary>
+        /// Gets the rule source that will be stamped onto committed facts.
+        /// </summary>
         public RuleSource Source { get; }
 
         internal ReductionContext(TOp op, OpId sourceOpId, OpId rootOpId, RuleSource source)
@@ -144,21 +164,55 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Applies one typed operation to a transactional rules-state draft.
+    /// </summary>
+    /// <typeparam name="TOp">The operation type accepted by the reducer.</typeparam>
+    /// <typeparam name="TResult">The value returned when the reduction is accepted.</typeparam>
+    /// <remarks>
+    /// A reducer may update <see cref="RulesStateDraft"/> and stage facts, but those changes become
+    /// visible only when it returns an accepted <see cref="ReductionResult{TResult}"/>.
+    /// </remarks>
     public interface IOpReducer<TOp, TResult>
+        where TOp : IRuleOp<TResult>
     {
+        /// <summary>
+        /// Validates the operation and stages its state changes and domain facts.
+        /// </summary>
+        /// <param name="context">The typed operation and trusted dispatch provenance.</param>
+        /// <param name="state">An isolated draft of the current rules state.</param>
+        /// <param name="facts">The sink for facts that justify an accepted state transition.</param>
+        /// <returns>An accepted value or a rejected result with a caller-facing reason.</returns>
         ReductionResult<TResult> Reduce(
             ReductionContext<TOp> context,
             RulesStateDraft state,
             FactSink facts);
     }
 
+    /// <summary>
+    /// Provides atomic rules snapshots and transactional reducer execution.
+    /// </summary>
     public interface IRulesStore
     {
+        /// <summary>
+        /// Gets the latest immutable committed state.
+        /// </summary>
         RulesSnapshot Snapshot { get; }
 
+        /// <summary>
+        /// Executes a reducer against an isolated draft and atomically commits accepted changes.
+        /// </summary>
+        /// <typeparam name="TOp">The operation type consumed by the reducer.</typeparam>
+        /// <typeparam name="TResult">The accepted value produced by the reducer.</typeparam>
+        /// <param name="context">The typed operation and trusted dispatch provenance.</param>
+        /// <param name="reducer">The reducer that validates and stages the transition.</param>
+        /// <returns>
+        /// The completed reduction, including the committed snapshot and stamped facts when a commit occurred.
+        /// </returns>
         ReductionResult<TResult> Reduce<TOp, TResult>(
             ReductionContext<TOp> context,
-            IOpReducer<TOp, TResult> reducer);
+            IOpReducer<TOp, TResult> reducer)
+            where TOp : IRuleOp<TResult>;
     }
 
     public sealed class InMemoryRulesStore : IRulesStore
@@ -187,9 +241,11 @@ namespace Game.Rules.Runtime
             }
         }
 
+        /// <inheritdoc/>
         public ReductionResult<TResult> Reduce<TOp, TResult>(
             ReductionContext<TOp> context,
             IOpReducer<TOp, TResult> reducer)
+            where TOp : IRuleOp<TResult>
         {
             if (context == null)
                 throw new ArgumentNullException(nameof(context));

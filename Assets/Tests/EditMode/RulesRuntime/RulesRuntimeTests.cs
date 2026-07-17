@@ -276,7 +276,7 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(publicConstructors, Is.Empty);
             Assert.That(internalConstructors, Has.Length.EqualTo(1));
-            Assert.That(typeof(IRulesStore).Assembly.GetType("Game.Rules.Runtime.IRuleOp"), Is.Null);
+            Assert.That(typeof(IRulesStore).Assembly.GetType("Game.Rules.Runtime.IRuleOp"), Is.Not.Null);
             Assert.That(typeof(FactSink).GetMethod(nameof(FactSink.Stage)).GetParameters()[0].ParameterType,
                 Is.EqualTo(typeof(RuleFact)));
         }
@@ -408,7 +408,7 @@ namespace Game.Rules.Runtime.Tests
             return new ReductionContext<AdjustHealthOp>(op, new OpId(2), new OpId(1), TestSource);
         }
 
-        private sealed class AdjustHealthOp
+        private sealed class AdjustHealthOp : IRuleOp<int>
         {
             public CreatureId Creature { get; }
             public int Delta { get; }

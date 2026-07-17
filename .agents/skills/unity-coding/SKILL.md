@@ -20,6 +20,7 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
 ## Guardrails
 
 - Do not raw-edit scenes, prefabs, materials, or serialized assets for gameplay refactors.
+- Follow the C# XML documentation requirements in `AGENTS.md` for new or modified public APIs and complex internal behavior; keep existing documentation synchronized with every behavior change.
 - Avoid new global state. If existing singleton/static-event behavior is involved, isolate it behind a seam before expanding it.
 - Save and restore random state in tests that touch randomness.
 - Keep generated Unity files and results out of version control.
