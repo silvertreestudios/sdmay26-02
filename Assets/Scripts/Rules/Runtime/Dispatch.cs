@@ -243,10 +243,12 @@ namespace Game.Rules.Runtime
         /// </summary>
         public RulesSnapshot StartSnapshot { get; }
 
+#nullable enable annotations
         /// <summary>
         /// Gets reserved action-lifecycle data, or <see langword="null"/> until action profiles are implemented.
         /// </summary>
-        public ActionProfile ActionProfile { get; }
+        public ActionProfile? ActionProfile { get; }
+#nullable restore annotations
 
         internal OpFrame(
             OpId id,
