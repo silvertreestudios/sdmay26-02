@@ -289,8 +289,7 @@ public class Map : MonoBehaviour
                 {
                     GameObject instance = InstantiatePrefab(prefab, structure);
                     instance.name = $"Structure_{x:D3}_{z:D3}_{prefab.name}";
-                    instance.transform.localPosition = position;
-                    instance.transform.localRotation = prefab.transform.rotation;
+                    instance.transform.SetPositionAndRotation(position, prefab.transform.rotation);
                     instance.GetComponent<IOnGridGeneration>()?.OnGeneration(
                         new Vector3Int(x, 0, z),
                         GridData);
@@ -440,8 +439,7 @@ public class Map : MonoBehaviour
     {
         GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.transform.SetParent(parent, false);
-        quad.transform.localPosition = position;
-        quad.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        quad.transform.SetPositionAndRotation(position, Quaternion.Euler(90f, 0f, 0f));
         return quad;
     }
 

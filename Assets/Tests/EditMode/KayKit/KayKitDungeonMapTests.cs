@@ -267,6 +267,68 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void BitmapGeneration_PreservesWorldGridUnderTransformedMapRoot()
+    {
+        GameObject mapObject = Track(new GameObject("Transformed Bitmap Map"));
+        mapObject.transform.SetPositionAndRotation(
+            new Vector3(14.3f, 2f, 11.5f),
+            Quaternion.Euler(0f, 37f, 0f));
+        mapObject.transform.localScale = new Vector3(1.5f, 2f, 0.75f);
+        Map map = mapObject.AddComponent<Map>();
+        Texture2D image = Track(new Texture2D(2, 1));
+        image.SetPixels(new[] { Color.red, Color.red });
+        image.Apply();
+
+        FieldInfo settingsField = typeof(Map).GetField(
+            "Settings",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(settingsField, Is.Not.Null);
+        settingsField.SetValue(map, new TileSettings());
+        SerializedObject serialized = new(map);
+        serialized.FindProperty("ImageMap").objectReferenceValue = image;
+        serialized.FindProperty("spacing").floatValue = 2f;
+        SerializedProperty definitions = serialized.FindProperty("Settings.TileDefinitions");
+        definitions.arraySize = 1;
+        SerializedProperty definition = definitions.GetArrayElementAtIndex(0);
+        definition.FindPropertyRelative("Color").colorValue = Color.red;
+        definition.FindPropertyRelative("Tile").enumValueIndex = (int)TileType.Wall;
+        definition.FindPropertyRelative("Prefab").objectReferenceValue =
+            AssetDatabase.LoadAssetAtPath<GameObject>(
+                "Assets/Prefabs/MapPieces/Walls/Bricks/Wall_Brick.prefab");
+        definition.FindPropertyRelative("Floor").objectReferenceValue =
+            AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Dirt.mat");
+        serialized.ApplyModifiedPropertiesWithoutUndo();
+
+        Assert.That(map.TryGenerate(out MapSourceValidationResult firstResult), Is.True,
+            string.Join(Environment.NewLine, firstResult.Errors));
+        Transform generated = mapObject.transform.Find("GeneratedMap");
+        Transform structure = generated.Find("Structure");
+        Transform wall = structure.Find("Structure_001_000_Wall_Brick");
+        Transform floor = structure.Find("Floor_001_000");
+
+        Assert.That(generated.GetComponent<GeneratedMapRoot>(), Is.Not.Null);
+        AssertWorldPosition(wall, new Vector3(2f, 0f, 0f));
+        AssertWorldPosition(floor, new Vector3(2f, 0f, 0f));
+        string[] first = Snapshot(generated);
+
+        GameObject manual = new("Manual Infrastructure");
+        manual.transform.SetParent(mapObject.transform, false);
+        Assert.That(map.TryGenerate(out MapSourceValidationResult secondResult), Is.True,
+            string.Join(Environment.NewLine, secondResult.Errors));
+
+        generated = mapObject.transform.Find("GeneratedMap");
+        Assert.That(Snapshot(generated), Is.EqualTo(first));
+        AssertWorldPosition(
+            generated.Find("Structure/Structure_001_000_Wall_Brick"),
+            new Vector3(2f, 0f, 0f));
+        Assert.That(manual, Is.Not.Null);
+
+        map.ClearGeneratedContent();
+        Assert.That(mapObject.transform.Find("GeneratedMap"), Is.Null);
+        Assert.That(manual, Is.Not.Null);
+    }
+
+    [Test]
     public void RegenerationSceneGuard_SkipsPromptWhenNoSceneIsDirty()
     {
         bool result = ConfirmSceneTransition(false, () =>
@@ -511,6 +573,14 @@ public sealed class KayKitDungeonMapTests
             BindingFlags.Static | BindingFlags.NonPublic);
         Assert.That(method, Is.Not.Null);
         return (bool)method.Invoke(null, new object[] { hasDirtyScenes, savePrompt });
+    }
+
+    private static void AssertWorldPosition(Transform target, Vector3 expected)
+    {
+        Assert.That(target, Is.Not.Null);
+        Assert.That(target.position.x, Is.EqualTo(expected.x).Within(0.0001f));
+        Assert.That(target.position.y, Is.EqualTo(expected.y).Within(0.0001f));
+        Assert.That(target.position.z, Is.EqualTo(expected.z).Within(0.0001f));
     }
 
     private static void Visit(Transform current, string path, ICollection<string> values)
