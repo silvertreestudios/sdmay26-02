@@ -563,6 +563,9 @@ public sealed class InvalidGridInitializationPlayModeTests
             LogAssert.Expect(
                 LogType.Warning,
                 "Failed to register token 'Out of Bounds Combatant' at grid cell (1, 0). The cell is outside the grid bounds.");
+            LogAssert.Expect(
+                LogType.Warning,
+                "Failed to register token 'Out of Bounds Combatant' at grid cell (1, 0). The cell is outside the grid bounds.");
             tokenObject.SetActive(true);
 
             Assert.That(grid.GetTiles()[0, 0].Occupants, Is.Empty);
@@ -767,7 +770,7 @@ public sealed class MapGenerationLifecyclePlayModeTests
             KayKitDungeonCatalogEntry wall = catalog.Entries.Single(entry =>
                 entry.Id.EndsWith("/wall", System.StringComparison.Ordinal));
             source = new TextAsset(
-                $"{{\"version\":1,\"rows\":[\"...\"],\"objects\":[{{\"assetId\":\"{wall.Id}\",\"x\":1,\"z\":0}}]}}");
+                $"{{\"version\":1,\"rows\":[\"...\",\"...\",\"...\"],\"objects\":[{{\"assetId\":\"{wall.Id}\",\"x\":1,\"z\":1}}]}}");
             mapObject = new GameObject("Wall Placement Semantics");
             Map map = mapObject.AddComponent<Map>();
             map.ConfigureJson(source, catalog);
@@ -776,17 +779,22 @@ public sealed class MapGenerationLifecyclePlayModeTests
                 string.Join("\n", validation.Errors));
             TileType[,] gridData = map.GetMapData();
             bool[,] lineOfSightBlocks = map.GetLineOfSightBlocks();
-            tiles = new[,] { { new Tile() }, { (Tile)null }, { new Tile() } };
+            tiles = new[,]
+            {
+                { new Tile(), new Tile(), new Tile() },
+                { new Tile(), null, new Tile() },
+                { new Tile(), new Tile(), new Tile() }
+            };
             GridLineOfSightData.Register(tiles, lineOfSightBlocks, gridData);
             Transform placedWall = mapObject.transform.Find(
                 "GeneratedMap/Objects/Object_000_dungeon_assets_fbx_unity__wall");
 
-            Assert.That(gridData[1, 0], Is.EqualTo(TileType.Obstacle));
-            Assert.That(GridBase.IsWalkableTile(gridData[1, 0]), Is.False);
-            Assert.That(lineOfSightBlocks[1, 0], Is.True);
-            Assert.That(GridTargeting.IsBlocking(tiles, new Vector3Int(1, 0, 0)), Is.True);
+            Assert.That(gridData[1, 1], Is.EqualTo(TileType.Obstacle));
+            Assert.That(GridBase.IsWalkableTile(gridData[1, 1]), Is.False);
+            Assert.That(lineOfSightBlocks[1, 1], Is.True);
+            Assert.That(GridTargeting.IsBlocking(tiles, new Vector3Int(1, 0, 1)), Is.True);
             Assert.That(
-                GridTargeting.CountClearRays(tiles, Vector3Int.zero, new Vector3Int(2, 0, 0)),
+                GridTargeting.CountClearRays(tiles, Vector3Int.zero, new Vector3Int(2, 0, 2)),
                 Is.Zero);
             Assert.That(placedWall, Is.Not.Null);
             Assert.That(placedWall.GetComponent<BoxCollider>(), Is.Not.Null);
@@ -795,8 +803,8 @@ public sealed class MapGenerationLifecyclePlayModeTests
             Physics.SyncTransforms();
             RaycastHit[] hits = Physics.RaycastAll(
                 new Vector3(0f, 0.75f, 0f),
-                Vector3.right,
-                2f,
+                new Vector3(1f, 0f, 1f).normalized,
+                Mathf.Sqrt(8f),
                 ~0,
                 QueryTriggerInteraction.Collide);
             Assert.That(hits.Any(hit =>
