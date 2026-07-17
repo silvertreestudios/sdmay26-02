@@ -1,6 +1,8 @@
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using Game.KayKit;
+using Game.KayKit.Editor;
 using GridPrivate;
 using NUnit.Framework;
 using UnityEditor;
@@ -123,6 +125,53 @@ public sealed class MapPrefabPersistenceTests
         Assert.That(reloadedLookalike, Is.Not.Null);
         Assert.That(reloadedLookalike.GetComponent<MeshRenderer>().sharedMaterial, Is.SameAs(legacyFloor));
         Assert.That(reloadedLookalike.position, Is.EqualTo(expectedWorldPosition));
+    }
+
+    [Test]
+    public void DelayedBitmapRebuild_SkipsAfterJsonConversionAndSceneSave()
+    {
+        CreateBitmapMapPrefab(false);
+        Scene scene = CreateSceneWithPrefabInstance();
+        Map map = FindMap(scene);
+
+        EditorApplication.CallbackFunction callbacksBefore = EditorApplication.delayCall;
+        int callbackCountBefore = callbacksBefore?.GetInvocationList().Length ?? 0;
+        map.SendMessage("OnValidate");
+        System.Delegate[] scheduledCallbacks = EditorApplication.delayCall
+            .GetInvocationList()
+            .Skip(callbackCountBefore)
+            .ToArray();
+        EditorApplication.delayCall = callbacksBefore;
+        Assert.That(scheduledCallbacks, Has.Length.EqualTo(1));
+
+        Undo.RecordObject(map, "Configure test JSON source");
+        map.ConfigureJson(
+            AssetDatabase.LoadAssetAtPath<TextAsset>(KayKitDungeonExampleTool.JsonPath),
+            AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(KayKitSetupTool.DungeonCatalogPath));
+        EditorUtility.SetDirty(map);
+        PrefabUtility.RecordPrefabInstancePropertyModifications(map);
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
+            string.Join(System.Environment.NewLine, validation.Errors));
+        Assert.That(EditorSceneManager.SaveScene(scene), Is.True);
+
+        Transform generatedBeforeCallback = map.transform.Find("GeneratedMap");
+        string serializedBeforeCallback = File.ReadAllText(ScenePath);
+
+        foreach (System.Delegate callback in scheduledCallbacks)
+            ((EditorApplication.CallbackFunction)callback).Invoke();
+
+        bool callbackDirtiedScene = scene.isDirty;
+        Transform generatedAfterCallback = map.transform.Find("GeneratedMap");
+        Assert.That(EditorSceneManager.SaveScene(scene), Is.True);
+        string serializedAfterCallback = File.ReadAllText(ScenePath);
+
+        Assert.That(map.SourceMode, Is.EqualTo(MapSourceMode.Json));
+        Assert.That(generatedAfterCallback, Is.SameAs(generatedBeforeCallback),
+            "The stale bitmap callback regenerated the JSON hierarchy.");
+        Assert.That(callbackDirtiedScene, Is.False,
+            "The stale bitmap callback dirtied the saved JSON scene.");
+        Assert.That(serializedAfterCallback, Is.EqualTo(serializedBeforeCallback),
+            "Saving after the callback introduced serialized scene churn.");
     }
 
     private static void AssertOverride(Map map, string propertyPath)

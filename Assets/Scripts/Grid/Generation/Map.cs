@@ -84,8 +84,13 @@ public class Map : MonoBehaviour
 
         EditorApplication.delayCall += () =>
         {
-            if (this != null && !Application.isPlaying)
+            if (this != null &&
+                !Application.isPlaying &&
+                sourceMode == MapSourceMode.Bitmap &&
+                !PrefabUtility.IsPartOfPrefabAsset(this))
+            {
                 Generate();
+            }
         };
 #endif
     }
