@@ -269,7 +269,13 @@ public sealed class KayKitDungeonMapTests
     [Test]
     public void BitmapGeneration_PreservesWorldGridUnderTransformedMapRoot()
     {
+        GameObject ancestor = Track(new GameObject("Bitmap Map Ancestor"));
+        ancestor.transform.SetPositionAndRotation(
+            new Vector3(-6f, 4f, 9f),
+            Quaternion.Euler(13f, 29f, 7f));
+        ancestor.transform.localScale = new Vector3(2.25f, 0.6f, 1.4f);
         GameObject mapObject = Track(new GameObject("Transformed Bitmap Map"));
+        mapObject.transform.SetParent(ancestor.transform, false);
         mapObject.transform.SetPositionAndRotation(
             new Vector3(14.3f, 2f, 11.5f),
             Quaternion.Euler(0f, 37f, 0f));
@@ -307,6 +313,9 @@ public sealed class KayKitDungeonMapTests
         Transform floor = structure.Find("Floor_001_000");
 
         Assert.That(generated.GetComponent<GeneratedMapRoot>(), Is.Not.Null);
+        AssertWorldPosition(generated, Vector3.zero);
+        AssertWorldRotation(generated, Quaternion.identity);
+        AssertWorldScale(generated, Vector3.one);
         AssertWorldPosition(wall, new Vector3(2f, 0f, 0f));
         AssertWorldPosition(floor, new Vector3(2f, 0f, 0f));
         AssertWorldRotation(wall, Quaternion.Euler(0f, 180f, 0f));
@@ -346,7 +355,13 @@ public sealed class KayKitDungeonMapTests
             !candidate.BlocksMovement);
         TextAsset source = Track(new TextAsset(
             $"{{\"version\":1,\"rows\":[\"#D#\",\"...\"],\"objects\":[{{\"assetId\":\"{entry.Id}\",\"x\":1,\"z\":0,\"rotation\":90}}]}}"));
+        GameObject ancestor = Track(new GameObject("JSON Map Ancestor"));
+        ancestor.transform.SetPositionAndRotation(
+            new Vector3(7f, -2f, -11f),
+            Quaternion.Euler(9f, 31f, 5f));
+        ancestor.transform.localScale = new Vector3(1.8f, 0.7f, 2.4f);
         GameObject mapObject = Track(new GameObject("Transformed JSON Map"));
+        mapObject.transform.SetParent(ancestor.transform, false);
         mapObject.transform.SetPositionAndRotation(
             new Vector3(-8.25f, 3f, 4.5f),
             Quaternion.Euler(0f, 53f, 0f));
@@ -365,6 +380,9 @@ public sealed class KayKitDungeonMapTests
         Transform placedObject = objects.GetChild(0);
         KayKitDungeonObjectPlacement placement = validation.JsonMap.Objects[0];
 
+        AssertWorldPosition(generated, Vector3.zero);
+        AssertWorldRotation(generated, Quaternion.identity);
+        AssertWorldScale(generated, Vector3.one);
         AssertWorldPosition(floor, new Vector3(1f, 0f, 1f));
         AssertWorldScale(floor, catalog.FloorPrefab.transform.lossyScale);
         AssertWorldPosition(wall, new Vector3(2f, 0f, 1f));

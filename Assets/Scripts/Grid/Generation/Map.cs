@@ -108,10 +108,9 @@ public class Map : MonoBehaviour
 
         GameObject generatedMap = new("GeneratedMap");
         generatedMap.AddComponent<GeneratedMapRoot>();
-        generatedMap.transform.SetParent(transform, false);
-        generatedMap.transform.localScale = ReciprocalScale(transform.localScale);
-        Transform structure = CreateWorldSpaceContainer("Structure", generatedMap.transform);
-        Transform objects = CreateWorldSpaceContainer("Objects", generatedMap.transform);
+        generatedMap.transform.SetParent(transform, true);
+        Transform structure = CreateContainer("Structure", generatedMap.transform);
+        Transform objects = CreateContainer("Objects", generatedMap.transform);
 
         if (sourceMode == MapSourceMode.Json)
         {
@@ -520,22 +519,6 @@ public class Map : MonoBehaviour
         GameObject container = new(name);
         container.transform.SetParent(parent, false);
         return container.transform;
-    }
-
-    private static Transform CreateWorldSpaceContainer(string name, Transform parent)
-    {
-        Transform container = CreateContainer(name, parent);
-        container.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-        container.localScale = Vector3.one;
-        return container;
-    }
-
-    private static Vector3 ReciprocalScale(Vector3 scale)
-    {
-        return new Vector3(
-            Mathf.Approximately(scale.x, 0f) ? 1f : 1f / scale.x,
-            Mathf.Approximately(scale.y, 0f) ? 1f : 1f / scale.y,
-            Mathf.Approximately(scale.z, 0f) ? 1f : 1f / scale.z);
     }
 
     private static string StableName(string assetId)
