@@ -927,7 +927,7 @@ namespace Game.Rules.Runtime
                 lock (gate)
                 {
                     RequireActiveResolution(resolution);
-                    IReadOnlyList<RuleFact> directFacts = Array.AsReadOnly(Array.Empty<RuleFact>());
+                    IReadOnlyList<RuleFact> directFacts = NoFacts;
                     if (registration.IsReducer)
                     {
                         directFacts = result.Facts;
