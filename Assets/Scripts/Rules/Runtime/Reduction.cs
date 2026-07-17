@@ -7,7 +7,7 @@ using System.Runtime.CompilerServices;
 namespace Game.Rules.Runtime
 {
     /// <summary>
-    /// The small trusted boundary supplied by the future dispatcher. Full frames and traces belong to issue #120.
+    /// The trusted reducer boundary supplied by the dispatcher.
     /// </summary>
     public sealed class ReductionContext<TOp>
     {
@@ -145,6 +145,7 @@ namespace Game.Rules.Runtime
     }
 
     public interface IOpReducer<TOp, TResult>
+        where TOp : IRuleOp<TResult>
     {
         ReductionResult<TResult> Reduce(
             ReductionContext<TOp> context,
@@ -158,7 +159,8 @@ namespace Game.Rules.Runtime
 
         ReductionResult<TResult> Reduce<TOp, TResult>(
             ReductionContext<TOp> context,
-            IOpReducer<TOp, TResult> reducer);
+            IOpReducer<TOp, TResult> reducer)
+            where TOp : IRuleOp<TResult>;
     }
 
     public sealed class InMemoryRulesStore : IRulesStore
@@ -190,6 +192,7 @@ namespace Game.Rules.Runtime
         public ReductionResult<TResult> Reduce<TOp, TResult>(
             ReductionContext<TOp> context,
             IOpReducer<TOp, TResult> reducer)
+            where TOp : IRuleOp<TResult>
         {
             if (context == null)
                 throw new ArgumentNullException(nameof(context));
