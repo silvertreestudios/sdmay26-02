@@ -74,6 +74,8 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(fact));
             if (fact.IsStamped)
                 throw new InvalidOperationException("Feature code cannot stage a pre-stamped Fact.");
+            if (stagedFacts.Exists(staged => ReferenceEquals(staged, fact)))
+                throw new InvalidOperationException("The same Rule Fact instance cannot be staged more than once.");
 
             stagedFacts.Add(fact);
         }
@@ -164,6 +166,7 @@ namespace Game.Rules.Runtime
         private readonly object gate = new object();
         private RulesState state;
         private long nextFactId = 1;
+        private bool isReducing;
 
         public InMemoryRulesStore()
             : this(new RulesStateSeed())
@@ -195,41 +198,52 @@ namespace Game.Rules.Runtime
 
             lock (gate)
             {
-                RulesState startingState = state;
-                RulesStateDraft draft = startingState.CreateDraft();
-                FactSink factSink = new FactSink();
-                ReductionResult<TResult> decision = reducer.Reduce(context, draft, factSink);
-                if (decision == null)
-                    throw new InvalidOperationException("A reducer returned null.");
+                if (isReducing)
+                    throw new InvalidOperationException("A rules store cannot begin a nested reduction while another reduction is in progress.");
 
-                if (decision.IsRejected)
-                    return decision.Complete(startingState.Snapshot, Array.AsReadOnly(Array.Empty<RuleFact>()), false);
-
-                if (!draft.IsDirty && factSink.Count == 0)
-                    return decision.Complete(startingState.Snapshot, Array.AsReadOnly(Array.Empty<RuleFact>()), false);
-
-                if (draft.IsDirty && factSink.Count == 0)
-                    throw new InvalidOperationException("A committed state change requires at least one domain Fact.");
-
-                RuleFact[] committedFacts = factSink.GetStagedFacts();
-                long pendingFactId = nextFactId;
-                foreach (RuleFact fact in committedFacts)
+                isReducing = true;
+                try
                 {
-                    fact.Stamp(
-                        new FactId(pendingFactId++),
-                        context.SourceOpId,
-                        context.RootOpId,
-                        context.Source);
+                    RulesState startingState = state;
+                    RulesStateDraft draft = startingState.CreateDraft();
+                    FactSink factSink = new FactSink();
+                    ReductionResult<TResult> decision = reducer.Reduce(context, draft, factSink);
+                    if (decision == null)
+                        throw new InvalidOperationException("A reducer returned null.");
+
+                    if (decision.IsRejected)
+                        return decision.Complete(startingState.Snapshot, Array.AsReadOnly(Array.Empty<RuleFact>()), false);
+
+                    if (!draft.IsDirty && factSink.Count == 0)
+                        return decision.Complete(startingState.Snapshot, Array.AsReadOnly(Array.Empty<RuleFact>()), false);
+
+                    if (draft.IsDirty && factSink.Count == 0)
+                        throw new InvalidOperationException("A committed state change requires at least one domain Fact.");
+
+                    RuleFact[] committedFacts = factSink.GetStagedFacts();
+                    long pendingFactId = nextFactId;
+                    foreach (RuleFact fact in committedFacts)
+                    {
+                        fact.Stamp(
+                            new FactId(pendingFactId++),
+                            context.SourceOpId,
+                            context.RootOpId,
+                            context.Source);
+                    }
+
+                    RulesState committedState = new RulesState(draft.Build(startingState.Version + 1));
+                    state = committedState;
+                    nextFactId = pendingFactId;
+
+                    return decision.Complete(
+                        committedState.Snapshot,
+                        Array.AsReadOnly(committedFacts),
+                        true);
                 }
-
-                RulesState committedState = new RulesState(draft.Build(startingState.Version + 1));
-                state = committedState;
-                nextFactId = pendingFactId;
-
-                return decision.Complete(
-                    committedState.Snapshot,
-                    Array.AsReadOnly(committedFacts),
-                    true);
+                finally
+                {
+                    isReducing = false;
+                }
             }
         }
     }

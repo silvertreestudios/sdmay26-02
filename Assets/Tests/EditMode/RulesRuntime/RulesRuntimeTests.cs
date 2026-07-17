@@ -185,6 +185,86 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(exception.Message, Does.Contain("requires at least one domain Fact"));
             Assert.That(store.Snapshot, Is.SameAs(before));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(20));
+
+            ReductionResult<int> recovered = store.Reduce(
+                Context(new AdjustHealthOp(Creature, -1)),
+                new AdjustHealthReducer());
+
+            Assert.That(recovered.Snapshot.Version, Is.EqualTo(1));
+            Assert.That(recovered.Snapshot.Health[Creature].Current, Is.EqualTo(19));
+            Assert.That(recovered.Facts[0].Id, Is.EqualTo(new FactId(1)));
+        }
+
+        [Test]
+        public void NestedSameStoreReductionIsRejectedBeforeReducerRunsAndOuterRollsBack()
+        {
+            InMemoryRulesStore store = CreateStore(20);
+            RulesSnapshot before = store.Snapshot;
+            CountingAdjustHealthReducer nested = new CountingAdjustHealthReducer();
+            ReentrantReducer outer = new ReentrantReducer(store, nested);
+
+            InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => store.Reduce(
+                Context(new AdjustHealthOp(Creature, -5)),
+                outer));
+
+            Assert.That(exception.Message, Does.Contain("nested reduction"));
+            Assert.That(nested.InvocationCount, Is.Zero);
+            Assert.That(outer.ObservedSnapshotVersion, Is.Zero);
+            Assert.That(outer.StagedFact.IsStamped, Is.False);
+            Assert.That(store.Snapshot, Is.SameAs(before));
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(20));
+
+            ReductionResult<int> recovered = store.Reduce(
+                Context(new AdjustHealthOp(Creature, -1)),
+                new AdjustHealthReducer());
+
+            Assert.That(recovered.Snapshot.Version, Is.EqualTo(1));
+            Assert.That(recovered.Snapshot.Health[Creature].Current, Is.EqualTo(19));
+            Assert.That(recovered.Facts[0].Id, Is.EqualTo(new FactId(1)));
+        }
+
+        [Test]
+        public void DuplicateFactInstanceFailsBeforeStampingAndStoreRemainsUsable()
+        {
+            InMemoryRulesStore store = CreateStore(20);
+            RulesSnapshot before = store.Snapshot;
+            DuplicateFactReducer reducer = new DuplicateFactReducer();
+
+            InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => store.Reduce(
+                Context(new AdjustHealthOp(Creature, -5)),
+                reducer));
+
+            Assert.That(exception.Message, Does.Contain("same Rule Fact instance"));
+            Assert.That(reducer.StagedFact.IsStamped, Is.False);
+            Assert.That(store.Snapshot, Is.SameAs(before));
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(20));
+
+            ReductionResult<int> recovered = store.Reduce(
+                Context(new AdjustHealthOp(Creature, -1)),
+                new AdjustHealthReducer());
+
+            Assert.That(recovered.Snapshot.Version, Is.EqualTo(1));
+            Assert.That(recovered.Snapshot.Health[Creature].Current, Is.EqualTo(19));
+            Assert.That(recovered.Facts[0].Id, Is.EqualTo(new FactId(1)));
+        }
+
+        [Test]
+        public void DistinctValueEqualFactInstancesCanBeStagedTogether()
+        {
+            InMemoryRulesStore store = CreateStore(20);
+            DistinctValueEqualFactsReducer reducer = new DistinctValueEqualFactsReducer();
+
+            ReductionResult<int> result = store.Reduce(
+                Context(new AdjustHealthOp(Creature, -1)),
+                reducer);
+
+            Assert.That(result.DidCommit, Is.True);
+            Assert.That(result.Facts, Has.Count.EqualTo(2));
+            Assert.That(result.Facts[0], Is.Not.SameAs(result.Facts[1]));
+            Assert.That(result.Facts[0].Id, Is.EqualTo(new FactId(1)));
+            Assert.That(result.Facts[1].Id, Is.EqualTo(new FactId(2)));
         }
 
         [Test]
@@ -354,6 +434,19 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
+        private sealed class ValueEqualFact : RuleFact
+        {
+            public int Value { get; }
+
+            public ValueEqualFact(int value)
+            {
+                Value = value;
+            }
+
+            public override bool Equals(object obj) => obj is ValueEqualFact other && Value == other.Value;
+            public override int GetHashCode() => Value;
+        }
+
         private sealed class AdjustHealthReducer : IOpReducer<AdjustHealthOp, int>
         {
             public ReductionResult<int> Reduce(
@@ -381,6 +474,89 @@ namespace Game.Rules.Runtime.Tests
                 state.Health.TryGet(context.Op.Creature, out HealthState health);
                 state.Health.Set(context.Op.Creature, health);
                 return ReductionResult<int>.Accept(health.Current);
+            }
+        }
+
+        private sealed class CountingAdjustHealthReducer : IOpReducer<AdjustHealthOp, int>
+        {
+            public int InvocationCount { get; private set; }
+
+            public ReductionResult<int> Reduce(
+                ReductionContext<AdjustHealthOp> context,
+                RulesStateDraft state,
+                FactSink facts)
+            {
+                InvocationCount++;
+                return new AdjustHealthReducer().Reduce(context, state, facts);
+            }
+        }
+
+        private sealed class ReentrantReducer : IOpReducer<AdjustHealthOp, int>
+        {
+            private readonly InMemoryRulesStore store;
+            private readonly CountingAdjustHealthReducer nested;
+
+            public HealthAdjustedFact StagedFact { get; private set; }
+            public long ObservedSnapshotVersion { get; private set; }
+
+            public ReentrantReducer(InMemoryRulesStore store, CountingAdjustHealthReducer nested)
+            {
+                this.store = store;
+                this.nested = nested;
+            }
+
+            public ReductionResult<int> Reduce(
+                ReductionContext<AdjustHealthOp> context,
+                RulesStateDraft state,
+                FactSink facts)
+            {
+                state.Health.TryGet(context.Op.Creature, out HealthState health);
+                int current = health.Current + context.Op.Delta;
+                state.Health.Set(context.Op.Creature, new HealthState(current, health.Maximum));
+                StagedFact = new HealthAdjustedFact(context.Op.Creature, health.Current, current);
+                facts.Stage(StagedFact);
+                ObservedSnapshotVersion = store.Snapshot.Version;
+
+                store.Reduce(
+                    Context(new AdjustHealthOp(context.Op.Creature, -1)),
+                    nested);
+
+                return ReductionResult<int>.Accept(current);
+            }
+        }
+
+        private sealed class DuplicateFactReducer : IOpReducer<AdjustHealthOp, int>
+        {
+            public HealthAdjustedFact StagedFact { get; private set; }
+
+            public ReductionResult<int> Reduce(
+                ReductionContext<AdjustHealthOp> context,
+                RulesStateDraft state,
+                FactSink facts)
+            {
+                state.Health.TryGet(context.Op.Creature, out HealthState health);
+                int current = health.Current + context.Op.Delta;
+                state.Health.Set(context.Op.Creature, new HealthState(current, health.Maximum));
+                StagedFact = new HealthAdjustedFact(context.Op.Creature, health.Current, current);
+                facts.Stage(StagedFact);
+                facts.Stage(StagedFact);
+                return ReductionResult<int>.Accept(current);
+            }
+        }
+
+        private sealed class DistinctValueEqualFactsReducer : IOpReducer<AdjustHealthOp, int>
+        {
+            public ReductionResult<int> Reduce(
+                ReductionContext<AdjustHealthOp> context,
+                RulesStateDraft state,
+                FactSink facts)
+            {
+                state.Health.TryGet(context.Op.Creature, out HealthState health);
+                int current = health.Current + context.Op.Delta;
+                state.Health.Set(context.Op.Creature, new HealthState(current, health.Maximum));
+                facts.Stage(new ValueEqualFact(current));
+                facts.Stage(new ValueEqualFact(current));
+                return ReductionResult<int>.Accept(current);
             }
         }
 
