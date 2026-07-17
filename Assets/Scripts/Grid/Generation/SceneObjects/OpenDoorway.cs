@@ -16,7 +16,7 @@ namespace GridPrivate
                 WallStructuralResolver.IsStructure(gridData, position.x - 1, position.z);
 
             ResolvedRotation = northSouth && !eastWest ? 90 : 0;
-            transform.localRotation = Quaternion.Euler(0f, ResolvedRotation, 0f);
+            transform.rotation = Quaternion.Euler(0f, ResolvedRotation, 0f);
         }
     }
 }

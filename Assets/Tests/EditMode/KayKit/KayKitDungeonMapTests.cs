@@ -309,6 +309,9 @@ public sealed class KayKitDungeonMapTests
         Assert.That(generated.GetComponent<GeneratedMapRoot>(), Is.Not.Null);
         AssertWorldPosition(wall, new Vector3(2f, 0f, 0f));
         AssertWorldPosition(floor, new Vector3(2f, 0f, 0f));
+        AssertWorldRotation(wall, Quaternion.Euler(0f, 180f, 0f));
+        AssertWorldRotation(floor, Quaternion.Euler(90f, 0f, 0f));
+        AssertWorldScale(floor, Vector3.one);
         string[] first = Snapshot(generated);
 
         GameObject manual = new("Manual Infrastructure");
@@ -321,11 +324,112 @@ public sealed class KayKitDungeonMapTests
         AssertWorldPosition(
             generated.Find("Structure/Structure_001_000_Wall_Brick"),
             new Vector3(2f, 0f, 0f));
+        AssertWorldRotation(
+            generated.Find("Structure/Structure_001_000_Wall_Brick"),
+            Quaternion.Euler(0f, 180f, 0f));
+        AssertWorldScale(generated.Find("Structure/Floor_001_000"), Vector3.one);
         Assert.That(manual, Is.Not.Null);
 
         map.ClearGeneratedContent();
         Assert.That(mapObject.transform.Find("GeneratedMap"), Is.Null);
         Assert.That(manual, Is.Not.Null);
+    }
+
+    [Test]
+    public void JsonGeneration_PreservesWorldGridUnderTransformedMapRoot()
+    {
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        KayKitDungeonCatalogEntry entry = catalog.Entries.First(candidate =>
+            candidate.PlacementPrefab != null &&
+            candidate.Footprint == Vector2Int.one &&
+            !candidate.BlocksMovement);
+        TextAsset source = Track(new TextAsset(
+            $"{{\"version\":1,\"rows\":[\"#D#\",\"...\"],\"objects\":[{{\"assetId\":\"{entry.Id}\",\"x\":1,\"z\":0,\"rotation\":90}}]}}"));
+        GameObject mapObject = Track(new GameObject("Transformed JSON Map"));
+        mapObject.transform.SetPositionAndRotation(
+            new Vector3(-8.25f, 3f, 4.5f),
+            Quaternion.Euler(0f, 53f, 0f));
+        mapObject.transform.localScale = new Vector3(0.5f, 1.75f, 2.25f);
+        Map map = mapObject.AddComponent<Map>();
+        map.ConfigureJson(source, catalog);
+
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
+            string.Join(Environment.NewLine, validation.Errors));
+        Transform generated = mapObject.transform.Find("GeneratedMap");
+        Transform structure = generated.Find("Structure");
+        Transform objects = generated.Find("Objects");
+        Transform floor = structure.Find("Floor_001_001");
+        Transform wall = structure.Find("Wall_002_001");
+        Transform doorway = structure.Find("Door_001_001");
+        Transform placedObject = objects.GetChild(0);
+        KayKitDungeonObjectPlacement placement = validation.JsonMap.Objects[0];
+
+        AssertWorldPosition(floor, new Vector3(1f, 0f, 1f));
+        AssertWorldScale(floor, catalog.FloorPrefab.transform.lossyScale);
+        AssertWorldPosition(wall, new Vector3(2f, 0f, 1f));
+        AssertWorldRotation(wall, Quaternion.Euler(0f, 180f, 0f));
+        AssertWorldPosition(doorway, new Vector3(1f, 0f, 1f));
+        AssertWorldRotation(doorway, Quaternion.identity);
+        AssertWorldPosition(
+            placedObject,
+            new Vector3(placement.X, placement.YOffset, placement.Z));
+        AssertWorldRotation(placedObject, Quaternion.Euler(0f, 90f, 0f));
+        AssertWorldScale(placedObject, entry.PlacementPrefab.transform.lossyScale);
+        Assert.That(map.GetMapData()[2, 1], Is.EqualTo(TileType.Wall));
+    }
+
+    [Test]
+    public void JsonSourceSwitchAndExplicitClear_RemoveLegacyBitmapOutputOnly()
+    {
+        GameObject mapObject = Track(new GameObject("Legacy Bitmap Migration"));
+        Map map = mapObject.AddComponent<Map>();
+        Texture2D image = Track(new Texture2D(2, 1));
+        image.SetPixels(new[] { Color.red, Color.red });
+        image.Apply();
+        Material floor = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Dirt.mat");
+        ConfigureBitmapSource(map, image, floor, 2f);
+
+        GameObject legacyFloor = Track(GameObject.CreatePrimitive(PrimitiveType.Quad));
+        legacyFloor.name = "Quad";
+        legacyFloor.GetComponent<MeshRenderer>().sharedMaterial = floor;
+        legacyFloor.transform.SetParent(mapObject.transform, true);
+        GameObject spacedLegacyFloor = Track(GameObject.CreatePrimitive(PrimitiveType.Quad));
+        spacedLegacyFloor.name = "Quad";
+        spacedLegacyFloor.transform.position = new Vector3(2f, 0f, 0f);
+        spacedLegacyFloor.GetComponent<MeshRenderer>().sharedMaterial = floor;
+        spacedLegacyFloor.transform.SetParent(mapObject.transform, true);
+        GameObject manual = Track(new GameObject("Manual Infrastructure"));
+        manual.transform.SetParent(mapObject.transform, false);
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        TextAsset source = Track(new TextAsset(
+            @"{""version"":1,""rows"":[""..""],""objects"":[]}"));
+        map.ConfigureJson(source, catalog);
+
+        map.ClearGeneratedContent();
+
+        Assert.That(legacyFloor == null, Is.True);
+        Assert.That(spacedLegacyFloor == null, Is.True);
+        Assert.That(manual, Is.Not.Null);
+        Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
+
+        legacyFloor = Track(GameObject.CreatePrimitive(PrimitiveType.Quad));
+        legacyFloor.name = "Quad";
+        legacyFloor.GetComponent<MeshRenderer>().sharedMaterial = floor;
+        legacyFloor.transform.SetParent(mapObject.transform, true);
+        spacedLegacyFloor = Track(GameObject.CreatePrimitive(PrimitiveType.Quad));
+        spacedLegacyFloor.name = "Quad";
+        spacedLegacyFloor.transform.position = new Vector3(2f, 0f, 0f);
+        spacedLegacyFloor.GetComponent<MeshRenderer>().sharedMaterial = floor;
+        spacedLegacyFloor.transform.SetParent(mapObject.transform, true);
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
+            string.Join(Environment.NewLine, validation.Errors));
+
+        Assert.That(legacyFloor == null, Is.True);
+        Assert.That(spacedLegacyFloor == null, Is.True);
+        Assert.That(mapObject.transform.Find("GeneratedMap"), Is.Not.Null);
+        Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
     }
 
     [Test]
@@ -559,6 +663,29 @@ public sealed class KayKitDungeonMapTests
         return target;
     }
 
+    private static void ConfigureBitmapSource(
+        Map map,
+        Texture2D image,
+        Material floor,
+        float tileSpacing = 1f)
+    {
+        FieldInfo settingsField = typeof(Map).GetField(
+            "Settings",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(settingsField, Is.Not.Null);
+        settingsField.SetValue(map, new TileSettings());
+        SerializedObject serialized = new(map);
+        serialized.FindProperty("ImageMap").objectReferenceValue = image;
+        serialized.FindProperty("spacing").floatValue = tileSpacing;
+        SerializedProperty definitions = serialized.FindProperty("Settings.TileDefinitions");
+        definitions.arraySize = 1;
+        SerializedProperty definition = definitions.GetArrayElementAtIndex(0);
+        definition.FindPropertyRelative("Color").colorValue = Color.red;
+        definition.FindPropertyRelative("Tile").enumValueIndex = (int)TileType.Ground;
+        definition.FindPropertyRelative("Floor").objectReferenceValue = floor;
+        serialized.ApplyModifiedPropertiesWithoutUndo();
+    }
+
     private static string[] Snapshot(Transform root)
     {
         List<string> values = new();
@@ -581,6 +708,20 @@ public sealed class KayKitDungeonMapTests
         Assert.That(target.position.x, Is.EqualTo(expected.x).Within(0.0001f));
         Assert.That(target.position.y, Is.EqualTo(expected.y).Within(0.0001f));
         Assert.That(target.position.z, Is.EqualTo(expected.z).Within(0.0001f));
+    }
+
+    private static void AssertWorldRotation(Transform target, Quaternion expected)
+    {
+        Assert.That(target, Is.Not.Null);
+        Assert.That(Quaternion.Angle(target.rotation, expected), Is.LessThan(0.01f));
+    }
+
+    private static void AssertWorldScale(Transform target, Vector3 expected)
+    {
+        Assert.That(target, Is.Not.Null);
+        Assert.That(target.lossyScale.x, Is.EqualTo(expected.x).Within(0.0001f));
+        Assert.That(target.lossyScale.y, Is.EqualTo(expected.y).Within(0.0001f));
+        Assert.That(target.lossyScale.z, Is.EqualTo(expected.z).Within(0.0001f));
     }
 
     private static void Visit(Transform current, string path, ICollection<string> values)

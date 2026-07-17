@@ -38,6 +38,8 @@ public class Map : MonoBehaviour
     [SerializeField] private MapSourceMode sourceMode = MapSourceMode.Bitmap;
     [SerializeField] private TextAsset jsonSource;
     [SerializeField] private KayKitDungeonCatalog dungeonCatalog;
+    [SerializeField, HideInInspector] private MapSourceMode previousSourceMode = MapSourceMode.Bitmap;
+    [SerializeField, HideInInspector] private float legacyBitmapSpacing = JsonTileSpacing;
 
     protected TileType[,] GridData { get; set; }
     protected bool[,] LineOfSightBlocks { get; set; }
@@ -50,6 +52,9 @@ public class Map : MonoBehaviour
     private void OnValidate()
     {
 #if UNITY_EDITOR
+        if (previousSourceMode == MapSourceMode.Bitmap && sourceMode == MapSourceMode.Json)
+            legacyBitmapSpacing = spacing;
+        previousSourceMode = sourceMode;
         InvalidateCache();
         if (PrefabUtility.IsPartOfPrefabAsset(this) || sourceMode != MapSourceMode.Bitmap)
             return;
@@ -67,7 +72,10 @@ public class Map : MonoBehaviour
         KayKitDungeonCatalog catalog,
         float tileSpacing = JsonTileSpacing)
     {
+        if (sourceMode == MapSourceMode.Bitmap)
+            legacyBitmapSpacing = spacing;
         sourceMode = MapSourceMode.Json;
+        previousSourceMode = sourceMode;
         jsonSource = source;
         dungeonCatalog = catalog;
         spacing = tileSpacing;
@@ -96,19 +104,14 @@ public class Map : MonoBehaviour
         if (!validation.IsValid)
             return false;
 
-        bool migrateLegacyBitmap = sourceMode == MapSourceMode.Bitmap &&
-                                   GetComponentsInChildren<GeneratedMapRoot>(true).Length == 0 &&
-                                   transform.childCount > 0;
-        if (migrateLegacyBitmap)
-            ClearLegacyBitmapGeneratedContent();
-        else
-            ClearGeneratedContent();
+        ClearGeneratedContent();
 
         GameObject generatedMap = new("GeneratedMap");
         generatedMap.AddComponent<GeneratedMapRoot>();
         generatedMap.transform.SetParent(transform, false);
-        Transform structure = CreateContainer("Structure", generatedMap.transform);
-        Transform objects = CreateContainer("Objects", generatedMap.transform);
+        generatedMap.transform.localScale = ReciprocalScale(transform.localScale);
+        Transform structure = CreateWorldSpaceContainer("Structure", generatedMap.transform);
+        Transform objects = CreateWorldSpaceContainer("Objects", generatedMap.transform);
 
         if (sourceMode == MapSourceMode.Json)
         {
@@ -141,24 +144,134 @@ public class Map : MonoBehaviour
     [ContextMenu("Clear Generated Content")]
     public void ClearGeneratedContent()
     {
-        GeneratedMapRoot[] roots = GetComponentsInChildren<GeneratedMapRoot>(true);
-        foreach (GeneratedMapRoot root in roots)
+        HashSet<GameObject> owned = new();
+        foreach (Transform child in DirectChildrenSnapshot())
         {
-            if (root != null && root.transform.parent == transform)
-                DestroyOwned(root.gameObject);
+            if (child != null && child.TryGetComponent(out GeneratedMapRoot _))
+                owned.Add(child.gameObject);
         }
+
+        foreach (GameObject legacy in FindLegacyBitmapGeneratedContent())
+            owned.Add(legacy);
+
+        foreach (GameObject target in owned)
+            DestroyOwned(target);
 
         InvalidateCache();
     }
 
     public void ClearLegacyBitmapGeneratedContent()
     {
-        if (sourceMode != MapSourceMode.Bitmap)
-            throw new InvalidOperationException("Legacy generated content can only be cleared while the source is Bitmap.");
+        ClearGeneratedContent();
+    }
 
-        while (transform.childCount > 0)
-            DestroyOwned(transform.GetChild(0).gameObject);
-        InvalidateCache();
+    private Transform[] DirectChildrenSnapshot()
+    {
+        Transform[] children = new Transform[transform.childCount];
+        for (int index = 0; index < children.Length; index++)
+            children[index] = transform.GetChild(index);
+        return children;
+    }
+
+    private GameObject[] FindLegacyBitmapGeneratedContent()
+    {
+        if (ImageMap == null || Settings == null)
+            return Array.Empty<GameObject>();
+
+        List<GameObject> candidates = DirectChildrenSnapshot()
+            .Where(child => child != null && !child.TryGetComponent(out GeneratedMapRoot _))
+            .Select(child => child.gameObject)
+            .ToList();
+        List<GameObject> legacy = new();
+
+        try
+        {
+            Settings.ResetCache();
+            for (int x = 0; x < ImageMap.width; x++)
+            {
+                for (int z = 0; z < ImageMap.height; z++)
+                {
+                    if (!Settings.TryGetTileInfo(ImageMap.GetPixel(x, z), out var tileInfo))
+                        continue;
+
+                    float legacySpacing = sourceMode == MapSourceMode.Bitmap
+                        ? spacing
+                        : legacyBitmapSpacing;
+                    Vector3 position = new(x * legacySpacing, 0f, z * legacySpacing);
+                    if (tileInfo.Prefab != null)
+                    {
+                        MoveFirstMatch(
+                            candidates,
+                            legacy,
+                            candidate => MatchesLegacyPrefab(candidate, tileInfo.Prefab, position));
+                    }
+
+                    if (tileInfo.Floor != null)
+                    {
+                        MoveFirstMatch(
+                            candidates,
+                            legacy,
+                            candidate => MatchesLegacyFloor(candidate, tileInfo.Floor, position));
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+            return Array.Empty<GameObject>();
+        }
+
+        return legacy.ToArray();
+    }
+
+    private static void MoveFirstMatch(
+        IList<GameObject> candidates,
+        ICollection<GameObject> matches,
+        Func<GameObject, bool> predicate)
+    {
+        for (int index = 0; index < candidates.Count; index++)
+        {
+            GameObject candidate = candidates[index];
+            if (!predicate(candidate))
+                continue;
+
+            matches.Add(candidate);
+            candidates.RemoveAt(index);
+            return;
+        }
+    }
+
+    private static bool MatchesLegacyPrefab(
+        GameObject candidate,
+        GameObject prefab,
+        Vector3 position)
+    {
+        string expectedName = prefab.name;
+        return (candidate.name == expectedName || candidate.name == expectedName + "(Clone)") &&
+               Approximately(candidate.transform.position, position);
+    }
+
+    private static bool MatchesLegacyFloor(
+        GameObject candidate,
+        Material floor,
+        Vector3 position)
+    {
+        if (candidate.name != "Quad" || !Approximately(candidate.transform.position, position))
+            return false;
+
+        MeshRenderer renderer = candidate.GetComponent<MeshRenderer>();
+        MeshFilter filter = candidate.GetComponent<MeshFilter>();
+        if (renderer == null || filter == null || renderer.sharedMaterial == null)
+            return false;
+
+        return renderer.sharedMaterial == floor ||
+               renderer.sharedMaterial.name == floor.name ||
+               renderer.sharedMaterial.name == floor.name + " (Instance)";
+    }
+
+    private static bool Approximately(Vector3 left, Vector3 right)
+    {
+        return (left - right).sqrMagnitude <= 0.000001f;
     }
 
     private MapSourceValidationResult ValidateBitmap()
@@ -320,7 +433,9 @@ public class Map : MonoBehaviour
                 {
                     GameObject floor = InstantiatePrefab(dungeonCatalog.FloorPrefab, structure);
                     floor.name = $"Floor_{x:D3}_{z:D3}";
-                    floor.transform.localPosition = position;
+                    floor.transform.SetPositionAndRotation(
+                        position,
+                        dungeonCatalog.FloorPrefab.transform.rotation);
                 }
 
                 GameObject structuralPrefab = tile == TileType.Wall
@@ -333,7 +448,7 @@ public class Map : MonoBehaviour
 
                 GameObject structural = InstantiatePrefab(structuralPrefab, structure);
                 structural.name = $"{tile}_{x:D3}_{z:D3}";
-                structural.transform.localPosition = position;
+                structural.transform.SetPositionAndRotation(position, structuralPrefab.transform.rotation);
                 structural.GetComponent<IOnGridGeneration>()?.OnGeneration(
                     new Vector3Int(x, 0, z),
                     map.GridData);
@@ -347,9 +462,9 @@ public class Map : MonoBehaviour
             instance.name = $"Object_{index:D3}_{StableName(placement.AssetId)}";
             float centerX = placement.X + (placement.Footprint.x - 1) * 0.5f;
             float centerZ = placement.Z + (placement.Footprint.y - 1) * 0.5f;
-            instance.transform.localPosition =
-                new Vector3(centerX * spacing, placement.YOffset, centerZ * spacing);
-            instance.transform.localRotation = Quaternion.Euler(0f, placement.Rotation, 0f);
+            instance.transform.SetPositionAndRotation(
+                new Vector3(centerX * spacing, placement.YOffset, centerZ * spacing),
+                Quaternion.Euler(0f, placement.Rotation, 0f));
             ApplyDefaultMaterial(instance);
 
             if (placement.CatalogEntry.BlocksLineOfSight)
@@ -407,6 +522,22 @@ public class Map : MonoBehaviour
         return container.transform;
     }
 
+    private static Transform CreateWorldSpaceContainer(string name, Transform parent)
+    {
+        Transform container = CreateContainer(name, parent);
+        container.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+        container.localScale = Vector3.one;
+        return container;
+    }
+
+    private static Vector3 ReciprocalScale(Vector3 scale)
+    {
+        return new Vector3(
+            Mathf.Approximately(scale.x, 0f) ? 1f : 1f / scale.x,
+            Mathf.Approximately(scale.y, 0f) ? 1f : 1f / scale.y,
+            Mathf.Approximately(scale.z, 0f) ? 1f : 1f / scale.z);
+    }
+
     private static string StableName(string assetId)
     {
         char[] value = assetId.Select(character =>
@@ -432,6 +563,7 @@ public class Map : MonoBehaviour
             return;
         }
 #endif
+        target.transform.SetParent(null, true);
         Destroy(target);
     }
 
@@ -440,6 +572,7 @@ public class Map : MonoBehaviour
         GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.transform.SetParent(parent, false);
         quad.transform.SetPositionAndRotation(position, Quaternion.Euler(90f, 0f, 0f));
+        quad.transform.localScale = Vector3.one;
         return quad;
     }
 

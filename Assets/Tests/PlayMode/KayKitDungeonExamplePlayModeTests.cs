@@ -307,3 +307,96 @@ public sealed class InvalidGridInitializationPlayModeTests
         }
     }
 }
+
+public sealed class MapGenerationLifecyclePlayModeTests
+{
+    [UnityTest]
+    public IEnumerator RegenerationAndClear_DetachOwnedContentBeforeDeferredDestroy()
+    {
+        GameObject mapObject = null;
+        Texture2D image = null;
+        TextAsset source = null;
+        try
+        {
+            mapObject = new GameObject("Play Mode Map Migration");
+            Map map = mapObject.AddComponent<Map>();
+            image = new Texture2D(2, 1);
+            image.SetPixels(new[] { Color.red, Color.red });
+            image.Apply();
+            Material floor = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Dirt.mat");
+            ConfigureBitmapSource(map, image, floor, 2f);
+
+            GameObject legacyFloor = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            legacyFloor.name = "Quad";
+            legacyFloor.GetComponent<MeshRenderer>().sharedMaterial = floor;
+            legacyFloor.transform.SetParent(mapObject.transform, true);
+            GameObject spacedLegacyFloor = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            spacedLegacyFloor.name = "Quad";
+            spacedLegacyFloor.transform.position = new Vector3(2f, 0f, 0f);
+            spacedLegacyFloor.GetComponent<MeshRenderer>().sharedMaterial = floor;
+            spacedLegacyFloor.transform.SetParent(mapObject.transform, true);
+            GameObject manual = new("Manual Infrastructure");
+            manual.transform.SetParent(mapObject.transform, false);
+
+            KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+            source = new TextAsset(@"{""version"":1,""rows"":[""..""],""objects"":[]}");
+            map.ConfigureJson(source, catalog);
+
+            Assert.That(map.TryGenerate(out MapSourceValidationResult firstResult), Is.True,
+                string.Join("\n", firstResult.Errors));
+            Transform firstGenerated = mapObject.transform.Find("GeneratedMap");
+            int firstGeneratedId = firstGenerated.GetInstanceID();
+            Assert.That(mapObject.transform.childCount, Is.EqualTo(2));
+            Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
+
+            Assert.That(map.TryGenerate(out MapSourceValidationResult secondResult), Is.True,
+                string.Join("\n", secondResult.Errors));
+            Transform secondGenerated = mapObject.transform.Find("GeneratedMap");
+            Assert.That(secondGenerated.GetInstanceID(), Is.Not.EqualTo(firstGeneratedId));
+            Assert.That(mapObject.transform.childCount, Is.EqualTo(2));
+            Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
+
+            yield return null;
+
+            map.ClearGeneratedContent();
+            Assert.That(mapObject.transform.Find("GeneratedMap"), Is.Null);
+            Assert.That(mapObject.transform.childCount, Is.EqualTo(1));
+            Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
+
+            yield return null;
+        }
+        finally
+        {
+            if (mapObject != null)
+                Object.DestroyImmediate(mapObject);
+            if (image != null)
+                Object.DestroyImmediate(image);
+            if (source != null)
+                Object.DestroyImmediate(source);
+        }
+    }
+
+    private static void ConfigureBitmapSource(
+        Map map,
+        Texture2D image,
+        Material floor,
+        float tileSpacing)
+    {
+        FieldInfo settingsField = typeof(Map).GetField(
+            "Settings",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(settingsField, Is.Not.Null);
+        settingsField.SetValue(map, new TileSettings());
+        SerializedObject serialized = new(map);
+        serialized.FindProperty("ImageMap").objectReferenceValue = image;
+        serialized.FindProperty("spacing").floatValue = tileSpacing;
+        SerializedProperty definitions = serialized.FindProperty("Settings.TileDefinitions");
+        definitions.arraySize = 1;
+        SerializedProperty definition = definitions.GetArrayElementAtIndex(0);
+        definition.FindPropertyRelative("Color").colorValue = Color.red;
+        definition.FindPropertyRelative("Tile").enumValueIndex = (int)TileType.Ground;
+        definition.FindPropertyRelative("Floor").objectReferenceValue = floor;
+        serialized.ApplyModifiedPropertiesWithoutUndo();
+    }
+}

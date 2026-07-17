@@ -104,7 +104,7 @@ namespace GridPrivate
         {
             WallResolution resolution = WallStructuralResolver.Resolve(position, gridData);
             SelectedVariant = resolution.Variant;
-            transform.localRotation = Quaternion.Euler(0f, resolution.Rotation, 0f);
+            transform.rotation = Quaternion.Euler(0f, resolution.Rotation, 0f);
 
             SetVisible(wall, resolution.Variant == WallVariant.Straight);
             SetVisible(cap, resolution.Variant == WallVariant.Endcap);
