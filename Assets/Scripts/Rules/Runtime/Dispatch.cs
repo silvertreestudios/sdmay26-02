@@ -723,6 +723,8 @@ namespace Game.Rules.Runtime
     /// </remarks>
     public sealed class RuleDispatcher
     {
+        private static readonly IReadOnlyList<RuleFact> NoFacts =
+            Array.AsReadOnly(Array.Empty<RuleFact>());
         private readonly object gate = new object();
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
@@ -930,9 +932,14 @@ namespace Game.Rules.Runtime
                             resolution.AddFact(fact, id, rootId);
                     }
 
-                    IReadOnlyList<RuleFact> subtreeFacts = Array.AsReadOnly(resolution.Facts
-                        .Skip(firstFact)
-                        .ToArray());
+                    int subtreeFactCount = resolution.Facts.Count - firstFact;
+                    IReadOnlyList<RuleFact> subtreeFacts = NoFacts;
+                    if (subtreeFactCount > 0)
+                    {
+                        RuleFact[] subtreeFactArray = new RuleFact[subtreeFactCount];
+                        resolution.Facts.CopyTo(firstFact, subtreeFactArray, 0, subtreeFactCount);
+                        subtreeFacts = Array.AsReadOnly(subtreeFactArray);
+                    }
                     OpResult<TResult> completed = result.WithFacts(subtreeFacts);
                     Diagnostics.Complete(id, completed.Status, directFacts);
                     return completed;
