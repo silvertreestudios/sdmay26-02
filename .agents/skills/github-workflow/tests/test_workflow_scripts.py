@@ -3,10 +3,11 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -34,6 +35,65 @@ class CommonScriptTests(unittest.TestCase):
 
         self.assertEqual(result["body"], "PF2e – review")
         self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
+
+    def test_api_scopes_selected_account_token_to_api_process(self) -> None:
+        token_result = __import__("subprocess").CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="secret-token\n",
+            stderr="",
+        )
+        api_result = __import__("subprocess").CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+        with (
+            patch.object(gh_common, "require_gh"),
+            patch.dict(
+                os.environ,
+                {"GH_TOKEN": "ambient-gh-token", "GITHUB_TOKEN": "ambient-github-token"},
+            ),
+            patch.object(
+                gh_common.subprocess,
+                "run",
+                side_effect=[token_result, api_result],
+            ) as run,
+        ):
+            result = gh_common.gh_api(
+                "/example",
+                method="POST",
+                payload={"reviewers": ["copilot-pull-request-reviewer[bot]"]},
+                auth_account="clausman",
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            run.call_args_list[0].args[0],
+            ["gh", "auth", "token", "--hostname", "github.com", "--user", "clausman"],
+        )
+        self.assertNotIn("GH_TOKEN", run.call_args_list[0].kwargs["env"])
+        self.assertNotIn("GITHUB_TOKEN", run.call_args_list[0].kwargs["env"])
+        api_call = run.call_args_list[1]
+        self.assertEqual(api_call.kwargs["env"]["GH_TOKEN"], "secret-token")
+        self.assertNotIn("secret-token", api_call.args[0])
+
+    def test_account_scoped_api_dry_run_does_not_read_token(self) -> None:
+        output = io.StringIO()
+        with patch.object(gh_common.subprocess, "run") as run, contextlib.redirect_stdout(output):
+            result = gh_common.gh_api(
+                "/example",
+                method="POST",
+                payload={"reviewers": ["copilot-pull-request-reviewer[bot]"]},
+                dry_run=True,
+                auth_account="clausman",
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(json.loads(output.getvalue())["auth_account"], "clausman")
+        run.assert_not_called()
 
 
 class PullRequestScriptTests(unittest.TestCase):
@@ -96,7 +156,11 @@ class PullRequestScriptTests(unittest.TestCase):
             "--dry-run",
         ]
 
-        with patch.object(sys, "argv", argv), patch.object(gh_pr, "gh_api", return_value=0) as api:
+        with (
+            patch.object(sys, "argv", argv),
+            patch.dict(os.environ, {gh_pr.COPILOT_ACCOUNT_ENV: ""}),
+            patch.object(gh_pr, "gh_api", return_value=0) as api,
+        ):
             self.assertEqual(gh_pr.main(), 0)
 
         api.assert_called_once_with(
@@ -107,6 +171,51 @@ class PullRequestScriptTests(unittest.TestCase):
                 "team_reviewers": ["pf2e-game"],
             },
             dry_run=True,
+        )
+
+    def test_request_review_scopes_configured_account_to_copilot_only(self) -> None:
+        argv = [
+            "gh_pr.py",
+            "request-review",
+            "--repo",
+            "owner/repo",
+            "--pr",
+            "42",
+            "--reviewer",
+            "@copilot",
+            "--reviewer",
+            "reviewer-one",
+            "--reviewer",
+            "owner/pf2e-game",
+        ]
+
+        with (
+            patch.object(sys, "argv", argv),
+            patch.dict(os.environ, {gh_pr.COPILOT_ACCOUNT_ENV: "clausman"}),
+            patch.object(gh_pr, "gh_api", return_value=0) as api,
+        ):
+            self.assertEqual(gh_pr.main(), 0)
+
+        self.assertEqual(
+            api.call_args_list,
+            [
+                call(
+                    "/repos/owner/repo/pulls/42/requested_reviewers",
+                    method="POST",
+                    payload={
+                        "reviewers": ["reviewer-one"],
+                        "team_reviewers": ["pf2e-game"],
+                    },
+                    dry_run=False,
+                ),
+                call(
+                    "/repos/owner/repo/pulls/42/requested_reviewers",
+                    method="POST",
+                    payload={"reviewers": ["copilot-pull-request-reviewer[bot]"]},
+                    dry_run=False,
+                    auth_account="clausman",
+                ),
+            ],
         )
 
     def test_request_review_rejects_team_from_another_owner(self) -> None:

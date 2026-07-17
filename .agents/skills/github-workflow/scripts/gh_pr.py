@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 from gh_common import (
     add_body_file_argument,
@@ -14,6 +15,7 @@ from gh_common import (
 )
 
 COPILOT_REVIEWER = "copilot-pull-request-reviewer[bot]"
+COPILOT_ACCOUNT_ENV = "GH_ACCOUNT_COPILOT_PERM"
 
 
 def normalize_reviewer(value: str, repo_owner: str) -> tuple[str, str]:
@@ -146,6 +148,36 @@ def main() -> int:
         if team_reviewers:
             payload["team_reviewers"] = team_reviewers
         endpoint = f"{base}/pulls/{args.pr}/requested_reviewers"
+
+        copilot_account = os.environ.get(COPILOT_ACCOUNT_ENV, "").strip()
+        if copilot_account and COPILOT_REVIEWER in reviewers:
+            default_payload = payload.copy()
+            default_reviewers = [
+                reviewer for reviewer in reviewers if reviewer != COPILOT_REVIEWER
+            ]
+            if default_reviewers:
+                default_payload["reviewers"] = default_reviewers
+            else:
+                default_payload.pop("reviewers", None)
+
+            if default_payload:
+                result = gh_api(
+                    endpoint,
+                    method="POST",
+                    payload=default_payload,
+                    dry_run=args.dry_run,
+                )
+                if result != 0:
+                    return result
+
+            return gh_api(
+                endpoint,
+                method="POST",
+                payload={"reviewers": [COPILOT_REVIEWER]},
+                dry_run=args.dry_run,
+                auth_account=copilot_account,
+            )
+
         return gh_api(endpoint, method="POST", payload=payload, dry_run=args.dry_run)
 
     if args.command == "list-reviews":
