@@ -218,6 +218,26 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void CatalogEntries_CanBlockLineOfSightWithoutBlockingMovement()
+    {
+        GameObject wrapper = Track(new GameObject("Line Of Sight Only Wrapper"));
+        wrapper.AddComponent<BoxCollider>();
+        wrapper.AddComponent<MapLineOfSightBlocker>();
+        KayKitDungeonCatalogEntry entry = new(
+            "dungeon/line-of-sight-only",
+            wrapper,
+            wrapper,
+            Vector2Int.one,
+            0,
+            0f,
+            false,
+            false);
+
+        Assert.That(entry.BlocksMovement, Is.False);
+        Assert.That(entry.BlocksLineOfSight, Is.True);
+    }
+
+    [Test]
     public void GeneratedDungeonModels_UseTheSameHalfScaleAsCreatureVisuals()
     {
         Assert.That(
@@ -1092,6 +1112,24 @@ public sealed class KayKitDungeonMapTests
                 new Vector3(0f, 0.75f, 0.5f),
                 new Vector3(3f, 0.75f, 0.5f)),
             Is.True);
+    }
+
+    [Test]
+    public void ColliderBackedBlocker_IgnoresTheIgnoreRaycastLayer()
+    {
+        GameObject blocker = Track(new GameObject("Ignored Line Of Sight Blocker"));
+        blocker.layer = LayerMask.NameToLayer("Ignore Raycast");
+        blocker.transform.position = new Vector3(1.5f, 0.75f, 0.5f);
+        BoxCollider collider = blocker.AddComponent<BoxCollider>();
+        collider.size = new Vector3(0.1f, 1f, 0.5f);
+        blocker.AddComponent<MapLineOfSightBlocker>();
+        Physics.SyncTransforms();
+
+        Assert.That(
+            MapLineOfSightBlocker.BlocksSegment(
+                new Vector3(0f, 0.75f, 0.5f),
+                new Vector3(3f, 0.75f, 0.5f)),
+            Is.False);
     }
 
     [Test]

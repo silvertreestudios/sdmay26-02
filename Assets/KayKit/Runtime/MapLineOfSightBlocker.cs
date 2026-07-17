@@ -22,8 +22,8 @@ namespace Game.KayKit
                 normalizedDirection,
                 RaycastBuffer,
                 distance,
-                ~0,
-                QueryTriggerInteraction.Collide);
+                Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.UseGlobal);
             if (hitCount < RaycastBuffer.Length)
                 return ContainsBlocker(RaycastBuffer, hitCount);
 
@@ -31,8 +31,8 @@ namespace Game.KayKit
                 start,
                 normalizedDirection,
                 distance,
-                ~0,
-                QueryTriggerInteraction.Collide);
+                Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.UseGlobal);
             return ContainsBlocker(allHits, allHits.Length);
         }
 
