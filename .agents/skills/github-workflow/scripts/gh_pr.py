@@ -2,12 +2,51 @@ from __future__ import annotations
 
 import argparse
 
-from gh_common import add_body_file_argument, add_dry_run_argument, add_repo_argument, gh_api, read_body, repo_path
+from gh_common import (
+    add_body_file_argument,
+    add_dry_run_argument,
+    add_repo_argument,
+    gh_api,
+    gh_command,
+    parse_repo,
+    read_body,
+    repo_path,
+)
+
+COPILOT_REVIEWER = "copilot-pull-request-reviewer[bot]"
+
+
+def normalize_reviewer(value: str, repo_owner: str) -> tuple[str, str]:
+    reviewer = value.strip().lstrip("@")
+    if reviewer.lower() == "copilot":
+        return "user", COPILOT_REVIEWER
+    if not reviewer:
+        raise SystemExit("--reviewer values cannot be empty")
+    if "/" not in reviewer:
+        return "user", reviewer
+
+    team_owner, team_slug = reviewer.split("/", 1)
+    if not team_owner or not team_slug or "/" in team_slug:
+        raise SystemExit("team reviewers must use owner/team-slug format")
+    if team_owner.casefold() != repo_owner.casefold():
+        raise SystemExit(
+            f"team reviewer {reviewer} must belong to repository owner {repo_owner}"
+        )
+    return "team", team_slug
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Safe GitHub pull request operations through gh api.")
+    parser = argparse.ArgumentParser(description="Safe GitHub pull request operations through gh.")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    create = subparsers.add_parser("create", help="Create a pull request.")
+    add_repo_argument(create)
+    create.add_argument("--title", required=True)
+    create.add_argument("--head", required=True, help="Head branch name.")
+    create.add_argument("--base", required=True, help="Base branch name.")
+    create.add_argument("--draft", action="store_true")
+    add_body_file_argument(create)
+    add_dry_run_argument(create)
 
     get = subparsers.add_parser("get", help="Get PR metadata.")
     add_repo_argument(get)
@@ -29,12 +68,53 @@ def build_parser() -> argparse.ArgumentParser:
     add_repo_argument(list_comments)
     list_comments.add_argument("--pr", required=True, type=int)
 
+    request_review = subparsers.add_parser(
+        "request-review",
+        help="Request or re-request PR reviewers.",
+    )
+    add_repo_argument(request_review)
+    request_review.add_argument("--pr", required=True, type=int)
+    request_review.add_argument(
+        "--reviewer",
+        required=True,
+        action="append",
+        help="Repeat for users or owner/team-slug values; use @copilot for Copilot code review.",
+    )
+    add_dry_run_argument(request_review)
+
+    list_reviews = subparsers.add_parser("list-reviews", help="List submitted pull request reviews.")
+    add_repo_argument(list_reviews)
+    list_reviews.add_argument("--pr", required=True, type=int)
+
+    list_requests = subparsers.add_parser("list-review-requests", help="List currently requested reviewers.")
+    add_repo_argument(list_requests)
+    list_requests.add_argument("--pr", required=True, type=int)
+
+    ready = subparsers.add_parser("ready", help="Mark a draft pull request ready for review.")
+    add_repo_argument(ready)
+    ready.add_argument("--pr", required=True, type=int)
+    add_dry_run_argument(ready)
+
+    checks = subparsers.add_parser("checks", help="Show checks for a pull request.")
+    add_repo_argument(checks)
+    checks.add_argument("--pr", required=True, type=int)
+
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
     base = repo_path(args.repo)
+
+    if args.command == "create":
+        payload = {
+            "title": args.title,
+            "head": args.head,
+            "base": args.base,
+            "body": read_body(args.body_file),
+            "draft": args.draft,
+        }
+        return gh_api(f"{base}/pulls", method="POST", payload=payload, dry_run=args.dry_run)
 
     if args.command == "get":
         return gh_api(f"{base}/pulls/{args.pr}")
@@ -49,6 +129,38 @@ def main() -> int:
 
     if args.command == "list-comments":
         return gh_api(f"{base}/issues/{args.pr}/comments", paginate=True)
+
+    if args.command == "request-review":
+        repo_owner, _ = parse_repo(args.repo)
+        reviewers: list[str] = []
+        team_reviewers: list[str] = []
+        for value in args.reviewer:
+            kind, reviewer = normalize_reviewer(value, repo_owner)
+            target = reviewers if kind == "user" else team_reviewers
+            if reviewer not in target:
+                target.append(reviewer)
+
+        payload: dict[str, list[str]] = {}
+        if reviewers:
+            payload["reviewers"] = reviewers
+        if team_reviewers:
+            payload["team_reviewers"] = team_reviewers
+        endpoint = f"{base}/pulls/{args.pr}/requested_reviewers"
+        return gh_api(endpoint, method="POST", payload=payload, dry_run=args.dry_run)
+
+    if args.command == "list-reviews":
+        return gh_api(f"{base}/pulls/{args.pr}/reviews", paginate=True)
+
+    if args.command == "list-review-requests":
+        return gh_api(f"{base}/pulls/{args.pr}/requested_reviewers")
+
+    if args.command == "ready":
+        command = ["gh", "pr", "ready", str(args.pr), "--repo", args.repo]
+        return gh_command(command, dry_run=args.dry_run)
+
+    if args.command == "checks":
+        command = ["gh", "pr", "checks", str(args.pr), "--repo", args.repo]
+        return gh_command(command)
 
     raise AssertionError(args.command)
 

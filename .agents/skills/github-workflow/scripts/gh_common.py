@@ -11,6 +11,17 @@ from typing import Any
 API_VERSION = "2022-11-28"
 
 
+def configure_utf8_stdio() -> None:
+    for stream_name in ("stdin", "stdout", "stderr"):
+        stream = getattr(sys, stream_name)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8")
+
+
+configure_utf8_stdio()
+
+
 def add_repo_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repo", required=True, help="Repository in owner/name form.")
 
@@ -94,7 +105,13 @@ def gh_api(
         args.extend(["--input", "-"])
         stdin = json.dumps(payload, ensure_ascii=False)
 
-    completed = subprocess.run(args, input=stdin, text=True, check=False)
+    completed = subprocess.run(
+        args,
+        input=stdin,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
     return completed.returncode
 
 
@@ -123,7 +140,14 @@ def gh_api_json(
         args.extend(["--input", "-"])
         stdin = json.dumps(payload, ensure_ascii=False)
 
-    completed = subprocess.run(args, input=stdin, text=True, capture_output=True, check=False)
+    completed = subprocess.run(
+        args,
+        input=stdin,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        check=False,
+    )
     if completed.returncode != 0:
         if completed.stdout:
             print(completed.stdout, end="")
@@ -147,5 +171,5 @@ def gh_command(args: list[str], *, dry_run: bool = False) -> int:
         return 0
 
     require_gh()
-    completed = subprocess.run(args, text=True, check=False)
+    completed = subprocess.run(args, text=True, encoding="utf-8", check=False)
     return completed.returncode
