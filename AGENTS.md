@@ -60,7 +60,8 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 - Keep worktrees under the sibling folder `../sdmay26-02-worktrees/`.
 - Use descriptive worktree names tied to the task, for example `../sdmay26-02-worktrees/issue-62-tokenmesh-log-noise`.
 - Create task branches from the intended base branch inside the worktree.
-- When implementation is complete and verified for a GitHub issue, always push the task branch and create a draft PR linked to the issue.
+- When assigned a GitHub issue that requires implementation work, follow `.agents/skills/iterative-pr-delivery` together with the applicable domain skills.
+- When implementation is complete and verified for a GitHub issue, push the task branch and create a draft PR linked to the issue.
 - Delete task worktrees after the PR is merged, closed, or the work is abandoned.
 - Before deleting a worktree, verify there are no uncommitted changes that should be preserved.
 - Never delete another user's worktree or branch without explicit approval.
@@ -89,8 +90,9 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 
 ## Review Expectations
 
+- For `/review`, `codex review`, and agentic pull-request reviews, read `.agents/review/code_review.md` in addition to these repository instructions.
 - End substantial code changes with targeted tests or a clear note explaining why tests could not be run.
 - For scene, prefab, UI, level, or art changes, verify in the Unity Editor or with PlayMode/screenshots before considering the change done.
 - For any visual change, including UI, models, scenes, levels, materials, VFX, animation, or art assets, include one or more real full Game View or Unity Editor screenshots in the PR description. For gameplay or HUD/UI changes, prefer full Game View screenshots that show the complete screen framing, not cropped UI-panel renders or edge-clipped captures. Do not use fake screenshots, generated mockups, hand-drawn renderings, or programmatic stand-ins as PR visual evidence. Before attaching screenshots, inspect them carefully and confirm they clearly show the feature, behavior, or visual change the PR is meant to demonstrate. Never commit PR screenshot artifacts to the branch; upload them to a GitHub gist and embed/link the gist-hosted artifact in the PR description.
 - Review Unity serialized diffs carefully for unintended scene or prefab churn.
-- Capture deferred follow-up work as GitHub Issues using the repo issue label schema in `.agents/skills/gh-issue-capture`.
+- Do not open follow-up GitHub Issues without explicit human approval. Record deferred work in the PR on the applicable code when possible so the approved reviewer team can decide its disposition.
