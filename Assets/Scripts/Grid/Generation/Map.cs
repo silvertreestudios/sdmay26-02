@@ -59,11 +59,25 @@ public class Map : MonoBehaviour
     private void OnValidate()
     {
 #if UNITY_EDITOR
+        bool bookkeepingChanged = false;
         if (previousSourceMode == MapSourceMode.Bitmap && sourceMode == MapSourceMode.Json)
+        {
             legacyBitmapSpacing = spacing;
+            bookkeepingChanged = true;
+        }
         else if (previousSourceMode == MapSourceMode.Json && sourceMode == MapSourceMode.Bitmap)
+        {
             spacing = legacyBitmapSpacing;
-        previousSourceMode = sourceMode;
+            bookkeepingChanged = true;
+        }
+        if (previousSourceMode != sourceMode)
+        {
+            previousSourceMode = sourceMode;
+            bookkeepingChanged = true;
+        }
+        if (bookkeepingChanged)
+            PersistEditorSerializationChanges();
+
         InvalidateCache();
         if (PrefabUtility.IsPartOfPrefabAsset(this) || sourceMode != MapSourceMode.Bitmap)
             return;
@@ -250,9 +264,18 @@ public class Map : MonoBehaviour
         legacyBitmapMigrationVersion = CurrentLegacyBitmapMigrationVersion;
 #if UNITY_EDITOR
         if (!Application.isPlaying)
-            EditorUtility.SetDirty(this);
+            PersistEditorSerializationChanges();
 #endif
     }
+
+#if UNITY_EDITOR
+    private void PersistEditorSerializationChanges()
+    {
+        if (PrefabUtility.IsPartOfPrefabInstance(this))
+            PrefabUtility.RecordPrefabInstancePropertyModifications(this);
+        EditorUtility.SetDirty(this);
+    }
+#endif
 
     private static void MoveFirstMatch(
         IList<GameObject> candidates,

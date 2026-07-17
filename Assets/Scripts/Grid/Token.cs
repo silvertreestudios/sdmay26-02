@@ -8,9 +8,8 @@ namespace GridPublic
     {
         void Awake()
         {
-            GridAPI grid = GridAPI.GetInstance();
-            GridAPIPrivate priv = (GridAPIPrivate)grid;
-            priv.AddToken(this.gameObject);
+            if (GridAPI.TryGetInstance(out GridAPI grid) && grid is GridAPIPrivate priv)
+                priv.AddToken(this.gameObject);
         }
     }
 }

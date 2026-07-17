@@ -17,6 +17,12 @@ public abstract class SingletonMonoBehaviour<T> : MonoBehaviour where T : MonoBe
         return null;
     }
 
+    public static bool TryGetInstance(out T instance)
+    {
+        instance = Instance;
+        return instance != null;
+    }
+
     protected virtual void Awake()
     {
         if (!Instance)

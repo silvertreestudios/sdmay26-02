@@ -269,6 +269,7 @@ public sealed class InvalidGridInitializationPlayModeTests
 
         object previousSingleton = singletonField.GetValue(null);
         GameObject gridObject = null;
+        GameObject combatantObject = null;
         TextAsset source = null;
         KayKitDungeonCatalog catalog = null;
         try
@@ -286,7 +287,12 @@ public sealed class InvalidGridInitializationPlayModeTests
                 "Map data is invalid: JSON map version must equal 1; found 2.");
 
             GridBase grid = gridObject.AddComponent<GridBase>();
+            combatantObject = new GameObject("Invalid Grid Combatant");
+            combatantObject.SetActive(false);
+            combatantObject.AddComponent<CreatureComponent>();
+            Token token = combatantObject.AddComponent<Token>();
             gridObject.SetActive(true);
+            combatantObject.SetActive(true);
 
             Assert.That(grid.enabled, Is.False);
             Assert.That(grid.GetComponent<GridInput>().enabled, Is.False);
@@ -294,15 +300,68 @@ public sealed class InvalidGridInitializationPlayModeTests
             Assert.That(grid.GetTiles(), Is.Null);
             Assert.That(grid.GetPathfinder(), Is.Null);
             Assert.That(singletonField.GetValue(null), Is.Null);
+            Assert.That(token.enabled, Is.True);
+            LogAssert.NoUnexpectedReceived();
         }
         finally
         {
+            if (combatantObject != null)
+                Object.DestroyImmediate(combatantObject);
             if (gridObject != null)
                 Object.DestroyImmediate(gridObject);
             if (source != null)
                 Object.DestroyImmediate(source);
             if (catalog != null)
                 Object.DestroyImmediate(catalog);
+            singletonField.SetValue(null, previousSingleton);
+        }
+    }
+
+    [Test]
+    public void ValidMapStillRegistersCombatantToken()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
+            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(singletonField, Is.Not.Null);
+
+        object previousSingleton = singletonField.GetValue(null);
+        GameObject gridObject = null;
+        GameObject combatantObject = null;
+        TextAsset source = null;
+        try
+        {
+            singletonField.SetValue(null, null);
+            gridObject = new GameObject("Valid Grid");
+            gridObject.SetActive(false);
+            source = new TextAsset(@"{""version"":1,""rows"":["".""],""objects"":[]}");
+            KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+
+            Map map = gridObject.AddComponent<Map>();
+            map.ConfigureJson(source, catalog);
+            GridBase grid = gridObject.AddComponent<GridBase>();
+            gridObject.SetActive(true);
+
+            combatantObject = new GameObject("Valid Grid Combatant");
+            combatantObject.SetActive(false);
+            combatantObject.AddComponent<CreatureComponent>();
+            combatantObject.AddComponent<Token>();
+            combatantObject.SetActive(true);
+
+            Tile[,] tiles = grid.GetTiles();
+            Assert.That(singletonField.GetValue(null), Is.SameAs(grid));
+            Assert.That(tiles, Is.Not.Null);
+            Assert.That(tiles[0, 0].Occupants, Does.Contain(combatantObject));
+            LogAssert.NoUnexpectedReceived();
+        }
+        finally
+        {
+            if (combatantObject != null)
+                Object.DestroyImmediate(combatantObject);
+            if (gridObject != null)
+                Object.DestroyImmediate(gridObject);
+            if (source != null)
+                Object.DestroyImmediate(source);
             singletonField.SetValue(null, previousSingleton);
         }
     }
