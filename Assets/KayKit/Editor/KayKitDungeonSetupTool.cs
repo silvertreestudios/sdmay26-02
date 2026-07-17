@@ -82,12 +82,7 @@ namespace Game.KayKit.Editor
                 "chest",
                 "table_long",
                 "shelf_large");
-            bool blocksLineOfSight = wrapperBlocksPlacement || IsOneOf(
-                name,
-                "barrel_small",
-                "column",
-                "crates_stacked",
-                "shelf_large");
+            bool blocksLineOfSight = wrapperBlocksPlacement;
 
             return new KayKitDungeonCatalogEntry(
                 id,

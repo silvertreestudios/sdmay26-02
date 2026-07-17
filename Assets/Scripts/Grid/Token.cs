@@ -45,6 +45,14 @@ namespace GridPublic
                 return registered;
 
             registered = privateGrid.AddToken(gameObject);
+            if (!registered)
+            {
+                Vector3Int position = Vector3Int.RoundToInt(transform.position);
+                Debug.LogWarning(
+                    $"Failed to register token '{name}' at grid cell ({position.x}, {position.z}). " +
+                    "The cell may be blocked or already occupied.",
+                    this);
+            }
             return registered;
         }
 

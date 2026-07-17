@@ -212,6 +212,10 @@ public sealed class KayKitDungeonMapTests
             KayKitDungeonSetupTool.CreateCatalogEntry(wall.Id, wall.Model);
         KayKitDungeonCatalogEntry doorway = catalog.Entries.Single(entry =>
             entry.Id.EndsWith("/wall_doorway", StringComparison.Ordinal));
+        KayKitDungeonCatalogEntry barrel = catalog.Entries.Single(entry =>
+            entry.Id.EndsWith("/barrel_small", StringComparison.Ordinal));
+        KayKitDungeonCatalogEntry regeneratedBarrel =
+            KayKitDungeonSetupTool.CreateCatalogEntry(barrel.Id, barrel.Model);
 
         Assert.That(wall.PlacementPrefab, Is.Not.Null);
         Assert.That(wall.PlacementPrefab.GetComponent<BoxCollider>(), Is.Not.Null);
@@ -222,6 +226,9 @@ public sealed class KayKitDungeonMapTests
         Assert.That(regenerated.BlocksLineOfSight, Is.True);
         Assert.That(doorway.BlocksMovement, Is.False);
         Assert.That(doorway.BlocksLineOfSight, Is.False);
+        Assert.That(barrel.PlacementPrefab.GetComponent<MapLineOfSightBlocker>(), Is.Null);
+        Assert.That(regeneratedBarrel.BlocksMovement, Is.True);
+        Assert.That(regeneratedBarrel.BlocksLineOfSight, Is.False);
 
         KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
             $"{{\"version\":1,\"rows\":[\"#.\"],\"objects\":[{{\"assetId\":\"{wall.Id}\",\"x\":1,\"z\":0}}]}}",
