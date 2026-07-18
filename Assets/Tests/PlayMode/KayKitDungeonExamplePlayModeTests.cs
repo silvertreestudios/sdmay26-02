@@ -451,6 +451,9 @@ public sealed class InvalidGridInitializationPlayModeTests
             LogAssert.Expect(
                 LogType.Error,
                 "Map data is invalid: JSON map version must equal 1; found 2.");
+            LogAssert.Expect(
+                LogType.Error,
+                "Grid initialization failed: Map did not provide valid grid and line-of-sight data.");
 
             GridBase grid = gridObject.AddComponent<GridBase>();
             combatantObject = new GameObject("Invalid Grid Combatant");
@@ -664,6 +667,9 @@ public sealed class InvalidGridInitializationPlayModeTests
             LogAssert.Expect(
                 LogType.Error,
                 "Map data is invalid: JSON map version must equal 1; found 2.");
+            LogAssert.Expect(
+                LogType.Error,
+                "Grid initialization failed: Map did not provide valid grid and line-of-sight data.");
             invalidGridObject.SetActive(true);
 
             Assert.That(invalidGrid.enabled, Is.False);

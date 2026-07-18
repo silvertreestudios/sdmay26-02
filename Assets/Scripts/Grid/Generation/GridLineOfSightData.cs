@@ -13,6 +13,7 @@ namespace GridPrivate
                 tiles.GetLength(0) != blockers.GetLength(0) ||
                 tiles.GetLength(1) != blockers.GetLength(1))
             {
+                Debug.LogWarning("Grid line-of-sight data was not registered because tile and blocker dimensions are invalid.");
                 return;
             }
 

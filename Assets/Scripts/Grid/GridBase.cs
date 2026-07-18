@@ -28,6 +28,7 @@ namespace GridPrivate
             LineOfSightBlocks = GridData == null ? null : map.GetLineOfSightBlocks();
             if (GridData == null || LineOfSightBlocks == null)
             {
+                Debug.LogError("Grid initialization failed: Map did not provide valid grid and line-of-sight data.", this);
                 enabled = false;
                 GridInput input = GetComponent<GridInput>();
                 if (input != null)
