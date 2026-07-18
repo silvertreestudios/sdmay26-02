@@ -142,6 +142,7 @@ namespace GridPrivate
             {
                 controller.RebindGrid(this);
             }
+            GetComponent<AuraGridVisuals>()?.Refresh();
             return true;
         }
 
@@ -165,6 +166,7 @@ namespace GridPrivate
             return true;
         }
 
+        /// <inheritdoc/>
         public override bool DestroyToken(GameObject token)
         {
             Debug.Log("Destroying: " + token);
@@ -172,7 +174,10 @@ namespace GridPrivate
             Tile tile = Tiles[position.x, position.z];
             if (tile == null || tile.Occupants.Count == 0)
                 return false;
-            tile.Occupants.Remove(token);
+            if (!tile.Occupants.Remove(token))
+                return false;
+
+            token.GetComponent<Token>()?.DetachFromGrid(this);
             return true;
         }
 

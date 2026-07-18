@@ -1,6 +1,9 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Game.Creature;
+using Game.Creature.Rules;
 using Game.DungeonGeneration;
 using Game.KayKit;
 using GridPrivate;
@@ -220,6 +223,112 @@ public sealed class ProceduralDungeonScenePlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator RuntimeRepopulationIgnoresTokensCompletelyRemovedFromTheGrid()
+    {
+        AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
+            ScenePath,
+            new LoadSceneParameters(LoadSceneMode.Single));
+        while (!load.isDone)
+            yield return null;
+        yield return null;
+
+        Map map = Object.FindFirstObjectByType<Map>();
+        GridBase grid = Object.FindFirstObjectByType<GridBase>();
+        Tile[,] priorTiles = grid.GetTiles();
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
+        DungeonCell highCell = parsed.Document.Rooms
+            .SelectMany(room => Enumerable.Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
+                .SelectMany(z => Enumerable.Range(room.MinimumX, room.MaximumX - room.MinimumX + 1)
+                    .Select(x => new DungeonCell(x, z))))
+            .First(cell => cell.X >= 31 && priorTiles[cell.X, cell.Z] != null);
+        GameObject tokenObject = new("Removed Token Outside Replacement Bounds");
+        tokenObject.transform.position = new Vector3(highCell.X, 0f, highCell.Z);
+        tokenObject.AddComponent<Token>();
+        Assert.That(priorTiles[highCell.X, highCell.Z].Occupants, Contains.Item(tokenObject));
+        Assert.That(grid.DestroyToken(tokenObject), Is.True);
+        tokenObject.SetActive(false);
+
+        DungeonGenerationResult replacement = new DeterministicDungeonGenerator().Generate(
+            new DungeonGenerationRequest
+            {
+                RunSeed = 15602,
+                Width = 31,
+                Height = 31,
+                MinimumRoomCount = 3
+            });
+        Assert.That(replacement.IsSuccess, Is.True);
+
+        Assert.That(map.TryPopulateJson(
+                DungeonLevelJsonSerializer.Serialize(replacement.Document),
+                map.DungeonCatalog,
+                out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(System.Environment.NewLine, validation.Errors));
+        Assert.That(grid.GridData.GetLength(0), Is.EqualTo(31));
+        Assert.That(grid.GridData.GetLength(1), Is.EqualTo(31));
+
+        Object.Destroy(tokenObject);
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator RuntimeRepopulationRefreshesAuraCellsAgainstReplacementTiles()
+    {
+        AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
+            ScenePath,
+            new LoadSceneParameters(LoadSceneMode.Single));
+        while (!load.isDone)
+            yield return null;
+        yield return null;
+
+        Map map = Object.FindFirstObjectByType<Map>();
+        GridBase grid = Object.FindFirstObjectByType<GridBase>();
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
+        DungeonCell firstCell = parsed.Document.StartCell;
+        DungeonCell secondCell = parsed.Document.SafeCells.First(cell => Manhattan(firstCell, cell) > 6);
+        GameObject auraSource = new("Runtime Rebind Aura Source");
+        auraSource.transform.position = new Vector3(firstCell.X, 0f, firstCell.Z);
+        CreatureComponent creature = auraSource.AddComponent<CreatureComponent>();
+        creature.auras = new List<CreatureAura>
+        {
+            new()
+            {
+                name = "Runtime Rebind Aura",
+                slug = RottingAuraRule.RuleSlug,
+                radiusFeet = 10,
+                traits = new List<string> { "disease", "void" }
+            }
+        };
+        auraSource.AddComponent<RebindAuraActionController>();
+
+        AuraGridVisuals auraVisuals = grid.GetComponent<AuraGridVisuals>();
+        Assert.That(auraVisuals, Is.Not.Null);
+        auraVisuals.Refresh();
+        Assert.That(auraVisuals.CurrentCells, Does.Contain(
+            new Vector3Int(firstCell.X, 0, firstCell.Z)));
+
+        auraSource.transform.position = new Vector3(secondCell.X, 0f, secondCell.Z);
+        Assert.That(auraVisuals.CurrentCells, Has.No.Member(
+            new Vector3Int(secondCell.X, 0, secondCell.Z)),
+            "Moving the source alone should leave the prior visualization intact until a refresh.");
+
+        Assert.That(map.TryPopulateJson(
+                map.JsonSource.text,
+                map.DungeonCatalog,
+                out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(System.Environment.NewLine, validation.Errors));
+
+        Assert.That(auraVisuals.CurrentCells, Does.Contain(
+            new Vector3Int(secondCell.X, 0, secondCell.Z)));
+        Assert.That(auraVisuals.CurrentCells, Has.No.Member(
+            new Vector3Int(firstCell.X, 0, firstCell.Z)));
+
+        Object.Destroy(auraSource);
+        yield return null;
+    }
+
+    [UnityTest]
     public IEnumerator RuntimeRepopulationRejectsPendingAiWork()
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
@@ -314,5 +423,12 @@ public sealed class ProceduralDungeonScenePlayModeTests
     private static int Manhattan(DungeonCell left, DungeonCell right)
     {
         return System.Math.Abs(left.X - right.X) + System.Math.Abs(left.Z - right.Z);
+    }
+
+    private sealed class RebindAuraActionController : ActionController
+    {
+        public override void EndTurn()
+        {
+        }
     }
 }
