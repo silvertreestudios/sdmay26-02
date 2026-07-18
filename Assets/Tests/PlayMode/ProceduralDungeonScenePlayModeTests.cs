@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Linq;
+using System.Reflection;
 using Game.DungeonGeneration;
 using Game.KayKit;
 using GridPrivate;
@@ -131,6 +132,14 @@ public sealed class ProceduralDungeonScenePlayModeTests
         tokenObject.transform.position = new Vector3(tokenCell.X, 0f, tokenCell.Z);
         tokenObject.AddComponent<Token>();
         Assert.That(priorTiles[tokenCell.X, tokenCell.Z].Occupants, Contains.Item(tokenObject));
+        DungeonCell inactiveCell = parsed.Document.SafeCells.First(cell =>
+            cell != tokenCell && priorTiles[cell.X, cell.Z] != null);
+        GameObject inactiveTokenObject = new("Inactive Runtime Repopulation Token");
+        inactiveTokenObject.transform.position = new Vector3(inactiveCell.X, 0f, inactiveCell.Z);
+        inactiveTokenObject.AddComponent<Token>();
+        Assert.That(priorTiles[inactiveCell.X, inactiveCell.Z].Occupants,
+            Contains.Item(inactiveTokenObject));
+        inactiveTokenObject.SetActive(false);
 
         Assert.That(map.TryPopulateJson(
                 map.JsonSource.text,
@@ -148,9 +157,102 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Assert.That(grid.Fsm, Is.SameAs(priorFsm));
         Assert.That(grid.GetPathfinder(), Is.Not.Null);
         Assert.That(grid.GetTiles()[tokenCell.X, tokenCell.Z].Occupants, Contains.Item(tokenObject));
+        Assert.That(
+            grid.GetTiles()[inactiveCell.X, inactiveCell.Z].Occupants.Contains(inactiveTokenObject),
+            Is.False);
+        inactiveTokenObject.SetActive(true);
+        Assert.That(grid.GetTiles()[inactiveCell.X, inactiveCell.Z].Occupants,
+            Contains.Item(inactiveTokenObject));
         Assert.That(grid.GetComponent<GridInput>().enabled, Is.True);
 
         Object.Destroy(tokenObject);
+        Object.Destroy(inactiveTokenObject);
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator RuntimeRepopulationRejectsAReplacementThatCannotPlaceLiveTokens()
+    {
+        AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
+            ScenePath,
+            new LoadSceneParameters(LoadSceneMode.Single));
+        while (!load.isDone)
+            yield return null;
+        yield return null;
+
+        Map map = Object.FindFirstObjectByType<Map>();
+        GridBase grid = Object.FindFirstObjectByType<GridBase>();
+        GeneratedMapRoot priorRoot = Object.FindFirstObjectByType<GeneratedMapRoot>();
+        Tile[,] priorTiles = grid.GetTiles();
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
+        DungeonCell highCell = parsed.Document.Rooms
+            .SelectMany(room => Enumerable.Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
+                .SelectMany(z => Enumerable.Range(room.MinimumX, room.MaximumX - room.MinimumX + 1)
+                    .Select(x => new DungeonCell(x, z))))
+            .First(cell => cell.X >= 31 && priorTiles[cell.X, cell.Z] != null);
+        GameObject tokenObject = new("Token Outside Replacement Bounds");
+        tokenObject.transform.position = new Vector3(highCell.X, 0f, highCell.Z);
+        tokenObject.AddComponent<Token>();
+        Assert.That(priorTiles[highCell.X, highCell.Z].Occupants, Contains.Item(tokenObject));
+        DungeonGenerationResult replacement = new DeterministicDungeonGenerator().Generate(
+            new DungeonGenerationRequest
+            {
+                RunSeed = 15601,
+                Width = 31,
+                Height = 31,
+                MinimumRoomCount = 3
+            });
+        Assert.That(replacement.IsSuccess, Is.True);
+
+        Assert.That(map.TryPopulateJson(
+                DungeonLevelJsonSerializer.Serialize(replacement.Document),
+                map.DungeonCatalog,
+                out MapSourceValidationResult validation),
+            Is.False);
+
+        Assert.That(validation.Errors, Is.Not.Empty);
+        Assert.That(Object.FindFirstObjectByType<GeneratedMapRoot>(), Is.SameAs(priorRoot));
+        Assert.That(grid.GetTiles(), Is.SameAs(priorTiles));
+        Assert.That(priorTiles[highCell.X, highCell.Z].Occupants, Contains.Item(tokenObject));
+
+        Object.Destroy(tokenObject);
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator RuntimeRepopulationRejectsPendingAiWork()
+    {
+        AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
+            ScenePath,
+            new LoadSceneParameters(LoadSceneMode.Single));
+        while (!load.isDone)
+            yield return null;
+        yield return null;
+
+        Map map = Object.FindFirstObjectByType<Map>();
+        GridBase grid = Object.FindFirstObjectByType<GridBase>();
+        GeneratedMapRoot priorRoot = Object.FindFirstObjectByType<GeneratedMapRoot>();
+        Tile[,] priorTiles = grid.GetTiles();
+        GameObject controllerObject = new("Pending Inactive AI");
+        controllerObject.SetActive(false);
+        MindlessController controller = controllerObject.AddComponent<MindlessController>();
+        FieldInfo isTurn = typeof(ActionController).GetField(
+            "IsTurn",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(isTurn, Is.Not.Null);
+        isTurn.SetValue(controller, true);
+
+        Assert.That(map.TryPopulateJson(
+                map.JsonSource.text,
+                map.DungeonCatalog,
+                out MapSourceValidationResult validation),
+            Is.False);
+
+        Assert.That(validation.Errors, Is.Not.Empty);
+        Assert.That(Object.FindFirstObjectByType<GeneratedMapRoot>(), Is.SameAs(priorRoot));
+        Assert.That(grid.GetTiles(), Is.SameAs(priorTiles));
+
+        Object.Destroy(controllerObject);
         yield return null;
     }
 

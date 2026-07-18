@@ -58,14 +58,22 @@ namespace GridPublic
             TryRegister(grid);
         }
 
-        internal void RebindToGrid(GridAPI grid)
+        internal bool TryGetRebindCell(GridAPI grid, out Vector3Int cell)
+        {
+            cell = Vector3Int.RoundToInt(transform.position);
+            if (registered)
+                return registeredGrid == grid;
+            return isActiveAndEnabled;
+        }
+
+        internal bool RebindToGrid(GridAPI grid)
         {
             if (registered && registeredGrid != grid)
-                return;
+                return true;
 
             registered = false;
             registeredGrid = null;
-            TryRegister(grid);
+            return !isActiveAndEnabled || TryRegister(grid);
         }
     }
 }

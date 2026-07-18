@@ -54,8 +54,36 @@ namespace GridPrivate
                 return false;
             }
 
-            return Fsm.CanResetForGridRebind &&
-                   (!GridAPI.TryGetInstance(out GridAPI activeGrid) || activeGrid == this);
+            if (!Fsm.CanResetForGridRebind ||
+                (GridAPI.TryGetInstance(out GridAPI activeGrid) && activeGrid != this))
+            {
+                return false;
+            }
+
+            HashSet<Vector2Int> occupiedCells = new();
+            foreach (Token token in FindObjectsByType<Token>(
+                         FindObjectsInactive.Include,
+                         FindObjectsSortMode.None))
+            {
+                if (!token.TryGetRebindCell(this, out Vector3Int cell))
+                    continue;
+                if (cell.x < 0 || cell.z < 0 ||
+                    cell.x >= gridData.GetLength(0) || cell.z >= gridData.GetLength(1) ||
+                    !IsWalkableTile(gridData[cell.x, cell.z]) ||
+                    !occupiedCells.Add(new Vector2Int(cell.x, cell.z)))
+                {
+                    return false;
+                }
+            }
+
+            foreach (MindlessController controller in FindObjectsByType<MindlessController>(
+                         FindObjectsInactive.Include,
+                         FindObjectsSortMode.None))
+            {
+                if (!controller.CanRebindGrid(this))
+                    return false;
+            }
+            return true;
         }
 
         /// <summary>
@@ -102,13 +130,14 @@ namespace GridPrivate
             GetComponent<GridVisuals>()?.RebindTiles(Tiles);
 
             foreach (Token token in FindObjectsByType<Token>(
-                         FindObjectsInactive.Exclude,
+                         FindObjectsInactive.Include,
                          FindObjectsSortMode.None))
             {
-                token.RebindToGrid(this);
+                if (!token.RebindToGrid(this))
+                    return false;
             }
             foreach (MindlessController controller in FindObjectsByType<MindlessController>(
-                         FindObjectsInactive.Exclude,
+                         FindObjectsInactive.Include,
                          FindObjectsSortMode.None))
             {
                 controller.RebindGrid(this);

@@ -56,6 +56,13 @@ public class MindlessController : AIActionController
         BestTarget = null;
     }
 
+    internal bool CanRebindGrid(GridAPIPrivate grid)
+    {
+        if (GridAPI != null && GridAPI != grid)
+            return true;
+        return !IsTurn && !IsTakingAction;
+    }
+
     private IEnumerator ExecuteTurnSequence()
     {
         while (ActionPoints > 0)
