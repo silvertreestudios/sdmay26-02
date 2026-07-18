@@ -69,6 +69,7 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 ## Coding
 
 - Follow existing C# style and Unity lifecycle patterns.
+- Treat setting, passing, returning, or defaulting to `null` as a design smell. Prefer required dependencies, explicit construction paths, distinct types or states, empty collections, and Null Object implementations. Use `null` only at unavoidable framework or interop boundaries, or when absence is genuinely part of the domain and no clearer representation is practical; keep that boundary narrow and document the reason.
 - Follow Microsoft's C# XML documentation comment conventions for new C# APIs. Add XML documentation to every new public type and every non-trivial public or protected constructor, method, property, event, and field; use `<inheritdoc/>` when an inherited contract already explains the member accurately.
 - Document complex internal code where intent, invariants, ownership, lifecycle, concurrency, side effects, failure behavior, or other non-obvious constraints would otherwise be difficult to recover from the implementation.
 - Write documentation for junior contributors: explain why the API exists, how it should be used, and the important guarantees or hazards without merely restating names or implementation steps. Keep shared concepts DRY by documenting them once and linking with `<see>`, `<seealso>`, or `<inheritdoc/>`.
