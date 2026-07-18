@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -63,6 +64,48 @@ namespace Game.Rules.Runtime.Tests
             void rulesWithInvalidPhase() => registryBuilder.Define(DefinitionB).Middleware(
                 (RuleLifecyclePhase)999,
                 middleware);
+        }
+
+        [Test]
+        public void DefinitionsUseOrdinalIdOrderAcrossCultures()
+        {
+            CultureInfo originalCulture = CultureInfo.CurrentCulture;
+            CultureInfo originalUiCulture = CultureInfo.CurrentUICulture;
+            try
+            {
+                CultureInfo enUs = CultureInfo.GetCultureInfo("en-US");
+                CultureInfo svSe = CultureInfo.GetCultureInfo("sv-SE");
+                const string zRule = "z-rule";
+                const string aUmlautRule = "ä-rule";
+
+                Assert.That(enUs.CompareInfo.Compare(zRule, aUmlautRule), Is.GreaterThan(0));
+                Assert.That(svSe.CompareInfo.Compare(zRule, aUmlautRule), Is.LessThan(0));
+
+                string[] enUsDefinitions = buildDefinitions(enUs);
+                string[] svSeDefinitions = buildDefinitions(svSe);
+                string[] ordinalDefinitions = { zRule, aUmlautRule };
+
+                Assert.That(enUsDefinitions, Is.EqualTo(ordinalDefinitions));
+                Assert.That(svSeDefinitions, Is.EqualTo(ordinalDefinitions));
+                Assert.That(svSeDefinitions, Is.EqualTo(enUsDefinitions));
+
+                string[] buildDefinitions(CultureInfo culture)
+                {
+                    CultureInfo.CurrentCulture = culture;
+                    CultureInfo.CurrentUICulture = culture;
+                    RuleRegistryBuilder builder = new RuleRegistryBuilder();
+                    builder.Define(new RuleDefinitionId(aUmlautRule));
+                    builder.Define(new RuleDefinitionId(zRule));
+                    return builder.Build().Definitions
+                        .Select(definition => definition.Id.Value)
+                        .ToArray();
+                }
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = originalCulture;
+                CultureInfo.CurrentUICulture = originalUiCulture;
+            }
         }
 
         [Test]

@@ -625,11 +625,13 @@ namespace Game.Rules.Runtime
                 definition => definition.Id,
                 definition => definition);
             byId = new ReadOnlyDictionary<RuleDefinitionId, RuleDefinition>(values);
-            Definitions = Array.AsReadOnly(values.Values.OrderBy(value => value.Id.Value).ToArray());
+            Definitions = Array.AsReadOnly(values.Values
+                .OrderBy(value => value.Id.Value, StringComparer.Ordinal)
+                .ToArray());
         }
 
         /// <summary>
-        /// Gets all static definitions ordered by stable definition ID.
+        /// Gets all static definitions ordered by stable definition ID using ordinal string comparison.
         /// </summary>
         public IReadOnlyList<RuleDefinition> Definitions { get; }
 
