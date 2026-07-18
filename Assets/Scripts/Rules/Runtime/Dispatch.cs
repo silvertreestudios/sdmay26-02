@@ -1517,7 +1517,6 @@ namespace Game.Rules.Runtime
             {
                 RequireActiveResolution(resolution);
                 id = parentId.HasValue ? ids.Next() : rootId;
-                firstFact = resolution.Facts.Count;
                 startSnapshot = store.Snapshot;
             }
 
@@ -1536,6 +1535,7 @@ namespace Game.Rules.Runtime
             lock (gate)
             {
                 RequireActiveResolution(resolution);
+                firstFact = resolution.Facts.Count;
                 invocation = registration.CreateInvocation(
                     id,
                     rootId,
