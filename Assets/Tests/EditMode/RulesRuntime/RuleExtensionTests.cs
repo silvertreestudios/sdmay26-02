@@ -629,6 +629,90 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task SuspendedContinuationRejectsChildDispatchThenBothPathsRecover()
+        {
+            SuspendedOnceValueHandler handler = new SuspendedOnceValueHandler();
+            ContinuationThenChildOverlapMiddleware middleware =
+                new ContinuationThenChildOverlapMiddleware(handler);
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).Middleware(
+                RuleLifecyclePhase.Transformation,
+                middleware);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(Binding("continuation-overlap", DefinitionA, 0)))
+                .RegisterHandler<ValueOp, int>(handler)
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            OpResult<int> recovered = await dispatcher.Dispatch(new ValueOp(4));
+            OpResult<int> laterRoot = await dispatcher.Dispatch(new ValueOp(5));
+
+            Assert.That(RequireResolved(recovered).Value, Is.EqualTo(4));
+            Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(5));
+            Assert.That(middleware.OverlapErrors, Has.Count.EqualTo(2));
+            Assert.That(middleware.OverlapErrors.All(error =>
+                    error.Message.Contains("overlapping child dispatch") &&
+                    error.Message.Contains("middleware continuation is active")),
+                Is.True);
+            Assert.That(middleware.ContinuationReuseErrors, Has.Count.EqualTo(2));
+            Assert.That(middleware.ContinuationReuseErrors.All(error => error.Message ==
+                    "Middleware may invoke its continuation at most once."),
+                Is.True);
+            Assert.That(middleware.ContinuationWasCompletedAtOverlap,
+                Is.EqualTo(new[] { false, true }),
+                "A completed continuation remains owned until its result is consumed.");
+            Assert.That(middleware.SequentialChildValues, Is.EqualTo(new[] { 11, 12 }));
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(12),
+                "Rejected child dispatches must not mutate state.");
+            Assert.That(handler.Calls, Is.EqualTo(2));
+            Assert.That(dispatcher.Trace.OrderedFrames.Count, Is.EqualTo(4),
+                "Rejected overlap attempts must not allocate operation frames.");
+        }
+
+        [Test]
+        public async Task SuspendedChildRejectsContinuationThenBothPathsRecover()
+        {
+            SuspendedOnceMiddlewareChildHandler child =
+                new SuspendedOnceMiddlewareChildHandler();
+            ChildThenContinuationOverlapMiddleware middleware =
+                new ChildThenContinuationOverlapMiddleware(child);
+            ValueHandler handler = new ValueHandler();
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).Middleware(
+                RuleLifecyclePhase.Transformation,
+                middleware);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(Binding("child-overlap", DefinitionA, 0)))
+                .RegisterHandler<ValueOp, int>(handler)
+                .RegisterHandler<MiddlewareChildOp, int>(
+                    child,
+                    InvocationPolicy.NestedOnly)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            OpResult<int> recovered = await dispatcher.Dispatch(new ValueOp(6));
+            OpResult<int> laterRoot = await dispatcher.Dispatch(new ValueOp(7));
+
+            Assert.That(RequireResolved(recovered).Value, Is.EqualTo(6));
+            Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(7));
+            Assert.That(middleware.OverlapErrors, Has.Count.EqualTo(2));
+            Assert.That(middleware.OverlapErrors.All(error => error.Message ==
+                    "Middleware cannot invoke its continuation while a child dispatch is active. " +
+                    "Await the active child before continuing."),
+                Is.True);
+            Assert.That(middleware.ChildWasCompletedAtOverlap,
+                Is.EqualTo(new[] { false, true }),
+                "A synchronously completed child remains owned until its result is consumed.");
+            Assert.That(middleware.ChildValues, Is.EqualTo(new[] { 3, 3 }));
+            Assert.That(child.Calls, Is.EqualTo(2));
+            Assert.That(handler.Calls, Is.EqualTo(2),
+                "A rejected first attempt must not consume the one-continuation allowance.");
+            Assert.That(dispatcher.Trace.OrderedFrames.Count, Is.EqualTo(4),
+                "Rejected continuation attempts must not invoke or trace the remaining chain.");
+        }
+
+        [Test]
         public async Task HandlerContextClosesBeforeMiddlewarePostProcessing()
         {
             CapturingValueHandler handler = new CapturingValueHandler();
@@ -902,6 +986,161 @@ namespace Game.Rules.Runtime.Tests
                 Calls++;
                 calls?.Add("handler");
                 return new ValueTask<int>(frame.Op.Value);
+            }
+        }
+
+        private sealed class SuspendedOnceValueHandler : IOpHandler<ValueOp, int>
+        {
+            private readonly TaskCompletionSource<bool> firstStarted =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource<bool> firstRelease =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public int Calls { get; private set; }
+            public Task FirstStarted => firstStarted.Task;
+
+            public void ReleaseFirst() => firstRelease.TrySetResult(true);
+
+            public async ValueTask<int> Handle(
+                OpFrame<ValueOp> frame,
+                OpContext context)
+            {
+                Calls++;
+                if (Calls == 1)
+                {
+                    firstStarted.TrySetResult(true);
+                    await firstRelease.Task;
+                }
+                return frame.Op.Value;
+            }
+        }
+
+        private sealed class ContinuationThenChildOverlapMiddleware :
+            IOpMiddleware<ValueOp, int>
+        {
+            private readonly SuspendedOnceValueHandler handler;
+
+            public List<InvalidOperationException> OverlapErrors { get; } =
+                new List<InvalidOperationException>();
+            public List<bool> ContinuationWasCompletedAtOverlap { get; } =
+                new List<bool>();
+            public List<InvalidOperationException> ContinuationReuseErrors { get; } =
+                new List<InvalidOperationException>();
+            public List<int> SequentialChildValues { get; } = new List<int>();
+
+            public ContinuationThenChildOverlapMiddleware(
+                SuspendedOnceValueHandler handler) => this.handler = handler;
+
+            public async ValueTask<OpResult<int>> Invoke(
+                ActiveRuleBinding binding,
+                OpFrame<ValueOp> frame,
+                OpContext context,
+                OpNext<int> next)
+            {
+                ValueTask<OpResult<int>> continuation = next();
+                await handler.FirstStarted;
+                ContinuationWasCompletedAtOverlap.Add(continuation.IsCompleted);
+                try
+                {
+                    _ = context.Dispatch(new IncrementOp(100));
+                }
+                catch (InvalidOperationException error)
+                {
+                    OverlapErrors.Add(error);
+                }
+                finally
+                {
+                    handler.ReleaseFirst();
+                }
+
+                OpResult<int> result = await continuation;
+                try
+                {
+                    _ = next();
+                }
+                catch (InvalidOperationException error)
+                {
+                    ContinuationReuseErrors.Add(error);
+                }
+                OpResult<int> child = await context.Dispatch(new IncrementOp(1));
+                SequentialChildValues.Add(RequireResolved(child).Value);
+                return result;
+            }
+        }
+
+        private sealed class MiddlewareChildOp : IRuleOp<int>
+        {
+            public int Value { get; }
+
+            public MiddlewareChildOp(int value) => Value = value;
+        }
+
+        private sealed class SuspendedOnceMiddlewareChildHandler :
+            IOpHandler<MiddlewareChildOp, int>
+        {
+            private readonly TaskCompletionSource<bool> firstStarted =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource<bool> firstRelease =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public int Calls { get; private set; }
+            public Task FirstStarted => firstStarted.Task;
+
+            public void ReleaseFirst() => firstRelease.TrySetResult(true);
+
+            public async ValueTask<int> Handle(
+                OpFrame<MiddlewareChildOp> frame,
+                OpContext context)
+            {
+                Calls++;
+                if (Calls == 1)
+                {
+                    firstStarted.TrySetResult(true);
+                    await firstRelease.Task;
+                }
+                return frame.Op.Value;
+            }
+        }
+
+        private sealed class ChildThenContinuationOverlapMiddleware :
+            IOpMiddleware<ValueOp, int>
+        {
+            private readonly SuspendedOnceMiddlewareChildHandler childHandler;
+
+            public List<InvalidOperationException> OverlapErrors { get; } =
+                new List<InvalidOperationException>();
+            public List<bool> ChildWasCompletedAtOverlap { get; } = new List<bool>();
+            public List<int> ChildValues { get; } = new List<int>();
+
+            public ChildThenContinuationOverlapMiddleware(
+                SuspendedOnceMiddlewareChildHandler childHandler) =>
+                this.childHandler = childHandler;
+
+            public async ValueTask<OpResult<int>> Invoke(
+                ActiveRuleBinding binding,
+                OpFrame<ValueOp> frame,
+                OpContext context,
+                OpNext<int> next)
+            {
+                ValueTask<OpResult<int>> child =
+                    context.Dispatch(new MiddlewareChildOp(3));
+                await childHandler.FirstStarted;
+                ChildWasCompletedAtOverlap.Add(child.IsCompleted);
+                try
+                {
+                    _ = next();
+                }
+                catch (InvalidOperationException error)
+                {
+                    OverlapErrors.Add(error);
+                }
+                finally
+                {
+                    childHandler.ReleaseFirst();
+                }
+
+                ChildValues.Add(RequireResolved(await child).Value);
+                return await next();
             }
         }
 

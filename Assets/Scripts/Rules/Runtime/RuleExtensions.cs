@@ -47,7 +47,9 @@ namespace Game.Rules.Runtime
     /// <returns>The result produced by the next middleware or the operation's resolver.</returns>
     /// <remarks>
     /// Middleware may invoke this delegate at most once and must await it before returning. It may
-    /// omit the call to short-circuit or replace the remaining work.
+    /// omit the call to short-circuit or replace the remaining work. The continuation and any
+    /// child dispatched through the callback's <see cref="OpContext"/> must be awaited
+    /// sequentially; neither may begin while the other result remains unconsumed.
     /// </remarks>
     public delegate ValueTask<OpResult<TResult>> OpNext<TResult>();
 
@@ -955,9 +957,14 @@ namespace Game.Rules.Runtime
             if (!(invocation is FrameInvocation<TOp> typed))
                 throw new InvalidOperationException("Middleware received an incompatible operation frame.");
 
+            CallbackWorkCoordinator work = new CallbackWorkCoordinator();
             MiddlewareContinuation<TResult> continuation =
-                new MiddlewareContinuation<TResult>(next);
-            OpContext context = new OpContext(dispatcher, typed.Frame.Id, binding);
+                new MiddlewareContinuation<TResult>(next, work);
+            OpContext context = new OpContext(
+                dispatcher,
+                typed.Frame.Id,
+                binding,
+                work);
             OpResult<TResult> result;
             try
             {
@@ -969,33 +976,19 @@ namespace Game.Rules.Runtime
             }
             catch
             {
-                try
-                {
-                    await continuation.CompleteInvocation();
-                }
-                finally
-                {
-                    await context.CompleteInvocation();
-                }
+                await work.CompleteInvocation(
+                    "A middleware callback completed more than once.");
                 throw;
             }
 
-            bool continuationWasActive = false;
-            bool contextWasActive;
-            try
-            {
-                continuationWasActive = await continuation.CompleteInvocation();
-            }
-            finally
-            {
-                contextWasActive = await context.CompleteInvocation();
-            }
-            if (continuationWasActive)
+            CallbackWorkKind? activeWork = await work.CompleteInvocation(
+                "A middleware callback completed more than once.");
+            if (activeWork == CallbackWorkKind.MiddlewareContinuation)
             {
                 throw new InvalidOperationException(
                     $"Middleware for {typeof(TOp).Name} returned before awaiting its continuation.");
             }
-            if (contextWasActive)
+            if (activeWork == CallbackWorkKind.ChildDispatch)
             {
                 throw new InvalidOperationException(
                     $"Middleware for {typeof(TOp).Name} returned before awaiting its child dispatch.");
@@ -1008,53 +1001,19 @@ namespace Game.Rules.Runtime
 
     internal sealed class MiddlewareContinuation<TResult>
     {
-        private readonly object gate = new object();
         private readonly Func<ValueTask<object>> next;
-        private bool isActive = true;
-        private bool wasInvoked;
-        private IOwnedValueTaskSource activeInvocation;
+        private readonly CallbackWorkCoordinator work;
 
-        public MiddlewareContinuation(Func<ValueTask<object>> next) =>
+        public MiddlewareContinuation(
+            Func<ValueTask<object>> next,
+            CallbackWorkCoordinator work)
+        {
             this.next = next ?? throw new ArgumentNullException(nameof(next));
-
-        public ValueTask<OpResult<TResult>> Invoke()
-        {
-            OwnedValueTaskSource<OpResult<TResult>> invocation;
-            lock (gate)
-            {
-                if (!isActive)
-                    throw new InvalidOperationException("Middleware cannot continue after its callback returns.");
-                if (wasInvoked)
-                    throw new InvalidOperationException("Middleware may invoke its continuation at most once.");
-                wasInvoked = true;
-                invocation = new OwnedValueTaskSource<OpResult<TResult>>(
-                    InvokeNext,
-                    ReleaseInvocation);
-                activeInvocation = invocation;
-            }
-
-            invocation.Start();
-            return invocation.AsValueTask();
+            this.work = work ?? throw new ArgumentNullException(nameof(work));
         }
 
-        public async ValueTask<bool> CompleteInvocation()
-        {
-            IOwnedValueTaskSource pending;
-            lock (gate)
-            {
-                if (!isActive)
-                    throw new InvalidOperationException("A middleware continuation completed more than once.");
-                isActive = false;
-                pending = activeInvocation;
-            }
-
-            if (pending == null)
-                return false;
-
-            await pending.Completion;
-            pending.ThrowIfFailed();
-            return true;
-        }
+        public ValueTask<OpResult<TResult>> Invoke() =>
+            work.StartContinuation(InvokeNext);
 
         private async ValueTask<OpResult<TResult>> InvokeNext()
         {
@@ -1063,15 +1022,6 @@ namespace Game.Rules.Runtime
                 throw new InvalidOperationException(
                     "Middleware continuation returned an impossible result type.");
             return typed;
-        }
-
-        private void ReleaseInvocation(IOwnedValueTaskSource invocation)
-        {
-            lock (gate)
-            {
-                if (ReferenceEquals(activeInvocation, invocation))
-                    activeInvocation = null;
-            }
         }
     }
 

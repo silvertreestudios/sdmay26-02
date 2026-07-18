@@ -661,25 +661,27 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// The dispatcher owns the context. It is valid only while the handler or middleware callback
     /// that received it is actively executing. Each callback may have at most one child dispatch
-    /// in flight and must await that child before returning or starting another child.
+    /// in flight and must await that child before returning or starting another child. For a
+    /// middleware callback, its child dispatch and continuation share that in-flight slot and must
+    /// be awaited sequentially.
     /// </remarks>
     public sealed class OpContext
     {
-        private readonly object gate = new object();
         private readonly RuleDispatcher dispatcher;
         private readonly OpId parentId;
         private readonly ActiveRuleBinding activeBinding;
-        private bool isActive = true;
-        private IOwnedValueTaskSource activeDispatch;
+        private readonly CallbackWorkCoordinator work;
 
         internal OpContext(
             RuleDispatcher dispatcher,
             OpId parentId,
-            ActiveRuleBinding activeBinding = null)
+            ActiveRuleBinding activeBinding = null,
+            CallbackWorkCoordinator work = null)
         {
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
             this.parentId = parentId;
             this.activeBinding = activeBinding;
+            this.work = work ?? new CallbackWorkCoordinator();
         }
 
 #nullable enable annotations
@@ -741,77 +743,30 @@ namespace Game.Rules.Runtime
         /// <returns>A task-like value containing the child's status, value, and subtree facts.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="op"/> is <see langword="null"/>.</exception>
         /// <exception cref="InvalidOperationException">
-        /// The context is no longer active, another child is in flight, or no compatible resolver is registered.
+        /// The context is no longer active, another callback-owned operation is in flight, or no
+        /// compatible resolver is registered.
         /// </exception>
         public ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
         {
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
 
-            OwnedValueTaskSource<OpResult<TResult>> dispatch;
-            lock (gate)
-            {
-                if (!isActive)
-                {
-                    throw new InvalidOperationException(
-                        "An operation context is not actively executing after its callback returns.");
-                }
-                if (activeDispatch != null)
-                {
-                    throw new InvalidOperationException(
-                        $"Operation {parentId.Value} cannot begin an overlapping child dispatch. " +
-                        "Await the active child before dispatching another.");
-                }
-
-                dispatch = new OwnedValueTaskSource<OpResult<TResult>>(
-                    () => dispatcher.DispatchNested(op, parentId),
-                    ReleaseDispatch);
-                activeDispatch = dispatch;
-            }
-
-            dispatch.Start();
-            return dispatch.AsValueTask();
+            return work.StartChild(
+                () => dispatcher.DispatchNested(op, parentId),
+                "An operation context is not actively executing after its callback returns.",
+                $"Operation {parentId.Value} cannot begin an overlapping child dispatch. " +
+                "Await the active child before dispatching another.",
+                $"Operation {parentId.Value} cannot begin an overlapping child dispatch while " +
+                "its middleware continuation is active. Await the continuation before " +
+                "dispatching a child.");
         }
 
-        internal async ValueTask<bool> CompleteInvocation()
-        {
-            IOwnedValueTaskSource pending;
-            lock (gate)
-            {
-                if (!isActive)
-                    throw new InvalidOperationException("An operation context completed more than once.");
-                isActive = false;
-                pending = activeDispatch;
-            }
+        internal async ValueTask<bool> CompleteInvocation() =>
+            await work.CompleteInvocation(
+                "An operation context completed more than once.") != null;
 
-            if (pending == null)
-                return false;
-
-            // The active slot is cleared only by ValueTask.GetResult. Capturing it while closing
-            // the callback therefore records a contract violation even when ignored work already
-            // completed synchronously or a retained result is consumed after the callback returns.
-            await pending.Completion;
-            pending.ThrowIfFailed();
-            return true;
-        }
-
-        private void ReleaseDispatch(IOwnedValueTaskSource dispatch)
-        {
-            lock (gate)
-            {
-                if (ReferenceEquals(activeDispatch, dispatch))
-                    activeDispatch = null;
-            }
-        }
-
-        private void RequireActive()
-        {
-            lock (gate)
-            {
-                if (!isActive)
-                    throw new InvalidOperationException("An operation context cannot be used after its callback returns.");
-            }
-        }
+        private void RequireActive() => work.RequireActive(
+            "An operation context cannot be used after its callback returns.");
     }
 
     /// <summary>
@@ -1771,6 +1726,157 @@ namespace Game.Rules.Runtime
         Task Completion { get; }
 
         void ThrowIfFailed();
+    }
+
+    /// <summary>
+    /// Identifies which callback operation owns a <see cref="CallbackWorkCoordinator"/>.
+    /// </summary>
+    internal enum CallbackWorkKind
+    {
+        ChildDispatch,
+        MiddlewareContinuation
+    }
+
+    /// <summary>
+    /// Owns one callback's lifetime and its single in-flight asynchronous work slot.
+    /// </summary>
+    /// <remarks>
+    /// Middleware shares one instance between its continuation and binding-scoped
+    /// <see cref="OpContext"/>. Acquiring either kind of work is therefore atomic, and a rejected
+    /// overlap cannot start or replace the work already in progress. Ownership ends only when the
+    /// returned <see cref="ValueTask{TResult}"/> consumes its result; mere operation completion does
+    /// not permit another dispatch or continuation. Rejecting a first continuation attempt while
+    /// a child owns the slot does not consume the callback's one-continuation allowance.
+    /// </remarks>
+    internal sealed class CallbackWorkCoordinator
+    {
+        private readonly object gate = new object();
+        private bool isActive = true;
+        private bool continuationWasInvoked;
+        private IOwnedValueTaskSource activeWork;
+        private CallbackWorkKind activeKind;
+
+        internal ValueTask<TResult> StartChild<TResult>(
+            Func<ValueTask<TResult>> operation,
+            string inactiveMessage,
+            string childOverlapMessage,
+            string continuationOverlapMessage) =>
+            Start(
+                operation,
+                inactiveMessage,
+                childOverlapMessage,
+                continuationOverlapMessage);
+
+        internal ValueTask<TResult> StartContinuation<TResult>(
+            Func<ValueTask<TResult>> operation)
+        {
+            OwnedValueTaskSource<TResult> invocation;
+            lock (gate)
+            {
+                if (!isActive)
+                {
+                    throw new InvalidOperationException(
+                        "Middleware cannot continue after its callback returns.");
+                }
+                if (continuationWasInvoked)
+                {
+                    throw new InvalidOperationException(
+                        "Middleware may invoke its continuation at most once.");
+                }
+                if (activeWork != null)
+                {
+                    throw new InvalidOperationException(
+                        "Middleware cannot invoke its continuation while a child dispatch is active. " +
+                        "Await the active child before continuing.");
+                }
+
+                continuationWasInvoked = true;
+                invocation = Own(CallbackWorkKind.MiddlewareContinuation, operation);
+            }
+
+            invocation.Start();
+            return invocation.AsValueTask();
+        }
+
+        internal void RequireActive(string inactiveMessage)
+        {
+            lock (gate)
+            {
+                if (!isActive)
+                    throw new InvalidOperationException(inactiveMessage);
+            }
+        }
+
+        internal async ValueTask<CallbackWorkKind?> CompleteInvocation(
+            string duplicateCompletionMessage)
+        {
+            IOwnedValueTaskSource pending;
+            CallbackWorkKind pendingKind;
+            lock (gate)
+            {
+                if (!isActive)
+                    throw new InvalidOperationException(duplicateCompletionMessage);
+                isActive = false;
+                pending = activeWork;
+                pendingKind = activeKind;
+            }
+
+            if (pending == null)
+                return null;
+
+            // The active slot is cleared only by ValueTask.GetResult. Capturing it while closing
+            // the callback therefore records a contract violation even when ignored work already
+            // completed synchronously or a retained result is consumed after the callback returns.
+            await pending.Completion;
+            pending.ThrowIfFailed();
+            return pendingKind;
+        }
+
+        private ValueTask<TResult> Start<TResult>(
+            Func<ValueTask<TResult>> operation,
+            string inactiveMessage,
+            string childOverlapMessage,
+            string continuationOverlapMessage)
+        {
+            OwnedValueTaskSource<TResult> owned;
+            lock (gate)
+            {
+                if (!isActive)
+                    throw new InvalidOperationException(inactiveMessage);
+                if (activeWork != null)
+                {
+                    throw new InvalidOperationException(
+                        activeKind == CallbackWorkKind.MiddlewareContinuation
+                            ? continuationOverlapMessage
+                            : childOverlapMessage);
+                }
+
+                owned = Own(CallbackWorkKind.ChildDispatch, operation);
+            }
+
+            owned.Start();
+            return owned.AsValueTask();
+        }
+
+        private OwnedValueTaskSource<TResult> Own<TResult>(
+            CallbackWorkKind kind,
+            Func<ValueTask<TResult>> operation)
+        {
+            OwnedValueTaskSource<TResult> owned =
+                new OwnedValueTaskSource<TResult>(operation, Release);
+            activeKind = kind;
+            activeWork = owned;
+            return owned;
+        }
+
+        private void Release(IOwnedValueTaskSource work)
+        {
+            lock (gate)
+            {
+                if (ReferenceEquals(activeWork, work))
+                    activeWork = null;
+            }
+        }
     }
 
     /// <summary>

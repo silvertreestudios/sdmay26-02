@@ -482,7 +482,11 @@ Middleware is appropriate when a rule needs to inspect or alter an in-progress o
 
 Middleware ordering is deterministic, using the fixed semantic phases `Prevention`, `Transformation`, `Reaction`, and `Observation`, followed by active binding creation order and binding ID. Middleware nests in reverse phase order so returned results settle through those semantic phases in the listed order: observation wrappers therefore see the result after transformation and reaction middleware has finished. The first-pass design does not expose numeric priorities, which would create hard-to-see dependencies across unrelated rules. If two rules need meaningful ordering, represent that relationship with distinct lifecycle Ops or phases.
 
-Middleware may dispatch nested Ops and await their typed results. It cannot directly mutate state.
+Middleware may dispatch nested Ops and await their typed results. Its `next()` continuation and a
+nested dispatch share one callback-owned in-flight work slot: middleware must consume either result
+before starting the other, even when the operation completed synchronously. A rejected overlap does
+not consume an unused continuation or disturb the work already in progress. Middleware cannot
+directly mutate state.
 
 ### 5.3 Fact listeners run after commits
 
