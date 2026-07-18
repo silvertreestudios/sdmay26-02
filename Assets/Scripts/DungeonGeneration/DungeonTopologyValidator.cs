@@ -96,7 +96,7 @@ namespace Game.DungeonGeneration
 
         /// <summary>
         /// Returns whether doors form a bijection with <c>D</c> cells and retain the generator's
-        /// two-opposite-neighbor shape with at least one adjacent room interior.
+        /// two-opposite-neighbor shape, with every room adjacent to at least one valid door.
         /// </summary>
         internal static bool HasValidDoors(
             IReadOnlyList<string> rows,
@@ -110,6 +110,7 @@ namespace Game.DungeonGeneration
                 return false;
             }
 
+            HashSet<int> roomIdsWithDoors = new();
             foreach (DungeonDoor door in doors)
             {
                 if (!InBounds(rows, door.Cell) || Symbol(rows, door.Cell) != 'D')
@@ -124,7 +125,81 @@ namespace Game.DungeonGeneration
                     return false;
                 }
 
-                if (!openNeighbors.Any(neighbor => rooms.Any(room => Contains(room, neighbor))))
+                DungeonRoom[] adjacentRooms = rooms
+                    .Where(room => openNeighbors.Any(neighbor => Contains(room, neighbor)))
+                    .ToArray();
+                if (adjacentRooms.Length == 0)
+                    return false;
+                foreach (DungeonRoom room in adjacentRooms)
+                    roomIdsWithDoors.Add(room.Id);
+            }
+
+            return rooms.All(room => roomIdsWithDoors.Contains(room.Id));
+        }
+
+        /// <summary>
+        /// Returns whether a stair endpoint uses the generator's straight three-cell corridor
+        /// runway while every other surrounding endpoint cell remains blocked.
+        /// </summary>
+        internal static bool MatchesStairEnd(
+            IReadOnlyList<string> rows,
+            IReadOnlyList<DungeonRoom> rooms,
+            DungeonCell cell,
+            DungeonCell arrival)
+        {
+            bool IsCorridor(DungeonCell candidate) =>
+                InBounds(rows, candidate) &&
+                Symbol(rows, candidate) == '.' &&
+                !rooms.Any(room => Contains(room, candidate));
+            return MatchesStairEnd(
+                rows[0].Length,
+                rows.Count,
+                cell,
+                arrival,
+                IsCorridor,
+                candidate => IsWalkable(rows, candidate));
+        }
+
+        /// <summary>
+        /// Applies the shared stair-end geometry to generator state without requiring serialized rows.
+        /// </summary>
+        internal static bool MatchesStairEnd(
+            int width,
+            int height,
+            DungeonCell cell,
+            DungeonCell arrival,
+            Func<DungeonCell, bool> isCorridor,
+            Func<DungeonCell, bool> isWalkable)
+        {
+            DungeonCell direction = new(arrival.X - cell.X, arrival.Z - cell.Z);
+            if (Math.Abs(direction.X) + Math.Abs(direction.Z) != 1 ||
+                !InBounds(width, height, cell) ||
+                !InBounds(width, height, arrival))
+            {
+                return false;
+            }
+
+            DungeonCell far = new(
+                cell.X + direction.X * 2,
+                cell.Z + direction.Z * 2);
+            if (!InBounds(width, height, far) ||
+                !isCorridor(cell) ||
+                !isCorridor(arrival) ||
+                !isCorridor(far))
+            {
+                return false;
+            }
+
+            for (int zOffset = -1; zOffset <= 1; zOffset++)
+            for (int xOffset = -1; xOffset <= 1; xOffset++)
+            {
+                if (xOffset == 0 && zOffset == 0)
+                    continue;
+                if (xOffset == direction.X && zOffset == direction.Z)
+                    continue;
+
+                DungeonCell neighbor = new(cell.X + xOffset, cell.Z + zOffset);
+                if (InBounds(width, height, neighbor) && isWalkable(neighbor))
                     return false;
             }
 
@@ -163,7 +238,10 @@ namespace Game.DungeonGeneration
             InBounds(rows, cell) && (Symbol(rows, cell) == '.' || Symbol(rows, cell) == 'D');
 
         private static bool InBounds(IReadOnlyList<string> rows, DungeonCell cell) =>
-            cell.X >= 0 && cell.Z >= 0 && cell.X < rows[0].Length && cell.Z < rows.Count;
+            InBounds(rows[0].Length, rows.Count, cell);
+
+        private static bool InBounds(int width, int height, DungeonCell cell) =>
+            cell.X >= 0 && cell.Z >= 0 && cell.X < width && cell.Z < height;
 
         private static char Symbol(IReadOnlyList<string> rows, DungeonCell cell) =>
             rows[rows.Count - 1 - cell.Z][cell.X];

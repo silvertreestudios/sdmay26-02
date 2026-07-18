@@ -393,6 +393,41 @@ public sealed class DungeonGenerationTests
                 diagnostic.Field == "generation.topologyState"));
     }
 
+    [TestCase(15, 15, true)]
+    [TestCase(101, 101, true)]
+    [TestCase(13, 15, false)]
+    [TestCase(14, 15, false)]
+    [TestCase(102, 15, false)]
+    [TestCase(103, 15, false)]
+    [TestCase(15, 13, false)]
+    [TestCase(15, 14, false)]
+    [TestCase(15, 102, false)]
+    [TestCase(15, 103, false)]
+    public void VersionTwoJson_EnforcesOwnedGeneratorDimensionContract(
+        int width,
+        int height,
+        bool expectedSuccess)
+    {
+        JObject root = JObject.Parse(OwnedContractJson(152, 0, 0));
+        ResizeRows(root, width, height);
+        string json = root.ToString(Formatting.None);
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+
+        Assert.That(parsed.IsSuccess, Is.EqualTo(expectedSuccess));
+        if (expectedSuccess)
+        {
+            Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
+        }
+        else
+        {
+            Assert.That(parsed.Diagnostics,
+                Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                    diagnostic.Field == "rows" &&
+                    diagnostic.Message.Contains("odd integer from 15 through 101")));
+        }
+    }
+
     [TestCase("future-generator", 1, 32)]
     [TestCase("future-generator", 1, int.MaxValue)]
     [TestCase("donjon-logical-splitmix64", 2, 32)]
@@ -626,6 +661,28 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
+    public void VersionTwoJson_RejectsDoorlessRoomsForOwnedGenerator()
+    {
+        JObject root = JObject.Parse(OwnedContractJson(152, 0, 0));
+        SetSymbol(root, new DungeonCell(2, 4), '#');
+        SetSymbol(root, new DungeonCell(2, 5), '#');
+        root["doors"] = new JArray();
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "doors" &&
+                diagnostic.Message.Contains("every room") &&
+                diagnostic.Message.Contains("valid recorded door")));
+        Assert.That(parsed.Diagnostics,
+            Has.None.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Message.Contains("room-boundary crossing") ||
+                diagnostic.Message.Contains("Every 'D' row cell")));
+    }
+
+    [Test]
     public void VersionTwoJson_RejectsMalformedOwnedDoorGeometryAndRoomAdjacency()
     {
         var cases = new[]
@@ -681,6 +738,90 @@ public sealed class DungeonGenerationTests
                     diagnostic.Message.Contains("valid room adjacency")),
                 item.Name);
         }
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsImpossibleOwnedStairEndGeometry()
+    {
+        var cases = new[]
+        {
+            new
+            {
+                Name = "room floor endpoints",
+                Mutate = (Action<JObject>)(root =>
+                {
+                    JObject room = (JObject)((JArray)root["rooms"])[0];
+                    DungeonCell cell = new(
+                        room.Value<int>("minX"),
+                        room.Value<int>("minZ"));
+                    DungeonCell arrival = new(cell.X + 1, cell.Z);
+                    JObject down = ((JArray)root["stairs"])
+                        .Cast<JObject>()
+                        .Single(stair => stair.Value<string>("kind") == "down");
+                    down["cell"] = JsonCell(cell);
+                    down["arrivalCell"] = JsonCell(arrival);
+                })
+            },
+            new
+            {
+                Name = "open side neighbor",
+                Mutate = (Action<JObject>)(root =>
+                {
+                    JObject down = ((JArray)root["stairs"])
+                        .Cast<JObject>()
+                        .Single(stair => stair.Value<string>("kind") == "down");
+                    DungeonCell cell = ReadJsonCell(down["cell"]);
+                    DungeonCell arrival = ReadJsonCell(down["arrivalCell"]);
+                    DungeonCell direction = new(
+                        arrival.X - cell.X,
+                        arrival.Z - cell.Z);
+                    SetSymbol(
+                        root,
+                        new DungeonCell(
+                            cell.X - direction.Z,
+                            cell.Z + direction.X),
+                        '.');
+                })
+            }
+        };
+
+        foreach (var item in cases)
+        {
+            JObject root = JObject.Parse(GenerateJson(Request(152, 31, 31)));
+            item.Mutate(root);
+
+            DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+                root.ToString(Formatting.None));
+
+            Assert.That(parsed.Diagnostics,
+                Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                    diagnostic.Field == "stairs" &&
+                    diagnostic.Message.Contains("straight three-cell corridor end") &&
+                    diagnostic.Message.Contains("surrounding endpoint cells blocked")),
+                item.Name);
+        }
+    }
+
+    [TestCase("future-generator", 1)]
+    [TestCase("donjon-logical-splitmix64", 2)]
+    public void VersionTwoJson_DoesNotApplyOwnedDimensionsRoomsOrStairsToFutureContracts(
+        string algorithm,
+        int algorithmVersion)
+    {
+        JObject root = JObject.Parse(ContractJson());
+        JObject generation = (JObject)root["generation"];
+        generation["algorithm"] = algorithm;
+        generation["algorithmVersion"] = algorithmVersion;
+        ((JArray)root["rows"])[0] = "###";
+        root["doors"] = new JArray();
+        ((JObject)root["runtimeState"])["openDoorIds"] = new JArray();
+        string json = root.ToString(Formatting.None);
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+
+        Assert.That(parsed.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
     }
 
     [Test]
@@ -1086,13 +1227,21 @@ public sealed class DungeonGenerationTests
             metadata,
             new[]
             {
-                "#######",
-                "##.####",
-                "##D####",
-                "#...###",
-                "#...###",
-                "#...###",
-                "#######"
+                "###############",
+                "###############",
+                "###############",
+                "###############",
+                "###############",
+                "###############",
+                "###############",
+                "###############",
+                "###############",
+                "##.############",
+                "##D############",
+                "#...###########",
+                "#...###########",
+                "#...###########",
+                "###############"
             },
             new[] { new DungeonRoom(1, 1, 1, 3, 3) },
             new[] { new DungeonDoor("door-0001", new DungeonCell(2, 4)) },
@@ -1112,6 +1261,30 @@ public sealed class DungeonGenerationTests
         row[cell.X] = symbol;
         rows[rowIndex] = new string(row);
     }
+
+    private static void ResizeRows(JObject root, int width, int height)
+    {
+        JArray source = (JArray)root["rows"];
+        JArray resized = new();
+        for (int z = height - 1; z >= 0; z--)
+        {
+            char[] row = Enumerable.Repeat('#', width).ToArray();
+            if (z < source.Count)
+            {
+                string sourceRow = source.Value<string>(source.Count - 1 - z);
+                int copiedWidth = Math.Min(width, sourceRow.Length);
+                sourceRow.CopyTo(0, row, 0, copiedWidth);
+            }
+
+            resized.Add(new string(row));
+        }
+
+        root["rows"] = resized;
+    }
+
+    private static DungeonCell ReadJsonCell(JToken token) => new(
+        token.Value<int>("x"),
+        token.Value<int>("z"));
 
     private static JObject JsonCell(DungeonCell cell) => new()
     {
@@ -1174,6 +1347,14 @@ public sealed class DungeonGenerationTests
     private static void AssertDocumentInvariants(DungeonLevelDocument document, int seed)
     {
         HashSet<DungeonCell> walkable = Walkable(document);
+        Assert.That(
+            DeterministicDungeonGenerator.IsSupportedDimension(document.Rows[0].Length),
+            Is.True,
+            "width seed " + seed);
+        Assert.That(
+            DeterministicDungeonGenerator.IsSupportedDimension(document.Rows.Count),
+            Is.True,
+            "height seed " + seed);
         Assert.That(walkable, Does.Contain(document.StartCell), "start seed " + seed);
         Assert.That(document.SafeCells.All(walkable.Contains), Is.True, "safe seed " + seed);
         Assert.That(document.Stairs.All(stair => walkable.Contains(stair.Cell) && walkable.Contains(stair.ArrivalCell)), Is.True, "stairs seed " + seed);
@@ -1211,6 +1392,10 @@ public sealed class DungeonGenerationTests
             if (document.Rows[row][x] == 'D') rowDoorCells.Add(new DungeonCell(x, document.Rows.Count - 1 - row));
         Assert.That(recordedDoorCells.SetEquals(rowDoorCells), Is.True, "door records seed " + seed);
         Assert.That(document.Doors.Select(door => door.Id).Distinct(StringComparer.Ordinal).Count(), Is.EqualTo(document.Doors.Count), "door ids seed " + seed);
+        Assert.That(
+            DungeonTopologyValidator.HasValidDoors(document.Rows, document.Rooms, document.Doors),
+            Is.True,
+            "valid door per room seed " + seed);
 
         foreach (DungeonRoom room in document.Rooms)
         for (int z = room.MinimumZ; z <= room.MaximumZ; z++)
@@ -1225,6 +1410,14 @@ public sealed class DungeonGenerationTests
 
         foreach (DungeonStair stair in document.Stairs)
         {
+            Assert.That(
+                DungeonTopologyValidator.MatchesStairEnd(
+                    document.Rows,
+                    document.Rooms,
+                    stair.Cell,
+                    stair.ArrivalCell),
+                Is.True,
+                "shared stair template seed " + seed);
             DungeonCell delta = new(stair.ArrivalCell.X - stair.Cell.X, stair.ArrivalCell.Z - stair.Cell.Z);
             DungeonCell far = new(stair.ArrivalCell.X + delta.X, stair.ArrivalCell.Z + delta.Z);
             Assert.That(walkable, Does.Contain(far), "stair corridor template seed " + seed);

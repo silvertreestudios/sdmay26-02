@@ -13,6 +13,8 @@ namespace Game.DungeonGeneration
     {
         internal const string AlgorithmId = "donjon-logical-splitmix64";
         internal const int AlgorithmVersion = 1;
+        internal const int MinimumDimension = 15;
+        internal const int MaximumDimension = 101;
 
         /// <summary>Maximum deterministic topology attempts, including the initial attempt.</summary>
         public const int MaximumAttempts = 32;
@@ -57,14 +59,20 @@ namespace Game.DungeonGeneration
             string.Equals(metadata.Algorithm, AlgorithmId, StringComparison.Ordinal) &&
             metadata.AlgorithmVersion == AlgorithmVersion;
 
+        /// <summary>Returns whether one map dimension is supported by the owned generator contract.</summary>
+        internal static bool IsSupportedDimension(int dimension) =>
+            dimension >= MinimumDimension &&
+            dimension <= MaximumDimension &&
+            (dimension & 1) == 1;
+
         private static IReadOnlyList<DungeonGenerationDiagnostic> ValidateRequest(DungeonGenerationRequest request)
         {
             List<DungeonGenerationDiagnostic> errors = new();
             void Check(bool condition, string field, string message) { if (!condition) errors.Add(new DungeonGenerationDiagnostic(DungeonGenerationDiagnosticCode.InvalidRequest, field, message)); }
             if (request == null) { errors.Add(new DungeonGenerationDiagnostic(DungeonGenerationDiagnosticCode.InvalidRequest, "request", "A generation request is required.")); return errors; }
             Check(request.Depth >= 0, nameof(request.Depth), "Depth must be zero or greater.");
-            Check(request.Width >= 15 && request.Width <= 101 && (request.Width & 1) == 1, nameof(request.Width), "Width must be an odd integer from 15 through 101.");
-            Check(request.Height >= 15 && request.Height <= 101 && (request.Height & 1) == 1, nameof(request.Height), "Height must be an odd integer from 15 through 101.");
+            Check(IsSupportedDimension(request.Width), nameof(request.Width), "Width must be an odd integer from 15 through 101.");
+            Check(IsSupportedDimension(request.Height), nameof(request.Height), "Height must be an odd integer from 15 through 101.");
             Check(Enum.IsDefined(typeof(DungeonLayout), request.Layout), nameof(request.Layout), "Layout is not supported.");
             Check(Enum.IsDefined(typeof(DungeonRoomLayout), request.RoomLayout), nameof(request.RoomLayout), "Room layout is not supported.");
             Check(Enum.IsDefined(typeof(DungeonCorridorLayout), request.CorridorLayout), nameof(request.CorridorLayout), "Corridor layout is not supported.");
@@ -571,23 +579,16 @@ namespace Game.DungeonGeneration
 
             private bool MatchesStairEnd(DungeonCell cell, DungeonCell arrivalDirection)
             {
-                DungeonCell next = new(cell.X + arrivalDirection.X, cell.Z + arrivalDirection.Z);
-                DungeonCell far = new(cell.X + arrivalDirection.X * 2, cell.Z + arrivalDirection.Z * 2);
-                if (!InBounds(far.X, far.Z) || cells[next.X, next.Z] != CellKind.Corridor || cells[far.X, far.Z] != CellKind.Corridor)
-                    return false;
-                for (int zOffset = -1; zOffset <= 1; zOffset++)
-                for (int xOffset = -1; xOffset <= 1; xOffset++)
-                {
-                    if (xOffset == 0 && zOffset == 0)
-                        continue;
-                    if (xOffset == arrivalDirection.X && zOffset == arrivalDirection.Z)
-                        continue;
-                    int x = cell.X + xOffset;
-                    int z = cell.Z + zOffset;
-                    if (InBounds(x, z) && IsWalkable(new DungeonCell(x, z)))
-                        return false;
-                }
-                return true;
+                DungeonCell arrival = new(
+                    cell.X + arrivalDirection.X,
+                    cell.Z + arrivalDirection.Z);
+                return DungeonTopologyValidator.MatchesStairEnd(
+                    request.Width,
+                    request.Height,
+                    cell,
+                    arrival,
+                    candidate => cells[candidate.X, candidate.Z] == CellKind.Corridor,
+                    IsWalkable);
             }
 
             private void CleanDeadEnds()

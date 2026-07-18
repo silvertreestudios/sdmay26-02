@@ -292,6 +292,14 @@ namespace Game.DungeonGeneration
             if (safe.Distinct().Count() != safe.Count) errors.Add(D("arrival.safeCells", "Safe cells must be unique."));
             bool ownsContract = DeterministicDungeonGenerator.OwnsContract(metadata);
             if (ownsContract &&
+                (!DeterministicDungeonGenerator.IsSupportedDimension(rows[0].Length) ||
+                 !DeterministicDungeonGenerator.IsSupportedDimension(rows.Count)))
+            {
+                errors.Add(D(
+                    "rows",
+                    "For donjon-logical-splitmix64 algorithm version 1, width and height must each be an odd integer from 15 through 101."));
+            }
+            if (ownsContract &&
                 safe.Count > 0 &&
                 start != DeterministicDungeonGenerator.SelectStartCell(stairs, safe))
             {
@@ -343,9 +351,33 @@ namespace Game.DungeonGeneration
             {
                 errors.Add(D(
                     "doors",
-                    "For donjon-logical-splitmix64 algorithm version 1, every recorded door must have exactly two opposite walkable neighbors and valid room adjacency."));
+                    "For donjon-logical-splitmix64 algorithm version 1, every recorded door must have exactly two opposite walkable neighbors and valid room adjacency, and every room must have at least one valid recorded door."));
             }
-            if (stairs.Select(stair => stair.Id).Distinct(StringComparer.Ordinal).Count() != stairs.Count || stairs.Select(stair => stair.Kind).Distinct().Count() != stairs.Count || stairs.Any(stair => !Walkable(stair.Cell) || !Walkable(stair.ArrivalCell) || Math.Abs(stair.Cell.X - stair.ArrivalCell.X) + Math.Abs(stair.Cell.Z - stair.ArrivalCell.Z) != 1)) errors.Add(D("stairs", "Stair IDs and kinds must be unique, and each stair must have an adjacent walkable arrival cell."));
+            bool invalidStairs =
+                stairs.Select(stair => stair.Id).Distinct(StringComparer.Ordinal).Count() != stairs.Count ||
+                stairs.Select(stair => stair.Kind).Distinct().Count() != stairs.Count ||
+                stairs.Any(stair =>
+                    !Walkable(stair.Cell) ||
+                    !Walkable(stair.ArrivalCell) ||
+                    Math.Abs(stair.Cell.X - stair.ArrivalCell.X) +
+                    Math.Abs(stair.Cell.Z - stair.ArrivalCell.Z) != 1);
+            if (invalidStairs)
+            {
+                errors.Add(D(
+                    "stairs",
+                    "Stair IDs and kinds must be unique, and each stair must have an adjacent walkable arrival cell."));
+            }
+            else if (ownsContract && !invalidRooms && stairs.Any(stair =>
+                         !DungeonTopologyValidator.MatchesStairEnd(
+                             rows,
+                             rooms,
+                             stair.Cell,
+                             stair.ArrivalCell)))
+            {
+                errors.Add(D(
+                    "stairs",
+                    "For donjon-logical-splitmix64 algorithm version 1, every stair must occupy a straight three-cell corridor end with all other surrounding endpoint cells blocked."));
+            }
             if (objects.Select(item => item.Id).Distinct(StringComparer.Ordinal).Count() != objects.Count || objects.Any(item => !InBounds(item.Cell) || (item.Rotation != 0 && item.Rotation != 90 && item.Rotation != 180 && item.Rotation != 270))) errors.Add(D("objects", "Object IDs must be unique, cells must be in bounds, and rotations must be 0, 90, 180, or 270."));
             HashSet<int> roomIds = new(rooms.Select(room => room.Id));
             if (encounters.Select(plan => plan.Id).Distinct(StringComparer.Ordinal).Count() != encounters.Count) errors.Add(D("encounterPlans", "Encounter IDs must be unique."));
