@@ -44,7 +44,7 @@ public sealed class DungeonGenerationTests
         using (SHA256 sha256 = SHA256.Create())
             hash = BitConverter.ToString(sha256.ComputeHash(Encoding.UTF8.GetBytes(first))).Replace("-", string.Empty).ToLowerInvariant();
         TestContext.WriteLine("golden sha256=" + hash);
-        Assert.That(hash, Is.EqualTo("ff987538054fb5178b3c6f75cadb549373cdda1adf2337b14dcd498862109239"));
+        Assert.That(hash, Is.EqualTo("536fe7cc364650f0724b3b0244e6b4d6f4845cc085c3adf6814d7a1b2e458063"));
     }
 
     [Test]
@@ -217,7 +217,7 @@ public sealed class DungeonGenerationTests
             string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message)));
         Assert.That(result.Document.Rooms, Is.Empty);
         HashSet<DungeonCell> walkable = Walkable(result.Document);
-        Assert.That(walkable.Count, Is.EqualTo(79));
+        Assert.That(walkable.Count, Is.EqualTo(49));
         DungeonStair down = result.Document.Stairs.Single();
         HashSet<DungeonCell> downExitCells = new() { down.Cell, down.ArrivalCell };
         DungeonCell expectedFallback = walkable
@@ -230,6 +230,44 @@ public sealed class DungeonGenerationTests
             result.Document.SafeCells,
             Is.EqualTo(new[] { down.ArrivalCell, expectedFallback }));
         Assert.That(result.Document.StartCell, Is.EqualTo(expectedFallback));
+
+        string json = DungeonLevelJsonSerializer.Serialize(result.Document);
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+
+        Assert.That(parsed.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
+    }
+
+    [Test]
+    public void CleanupReviewerProbe_PreservesFullStairRunwayAndRoundTrips()
+    {
+        DungeonGenerationRequest request = Request(1463, 15, 15);
+        request.Depth = 2;
+        request.Layout = DungeonLayout.Box;
+        request.RoomLayout = DungeonRoomLayout.Scattered;
+        request.CorridorLayout = DungeonCorridorLayout.Bent;
+        request.MinimumRoomSize = 3;
+        request.MaximumRoomSize = 9;
+        request.MinimumRoomCount = 0;
+        request.StairCount = 1;
+        request.DeadEndRemovalPercent = 100;
+
+        DungeonGenerationResult result = new DeterministicDungeonGenerator().Generate(request);
+
+        Assert.That(result.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(result.Document.Generation.TopologyAttempt, Is.Zero,
+            "protecting the selected runway must preserve the original successful attempt");
+        DungeonStair stair = result.Document.Stairs.Single();
+        Assert.That(
+            DungeonTopologyValidator.MatchesStairEnd(
+                result.Document.Rows,
+                result.Document.Rooms,
+                stair.Cell,
+                stair.ArrivalCell),
+            Is.True,
+            "successful generation must retain the strict parser's complete stair runway");
 
         string json = DungeonLevelJsonSerializer.Serialize(result.Document);
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
@@ -621,6 +659,7 @@ public sealed class DungeonGenerationTests
     {
         IDungeonGenerator generator = new DeterministicDungeonGenerator();
         for (int seed = 0; seed < 256; seed++)
+        foreach (int cleanupPercent in new[] { 0, 100 })
         {
             int width = seed % 4 == 1 ? 31 : seed % 4 == 2 ? 21 : 31;
             int height = seed % 4 == 1 ? 21 : seed % 4 == 2 ? 31 : 31;
@@ -629,16 +668,18 @@ public sealed class DungeonGenerationTests
             request.RoomLayout = (DungeonRoomLayout)(seed % 2);
             request.CorridorLayout = (DungeonCorridorLayout)(seed % 3);
             request.StairCount = seed % 3;
+            request.DeadEndRemovalPercent = cleanupPercent;
             DungeonGenerationResult result = generator.Generate(request);
-            Assert.That(result.IsSuccess, Is.True, "seed " + seed + ": " + string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
-            AssertDocumentInvariants(result.Document, seed);
+            string context = seed + " cleanup " + cleanupPercent;
+            Assert.That(result.IsSuccess, Is.True, "seed " + context + ": " + string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
+            AssertDocumentInvariants(result.Document, context);
             string json = DungeonLevelJsonSerializer.Serialize(result.Document);
             DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
             Assert.That(parsed.IsSuccess, Is.True,
-                "owned round-trip seed " + seed + ": " +
+                "owned round-trip seed " + context + ": " +
                 string.Join(" | ", parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
             Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json),
-                "owned lossless round-trip seed " + seed);
+                "owned lossless round-trip seed " + context);
         }
     }
 
@@ -1610,7 +1651,7 @@ public sealed class DungeonGenerationTests
         {
             "5cf543f8f165f035908a9f981ed7ae5e3b52c918b03f2ce8c45ac1661856ca7e",
             "c0c3eccf0f75919f62d1507eaa7f710b86f338b8b7f4e52deb82f3d601b0beb2",
-            "fc8e3f28a3d550adc54f88a19b98696ee75994a166c3faebb6be765927b89cab"
+            "19b46d3d53483984322f2309dbfb84b787df501c980105d42c72b895d3a49f1f"
         };
         List<string> actual = new();
         foreach (var item in cases)
@@ -1908,7 +1949,7 @@ public sealed class DungeonGenerationTests
             .ToLowerInvariant();
     }
 
-    private static void AssertDocumentInvariants(DungeonLevelDocument document, int seed)
+    private static void AssertDocumentInvariants(DungeonLevelDocument document, string seed)
     {
         HashSet<DungeonCell> walkable = Walkable(document);
         Assert.That(

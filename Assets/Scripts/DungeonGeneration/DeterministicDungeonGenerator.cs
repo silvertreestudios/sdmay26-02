@@ -234,6 +234,15 @@ namespace Game.DungeonGeneration
                 CleanDeadEnds();
                 if (!IsConnected()) { rejection = "Dead-end cleanup disconnected walkable topology."; return false; }
                 IReadOnlyList<string> rows = BuildRows();
+                if (stairs.Any(stair => !DungeonTopologyValidator.MatchesStairEnd(
+                        rows,
+                        rooms,
+                        stair.Cell,
+                        stair.ArrivalCell)))
+                {
+                    rejection = "Dead-end cleanup invalidated a generated stair runway.";
+                    return false;
+                }
                 if (!DungeonTopologyValidator.HasProducibleLayoutMask(rows)) { rejection = "Generated rows did not retain one supported initialization mask."; return false; }
                 if (!DungeonTopologyValidator.HasValidRoomBoundaryCrossings(rows, rooms, doors)) { rejection = "A room-boundary crossing was not represented by exactly one stable door."; return false; }
                 if (!DungeonTopologyValidator.HasValidDoors(rows, rooms, doors)) { rejection = "A generated door did not retain two opposite walkable neighbors or a unique stable record."; return false; }
@@ -584,7 +593,19 @@ namespace Game.DungeonGeneration
             {
                 if (request.DeadEndRemovalPercent == 0)
                     return;
-                HashSet<DungeonCell> protectedCells = new(stairs.SelectMany(s => new[] { s.Cell, s.ArrivalCell }));
+                HashSet<DungeonCell> protectedCells = new();
+                foreach (DungeonStair stair in stairs)
+                {
+                    // MatchesStairEnd requires this complete three-cell runway after cleanup.
+                    DungeonCell direction = new(
+                        stair.ArrivalCell.X - stair.Cell.X,
+                        stair.ArrivalCell.Z - stair.Cell.Z);
+                    protectedCells.Add(stair.Cell);
+                    protectedCells.Add(stair.ArrivalCell);
+                    protectedCells.Add(new DungeonCell(
+                        stair.ArrivalCell.X + direction.X,
+                        stair.ArrivalCell.Z + direction.Z));
+                }
                 foreach (DungeonDoor door in doors)
                 {
                     protectedCells.Add(door.Cell);
