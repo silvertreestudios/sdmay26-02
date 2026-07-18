@@ -15,6 +15,12 @@ doors, biased recursive corridor tunneling, stair-end selection, and dead-end cl
 not copy or translate the original HTML, command-line presentation, GD imaging, palette, font,
 or image-output code.
 
+The pinned source computes the Round mask from row and column centers but uses the column center
+as its radius. That formula is preserved exactly for square maps, including the frozen square
+goldens. Because this project's public generation request accepts width and height independently,
+rectangular Round maps deliberately use the smaller center radius so the circular outline fits
+both dimensions and rotating a request rotates the same mask.
+
 The original work is licensed for noncommercial use. Commercial distribution of this translated
 generator requires permission compatible with that use from the original rightsholder; the rest
 of this repository's licensing does not remove that requirement.

@@ -420,7 +420,7 @@ namespace Game.DungeonGeneration
             {
                 errors.Add(D(
                     "arrival.safeCells",
-                    "For donjon-logical-splitmix64 algorithm version 1, safeCells must exactly preserve ordered stair arrivals, then ordered room centers, or the deterministic walkable fallback sequence."));
+                    "For donjon-logical-splitmix64 algorithm version 1, safeCells must exactly preserve ordered stair arrivals, ordered room centers, and the conditional deterministic walkable fallback sequence."));
             }
             if (objects.Select(item => item.Id).Distinct(StringComparer.Ordinal).Count() != objects.Count || objects.Any(item => !InBounds(item.Cell) || (item.Rotation != 0 && item.Rotation != 90 && item.Rotation != 180 && item.Rotation != 270))) errors.Add(D("objects", "Object IDs must be unique, cells must be in bounds, and rotations must be 0, 90, 180, or 270."));
             HashSet<int> roomIds = new(rooms.Select(room => room.Id));

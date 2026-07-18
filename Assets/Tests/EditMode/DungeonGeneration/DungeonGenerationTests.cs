@@ -125,6 +125,46 @@ public sealed class DungeonGenerationTests
             "two stairs prefer the Up arrival while preserving down-before-up records");
     }
 
+    [Test]
+    public void SafeCellSequence_AppendsFirstStableNonExitFallbackForLoneDownStair()
+    {
+        IReadOnlyList<string> rows = new[]
+        {
+            "#####",
+            "#.###",
+            "#####",
+            "#...#",
+            "#####"
+        };
+        DungeonStair down = new(
+            "stair-down",
+            DungeonStairKind.Down,
+            new DungeonCell(1, 1),
+            new DungeonCell(2, 1));
+
+        IReadOnlyList<DungeonCell> safe = DungeonTopologyValidator.BuildSafeCells(
+            rows,
+            Array.Empty<DungeonRoom>(),
+            new[] { down });
+
+        DungeonCell[] expected =
+        {
+            down.ArrivalCell,
+            new DungeonCell(3, 1)
+        };
+        Assert.That(safe, Is.EqualTo(expected));
+        Assert.That(
+            DungeonTopologyValidator.HasProducibleSafeCells(
+                rows,
+                Array.Empty<DungeonRoom>(),
+                new[] { down },
+                safe),
+            Is.True);
+        Assert.That(
+            DeterministicDungeonGenerator.SelectStartCell(new[] { down }, safe),
+            Is.EqualTo(expected[1]));
+    }
+
     [TestCase(0)]
     [TestCase(1)]
     [TestCase(2)]
@@ -159,6 +199,44 @@ public sealed class DungeonGenerationTests
         {
             Assert.That(result.Document.StartCell, Is.EqualTo(result.Document.SafeCells[0]));
         }
+    }
+
+    [Test]
+    public void RoomlessReviewerProbe_AddsNonExitSafeFallbackAndRoundTrips()
+    {
+        DungeonGenerationRequest request = Request(-5000, 15, 15);
+        request.Layout = DungeonLayout.Box;
+        request.RoomLayout = DungeonRoomLayout.Scattered;
+        request.MaximumRoomSize = 11;
+        request.MinimumRoomCount = 0;
+        request.StairCount = 1;
+
+        DungeonGenerationResult result = new DeterministicDungeonGenerator().Generate(request);
+
+        Assert.That(result.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(result.Document.Rooms, Is.Empty);
+        HashSet<DungeonCell> walkable = Walkable(result.Document);
+        Assert.That(walkable.Count, Is.EqualTo(79));
+        DungeonStair down = result.Document.Stairs.Single();
+        HashSet<DungeonCell> downExitCells = new() { down.Cell, down.ArrivalCell };
+        DungeonCell expectedFallback = walkable
+            .Where(cell => !downExitCells.Contains(cell) &&
+                           result.Document.Rows[result.Document.Height - 1 - cell.Z][cell.X] == '.')
+            .OrderBy(cell => cell.Z)
+            .ThenBy(cell => cell.X)
+            .First();
+        Assert.That(
+            result.Document.SafeCells,
+            Is.EqualTo(new[] { down.ArrivalCell, expectedFallback }));
+        Assert.That(result.Document.StartCell, Is.EqualTo(expectedFallback));
+
+        string json = DungeonLevelJsonSerializer.Serialize(result.Document);
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+
+        Assert.That(parsed.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
     }
 
     [TestCase(0)]
@@ -544,7 +622,9 @@ public sealed class DungeonGenerationTests
         IDungeonGenerator generator = new DeterministicDungeonGenerator();
         for (int seed = 0; seed < 256; seed++)
         {
-            DungeonGenerationRequest request = Request(seed - 128, 31, 31);
+            int width = seed % 4 == 1 ? 31 : seed % 4 == 2 ? 21 : 31;
+            int height = seed % 4 == 1 ? 21 : seed % 4 == 2 ? 31 : 31;
+            DungeonGenerationRequest request = Request(seed - 128, width, height);
             request.Layout = (DungeonLayout)(seed % 3);
             request.RoomLayout = (DungeonRoomLayout)(seed % 2);
             request.CorridorLayout = (DungeonCorridorLayout)(seed % 3);
@@ -1125,6 +1205,43 @@ public sealed class DungeonGenerationTests
         Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
     }
 
+    [TestCase("future-generator", 1)]
+    [TestCase("donjon-logical-splitmix64", 2)]
+    public void VersionTwoJson_DoesNotApplyRectangularRoundOrSafeFallbackToFutureContracts(
+        string algorithm,
+        int algorithmVersion)
+    {
+        JObject root = JObject.Parse(ContractJson());
+        JObject generation = (JObject)root["generation"];
+        generation["algorithm"] = algorithm;
+        generation["algorithmVersion"] = algorithmVersion;
+        ResizeRows(
+            root,
+            101,
+            15,
+            (x, z) => IsMaskedByPinnedDonjonRound(101, 15, x, z));
+        JObject stair = (JObject)((JArray)root["stairs"])[0];
+        stair["id"] = "stair-down";
+        stair["kind"] = "down";
+        DungeonCell arrival = ReadJsonCell(stair["arrivalCell"]);
+        JObject arrivalRecord = (JObject)root["arrival"];
+        arrivalRecord["start"] = JsonCell(arrival);
+        arrivalRecord["safeCells"] = new JArray(JsonCell(arrival));
+        string json = root.ToString(Formatting.None);
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+
+        Assert.That(parsed.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
+        Assert.That(
+            DungeonTopologyValidator.HasProducibleLayoutMask(parsed.Document.Rows),
+            Is.False,
+            "the old width-radius rectangle must remain valid only because this is a future contract");
+        Assert.That(parsed.Document.SafeCells, Is.EqualTo(new[] { arrival }));
+        Assert.That(parsed.Document.StartCell, Is.EqualTo(arrival));
+    }
+
     [Test]
     public void VersionTwoJson_RejectsDuplicateObjectAndEncounterIds()
     {
@@ -1398,7 +1515,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void DonjonMasks_UsePinnedThreeByThreeAndCircularScaling()
+    public void OwnedMasks_UsePinnedThreeByThreeAndSquareCircularScaling()
     {
         foreach (DungeonLayout layout in Enum.GetValues(typeof(DungeonLayout)))
         {
@@ -1410,10 +1527,73 @@ public sealed class DungeonGenerationTests
             for (int z = 0; z < request.Height; z++)
             for (int x = 0; x < request.Width; x++)
             {
-                bool expectedMasked = IsMaskedByDonjon(layout, request.Width, request.Height, x, z);
+                bool expectedMasked = IsMaskedByOwnedLayout(layout, request.Width, request.Height, x, z);
                 bool serializedAsMasked = result.Document.Rows[request.Height - 1 - z][x] == ' ';
                 Assert.That(serializedAsMasked, Is.EqualTo(expectedMasked), $"{layout} ({x},{z})");
             }
+        }
+    }
+
+    [Test]
+    public void RoundMask_RectangularDimensionsAreRotationallySymmetric()
+    {
+        const int wideWidth = 101;
+        const int wideHeight = 15;
+        for (int z = 0; z < wideHeight; z++)
+        for (int x = 0; x < wideWidth; x++)
+        {
+            Assert.That(
+                DungeonTopologyValidator.IsMaskedByLayout(
+                    DungeonLayout.Round,
+                    wideWidth,
+                    wideHeight,
+                    x,
+                    z),
+                Is.EqualTo(DungeonTopologyValidator.IsMaskedByLayout(
+                    DungeonLayout.Round,
+                    wideHeight,
+                    wideWidth,
+                    z,
+                    x)),
+                $"rotated cell ({x},{z})");
+        }
+
+        Assert.That(
+            DungeonTopologyValidator.IsMaskedByLayout(
+                DungeonLayout.Round,
+                wideWidth,
+                wideHeight,
+                57,
+                7),
+            Is.False,
+            "the limiting radius includes its boundary");
+        Assert.That(
+            DungeonTopologyValidator.IsMaskedByLayout(
+                DungeonLayout.Round,
+                wideWidth,
+                wideHeight,
+                58,
+                7),
+            Is.True,
+            "the limiting radius excludes the next column");
+    }
+
+    [Test]
+    public void RoundMask_SquareDimensionsRetainPinnedDonjonColumnRadius()
+    {
+        foreach (int size in new[] { 15, 31, 101 })
+        for (int z = 0; z < size; z++)
+        for (int x = 0; x < size; x++)
+        {
+            Assert.That(
+                DungeonTopologyValidator.IsMaskedByLayout(
+                    DungeonLayout.Round,
+                    size,
+                    size,
+                    x,
+                    z),
+                Is.EqualTo(IsMaskedByPinnedDonjonRound(size, size, x, z)),
+                $"square {size} cell ({x},{z})");
         }
     }
 
@@ -1558,7 +1738,7 @@ public sealed class DungeonGenerationTests
             char[] row = Enumerable.Repeat('#', 15).ToArray();
             for (int x = 0; x < row.Length; x++)
             {
-                if (IsMaskedByDonjon(DungeonLayout.Box, 15, 15, x, z))
+                if (IsMaskedByOwnedLayout(DungeonLayout.Box, 15, 15, x, z))
                     row[x] = ' ';
             }
             rows.Add(new string(row));
@@ -1612,7 +1792,18 @@ public sealed class DungeonGenerationTests
         rows[rowIndex] = new string(row);
     }
 
-    private static void ResizeRows(JObject root, int width, int height)
+    private static void ResizeRows(JObject root, int width, int height) =>
+        ResizeRows(
+            root,
+            width,
+            height,
+            (x, z) => IsMaskedByOwnedLayout(DungeonLayout.Box, width, height, x, z));
+
+    private static void ResizeRows(
+        JObject root,
+        int width,
+        int height,
+        Func<int, int, bool> isMasked)
     {
         JArray source = (JArray)root["rows"];
         JArray resized = new();
@@ -1621,7 +1812,7 @@ public sealed class DungeonGenerationTests
             char[] row = Enumerable.Repeat('#', width).ToArray();
             for (int x = 0; x < width; x++)
             {
-                if (IsMaskedByDonjon(DungeonLayout.Box, width, height, x, z))
+                if (isMasked(x, z))
                     row[x] = ' ';
             }
             if (z < source.Count)
@@ -1651,7 +1842,7 @@ public sealed class DungeonGenerationTests
         ["z"] = cell.Z
     };
 
-    private static bool IsMaskedByDonjon(
+    private static bool IsMaskedByOwnedLayout(
         DungeonLayout layout,
         int width,
         int height,
@@ -1662,15 +1853,29 @@ public sealed class DungeonGenerationTests
         {
             int centerX = (width - 1) / 2;
             int centerZ = (height - 1) / 2;
+            int radius = Math.Min(centerX, centerZ);
             long deltaX = x - centerX;
             long deltaZ = z - centerZ;
-            return deltaX * deltaX + deltaZ * deltaZ > (long)centerX * centerX;
+            return deltaX * deltaX + deltaZ * deltaZ > (long)radius * radius;
         }
 
         int[,] mask = layout == DungeonLayout.Box
             ? new[,] { { 1, 1, 1 }, { 1, 0, 1 }, { 1, 1, 1 } }
             : new[,] { { 0, 1, 0 }, { 1, 1, 1 }, { 0, 1, 0 } };
         return mask[z * 3 / height, x * 3 / width] == 0;
+    }
+
+    private static bool IsMaskedByPinnedDonjonRound(
+        int width,
+        int height,
+        int x,
+        int z)
+    {
+        int centerX = (width - 1) / 2;
+        int centerZ = (height - 1) / 2;
+        long deltaX = x - centerX;
+        long deltaZ = z - centerZ;
+        return deltaX * deltaX + deltaZ * deltaZ > (long)centerX * centerX;
     }
 
     private static DungeonGenerationRequest Request(long seed, int width, int height) => new()
@@ -1741,6 +1946,22 @@ public sealed class DungeonGenerationTests
         {
             Assert.That(document.Stairs[0].Id, Is.EqualTo("stair-down"), "down id seed " + seed);
             Assert.That(document.Stairs[0].Kind, Is.EqualTo(DungeonStairKind.Down), "down-first seed " + seed);
+        }
+        if (document.Stairs.Count == 1)
+        {
+            DungeonStair down = document.Stairs[0];
+            HashSet<DungeonCell> downExitCells = new() { down.Cell, down.ArrivalCell };
+            if (walkable.Any(cell => !downExitCells.Contains(cell)))
+            {
+                Assert.That(
+                    document.SafeCells.Any(cell => !downExitCells.Contains(cell)),
+                    Is.True,
+                    "one-stair safe fallback seed " + seed);
+                Assert.That(
+                    downExitCells.Contains(document.StartCell),
+                    Is.False,
+                    "one-stair start avoids exit seed " + seed);
+            }
         }
         if (document.Stairs.Count > 1)
         {

@@ -30,9 +30,10 @@ namespace Game.DungeonGeneration
         /// <param name="safeCells">
         /// Ordered unique walkable cells safe for party arrival. Documents owned by
         /// donjon-logical-splitmix64 algorithm version 1 list every stair arrival in stair order,
-        /// then distinct room centers in room order, or use the deterministic walkable fallback
-        /// sequence when neither stairs nor rooms provide a cell. Other generator contracts may
-        /// define different safe-cell membership and ordering.
+        /// then distinct room centers in room order. They use the deterministic non-door walkable
+        /// fallback sequence when neither source provides a cell, and append its first eligible
+        /// cell when a lone Down stair would otherwise leave no safe non-exit start. Other generator
+        /// contracts may define different safe-cell membership and ordering.
         /// </param>
         /// <param name="objects">Deterministic object placements with unique stable IDs.</param>
         /// <param name="encounterPlans">Deterministic encounter plans with unique stable IDs.</param>
@@ -77,7 +78,7 @@ namespace Game.DungeonGeneration
         public DungeonCell StartCell { get; }
         /// <summary>
         /// Gets ordered cells safe for arrival or fallback spawning; the owned Donjon algorithm
-        /// preserves stair-arrival, room-center, and fallback ordering defined by generation.
+        /// preserves stair-arrival, room-center, and conditional fallback ordering defined by generation.
         /// </summary>
         public IReadOnlyList<DungeonCell> SafeCells { get; }
         /// <summary>Gets deterministic object placements.</summary>

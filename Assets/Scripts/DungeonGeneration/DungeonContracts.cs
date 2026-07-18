@@ -14,7 +14,11 @@ namespace Game.DungeonGeneration
         Box,
         /// <summary>Uses Donjon's 3-by-3 cross mask, leaving the four corner thirds blocked.</summary>
         Cross,
-        /// <summary>Uses Donjon's circular mask centered in the requested cell grid.</summary>
+        /// <summary>
+        /// Uses a circular mask centered in the requested cell grid. Square requests match
+        /// Donjon's column-radius formula; rectangular requests fit the radius to the limiting
+        /// dimension so rotating the request rotates the same outline.
+        /// </summary>
         Round
     }
 

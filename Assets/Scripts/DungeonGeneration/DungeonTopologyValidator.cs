@@ -186,9 +186,10 @@ namespace Game.DungeonGeneration
             {
                 int centerX = (width - 1) / 2;
                 int centerZ = (height - 1) / 2;
+                int radius = Math.Min(centerX, centerZ);
                 long deltaX = x - centerX;
                 long deltaZ = z - centerZ;
-                return deltaX * deltaX + deltaZ * deltaZ > (long)centerX * centerX;
+                return deltaX * deltaX + deltaZ * deltaZ > (long)radius * radius;
             }
 
             int maskRow = z * 3 / height;
@@ -225,8 +226,10 @@ namespace Game.DungeonGeneration
 
         /// <summary>
         /// Builds the generator-owned safe-arrival sequence: stair arrivals in record order,
-        /// followed by room centers in room order, or the first eight non-door walkable cells in
-        /// Z-then-X order when neither source provides a cell.
+        /// followed by room centers in room order. When neither source contributes a cell, the
+        /// first eight non-door walkable cells are added in Z-then-X order. When a lone Down stair
+        /// would otherwise leave only its endpoint or arrival safe, the first non-door walkable
+        /// cell outside that exit geometry is appended in the same stable order.
         /// </summary>
         internal static IReadOnlyList<DungeonCell> BuildSafeCells(
             IReadOnlyList<string> rows,
@@ -255,8 +258,31 @@ namespace Game.DungeonGeneration
                 for (int x = 0; x < rows[0].Length && safe.Count < 8; x++)
                 {
                     DungeonCell cell = new(x, z);
-                    if (Symbol(rows, cell) == '.')
+                    if (Symbol(rows, cell) == '.' && !safe.Contains(cell))
                         safe.Add(cell);
+                }
+            }
+            else
+            {
+                HashSet<DungeonCell> downExitCells = new(
+                    stairs
+                        .Where(stair => stair.Kind == DungeonStairKind.Down)
+                        .SelectMany(stair => new[] { stair.Cell, stair.ArrivalCell }));
+                bool hasUpStair = stairs.Any(stair => stair.Kind == DungeonStairKind.Up);
+                bool needsNonExitFallback = downExitCells.Count > 0 &&
+                                            !hasUpStair &&
+                                            safe.All(downExitCells.Contains);
+                for (int z = 0; z < rows.Count && needsNonExitFallback; z++)
+                for (int x = 0; x < rows[0].Length && needsNonExitFallback; x++)
+                {
+                    DungeonCell cell = new(x, z);
+                    if (Symbol(rows, cell) == '.' &&
+                        !downExitCells.Contains(cell) &&
+                        !safe.Contains(cell))
+                    {
+                        safe.Add(cell);
+                        needsNonExitFallback = false;
+                    }
                 }
             }
 
