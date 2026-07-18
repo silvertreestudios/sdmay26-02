@@ -11,8 +11,7 @@ namespace Game.DungeonGeneration
     /// </summary>
     public sealed class DeterministicDungeonGenerator : IDungeonGenerator
     {
-        internal const string AlgorithmId = "donjon-logical-splitmix64";
-        internal const int AlgorithmVersion = 1;
+        internal const string AlgorithmId = "donjon-logical-system-random";
         internal const int MinimumDimension = 15;
         internal const int MaximumDimension = 101;
 
@@ -30,8 +29,8 @@ namespace Game.DungeonGeneration
             DungeonGenerationDiagnostic last = null;
             for (int attempt = 0; attempt < MaximumAttempts; attempt++)
             {
-                ulong topologyState = DungeonSeedSequence.ForTopologyAttempt(request.RunSeed, request.Depth, attempt);
-                Attempt state = new(request, attempt, topologyState);
+                int topologySeed = DungeonSeedSequence.ForTopologyAttempt(request.RunSeed, request.Depth, attempt);
+                Attempt state = new(request, attempt, topologySeed);
                 if (state.TryGenerate(out DungeonLevelDocument document, out string rejection))
                     return new DungeonGenerationResult(document, Array.Empty<DungeonGenerationDiagnostic>());
                 last = new DungeonGenerationDiagnostic(DungeonGenerationDiagnosticCode.TopologyRejected, "topology", rejection, attempt);
@@ -49,15 +48,14 @@ namespace Game.DungeonGeneration
 
         /// <summary>
         /// Returns whether metadata uses the exact algorithm contract owned by this generator.
-        /// Parser invariants that depend on implementation details must use this predicate so
-        /// future versions and unrelated generators retain their own provenance semantics.
+        /// Parser invariants that depend on implementation details use this predicate so authored
+        /// documents can retain their own topology semantics without schema-version dispatch.
         /// </summary>
         /// <param name="metadata">The parsed generation metadata, or absence after a schema failure.</param>
-        /// <returns><see langword="true"/> only for the current Donjon SplitMix64 contract.</returns>
+        /// <returns><see langword="true"/> only for the current Donjon generator.</returns>
         internal static bool OwnsContract(DungeonGenerationMetadata metadata) =>
             metadata != null &&
-            string.Equals(metadata.Algorithm, AlgorithmId, StringComparison.Ordinal) &&
-            metadata.AlgorithmVersion == AlgorithmVersion;
+            string.Equals(metadata.Algorithm, AlgorithmId, StringComparison.Ordinal);
 
         /// <summary>Returns whether one map dimension is supported by the owned generator contract.</summary>
         internal static bool IsSupportedDimension(int dimension) =>
@@ -202,7 +200,6 @@ namespace Game.DungeonGeneration
         {
             private readonly DungeonGenerationRequest request;
             private readonly int attempt;
-            private readonly ulong topologyState;
             private readonly IDungeonRandom random;
             private readonly CellKind[,] cells;
             // Donjon stores perimeter and corridor as independent bits. Keep that overlap explicitly so a
@@ -213,10 +210,10 @@ namespace Game.DungeonGeneration
             private readonly List<DungeonDoor> doors = new();
             private readonly List<DungeonStair> stairs = new();
 
-            internal Attempt(DungeonGenerationRequest request, int attempt, ulong topologyState)
+            internal Attempt(DungeonGenerationRequest request, int attempt, int topologySeed)
             {
-                this.request = request; this.attempt = attempt; this.topologyState = topologyState;
-                random = new SplitMix64DungeonRandom(topologyState);
+                this.request = request; this.attempt = attempt;
+                random = new SystemDungeonRandom(topologySeed);
                 cells = new CellKind[request.Width, request.Height];
                 perimeter = new bool[request.Width, request.Height];
                 tunneled = new bool[request.Width, request.Height];
@@ -251,9 +248,7 @@ namespace Game.DungeonGeneration
                 if (safe.Count == 0) { rejection = "No valid safe arrival cell remained after cleanup."; return false; }
                 DungeonCell start = SelectStartCell(stairs, safe);
                 DungeonGenerationMetadata metadata = new(
-                    AlgorithmId, AlgorithmVersion, request.RunSeed, request.Depth, attempt,
-                    DungeonSeedSequence.FormatState(DungeonSeedSequence.ForDepth(request.RunSeed, request.Depth)),
-                    DungeonSeedSequence.FormatState(topologyState));
+                    AlgorithmId, request.RunSeed, request.Depth, attempt);
                 document = new DungeonLevelDocument(metadata, rows, rooms, doors, stairs, start, safe,
                     Array.Empty<DungeonObjectPlacement>(), Array.Empty<DungeonEncounterPlan>());
                 return true;

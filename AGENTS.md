@@ -79,6 +79,7 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 - Prefer small vertical changes with targeted EditMode tests first, then PlayMode smoke coverage for scene, UI, or MonoBehaviour behavior.
 - Avoid introducing new singleton/static-event coupling. When refactoring combat or rules logic, add testable seams for dice/randomness, data loading, and combat math.
 - Keep PF2e calculations deterministic in tests. Save and restore Unity random state if a test touches random behavior.
+- During active development, do not add compatibility layers, schema/data version dispatch, or migrations for unshipped formats. Make coordinated breaking changes to code, data, fixtures, and tests unless a human explicitly requests compatibility.
 
 ## Data And Rules
 

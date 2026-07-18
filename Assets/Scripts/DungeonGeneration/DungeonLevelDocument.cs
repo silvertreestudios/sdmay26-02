@@ -5,15 +5,12 @@ using System.Linq;
 namespace Game.DungeonGeneration
 {
     /// <summary>
-    /// Version 2 deterministic level contract shared by generation, scene population, encounters,
+    /// Deterministic level contract shared by generation, scene population, encounters,
     /// traversal, and persistence. Rows use highest-Z-first orientation.
     /// </summary>
     public sealed class DungeonLevelDocument
     {
-        /// <summary>The current deterministic document version accepted by the strict parser.</summary>
-        public const int CurrentVersion = 2;
-
-        /// <summary>Creates a complete version 2 level document and snapshots every supplied collection.</summary>
+        /// <summary>Creates a complete level document and snapshots every supplied collection.</summary>
         /// <param name="generation">Required generation provenance and stable seed states.</param>
         /// <param name="rows">Required highest-Z-first rows using space, <c>#</c>, <c>.</c>, and <c>D</c>.</param>
         /// <param name="rooms">Stable non-overlapping rooms ordered by positive ID.</param>
@@ -21,15 +18,15 @@ namespace Game.DungeonGeneration
         /// <param name="stairs">At most one down and one up stair, in traversal order.</param>
         /// <param name="startCell">
         /// The default walkable player start and arrival fallback. Documents owned by
-        /// donjon-logical-splitmix64 algorithm version 1 must use the deterministic stair-aware
+        /// the current Donjon generator must use the deterministic stair-aware
         /// selection: two-stair documents use the Up arrival; one-Down-stair documents prefer the
         /// first safe cell outside that stair's endpoint and arrival, falling back to the first safe
         /// cell only when unavoidable; and zero-stair documents use the first safe cell. Other
-        /// generator algorithms and versions may define different walkable start semantics.
+        /// authored generator contracts may define different walkable start semantics.
         /// </param>
         /// <param name="safeCells">
         /// Ordered unique walkable cells safe for party arrival. Documents owned by
-        /// donjon-logical-splitmix64 algorithm version 1 list every stair arrival in stair order,
+        /// the current Donjon generator list every stair arrival in stair order,
         /// then distinct room centers in room order. They use the deterministic non-door walkable
         /// fallback sequence when neither source provides a cell, and append its first eligible
         /// cell when a lone Down stair would otherwise leave no safe non-exit start. Other generator
@@ -58,8 +55,6 @@ namespace Game.DungeonGeneration
             RuntimeState = runtimeState;
         }
 
-        /// <summary>Gets the format version, currently <see cref="CurrentVersion"/>.</summary>
-        public int Version => CurrentVersion;
         /// <summary>Gets generation provenance and seed states.</summary>
         public DungeonGenerationMetadata Generation { get; }
         /// <summary>Gets the snapshotted highest-Z-first row strings using space, wall, ground, and door symbols.</summary>
@@ -71,7 +66,7 @@ namespace Game.DungeonGeneration
         /// <summary>Gets stairs in traversal order; generated two-stair documents list down before up.</summary>
         public IReadOnlyList<DungeonStair> Stairs { get; }
         /// <summary>
-        /// Gets the default player start and arrival fallback. Donjon logical algorithm version 1
+        /// Gets the default player start and arrival fallback. The current Donjon generator
         /// documents prefer the Up arrival, otherwise a safe cell away from the Down exit when one
         /// is available; other generator contracts may define different walkable start semantics.
         /// </summary>

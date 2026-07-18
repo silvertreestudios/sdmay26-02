@@ -1,9 +1,8 @@
 using System;
-using System.Globalization;
 
 namespace Game.DungeonGeneration
 {
-    /// <summary>Identifies a stable random stream reserved for one generation concern.</summary>
+    /// <summary>Identifies a random stream reserved for one generation concern.</summary>
     public enum DungeonSeedSubstream
     {
         /// <summary>Controls rooms, doors, corridors, stairs, and topology retries.</summary>
@@ -16,14 +15,10 @@ namespace Game.DungeonGeneration
         Retry = 3
     }
 
-    /// <summary>Supplies deterministic unsigned values without depending on a game engine.</summary>
+    /// <summary>Supplies seeded random values without depending on Unity's global random state.</summary>
     public interface IDungeonRandom
     {
-        /// <summary>Advances this source once and returns the next uniformly distributed 64-bit value.</summary>
-        /// <returns>The mixed output for the newly advanced state.</returns>
-        ulong NextUInt64();
-
-        /// <summary>Returns an unbiased integer in the half-open interval starting at zero.</summary>
+        /// <summary>Returns an integer in the half-open interval starting at zero.</summary>
         /// <param name="exclusiveMaximum">The positive upper bound that is never returned.</param>
         /// <returns>A value greater than or equal to zero and less than <paramref name="exclusiveMaximum"/>.</returns>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="exclusiveMaximum"/> is not positive.</exception>
@@ -36,23 +31,16 @@ namespace Game.DungeonGeneration
         bool NextPercent(int percentage);
     }
 
-    /// <summary>SplitMix64 random source used by dungeon generation and its tests.</summary>
-    public sealed class SplitMix64DungeonRandom : IDungeonRandom
+    /// <summary>Adapts a locally owned <see cref="Random"/> instance for dungeon generation.</summary>
+    public sealed class SystemDungeonRandom : IDungeonRandom
     {
-        private ulong state;
+        private readonly Random random;
 
-        /// <summary>Creates a source at the exact supplied 64-bit state.</summary>
-        /// <param name="state">The stable unsigned state; every bit is significant.</param>
-        public SplitMix64DungeonRandom(ulong state)
+        /// <summary>Creates an isolated random source from the supplied seed.</summary>
+        /// <param name="seed">The seed passed directly to <see cref="Random(int)"/>.</param>
+        public SystemDungeonRandom(int seed)
         {
-            this.state = state;
-        }
-
-        /// <inheritdoc/>
-        public ulong NextUInt64()
-        {
-            state += DungeonSeedSequence.SplitMixIncrement;
-            return DungeonSeedSequence.Mix(state);
+            random = new Random(seed);
         }
 
         /// <inheritdoc/>
@@ -60,16 +48,7 @@ namespace Game.DungeonGeneration
         {
             if (exclusiveMaximum <= 0)
                 throw new ArgumentOutOfRangeException(nameof(exclusiveMaximum));
-
-            // Rejection avoids modulo bias and is stable on every .NET platform.
-            ulong bound = (ulong)exclusiveMaximum;
-            ulong threshold = unchecked(0UL - bound) % bound;
-            while (true)
-            {
-                ulong value = NextUInt64();
-                if (value >= threshold)
-                    return (int)(value % bound);
-            }
+            return random.Next(exclusiveMaximum);
         }
 
         /// <inheritdoc/>
@@ -77,86 +56,67 @@ namespace Game.DungeonGeneration
         {
             if (percentage < 0 || percentage > 100)
                 throw new ArgumentOutOfRangeException(nameof(percentage));
-            return percentage == 100 || (percentage > 0 && NextInt(100) < percentage);
+            return percentage == 100 || (percentage > 0 && random.Next(100) < percentage);
         }
     }
 
     /// <summary>
-    /// Derives depth, concern, and retry states from a signed run seed while preserving its exact bit pattern.
+    /// Derives isolated <see cref="Random"/> seeds for dungeon depth, concern, and retry streams.
     /// </summary>
+    /// <remarks>
+    /// The project pins its Unity/.NET runtime and intentionally permits breaking regenerated data
+    /// when that runtime changes, so generation uses the platform random implementation instead of
+    /// maintaining a project-owned pseudo-random algorithm.
+    /// </remarks>
     public static class DungeonSeedSequence
     {
-        internal const ulong SplitMixIncrement = 0x9E3779B97F4A7C15UL;
+        private const int SeedMultiplier = 397;
 
-        private static readonly ulong[] SubstreamSalts =
-        {
-            0xD1B54A32D192ED03UL,
-            0xABC98388FB8FAC03UL,
-            0x8CB92BA72F3D8DD7UL,
-            0xDB4F0B9175AE2165UL
-        };
-
-        /// <summary>Returns the stable SplitMix64 output assigned to a dungeon depth.</summary>
-        /// <param name="runSeed">The signed run seed; its exact two's-complement bit pattern is preserved.</param>
-        /// <param name="depth">The nonnegative depth. The calculation is constant-time even at <see cref="int.MaxValue"/>.</param>
-        /// <returns>The normalized seed at depth zero; otherwise the mixed output of the original state plus <paramref name="depth"/> additive advances.</returns>
+        /// <summary>Returns the seed assigned to a dungeon depth.</summary>
+        /// <param name="runSeed">The run seed supplied to generation.</param>
+        /// <param name="depth">The nonnegative dungeon depth.</param>
+        /// <returns>A constant-time seed derived from the run seed and depth.</returns>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="depth"/> is negative.</exception>
-        public static ulong ForDepth(long runSeed, int depth)
+        public static int ForDepth(int runSeed, int depth)
         {
             if (depth < 0)
                 throw new ArgumentOutOfRangeException(nameof(depth));
-
-            ulong seed = unchecked((ulong)runSeed);
-            return depth == 0
-                ? seed
-                : Mix(unchecked(seed + (SplitMixIncrement * (ulong)depth)));
+            return Combine(runSeed, depth);
         }
 
-        /// <summary>Derives a named concern stream for a depth without consuming any other stream.</summary>
-        /// <param name="runSeed">The signed run seed shared by the dungeon run.</param>
+        /// <summary>Derives a named concern stream without consuming any other stream.</summary>
+        /// <param name="runSeed">The run seed shared by the dungeon run.</param>
         /// <param name="depth">The nonnegative dungeon depth.</param>
-        /// <param name="substream">The reserved concern whose stable salt is applied.</param>
-        /// <returns>The initial state for an independently consumable random source.</returns>
+        /// <param name="substream">The reserved generation concern.</param>
+        /// <returns>The initial seed for an independently consumable <see cref="Random"/> source.</returns>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="depth"/> is negative or <paramref name="substream"/> is undefined.</exception>
-        public static ulong ForSubstream(long runSeed, int depth, DungeonSeedSubstream substream)
+        public static int ForSubstream(int runSeed, int depth, DungeonSeedSubstream substream)
         {
-            int index = (int)substream;
-            if (index < 0 || index >= SubstreamSalts.Length)
+            if (!Enum.IsDefined(typeof(DungeonSeedSubstream), substream))
                 throw new ArgumentOutOfRangeException(nameof(substream));
-            return Mix(ForDepth(runSeed, depth) ^ SubstreamSalts[index]);
+            return new Random(Combine(ForDepth(runSeed, depth), (int)substream + 1)).Next();
         }
 
-        /// <summary>Derives the topology stream for a zero-based retry attempt.</summary>
-        /// <param name="runSeed">The signed run seed shared by the dungeon run.</param>
+        /// <summary>Derives the topology seed for a zero-based retry attempt.</summary>
+        /// <param name="runSeed">The run seed shared by the dungeon run.</param>
         /// <param name="depth">The nonnegative dungeon depth.</param>
-        /// <param name="attempt">The nonnegative retry index; generation consumes at most the first 32 values.</param>
-        /// <returns>The topology state for exactly this retry attempt.</returns>
+        /// <param name="attempt">The nonnegative retry index.</param>
+        /// <returns>The topology seed for exactly this retry attempt.</returns>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="depth"/> or <paramref name="attempt"/> is negative.</exception>
-        /// <remarks>Attempt zero uses the named topology stream. Later attempts combine the reserved retry stream and attempt number.</remarks>
-        public static ulong ForTopologyAttempt(long runSeed, int depth, int attempt)
+        public static int ForTopologyAttempt(int runSeed, int depth, int attempt)
         {
             if (attempt < 0)
                 throw new ArgumentOutOfRangeException(nameof(attempt));
-            ulong topology = ForSubstream(runSeed, depth, DungeonSeedSubstream.Topology);
+            int topology = ForSubstream(runSeed, depth, DungeonSeedSubstream.Topology);
             if (attempt == 0)
                 return topology;
-            ulong retry = ForSubstream(runSeed, depth, DungeonSeedSubstream.Retry);
-            return Mix(topology ^ retry ^ (SplitMixIncrement * (ulong)attempt));
+            int retry = ForSubstream(runSeed, depth, DungeonSeedSubstream.Retry);
+            return new Random(Combine(topology, Combine(retry, attempt))).Next();
         }
 
-        /// <summary>Formats an unsigned state as fixed-width lowercase hexadecimal for metadata and diagnostics.</summary>
-        /// <param name="state">The state whose complete 64-bit representation must be retained.</param>
-        /// <returns>Exactly 16 lowercase hexadecimal digits with leading zeroes.</returns>
-        public static string FormatState(ulong state)
+        private static int Combine(int left, int right)
         {
-            return state.ToString("x16", CultureInfo.InvariantCulture);
-        }
-
-        internal static ulong Mix(ulong value)
-        {
-            value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9UL;
-            value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL;
-            return value ^ (value >> 31);
+            return unchecked((left * SeedMultiplier) ^ right);
         }
     }
 }

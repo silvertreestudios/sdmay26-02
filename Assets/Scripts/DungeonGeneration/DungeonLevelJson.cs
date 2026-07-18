@@ -2,13 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Game.DungeonGeneration
 {
-    /// <summary>Represents the complete success or failure of parsing a version 2 level document.</summary>
+    /// <summary>Represents the complete success or failure of parsing a level document.</summary>
     public sealed class DungeonLevelParseResult
     {
         /// <summary>Creates a parse result and snapshots its diagnostics.</summary>
@@ -29,115 +28,29 @@ namespace Game.DungeonGeneration
         public bool IsSuccess => Document != null && Diagnostics.Count == 0;
     }
 
-    /// <summary>Writes deterministic byte-for-byte version 2 JSON with an explicitly controlled property order.</summary>
+    /// <summary>Writes deterministic compact JSON through the project's Newtonsoft serializer.</summary>
     public static class DungeonLevelJsonSerializer
     {
-        /// <summary>Serializes a complete document using invariant compact JSON and highest-Z-first rows.</summary>
-        /// <param name="document">The version 2 document to serialize without dropping any contract field.</param>
+        /// <summary>Serializes a complete document using the typed development schema.</summary>
+        /// <param name="document">The document to serialize without dropping any contract field.</param>
         /// <returns>A compact JSON string whose property and collection order matches the supplied document.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="document"/> is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">A stair kind or encounter threat is undefined.</exception>
         public static string Serialize(DungeonLevelDocument document)
         {
             if (document == null) throw new ArgumentNullException(nameof(document));
-            StringBuilder output = new(4096);
-            output.Append("{\"version\":2,\"generation\":{");
-            Property(output, "algorithm", document.Generation.Algorithm); output.Append(',');
-            NumberProperty(output, "algorithmVersion", document.Generation.AlgorithmVersion); output.Append(',');
-            Property(output, "runSeed", document.Generation.RunSeed.ToString(CultureInfo.InvariantCulture)); output.Append(',');
-            NumberProperty(output, "depth", document.Generation.Depth); output.Append(',');
-            NumberProperty(output, "topologyAttempt", document.Generation.TopologyAttempt); output.Append(',');
-            Property(output, "depthState", document.Generation.DepthState); output.Append(',');
-            Property(output, "topologyState", document.Generation.TopologyState); output.Append("},\"rows\":[");
-            Strings(output, document.Rows); output.Append("],\"rooms\":[");
-            for (int i = 0; i < document.Rooms.Count; i++)
-            {
-                if (i > 0) output.Append(','); DungeonRoom room = document.Rooms[i];
-                output.Append("{\"id\":").Append(I(room.Id)).Append(",\"minX\":").Append(I(room.MinimumX))
-                    .Append(",\"minZ\":").Append(I(room.MinimumZ)).Append(",\"maxX\":").Append(I(room.MaximumX))
-                    .Append(",\"maxZ\":").Append(I(room.MaximumZ)).Append('}');
-            }
-            output.Append("],\"doors\":[");
-            for (int i = 0; i < document.Doors.Count; i++)
-            {
-                if (i > 0) output.Append(','); DungeonDoor door = document.Doors[i];
-                output.Append('{'); Property(output, "id", door.Id); output.Append(",\"cell\":"); Cell(output, door.Cell);
-                output.Append(",\"isOpen\":").Append(door.IsOpen ? "true" : "false").Append('}');
-            }
-            output.Append("],\"stairs\":[");
-            for (int i = 0; i < document.Stairs.Count; i++)
-            {
-                if (i > 0) output.Append(','); DungeonStair stair = document.Stairs[i]; output.Append('{');
-                Property(output, "id", stair.Id); output.Append(','); Property(output, "kind", StairKind(stair.Kind));
-                output.Append(",\"cell\":"); Cell(output, stair.Cell); output.Append(",\"arrivalCell\":"); Cell(output, stair.ArrivalCell); output.Append('}');
-            }
-            output.Append("],\"arrival\":{\"start\":"); Cell(output, document.StartCell); output.Append(",\"safeCells\":[");
-            Cells(output, document.SafeCells); output.Append("]},\"objects\":[");
-            for (int i = 0; i < document.Objects.Count; i++)
-            {
-                if (i > 0) output.Append(','); DungeonObjectPlacement item = document.Objects[i]; output.Append('{');
-                Property(output, "id", item.Id); output.Append(','); Property(output, "assetId", item.AssetId);
-                output.Append(",\"cell\":"); Cell(output, item.Cell); output.Append(",\"rotation\":").Append(I(item.Rotation));
-                if (item.State != null) { output.Append(','); Property(output, "state", item.State); } output.Append('}');
-            }
-            output.Append("],\"encounterPlans\":[");
-            for (int i = 0; i < document.EncounterPlans.Count; i++)
-            {
-                if (i > 0) output.Append(','); DungeonEncounterPlan plan = document.EncounterPlans[i]; output.Append('{');
-                Property(output, "id", plan.Id); output.Append(",\"roomId\":").Append(I(plan.RoomId)).Append(",\"spawnCells\":[");
-                Cells(output, plan.SpawnCells); output.Append("],\"creatureIds\":["); Strings(output, plan.CreatureIds);
-                output.Append("],\"threat\":"); output.Append(JsonConvert.ToString(Threat(plan.Threat)));
-                output.Append(",\"budget\":").Append(I(plan.Budget));
-                output.Append(",\"isResolved\":").Append(plan.IsResolved ? "true" : "false").Append('}');
-            }
-            output.Append(']');
-            if (document.RuntimeState != null)
-            {
-                output.Append(",\"runtimeState\":{\"openDoorIds\":["); Strings(output, document.RuntimeState.OpenDoorIds);
-                output.Append("],\"resolvedEncounterIds\":["); Strings(output, document.RuntimeState.ResolvedEncounterIds);
-                output.Append("],\"defeatedCreatureIds\":["); Strings(output, document.RuntimeState.DefeatedCreatureIds);
-                output.Append("],\"creatures\":[");
-                for (int i = 0; i < document.RuntimeState.Creatures.Count; i++)
-                {
-                    if (i > 0) output.Append(','); DungeonCreatureRuntimeState creature = document.RuntimeState.Creatures[i]; output.Append('{');
-                    Property(output, "instanceId", creature.InstanceId); output.Append(','); Property(output, "creatureId", creature.CreatureId);
-                    output.Append(','); Property(output, "encounterId", creature.EncounterId); output.Append(",\"cell\":"); Cell(output, creature.Cell);
-                    output.Append(",\"hitPoints\":").Append(I(creature.HitPoints)); if (creature.State != null) { output.Append(','); Property(output, "state", creature.State); } output.Append('}');
-                }
-                output.Append("]}");
-            }
-            return output.Append('}').ToString();
+            return DungeonLevelJsonModel.Serialize(document);
         }
-
-        private static void Property(StringBuilder output, string name, string value) => output.Append(JsonConvert.ToString(name)).Append(':').Append(JsonConvert.ToString(value));
-        private static void NumberProperty(StringBuilder output, string name, int value) => output.Append(JsonConvert.ToString(name)).Append(':').Append(I(value));
-        private static string I(int value) => value.ToString(CultureInfo.InvariantCulture);
-        private static void Cell(StringBuilder output, DungeonCell cell) => output.Append("{\"x\":").Append(I(cell.X)).Append(",\"z\":").Append(I(cell.Z)).Append('}');
-        private static void Cells(StringBuilder output, IReadOnlyList<DungeonCell> cells) { for (int i = 0; i < cells.Count; i++) { if (i > 0) output.Append(','); Cell(output, cells[i]); } }
-        private static void Strings(StringBuilder output, IReadOnlyList<string> values) { for (int i = 0; i < values.Count; i++) { if (i > 0) output.Append(','); output.Append(JsonConvert.ToString(values[i])); } }
-        private static string StairKind(DungeonStairKind kind) => kind switch
-        {
-            DungeonStairKind.Up => "up",
-            DungeonStairKind.Down => "down",
-            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Stair kind is undefined.")
-        };
-        private static string Threat(DungeonEncounterThreat threat) => threat switch
-        {
-            DungeonEncounterThreat.Trivial => "trivial",
-            DungeonEncounterThreat.Low => "low",
-            DungeonEncounterThreat.Moderate => "moderate",
-            _ => throw new ArgumentOutOfRangeException(nameof(threat), threat, "Encounter threat is undefined.")
-        };
     }
 
     /// <summary>
-    /// Strict lossless parser for the deterministic version 2 contract. Unknown, duplicate, and
+    /// Strict lossless parser for the current development contract. Unknown, duplicate, and
     /// mistyped properties are rejected rather than accepted and dropped.
     /// </summary>
     public static class DungeonLevelJsonParser
     {
-        /// <summary>Parses and validates version 2 JSON without creating a partial document.</summary>
-        /// <param name="json">The complete JSON source; only the documented version 2 schema is accepted.</param>
+        /// <summary>Parses and validates JSON without creating a partial document.</summary>
+        /// <param name="json">The complete JSON source using the current development schema.</param>
         /// <returns>A complete lossless document or deterministic diagnostics with no partial document.</returns>
         public static DungeonLevelParseResult Parse(string json)
         {
@@ -151,8 +64,7 @@ namespace Game.DungeonGeneration
                 });
             }
             catch (JsonException exception) { return Invalid("json", "JSON could not be parsed: " + exception.Message); }
-            ValidateProperties(root, "$", errors, "version", "generation", "rows", "rooms", "doors", "stairs", "arrival", "objects", "encounterPlans", "runtimeState");
-            if (Int(root["version"]) != 2) return Invalid("version", "Dungeon level version must equal 2.");
+            ValidateProperties(root, "$", errors, "generation", "rows", "rooms", "doors", "stairs", "arrival", "objects", "encounterPlans", "runtimeState");
             JObject generation = root["generation"] as JObject; JArray rowsToken = root["rows"] as JArray;
             if (generation == null) errors.Add(D("generation", "Generation metadata is required."));
             DungeonGenerationMetadata metadata = ReadGeneration(generation, errors);
@@ -175,71 +87,33 @@ namespace Game.DungeonGeneration
         private static DungeonGenerationMetadata ReadGeneration(JObject source, List<DungeonGenerationDiagnostic> errors)
         {
             if (source == null) return null;
-            ValidateProperties(source, "generation", errors, "algorithm", "algorithmVersion", "runSeed", "depth", "topologyAttempt", "depthState", "topologyState");
+            ValidateProperties(
+                source,
+                "generation",
+                errors,
+                "algorithm",
+                "runSeed",
+                "depth",
+                "topologyAttempt");
             string algorithm = RequiredString(source, "algorithm", "generation", errors);
-            int algorithmVersion = RequiredInt(source, "algorithmVersion", "generation", errors);
-            string seedText = RequiredString(source, "runSeed", "generation", errors);
-            bool runSeedIsValid = TryParseCanonicalRunSeed(seedText, out long runSeed);
-            if (!runSeedIsValid)
-                errors.Add(D("generation.runSeed", "Run seed must use the canonical invariant spelling of a signed 64-bit integer encoded as a JSON string."));
+            int runSeed = RequiredInt(source, "runSeed", "generation", errors);
             int depth = RequiredInt(source, "depth", "generation", errors);
             int topologyAttempt = RequiredInt(source, "topologyAttempt", "generation", errors);
-            string depthState = RequiredString(source, "depthState", "generation", errors);
-            string topologyState = RequiredString(source, "topologyState", "generation", errors);
-            if (algorithmVersion < 1) errors.Add(D("generation.algorithmVersion", "Algorithm version must be positive."));
             if (depth < 0) errors.Add(D("generation.depth", "Depth must be zero or greater."));
             if (topologyAttempt < 0)
                 errors.Add(D("generation.topologyAttempt", "Topology attempt must be zero or greater."));
-            if (!IsState(depthState)) errors.Add(D("generation.depthState", "Depth state must be exactly 16 hexadecimal digits."));
-            if (!IsState(topologyState)) errors.Add(D("generation.topologyState", "Topology state must be exactly 16 hexadecimal digits."));
             DungeonGenerationMetadata metadata = new(
                 algorithm,
-                algorithmVersion,
                 runSeed,
                 depth,
-                topologyAttempt,
-                depthState,
-                topologyState);
-            if (DeterministicDungeonGenerator.OwnsContract(metadata))
+                topologyAttempt);
+            if (DeterministicDungeonGenerator.OwnsContract(metadata) &&
+                topologyAttempt >= DeterministicDungeonGenerator.MaximumAttempts)
             {
-                if (topologyAttempt >= DeterministicDungeonGenerator.MaximumAttempts)
-                {
-                    errors.Add(D(
-                        "generation.topologyAttempt",
-                        "For donjon-logical-splitmix64 algorithm version 1, topology attempt must be from 0 through 31."));
-                }
-
-                if (runSeedIsValid && depth >= 0)
-                {
-                    string expectedDepthState = DungeonSeedSequence.FormatState(
-                        DungeonSeedSequence.ForDepth(runSeed, depth));
-                    if (!string.Equals(depthState, expectedDepthState, StringComparison.Ordinal))
-                    {
-                        errors.Add(D(
-                            "generation.depthState",
-                            "For donjon-logical-splitmix64 algorithm version 1, depth state must exactly match the formatted state derived from runSeed and depth."));
-                    }
-
-                    if (topologyAttempt >= 0)
-                    {
-                        string expectedTopologyState = DungeonSeedSequence.FormatState(
-                            DungeonSeedSequence.ForTopologyAttempt(
-                                runSeed,
-                                depth,
-                                topologyAttempt));
-                        if (!string.Equals(
-                                topologyState,
-                                expectedTopologyState,
-                                StringComparison.Ordinal))
-                        {
-                            errors.Add(D(
-                                "generation.topologyState",
-                                "For donjon-logical-splitmix64 algorithm version 1, topology state must exactly match the formatted state derived from runSeed, depth, and topologyAttempt."));
-                        }
-                    }
-                }
+                errors.Add(D(
+                    "generation.topologyAttempt",
+                    "For the current Donjon generator, topology attempt must be from 0 through 31."));
             }
-
             return metadata;
         }
 
@@ -256,8 +130,14 @@ namespace Game.DungeonGeneration
         private static List<DungeonStair> ReadStairs(JArray array, List<DungeonGenerationDiagnostic> e) => ReadObjects(array, "stairs", e, (source, path) => ReadStair(source, path, e));
         private static List<DungeonObjectPlacement> ReadObjects(JArray array, List<DungeonGenerationDiagnostic> e) => ReadObjects(array, "objects", e, (o, p) =>
         {
-            ValidateProperties(o, p, e, "id", "assetId", "cell", "rotation", "state");
-            return new DungeonObjectPlacement(RequiredString(o, "id", p, e), RequiredString(o, "assetId", p, e), ReadCell(o["cell"], p + ".cell", e), RequiredInt(o, "rotation", p, e), OptionalString(o, "state", p, e));
+            ValidateProperties(o, p, e, "id", "assetId", "cell", "rotation", "yOffset", "state");
+            return new DungeonObjectPlacement(
+                RequiredString(o, "id", p, e),
+                RequiredString(o, "assetId", p, e),
+                ReadCell(o["cell"], p + ".cell", e),
+                RequiredInt(o, "rotation", p, e),
+                OptionalString(o, "state", p, e),
+                OptionalFloat(o, "yOffset", p, e));
         });
         private static List<DungeonEncounterPlan> ReadEncounters(JArray array, List<DungeonGenerationDiagnostic> e) => ReadObjects(array, "encounterPlans", e, (o, p) =>
         {
@@ -489,6 +369,33 @@ namespace Game.DungeonGeneration
             errors.Add(D(path + "." + name, "The optional value must be a string when present."));
             return null;
         }
+        private static float OptionalFloat(
+            JObject source,
+            string name,
+            string path,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            if (!source.TryGetValue(name, out JToken token))
+                return 0f;
+            if ((token.Type == JTokenType.Integer || token.Type == JTokenType.Float) &&
+                token is not JValue { Value: System.Numerics.BigInteger } &&
+                float.TryParse(
+                    token.ToString(Formatting.None),
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out float value) &&
+                !float.IsNaN(value) &&
+                !float.IsInfinity(value))
+            {
+                return value;
+            }
+
+            errors.Add(D(
+                path + "." + name,
+                "The optional value must be a finite number when present."));
+            return 0f;
+        }
+
 
         private static bool RequiredBool(
             JObject source,
@@ -534,7 +441,7 @@ namespace Game.DungeonGeneration
                 {
                     errors.Add(D(
                         path == "$" ? property.Name : path + "." + property.Name,
-                        "Unknown property is not part of the version 2 schema."));
+                        "Unknown property is not part of the current schema."));
                 }
             }
         }
@@ -553,7 +460,7 @@ namespace Game.DungeonGeneration
             {
                 errors.Add(D(
                     "rows",
-                    "For donjon-logical-splitmix64 algorithm version 1, width and height must each be an odd integer from 15 through 101."));
+                    "For the current Donjon generator, width and height must each be an odd integer from 15 through 101."));
             }
             if (ownsContract &&
                 DeterministicDungeonGenerator.IsSupportedDimension(rows[0].Length) &&
@@ -562,7 +469,7 @@ namespace Game.DungeonGeneration
             {
                 errors.Add(D(
                     "rows",
-                    "For donjon-logical-splitmix64 algorithm version 1, serialized spaces must exactly match one supported Box, Cross, or Round generator layout mask."));
+                    "For the current Donjon generator, serialized spaces must exactly match one supported Box, Cross, or Round generator layout mask."));
             }
             if (ownsContract &&
                 safe.Count > 0 &&
@@ -570,7 +477,7 @@ namespace Game.DungeonGeneration
             {
                 errors.Add(D(
                     "arrival.start",
-                    "For donjon-logical-splitmix64 algorithm version 1, start must equal the deterministic stair-aware selection from stairs and ordered safeCells."));
+                    "For the current Donjon generator, start must equal the deterministic stair-aware selection from stairs and ordered safeCells."));
             }
             bool invalidRooms = rooms.Select(room => room.Id).Distinct().Count() != rooms.Count || rooms.Any(room => room.Id < 1 || room.MinimumX > room.MaximumX || room.MinimumZ > room.MaximumZ || !InBounds(new DungeonCell(room.MinimumX, room.MinimumZ)) || !InBounds(new DungeonCell(room.MaximumX, room.MaximumZ)));
             if (invalidRooms) errors.Add(D("rooms", "Room IDs must be unique positive integers with ordered in-bounds bounds."));
@@ -598,7 +505,7 @@ namespace Game.DungeonGeneration
             {
                 errors.Add(D(
                     "rooms",
-                    "For donjon-logical-splitmix64 algorithm version 1, room records must use ordered IDs starting at 1, odd-aligned bounds, and odd side lengths from 3 through the generator-supported map maximum."));
+                    "For the current Donjon generator, room records must use ordered IDs starting at 1, odd-aligned bounds, and odd side lengths from 3 through the generator-supported map maximum."));
             }
             HashSet<DungeonCell> doorCells = new(); bool invalidDoorCell = false;
             foreach (DungeonDoor door in doors) if (!doorCells.Add(door.Cell) || !InBounds(door.Cell) || Symbol(door.Cell) != 'D') invalidDoorCell = true;
@@ -612,28 +519,28 @@ namespace Game.DungeonGeneration
             {
                 errors.Add(D(
                     "rows",
-                    "For donjon-logical-splitmix64 algorithm version 1, every walkable cell must be reachable from arrival.start."));
+                    "For the current Donjon generator, every walkable cell must be reachable from arrival.start."));
             }
             if (ownsContract && !invalidRooms &&
                 !DungeonTopologyValidator.HasValidRoomBoundaryCrossings(rows, rooms, doors))
             {
                 errors.Add(D(
                     "doors",
-                    "For donjon-logical-splitmix64 algorithm version 1, every walkable room-boundary crossing must be exactly one recorded 'D' door."));
+                    "For the current Donjon generator, every walkable room-boundary crossing must be exactly one recorded 'D' door."));
             }
             if (ownsContract && !invalidRooms &&
                 !DungeonTopologyValidator.HasValidDoors(rows, rooms, doors))
             {
                 errors.Add(D(
                     "doors",
-                    "For donjon-logical-splitmix64 algorithm version 1, every recorded door must have exactly two opposite walkable neighbors and valid room adjacency, and every room must have at least one valid recorded door."));
+                    "For the current Donjon generator, every recorded door must have exactly two opposite walkable neighbors and valid room adjacency, and every room must have at least one valid recorded door."));
             }
             if (ownsContract &&
                 !DungeonTopologyValidator.HasProducibleDoorRecords(doors))
             {
                 errors.Add(D(
                     "doors",
-                    "For donjon-logical-splitmix64 algorithm version 1, door records must use ordered door-0001-style IDs and generator door-sill parity with exactly one odd cell coordinate."));
+                    "For the current Donjon generator, door records must use ordered door-0001-style IDs and generator door-sill parity with exactly one odd cell coordinate."));
             }
             bool invalidStairs =
                 stairs.Select(stair => stair.Id).Distinct(StringComparer.Ordinal).Count() != stairs.Count ||
@@ -654,7 +561,7 @@ namespace Game.DungeonGeneration
             {
                 errors.Add(D(
                     "stairs",
-                    "For donjon-logical-splitmix64 algorithm version 1, stairs must be empty, one ordered stair-down/Down record, or ordered stair-down/Down then stair-up/Up records with distinct generator-aligned endpoint and arrival geometry."));
+                    "For the current Donjon generator, stairs must be empty, one ordered stair-down/Down record, or ordered stair-down/Down then stair-up/Up records with distinct generator-aligned endpoint and arrival geometry."));
             }
             if (!invalidStairs && ownsContract && !invalidRooms && stairs.Any(stair =>
                          !DungeonTopologyValidator.MatchesStairEnd(
@@ -665,7 +572,7 @@ namespace Game.DungeonGeneration
             {
                 errors.Add(D(
                     "stairs",
-                    "For donjon-logical-splitmix64 algorithm version 1, every stair must occupy a straight three-cell corridor end with all other surrounding endpoint cells blocked."));
+                    "For the current Donjon generator, every stair must occupy a straight three-cell corridor end with all other surrounding endpoint cells blocked."));
             }
             if (ownsContract &&
                 !DungeonTopologyValidator.HasProducibleSafeCells(
@@ -676,7 +583,7 @@ namespace Game.DungeonGeneration
             {
                 errors.Add(D(
                     "arrival.safeCells",
-                    "For donjon-logical-splitmix64 algorithm version 1, safeCells must exactly preserve ordered stair arrivals, ordered room centers, and the conditional deterministic walkable fallback sequence."));
+                    "For the current Donjon generator, safeCells must exactly preserve ordered stair arrivals, ordered room centers, and the conditional deterministic walkable fallback sequence."));
             }
             if (objects.Select(item => item.Id).Distinct(StringComparer.Ordinal).Count() != objects.Count || objects.Any(item => !InBounds(item.Cell) || (item.Rotation != 0 && item.Rotation != 90 && item.Rotation != 180 && item.Rotation != 270))) errors.Add(D("objects", "Object IDs must be unique, cells must be in bounds, and rotations must be 0, 90, 180, or 270."));
             HashSet<int> roomIds = new(rooms.Select(room => room.Id));
@@ -806,34 +713,6 @@ namespace Game.DungeonGeneration
                         "Each live creature must occupy a walkable cell, reference an unresolved encounter, and match one available creature entry in that plan."));
                 }
             }
-        }
-        private static bool IsState(string value)
-        {
-            if (value?.Length != 16)
-                return false;
-            foreach (char character in value)
-            {
-                bool isAsciiHex = character >= '0' && character <= '9' ||
-                                  character >= 'a' && character <= 'f' ||
-                                  character >= 'A' && character <= 'F';
-                if (!isAsciiHex)
-                    return false;
-            }
-
-            return true;
-        }
-
-        private static bool TryParseCanonicalRunSeed(string value, out long runSeed)
-        {
-            bool parsed = long.TryParse(
-                value,
-                NumberStyles.AllowLeadingSign,
-                CultureInfo.InvariantCulture,
-                out runSeed);
-            return parsed && string.Equals(
-                value,
-                runSeed.ToString(CultureInfo.InvariantCulture),
-                StringComparison.Ordinal);
         }
         private static int? Int(JToken token) => token?.Type == JTokenType.Integer && int.TryParse(token.ToString(Formatting.None), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ? value : null;
         private static string String(JToken token) => token?.Value<string>() ?? string.Empty;

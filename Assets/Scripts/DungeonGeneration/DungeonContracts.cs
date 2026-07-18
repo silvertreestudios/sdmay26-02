@@ -105,8 +105,8 @@ namespace Game.DungeonGeneration
     /// <summary>Describes one deterministic dungeon level request and its topology constraints.</summary>
     public sealed class DungeonGenerationRequest
     {
-        /// <summary>Gets or sets the signed run seed whose exact two's-complement bits initialize depth zero.</summary>
-        public long RunSeed { get; set; }
+        /// <summary>Gets or sets the run seed supplied to isolated <see cref="Random"/> instances.</summary>
+        public int RunSeed { get; set; }
 
         /// <summary>Gets or sets the zero-based dungeon depth; generation rejects negative values.</summary>
         public int Depth { get; set; }
@@ -142,7 +142,7 @@ namespace Game.DungeonGeneration
         public int DeadEndRemovalPercent { get; set; } = 50;
     }
 
-    /// <summary>Provides a machine-readable category for generation and version 2 validation failures.</summary>
+    /// <summary>Provides a machine-readable category for generation and document validation failures.</summary>
     public enum DungeonGenerationDiagnosticCode
     {
         /// <summary>The request violates a documented input constraint.</summary>
@@ -151,7 +151,7 @@ namespace Game.DungeonGeneration
         TopologyRejected,
         /// <summary>All permitted deterministic attempts were rejected.</summary>
         RetryLimitExhausted,
-        /// <summary>A version 2 JSON document violates its schema or semantic invariants.</summary>
+        /// <summary>A JSON document violates its schema or semantic invariants.</summary>
         InvalidDocument
     }
 
@@ -223,59 +223,39 @@ namespace Game.DungeonGeneration
     }
 
     /// <summary>
-    /// Records stable generation provenance in every version 2 document. The strict parser binds
-    /// metadata owned by Donjon SplitMix64 algorithm version 1 to its exact derived states and
-    /// retry range; other algorithm contracts retain general nonnegative-attempt and state-shape
-    /// validation so future producers can define their own derivation rules.
+    /// Records the generation provenance needed to reproduce or diagnose one accepted topology.
+    /// The development schema intentionally changes in place instead of dispatching by version.
     /// </summary>
     public sealed class DungeonGenerationMetadata
     {
         /// <summary>Creates the provenance captured for one accepted topology attempt.</summary>
         /// <param name="algorithm">The stable algorithm identifier.</param>
-        /// <param name="algorithmVersion">The positive algorithm contract version.</param>
-        /// <param name="runSeed">The original signed run seed.</param>
+        /// <param name="runSeed">The run seed supplied to generation.</param>
         /// <param name="depth">The nonnegative requested depth.</param>
-        /// <param name="topologyAttempt">The accepted nonnegative retry attempt; the owned version 1 generator limits this to its first 32 attempts.</param>
-        /// <param name="depthState">The fixed-width ASCII hexadecimal depth output; the owned version 1 generator requires its exact lowercase derived format.</param>
-        /// <param name="topologyState">The fixed-width ASCII hexadecimal topology stream state; the owned version 1 generator requires its exact lowercase derived format.</param>
+        /// <param name="topologyAttempt">The accepted nonnegative retry attempt.</param>
         public DungeonGenerationMetadata(
             string algorithm,
-            int algorithmVersion,
-            long runSeed,
+            int runSeed,
             int depth,
-            int topologyAttempt,
-            string depthState,
-            string topologyState)
+            int topologyAttempt)
         {
             Algorithm = algorithm;
-            AlgorithmVersion = algorithmVersion;
             RunSeed = runSeed;
             Depth = depth;
             TopologyAttempt = topologyAttempt;
-            DepthState = depthState;
-            TopologyState = topologyState;
         }
 
         /// <summary>Gets the stable algorithm identifier.</summary>
         public string Algorithm { get; }
 
-        /// <summary>Gets the algorithm contract version.</summary>
-        public int AlgorithmVersion { get; }
-
-        /// <summary>Gets the original signed run seed.</summary>
-        public long RunSeed { get; }
+        /// <summary>Gets the run seed supplied to generation.</summary>
+        public int RunSeed { get; }
 
         /// <summary>Gets the requested nonnegative depth.</summary>
         public int Depth { get; }
 
-        /// <summary>Gets the accepted nonnegative topology attempt, subject to the producing algorithm's contract.</summary>
+        /// <summary>Gets the accepted nonnegative topology attempt.</summary>
         public int TopologyAttempt { get; }
-
-        /// <summary>Gets the depth output as exactly 16 ASCII hexadecimal digits.</summary>
-        public string DepthState { get; }
-
-        /// <summary>Gets the accepted topology stream state as exactly 16 ASCII hexadecimal digits.</summary>
-        public string TopologyState { get; }
     }
 
     /// <summary>Records one room's stable positive identifier and inclusive bounds.</summary>
@@ -378,18 +358,21 @@ namespace Game.DungeonGeneration
         /// <param name="cell">The in-bounds anchor cell.</param>
         /// <param name="rotation">Clockwise rotation in degrees.</param>
         /// <param name="state">An optional losslessly preserved state token.</param>
+        /// <param name="yOffset">A finite vertical placement offset in world units.</param>
         public DungeonObjectPlacement(
             string id,
             string assetId,
             DungeonCell cell,
             int rotation = 0,
-            string state = null)
+            string state = null,
+            float yOffset = 0f)
         {
             Id = id;
             AssetId = assetId;
             Cell = cell;
             Rotation = rotation;
             State = state;
+            YOffset = yOffset;
         }
 
         /// <summary>Gets the stable placement ID.</summary>
@@ -403,6 +386,9 @@ namespace Game.DungeonGeneration
 
         /// <summary>Gets clockwise rotation in degrees.</summary>
         public int Rotation { get; }
+
+        /// <summary>Gets the vertical placement offset in world units.</summary>
+        public float YOffset { get; }
 
         /// <summary>Gets the optional losslessly preserved mutable state token.</summary>
         public string State { get; }

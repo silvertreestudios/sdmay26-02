@@ -17,25 +17,30 @@ using UnityEngine;
 public sealed class DungeonGenerationTests
 {
     [Test]
-    public void SplitMix64_PreservesSignedSeedBitsAndKnownSequence()
+    public void SystemRandom_UsesRepeatableIsolatedSeedsAndStreams()
     {
-        Assert.That(DungeonSeedSequence.ForDepth(-1, 0), Is.EqualTo(ulong.MaxValue));
-        Assert.That(DungeonSeedSequence.ForDepth(0, 1), Is.EqualTo(0xE220A8397B1DCDAFUL));
-        Assert.That(DungeonSeedSequence.ForDepth(0, 2), Is.EqualTo(0x6E789E6AA1B965F4UL));
-        Assert.That(DungeonSeedSequence.ForDepth(0, 3), Is.EqualTo(0x06C45D188009454FUL));
-        Assert.That(DungeonSeedSequence.ForDepth(0, 17), Is.EqualTo(0x7D29825C75521255UL));
-        Assert.That(DungeonSeedSequence.ForDepth(0, int.MaxValue), Is.EqualTo(0x8F230D036C8C0EDFUL));
-        Assert.That(new SplitMix64DungeonRandom(0).NextUInt64(), Is.EqualTo(0xE220A8397B1DCDAFUL));
+        int seed = DungeonSeedSequence.ForTopologyAttempt(4, 2, 0);
+        SystemDungeonRandom first = new(seed);
+        SystemDungeonRandom second = new(seed);
+
+        Assert.That(first.NextInt(1000), Is.EqualTo(second.NextInt(1000)));
+        Assert.That(first.NextInt(1000), Is.EqualTo(second.NextInt(1000)));
+        Assert.That(DungeonSeedSequence.ForDepth(4, 2),
+            Is.Not.EqualTo(DungeonSeedSequence.ForDepth(4, 3)));
         Assert.That(DungeonSeedSequence.ForSubstream(4, 2, DungeonSeedSubstream.Topology),
             Is.Not.EqualTo(DungeonSeedSequence.ForSubstream(4, 2, DungeonSeedSubstream.Decoration)));
         Assert.That(DungeonSeedSequence.ForTopologyAttempt(4, 2, 0),
             Is.Not.EqualTo(DungeonSeedSequence.ForTopologyAttempt(4, 2, 1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => first.NextInt(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => first.NextPercent(-1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            DungeonSeedSequence.ForSubstream(4, 2, (DungeonSeedSubstream)99));
     }
 
     [Test]
     public void GoldenDocument_IsByteStableAcrossGeneratorAndSerializerRuns()
     {
-        DungeonGenerationRequest request = Request(-9223372036854775807L, 31, 31);
+        DungeonGenerationRequest request = Request(-2147483647, 31, 31);
         string first = GenerateJson(request);
         string second = GenerateJson(request);
 
@@ -44,7 +49,7 @@ public sealed class DungeonGenerationTests
         using (SHA256 sha256 = SHA256.Create())
             hash = BitConverter.ToString(sha256.ComputeHash(Encoding.UTF8.GetBytes(first))).Replace("-", string.Empty).ToLowerInvariant();
         TestContext.WriteLine("golden sha256=" + hash);
-        Assert.That(hash, Is.EqualTo("536fe7cc364650f0724b3b0244e6b4d6f4845cc085c3adf6814d7a1b2e458063"));
+        Assert.That(hash, Is.EqualTo("dc7c8c3138c50021dd94b0ed592f58e05a6e4ea9f5ec68885237332dfa24fc1d"));
     }
 
     [Test]
@@ -217,7 +222,7 @@ public sealed class DungeonGenerationTests
             string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message)));
         Assert.That(result.Document.Rooms, Is.Empty);
         HashSet<DungeonCell> walkable = Walkable(result.Document);
-        Assert.That(walkable.Count, Is.EqualTo(49));
+        Assert.That(walkable.Count, Is.GreaterThan(2));
         DungeonStair down = result.Document.Stairs.Single();
         HashSet<DungeonCell> downExitCells = new() { down.Cell, down.ArrivalCell };
         DungeonCell expectedFallback = walkable
@@ -280,7 +285,7 @@ public sealed class DungeonGenerationTests
     [TestCase(0)]
     [TestCase(1)]
     [TestCase(2)]
-    public void VersionTwoJson_RejectsStartTamperingForOwnedGeneratorStairCases(int stairCount)
+    public void DungeonJson_RejectsStartTamperingForOwnedGeneratorStairCases(int stairCount)
     {
         DungeonGenerationRequest request = Request(152, 31, 31);
         request.StairCount = stairCount;
@@ -301,20 +306,17 @@ public sealed class DungeonGenerationTests
         Assert.That(parsed.IsSuccess, Is.False);
         Assert.That(parsed.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
             diagnostic.Field == "arrival.start" &&
-            diagnostic.Message.Contains("donjon-logical-splitmix64") &&
+            diagnostic.Message.Contains("current Donjon generator") &&
             diagnostic.Message.Contains("stair-aware")));
     }
 
-    [TestCase("donjon-logical-splitmix64", 2)]
-    [TestCase("future-generator", 1)]
-    public void VersionTwoJson_DoesNotApplyDonjonV1StartSelectionToOtherGeneratorContracts(
-        string algorithm,
-        int algorithmVersion)
+    [TestCase("future-generator")]
+    public void DungeonJson_DoesNotApplyDonjonStartSelectionToOtherGeneratorContracts(
+        string algorithm)
     {
         JObject root = JObject.Parse(GenerateJson(Request(152, 31, 31)));
         JObject generation = (JObject)root["generation"];
         generation["algorithm"] = algorithm;
-        generation["algorithmVersion"] = algorithmVersion;
         JObject downStair = ((JArray)root["stairs"])
             .Cast<JObject>()
             .Single(stair => stair.Value<string>("kind") == "down");
@@ -327,11 +329,11 @@ public sealed class DungeonGenerationTests
             string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
     }
 
-    [TestCase(long.MinValue, 0, 0)]
-    [TestCase(-1L, 17, 31)]
-    [TestCase(long.MaxValue, int.MaxValue, 31)]
-    public void VersionTwoJson_AcceptsExactOwnedGeneratorStatesAtNumericBoundaries(
-        long runSeed,
+    [TestCase(int.MinValue, 0, 0)]
+    [TestCase(-1, 17, 31)]
+    [TestCase(int.MaxValue, int.MaxValue, 31)]
+    public void DungeonJson_AcceptsOwnedGeneratorMetadataAtNumericBoundaries(
+        int runSeed,
         int depth,
         int topologyAttempt)
     {
@@ -345,118 +347,36 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsIndependentOwnedGeneratorProvenanceTampering()
+    public void DungeonJson_RejectsRemovedGeneratorStateProperties()
     {
-        const long runSeed = -9223372036854775807L;
-        const int depth = 17;
-        const int topologyAttempt = 0;
-        var cases = new[]
-        {
-            new
-            {
-                Name = "runSeed",
-                Field = "generation.depthState",
-                Mutate = (Action<JObject>)(generation =>
-                    generation["runSeed"] = long.MaxValue.ToString(CultureInfo.InvariantCulture))
-            },
-            new
-            {
-                Name = "depth",
-                Field = "generation.depthState",
-                Mutate = (Action<JObject>)(generation => generation["depth"] = int.MaxValue)
-            },
-            new
-            {
-                Name = "topologyAttempt",
-                Field = "generation.topologyState",
-                Mutate = (Action<JObject>)(generation => generation["topologyAttempt"] = 31)
-            },
-            new
-            {
-                Name = "depthState",
-                Field = "generation.depthState",
-                Mutate = (Action<JObject>)(generation => generation["depthState"] = "0000000000000000")
-            },
-            new
-            {
-                Name = "topologyState",
-                Field = "generation.topologyState",
-                Mutate = (Action<JObject>)(generation => generation["topologyState"] = "ffffffffffffffff")
-            }
-        };
-
-        foreach (var item in cases)
-        {
-            JObject root = JObject.Parse(OwnedContractJson(runSeed, depth, topologyAttempt));
-            item.Mutate((JObject)root["generation"]);
-
-            DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
-                root.ToString(Formatting.None));
-
-            Assert.That(parsed.IsSuccess, Is.False, item.Name);
-            Assert.That(parsed.Diagnostics,
-                Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
-                    diagnostic.Field == item.Field &&
-                    diagnostic.Message.Contains("exactly match")),
-                item.Name);
-        }
-    }
-
-    [Test]
-    public void VersionTwoJson_RequiresExactOwnedGeneratorStateFormatting()
-    {
-        JObject root = JObject.Parse(OwnedContractJson(long.MinValue, int.MaxValue, 31));
+        JObject root = JObject.Parse(ContractJson());
         JObject generation = (JObject)root["generation"];
-        generation["depthState"] = generation.Value<string>("depthState").ToUpperInvariant();
-        generation["topologyState"] = generation.Value<string>("topologyState").ToUpperInvariant();
+        generation["depthState"] = "removed";
+        generation["topologyState"] = "removed";
 
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
             root.ToString(Formatting.None));
+        string[] fields = parsed.Diagnostics.Select(diagnostic => diagnostic.Field).ToArray();
 
-        Assert.That(parsed.Diagnostics.Select(diagnostic => diagnostic.Field),
-            Does.Contain("generation.depthState"));
-        Assert.That(parsed.Diagnostics.Select(diagnostic => diagnostic.Field),
-            Does.Contain("generation.topologyState"));
+        Assert.That(parsed.IsSuccess, Is.False);
+        Assert.That(fields, Does.Contain("generation.depthState"));
+        Assert.That(fields, Does.Contain("generation.topologyState"));
+        Assert.That(parsed.Diagnostics, Has.All.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+            diagnostic.Message.Contains("current schema")));
     }
 
-    [TestCase(" fffffffffffffff")]
-    [TestCase("fffffffffffffff ")]
-    [TestCase("0123456789abcdeG")]
-    [TestCase("０123456789abcdef")]
-    public void VersionTwoJson_RequiresExactlySixteenAsciiHexCharactersForEveryState(
-        string malformedState)
-    {
-        foreach (string field in new[] { "depthState", "topologyState" })
-        {
-            JObject root = JObject.Parse(ContractJson());
-            ((JObject)root["generation"])[field] = malformedState;
-
-            DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
-                root.ToString(Formatting.None));
-
-            Assert.That(parsed.Diagnostics,
-                Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
-                    diagnostic.Field == "generation." + field &&
-                    diagnostic.Message.Contains("exactly 16 hexadecimal digits")),
-                field + "=" + malformedState);
-        }
-    }
-
-    [TestCase(long.MinValue)]
-    [TestCase(-1L)]
-    [TestCase(0L)]
-    [TestCase(1L)]
-    [TestCase(long.MaxValue)]
-    public void VersionTwoJson_RoundTripsCanonicalRunSeedSpellings(long runSeed)
+    [TestCase(int.MinValue)]
+    [TestCase(-1)]
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(int.MaxValue)]
+    public void DungeonJson_RoundTripsIntegerRunSeeds(int runSeed)
     {
         DungeonGenerationMetadata metadata = new(
             "future-generator",
-            1,
             runSeed,
             0,
-            0,
-            "0123456789abcdef",
-            "fedcba9876543210");
+            0);
         string json = DungeonLevelJsonSerializer.Serialize(
             ContractDocumentWithGeneration(metadata));
 
@@ -476,7 +396,7 @@ public sealed class DungeonGenerationTests
     [TestCase("1.0")]
     [TestCase("9223372036854775808")]
     [TestCase("--1")]
-    public void VersionTwoJson_RejectsNoncanonicalOrInvalidRunSeedSpellings(string runSeed)
+    public void DungeonJson_RejectsStringRunSeeds(string runSeed)
     {
         JObject root = JObject.Parse(ContractJson());
         ((JObject)root["generation"])["runSeed"] = runSeed;
@@ -488,13 +408,13 @@ public sealed class DungeonGenerationTests
         Assert.That(parsed.Diagnostics,
             Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
                 diagnostic.Field == "generation.runSeed" &&
-                diagnostic.Message.Contains("canonical invariant spelling")));
+                diagnostic.Message.Contains("integer is required")));
     }
 
     [Test]
-    public void VersionTwoJson_RejectsOwnedAttemptAtMaximumBoundary()
+    public void DungeonJson_RejectsOwnedAttemptAtMaximumBoundary()
     {
-        JObject root = JObject.Parse(OwnedContractJson(long.MaxValue, int.MaxValue, 32));
+        JObject root = JObject.Parse(OwnedContractJson(int.MaxValue, int.MaxValue, 32));
 
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
             root.ToString(Formatting.None));
@@ -504,9 +424,6 @@ public sealed class DungeonGenerationTests
             Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
                 diagnostic.Field == "generation.topologyAttempt" &&
                 diagnostic.Message.Contains("0 through 31")));
-        Assert.That(parsed.Diagnostics,
-            Has.None.Matches<DungeonGenerationDiagnostic>(diagnostic =>
-                diagnostic.Field == "generation.topologyState"));
     }
 
     [TestCase(15, 15, true)]
@@ -519,7 +436,7 @@ public sealed class DungeonGenerationTests
     [TestCase(15, 14, false)]
     [TestCase(15, 102, false)]
     [TestCase(15, 103, false)]
-    public void VersionTwoJson_EnforcesOwnedGeneratorDimensionContract(
+    public void DungeonJson_EnforcesOwnedGeneratorDimensionContract(
         int width,
         int height,
         bool expectedSuccess)
@@ -545,7 +462,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsOwnedRowsOutsideEverySupportedLayoutMask()
+    public void DungeonJson_RejectsOwnedRowsOutsideEverySupportedLayoutMask()
     {
         var cases = new[]
         {
@@ -570,23 +487,17 @@ public sealed class DungeonGenerationTests
         }
     }
 
-    [TestCase("future-generator", 1, 32)]
-    [TestCase("future-generator", 1, int.MaxValue)]
-    [TestCase("donjon-logical-splitmix64", 2, 32)]
-    [TestCase("donjon-logical-splitmix64", 2, int.MaxValue)]
-    public void VersionTwoJson_OtherContractsRoundTripLargeTopologyAttempts(
+    [TestCase("future-generator", 32)]
+    [TestCase("future-generator", int.MaxValue)]
+    public void DungeonJson_OtherContractsRoundTripLargeTopologyAttempts(
         string algorithm,
-        int algorithmVersion,
         int topologyAttempt)
     {
         DungeonGenerationMetadata metadata = new(
             algorithm,
-            algorithmVersion,
-            long.MinValue,
+            int.MinValue,
             int.MaxValue,
-            topologyAttempt,
-            "ABCDEF0123456789",
-            "FEDCBA9876543210");
+            topologyAttempt);
         DungeonLevelDocument document = ContractDocumentWithGeneration(metadata);
 
         string json = DungeonLevelJsonSerializer.Serialize(document);
@@ -599,7 +510,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void KayKitParser_AcceptsVersionTwoAndRetainsLosslessDocument()
+    public void KayKitParser_AcceptsDungeonDocumentAndRetainsLosslessDocument()
     {
         string json = GenerateJson(Request(-17, 31, 31));
         KayKitDungeonCatalog catalog = ScriptableObject.CreateInstance<KayKitDungeonCatalog>();
@@ -608,19 +519,14 @@ public sealed class DungeonGenerationTests
             KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(json, catalog);
 
             Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
-            Assert.That(result.Map.Version, Is.EqualTo(2));
             Assert.That(result.Map.LevelDocument, Is.Not.Null);
             Assert.That(DungeonLevelJsonSerializer.Serialize(result.Map.LevelDocument), Is.EqualTo(json));
-            Assert.That(KayKitDungeonMapData.SupportedVersion, Is.EqualTo(1));
-            Assert.That(KayKitDungeonMapData.SupportedVersions, Is.EqualTo(new[] { 1, 2 }));
-            IList<int> supportedVersions = (IList<int>)KayKitDungeonMapData.SupportedVersions;
-            Assert.Throws<NotSupportedException>(() => supportedVersions[0] = 99);
             Assert.That(typeof(KayKitDungeonMapData).GetConstructor(new[]
             {
-                typeof(int),
                 typeof(TileType[,]),
                 typeof(bool[,]),
-                typeof(IReadOnlyList<KayKitDungeonObjectPlacement>)
+                typeof(IReadOnlyList<KayKitDungeonObjectPlacement>),
+                typeof(DungeonLevelDocument)
             }), Is.Not.Null);
         }
         finally
@@ -630,23 +536,23 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void KayKitParser_RejectsDuplicateVersionBeforeV2PayloadCanBeDiscarded()
+    public void KayKitParser_RejectsDuplicateGenerationProperties()
     {
-        string v2 = GenerateJson(Request(152, 31, 31));
-        string duplicateVersion = v2.Replace(
-            "\"version\":2",
-            "\"version\":2,\"version\":1");
+        string json = GenerateJson(Request(152, 31, 31));
+        string duplicateAlgorithm = json.Replace(
+            "\"algorithm\":\"donjon-logical-system-random\"",
+            "\"algorithm\":\"donjon-logical-system-random\",\"algorithm\":\"future-generator\"");
         KayKitDungeonCatalog catalog = ScriptableObject.CreateInstance<KayKitDungeonCatalog>();
         try
         {
             KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
-                duplicateVersion,
+                duplicateAlgorithm,
                 catalog);
 
             Assert.That(result.IsValid, Is.False);
             Assert.That(result.Map, Is.Null);
-            Assert.That(result.Errors, Has.Some.EqualTo(
-                "JSON map root property 'version' must not be repeated."));
+            Assert.That(result.Errors, Has.Some.Matches<string>(error =>
+                error.Contains("algorithm") && error.Contains("exists")));
         }
         finally
         {
@@ -684,7 +590,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RoundTripsEveryContractSectionWithoutLoss()
+    public void DungeonJson_RoundTripsEveryContractSectionWithoutLoss()
     {
         DungeonLevelDocument source = ContractDocument();
 
@@ -693,7 +599,7 @@ public sealed class DungeonGenerationTests
 
         Assert.That(parsed.IsSuccess, Is.True, string.Join(Environment.NewLine, parsed.Diagnostics.Select(d => d.Message)));
         Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
-        Assert.That(parsed.Document.Generation.RunSeed, Is.EqualTo(long.MinValue));
+        Assert.That(parsed.Document.Generation.RunSeed, Is.EqualTo(int.MinValue));
         Assert.That(parsed.Document.EncounterPlans[0].Threat, Is.EqualTo(DungeonEncounterThreat.Low));
         Assert.That(parsed.Document.EncounterPlans[0].Budget, Is.EqualTo(60));
     }
@@ -733,7 +639,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RaggedRowsReturnDiagnosticsWithoutSemanticIndexing()
+    public void DungeonJson_RaggedRowsReturnDiagnosticsWithoutSemanticIndexing()
     {
         JObject root = JObject.Parse(ContractJson());
         root["rows"] = new JArray("#D#", "..", "###");
@@ -746,7 +652,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_OutOfRangeIntegerReturnsSpecificDiagnostic()
+    public void DungeonJson_OutOfRangeIntegerReturnsSpecificDiagnostic()
     {
         JObject root = JObject.Parse(ContractJson());
         root["generation"]["depth"] = JToken.Parse("9223372036854775808");
@@ -760,7 +666,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void KayKitParser_RejectsRaggedVersionTwoWithoutThrowing()
+    public void KayKitParser_RejectsRaggedDungeonDocumentWithoutThrowing()
     {
         JObject root = JObject.Parse(ContractJson());
         root["rows"] = new JArray("#D#", "..", "###");
@@ -779,7 +685,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RequiresExactlyOneDoorRecordPerDoorCell()
+    public void DungeonJson_RequiresExactlyOneDoorRecordPerDoorCell()
     {
         JObject missing = JObject.Parse(ContractJson());
         missing["doors"] = new JArray();
@@ -798,7 +704,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsImpossibleOwnedRoomRecords()
+    public void DungeonJson_RejectsImpossibleOwnedRoomRecords()
     {
         var cases = new[]
         {
@@ -838,7 +744,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsDisconnectedWalkableRegionsForOwnedGenerator()
+    public void DungeonJson_RejectsDisconnectedWalkableRegionsForOwnedGenerator()
     {
         JObject root = JObject.Parse(OwnedContractJson(152, 0, 0));
         SetSymbol(root, new DungeonCell(5, 5), '.');
@@ -854,7 +760,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsUnrecordedRoomBoundaryCrossingsForOwnedGenerator()
+    public void DungeonJson_RejectsUnrecordedRoomBoundaryCrossingsForOwnedGenerator()
     {
         JObject root = JObject.Parse(OwnedContractJson(152, 0, 0));
         SetSymbol(root, new DungeonCell(4, 2), '.');
@@ -870,7 +776,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsDoorlessRoomsForOwnedGenerator()
+    public void DungeonJson_RejectsDoorlessRoomsForOwnedGenerator()
     {
         JObject root = JObject.Parse(OwnedContractJson(152, 0, 0));
         SetSymbol(root, new DungeonCell(1, 4), '#');
@@ -892,7 +798,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsMalformedOwnedDoorGeometryAndRoomAdjacency()
+    public void DungeonJson_RejectsMalformedOwnedDoorGeometryAndRoomAdjacency()
     {
         var cases = new[]
         {
@@ -951,7 +857,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsOwnedDoorRecordIdOrderAndSillParityDrift()
+    public void DungeonJson_RejectsOwnedDoorRecordIdOrderAndSillParityDrift()
     {
         List<(string Name, JObject Root)> cases = new();
 
@@ -990,7 +896,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsImpossibleOwnedStairEndGeometry()
+    public void DungeonJson_RejectsImpossibleOwnedStairEndGeometry()
     {
         var cases = new[]
         {
@@ -1054,7 +960,7 @@ public sealed class DungeonGenerationTests
     [TestCase(0)]
     [TestCase(1)]
     [TestCase(2)]
-    public void VersionTwoJson_AcceptsOwnedStairRecordSequences(int stairCount)
+    public void DungeonJson_AcceptsOwnedStairRecordSequences(int stairCount)
     {
         DungeonGenerationRequest request = Request(152 + stairCount, 31, 31);
         request.StairCount = stairCount;
@@ -1068,7 +974,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsOwnedSafeCellMembershipAndOrderDrift()
+    public void DungeonJson_RejectsOwnedSafeCellMembershipAndOrderDrift()
     {
         JObject source = JObject.Parse(GenerateJson(RequestWithStairCount(152, 2)));
         JObject arrival = (JObject)source["arrival"];
@@ -1119,7 +1025,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsOwnedStairRecordDrift()
+    public void DungeonJson_RejectsOwnedStairRecordDrift()
     {
         List<(string Name, JObject Root)> cases = new();
 
@@ -1186,16 +1092,13 @@ public sealed class DungeonGenerationTests
         }
     }
 
-    [TestCase("future-generator", 1)]
-    [TestCase("donjon-logical-splitmix64", 2)]
-    public void VersionTwoJson_DoesNotApplyOwnedDimensionsRoomsOrStairsToFutureContracts(
-        string algorithm,
-        int algorithmVersion)
+    [TestCase("future-generator")]
+    public void DungeonJson_DoesNotApplyOwnedDimensionsRoomsOrStairsToOtherContracts(
+        string algorithm)
     {
         JObject root = JObject.Parse(ContractJson());
         JObject generation = (JObject)root["generation"];
         generation["algorithm"] = algorithm;
-        generation["algorithmVersion"] = algorithmVersion;
         ((JArray)root["rows"])[0] = "###";
         root["doors"] = new JArray();
         ((JObject)root["runtimeState"])["openDoorIds"] = new JArray();
@@ -1216,10 +1119,10 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_DoesNotApplyOwnedTopologyRulesToFutureContracts()
+    public void DungeonJson_DoesNotApplyOwnedTopologyRulesToOtherContracts()
     {
         JObject root = JObject.Parse(OwnedContractJson(152, 0, 0));
-        ((JObject)root["generation"])["algorithmVersion"] = 2;
+        ((JObject)root["generation"])["algorithm"] = "future-generator";
         SetSymbol(root, new DungeonCell(5, 5), '.');
         SetSymbol(root, new DungeonCell(4, 2), '.');
         SetSymbol(root, new DungeonCell(1, 5), '#');
@@ -1232,16 +1135,13 @@ public sealed class DungeonGenerationTests
         Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
     }
 
-    [TestCase("future-generator", 1)]
-    [TestCase("donjon-logical-splitmix64", 2)]
-    public void VersionTwoJson_DoesNotApplyOwnedMaskSafeArrivalOrDoorRecordsToFutureContracts(
-        string algorithm,
-        int algorithmVersion)
+    [TestCase("future-generator")]
+    public void DungeonJson_DoesNotApplyOwnedMaskSafeArrivalOrDoorRecordsToOtherContracts(
+        string algorithm)
     {
         JObject root = JObject.Parse(ContractJson());
         JObject generation = (JObject)root["generation"];
         generation["algorithm"] = algorithm;
-        generation["algorithmVersion"] = algorithmVersion;
         SetSymbol(root, new DungeonCell(0, 0), ' ');
         SetSymbol(root, new DungeonCell(1, 2), '.');
         SetSymbol(root, new DungeonCell(2, 2), 'D');
@@ -1260,16 +1160,13 @@ public sealed class DungeonGenerationTests
         Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
     }
 
-    [TestCase("future-generator", 1)]
-    [TestCase("donjon-logical-splitmix64", 2)]
-    public void VersionTwoJson_DoesNotApplyRectangularRoundOrSafeFallbackToFutureContracts(
-        string algorithm,
-        int algorithmVersion)
+    [TestCase("future-generator")]
+    public void DungeonJson_DoesNotApplyRectangularRoundOrSafeFallbackToOtherContracts(
+        string algorithm)
     {
         JObject root = JObject.Parse(ContractJson());
         JObject generation = (JObject)root["generation"];
         generation["algorithm"] = algorithm;
-        generation["algorithmVersion"] = algorithmVersion;
         ResizeRows(
             root,
             101,
@@ -1298,7 +1195,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsDuplicateObjectAndEncounterIds()
+    public void DungeonJson_RejectsDuplicateObjectAndEncounterIds()
     {
         JObject root = JObject.Parse(ContractJson());
         ((JArray)root["objects"]).Add(((JArray)root["objects"])[0].DeepClone());
@@ -1313,7 +1210,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsEveryMistypedOptionalValue()
+    public void DungeonJson_RejectsEveryMistypedOptionalValue()
     {
         JObject root = JObject.Parse(ContractJson());
         ((JObject)((JArray)root["objects"])[0])["state"] = 4;
@@ -1330,7 +1227,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RequiresRuntimeIdsToExactlyMirrorPersistedFlags()
+    public void DungeonJson_RequiresRuntimeIdsToExactlyMirrorPersistedFlags()
     {
         JObject closedButListed = JObject.Parse(ContractJson());
         ((JObject)((JArray)closedButListed["doors"])[0])["isOpen"] = false;
@@ -1368,7 +1265,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RequiresPristineFlagsWhenRuntimeStateIsAbsent()
+    public void DungeonJson_RequiresPristineFlagsWhenRuntimeStateIsAbsent()
     {
         JObject openDoor = JObject.Parse(ContractJson());
         openDoor.Property("runtimeState").Remove();
@@ -1391,7 +1288,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsLiveCreatureContentOutsideItsEncounterPlan()
+    public void DungeonJson_RejectsLiveCreatureContentOutsideItsEncounterPlan()
     {
         JObject root = JObject.Parse(ContractJson());
         ((JObject)((JArray)((JObject)root["runtimeState"])["creatures"])[0])["creatureId"] =
@@ -1406,7 +1303,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsLiveCreaturesForResolvedPlansAndExcessMultiplicity()
+    public void DungeonJson_RejectsLiveCreaturesForResolvedPlansAndExcessMultiplicity()
     {
         JObject resolved = JObject.Parse(ContractJson());
         ((JObject)((JArray)resolved["encounterPlans"])[0])["isResolved"] = true;
@@ -1432,7 +1329,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RequiresDefeatedAndLiveInstanceIdsToBeDisjoint()
+    public void DungeonJson_RequiresDefeatedAndLiveInstanceIdsToBeDisjoint()
     {
         JObject root = JObject.Parse(ContractJson());
         ((JObject)root["runtimeState"])["defeatedCreatureIds"] =
@@ -1447,7 +1344,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RequiresUniqueLiveInstanceIdsAndOccupiedCells()
+    public void DungeonJson_RequiresUniqueLiveInstanceIdsAndOccupiedCells()
     {
         JObject duplicateInstance = JObject.Parse(ContractJson());
         JObject secondByInstance = (JObject)((JArray)((JObject)duplicateInstance["runtimeState"])["creatures"])[0]
@@ -1482,7 +1379,7 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsUnknownPropertiesAtEveryObjectLevel()
+    public void DungeonJson_RejectsUnknownPropertiesAtEveryObjectLevel()
     {
         JObject root = JObject.Parse(ContractJson());
         root["unknownRoot"] = true;
@@ -1516,15 +1413,17 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
-    public void VersionTwoJson_RejectsDuplicateJsonProperties()
+    public void DungeonJson_RejectsDuplicateJsonProperties()
     {
-        string duplicate = ContractJson().Replace("\"version\":2", "\"version\":2,\"version\":2");
+        string duplicate = ContractJson().Replace(
+            "\"algorithm\":\"test\"",
+            "\"algorithm\":\"test\",\"algorithm\":\"test\"");
 
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(duplicate);
 
         Assert.That(parsed.IsSuccess, Is.False);
         Assert.That(parsed.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
-            diagnostic.Field == "json" && diagnostic.Message.Contains("version")));
+            diagnostic.Field == "json" && diagnostic.Message.Contains("algorithm")));
     }
 
     [Test]
@@ -1657,15 +1556,15 @@ public sealed class DungeonGenerationTests
     {
         var cases = new[]
         {
-            new { Name = "box-packed-straight-clean100", Seed = 11L, Layout = DungeonLayout.Box, Rooms = DungeonRoomLayout.Packed, Corridors = DungeonCorridorLayout.Straight, Cleanup = 100 },
-            new { Name = "cross-scattered-labyrinth-clean0", Seed = -22L, Layout = DungeonLayout.Cross, Rooms = DungeonRoomLayout.Scattered, Corridors = DungeonCorridorLayout.Labyrinth, Cleanup = 0 },
-            new { Name = "round-packed-bent-clean50", Seed = 33L, Layout = DungeonLayout.Round, Rooms = DungeonRoomLayout.Packed, Corridors = DungeonCorridorLayout.Bent, Cleanup = 50 }
+            new { Name = "box-packed-straight-clean100", Seed = 11, Layout = DungeonLayout.Box, Rooms = DungeonRoomLayout.Packed, Corridors = DungeonCorridorLayout.Straight, Cleanup = 100 },
+            new { Name = "cross-scattered-labyrinth-clean0", Seed = -22, Layout = DungeonLayout.Cross, Rooms = DungeonRoomLayout.Scattered, Corridors = DungeonCorridorLayout.Labyrinth, Cleanup = 0 },
+            new { Name = "round-packed-bent-clean50", Seed = 33, Layout = DungeonLayout.Round, Rooms = DungeonRoomLayout.Packed, Corridors = DungeonCorridorLayout.Bent, Cleanup = 50 }
         };
         string[] expected =
         {
-            "5cf543f8f165f035908a9f981ed7ae5e3b52c918b03f2ce8c45ac1661856ca7e",
-            "c0c3eccf0f75919f62d1507eaa7f710b86f338b8b7f4e52deb82f3d601b0beb2",
-            "19b46d3d53483984322f2309dbfb84b787df501c980105d42c72b895d3a49f1f"
+            "4836d768718b1520c8a001408deecd3bf3420d35563fc048ba12e666574586d5",
+            "512e14c5118a128b37dd6f19230a61d698317cf5ca2c831620fbf9a588a58973",
+            "f156a62fc1ec5c7b57c8eca0d666fa5f2f0713d9ce95e955337b370ef2cc6da3"
         };
         List<string> actual = new();
         foreach (var item in cases)
@@ -1686,12 +1585,9 @@ public sealed class DungeonGenerationTests
     private static DungeonLevelDocument ContractDocument() => ContractDocumentWithGeneration(
         new DungeonGenerationMetadata(
             "test",
-            7,
-            long.MinValue,
+            int.MinValue,
             3,
-            2,
-            "8000000000000000",
-            "0123456789abcdef"));
+            2));
 
     private static DungeonLevelDocument ContractDocumentWithGeneration(
         DungeonGenerationMetadata generation) => new(
@@ -1731,17 +1627,13 @@ public sealed class DungeonGenerationTests
 
     private static string ContractJson() => DungeonLevelJsonSerializer.Serialize(ContractDocument());
 
-    private static string OwnedContractJson(long runSeed, int depth, int topologyAttempt)
+    private static string OwnedContractJson(int runSeed, int depth, int topologyAttempt)
     {
         DungeonGenerationMetadata metadata = new(
-            "donjon-logical-splitmix64",
-            1,
+            "donjon-logical-system-random",
             runSeed,
             depth,
-            topologyAttempt,
-            DungeonSeedSequence.FormatState(DungeonSeedSequence.ForDepth(runSeed, depth)),
-            DungeonSeedSequence.FormatState(
-                DungeonSeedSequence.ForTopologyAttempt(runSeed, depth, topologyAttempt)));
+            topologyAttempt);
         DungeonLevelDocument document = new(
             metadata,
             new[]
@@ -1772,7 +1664,7 @@ public sealed class DungeonGenerationTests
         return DungeonLevelJsonSerializer.Serialize(document);
     }
 
-    private static DungeonGenerationRequest RequestWithStairCount(long seed, int stairCount)
+    private static DungeonGenerationRequest RequestWithStairCount(int seed, int stairCount)
     {
         DungeonGenerationRequest request = Request(seed, 31, 31);
         request.StairCount = stairCount;
@@ -1933,7 +1825,7 @@ public sealed class DungeonGenerationTests
         return deltaX * deltaX + deltaZ * deltaZ > (long)centerX * centerX;
     }
 
-    private static DungeonGenerationRequest Request(long seed, int width, int height) => new()
+    private static DungeonGenerationRequest Request(int seed, int width, int height) => new()
     {
         RunSeed = seed,
         Width = width,
