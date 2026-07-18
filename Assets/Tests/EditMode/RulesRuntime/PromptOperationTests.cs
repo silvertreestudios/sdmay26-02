@@ -141,6 +141,15 @@ namespace Game.Rules.Runtime.Tests
                 .UsePromptAdapter(first);
             Assert.Throws<ArgumentException>(() => new ScriptedPromptAdapter<bool>(
                 OpResult<ChoiceResult<bool>>.Invalid("Invalid is not a prompt outcome.")));
+            Assert.Throws<InvalidOperationException>(() =>
+                new RuleDispatcherBuilder(CreateStore(10))
+                    .RegisterHandler<PromptChoiceOp<bool>, ChoiceResult<bool>>(
+                        new BypassingPromptHandler()));
+            Assert.Throws<InvalidOperationException>(() =>
+                new RuleDispatcherBuilder(CreateStore(10))
+                    .RegisterReducer<PromptChoiceOp<bool>, ChoiceResult<bool>>(
+                        new BypassingPromptReducer(),
+                        Source));
             Assert.Throws<InvalidOperationException>(() => builder.UsePromptAdapter(
                 new ScriptedPromptAdapter<bool>()));
 
@@ -441,6 +450,25 @@ namespace Game.Rules.Runtime.Tests
                 PromptChoiceOp<bool> prompt,
                 RulesSnapshot snapshot) =>
                 new ValueTask<OpResult<ChoiceResult<bool>>>(result);
+        }
+
+        private sealed class BypassingPromptHandler :
+            IOpHandler<PromptChoiceOp<bool>, ChoiceResult<bool>>
+        {
+            public ValueTask<ChoiceResult<bool>> Handle(
+                OpFrame<PromptChoiceOp<bool>> frame,
+                OpHandlerContext context) =>
+                new ValueTask<ChoiceResult<bool>>(ChoiceResult<bool>.Selected(true));
+        }
+
+        private sealed class BypassingPromptReducer :
+            IOpReducer<PromptChoiceOp<bool>, ChoiceResult<bool>>
+        {
+            public ReductionResult<ChoiceResult<bool>> Reduce(
+                ReductionContext<PromptChoiceOp<bool>> context,
+                RulesStateDraft state,
+                FactSink facts) =>
+                ReductionResult<ChoiceResult<bool>>.Accept(ChoiceResult<bool>.Selected(true));
         }
 
         private sealed class CountingOpIdProvider : IOpIdProvider

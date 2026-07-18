@@ -3,6 +3,10 @@ using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
+    internal interface IPromptRegistration
+    {
+    }
+
     /// <summary>
     /// Requests one typed player, AI, replay, or test decision as a nested rules operation.
     /// </summary>
@@ -35,7 +39,7 @@ namespace Game.Rules.Runtime
     }
 
     internal sealed class PromptRegistration<TChoice>
-        : Registration<PromptChoiceOp<TChoice>, ChoiceResult<TChoice>>
+        : Registration<PromptChoiceOp<TChoice>, ChoiceResult<TChoice>>, IPromptRegistration
     {
         private readonly IPromptAdapter<TChoice> adapter;
 

@@ -86,7 +86,10 @@ namespace Game.Rules.Runtime
         /// <param name="policy">Whether the operation may begin as a root dispatch.</param>
         /// <returns>This builder so registrations can be chained.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="handler"/> is <see langword="null"/>.</exception>
-        /// <exception cref="InvalidOperationException"><typeparamref name="TOp"/> already has a resolver.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// <typeparamref name="TOp"/> is a reserved <see cref="PromptChoiceOp{TChoice}"/> type or
+        /// already has a resolver. Register prompt adapters through <see cref="UsePromptAdapter{TChoice}"/>.
+        /// </exception>
         public RuleDispatcherBuilder RegisterHandler<TOp, TResult>(
             IOpHandler<TOp, TResult> handler,
             InvocationPolicy policy = InvocationPolicy.ExternalAllowed)
@@ -108,7 +111,10 @@ namespace Game.Rules.Runtime
         /// <returns>This builder so registrations can be chained.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="reducer"/> is <see langword="null"/>.</exception>
         /// <exception cref="ArgumentException"><paramref name="source"/> is empty.</exception>
-        /// <exception cref="InvalidOperationException"><typeparamref name="TOp"/> already has a resolver.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// <typeparamref name="TOp"/> is a reserved <see cref="PromptChoiceOp{TChoice}"/> type or
+        /// already has a resolver. Register prompt adapters through <see cref="UsePromptAdapter{TChoice}"/>.
+        /// </exception>
         public RuleDispatcherBuilder RegisterReducer<TOp, TResult>(
             IOpReducer<TOp, TResult> reducer,
             RuleSource source)
@@ -376,6 +382,13 @@ namespace Game.Rules.Runtime
 
         private void Add(IRegistration registration)
         {
+            if (registration.OpType.IsGenericType &&
+                registration.OpType.GetGenericTypeDefinition() == typeof(PromptChoiceOp<>) &&
+                !(registration is IPromptRegistration))
+            {
+                throw new InvalidOperationException(
+                    $"{registration.OpType.Name} is reserved for UsePromptAdapter.");
+            }
             if (registrations.ContainsKey(registration.OpType))
                 throw new InvalidOperationException(
                     $"A resolver is already registered for {registration.OpType.Name}.");
