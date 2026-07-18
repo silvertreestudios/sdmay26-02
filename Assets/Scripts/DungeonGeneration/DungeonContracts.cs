@@ -464,7 +464,7 @@ namespace Game.DungeonGeneration
         /// <param name="openDoorIds">Stable IDs that exactly mirror doors whose persisted <see cref="DungeonDoor.IsOpen"/> flag is set.</param>
         /// <param name="resolvedEncounterIds">Stable IDs that exactly mirror plans whose persisted <see cref="DungeonEncounterPlan.IsResolved"/> flag is set.</param>
         /// <param name="defeatedCreatureIds">Unique stable IDs for defeated or removed instances; these IDs must not also identify live creatures.</param>
-        /// <param name="creatures">State for unique live instances belonging to unresolved encounter plans; null means an empty sequence.</param>
+        /// <param name="creatures">State for live instances with unique instance IDs and occupied cells belonging to unresolved encounter plans; null means an empty sequence.</param>
         /// <exception cref="ArgumentNullException">A required ID sequence is null.</exception>
         public DungeonRuntimeState(
             IEnumerable<string> openDoorIds,
@@ -491,7 +491,7 @@ namespace Game.DungeonGeneration
         /// <summary>Gets stable IDs for defeated or removed instances, disjoint from live instance IDs.</summary>
         public IReadOnlyList<string> DefeatedCreatureIds { get; }
 
-        /// <summary>Gets mutable state for unique live instances belonging to unresolved encounter plans.</summary>
+        /// <summary>Gets mutable state for live instances with unique IDs and occupied cells belonging to unresolved encounter plans.</summary>
         public IReadOnlyList<DungeonCreatureRuntimeState> Creatures { get; }
     }
 
@@ -502,7 +502,7 @@ namespace Game.DungeonGeneration
         /// <param name="instanceId">The stable spawned-instance identifier.</param>
         /// <param name="creatureId">The immutable creature content identifier, which must be present in the referenced plan.</param>
         /// <param name="encounterId">The stable unresolved encounter plan that created the instance.</param>
-        /// <param name="cell">The current walkable cell.</param>
+        /// <param name="cell">The current walkable cell, which must not be occupied by another live instance.</param>
         /// <param name="hitPoints">Current hit points; downstream rules own valid maximums and condition math.</param>
         /// <param name="state">An optional losslessly preserved child-persistence state token.</param>
         public DungeonCreatureRuntimeState(
@@ -530,7 +530,7 @@ namespace Game.DungeonGeneration
         /// <summary>Gets the stable unresolved encounter plan that created this live instance.</summary>
         public string EncounterId { get; }
 
-        /// <summary>Gets the creature's current walkable cell.</summary>
+        /// <summary>Gets the creature's current walkable cell, unique among live instances.</summary>
         public DungeonCell Cell { get; }
 
         /// <summary>Gets current hit points; downstream rules own maximums and condition math.</summary>

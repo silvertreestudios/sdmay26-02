@@ -167,7 +167,7 @@ namespace Game.DungeonGeneration
             List<DungeonObjectPlacement> objects = ReadObjects(root["objects"] as JArray, errors);
             List<DungeonEncounterPlan> encounters = ReadEncounters(root["encounterPlans"] as JArray, errors);
             DungeonRuntimeState runtime = ReadRuntime(root["runtimeState"], errors);
-            if (rowsAreRectangular) ValidateDocument(rows, rooms, doors, stairs, start, safe, objects, encounters, runtime, errors);
+            if (rowsAreRectangular) ValidateDocument(metadata, rows, rooms, doors, stairs, start, safe, objects, encounters, runtime, errors);
             if (errors.Count > 0) return new DungeonLevelParseResult(null, errors);
             return new DungeonLevelParseResult(new DungeonLevelDocument(metadata, rows, rooms, doors, stairs, start, safe, objects, encounters, runtime), errors);
         }
@@ -233,7 +233,7 @@ namespace Game.DungeonGeneration
         private static bool RequiredBool(JObject o, string name, string path, List<DungeonGenerationDiagnostic> e) { if (o[name]?.Type != JTokenType.Boolean) { e.Add(D(path + "." + name, "A boolean is required.")); return false; } return o[name].Value<bool>(); }
         private static DungeonEncounterThreat ReadThreat(string value, string path, List<DungeonGenerationDiagnostic> e) { if (value == "trivial") return DungeonEncounterThreat.Trivial; if (value == "low") return DungeonEncounterThreat.Low; if (value == "moderate") return DungeonEncounterThreat.Moderate; e.Add(D(path, "Encounter threat must be 'trivial', 'low', or 'moderate'.")); return DungeonEncounterThreat.Trivial; }
         private static void ValidateProperties(JObject source, string path, List<DungeonGenerationDiagnostic> e, params string[] names) { HashSet<string> allowed = new(names, StringComparer.Ordinal); foreach (JProperty property in source.Properties()) if (!allowed.Contains(property.Name)) e.Add(D(path == "$" ? property.Name : path + "." + property.Name, "Unknown property is not part of the version 2 schema.")); }
-        private static void ValidateDocument(IReadOnlyList<string> rows, IReadOnlyList<DungeonRoom> rooms, IReadOnlyList<DungeonDoor> doors, IReadOnlyList<DungeonStair> stairs, DungeonCell start, IReadOnlyList<DungeonCell> safe, IReadOnlyList<DungeonObjectPlacement> objects, IReadOnlyList<DungeonEncounterPlan> encounters, DungeonRuntimeState runtime, List<DungeonGenerationDiagnostic> errors)
+        private static void ValidateDocument(DungeonGenerationMetadata metadata, IReadOnlyList<string> rows, IReadOnlyList<DungeonRoom> rooms, IReadOnlyList<DungeonDoor> doors, IReadOnlyList<DungeonStair> stairs, DungeonCell start, IReadOnlyList<DungeonCell> safe, IReadOnlyList<DungeonObjectPlacement> objects, IReadOnlyList<DungeonEncounterPlan> encounters, DungeonRuntimeState runtime, List<DungeonGenerationDiagnostic> errors)
         {
             bool InBounds(DungeonCell c) => c.X >= 0 && c.Z >= 0 && c.X < rows[0].Length && c.Z < rows.Count;
             char Symbol(DungeonCell c) => rows[rows.Count - 1 - c.Z][c.X];
@@ -241,6 +241,19 @@ namespace Game.DungeonGeneration
             if (!Walkable(start)) errors.Add(D("arrival.start", "Start must reference a walkable cell."));
             if (safe.Count == 0 || safe.Any(cell => !Walkable(cell))) errors.Add(D("arrival.safeCells", "At least one safe cell is required and every safe cell must be walkable."));
             if (safe.Distinct().Count() != safe.Count) errors.Add(D("arrival.safeCells", "Safe cells must be unique."));
+            if (metadata != null &&
+                string.Equals(
+                    metadata.Algorithm,
+                    DeterministicDungeonGenerator.AlgorithmId,
+                    StringComparison.Ordinal) &&
+                metadata.AlgorithmVersion == DeterministicDungeonGenerator.AlgorithmVersion &&
+                safe.Count > 0 &&
+                start != DeterministicDungeonGenerator.SelectStartCell(stairs, safe))
+            {
+                errors.Add(D(
+                    "arrival.start",
+                    "For donjon-logical-splitmix64 algorithm version 1, start must equal the deterministic stair-aware selection from stairs and ordered safeCells."));
+            }
             bool invalidRooms = rooms.Select(room => room.Id).Distinct().Count() != rooms.Count || rooms.Any(room => room.Id < 1 || room.MinimumX > room.MaximumX || room.MinimumZ > room.MaximumZ || !InBounds(new DungeonCell(room.MinimumX, room.MinimumZ)) || !InBounds(new DungeonCell(room.MaximumX, room.MaximumZ)));
             if (invalidRooms) errors.Add(D("rooms", "Room IDs must be unique positive integers with ordered in-bounds bounds."));
             else
@@ -335,6 +348,13 @@ namespace Game.DungeonGeneration
                 if (liveInstanceIds.Count != runtime.Creatures.Count)
                 {
                     errors.Add(D("runtimeState.creatures", "Live creature instance IDs must be unique."));
+                }
+                if (runtime.Creatures.Select(creature => creature.Cell).Distinct().Count() !=
+                    runtime.Creatures.Count)
+                {
+                    errors.Add(D(
+                        "runtimeState.creatures",
+                        "Live creature occupied cells must be unique."));
                 }
                 if (liveInstanceIds.Overlaps(defeatedInstanceIds))
                 {

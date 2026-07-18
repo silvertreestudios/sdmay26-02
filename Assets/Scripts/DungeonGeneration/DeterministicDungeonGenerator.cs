@@ -11,6 +11,9 @@ namespace Game.DungeonGeneration
     /// </summary>
     public sealed class DeterministicDungeonGenerator : IDungeonGenerator
     {
+        internal const string AlgorithmId = "donjon-logical-splitmix64";
+        internal const int AlgorithmVersion = 1;
+
         /// <summary>Maximum deterministic topology attempts, including the initial attempt.</summary>
         public const int MaximumAttempts = 32;
         // Donjon sorts direction names before shuffling them: east, north, south, west.
@@ -216,7 +219,7 @@ namespace Game.DungeonGeneration
                 if (safe.Count == 0) { rejection = "No valid safe arrival cell remained after cleanup."; return false; }
                 DungeonCell start = SelectStartCell(stairs, safe);
                 DungeonGenerationMetadata metadata = new(
-                    "donjon-logical-splitmix64", 1, request.RunSeed, request.Depth, attempt,
+                    AlgorithmId, AlgorithmVersion, request.RunSeed, request.Depth, attempt,
                     DungeonSeedSequence.FormatState(DungeonSeedSequence.ForDepth(request.RunSeed, request.Depth)),
                     DungeonSeedSequence.FormatState(topologyState));
                 document = new DungeonLevelDocument(metadata, BuildRows(), rooms, doors, stairs, start, safe,

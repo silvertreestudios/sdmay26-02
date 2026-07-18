@@ -20,10 +20,12 @@ namespace Game.DungeonGeneration
         /// <param name="doors">Stable door records with exactly one record for every <c>D</c> row cell.</param>
         /// <param name="stairs">At most one down and one up stair, in traversal order.</param>
         /// <param name="startCell">
-        /// The default walkable player start and arrival fallback. Generated two-stair documents
-        /// use the Up arrival. With one Down stair they prefer the first safe cell outside that
-        /// stair's endpoint and arrival, falling back to the first safe cell only when unavoidable;
-        /// generated zero-stair documents use the first safe cell.
+        /// The default walkable player start and arrival fallback. Documents owned by
+        /// donjon-logical-splitmix64 algorithm version 1 must use the deterministic stair-aware
+        /// selection: two-stair documents use the Up arrival; one-Down-stair documents prefer the
+        /// first safe cell outside that stair's endpoint and arrival, falling back to the first safe
+        /// cell only when unavoidable; and zero-stair documents use the first safe cell. Other
+        /// generator algorithms and versions may define different walkable start semantics.
         /// </param>
         /// <param name="safeCells">Ordered unique walkable cells safe for party arrival.</param>
         /// <param name="objects">Deterministic object placements with unique stable IDs.</param>
@@ -62,8 +64,9 @@ namespace Game.DungeonGeneration
         /// <summary>Gets stairs in traversal order; generated two-stair documents list down before up.</summary>
         public IReadOnlyList<DungeonStair> Stairs { get; }
         /// <summary>
-        /// Gets the default player start and arrival fallback. Generated levels prefer the Up
-        /// arrival, otherwise a safe cell away from the Down exit when one is available.
+        /// Gets the default player start and arrival fallback. Donjon logical algorithm version 1
+        /// documents prefer the Up arrival, otherwise a safe cell away from the Down exit when one
+        /// is available; other generator contracts may define different walkable start semantics.
         /// </summary>
         public DungeonCell StartCell { get; }
         /// <summary>Gets ordered cells safe for arrival or fallback spawning.</summary>

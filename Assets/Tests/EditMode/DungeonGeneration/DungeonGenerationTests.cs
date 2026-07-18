@@ -160,6 +160,56 @@ public sealed class DungeonGenerationTests
         }
     }
 
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    public void VersionTwoJson_RejectsStartTamperingForOwnedGeneratorStairCases(int stairCount)
+    {
+        DungeonGenerationRequest request = Request(152, 31, 31);
+        request.StairCount = stairCount;
+        JObject root = JObject.Parse(GenerateJson(request));
+        DungeonLevelParseResult original = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+        Assert.That(original.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, original.Diagnostics.Select(diagnostic => diagnostic.Message)));
+
+        DungeonCell tamperedStart = stairCount == 0
+            ? original.Document.SafeCells.First(cell => cell != original.Document.StartCell)
+            : original.Document.Stairs.Single(stair => stair.Kind == DungeonStairKind.Down).ArrivalCell;
+        ((JObject)root["arrival"])["start"] = JsonCell(tamperedStart);
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.IsSuccess, Is.False);
+        Assert.That(parsed.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+            diagnostic.Field == "arrival.start" &&
+            diagnostic.Message.Contains("donjon-logical-splitmix64") &&
+            diagnostic.Message.Contains("stair-aware")));
+    }
+
+    [TestCase("donjon-logical-splitmix64", 2)]
+    [TestCase("future-generator", 1)]
+    public void VersionTwoJson_DoesNotApplyDonjonV1StartSelectionToOtherGeneratorContracts(
+        string algorithm,
+        int algorithmVersion)
+    {
+        JObject root = JObject.Parse(GenerateJson(Request(152, 31, 31)));
+        JObject generation = (JObject)root["generation"];
+        generation["algorithm"] = algorithm;
+        generation["algorithmVersion"] = algorithmVersion;
+        JObject downStair = ((JArray)root["stairs"])
+            .Cast<JObject>()
+            .Single(stair => stair.Value<string>("kind") == "down");
+        ((JObject)root["arrival"])["start"] = downStair["arrivalCell"].DeepClone();
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+    }
+
     [Test]
     public void KayKitParser_AcceptsVersionTwoAndRetainsLosslessDocument()
     {
@@ -482,6 +532,41 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
+    public void VersionTwoJson_RequiresUniqueLiveInstanceIdsAndOccupiedCells()
+    {
+        JObject duplicateInstance = JObject.Parse(ContractJson());
+        JObject secondByInstance = (JObject)((JArray)((JObject)duplicateInstance["runtimeState"])["creatures"])[0]
+            .DeepClone();
+        secondByInstance["creatureId"] = "creature-a";
+        secondByInstance["cell"] = JsonCell(new DungeonCell(0, 1));
+        ((JArray)((JObject)duplicateInstance["runtimeState"])["creatures"]).Add(secondByInstance);
+        DungeonLevelParseResult duplicateInstanceResult = DungeonLevelJsonParser.Parse(
+            duplicateInstance.ToString(Formatting.None));
+
+        JObject duplicateCell = JObject.Parse(ContractJson());
+        JObject secondByCell = (JObject)((JArray)((JObject)duplicateCell["runtimeState"])["creatures"])[0]
+            .DeepClone();
+        secondByCell["instanceId"] = "creature-a#2";
+        secondByCell["creatureId"] = "creature-a";
+        ((JArray)((JObject)duplicateCell["runtimeState"])["creatures"]).Add(secondByCell);
+        DungeonLevelParseResult duplicateCellResult = DungeonLevelJsonParser.Parse(
+            duplicateCell.ToString(Formatting.None));
+
+        Assert.That(duplicateInstanceResult.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "runtimeState.creatures" &&
+                diagnostic.Message.Contains("instance IDs must be unique")));
+        Assert.That(duplicateCellResult.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "runtimeState.creatures" &&
+                diagnostic.Message.Contains("occupied cells must be unique")));
+        Assert.That(duplicateInstanceResult.Diagnostics.Concat(duplicateCellResult.Diagnostics),
+            Has.None.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Message.Contains("available creature entry") ||
+                diagnostic.Message.Contains("disjoint")));
+    }
+
+    [Test]
     public void VersionTwoJson_RejectsUnknownPropertiesAtEveryObjectLevel()
     {
         JObject root = JObject.Parse(ContractJson());
@@ -656,6 +741,12 @@ public sealed class DungeonGenerationTests
             }));
 
     private static string ContractJson() => DungeonLevelJsonSerializer.Serialize(ContractDocument());
+
+    private static JObject JsonCell(DungeonCell cell) => new()
+    {
+        ["x"] = cell.X,
+        ["z"] = cell.Z
+    };
 
     private static bool IsMaskedByDonjon(
         DungeonLayout layout,
