@@ -124,6 +124,15 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(statistics.GetSkillModifier(Skill.Acrobatics), Is.EqualTo(7));
             Assert.That(statistics.Modifiers, Has.Count.EqualTo(1));
             Assert.That(snapshot.Statistics[Actor], Is.SameAs(statistics));
+            Assert.Throws<ArgumentException>(() => new CreatureStatisticsState(
+                Actor,
+                8,
+                18,
+                6,
+                7,
+                5,
+                skills,
+                new[] { default(Modifier) }));
         }
 
         [Test]

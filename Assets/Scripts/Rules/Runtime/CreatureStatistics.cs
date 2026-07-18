@@ -74,7 +74,9 @@ namespace Game.Rules.Runtime
         /// <paramref name="skillModifiers"/> or <paramref name="modifiers"/> is <see langword="null"/>.
         /// </exception>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="armorClass"/> is negative.</exception>
-        /// <exception cref="ArgumentException">A skill key is empty.</exception>
+        /// <exception cref="ArgumentException">
+        /// A skill key or modifier value is empty.
+        /// </exception>
         public CreatureStatisticsState(
             CreatureId creature,
             int attackModifier,
@@ -102,6 +104,10 @@ namespace Game.Rules.Runtime
                 copiedSkills.Add(pair.Key, pair.Value);
             }
 
+            Modifier[] copiedModifiers = modifiers.ToArray();
+            if (copiedModifiers.Any(modifier => modifier.IsEmpty))
+                throw new ArgumentException("Statistics modifiers cannot contain an empty value.", nameof(modifiers));
+
             Creature = creature;
             AttackModifier = attackModifier;
             ArmorClass = armorClass;
@@ -109,7 +115,7 @@ namespace Game.Rules.Runtime
             ReflexModifier = reflexModifier;
             WillModifier = willModifier;
             this.skillModifiers = new ReadOnlyDictionary<Skill, int>(copiedSkills);
-            this.modifiers = Array.AsReadOnly(modifiers.ToArray());
+            this.modifiers = Array.AsReadOnly(copiedModifiers);
         }
 
         /// <summary>
