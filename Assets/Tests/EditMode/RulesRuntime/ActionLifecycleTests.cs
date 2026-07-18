@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 
@@ -262,6 +264,32 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(validator.Profile, Is.SameAs(effectiveProfile));
             Assert.That(handler.Profile, Is.SameAs(effectiveProfile));
             Assert.That(handler.ActionsRemaining, Is.EqualTo(2));
+        }
+
+        [Test]
+        public async Task ProfileResolutionRunsOutsideTheDispatcherGate()
+        {
+            object observedGate = new object();
+            LockObservingProfileResolver resolver = new LockObservingProfileResolver(
+                () => Monitor.IsEntered(observedGate));
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateFullySeededStore())
+                .RegisterHandler<TestActionOp, TestActionOutcome>(
+                    new RecordingActionHandler(true))
+                .UseActionLifecycle(
+                    new FixedActionCatalog(ActionProfile.OneAction(Array.Empty<Trait>())),
+                    resolver)
+                .UseRuleRegistry(CreateRuleRegistry())
+                .Build();
+            observedGate = typeof(RuleDispatcher)
+                .GetField("gate", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.GetValue(dispatcher) ??
+                throw new InvalidOperationException("The dispatcher gate could not be inspected.");
+
+            OpResult<TestActionOutcome> result =
+                await dispatcher.Dispatch(new TestActionOp());
+
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<TestActionOutcome>>());
+            Assert.That(resolver.WasDispatcherGateHeld, Is.False);
         }
 
         [Test]
@@ -572,6 +600,26 @@ namespace Game.Rules.Runtime.Tests
             {
                 Profile = frame.ActionProfile;
                 return ActionValidationResult.Valid;
+            }
+        }
+
+        private sealed class LockObservingProfileResolver : IActionProfileResolver
+        {
+            private readonly Func<bool> isDispatcherGateHeld;
+
+            public LockObservingProfileResolver(Func<bool> isDispatcherGateHeld) =>
+                this.isDispatcherGateHeld = isDispatcherGateHeld ??
+                    throw new ArgumentNullException(nameof(isDispatcherGateHeld));
+
+            public bool WasDispatcherGateHeld { get; private set; }
+
+            public ActionProfile Resolve(
+                ActionOpInfo action,
+                ActionProfile baseProfile,
+                RulesSnapshot snapshot)
+            {
+                WasDispatcherGateHeld = isDispatcherGateHeld();
+                return baseProfile;
             }
         }
 

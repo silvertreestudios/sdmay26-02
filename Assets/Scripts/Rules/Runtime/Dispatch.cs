@@ -1512,20 +1512,30 @@ namespace Game.Rules.Runtime
             IFrameInvocation invocation;
             IReadOnlyList<BoundMiddlewareRegistration> middleware;
             IReadOnlyList<BoundFactListenerRegistration> factListeners;
+            RulesSnapshot startSnapshot;
             lock (gate)
             {
                 RequireActiveResolution(resolution);
                 id = parentId.HasValue ? ids.Next() : rootId;
                 firstFact = resolution.Facts.Count;
-                RulesSnapshot startSnapshot = store.Snapshot;
-                FrameActionState actionState = actionRuntime.CreateFrameState(
-                    id,
-                    rootId,
-                    parentId,
-                    causeId,
-                    registration.Policy,
-                    op,
-                    startSnapshot);
+                startSnapshot = store.Snapshot;
+            }
+
+            // Catalog and profile resolution are extension points. They consume the captured
+            // snapshot but must never run while the dispatcher monitor is held; a slow or
+            // cross-thread implementation must not block unrelated ownership checks.
+            FrameActionState actionState = actionRuntime.CreateFrameState(
+                id,
+                rootId,
+                parentId,
+                causeId,
+                registration.Policy,
+                op,
+                startSnapshot);
+
+            lock (gate)
+            {
+                RequireActiveResolution(resolution);
                 invocation = registration.CreateInvocation(
                     id,
                     rootId,
