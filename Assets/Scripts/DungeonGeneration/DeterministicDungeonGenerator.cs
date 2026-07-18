@@ -225,8 +225,9 @@ namespace Game.DungeonGeneration
                 if (!EmplaceStairs()) { rejection = $"Only {stairs.Count.ToString(CultureInfo.InvariantCulture)} structurally valid stair ends were available for {request.StairCount.ToString(CultureInfo.InvariantCulture)} requested stairs."; return false; }
                 CleanDeadEnds();
                 if (!IsConnected()) { rejection = "Dead-end cleanup disconnected walkable topology."; return false; }
-                if (!HasValidRoomBoundaryCrossings()) { rejection = "A room-boundary crossing was not represented by exactly one stable door."; return false; }
-                if (!HasValidDoors()) { rejection = "A generated door did not retain two opposite walkable neighbors or a unique stable record."; return false; }
+                IReadOnlyList<string> rows = BuildRows();
+                if (!DungeonTopologyValidator.HasValidRoomBoundaryCrossings(rows, rooms, doors)) { rejection = "A room-boundary crossing was not represented by exactly one stable door."; return false; }
+                if (!DungeonTopologyValidator.HasValidDoors(rows, rooms, doors)) { rejection = "A generated door did not retain two opposite walkable neighbors or a unique stable record."; return false; }
                 List<DungeonCell> safe = BuildSafeCells();
                 if (safe.Count == 0) { rejection = "No valid safe arrival cell remained after cleanup."; return false; }
                 DungeonCell start = SelectStartCell(stairs, safe);
@@ -234,7 +235,7 @@ namespace Game.DungeonGeneration
                     AlgorithmId, AlgorithmVersion, request.RunSeed, request.Depth, attempt,
                     DungeonSeedSequence.FormatState(DungeonSeedSequence.ForDepth(request.RunSeed, request.Depth)),
                     DungeonSeedSequence.FormatState(topologyState));
-                document = new DungeonLevelDocument(metadata, BuildRows(), rooms, doors, stairs, start, safe,
+                document = new DungeonLevelDocument(metadata, rows, rooms, doors, stairs, start, safe,
                     Array.Empty<DungeonObjectPlacement>(), Array.Empty<DungeonEncounterPlan>());
                 return true;
             }
@@ -666,58 +667,8 @@ namespace Game.DungeonGeneration
                 return rows;
             }
 
-            private bool HasValidRoomBoundaryCrossings()
-            {
-                HashSet<DungeonCell> recordedDoorCells = new(doors.Select(door => door.Cell));
-                foreach (DungeonRoom room in rooms)
-                {
-                    for (int z = room.MinimumZ; z <= room.MaximumZ; z++)
-                    for (int x = room.MinimumX; x <= room.MaximumX; x++)
-                    {
-                        foreach (DungeonCell direction in Directions)
-                        {
-                            DungeonCell neighbor = new(x + direction.X, z + direction.Z);
-                            bool neighborInsideRoom =
-                                neighbor.X >= room.MinimumX && neighbor.X <= room.MaximumX &&
-                                neighbor.Z >= room.MinimumZ && neighbor.Z <= room.MaximumZ;
-                            if (neighborInsideRoom || !InBounds(neighbor.X, neighbor.Z) || !IsWalkable(neighbor))
-                                continue;
-                            if (cells[neighbor.X, neighbor.Z] != CellKind.Door || !recordedDoorCells.Contains(neighbor))
-                                return false;
-                        }
-                    }
-                }
-                return true;
-            }
-
-            private bool HasValidDoors()
-            {
-                if (doors.Select(door => door.Id).Distinct(StringComparer.Ordinal).Count() != doors.Count ||
-                    doors.Select(door => door.Cell).Distinct().Count() != doors.Count)
-                    return false;
-                int doorCellCount = WalkableCells().Count(cell => cells[cell.X, cell.Z] == CellKind.Door);
-                if (doorCellCount != doors.Count)
-                    return false;
-                foreach (DungeonDoor door in doors)
-                {
-                    if (cells[door.Cell.X, door.Cell.Z] != CellKind.Door)
-                        return false;
-                    List<DungeonCell> openNeighbors = OpenNeighbors(door.Cell);
-                    if (openNeighbors.Count != 2)
-                        return false;
-                    if (openNeighbors[0].X != openNeighbors[1].X && openNeighbors[0].Z != openNeighbors[1].Z)
-                        return false;
-                    if (!openNeighbors.Any(neighbor => cells[neighbor.X, neighbor.Z] == CellKind.Room))
-                        return false;
-                }
-                return true;
-            }
-
             private bool IsConnected()
-            {
-                List<DungeonCell> walkable = WalkableCells().ToList();
-                return walkable.Count > 0 && Distances(walkable[0]).Count == walkable.Count;
-            }
+                => DungeonTopologyValidator.HasSingleWalkableRegion(BuildRows());
 
             private Dictionary<DungeonCell, int> Distances(DungeonCell start)
             {

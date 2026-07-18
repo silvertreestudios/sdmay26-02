@@ -179,13 +179,9 @@ namespace Game.DungeonGeneration
             string algorithm = RequiredString(source, "algorithm", "generation", errors);
             int algorithmVersion = RequiredInt(source, "algorithmVersion", "generation", errors);
             string seedText = RequiredString(source, "runSeed", "generation", errors);
-            bool runSeedIsValid = long.TryParse(
-                seedText,
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out long runSeed);
+            bool runSeedIsValid = TryParseCanonicalRunSeed(seedText, out long runSeed);
             if (!runSeedIsValid)
-                errors.Add(D("generation.runSeed", "Run seed must be a signed 64-bit integer encoded as a JSON string."));
+                errors.Add(D("generation.runSeed", "Run seed must use the canonical invariant spelling of a signed 64-bit integer encoded as a JSON string."));
             int depth = RequiredInt(source, "depth", "generation", errors);
             int topologyAttempt = RequiredInt(source, "topologyAttempt", "generation", errors);
             string depthState = RequiredString(source, "depthState", "generation", errors);
@@ -294,7 +290,8 @@ namespace Game.DungeonGeneration
             if (!Walkable(start)) errors.Add(D("arrival.start", "Start must reference a walkable cell."));
             if (safe.Count == 0 || safe.Any(cell => !Walkable(cell))) errors.Add(D("arrival.safeCells", "At least one safe cell is required and every safe cell must be walkable."));
             if (safe.Distinct().Count() != safe.Count) errors.Add(D("arrival.safeCells", "Safe cells must be unique."));
-            if (DeterministicDungeonGenerator.OwnsContract(metadata) &&
+            bool ownsContract = DeterministicDungeonGenerator.OwnsContract(metadata);
+            if (ownsContract &&
                 safe.Count > 0 &&
                 start != DeterministicDungeonGenerator.SelectStartCell(stairs, safe))
             {
@@ -327,6 +324,27 @@ namespace Game.DungeonGeneration
             HashSet<DungeonCell> rowDoorCells = new();
             for (int row = 0; row < rows.Count; row++) for (int x = 0; x < rows[row].Length; x++) if (rows[row][x] == 'D') rowDoorCells.Add(new DungeonCell(x, rows.Count - 1 - row));
             if (!rowDoorCells.SetEquals(doorCells)) errors.Add(D("doors", "Every 'D' row cell must have exactly one door record and every record must map to one 'D' cell."));
+            if (ownsContract && Walkable(start) &&
+                !DungeonTopologyValidator.AreAllWalkableCellsReachable(rows, start))
+            {
+                errors.Add(D(
+                    "rows",
+                    "For donjon-logical-splitmix64 algorithm version 1, every walkable cell must be reachable from arrival.start."));
+            }
+            if (ownsContract && !invalidRooms &&
+                !DungeonTopologyValidator.HasValidRoomBoundaryCrossings(rows, rooms, doors))
+            {
+                errors.Add(D(
+                    "doors",
+                    "For donjon-logical-splitmix64 algorithm version 1, every walkable room-boundary crossing must be exactly one recorded 'D' door."));
+            }
+            if (ownsContract && !invalidRooms &&
+                !DungeonTopologyValidator.HasValidDoors(rows, rooms, doors))
+            {
+                errors.Add(D(
+                    "doors",
+                    "For donjon-logical-splitmix64 algorithm version 1, every recorded door must have exactly two opposite walkable neighbors and valid room adjacency."));
+            }
             if (stairs.Select(stair => stair.Id).Distinct(StringComparer.Ordinal).Count() != stairs.Count || stairs.Select(stair => stair.Kind).Distinct().Count() != stairs.Count || stairs.Any(stair => !Walkable(stair.Cell) || !Walkable(stair.ArrivalCell) || Math.Abs(stair.Cell.X - stair.ArrivalCell.X) + Math.Abs(stair.Cell.Z - stair.ArrivalCell.Z) != 1)) errors.Add(D("stairs", "Stair IDs and kinds must be unique, and each stair must have an adjacent walkable arrival cell."));
             if (objects.Select(item => item.Id).Distinct(StringComparer.Ordinal).Count() != objects.Count || objects.Any(item => !InBounds(item.Cell) || (item.Rotation != 0 && item.Rotation != 90 && item.Rotation != 180 && item.Rotation != 270))) errors.Add(D("objects", "Object IDs must be unique, cells must be in bounds, and rotations must be 0, 90, 180, or 270."));
             HashSet<int> roomIds = new(rooms.Select(room => room.Id));
@@ -457,7 +475,34 @@ namespace Game.DungeonGeneration
                 }
             }
         }
-        private static bool IsState(string value) => value?.Length == 16 && ulong.TryParse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _);
+        private static bool IsState(string value)
+        {
+            if (value?.Length != 16)
+                return false;
+            foreach (char character in value)
+            {
+                bool isAsciiHex = character >= '0' && character <= '9' ||
+                                  character >= 'a' && character <= 'f' ||
+                                  character >= 'A' && character <= 'F';
+                if (!isAsciiHex)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryParseCanonicalRunSeed(string value, out long runSeed)
+        {
+            bool parsed = long.TryParse(
+                value,
+                NumberStyles.AllowLeadingSign,
+                CultureInfo.InvariantCulture,
+                out runSeed);
+            return parsed && string.Equals(
+                value,
+                runSeed.ToString(CultureInfo.InvariantCulture),
+                StringComparison.Ordinal);
+        }
         private static int? Int(JToken token) => token?.Type == JTokenType.Integer && int.TryParse(token.ToString(Formatting.None), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ? value : null;
         private static string String(JToken token) => token?.Value<string>() ?? string.Empty;
         private static DungeonGenerationDiagnostic D(string field, string message) => new(DungeonGenerationDiagnosticCode.InvalidDocument, field, message);

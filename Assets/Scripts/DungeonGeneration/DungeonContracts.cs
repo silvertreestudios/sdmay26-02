@@ -232,8 +232,8 @@ namespace Game.DungeonGeneration
         /// <param name="runSeed">The original signed run seed.</param>
         /// <param name="depth">The nonnegative requested depth.</param>
         /// <param name="topologyAttempt">The accepted nonnegative retry attempt; the owned version 1 generator limits this to its first 32 attempts.</param>
-        /// <param name="depthState">The fixed-width hexadecimal depth output; the owned version 1 generator requires its exact lowercase derived format.</param>
-        /// <param name="topologyState">The fixed-width hexadecimal topology stream state; the owned version 1 generator requires its exact lowercase derived format.</param>
+        /// <param name="depthState">The fixed-width ASCII hexadecimal depth output; the owned version 1 generator requires its exact lowercase derived format.</param>
+        /// <param name="topologyState">The fixed-width ASCII hexadecimal topology stream state; the owned version 1 generator requires its exact lowercase derived format.</param>
         public DungeonGenerationMetadata(
             string algorithm,
             int algorithmVersion,
@@ -267,10 +267,10 @@ namespace Game.DungeonGeneration
         /// <summary>Gets the accepted nonnegative topology attempt, subject to the producing algorithm's contract.</summary>
         public int TopologyAttempt { get; }
 
-        /// <summary>Gets the depth output as exactly 16 hexadecimal digits.</summary>
+        /// <summary>Gets the depth output as exactly 16 ASCII hexadecimal digits.</summary>
         public string DepthState { get; }
 
-        /// <summary>Gets the accepted topology stream state as exactly 16 hexadecimal digits.</summary>
+        /// <summary>Gets the accepted topology stream state as exactly 16 ASCII hexadecimal digits.</summary>
         public string TopologyState { get; }
     }
 

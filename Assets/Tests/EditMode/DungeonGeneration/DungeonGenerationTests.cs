@@ -303,6 +303,78 @@ public sealed class DungeonGenerationTests
             Does.Contain("generation.topologyState"));
     }
 
+    [TestCase(" fffffffffffffff")]
+    [TestCase("fffffffffffffff ")]
+    [TestCase("0123456789abcdeG")]
+    [TestCase("０123456789abcdef")]
+    public void VersionTwoJson_RequiresExactlySixteenAsciiHexCharactersForEveryState(
+        string malformedState)
+    {
+        foreach (string field in new[] { "depthState", "topologyState" })
+        {
+            JObject root = JObject.Parse(ContractJson());
+            ((JObject)root["generation"])[field] = malformedState;
+
+            DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+                root.ToString(Formatting.None));
+
+            Assert.That(parsed.Diagnostics,
+                Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                    diagnostic.Field == "generation." + field &&
+                    diagnostic.Message.Contains("exactly 16 hexadecimal digits")),
+                field + "=" + malformedState);
+        }
+    }
+
+    [TestCase(long.MinValue)]
+    [TestCase(-1L)]
+    [TestCase(0L)]
+    [TestCase(1L)]
+    [TestCase(long.MaxValue)]
+    public void VersionTwoJson_RoundTripsCanonicalRunSeedSpellings(long runSeed)
+    {
+        DungeonGenerationMetadata metadata = new(
+            "future-generator",
+            1,
+            runSeed,
+            0,
+            0,
+            "0123456789abcdef",
+            "fedcba9876543210");
+        string json = DungeonLevelJsonSerializer.Serialize(
+            ContractDocumentWithGeneration(metadata));
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+
+        Assert.That(parsed.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(parsed.Document.Generation.RunSeed, Is.EqualTo(runSeed));
+        Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
+    }
+
+    [TestCase("+1")]
+    [TestCase("001")]
+    [TestCase(" 1 ")]
+    [TestCase("-0")]
+    [TestCase("")]
+    [TestCase("1.0")]
+    [TestCase("9223372036854775808")]
+    [TestCase("--1")]
+    public void VersionTwoJson_RejectsNoncanonicalOrInvalidRunSeedSpellings(string runSeed)
+    {
+        JObject root = JObject.Parse(ContractJson());
+        ((JObject)root["generation"])["runSeed"] = runSeed;
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.IsSuccess, Is.False);
+        Assert.That(parsed.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "generation.runSeed" &&
+                diagnostic.Message.Contains("canonical invariant spelling")));
+    }
+
     [Test]
     public void VersionTwoJson_RejectsOwnedAttemptAtMaximumBoundary()
     {
@@ -519,6 +591,113 @@ public sealed class DungeonGenerationTests
             diagnostic.Field == "doors" && diagnostic.Message.Contains("Every 'D'")));
         Assert.That(duplicateResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
             diagnostic.Field == "doors" && diagnostic.Message.Contains("unique")));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsDisconnectedWalkableRegionsForOwnedGenerator()
+    {
+        JObject root = JObject.Parse(OwnedContractJson(152, 0, 0));
+        SetSymbol(root, new DungeonCell(5, 5), '.');
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "rows" &&
+                diagnostic.Message.Contains("every walkable cell") &&
+                diagnostic.Message.Contains("arrival.start")));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsUnrecordedRoomBoundaryCrossingsForOwnedGenerator()
+    {
+        JObject root = JObject.Parse(OwnedContractJson(152, 0, 0));
+        SetSymbol(root, new DungeonCell(4, 2), '.');
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "doors" &&
+                diagnostic.Message.Contains("room-boundary crossing") &&
+                diagnostic.Message.Contains("exactly one recorded")));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsMalformedOwnedDoorGeometryAndRoomAdjacency()
+    {
+        var cases = new[]
+        {
+            new
+            {
+                Name = "one neighbor",
+                Mutate = (Action<JObject>)(root =>
+                    SetSymbol(root, new DungeonCell(2, 5), '#'))
+            },
+            new
+            {
+                Name = "three neighbors",
+                Mutate = (Action<JObject>)(root =>
+                    SetSymbol(root, new DungeonCell(1, 4), '.'))
+            },
+            new
+            {
+                Name = "non-opposite neighbors",
+                Mutate = (Action<JObject>)(root =>
+                {
+                    SetSymbol(root, new DungeonCell(2, 5), '#');
+                    SetSymbol(root, new DungeonCell(1, 4), '.');
+                })
+            },
+            new
+            {
+                Name = "no room adjacency",
+                Mutate = (Action<JObject>)(root =>
+                {
+                    SetSymbol(root, new DungeonCell(2, 4), '#');
+                    SetSymbol(root, new DungeonCell(4, 5), '.');
+                    SetSymbol(root, new DungeonCell(5, 5), 'D');
+                    SetSymbol(root, new DungeonCell(6, 5), '.');
+                    ((JObject)((JArray)root["doors"])[0])["cell"] =
+                        JsonCell(new DungeonCell(5, 5));
+                })
+            }
+        };
+
+        foreach (var item in cases)
+        {
+            JObject root = JObject.Parse(OwnedContractJson(152, 0, 0));
+            item.Mutate(root);
+
+            DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+                root.ToString(Formatting.None));
+
+            Assert.That(parsed.Diagnostics,
+                Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                    diagnostic.Field == "doors" &&
+                    diagnostic.Message.Contains("exactly two opposite walkable neighbors") &&
+                    diagnostic.Message.Contains("valid room adjacency")),
+                item.Name);
+        }
+    }
+
+    [Test]
+    public void VersionTwoJson_DoesNotApplyOwnedTopologyRulesToFutureContracts()
+    {
+        JObject root = JObject.Parse(OwnedContractJson(152, 0, 0));
+        ((JObject)root["generation"])["algorithmVersion"] = 2;
+        SetSymbol(root, new DungeonCell(5, 5), '.');
+        SetSymbol(root, new DungeonCell(4, 2), '.');
+        SetSymbol(root, new DungeonCell(2, 5), '#');
+        string json = root.ToString(Formatting.None);
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+
+        Assert.That(parsed.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
     }
 
     [Test]
@@ -903,7 +1082,35 @@ public sealed class DungeonGenerationTests
             DungeonSeedSequence.FormatState(DungeonSeedSequence.ForDepth(runSeed, depth)),
             DungeonSeedSequence.FormatState(
                 DungeonSeedSequence.ForTopologyAttempt(runSeed, depth, topologyAttempt)));
-        return DungeonLevelJsonSerializer.Serialize(ContractDocumentWithGeneration(metadata));
+        DungeonLevelDocument document = new(
+            metadata,
+            new[]
+            {
+                "#######",
+                "##.####",
+                "##D####",
+                "#...###",
+                "#...###",
+                "#...###",
+                "#######"
+            },
+            new[] { new DungeonRoom(1, 1, 1, 3, 3) },
+            new[] { new DungeonDoor("door-0001", new DungeonCell(2, 4)) },
+            Array.Empty<DungeonStair>(),
+            new DungeonCell(2, 2),
+            new[] { new DungeonCell(2, 2), new DungeonCell(1, 1) },
+            Array.Empty<DungeonObjectPlacement>(),
+            Array.Empty<DungeonEncounterPlan>());
+        return DungeonLevelJsonSerializer.Serialize(document);
+    }
+
+    private static void SetSymbol(JObject root, DungeonCell cell, char symbol)
+    {
+        JArray rows = (JArray)root["rows"];
+        int rowIndex = rows.Count - 1 - cell.Z;
+        char[] row = rows.Value<string>(rowIndex).ToCharArray();
+        row[cell.X] = symbol;
+        rows[rowIndex] = new string(row);
     }
 
     private static JObject JsonCell(DungeonCell cell) => new()
