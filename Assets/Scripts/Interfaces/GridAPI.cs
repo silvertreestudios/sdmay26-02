@@ -7,14 +7,6 @@ namespace GridPublic
 {
     public abstract class GridAPI : SingletonMonoBehaviour<GridAPI>
     {
-        internal static event Action<GridAPI> Ready;
-
-        protected void NotifyReady()
-        {
-            if (TryGetInstance(out GridAPI instance) && instance == this)
-                Ready?.Invoke(this);
-        }
-
         /// <summary>
         /// The given character performs a stride action
         /// </summary>

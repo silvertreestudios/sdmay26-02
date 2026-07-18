@@ -122,16 +122,15 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         TryApplyZoom(zoomAmount);
     }
 
-    private bool TryApplyZoom(float zoomAmount)
+    private void TryApplyZoom(float zoomAmount)
     {
         Vector3 newPosition = mainCamera.transform.position + mainCamera.transform.forward * zoomAmount;
 
         if (newPosition.y < minCamearYLimit || newPosition.y > maxCameraYLimit)
         {
-            return false;
+            return;
         }
         mainCamera.transform.position = newPosition;
-        return true;
     }
 
     private void HandleCameraRotation()

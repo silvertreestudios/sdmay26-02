@@ -7,7 +7,6 @@ namespace GridPublic
     public class Token : MonoBehaviour
     {
         private bool registered;
-        private bool waitingForGrid;
 
         private void Awake()
         {
@@ -17,21 +16,8 @@ namespace GridPublic
 
         private void OnEnable()
         {
-            if (registered || TryRegister())
-                return;
-
-            if (!GridAPI.TryGetInstance(out _))
-                Subscribe();
-        }
-
-        private void OnDisable()
-        {
-            Unsubscribe();
-        }
-
-        private void OnDestroy()
-        {
-            Unsubscribe();
+            if (!registered)
+                TryRegister();
         }
 
         private bool TryRegister()
@@ -65,27 +51,8 @@ namespace GridPublic
             return registered;
         }
 
-        private void Subscribe()
+        public void TryRegisterWithGrid(GridAPI grid)
         {
-            if (waitingForGrid)
-                return;
-
-            GridAPI.Ready += OnGridReady;
-            waitingForGrid = true;
-        }
-
-        private void Unsubscribe()
-        {
-            if (!waitingForGrid)
-                return;
-
-            GridAPI.Ready -= OnGridReady;
-            waitingForGrid = false;
-        }
-
-        private void OnGridReady(GridAPI grid)
-        {
-            Unsubscribe();
             TryRegister(grid);
         }
     }

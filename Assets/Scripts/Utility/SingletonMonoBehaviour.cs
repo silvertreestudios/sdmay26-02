@@ -19,7 +19,7 @@ public abstract class SingletonMonoBehaviour<T> : MonoBehaviour where T : MonoBe
 
     public static bool TryGetInstance(out T instance)
     {
-        instance = Instance;
+        instance = Instance != null ? Instance : null;
         return instance != null;
     }
 

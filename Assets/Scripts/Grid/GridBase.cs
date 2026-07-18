@@ -48,7 +48,8 @@ namespace GridPrivate
 
             Pathfinder = new Dijkstra(Tiles);
             GridLineOfSightData.Register(Tiles, LineOfSightBlocks, GridData);
-            NotifyReady();
+            foreach (Token token in FindObjectsByType<Token>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+                token.TryRegisterWithGrid(this);
         }
 
         protected void OnDestroy()
