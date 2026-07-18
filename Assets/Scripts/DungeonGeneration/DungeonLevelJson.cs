@@ -802,6 +802,8 @@ namespace Game.DungeonGeneration
                 reservedEncounterCells.Add(stair.Cell);
                 reservedEncounterCells.Add(stair.ArrivalCell);
             }
+            foreach (DungeonObjectPlacement placement in objects)
+                reservedEncounterCells.Add(placement.Cell);
 
             foreach (DungeonEncounterPlan plan in encounters)
             {
@@ -825,7 +827,7 @@ namespace Game.DungeonGeneration
                 {
                     errors.Add(D(
                         "encounterPlans",
-                        "Every encounter must reference a room, have a nonnegative budget, and pair each non-empty creature ID with one distinct walkable spawn cell inside that room. Generator-owned plans must also avoid door, stair, start, and safe-arrival cells."));
+                        "Every encounter must reference a room, have a nonnegative budget, and pair each non-empty creature ID with one distinct walkable spawn cell inside that room. Generator-owned plans must also avoid object, door, stair, start, and safe-arrival cells."));
                 }
             }
             if (runtime == null)

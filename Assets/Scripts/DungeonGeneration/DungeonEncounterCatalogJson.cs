@@ -27,7 +27,10 @@ namespace Game.DungeonGeneration
             JObject root;
             try
             {
-                root = JObject.Parse(json);
+                root = JObject.Parse(json, new JsonLoadSettings
+                {
+                    DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error
+                });
             }
             catch (JsonException exception)
             {

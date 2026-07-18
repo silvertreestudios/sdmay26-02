@@ -205,6 +205,9 @@ public sealed class DungeonEncounterBuilderTests
         Assert.Throws<FormatException>(() => DungeonEncounterCatalogJson.Parse(
             "{\"schema\":\"sdmay26-02/dungeon-encounter-catalog\",\"enemies\":[{" +
             "\"id\":123,\"level\":-1,\"resourcePath\":true,\"prefabPath\":\"Assets/enemy.prefab\"}]}"));
+        Assert.Throws<FormatException>(() => DungeonEncounterCatalogJson.Parse(
+            "{\"schema\":\"sdmay26-02/dungeon-encounter-catalog\"," +
+            "\"schema\":\"sdmay26-02/dungeon-encounter-catalog\",\"enemies\":[]}"));
     }
 
     [Test]
@@ -323,6 +326,23 @@ public sealed class DungeonEncounterBuilderTests
         Assert.That(duplicateResult.Diagnostics.Any(diagnostic =>
             diagnostic.Field == "encounterPlans" &&
             diagnostic.Message.Contains("at most one")), Is.True);
+
+        JObject objectCollision = (JObject)root.DeepClone();
+        JObject collisionPlan = (JObject)((JArray)objectCollision["encounterPlans"])[0];
+        JObject collisionCell = (JObject)((JArray)collisionPlan["spawnCells"])[0];
+        ((JArray)objectCollision["objects"]).Add(new JObject
+        {
+            ["id"] = "object-collision",
+            ["assetId"] = "dungeon/assets/fbx(unity)/banner_red",
+            ["cell"] = collisionCell.DeepClone(),
+            ["rotation"] = 0
+        });
+        DungeonLevelParseResult objectCollisionResult = DungeonLevelJsonParser.Parse(
+            objectCollision.ToString());
+        Assert.That(objectCollisionResult.IsSuccess, Is.False);
+        Assert.That(objectCollisionResult.Diagnostics.Any(diagnostic =>
+            diagnostic.Field == "encounterPlans" &&
+            diagnostic.Message.Contains("object")), Is.True);
     }
 
     [Test]
