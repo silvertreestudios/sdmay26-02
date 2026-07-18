@@ -13,7 +13,8 @@ namespace Game.DungeonGeneration
     {
         /// <summary>Maximum deterministic topology attempts, including the initial attempt.</summary>
         public const int MaximumAttempts = 32;
-        private static readonly DungeonCell[] Directions = { new(0, 1), new(1, 0), new(0, -1), new(-1, 0) };
+        // Donjon sorts direction names before shuffling them: east, north, south, west.
+        private static readonly DungeonCell[] Directions = { new(1, 0), new(0, 1), new(0, -1), new(-1, 0) };
 
         /// <inheritdoc/>
         public DungeonGenerationResult Generate(DungeonGenerationRequest request)
@@ -61,7 +62,7 @@ namespace Game.DungeonGeneration
             return errors;
         }
 
-        private enum CellKind : byte { Masked, Empty, Room, Corridor, Door }
+        private enum CellKind : byte { Empty, Masked, Room, Corridor, Door }
 
         private sealed class Attempt
         {
@@ -70,6 +71,10 @@ namespace Game.DungeonGeneration
             private readonly ulong topologyState;
             private readonly IDungeonRandom random;
             private readonly CellKind[,] cells;
+            // Donjon stores perimeter and corridor as independent bits. Keep that overlap explicitly so a
+            // door tunneled into the maze cannot be revisited recursively merely because it remains a door.
+            private readonly bool[,] perimeter;
+            private readonly bool[,] tunneled;
             private readonly List<DungeonRoom> rooms = new();
             private readonly List<DungeonDoor> doors = new();
             private readonly List<DungeonStair> stairs = new();
@@ -77,7 +82,10 @@ namespace Game.DungeonGeneration
             internal Attempt(DungeonGenerationRequest request, int attempt, ulong topologyState)
             {
                 this.request = request; this.attempt = attempt; this.topologyState = topologyState;
-                random = new SplitMix64DungeonRandom(topologyState); cells = new CellKind[request.Width, request.Height];
+                random = new SplitMix64DungeonRandom(topologyState);
+                cells = new CellKind[request.Width, request.Height];
+                perimeter = new bool[request.Width, request.Height];
+                tunneled = new bool[request.Width, request.Height];
             }
 
             internal bool TryGenerate(out DungeonLevelDocument document, out string rejection)
@@ -91,6 +99,8 @@ namespace Game.DungeonGeneration
                 if (!EmplaceStairs()) { rejection = $"Only {stairs.Count.ToString(CultureInfo.InvariantCulture)} structurally valid stair ends were available for {request.StairCount.ToString(CultureInfo.InvariantCulture)} requested stairs."; return false; }
                 CleanDeadEnds();
                 if (!IsConnected()) { rejection = "Dead-end cleanup disconnected walkable topology."; return false; }
+                if (!HasValidRoomBoundaryCrossings()) { rejection = "A room-boundary crossing was not represented by exactly one stable door."; return false; }
+                if (!HasValidDoors()) { rejection = "A generated door did not retain two opposite walkable neighbors or a unique stable record."; return false; }
                 List<DungeonCell> safe = BuildSafeCells();
                 if (safe.Count == 0) { rejection = "No valid safe arrival cell remained after cleanup."; return false; }
                 DungeonCell start = stairs.Count > 0 ? stairs[0].ArrivalCell : safe[0];
@@ -105,19 +115,28 @@ namespace Game.DungeonGeneration
 
             private void InitializeMask()
             {
-                int centerX = request.Width / 2, centerZ = request.Height / 2;
+                int[,] mask = request.Layout == DungeonLayout.Box
+                    ? new[,] { { 1, 1, 1 }, { 1, 0, 1 }, { 1, 1, 1 } }
+                    : new[,] { { 0, 1, 0 }, { 1, 1, 1 }, { 0, 1, 0 } };
+                int centerX = (request.Width - 1) / 2;
+                int centerZ = (request.Height - 1) / 2;
                 for (int z = 0; z < request.Height; z++)
                 for (int x = 0; x < request.Width; x++)
                 {
-                    bool boundary = x == 0 || z == 0 || x == request.Width - 1 || z == request.Height - 1;
-                    bool allowed = request.Layout switch
+                    bool allowed;
+                    if (request.Layout == DungeonLayout.Round)
                     {
-                        DungeonLayout.Box => !(Math.Abs(x - centerX) < request.Width / 6 && Math.Abs(z - centerZ) < request.Height / 6),
-                        DungeonLayout.Cross => Math.Abs(x - centerX) <= request.Width / 6 || Math.Abs(z - centerZ) <= request.Height / 6,
-                        DungeonLayout.Round => Squared(x - centerX) * Squared(request.Height - 1) + Squared(z - centerZ) * Squared(request.Width - 1) <= Squared(request.Width - 1) * Squared(request.Height - 1) / 4,
-                        _ => false
-                    };
-                    cells[x, z] = boundary || !allowed ? CellKind.Masked : CellKind.Empty;
+                        // Donjon deliberately uses the column radius for both axes rather than fitting an ellipse.
+                        allowed = Squared(x - centerX) + Squared(z - centerZ) <= Squared(centerX);
+                    }
+                    else
+                    {
+                        int maskRow = z * 3 / request.Height;
+                        int maskColumn = x * 3 / request.Width;
+                        allowed = mask[maskRow, maskColumn] != 0;
+                    }
+
+                    cells[x, z] = allowed ? CellKind.Empty : CellKind.Masked;
                 }
             }
 
@@ -125,61 +144,178 @@ namespace Game.DungeonGeneration
 
             private void EmplaceRooms()
             {
+                int coarseWidth = (request.Width - 1) / 2;
+                int coarseHeight = (request.Height - 1) / 2;
                 if (request.RoomLayout == DungeonRoomLayout.Packed)
                 {
-                    for (int z = 1; z < request.Height - 1; z += 2)
-                    for (int x = 1; x < request.Width - 1; x += 2)
-                        if (random.NextPercent(70)) TryRoom(x, z);
+                    for (int coarseZ = 0; coarseZ < coarseHeight; coarseZ++)
+                    for (int coarseX = 0; coarseX < coarseWidth; coarseX++)
+                    {
+                        int anchorX = coarseX * 2 + 1;
+                        int anchorZ = coarseZ * 2 + 1;
+                        if (cells[anchorX, anchorZ] == CellKind.Room)
+                            continue;
+                        if ((coarseX == 0 || coarseZ == 0) && random.NextInt(2) != 0)
+                            continue;
+                        TryRoom(coarseX, coarseZ, true);
+                    }
                 }
                 else
                 {
-                    int target = Math.Max(request.MinimumRoomCount, request.Width * request.Height / (request.MaximumRoomSize * request.MaximumRoomSize));
-                    for (int index = 0; index < target * 12; index++)
-                        TryRoom(1 + 2 * random.NextInt((request.Width - 2) / 2), 1 + 2 * random.NextInt((request.Height - 2) / 2));
+                    int attempts = (request.Width - 1) * (request.Height - 1) /
+                        (request.MaximumRoomSize * request.MaximumRoomSize);
+                    for (int index = 0; index < attempts; index++)
+                        TryRoom(0, 0, false);
                 }
             }
 
-            private void TryRoom(int minimumX, int minimumZ)
+            private void TryRoom(int coarseX, int coarseZ, bool fixedPosition)
             {
-                int sizeSteps = (request.MaximumRoomSize - request.MinimumRoomSize) / 2 + 1;
-                int width = request.MinimumRoomSize + 2 * random.NextInt(sizeSteps);
-                int height = request.MinimumRoomSize + 2 * random.NextInt(sizeSteps);
+                int coarseWidth = (request.Width - 1) / 2;
+                int coarseHeight = (request.Height - 1) / 2;
+                int roomBase = (request.MinimumRoomSize + 1) / 2;
+                int roomRadix = (request.MaximumRoomSize - request.MinimumRoomSize) / 2 + 1;
+                int heightSteps;
+                int widthSteps;
+                if (fixedPosition)
+                {
+                    int availableHeight = Math.Max(0, coarseHeight - roomBase - coarseZ);
+                    int availableWidth = Math.Max(0, coarseWidth - roomBase - coarseX);
+                    int heightRange = Math.Min(availableHeight, roomRadix);
+                    int widthRange = Math.Min(availableWidth, roomRadix);
+                    heightSteps = roomBase + (heightRange > 0 ? random.NextInt(heightRange) : 0);
+                    widthSteps = roomBase + (widthRange > 0 ? random.NextInt(widthRange) : 0);
+                }
+                else
+                {
+                    heightSteps = roomBase + random.NextInt(roomRadix);
+                    widthSteps = roomBase + random.NextInt(roomRadix);
+                    int verticalPositions = coarseHeight - heightSteps;
+                    int horizontalPositions = coarseWidth - widthSteps;
+                    if (verticalPositions <= 0 || horizontalPositions <= 0)
+                        return;
+                    coarseZ = random.NextInt(verticalPositions);
+                    coarseX = random.NextInt(horizontalPositions);
+                }
+
+                int minimumX = coarseX * 2 + 1;
+                int minimumZ = coarseZ * 2 + 1;
+                int width = widthSteps * 2 - 1;
+                int height = heightSteps * 2 - 1;
                 int maximumX = minimumX + width - 1, maximumZ = minimumZ + height - 1;
-                if (maximumX >= request.Width - 1 || maximumZ >= request.Height - 1) return;
-                for (int z = minimumZ - 1; z <= maximumZ + 1; z++)
-                for (int x = minimumX - 1; x <= maximumX + 1; x++)
-                    if (!InBounds(x, z) || cells[x, z] != CellKind.Empty) return;
+                if (minimumX < 1 || minimumZ < 1 || maximumX > request.Width - 2 || maximumZ > request.Height - 2)
+                    return;
+                for (int z = minimumZ; z <= maximumZ; z++)
+                for (int x = minimumX; x <= maximumX; x++)
+                    if (cells[x, z] == CellKind.Masked || cells[x, z] == CellKind.Room)
+                        return;
+
                 DungeonRoom room = new(rooms.Count + 1, minimumX, minimumZ, maximumX, maximumZ); rooms.Add(room);
-                for (int z = minimumZ; z <= maximumZ; z++) for (int x = minimumX; x <= maximumX; x++) cells[x, z] = CellKind.Room;
+                for (int z = minimumZ; z <= maximumZ; z++)
+                for (int x = minimumX; x <= maximumX; x++)
+                {
+                    cells[x, z] = CellKind.Room;
+                    perimeter[x, z] = false;
+                }
+
+                for (int z = minimumZ - 1; z <= maximumZ + 1; z++)
+                {
+                    MarkPerimeter(minimumX - 1, z);
+                    MarkPerimeter(maximumX + 1, z);
+                }
+                for (int x = minimumX - 1; x <= maximumX + 1; x++)
+                {
+                    MarkPerimeter(x, minimumZ - 1);
+                    MarkPerimeter(x, maximumZ + 1);
+                }
+
+                void MarkPerimeter(int x, int z)
+                {
+                    if (InBounds(x, z) && cells[x, z] != CellKind.Room && cells[x, z] != CellKind.Door)
+                        perimeter[x, z] = true;
+                }
             }
 
             private bool OpenRooms()
             {
                 HashSet<DungeonCell> used = new();
+                HashSet<string> connectedRoomPairs = new(StringComparer.Ordinal);
                 foreach (DungeonRoom room in rooms)
                 {
-                    List<(DungeonCell door, DungeonCell outside)> candidates = new();
-                    for (int x = room.MinimumX; x <= room.MaximumX; x += 2) { AddSill(x, room.MinimumZ - 1, x, room.MinimumZ - 2); AddSill(x, room.MaximumZ + 1, x, room.MaximumZ + 2); }
-                    for (int z = room.MinimumZ; z <= room.MaximumZ; z += 2) { AddSill(room.MinimumX - 1, z, room.MinimumX - 2, z); AddSill(room.MaximumX + 1, z, room.MaximumX + 2, z); }
-                    if (candidates.Count == 0) return false;
-                    Shuffle(candidates); int count = Math.Min(candidates.Count, 1 + random.NextInt(Math.Min(3, candidates.Count)));
-                    for (int index = 0; index < count; index++)
+                    List<(DungeonCell door, int outsideRoomId)> candidates = new();
+                    for (int x = room.MinimumX; x <= room.MaximumX; x += 2)
                     {
-                        var sill = candidates[index]; if (!used.Add(sill.door)) continue;
-                        cells[sill.door.X, sill.door.Z] = CellKind.Door;
-                        if (cells[sill.outside.X, sill.outside.Z] == CellKind.Empty) cells[sill.outside.X, sill.outside.Z] = CellKind.Corridor;
-                        doors.Add(new DungeonDoor("door-" + (doors.Count + 1).ToString("D4", CultureInfo.InvariantCulture), sill.door));
+                        AddSill(x, room.MinimumZ, 0, -1);
+                        AddSill(x, room.MaximumZ, 0, 1);
                     }
-                    if (!doors.Any(d => AdjacentToRoom(d.Cell, room))) return false;
-
-                    void AddSill(int doorX, int doorZ, int outsideX, int outsideZ)
+                    for (int z = room.MinimumZ; z <= room.MaximumZ; z += 2)
                     {
-                        if (!InBounds(outsideX, outsideZ) || cells[doorX, doorZ] != CellKind.Empty) return;
-                        CellKind outside = cells[outsideX, outsideZ]; if (outside == CellKind.Masked || outside == CellKind.Door) return;
-                        candidates.Add((new DungeonCell(doorX, doorZ), new DungeonCell(outsideX, outsideZ)));
+                        AddSill(room.MinimumX, z, -1, 0);
+                        AddSill(room.MaximumX, z, 1, 0);
+                    }
+
+                    Shuffle(candidates);
+                    int roomHeight = (room.MaximumZ - room.MinimumZ) / 2 + 1;
+                    int roomWidth = (room.MaximumX - room.MinimumX) / 2 + 1;
+                    int openingBase = (int)Math.Sqrt(roomHeight * roomWidth);
+                    int allocatedOpenings = openingBase + random.NextInt(openingBase);
+                    int opened = 0;
+                    while (opened < allocatedOpenings && candidates.Count > 0)
+                    {
+                        int candidateIndex = random.NextInt(candidates.Count);
+                        var candidate = candidates[candidateIndex];
+                        candidates.RemoveAt(candidateIndex);
+                        if (used.Contains(candidate.door) || cells[candidate.door.X, candidate.door.Z] == CellKind.Door)
+                            continue;
+
+                        if (candidate.outsideRoomId > 0)
+                        {
+                            int first = Math.Min(room.Id, candidate.outsideRoomId);
+                            int second = Math.Max(room.Id, candidate.outsideRoomId);
+                            string pair = first.ToString(CultureInfo.InvariantCulture) + ":" + second.ToString(CultureInfo.InvariantCulture);
+                            if (!connectedRoomPairs.Add(pair))
+                                continue;
+                        }
+
+                        used.Add(candidate.door);
+                        cells[candidate.door.X, candidate.door.Z] = CellKind.Door;
+                        perimeter[candidate.door.X, candidate.door.Z] = false;
+                        doors.Add(new DungeonDoor(
+                            "door-" + (doors.Count + 1).ToString("D4", CultureInfo.InvariantCulture),
+                            candidate.door));
+                        opened++;
+                    }
+
+                    if (!doors.Any(door => AdjacentToRoom(door.Cell, room)))
+                        return false;
+
+                    void AddSill(int sillX, int sillZ, int deltaX, int deltaZ)
+                    {
+                        int doorX = sillX + deltaX;
+                        int doorZ = sillZ + deltaZ;
+                        int outsideX = doorX + deltaX;
+                        int outsideZ = doorZ + deltaZ;
+                        if (!InBounds(outsideX, outsideZ) || !perimeter[doorX, doorZ])
+                            return;
+                        if (cells[doorX, doorZ] == CellKind.Masked || cells[doorX, doorZ] == CellKind.Door)
+                            return;
+                        if (cells[outsideX, outsideZ] == CellKind.Masked)
+                            return;
+                        int outsideRoomId = RoomIdAt(outsideX, outsideZ);
+                        if (outsideRoomId == room.Id)
+                            return;
+                        candidates.Add((new DungeonCell(doorX, doorZ), outsideRoomId));
                     }
                 }
                 return true;
+            }
+
+            private int RoomIdAt(int x, int z)
+            {
+                foreach (DungeonRoom room in rooms)
+                    if (x >= room.MinimumX && x <= room.MaximumX && z >= room.MinimumZ && z <= room.MaximumZ)
+                        return room.Id;
+                return 0;
             }
 
             private bool AdjacentToRoom(DungeonCell cell, DungeonRoom room) =>
@@ -188,26 +324,50 @@ namespace Game.DungeonGeneration
 
             private void TunnelCorridors()
             {
-                for (int z = 1; z < request.Height - 1; z += 2)
-                for (int x = 1; x < request.Width - 1; x += 2)
-                    if (cells[x, z] == CellKind.Empty || cells[x, z] == CellKind.Corridor) Carve(new DungeonCell(x, z), -1);
+                for (int z = 3; z < request.Height - 1; z += 2)
+                for (int x = 3; x < request.Width - 1; x += 2)
+                    if (cells[x, z] != CellKind.Corridor)
+                        Tunnel(new DungeonCell(x, z), -1);
             }
 
-            private void Carve(DungeonCell cell, int priorDirection)
+            private void Tunnel(DungeonCell cell, int priorDirection)
             {
-                if (cells[cell.X, cell.Z] == CellKind.Empty) cells[cell.X, cell.Z] = CellKind.Corridor;
-                List<int> directions = new() { 0, 1, 2, 3 }; Shuffle(directions);
+                List<int> directions = new() { 0, 1, 2, 3 };
+                Shuffle(directions);
                 int straightChance = request.CorridorLayout == DungeonCorridorLayout.Labyrinth ? 0 : request.CorridorLayout == DungeonCorridorLayout.Bent ? 50 : 100;
-                if (priorDirection >= 0 && random.NextPercent(straightChance)) { directions.Remove(priorDirection); directions.Insert(0, priorDirection); }
+                if (priorDirection >= 0 && random.NextPercent(straightChance))
+                    directions.Insert(0, priorDirection);
                 foreach (int direction in directions)
                 {
-                    DungeonCell delta = Directions[direction]; int middleX = cell.X + delta.X, middleZ = cell.Z + delta.Z;
-                    int nextX = cell.X + 2 * delta.X, nextZ = cell.Z + 2 * delta.Z;
-                    if (!InBounds(nextX, nextZ) || cells[middleX, middleZ] != CellKind.Empty || cells[nextX, nextZ] != CellKind.Empty || IsDoorFlank(middleX, middleZ) || IsDoorFlank(nextX, nextZ)) continue;
-                    cells[middleX, middleZ] = CellKind.Corridor; cells[nextX, nextZ] = CellKind.Corridor;
-                    Carve(new DungeonCell(nextX, nextZ), direction);
+                    if (OpenTunnel(cell, direction, out DungeonCell next))
+                        Tunnel(next, direction);
                 }
             }
+
+            private bool OpenTunnel(DungeonCell cell, int direction, out DungeonCell next)
+            {
+                DungeonCell delta = Directions[direction];
+                DungeonCell middle = new(cell.X + delta.X, cell.Z + delta.Z);
+                next = new DungeonCell(cell.X + 2 * delta.X, cell.Z + 2 * delta.Z);
+                if (!InBounds(next.X, next.Z) || !TunnelCellAvailable(middle) || !TunnelCellAvailable(next))
+                    return false;
+
+                for (int step = 0; step <= 2; step++)
+                {
+                    int x = cell.X + delta.X * step;
+                    int z = cell.Z + delta.Z * step;
+                    tunneled[x, z] = true;
+                    if (cells[x, z] == CellKind.Empty)
+                        cells[x, z] = CellKind.Corridor;
+                }
+                return true;
+            }
+
+            private bool TunnelCellAvailable(DungeonCell cell) =>
+                cells[cell.X, cell.Z] != CellKind.Masked &&
+                cells[cell.X, cell.Z] != CellKind.Corridor &&
+                !tunneled[cell.X, cell.Z] &&
+                !perimeter[cell.X, cell.Z];
 
             private bool ConnectRegions()
             {
@@ -230,11 +390,11 @@ namespace Game.DungeonGeneration
                         {
                             DungeonCell next = new(current.X + direction.X, current.Z + direction.Z);
                             if (!InBounds(next.X, next.Z) || visited.Contains(next)) continue;
-                            if (cells[next.X, next.Z] == CellKind.Corridor && !connected.Contains(next))
+                            if (IsWalkable(next) && !connected.Contains(next) && cells[next.X, next.Z] != CellKind.Room)
                             {
                                 previous[next] = current; target = next; found = true; break;
                             }
-                            if (cells[next.X, next.Z] != CellKind.Empty || IsDoorFlank(next.X, next.Z)) continue;
+                            if (!CanCarveConnector(next)) continue;
                             visited.Add(next); previous[next] = current; queue.Enqueue(next);
                         }
                     }
@@ -242,73 +402,130 @@ namespace Game.DungeonGeneration
                     DungeonCell cursor = target;
                     while (!connected.Contains(cursor))
                     {
-                        if (cells[cursor.X, cursor.Z] == CellKind.Empty) cells[cursor.X, cursor.Z] = CellKind.Corridor;
+                        if (cells[cursor.X, cursor.Z] == CellKind.Empty)
+                            cells[cursor.X, cursor.Z] = CellKind.Corridor;
                         cursor = previous[cursor];
                     }
                 }
                 return false;
             }
 
-            private bool IsDoorFlank(int x, int z)
+            private bool CanCarveConnector(DungeonCell cell)
             {
-                foreach (DungeonDoor door in doors)
+                if (cells[cell.X, cell.Z] != CellKind.Empty || perimeter[cell.X, cell.Z])
+                    return false;
+                foreach (DungeonCell direction in Directions)
                 {
-                    int dx = x - door.Cell.X, dz = z - door.Cell.Z;
-                    if (Math.Abs(dx) + Math.Abs(dz) != 1) continue;
-                    DungeonCell opposite = new(door.Cell.X - dx, door.Cell.Z - dz);
-                    if (InBounds(opposite.X, opposite.Z) && cells[opposite.X, opposite.Z] == CellKind.Room)
+                    int x = cell.X + direction.X;
+                    int z = cell.Z + direction.Z;
+                    if (InBounds(x, z) && cells[x, z] == CellKind.Room)
                         return false;
-                    return true;
                 }
-                return false;
+                return true;
             }
 
             private bool EmplaceStairs()
             {
                 if (request.StairCount == 0) return true;
-                List<DungeonCell> candidates = WalkableCells().Where(c => cells[c.X, c.Z] == CellKind.Corridor && OpenNeighbors(c).Count == 1).ToList();
-                if (candidates.Count < request.StairCount) candidates = WalkableCells().Where(c => cells[c.X, c.Z] == CellKind.Corridor && OpenNeighbors(c).Count > 0).ToList();
-                if (candidates.Count < request.StairCount) return false;
-                DungeonCell first = candidates[random.NextInt(candidates.Count)]; AddStair(first, DungeonStairKind.Up);
-                if (request.StairCount == 2)
+                List<(DungeonCell cell, DungeonCell arrival)> candidates = new();
+                for (int z = 1; z < request.Height - 1; z += 2)
+                for (int x = 1; x < request.Width - 1; x += 2)
                 {
-                    DungeonCell second = Farthest(first, candidates.Where(c => c != first)); AddStair(second, DungeonStairKind.Down);
+                    DungeonCell cell = new(x, z);
+                    if (cells[x, z] != CellKind.Corridor)
+                        continue;
+                    foreach (DungeonCell arrivalDirection in Directions)
+                    {
+                        if (!MatchesStairEnd(cell, arrivalDirection))
+                            continue;
+                        candidates.Add((cell, new DungeonCell(x + arrivalDirection.X, z + arrivalDirection.Z)));
+                        break;
+                    }
+                }
+                if (candidates.Count < request.StairCount) return false;
+                for (int index = 0; index < request.StairCount; index++)
+                {
+                    int candidateIndex = random.NextInt(candidates.Count);
+                    var candidate = candidates[candidateIndex];
+                    candidates.RemoveAt(candidateIndex);
+                    DungeonStairKind kind = index == 0 ? DungeonStairKind.Down : DungeonStairKind.Up;
+                    string id = kind == DungeonStairKind.Down ? "stair-down" : "stair-up";
+                    stairs.Add(new DungeonStair(id, kind, candidate.cell, candidate.arrival));
                 }
                 return stairs.Count == request.StairCount;
             }
 
-            private void AddStair(DungeonCell cell, DungeonStairKind kind)
+            private bool MatchesStairEnd(DungeonCell cell, DungeonCell arrivalDirection)
             {
-                List<DungeonCell> neighbors = OpenNeighbors(cell); if (neighbors.Count == 0) return;
-                string id = kind == DungeonStairKind.Up ? "stair-up" : "stair-down";
-                stairs.Add(new DungeonStair(id, kind, cell, neighbors[0]));
-            }
-
-            private DungeonCell Farthest(DungeonCell start, IEnumerable<DungeonCell> candidates)
-            {
-                Dictionary<DungeonCell, int> distances = Distances(start);
-                return candidates.OrderByDescending(c => distances.TryGetValue(c, out int d) ? d : -1).ThenBy(c => c.Z).ThenBy(c => c.X).First();
+                DungeonCell next = new(cell.X + arrivalDirection.X, cell.Z + arrivalDirection.Z);
+                DungeonCell far = new(cell.X + arrivalDirection.X * 2, cell.Z + arrivalDirection.Z * 2);
+                if (!InBounds(far.X, far.Z) || cells[next.X, next.Z] != CellKind.Corridor || cells[far.X, far.Z] != CellKind.Corridor)
+                    return false;
+                for (int zOffset = -1; zOffset <= 1; zOffset++)
+                for (int xOffset = -1; xOffset <= 1; xOffset++)
+                {
+                    if (xOffset == 0 && zOffset == 0)
+                        continue;
+                    if (xOffset == arrivalDirection.X && zOffset == arrivalDirection.Z)
+                        continue;
+                    int x = cell.X + xOffset;
+                    int z = cell.Z + zOffset;
+                    if (InBounds(x, z) && IsWalkable(new DungeonCell(x, z)))
+                        return false;
+                }
+                return true;
             }
 
             private void CleanDeadEnds()
             {
+                if (request.DeadEndRemovalPercent == 0)
+                    return;
                 HashSet<DungeonCell> protectedCells = new(stairs.SelectMany(s => new[] { s.Cell, s.ArrivalCell }));
                 foreach (DungeonDoor door in doors)
-                    foreach (DungeonCell neighbor in OpenNeighbors(door.Cell)) protectedCells.Add(neighbor);
-                bool changed;
-                do
                 {
-                    changed = false;
-                    foreach (DungeonCell cell in WalkableCells().ToArray())
+                    protectedCells.Add(door.Cell);
+                    foreach (DungeonCell neighbor in OpenNeighbors(door.Cell)) protectedCells.Add(neighbor);
+                }
+                for (int z = 1; z < request.Height - 1; z += 2)
+                for (int x = 1; x < request.Width - 1; x += 2)
+                {
+                    DungeonCell cell = new(x, z);
+                    if (cells[x, z] == CellKind.Corridor && !protectedCells.Contains(cell) && random.NextPercent(request.DeadEndRemovalPercent))
+                        CollapseDeadEnd(cell, protectedCells);
+                }
+            }
+
+            private void CollapseDeadEnd(DungeonCell cell, HashSet<DungeonCell> protectedCells)
+            {
+                if (!InBounds(cell.X, cell.Z) || cells[cell.X, cell.Z] != CellKind.Corridor || protectedCells.Contains(cell))
+                    return;
+                foreach (DungeonCell recurseDirection in Directions)
+                {
+                    DungeonCell perpendicular = new(-recurseDirection.Z, recurseDirection.X);
+                    DungeonCell opposite = new(-recurseDirection.X, -recurseDirection.Z);
+                    DungeonCell[] walled =
                     {
-                        if (cells[cell.X, cell.Z] != CellKind.Corridor || protectedCells.Contains(cell) || OpenNeighbors(cell).Count != 1 || !random.NextPercent(request.DeadEndRemovalPercent)) continue;
-                        DungeonCell cursor = cell;
-                        while (!protectedCells.Contains(cursor) && cells[cursor.X, cursor.Z] == CellKind.Corridor && OpenNeighbors(cursor).Count == 1)
-                        {
-                            DungeonCell next = OpenNeighbors(cursor)[0]; cells[cursor.X, cursor.Z] = CellKind.Empty; changed = true; cursor = next;
-                        }
-                    }
-                } while (changed && request.DeadEndRemovalPercent == 100);
+                        perpendicular,
+                        new DungeonCell(-perpendicular.X, -perpendicular.Z),
+                        opposite,
+                        new DungeonCell(opposite.X + perpendicular.X, opposite.Z + perpendicular.Z),
+                        new DungeonCell(opposite.X - perpendicular.X, opposite.Z - perpendicular.Z)
+                    };
+                    if (walled.Any(offset => IsOpenOffset(cell, offset)))
+                        continue;
+                    cells[cell.X, cell.Z] = CellKind.Empty;
+                    CollapseDeadEnd(
+                        new DungeonCell(cell.X + recurseDirection.X, cell.Z + recurseDirection.Z),
+                        protectedCells);
+                    return;
+                }
+            }
+
+            private bool IsOpenOffset(DungeonCell cell, DungeonCell offset)
+            {
+                int x = cell.X + offset.X;
+                int z = cell.Z + offset.Z;
+                return InBounds(x, z) && IsWalkable(new DungeonCell(x, z));
             }
 
             private List<DungeonCell> BuildSafeCells()
@@ -334,6 +551,53 @@ namespace Game.DungeonGeneration
                     rows.Add(new string(row));
                 }
                 return rows;
+            }
+
+            private bool HasValidRoomBoundaryCrossings()
+            {
+                HashSet<DungeonCell> recordedDoorCells = new(doors.Select(door => door.Cell));
+                foreach (DungeonRoom room in rooms)
+                {
+                    for (int z = room.MinimumZ; z <= room.MaximumZ; z++)
+                    for (int x = room.MinimumX; x <= room.MaximumX; x++)
+                    {
+                        foreach (DungeonCell direction in Directions)
+                        {
+                            DungeonCell neighbor = new(x + direction.X, z + direction.Z);
+                            bool neighborInsideRoom =
+                                neighbor.X >= room.MinimumX && neighbor.X <= room.MaximumX &&
+                                neighbor.Z >= room.MinimumZ && neighbor.Z <= room.MaximumZ;
+                            if (neighborInsideRoom || !InBounds(neighbor.X, neighbor.Z) || !IsWalkable(neighbor))
+                                continue;
+                            if (cells[neighbor.X, neighbor.Z] != CellKind.Door || !recordedDoorCells.Contains(neighbor))
+                                return false;
+                        }
+                    }
+                }
+                return true;
+            }
+
+            private bool HasValidDoors()
+            {
+                if (doors.Select(door => door.Id).Distinct(StringComparer.Ordinal).Count() != doors.Count ||
+                    doors.Select(door => door.Cell).Distinct().Count() != doors.Count)
+                    return false;
+                int doorCellCount = WalkableCells().Count(cell => cells[cell.X, cell.Z] == CellKind.Door);
+                if (doorCellCount != doors.Count)
+                    return false;
+                foreach (DungeonDoor door in doors)
+                {
+                    if (cells[door.Cell.X, door.Cell.Z] != CellKind.Door)
+                        return false;
+                    List<DungeonCell> openNeighbors = OpenNeighbors(door.Cell);
+                    if (openNeighbors.Count != 2)
+                        return false;
+                    if (openNeighbors[0].X != openNeighbors[1].X && openNeighbors[0].Z != openNeighbors[1].Z)
+                        return false;
+                    if (!openNeighbors.Any(neighbor => cells[neighbor.X, neighbor.Z] == CellKind.Room))
+                        return false;
+                }
+                return true;
             }
 
             private bool IsConnected()

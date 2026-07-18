@@ -44,8 +44,9 @@ namespace Game.KayKit
         /// <summary>The original KayKit JSON version retained for v1 callers and fixtures.</summary>
         public const int SupportedVersion = 1;
 
-        /// <summary>Gets every JSON version accepted by <see cref="KayKitDungeonMapParser"/>.</summary>
-        public static IReadOnlyList<int> SupportedVersions { get; } = new[] { 1, DungeonLevelDocument.CurrentVersion };
+        /// <summary>Gets an immutable ordered collection of every JSON version accepted by <see cref="KayKitDungeonMapParser"/>.</summary>
+        public static IReadOnlyList<int> SupportedVersions { get; } =
+            Array.AsReadOnly(new[] { SupportedVersion, DungeonLevelDocument.CurrentVersion });
 
         public int Version { get; }
         public int Width => GridData.GetLength(0);
@@ -53,15 +54,35 @@ namespace Game.KayKit
         public TileType[,] GridData { get; }
         public bool[,] LineOfSightBlocks { get; }
         public IReadOnlyList<KayKitDungeonObjectPlacement> Objects { get; }
-        /// <summary>Gets lossless version 2 data, or null for a version 1 source.</summary>
+        /// <summary>Gets lossless version 2 data, or absence for a version 1 source.</summary>
         public DungeonLevelDocument LevelDocument { get; }
 
+        /// <summary>Creates legacy map data without a version 2 document.</summary>
+        /// <param name="version">The parsed source version.</param>
+        /// <param name="gridData">The required projected tile grid.</param>
+        /// <param name="lineOfSightBlocks">The required line-of-sight overlay matching the grid dimensions.</param>
+        /// <param name="objects">The deterministic projected object placements.</param>
+        public KayKitDungeonMapData(
+            int version,
+            TileType[,] gridData,
+            bool[,] lineOfSightBlocks,
+            IReadOnlyList<KayKitDungeonObjectPlacement> objects)
+            : this(version, gridData, lineOfSightBlocks, objects, null)
+        {
+        }
+
+        /// <summary>Creates map data while retaining the complete lossless version 2 source document.</summary>
+        /// <param name="version">The parsed source version.</param>
+        /// <param name="gridData">The required projected tile grid.</param>
+        /// <param name="lineOfSightBlocks">The required line-of-sight overlay matching the grid dimensions.</param>
+        /// <param name="objects">The deterministic projected object placements.</param>
+        /// <param name="levelDocument">The complete version 2 document, or absence for a version 1 source.</param>
         public KayKitDungeonMapData(
             int version,
             TileType[,] gridData,
             bool[,] lineOfSightBlocks,
             IReadOnlyList<KayKitDungeonObjectPlacement> objects,
-            DungeonLevelDocument levelDocument = null)
+            DungeonLevelDocument levelDocument)
         {
             Version = version;
             GridData = gridData;

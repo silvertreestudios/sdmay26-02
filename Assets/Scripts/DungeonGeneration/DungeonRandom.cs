@@ -19,13 +19,20 @@ namespace Game.DungeonGeneration
     /// <summary>Supplies deterministic unsigned values without depending on a game engine.</summary>
     public interface IDungeonRandom
     {
-        /// <summary>Returns the next uniformly distributed 64-bit value.</summary>
+        /// <summary>Advances this source once and returns the next uniformly distributed 64-bit value.</summary>
+        /// <returns>The mixed output for the newly advanced state.</returns>
         ulong NextUInt64();
 
-        /// <summary>Returns a value greater than or equal to zero and less than <paramref name="exclusiveMaximum"/>.</summary>
+        /// <summary>Returns an unbiased integer in the half-open interval starting at zero.</summary>
+        /// <param name="exclusiveMaximum">The positive upper bound that is never returned.</param>
+        /// <returns>A value greater than or equal to zero and less than <paramref name="exclusiveMaximum"/>.</returns>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="exclusiveMaximum"/> is not positive.</exception>
         int NextInt(int exclusiveMaximum);
 
-        /// <summary>Returns whether a draw falls below an integer percentage from zero through one hundred.</summary>
+        /// <summary>Returns whether a draw falls below an integer percentage.</summary>
+        /// <param name="percentage">The inclusive percentage from zero through one hundred.</param>
+        /// <returns><see langword="true"/> when the draw succeeds; zero always fails and one hundred always succeeds.</returns>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="percentage"/> is outside zero through one hundred.</exception>
         bool NextPercent(int percentage);
     }
 
@@ -89,24 +96,28 @@ namespace Game.DungeonGeneration
             0xDB4F0B9175AE2165UL
         };
 
-        /// <summary>Returns the stable state for a dungeon depth.</summary>
-        /// <remarks>Depth zero is exactly the signed seed's 64-bit representation. Each later depth advances SplitMix64 once.</remarks>
+        /// <summary>Returns the stable SplitMix64 output assigned to a dungeon depth.</summary>
+        /// <param name="runSeed">The signed run seed; its exact two's-complement bit pattern is preserved.</param>
+        /// <param name="depth">The nonnegative depth. The calculation is constant-time even at <see cref="int.MaxValue"/>.</param>
+        /// <returns>The normalized seed at depth zero; otherwise the mixed output of the original state plus <paramref name="depth"/> additive advances.</returns>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="depth"/> is negative.</exception>
         public static ulong ForDepth(long runSeed, int depth)
         {
             if (depth < 0)
                 throw new ArgumentOutOfRangeException(nameof(depth));
 
-            ulong state = unchecked((ulong)runSeed);
-            for (int index = 0; index < depth; index++)
-            {
-                state += SplitMixIncrement;
-                state = Mix(state);
-            }
-
-            return state;
+            ulong seed = unchecked((ulong)runSeed);
+            return depth == 0
+                ? seed
+                : Mix(unchecked(seed + (SplitMixIncrement * (ulong)depth)));
         }
 
         /// <summary>Derives a named concern stream for a depth without consuming any other stream.</summary>
+        /// <param name="runSeed">The signed run seed shared by the dungeon run.</param>
+        /// <param name="depth">The nonnegative dungeon depth.</param>
+        /// <param name="substream">The reserved concern whose stable salt is applied.</param>
+        /// <returns>The initial state for an independently consumable random source.</returns>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="depth"/> is negative or <paramref name="substream"/> is undefined.</exception>
         public static ulong ForSubstream(long runSeed, int depth, DungeonSeedSubstream substream)
         {
             int index = (int)substream;
@@ -116,6 +127,11 @@ namespace Game.DungeonGeneration
         }
 
         /// <summary>Derives the topology stream for a zero-based retry attempt.</summary>
+        /// <param name="runSeed">The signed run seed shared by the dungeon run.</param>
+        /// <param name="depth">The nonnegative dungeon depth.</param>
+        /// <param name="attempt">The nonnegative retry index; generation consumes at most the first 32 values.</param>
+        /// <returns>The topology state for exactly this retry attempt.</returns>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="depth"/> or <paramref name="attempt"/> is negative.</exception>
         /// <remarks>Attempt zero uses the named topology stream. Later attempts combine the reserved retry stream and attempt number.</remarks>
         public static ulong ForTopologyAttempt(long runSeed, int depth, int attempt)
         {
@@ -129,6 +145,8 @@ namespace Game.DungeonGeneration
         }
 
         /// <summary>Formats an unsigned state as fixed-width lowercase hexadecimal for metadata and diagnostics.</summary>
+        /// <param name="state">The state whose complete 64-bit representation must be retained.</param>
+        /// <returns>Exactly 16 lowercase hexadecimal digits with leading zeroes.</returns>
         public static string FormatState(ulong state)
         {
             return state.ToString("x16", CultureInfo.InvariantCulture);

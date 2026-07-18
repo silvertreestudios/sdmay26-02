@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using Game.DungeonGeneration;
 using Game.KayKit;
+using GridPrivate;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -15,6 +19,11 @@ public sealed class DungeonGenerationTests
     public void SplitMix64_PreservesSignedSeedBitsAndKnownSequence()
     {
         Assert.That(DungeonSeedSequence.ForDepth(-1, 0), Is.EqualTo(ulong.MaxValue));
+        Assert.That(DungeonSeedSequence.ForDepth(0, 1), Is.EqualTo(0xE220A8397B1DCDAFUL));
+        Assert.That(DungeonSeedSequence.ForDepth(0, 2), Is.EqualTo(0x6E789E6AA1B965F4UL));
+        Assert.That(DungeonSeedSequence.ForDepth(0, 3), Is.EqualTo(0x06C45D188009454FUL));
+        Assert.That(DungeonSeedSequence.ForDepth(0, 17), Is.EqualTo(0x7D29825C75521255UL));
+        Assert.That(DungeonSeedSequence.ForDepth(0, int.MaxValue), Is.EqualTo(0x8F230D036C8C0EDFUL));
         Assert.That(new SplitMix64DungeonRandom(0).NextUInt64(), Is.EqualTo(0xE220A8397B1DCDAFUL));
         Assert.That(DungeonSeedSequence.ForSubstream(4, 2, DungeonSeedSubstream.Topology),
             Is.Not.EqualTo(DungeonSeedSequence.ForSubstream(4, 2, DungeonSeedSubstream.Decoration)));
@@ -34,7 +43,7 @@ public sealed class DungeonGenerationTests
         using (SHA256 sha256 = SHA256.Create())
             hash = BitConverter.ToString(sha256.ComputeHash(Encoding.UTF8.GetBytes(first))).Replace("-", string.Empty).ToLowerInvariant();
         TestContext.WriteLine("golden sha256=" + hash);
-        Assert.That(hash, Is.EqualTo("dc369bcdf9d03c1a5950c95c2d0b57414dd03a43e83f83d4d051619f9afd968c"));
+        Assert.That(hash, Is.EqualTo("dae24599310f72fa074aaed098cda6d3e830c9bb0bcbee3dc8c1713d67691e6f"));
     }
 
     [Test]
@@ -52,6 +61,15 @@ public sealed class DungeonGenerationTests
             Assert.That(DungeonLevelJsonSerializer.Serialize(result.Map.LevelDocument), Is.EqualTo(json));
             Assert.That(KayKitDungeonMapData.SupportedVersion, Is.EqualTo(1));
             Assert.That(KayKitDungeonMapData.SupportedVersions, Is.EqualTo(new[] { 1, 2 }));
+            IList<int> supportedVersions = (IList<int>)KayKitDungeonMapData.SupportedVersions;
+            Assert.Throws<NotSupportedException>(() => supportedVersions[0] = 99);
+            Assert.That(typeof(KayKitDungeonMapData).GetConstructor(new[]
+            {
+                typeof(int),
+                typeof(TileType[,]),
+                typeof(bool[,]),
+                typeof(IReadOnlyList<KayKitDungeonObjectPlacement>)
+            }), Is.Not.Null);
         }
         finally
         {
@@ -78,18 +96,7 @@ public sealed class DungeonGenerationTests
     [Test]
     public void VersionTwoJson_RoundTripsEveryContractSectionWithoutLoss()
     {
-        DungeonLevelDocument source = new(
-            new DungeonGenerationMetadata("test", 7, long.MinValue, 3, 2, "8000000000000000", "0123456789abcdef"),
-            new[] { "#D#", "...", "###" },
-            new[] { new DungeonRoom(1, 0, 1, 2, 1) },
-            new[] { new DungeonDoor("door-0001", new DungeonCell(1, 2), true) },
-            new[] { new DungeonStair("stair-up", DungeonStairKind.Up, new DungeonCell(0, 1), new DungeonCell(1, 1)) },
-            new DungeonCell(1, 1),
-            new[] { new DungeonCell(1, 1), new DungeonCell(2, 1) },
-            new[] { new DungeonObjectPlacement("object-1", "prop", new DungeonCell(2, 1), 270, "used") },
-            new[] { new DungeonEncounterPlan("encounter-1", 1, new[] { new DungeonCell(0, 1) }, new[] { "creature-a", "creature-b" }, true) },
-            new DungeonRuntimeState(new[] { "door-0001" }, new[] { "encounter-1" }, new[] { "creature-a#1" },
-                new[] { new DungeonCreatureRuntimeState("creature-b#1", "creature-b", "encounter-1", new DungeonCell(2, 1), 7, "slowed") }));
+        DungeonLevelDocument source = ContractDocument();
 
         string json = DungeonLevelJsonSerializer.Serialize(source);
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
@@ -97,6 +104,137 @@ public sealed class DungeonGenerationTests
         Assert.That(parsed.IsSuccess, Is.True, string.Join(Environment.NewLine, parsed.Diagnostics.Select(d => d.Message)));
         Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
         Assert.That(parsed.Document.Generation.RunSeed, Is.EqualTo(long.MinValue));
+        Assert.That(parsed.Document.EncounterPlans[0].Threat, Is.EqualTo(DungeonEncounterThreat.Low));
+        Assert.That(parsed.Document.EncounterPlans[0].Budget, Is.EqualTo(60));
+    }
+
+    [Test]
+    public void VersionTwoJson_RaggedRowsReturnDiagnosticsWithoutSemanticIndexing()
+    {
+        JObject root = JObject.Parse(ContractJson());
+        root["rows"] = new JArray("#D#", "..", "###");
+        DungeonLevelParseResult parsed = null;
+
+        Assert.DoesNotThrow(() => parsed = DungeonLevelJsonParser.Parse(root.ToString(Formatting.None)));
+        Assert.That(parsed.IsSuccess, Is.False);
+        Assert.That(parsed.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+            diagnostic.Field == "rows[1]" && diagnostic.Message.Contains("width")));
+    }
+
+    [Test]
+    public void KayKitParser_RejectsRaggedVersionTwoWithoutThrowing()
+    {
+        JObject root = JObject.Parse(ContractJson());
+        root["rows"] = new JArray("#D#", "..", "###");
+        KayKitDungeonCatalog catalog = ScriptableObject.CreateInstance<KayKitDungeonCatalog>();
+        try
+        {
+            KayKitDungeonMapParseResult parsed = null;
+            Assert.DoesNotThrow(() => parsed = KayKitDungeonMapParser.Parse(root.ToString(Formatting.None), catalog));
+            Assert.That(parsed.IsValid, Is.False);
+            Assert.That(parsed.Errors, Has.Some.Contains("rows[1]"));
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(catalog);
+        }
+    }
+
+    [Test]
+    public void VersionTwoJson_RequiresExactlyOneDoorRecordPerDoorCell()
+    {
+        JObject missing = JObject.Parse(ContractJson());
+        missing["doors"] = new JArray();
+        DungeonLevelParseResult missingResult = DungeonLevelJsonParser.Parse(missing.ToString(Formatting.None));
+
+        JObject duplicate = JObject.Parse(ContractJson());
+        JObject duplicateDoor = (JObject)((JArray)duplicate["doors"])[0].DeepClone();
+        duplicateDoor["id"] = "door-0002";
+        ((JArray)duplicate["doors"]).Add(duplicateDoor);
+        DungeonLevelParseResult duplicateResult = DungeonLevelJsonParser.Parse(duplicate.ToString(Formatting.None));
+
+        Assert.That(missingResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+            diagnostic.Field == "doors" && diagnostic.Message.Contains("Every 'D'")));
+        Assert.That(duplicateResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+            diagnostic.Field == "doors" && diagnostic.Message.Contains("unique")));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsDuplicateObjectAndEncounterIds()
+    {
+        JObject root = JObject.Parse(ContractJson());
+        ((JArray)root["objects"]).Add(((JArray)root["objects"])[0].DeepClone());
+        ((JArray)root["encounterPlans"]).Add(((JArray)root["encounterPlans"])[0].DeepClone());
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(root.ToString(Formatting.None));
+
+        Assert.That(parsed.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+            diagnostic.Field == "objects" && diagnostic.Message.Contains("unique")));
+        Assert.That(parsed.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+            diagnostic.Field == "encounterPlans" && diagnostic.Message.Contains("unique")));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsEveryMistypedOptionalValue()
+    {
+        JObject root = JObject.Parse(ContractJson());
+        ((JObject)((JArray)root["objects"])[0])["state"] = 4;
+        ((JObject)((JArray)((JObject)root["runtimeState"])["creatures"])[0])["state"] = false;
+        DungeonLevelParseResult states = DungeonLevelJsonParser.Parse(root.ToString(Formatting.None));
+
+        JObject runtime = JObject.Parse(ContractJson());
+        runtime["runtimeState"] = "not-an-object";
+        DungeonLevelParseResult runtimeResult = DungeonLevelJsonParser.Parse(runtime.ToString(Formatting.None));
+
+        Assert.That(states.Diagnostics.Select(diagnostic => diagnostic.Field), Does.Contain("objects[0].state"));
+        Assert.That(states.Diagnostics.Select(diagnostic => diagnostic.Field), Does.Contain("runtimeState.creatures[0].state"));
+        Assert.That(runtimeResult.Diagnostics.Select(diagnostic => diagnostic.Field), Does.Contain("runtimeState"));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsUnknownPropertiesAtEveryObjectLevel()
+    {
+        JObject root = JObject.Parse(ContractJson());
+        root["unknownRoot"] = true;
+        ((JObject)root["generation"])["unknownGeneration"] = true;
+        ((JObject)((JArray)root["rooms"])[0])["unknownRoom"] = true;
+        JObject door = (JObject)((JArray)root["doors"])[0];
+        door["unknownDoor"] = true;
+        ((JObject)door["cell"])["unknownCell"] = true;
+        ((JObject)((JArray)root["stairs"])[0])["unknownStair"] = true;
+        ((JObject)root["arrival"])["unknownArrival"] = true;
+        ((JObject)((JArray)root["objects"])[0])["unknownObject"] = true;
+        ((JObject)((JArray)root["encounterPlans"])[0])["unknownEncounter"] = true;
+        JObject runtime = (JObject)root["runtimeState"];
+        runtime["unknownRuntime"] = true;
+        ((JObject)((JArray)runtime["creatures"])[0])["unknownCreature"] = true;
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(root.ToString(Formatting.None));
+        string[] fields = parsed.Diagnostics.Select(diagnostic => diagnostic.Field).ToArray();
+
+        Assert.That(fields, Does.Contain("unknownRoot"));
+        Assert.That(fields, Does.Contain("generation.unknownGeneration"));
+        Assert.That(fields, Does.Contain("rooms[0].unknownRoom"));
+        Assert.That(fields, Does.Contain("doors[0].unknownDoor"));
+        Assert.That(fields, Does.Contain("doors[0].cell.unknownCell"));
+        Assert.That(fields, Does.Contain("stairs[0].unknownStair"));
+        Assert.That(fields, Does.Contain("arrival.unknownArrival"));
+        Assert.That(fields, Does.Contain("objects[0].unknownObject"));
+        Assert.That(fields, Does.Contain("encounterPlans[0].unknownEncounter"));
+        Assert.That(fields, Does.Contain("runtimeState.unknownRuntime"));
+        Assert.That(fields, Does.Contain("runtimeState.creatures[0].unknownCreature"));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsDuplicateJsonProperties()
+    {
+        string duplicate = ContractJson().Replace("\"version\":2", "\"version\":2,\"version\":2");
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(duplicate);
+
+        Assert.That(parsed.IsSuccess, Is.False);
+        Assert.That(parsed.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+            diagnostic.Field == "json" && diagnostic.Message.Contains("version")));
     }
 
     [Test]
@@ -129,11 +267,126 @@ public sealed class DungeonGenerationTests
         Assembly assembly = typeof(DeterministicDungeonGenerator).Assembly;
         Assert.That(assembly.GetReferencedAssemblies().Select(reference => reference.Name),
             Has.None.StartsWith("UnityEngine"));
+        Assert.That(assembly.GetReferencedAssemblies().Select(reference => reference.Name),
+            Has.None.EqualTo("Unity.InputSystem"));
         Assert.That(assembly.GetTypes().SelectMany(type => new[] { type.FullName, type.BaseType?.FullName })
             .Any(value => value != null && value.Contains("UnityEngine.MonoBehaviour")), Is.False);
         Assert.That(assembly.GetTypes().SelectMany(type => type.GetMembers(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static))
             .Any(member => member.ToString().Contains("UnityEngine.Random")), Is.False);
         Assert.That(assembly.GetTypes().Any(type => type.FullName != null && type.FullName.Contains("UnityEngine.SceneManagement")), Is.False);
+        string assemblyDefinition = File.ReadAllText("Assets/Scripts/DungeonGeneration/DungeonGeneration.asmdef");
+        Assert.That(assemblyDefinition, Does.Not.Contain("75469ad4d38634e559750d17036d5f7c"));
+        Assert.That(assemblyDefinition, Does.Not.Contain("Unity.InputSystem"));
+    }
+
+    [Test]
+    public void DonjonMasks_UsePinnedThreeByThreeAndCircularScaling()
+    {
+        foreach (DungeonLayout layout in Enum.GetValues(typeof(DungeonLayout)))
+        {
+            DungeonGenerationRequest request = Request(90210 + (int)layout, 31, 31);
+            request.Layout = layout;
+            DungeonGenerationResult result = new DeterministicDungeonGenerator().Generate(request);
+            Assert.That(result.IsSuccess, Is.True, layout + ": " + string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
+
+            for (int z = 0; z < request.Height; z++)
+            for (int x = 0; x < request.Width; x++)
+            {
+                bool expectedMasked = IsMaskedByDonjon(layout, request.Width, request.Height, x, z);
+                bool serializedAsMasked = result.Document.Rows[request.Height - 1 - z][x] == ' ';
+                Assert.That(serializedAsMasked, Is.EqualTo(expectedMasked), $"{layout} ({x},{z})");
+            }
+        }
+    }
+
+    [Test]
+    public void DonjonStageModes_HaveAuditedGoldenDocuments()
+    {
+        var cases = new[]
+        {
+            new { Name = "box-packed-straight-clean100", Seed = 11L, Layout = DungeonLayout.Box, Rooms = DungeonRoomLayout.Packed, Corridors = DungeonCorridorLayout.Straight, Cleanup = 100 },
+            new { Name = "cross-scattered-labyrinth-clean0", Seed = -22L, Layout = DungeonLayout.Cross, Rooms = DungeonRoomLayout.Scattered, Corridors = DungeonCorridorLayout.Labyrinth, Cleanup = 0 },
+            new { Name = "round-packed-bent-clean50", Seed = 33L, Layout = DungeonLayout.Round, Rooms = DungeonRoomLayout.Packed, Corridors = DungeonCorridorLayout.Bent, Cleanup = 50 }
+        };
+        string[] expected =
+        {
+            "94aa8afb226d349a681c25732a03a56fdd8e7e21a6924eec4a4432710491a003",
+            "f250a16733bc6f33674f373479a0feaf29784c9d46b655b71e9c4d962f27099b",
+            "664e1af3885cdd5f67db0e89752faf673eba07a5480e7a565a1dab56f4a49020"
+        };
+        List<string> actual = new();
+        foreach (var item in cases)
+        {
+            DungeonGenerationRequest request = Request(item.Seed, 31, 31);
+            request.Layout = item.Layout;
+            request.RoomLayout = item.Rooms;
+            request.CorridorLayout = item.Corridors;
+            request.DeadEndRemovalPercent = item.Cleanup;
+            string hash = Sha256(GenerateJson(request));
+            TestContext.WriteLine(item.Name + "=" + hash);
+            actual.Add(hash);
+        }
+
+        Assert.That(actual, Is.EqualTo(expected));
+    }
+
+    private static DungeonLevelDocument ContractDocument() => new(
+        new DungeonGenerationMetadata("test", 7, long.MinValue, 3, 2, "8000000000000000", "0123456789abcdef"),
+        new[] { "#D#", "...", "###" },
+        new[] { new DungeonRoom(1, 0, 1, 2, 1) },
+        new[] { new DungeonDoor("door-0001", new DungeonCell(1, 2), true) },
+        new[] { new DungeonStair("stair-up", DungeonStairKind.Up, new DungeonCell(0, 1), new DungeonCell(1, 1)) },
+        new DungeonCell(1, 1),
+        new[] { new DungeonCell(1, 1), new DungeonCell(2, 1) },
+        new[] { new DungeonObjectPlacement("object-1", "prop", new DungeonCell(2, 1), 270, "used") },
+        new[]
+        {
+            new DungeonEncounterPlan(
+                "encounter-1",
+                1,
+                DungeonEncounterThreat.Low,
+                60,
+                new[] { new DungeonCell(0, 1), new DungeonCell(2, 1) },
+                new[] { "creature-a", "creature-b" },
+                true)
+        },
+        new DungeonRuntimeState(
+            new[] { "door-0001" },
+            new[] { "encounter-1" },
+            new[] { "creature-a#1" },
+            new[]
+            {
+                new DungeonCreatureRuntimeState(
+                    "creature-b#1",
+                    "creature-b",
+                    "encounter-1",
+                    new DungeonCell(2, 1),
+                    7,
+                    "slowed")
+            }));
+
+    private static string ContractJson() => DungeonLevelJsonSerializer.Serialize(ContractDocument());
+
+    private static bool IsMaskedByDonjon(
+        DungeonLayout layout,
+        int width,
+        int height,
+        int x,
+        int z)
+    {
+        if (layout == DungeonLayout.Round)
+        {
+            int centerX = (width - 1) / 2;
+            int centerZ = (height - 1) / 2;
+            long deltaX = x - centerX;
+            long deltaZ = z - centerZ;
+            return deltaX * deltaX + deltaZ * deltaZ > (long)centerX * centerX;
+        }
+
+        int[,] mask = layout == DungeonLayout.Box
+            ? new[,] { { 1, 1, 1 }, { 1, 0, 1 }, { 1, 1, 1 } }
+            : new[,] { { 0, 1, 0 }, { 1, 1, 1 }, { 0, 1, 0 } };
+        return mask[z * 3 / height, x * 3 / width] == 0;
     }
 
     private static DungeonGenerationRequest Request(long seed, int width, int height) => new()
@@ -158,12 +411,24 @@ public sealed class DungeonGenerationTests
         return DungeonLevelJsonSerializer.Serialize(result.Document);
     }
 
+    private static string Sha256(string value)
+    {
+        using SHA256 sha256 = SHA256.Create();
+        return BitConverter.ToString(sha256.ComputeHash(Encoding.UTF8.GetBytes(value)))
+            .Replace("-", string.Empty)
+            .ToLowerInvariant();
+    }
+
     private static void AssertDocumentInvariants(DungeonLevelDocument document, int seed)
     {
         HashSet<DungeonCell> walkable = Walkable(document);
         Assert.That(walkable, Does.Contain(document.StartCell), "start seed " + seed);
         Assert.That(document.SafeCells.All(walkable.Contains), Is.True, "safe seed " + seed);
         Assert.That(document.Stairs.All(stair => walkable.Contains(stair.Cell) && walkable.Contains(stair.ArrivalCell)), Is.True, "stairs seed " + seed);
+        if (document.Stairs.Count > 0)
+            Assert.That(document.Stairs[0].Kind, Is.EqualTo(DungeonStairKind.Down), "down-first seed " + seed);
+        if (document.Stairs.Count > 1)
+            Assert.That(document.Stairs[1].Kind, Is.EqualTo(DungeonStairKind.Up), "up-second seed " + seed);
 
         Queue<DungeonCell> queue = new(); HashSet<DungeonCell> reached = new() { walkable.First() }; queue.Enqueue(walkable.First());
         while (queue.Count > 0)
@@ -182,6 +447,40 @@ public sealed class DungeonGenerationTests
             List<DungeonCell> open = Neighbors(door.Cell).Where(walkable.Contains).ToList();
             Assert.That(open.Count, Is.EqualTo(2), "door neighbor count seed " + seed);
             Assert.That(open[0].X == open[1].X || open[0].Z == open[1].Z, Is.True, "door axis seed " + seed);
+        }
+
+        HashSet<DungeonCell> recordedDoorCells = new(document.Doors.Select(door => door.Cell));
+        HashSet<DungeonCell> rowDoorCells = new();
+        for (int row = 0; row < document.Rows.Count; row++)
+        for (int x = 0; x < document.Rows[row].Length; x++)
+            if (document.Rows[row][x] == 'D') rowDoorCells.Add(new DungeonCell(x, document.Rows.Count - 1 - row));
+        Assert.That(recordedDoorCells.SetEquals(rowDoorCells), Is.True, "door records seed " + seed);
+        Assert.That(document.Doors.Select(door => door.Id).Distinct(StringComparer.Ordinal).Count(), Is.EqualTo(document.Doors.Count), "door ids seed " + seed);
+
+        foreach (DungeonRoom room in document.Rooms)
+        for (int z = room.MinimumZ; z <= room.MaximumZ; z++)
+        for (int x = room.MinimumX; x <= room.MaximumX; x++)
+        foreach (DungeonCell neighbor in Neighbors(new DungeonCell(x, z)))
+        {
+            bool insideRoom = neighbor.X >= room.MinimumX && neighbor.X <= room.MaximumX &&
+                              neighbor.Z >= room.MinimumZ && neighbor.Z <= room.MaximumZ;
+            if (!insideRoom && walkable.Contains(neighbor))
+                Assert.That(recordedDoorCells, Does.Contain(neighbor), "room crossing seed " + seed);
+        }
+
+        foreach (DungeonStair stair in document.Stairs)
+        {
+            DungeonCell delta = new(stair.ArrivalCell.X - stair.Cell.X, stair.ArrivalCell.Z - stair.Cell.Z);
+            DungeonCell far = new(stair.ArrivalCell.X + delta.X, stair.ArrivalCell.Z + delta.Z);
+            Assert.That(walkable, Does.Contain(far), "stair corridor template seed " + seed);
+            for (int zOffset = -1; zOffset <= 1; zOffset++)
+            for (int xOffset = -1; xOffset <= 1; xOffset++)
+            {
+                if ((xOffset == 0 && zOffset == 0) || (xOffset == delta.X && zOffset == delta.Z))
+                    continue;
+                DungeonCell neighbor = new(stair.Cell.X + xOffset, stair.Cell.Z + zOffset);
+                Assert.That(walkable.Contains(neighbor), Is.False, "stair wall template seed " + seed);
+            }
         }
     }
 
