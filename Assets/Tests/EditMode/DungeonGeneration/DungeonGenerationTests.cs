@@ -746,6 +746,20 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
+    public void VersionTwoJson_OutOfRangeIntegerReturnsSpecificDiagnostic()
+    {
+        JObject root = JObject.Parse(ContractJson());
+        root["generation"]["depth"] = JToken.Parse("9223372036854775808");
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+            diagnostic.Field == "generation.depth" &&
+            diagnostic.Message == "Integer must be within the signed 32-bit range."));
+    }
+
+    [Test]
     public void KayKitParser_RejectsRaggedVersionTwoWithoutThrowing()
     {
         JObject root = JObject.Parse(ContractJson());

@@ -450,9 +450,16 @@ namespace Game.DungeonGeneration
             string path,
             List<DungeonGenerationDiagnostic> errors)
         {
-            int? value = Int(source[name]);
+            JToken token = source[name];
+            int? value = Int(token);
             if (!value.HasValue)
-                errors.Add(D(path + "." + name, "An integer is required."));
+            {
+                string message = token?.Type == JTokenType.Integer
+                    ? "Integer must be within the signed 32-bit range."
+                    : "An integer is required.";
+                errors.Add(D(path + "." + name, message));
+            }
+
             return value ?? 0;
         }
 
