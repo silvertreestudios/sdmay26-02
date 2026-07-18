@@ -296,8 +296,11 @@ namespace Game.DungeonGeneration
                 if (array[index].Type == JTokenType.String)
                 {
                     string value = String(array[index]);
-                    if (field != "rows" && string.IsNullOrEmpty(value))
+                    if (field != "rows" && string.IsNullOrWhiteSpace(value))
+                    {
                         errors.Add(D(path, "Entry must be a non-empty string."));
+                    }
+
                     result.Add(value);
                 }
                 else
@@ -411,8 +414,11 @@ namespace Game.DungeonGeneration
             List<DungeonGenerationDiagnostic> errors)
         {
             string value = source[name]?.Type == JTokenType.String ? String(source[name]) : null;
-            if (string.IsNullOrEmpty(value))
+            if (string.IsNullOrWhiteSpace(value))
+            {
                 errors.Add(D(path + "." + name, "A non-empty string is required."));
+            }
+
             return value ?? string.Empty;
         }
 

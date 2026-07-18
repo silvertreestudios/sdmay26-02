@@ -1218,6 +1218,27 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
+    public void DungeonJson_RejectsWhitespaceOnlyRequiredAndCollectionStrings()
+    {
+        JObject root = JObject.Parse(ContractJson());
+        ((JObject)root["generation"])["algorithm"] = "   ";
+        JObject encounter = (JObject)((JArray)root["encounterPlans"])[0];
+        encounter["creatureIds"] = new JArray("\t");
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "generation.algorithm" &&
+                diagnostic.Message.Contains("non-empty")));
+        Assert.That(parsed.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "encounterPlans[0].creatureIds[0]" &&
+                diagnostic.Message.Contains("non-empty")));
+    }
+
+    [Test]
     public void DungeonJson_RejectsDuplicateObjectAndEncounterIds()
     {
         JObject root = JObject.Parse(ContractJson());
