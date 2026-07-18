@@ -99,6 +99,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(((ResolvedOpResult<int>)result).Value, Is.EqualTo(24));
             IReadOnlyList<ResolutionRoll> recorded = dispatcher.Trace.GetRolls(new OpId(40));
             Assert.That(recorded, Has.Count.EqualTo(2));
+            Assert.That(dispatcher.Trace.GetRolls(new OpId(40)), Is.SameAs(recorded));
             Assert.That(recorded.Select(value => value.Sequence), Is.EqualTo(new[] { 1, 2 }));
             Assert.That(recorded.Select(value => value.Dice), Is.EqualTo(new[]
             {

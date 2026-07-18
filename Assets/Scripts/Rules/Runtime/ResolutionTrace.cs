@@ -18,8 +18,8 @@ namespace Game.Rules.Runtime
             Array.AsReadOnly(Array.Empty<ResolutionRoll>());
         private readonly Dictionary<OpId, IOpFrameView> frames =
             new Dictionary<OpId, IOpFrameView>();
-        private readonly Dictionary<OpId, List<ResolutionRoll>> rolls =
-            new Dictionary<OpId, List<ResolutionRoll>>();
+        private readonly Dictionary<OpId, OperationRollLog> rolls =
+            new Dictionary<OpId, OperationRollLog>();
 
         internal void Add(IOpFrameView frame)
         {
@@ -39,14 +39,14 @@ namespace Game.Rules.Runtime
             if (result.Dice != dice)
                 throw new InvalidOperationException("A roll result does not match its requested dice expression.");
 
-            if (!rolls.TryGetValue(operationId, out List<ResolutionRoll> operationRolls))
+            if (!rolls.TryGetValue(operationId, out OperationRollLog operationRolls))
             {
-                operationRolls = new List<ResolutionRoll>();
+                operationRolls = new OperationRollLog();
                 rolls.Add(operationId, operationRolls);
             }
-            operationRolls.Add(new ResolutionRoll(
+            operationRolls.Entries.Add(new ResolutionRoll(
                 operationId,
-                operationRolls.Count + 1,
+                operationRolls.Entries.Count + 1,
                 dice,
                 result));
         }
@@ -62,14 +62,17 @@ namespace Game.Rules.Runtime
         /// Gets every recorded roll consumed by one operation in execution order.
         /// </summary>
         /// <param name="id">The recorded operation identifier.</param>
-        /// <returns>An immutable roll list, which is empty when the operation did not roll.</returns>
+        /// <returns>
+        /// A stable read-only view, which is empty when the operation did not roll. Repeated queries
+        /// return the same view; its contents can grow only while the operation records rolls.
+        /// </returns>
         /// <exception cref="InvalidOperationException">The operation is absent from this trace.</exception>
         public IReadOnlyList<ResolutionRoll> GetRolls(OpId id)
         {
             Require(id);
-            if (!rolls.TryGetValue(id, out List<ResolutionRoll> operationRolls))
+            if (!rolls.TryGetValue(id, out OperationRollLog operationRolls))
                 return NoRolls;
-            return Array.AsReadOnly(operationRolls.ToArray());
+            return operationRolls.View;
         }
 
         /// <summary>
@@ -187,6 +190,18 @@ namespace Game.Rules.Runtime
             if (!frames.TryGetValue(id, out IOpFrameView frame))
                 throw new InvalidOperationException($"Operation {id.Value} is not in this trace.");
             return frame;
+        }
+
+        private sealed class OperationRollLog
+        {
+            public List<ResolutionRoll> Entries { get; } = new List<ResolutionRoll>();
+
+            public IReadOnlyList<ResolutionRoll> View { get; }
+
+            public OperationRollLog()
+            {
+                View = Entries.AsReadOnly();
+            }
         }
 
         private bool Follows(
