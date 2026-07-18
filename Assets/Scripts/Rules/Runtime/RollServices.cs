@@ -101,6 +101,9 @@ namespace Game.Rules.Runtime
         /// <exception cref="ArgumentException">
         /// The value count differs from the dice count or a value is outside the die range.
         /// </exception>
+        /// <exception cref="OverflowException">
+        /// The sum of the individual die values cannot be represented by an <see cref="int"/>.
+        /// </exception>
         public RollResult(DiceExpression dice, IEnumerable<int> values)
         {
             if (dice.IsEmpty)
@@ -125,7 +128,7 @@ namespace Game.Rules.Runtime
                         $"Roll value {copied[index]} is outside the 1-{dice.Sides} range for {dice}.",
                         nameof(values));
                 }
-                total += copied[index];
+                total = checked(total + copied[index]);
             }
 
             Dice = dice;
@@ -240,6 +243,9 @@ namespace Game.Rules.Runtime
         /// <exception cref="InvalidOperationException">
         /// The script is exhausted or an upcoming value is invalid for the requested die.
         /// </exception>
+        /// <exception cref="OverflowException">
+        /// The requested values cannot be represented by the roll result's integer total.
+        /// </exception>
         public RollResult Roll(DiceExpression dice)
         {
             lock (gate)
@@ -263,8 +269,9 @@ namespace Game.Rules.Runtime
 
                 int[] consumed = new int[dice.Count];
                 Array.Copy(values, nextIndex, consumed, 0, dice.Count);
+                RollResult result = new RollResult(dice, consumed);
                 nextIndex += dice.Count;
-                return new RollResult(dice, consumed);
+                return result;
             }
         }
     }

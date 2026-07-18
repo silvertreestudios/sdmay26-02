@@ -45,6 +45,18 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void ScriptedSourceRejectsOverflowWithoutConsumingValues()
+        {
+            ScriptedRollService rolls = new ScriptedRollService(int.MaxValue, int.MaxValue);
+
+            Assert.Throws<OverflowException>(() =>
+                rolls.Roll(new DiceExpression(2, int.MaxValue)));
+
+            Assert.That(rolls.Remaining, Is.EqualTo(2),
+                "A result that cannot represent its total must not consume the script.");
+        }
+
+        [Test]
         public void RollContractsRejectUninitializedDiceExpressions()
         {
             DiceExpression empty = default;

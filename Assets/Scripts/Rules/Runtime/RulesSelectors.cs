@@ -51,6 +51,9 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Resolves a saving throw's defensive DC as 10 plus its current modifier total.
         /// </summary>
+        /// <exception cref="OverflowException">
+        /// The resolved modifier total is outside the range that can produce an integer DC.
+        /// </exception>
         int GetSaveDifficultyClass(
             RulesSnapshot snapshot,
             CreatureId creature,
@@ -143,7 +146,7 @@ namespace Game.Rules.Runtime
             RulesSnapshot snapshot,
             CreatureId creature,
             SaveKind save) =>
-            10 + GetSavingThrowModifiers(snapshot, creature, save).Total;
+            checked(10 + GetSavingThrowModifiers(snapshot, creature, save).Total);
 
         /// <inheritdoc/>
         public int GetMultipleAttackPenalty(

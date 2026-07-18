@@ -176,6 +176,28 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void SaveDifficultyClassRejectsAnUnrepresentableTotal()
+        {
+            CreatureStatisticsState statistics = new CreatureStatisticsState(
+                Actor,
+                0,
+                0,
+                int.MaxValue,
+                0,
+                0,
+                new Dictionary<Skill, int>(),
+                Array.Empty<Modifier>());
+            RulesSnapshot snapshot = new InMemoryRulesStore(
+                new RulesStateSeed().SeedStatistics(statistics)).Snapshot;
+
+            Assert.Throws<OverflowException>(() =>
+                new RulesSelectors().GetSaveDifficultyClass(
+                    snapshot,
+                    Actor,
+                    SaveKind.Fortitude));
+        }
+
+        [Test]
         public void SelectorsRejectMissingRequiredSeedDataInsteadOfInventingValues()
         {
             PlayerId player = new PlayerId("player");

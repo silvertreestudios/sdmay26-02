@@ -158,7 +158,7 @@ namespace Game.Rules.Runtime
             if (roll.Dice != new DiceExpression(1, 20))
                 throw new ArgumentException("A check outcome requires exactly one d20.", nameof(roll));
             DifficultyClass = difficultyClass;
-            Total = roll.Total + modifiers.Total;
+            Total = checked(roll.Total + modifiers.Total);
             Degree = DegreeOfSuccessResolver.Resolve(roll.Values[0], Total, difficultyClass);
         }
     }

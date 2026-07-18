@@ -39,6 +39,24 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void CheckOutcomeRejectsAnUnrepresentableTotal()
+        {
+            ModifierCollection modifiers = new ModifierCollection(
+                Statistic.SkillCheck,
+                new[]
+                {
+                    Modifier.Untyped(int.MaxValue, ExistingStatus, Statistic.SkillCheck)
+                });
+
+            Assert.Throws<OverflowException>(() => new CheckOutcome(
+                Actor,
+                CheckSource.From(new OpId(1)),
+                new RollResult(new DiceExpression(1, 20), new[] { 1 }),
+                modifiers,
+                20));
+        }
+
+        [Test]
         public async Task SkillCheckUsesScriptedRollAndRecordsTypedSourceProvenance()
         {
             ScriptedRollService rolls = new ScriptedRollService(14);
