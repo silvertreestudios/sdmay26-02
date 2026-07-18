@@ -200,10 +200,30 @@ namespace Game.DungeonGeneration
                 OptionalString(o, "state", p, e),
                 OptionalFloat(o, "yOffset", p, e));
         });
-        private static List<DungeonEncounterPlan> ReadEncounters(JArray array, List<DungeonGenerationDiagnostic> e) => ReadObjects(array, "encounterPlans", e, (o, p) =>
+        private static List<DungeonEncounterPlan> ReadEncounters(
+            JArray array,
+            List<DungeonGenerationDiagnostic> errors)
+            => ReadObjects(array, "encounterPlans", errors, (source, path) =>
         {
-            ValidateProperties(o, p, e, "id", "roomId", "spawnCells", "creatureIds", "threat", "budget", "isResolved");
-            return new DungeonEncounterPlan(RequiredString(o, "id", p, e), RequiredInt(o, "roomId", p, e), ReadThreat(RequiredString(o, "threat", p, e), p + ".threat", e), RequiredInt(o, "budget", p, e), ReadCells(o["spawnCells"] as JArray, p + ".spawnCells", e), ReadStrings(o["creatureIds"] as JArray, p + ".creatureIds", e), RequiredBool(o, "isResolved", p, e));
+            ValidateProperties(
+                source,
+                path,
+                errors,
+                "id",
+                "roomId",
+                "spawnCells",
+                "creatureIds",
+                "threat",
+                "budget",
+                "isResolved");
+            return new DungeonEncounterPlan(
+                RequiredString(source, "id", path, errors),
+                RequiredInt(source, "roomId", path, errors),
+                ReadThreat(RequiredString(source, "threat", path, errors), path + ".threat", errors),
+                RequiredInt(source, "budget", path, errors),
+                ReadCells(source["spawnCells"] as JArray, path + ".spawnCells", errors),
+                ReadStrings(source["creatureIds"] as JArray, path + ".creatureIds", errors),
+                RequiredBool(source, "isResolved", path, errors));
         });
         private static DungeonStair ReadStair(
             JObject source,
@@ -512,14 +532,39 @@ namespace Game.DungeonGeneration
                 }
             }
         }
-        private static void ValidateDocument(DungeonGenerationMetadata metadata, IReadOnlyList<string> rows, IReadOnlyList<DungeonRoom> rooms, IReadOnlyList<DungeonDoor> doors, IReadOnlyList<DungeonStair> stairs, DungeonCell start, IReadOnlyList<DungeonCell> safe, IReadOnlyList<DungeonObjectPlacement> objects, IReadOnlyList<DungeonEncounterPlan> encounters, DungeonRuntimeState runtime, List<DungeonGenerationDiagnostic> errors)
+        private static void ValidateDocument(
+            DungeonGenerationMetadata metadata,
+            IReadOnlyList<string> rows,
+            IReadOnlyList<DungeonRoom> rooms,
+            IReadOnlyList<DungeonDoor> doors,
+            IReadOnlyList<DungeonStair> stairs,
+            DungeonCell start,
+            IReadOnlyList<DungeonCell> safe,
+            IReadOnlyList<DungeonObjectPlacement> objects,
+            IReadOnlyList<DungeonEncounterPlan> encounters,
+            DungeonRuntimeState runtime,
+            List<DungeonGenerationDiagnostic> errors)
         {
             bool InBounds(DungeonCell c) => c.X >= 0 && c.Z >= 0 && c.X < rows[0].Length && c.Z < rows.Count;
             char Symbol(DungeonCell c) => rows[rows.Count - 1 - c.Z][c.X];
             bool Walkable(DungeonCell c) => InBounds(c) && (Symbol(c) == '.' || Symbol(c) == 'D');
-            if (!Walkable(start)) errors.Add(D("arrival.start", "Start must reference a walkable cell."));
-            if (safe.Count == 0 || safe.Any(cell => !Walkable(cell))) errors.Add(D("arrival.safeCells", "At least one safe cell is required and every safe cell must be walkable."));
-            if (safe.Distinct().Count() != safe.Count) errors.Add(D("arrival.safeCells", "Safe cells must be unique."));
+            if (!Walkable(start))
+            {
+                errors.Add(D("arrival.start", "Start must reference a walkable cell."));
+            }
+
+            if (safe.Count == 0 || safe.Any(cell => !Walkable(cell)))
+            {
+                errors.Add(D(
+                    "arrival.safeCells",
+                    "At least one safe cell is required and every safe cell must be walkable."));
+            }
+
+            if (safe.Distinct().Count() != safe.Count)
+            {
+                errors.Add(D("arrival.safeCells", "Safe cells must be unique."));
+            }
+
             bool ownsContract = DeterministicDungeonGenerator.OwnsContract(metadata);
             if (ownsContract &&
                 (!DeterministicDungeonGenerator.IsSupportedDimension(rows[0].Length) ||
@@ -546,8 +591,20 @@ namespace Game.DungeonGeneration
                     "arrival.start",
                     "For the current Donjon generator, start must equal the deterministic stair-aware selection from stairs and ordered safeCells."));
             }
-            bool invalidRooms = rooms.Select(room => room.Id).Distinct().Count() != rooms.Count || rooms.Any(room => room.Id < 1 || room.MinimumX > room.MaximumX || room.MinimumZ > room.MaximumZ || !InBounds(new DungeonCell(room.MinimumX, room.MinimumZ)) || !InBounds(new DungeonCell(room.MaximumX, room.MaximumZ)));
-            if (invalidRooms) errors.Add(D("rooms", "Room IDs must be unique positive integers with ordered in-bounds bounds."));
+            bool invalidRooms =
+                rooms.Select(room => room.Id).Distinct().Count() != rooms.Count ||
+                rooms.Any(room =>
+                    room.Id < 1 ||
+                    room.MinimumX > room.MaximumX ||
+                    room.MinimumZ > room.MaximumZ ||
+                    !InBounds(new DungeonCell(room.MinimumX, room.MinimumZ)) ||
+                    !InBounds(new DungeonCell(room.MaximumX, room.MaximumZ)));
+            if (invalidRooms)
+            {
+                errors.Add(D(
+                    "rooms",
+                    "Room IDs must be unique positive integers with ordered in-bounds bounds."));
+            }
             else
             {
                 for (int left = 0; left < rooms.Count; left++)
@@ -556,12 +613,27 @@ namespace Game.DungeonGeneration
                     for (int right = left + 1; right < rooms.Count; right++)
                     {
                         DungeonRoom other = rooms[right];
-                        if (room.MinimumX <= other.MaximumX && room.MaximumX >= other.MinimumX && room.MinimumZ <= other.MaximumZ && room.MaximumZ >= other.MinimumZ)
+                        if (room.MinimumX <= other.MaximumX &&
+                            room.MaximumX >= other.MinimumX &&
+                            room.MinimumZ <= other.MaximumZ &&
+                            room.MaximumZ >= other.MinimumZ)
+                        {
                             errors.Add(D("rooms", "Room bounds must not overlap."));
+                        }
                     }
+
                     for (int z = room.MinimumZ; z <= room.MaximumZ; z++)
-                    for (int x = room.MinimumX; x <= room.MaximumX; x++)
-                        if (Symbol(new DungeonCell(x, z)) != '.') errors.Add(D("rooms", "Every cell inside room bounds must contain '.'."));
+                    {
+                        for (int x = room.MinimumX; x <= room.MaximumX; x++)
+                        {
+                            if (Symbol(new DungeonCell(x, z)) != '.')
+                            {
+                                errors.Add(D(
+                                    "rooms",
+                                    "Every cell inside room bounds must contain '.'."));
+                            }
+                        }
+                    }
                 }
             }
             if (ownsContract && !invalidRooms &&
@@ -574,13 +646,51 @@ namespace Game.DungeonGeneration
                     "rooms",
                     "For the current Donjon generator, room records must use ordered IDs starting at 1, odd-aligned bounds, and odd side lengths from 3 through the generator-supported map maximum."));
             }
-            HashSet<DungeonCell> doorCells = new(); bool invalidDoorCell = false;
-            foreach (DungeonDoor door in doors) if (!doorCells.Add(door.Cell) || !InBounds(door.Cell) || Symbol(door.Cell) != 'D') invalidDoorCell = true;
-            if (doors.Select(door => door.Id).Distinct(StringComparer.Ordinal).Count() != doors.Count) errors.Add(D("doors", "Door IDs must be unique."));
-            if (invalidDoorCell) errors.Add(D("doors", "Door cells must be unique, in bounds, and reference a 'D' row cell."));
+            HashSet<DungeonCell> doorCells = new();
+            bool invalidDoorCell = false;
+            foreach (DungeonDoor door in doors)
+            {
+                if (!doorCells.Add(door.Cell) ||
+                    !InBounds(door.Cell) ||
+                    Symbol(door.Cell) != 'D')
+                {
+                    invalidDoorCell = true;
+                }
+            }
+
+            bool duplicateDoorIds =
+                doors.Select(door => door.Id).Distinct(StringComparer.Ordinal).Count() != doors.Count;
+            if (duplicateDoorIds)
+            {
+                errors.Add(D("doors", "Door IDs must be unique."));
+            }
+
+            if (invalidDoorCell)
+            {
+                errors.Add(D(
+                    "doors",
+                    "Door cells must be unique, in bounds, and reference a 'D' row cell."));
+            }
+
             HashSet<DungeonCell> rowDoorCells = new();
-            for (int row = 0; row < rows.Count; row++) for (int x = 0; x < rows[row].Length; x++) if (rows[row][x] == 'D') rowDoorCells.Add(new DungeonCell(x, rows.Count - 1 - row));
-            if (!rowDoorCells.SetEquals(doorCells)) errors.Add(D("doors", "Every 'D' row cell must have exactly one door record and every record must map to one 'D' cell."));
+            for (int row = 0; row < rows.Count; row++)
+            {
+                for (int x = 0; x < rows[row].Length; x++)
+                {
+                    if (rows[row][x] == 'D')
+                    {
+                        rowDoorCells.Add(new DungeonCell(x, rows.Count - 1 - row));
+                    }
+                }
+            }
+
+            if (!rowDoorCells.SetEquals(doorCells))
+            {
+                errors.Add(D(
+                    "doors",
+                    "Every 'D' row cell must have exactly one door record and every record must map to one 'D' cell."));
+            }
+
             if (ownsContract && Walkable(start) &&
                 !DungeonTopologyValidator.AreAllWalkableCellsReachable(rows, start))
             {
@@ -667,19 +777,46 @@ namespace Game.DungeonGeneration
                     "Object IDs must be unique, cells must be in bounds, and rotations must be 0, 90, 180, or 270."));
             }
             HashSet<int> roomIds = new(rooms.Select(room => room.Id));
-            if (encounters.Select(plan => plan.Id).Distinct(StringComparer.Ordinal).Count() != encounters.Count) errors.Add(D("encounterPlans", "Encounter IDs must be unique."));
+            bool duplicateEncounterIds =
+                encounters.Select(plan => plan.Id).Distinct(StringComparer.Ordinal).Count() != encounters.Count;
+            if (duplicateEncounterIds)
+            {
+                errors.Add(D("encounterPlans", "Encounter IDs must be unique."));
+            }
+
             foreach (DungeonEncounterPlan plan in encounters)
             {
                 DungeonRoom room = rooms.FirstOrDefault(candidate => candidate.Id == plan.RoomId);
-                bool valid = roomIds.Contains(plan.RoomId) && plan.Budget >= 0 && plan.SpawnCells.Count == plan.CreatureIds.Count && plan.SpawnCells.Distinct().Count() == plan.SpawnCells.Count && plan.SpawnCells.All(cell => Walkable(cell) && room != null && cell.X >= room.MinimumX && cell.X <= room.MaximumX && cell.Z >= room.MinimumZ && cell.Z <= room.MaximumZ);
-                if (!valid) errors.Add(D("encounterPlans", "Every encounter must reference a room, have a nonnegative budget, and pair each creature ID with one distinct walkable spawn cell inside that room."));
+                bool valid =
+                    roomIds.Contains(plan.RoomId) &&
+                    plan.Budget >= 0 &&
+                    plan.SpawnCells.Count == plan.CreatureIds.Count &&
+                    plan.SpawnCells.Distinct().Count() == plan.SpawnCells.Count &&
+                    plan.SpawnCells.All(cell =>
+                        Walkable(cell) &&
+                        room != null &&
+                        cell.X >= room.MinimumX &&
+                        cell.X <= room.MaximumX &&
+                        cell.Z >= room.MinimumZ &&
+                        cell.Z <= room.MaximumZ);
+                if (!valid)
+                {
+                    errors.Add(D(
+                        "encounterPlans",
+                        "Every encounter must reference a room, have a nonnegative budget, and pair each creature ID with one distinct walkable spawn cell inside that room."));
+                }
             }
             if (runtime == null)
             {
                 if (doors.Any(door => door.IsOpen))
+                {
                     errors.Add(D("doors", "Door open flags must be false when runtime state is absent."));
+                }
+
                 if (encounters.Any(plan => plan.IsResolved))
+                {
                     errors.Add(D("encounterPlans", "Encounter resolved flags must be false when runtime state is absent."));
+                }
             }
             else
             {

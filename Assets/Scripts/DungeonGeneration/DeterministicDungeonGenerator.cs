@@ -66,8 +66,25 @@ namespace Game.DungeonGeneration
         private static IReadOnlyList<DungeonGenerationDiagnostic> ValidateRequest(DungeonGenerationRequest request)
         {
             List<DungeonGenerationDiagnostic> errors = new();
-            void Check(bool condition, string field, string message) { if (!condition) errors.Add(new DungeonGenerationDiagnostic(DungeonGenerationDiagnosticCode.InvalidRequest, field, message)); }
-            if (request == null) { errors.Add(new DungeonGenerationDiagnostic(DungeonGenerationDiagnosticCode.InvalidRequest, "request", "A generation request is required.")); return errors; }
+            void Check(bool condition, string field, string message)
+            {
+                if (!condition)
+                {
+                    errors.Add(new DungeonGenerationDiagnostic(
+                        DungeonGenerationDiagnosticCode.InvalidRequest,
+                        field,
+                        message));
+                }
+            }
+            if (request == null)
+            {
+                errors.Add(new DungeonGenerationDiagnostic(
+                    DungeonGenerationDiagnosticCode.InvalidRequest,
+                    "request",
+                    "A generation request is required."));
+                return errors;
+            }
+
             Check(request.Depth >= 0, nameof(request.Depth), "Depth must be zero or greater.");
             Check(IsSupportedDimension(request.Width), nameof(request.Width), "Width must be an odd integer from 15 through 101.");
             Check(IsSupportedDimension(request.Height), nameof(request.Height), "Height must be an odd integer from 15 through 101.");
@@ -727,7 +744,17 @@ namespace Game.DungeonGeneration
                 for (int z = request.Height - 1; z >= 0; z--)
                 {
                     char[] row = new char[request.Width];
-                    for (int x = 0; x < request.Width; x++) row[x] = cells[x, z] switch { CellKind.Masked => ' ', CellKind.Room or CellKind.Corridor => '.', CellKind.Door => 'D', _ => '#' };
+                    for (int x = 0; x < request.Width; x++)
+                    {
+                        row[x] = cells[x, z] switch
+                        {
+                            CellKind.Masked => ' ',
+                            CellKind.Room or CellKind.Corridor => '.',
+                            CellKind.Door => 'D',
+                            _ => '#'
+                        };
+                    }
+
                     rows.Add(new string(row));
                 }
                 return rows;
@@ -738,16 +765,65 @@ namespace Game.DungeonGeneration
 
             private Dictionary<DungeonCell, int> Distances(DungeonCell start)
             {
-                Dictionary<DungeonCell, int> result = new() { [start] = 0 }; Queue<DungeonCell> queue = new(); queue.Enqueue(start);
-                while (queue.Count > 0) { DungeonCell current = queue.Dequeue(); foreach (DungeonCell next in OpenNeighbors(current)) if (!result.ContainsKey(next)) { result[next] = result[current] + 1; queue.Enqueue(next); } }
+                Dictionary<DungeonCell, int> result = new() { [start] = 0 };
+                Queue<DungeonCell> queue = new();
+                queue.Enqueue(start);
+                while (queue.Count > 0)
+                {
+                    DungeonCell current = queue.Dequeue();
+                    foreach (DungeonCell next in OpenNeighbors(current))
+                    {
+                        if (!result.ContainsKey(next))
+                        {
+                            result[next] = result[current] + 1;
+                            queue.Enqueue(next);
+                        }
+                    }
+                }
+
                 return result;
             }
 
-            private IEnumerable<DungeonCell> WalkableCells() { for (int z = 0; z < request.Height; z++) for (int x = 0; x < request.Width; x++) { DungeonCell c = new(x, z); if (IsWalkable(c)) yield return c; } }
-            private List<DungeonCell> OpenNeighbors(DungeonCell cell) { List<DungeonCell> result = new(); foreach (DungeonCell d in Directions) { DungeonCell next = new(cell.X + d.X, cell.Z + d.Z); if (InBounds(next.X, next.Z) && IsWalkable(next)) result.Add(next); } return result; }
+            private IEnumerable<DungeonCell> WalkableCells()
+            {
+                for (int z = 0; z < request.Height; z++)
+                {
+                    for (int x = 0; x < request.Width; x++)
+                    {
+                        DungeonCell cell = new(x, z);
+                        if (IsWalkable(cell))
+                        {
+                            yield return cell;
+                        }
+                    }
+                }
+            }
+
+            private List<DungeonCell> OpenNeighbors(DungeonCell cell)
+            {
+                List<DungeonCell> result = new();
+                foreach (DungeonCell direction in Directions)
+                {
+                    DungeonCell next = new(cell.X + direction.X, cell.Z + direction.Z);
+                    if (InBounds(next.X, next.Z) && IsWalkable(next))
+                    {
+                        result.Add(next);
+                    }
+                }
+
+                return result;
+            }
+
             private bool IsWalkable(DungeonCell cell) => cells[cell.X, cell.Z] == CellKind.Room || cells[cell.X, cell.Z] == CellKind.Corridor || cells[cell.X, cell.Z] == CellKind.Door;
             private bool InBounds(int x, int z) => x >= 0 && z >= 0 && x < request.Width && z < request.Height;
-            private void Shuffle<T>(IList<T> values) { for (int i = values.Count - 1; i > 0; i--) { int j = random.NextInt(i + 1); (values[i], values[j]) = (values[j], values[i]); } }
+            private void Shuffle<T>(IList<T> values)
+            {
+                for (int index = values.Count - 1; index > 0; index--)
+                {
+                    int swapIndex = random.NextInt(index + 1);
+                    (values[index], values[swapIndex]) = (values[swapIndex], values[index]);
+                }
+            }
         }
     }
 }
