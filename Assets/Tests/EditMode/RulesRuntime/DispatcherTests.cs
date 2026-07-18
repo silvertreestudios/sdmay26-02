@@ -437,6 +437,57 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task IgnoredSynchronouslyCompletedChildIsRejected()
+        {
+            InMemoryRulesStore store = CreateStore(10);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    store,
+                    new SequentialOpIdProvider(850))
+                .RegisterHandler<IgnoredSynchronousChildRootOp, int>(
+                    new IgnoredSynchronousChildRootHandler())
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+
+            InvalidOperationException error =
+                Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await dispatcher.Dispatch(new IgnoredSynchronousChildRootOp()));
+            OpResult<int> recovered =
+                await dispatcher.Dispatch(new SingleIncrementRootOp());
+
+            Assert.That(error.Message,
+                Is.EqualTo("Operation 850 returned before awaiting its active child dispatch."));
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(12),
+                "The ignored child commits before rejection and the later root must still run.");
+            Assert.That(RequireResolved(recovered).Value, Is.EqualTo(12));
+        }
+
+        [Test]
+        public async Task IgnoredSynchronouslyFailedChildPropagatesItsFailure()
+        {
+            InMemoryRulesStore store = CreateStore(10);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<IgnoredFailingChildRootOp, int>(
+                    new IgnoredFailingChildRootHandler())
+                .RegisterHandler<SynchronouslyFailingNestedOp, int>(
+                    new SynchronouslyFailingNestedHandler(),
+                    InvocationPolicy.NestedOnly)
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+
+            ApplicationException error =
+                Assert.ThrowsAsync<ApplicationException>(async () =>
+                    await dispatcher.Dispatch(new IgnoredFailingChildRootOp()));
+            OpResult<int> recovered =
+                await dispatcher.Dispatch(new SingleIncrementRootOp());
+
+            Assert.That(error.Message, Is.EqualTo("synchronous child failure"));
+            Assert.That(RequireResolved(recovered).Value, Is.EqualTo(11),
+                "A propagated ignored failure must still release root ownership.");
+        }
+
+        [Test]
         public async Task UnawaitedSuspendedChildKeepsRootOwnedUntilItSettlesThenFailsClearly()
         {
             InMemoryRulesStore store = CreateStore(10);
@@ -959,6 +1010,51 @@ namespace Game.Rules.Runtime.Tests
                 OpResult<int> changed = await context.Dispatch(new IncrementOp(frame.Op.Amount));
                 return RequireResolved(changed).Value;
             }
+        }
+
+        private sealed class IgnoredSynchronousChildRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class IgnoredSynchronousChildRootHandler :
+            IOpHandler<IgnoredSynchronousChildRootOp, int>
+        {
+            public ValueTask<int> Handle(
+                OpFrame<IgnoredSynchronousChildRootOp> frame,
+                OpContext context)
+            {
+                _ = context.Dispatch(new IncrementOp(1));
+                return new ValueTask<int>(0);
+            }
+        }
+
+        private sealed class IgnoredFailingChildRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class IgnoredFailingChildRootHandler :
+            IOpHandler<IgnoredFailingChildRootOp, int>
+        {
+            public ValueTask<int> Handle(
+                OpFrame<IgnoredFailingChildRootOp> frame,
+                OpContext context)
+            {
+                _ = context.Dispatch(new SynchronouslyFailingNestedOp());
+                return new ValueTask<int>(0);
+            }
+        }
+
+        private sealed class SynchronouslyFailingNestedOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class SynchronouslyFailingNestedHandler :
+            IOpHandler<SynchronouslyFailingNestedOp, int>
+        {
+            public ValueTask<int> Handle(
+                OpFrame<SynchronouslyFailingNestedOp> frame,
+                OpContext context) =>
+                throw new ApplicationException("synchronous child failure");
         }
 
         private sealed class UnawaitedChildRootOp : IRuleOp<int>

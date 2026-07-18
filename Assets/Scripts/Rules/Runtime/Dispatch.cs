@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Runtime.ExceptionServices;
+using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Sources;
 
 namespace Game.Rules.Runtime
 {
@@ -667,7 +670,7 @@ namespace Game.Rules.Runtime
         private readonly OpId parentId;
         private readonly ActiveRuleBinding activeBinding;
         private bool isActive = true;
-        private TaskCompletionSource<bool> activeDispatch;
+        private IOwnedValueTaskSource activeDispatch;
 
         internal OpContext(
             RuleDispatcher dispatcher,
@@ -745,7 +748,7 @@ namespace Game.Rules.Runtime
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
 
-            TaskCompletionSource<bool> settlement;
+            OwnedValueTaskSource<OpResult<TResult>> dispatch;
             lock (gate)
             {
                 if (!isActive)
@@ -760,49 +763,44 @@ namespace Game.Rules.Runtime
                         "Await the active child before dispatching another.");
                 }
 
-                settlement = new TaskCompletionSource<bool>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                activeDispatch = settlement;
+                dispatch = new OwnedValueTaskSource<OpResult<TResult>>(
+                    () => dispatcher.DispatchNested(op, parentId),
+                    ReleaseDispatch);
+                activeDispatch = dispatch;
             }
 
-            return DispatchAndSettle(op, settlement);
+            dispatch.Start();
+            return dispatch.AsValueTask();
         }
 
         internal async ValueTask<bool> CompleteInvocation()
         {
-            Task pending = null;
+            IOwnedValueTaskSource pending;
             lock (gate)
             {
                 if (!isActive)
                     throw new InvalidOperationException("An operation context completed more than once.");
                 isActive = false;
-                if (activeDispatch != null)
-                    pending = activeDispatch.Task;
+                pending = activeDispatch;
             }
 
             if (pending == null)
                 return false;
 
-            await pending;
+            // The active slot is cleared only by ValueTask.GetResult. Capturing it while closing
+            // the callback therefore records a contract violation even when ignored work already
+            // completed synchronously or a retained result is consumed after the callback returns.
+            await pending.Completion;
+            pending.ThrowIfFailed();
             return true;
         }
 
-        private async ValueTask<OpResult<TResult>> DispatchAndSettle<TResult>(
-            IRuleOp<TResult> op,
-            TaskCompletionSource<bool> settlement)
+        private void ReleaseDispatch(IOwnedValueTaskSource dispatch)
         {
-            try
+            lock (gate)
             {
-                return await dispatcher.DispatchNested(op, parentId);
-            }
-            finally
-            {
-                lock (gate)
-                {
-                    if (ReferenceEquals(activeDispatch, settlement))
-                        activeDispatch = null;
-                }
-                settlement.TrySetResult(true);
+                if (ReferenceEquals(activeDispatch, dispatch))
+                    activeDispatch = null;
             }
         }
 
@@ -992,7 +990,10 @@ namespace Game.Rules.Runtime
         /// </exception>
         /// <remarks>
         /// Resolver, middleware, and post-commit listener exceptions propagate to the caller. State
-        /// already committed by a reducer is not rolled back, but the dispatcher still releases root
+        /// already committed by a reducer is not rolled back. If resolution fails after a commit,
+        /// listeners receive the durable Facts before the resolution exception is rethrown. If that
+        /// notification also fails, an <see cref="AggregateException"/> reports the resolution
+        /// exception first and the notification exception second. The dispatcher then releases root
         /// ownership so a later independent root may be dispatched.
         /// </remarks>
         public async ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
@@ -1181,17 +1182,56 @@ namespace Game.Rules.Runtime
             OpId rootId,
             OpId? causeId)
         {
-            OpResult<TResult> result = await DispatchCore(
-                op,
-                registration,
-                resolution,
-                rootId,
-                null,
-                causeId);
+            OpResult<TResult> result;
+            try
+            {
+                result = await DispatchCore(
+                    op,
+                    registration,
+                    resolution,
+                    rootId,
+                    null,
+                    causeId);
+            }
+            catch (Exception resolutionException)
+            {
+                IReadOnlyList<RuleFact> committedFacts =
+                    SnapshotCommittedFacts(resolution, rootId);
+                if (committedFacts.Count == 0)
+                    throw;
+
+                try
+                {
+                    await NotifyFactListeners(rootId, committedFacts);
+                }
+                catch (Exception notificationException)
+                {
+                    throw new AggregateException(
+                        "Operation resolution and post-commit Fact notification both failed.",
+                        resolutionException,
+                        notificationException);
+                }
+
+                throw;
+            }
 
             if (result.Status != OpStatus.Invalid && result.Facts.Count > 0)
                 await NotifyFactListeners(rootId, result.Facts);
             return result;
+        }
+
+        private IReadOnlyList<RuleFact> SnapshotCommittedFacts(
+            RootResolution resolution,
+            OpId rootId)
+        {
+            lock (gate)
+            {
+                RequireActiveResolution(resolution);
+                if (resolution.RootId != rootId)
+                    throw new InvalidOperationException(
+                        "Committed Facts crossed resolution root ownership.");
+                return Array.AsReadOnly(resolution.Facts.ToArray());
+            }
         }
 
         private async ValueTask NotifyFactListeners(
@@ -1684,6 +1724,113 @@ namespace Game.Rules.Runtime
                 ? OpResult<TResult>.Resolved(reduced.Value)
                 : OpResult<TResult>.Invalid(reduced.RejectionReason);
             return new ValueTask<object>(result.WithFacts(reduced.Facts));
+        }
+    }
+
+    /// <summary>
+    /// Exposes completion and failure state for a callback-owned asynchronous result.
+    /// </summary>
+    /// <remarks>
+    /// Completion alone does not release ownership. The callback scope remains responsible for
+    /// this source until the returned task-like value consumes its result.
+    /// </remarks>
+    internal interface IOwnedValueTaskSource
+    {
+        Task Completion { get; }
+
+        void ThrowIfFailed();
+    }
+
+    /// <summary>
+    /// Adapts asynchronous work into a single-consumption <see cref="ValueTask{TResult}"/> whose
+    /// owner is released only when the caller consumes the result.
+    /// </summary>
+    /// <typeparam name="TResult">The result returned by the owned asynchronous work.</typeparam>
+    /// <remarks>
+    /// Callback APIs use this source to distinguish an awaited result from work that merely
+    /// completed before the callback returned. The separate completion task lets callback shutdown
+    /// wait for ignored work and propagate its failure without treating completion as consumption.
+    /// </remarks>
+    internal sealed class OwnedValueTaskSource<TResult> :
+        IOwnedValueTaskSource,
+        IValueTaskSource<TResult>
+    {
+        private readonly Func<ValueTask<TResult>> operation;
+        private readonly Action<IOwnedValueTaskSource> release;
+        private readonly TaskCompletionSource<bool> completion =
+            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        private ManualResetValueTaskSourceCore<TResult> source;
+        private ExceptionDispatchInfo failure;
+        private int consumptionStarted;
+        private int wasStarted;
+
+        public OwnedValueTaskSource(
+            Func<ValueTask<TResult>> operation,
+            Action<IOwnedValueTaskSource> release)
+        {
+            this.operation = operation ?? throw new ArgumentNullException(nameof(operation));
+            this.release = release ?? throw new ArgumentNullException(nameof(release));
+            source.RunContinuationsAsynchronously = true;
+        }
+
+        public Task Completion => completion.Task;
+
+        public ValueTask<TResult> AsValueTask() =>
+            new ValueTask<TResult>(this, source.Version);
+
+        public void Start()
+        {
+            if (Interlocked.Exchange(ref wasStarted, 1) != 0)
+                throw new InvalidOperationException("Owned asynchronous work cannot start more than once.");
+
+            _ = Run();
+        }
+
+        public void ThrowIfFailed() => failure?.Throw();
+
+        public TResult GetResult(short token)
+        {
+            if (Interlocked.Exchange(ref consumptionStarted, 1) != 0)
+                throw new InvalidOperationException(
+                    "An owned asynchronous result may be consumed only once.");
+
+            try
+            {
+                return source.GetResult(token);
+            }
+            finally
+            {
+                // GetResult is the ValueTask consumption boundary. Awaiter registration and work
+                // completion are insufficient because both can occur before a callback returns.
+                release(this);
+            }
+        }
+
+        public ValueTaskSourceStatus GetStatus(short token) =>
+            source.GetStatus(token);
+
+        public void OnCompleted(
+            Action<object> continuation,
+            object state,
+            short token,
+            ValueTaskSourceOnCompletedFlags flags) =>
+            source.OnCompleted(continuation, state, token, flags);
+
+        private async Task Run()
+        {
+            try
+            {
+                source.SetResult(await operation());
+            }
+            catch (Exception exception)
+            {
+                failure = ExceptionDispatchInfo.Capture(exception);
+                source.SetException(exception);
+            }
+            finally
+            {
+                completion.TrySetResult(true);
+            }
         }
     }
 

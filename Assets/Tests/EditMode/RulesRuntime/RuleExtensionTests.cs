@@ -100,16 +100,49 @@ namespace Game.Rules.Runtime.Tests
 
             string[] oneRun =
             {
-                "before:z-phase",
                 "before:a-transform",
                 "before:z-transform",
+                "before:z-phase",
                 "handler",
+                "after:z-phase",
                 "after:z-transform",
-                "after:a-transform",
-                "after:z-phase"
+                "after:a-transform"
             };
             Assert.That(calls.Take(oneRun.Length), Is.EqualTo(oneRun));
             Assert.That(calls.Skip(oneRun.Length), Is.EqualTo(oneRun));
+        }
+
+        [Test]
+        public async Task ObservationMiddlewareSeesTheSettledTransformedResult()
+        {
+            List<string> calls = new List<string>();
+            ObservingMiddleware observer = new ObservingMiddleware(calls);
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).Middleware(
+                RuleLifecyclePhase.Transformation,
+                new LoggingMiddleware(calls, 3));
+            rules.Define(DefinitionB).Middleware(
+                RuleLifecyclePhase.Observation,
+                observer);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore(
+                    Binding("transform", DefinitionA, 0),
+                    Binding("observer", DefinitionB, 1)))
+                .RegisterHandler<ValueOp, int>(new ValueHandler(calls))
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            OpResult<int> result = await dispatcher.Dispatch(new ValueOp(2));
+
+            Assert.That(RequireResolved(result).Value, Is.EqualTo(5));
+            Assert.That(observer.ObservedValue, Is.EqualTo(5));
+            Assert.That(calls, Is.EqualTo(new[]
+            {
+                "observe:before",
+                "before:transform",
+                "handler",
+                "after:transform",
+                "observe:after:5"
+            }));
         }
 
         [Test]
@@ -167,7 +200,7 @@ namespace Game.Rules.Runtime.Tests
             ActiveRuleBinding disabledLater = Binding("disabled-later", DefinitionB, 1);
             RuleRegistryBuilder rules = new RuleRegistryBuilder();
             rules.Define(DefinitionA).Middleware(
-                RuleLifecyclePhase.Prevention,
+                RuleLifecyclePhase.Observation,
                 new DisableThenContinueMiddleware(disabledLater.Id, calls));
             rules.Define(DefinitionB).Middleware(
                 RuleLifecyclePhase.Transformation,
@@ -441,6 +474,47 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void SynchronouslyIgnoredMiddlewareContinuationSuccessIsRejected()
+        {
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).Middleware(
+                RuleLifecyclePhase.Transformation,
+                new IgnoringContinuationMiddleware());
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(Binding("ignored-next-success", DefinitionA, 0)))
+                .RegisterHandler<ValueOp, int>(new ValueHandler())
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            InvalidOperationException error =
+                Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await dispatcher.Dispatch(new ValueOp(4)));
+
+            Assert.That(error.Message,
+                Is.EqualTo("Middleware for ValueOp returned before awaiting its continuation."));
+        }
+
+        [Test]
+        public void SynchronouslyIgnoredMiddlewareContinuationFailureIsPropagated()
+        {
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).Middleware(
+                RuleLifecyclePhase.Transformation,
+                new IgnoringContinuationMiddleware());
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(Binding("ignored-next-failure", DefinitionA, 0)))
+                .RegisterHandler<ValueOp, int>(new SynchronouslyFailingValueHandler())
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            ApplicationException error =
+                Assert.ThrowsAsync<ApplicationException>(async () =>
+                    await dispatcher.Dispatch(new ValueOp(4)));
+
+            Assert.That(error.Message, Is.EqualTo("synchronous resolver failure"));
+        }
+
+        [Test]
         public async Task HandlerContextClosesBeforeMiddlewarePostProcessing()
         {
             CapturingValueHandler handler = new CapturingValueHandler();
@@ -477,7 +551,7 @@ namespace Game.Rules.Runtime.Tests
                 new ProbeInnerContextMiddleware(inner);
             RuleRegistryBuilder rules = new RuleRegistryBuilder();
             rules.Define(DefinitionA).Middleware(
-                RuleLifecyclePhase.Prevention,
+                RuleLifecyclePhase.Observation,
                 outer);
             rules.Define(DefinitionB).Middleware(
                 RuleLifecyclePhase.Transformation,
@@ -562,6 +636,109 @@ namespace Game.Rules.Runtime.Tests
                 "Awaiting unrelated work must not hide a later ignored listener dispatch.");
         }
 
+        [Test]
+        public async Task ExceptionalHandlerPublishesDurableFactsOnceBeforeRethrowing()
+        {
+            DispatchingFactListener listener = new DispatchingFactListener();
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).FactListener(
+                RuleLifecyclePhase.Reaction,
+                listener);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(Binding("exceptional-handler-listener", DefinitionA, 0)))
+                .RegisterHandler<CommitThenThrowRootOp, int>(
+                    new CommitThenThrowRootHandler())
+                .RegisterHandler<ReactionOp, int>(new ReactionHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            ApplicationException error =
+                Assert.ThrowsAsync<ApplicationException>(async () =>
+                    await dispatcher.Dispatch(new CommitThenThrowRootOp()));
+            OpResult<int> recovered =
+                await dispatcher.Dispatch(new ReactionOp(7));
+
+            Assert.That(error.Message, Is.EqualTo("handler resolution failed"));
+            Assert.That(listener.Calls, Is.EqualTo(1));
+            Assert.That(listener.DispatchResult, Is.EqualTo(11),
+                "The exceptional root must retain ownership for causal listener dispatch.");
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(11));
+            Assert.That(RequireResolved(recovered).Value, Is.EqualTo(7),
+                "Exceptional publication must release root ownership after listeners finish.");
+        }
+
+        [Test]
+        public void ResolutionAndNotificationFailuresAreAggregatedInStableOrder()
+        {
+            ThrowingFactListener listener = new ThrowingFactListener();
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            RuleDefinitionBuilder definition = rules.Define(DefinitionA);
+            definition.Middleware(
+                RuleLifecyclePhase.Transformation,
+                new CommitThenThrowMiddleware());
+            definition.FactListener(
+                RuleLifecyclePhase.Observation,
+                listener);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(Binding("dual-failure", DefinitionA, 0)))
+                .RegisterHandler<ValueOp, int>(new ValueHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            AggregateException error =
+                Assert.ThrowsAsync<AggregateException>(async () =>
+                    await dispatcher.Dispatch(new ValueOp(1)));
+
+            Assert.That(error.Message,
+                Does.StartWith("Operation resolution and post-commit Fact notification both failed."));
+            Assert.That(error.InnerExceptions, Has.Count.EqualTo(2));
+            Assert.That(error.InnerExceptions[0], Is.TypeOf<ApplicationException>());
+            Assert.That(error.InnerExceptions[0].Message,
+                Is.EqualTo("middleware resolution failed"));
+            Assert.That(error.InnerExceptions[1], Is.TypeOf<InvalidOperationException>());
+            Assert.That(error.InnerExceptions[1].Message,
+                Is.EqualTo("listener notification failed"));
+            Assert.That(listener.Calls, Is.EqualTo(1));
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(11));
+        }
+
+        [Test]
+        public async Task RetainedFactContextRejectsSnapshotAndTraceReads()
+        {
+            CapturingFactContextListener listener = new CapturingFactContextListener();
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).FactListener(
+                RuleLifecyclePhase.Observation,
+                listener);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(Binding("retained-fact-context", DefinitionA, 0)))
+                .RegisterHandler<RootIncrementOp, int>(new RootIncrementHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            await dispatcher.Dispatch(new RootIncrementOp(new[] { 1 }));
+
+            InvalidOperationException snapshotError =
+                Assert.Throws<InvalidOperationException>(() =>
+                {
+                    _ = listener.Context.Snapshot;
+                });
+            InvalidOperationException traceError =
+                Assert.Throws<InvalidOperationException>(() =>
+                {
+                    _ = listener.Context.Trace;
+                });
+
+            Assert.That(listener.SnapshotDuringCallback, Is.SameAs(dispatcher.Snapshot));
+            Assert.That(listener.TraceDuringCallback, Is.SameAs(dispatcher.Trace));
+            Assert.That(snapshotError.Message,
+                Is.EqualTo("A Fact context cannot be used after its listener returns."));
+            Assert.That(traceError.Message, Is.EqualTo(snapshotError.Message));
+        }
+
         private static InMemoryRulesStore CreateStore(params ActiveRuleBinding[] bindings)
         {
             RulesStateSeed seed = new RulesStateSeed()
@@ -612,6 +789,15 @@ namespace Game.Rules.Runtime.Tests
                 calls?.Add("handler");
                 return new ValueTask<int>(frame.Op.Value);
             }
+        }
+
+        private sealed class SynchronouslyFailingValueHandler :
+            IOpHandler<ValueOp, int>
+        {
+            public ValueTask<int> Handle(
+                OpFrame<ValueOp> frame,
+                OpContext context) =>
+                throw new ApplicationException("synchronous resolver failure");
         }
 
         private sealed class AmbiguousOp : IRuleOp<int>, IRuleOp<string>
@@ -773,6 +959,42 @@ namespace Game.Rules.Runtime.Tests
                 if (result is ResolvedOpResult<int> resolved)
                     return OpResult<int>.Resolved(resolved.Value + addedValue);
                 return result;
+            }
+        }
+
+        private sealed class ObservingMiddleware : IOpMiddleware<ValueOp, int>
+        {
+            private readonly List<string> calls;
+
+            public int ObservedValue { get; private set; }
+
+            public ObservingMiddleware(List<string> calls) => this.calls = calls;
+
+            public async ValueTask<OpResult<int>> Invoke(
+                ActiveRuleBinding binding,
+                OpFrame<ValueOp> frame,
+                OpContext context,
+                OpNext<int> next)
+            {
+                calls.Add("observe:before");
+                OpResult<int> result = await next();
+                ObservedValue = RequireResolved(result).Value;
+                calls.Add($"observe:after:{ObservedValue}");
+                return result;
+            }
+        }
+
+        private sealed class IgnoringContinuationMiddleware :
+            IOpMiddleware<ValueOp, int>
+        {
+            public ValueTask<OpResult<int>> Invoke(
+                ActiveRuleBinding binding,
+                OpFrame<ValueOp> frame,
+                OpContext context,
+                OpNext<int> next)
+            {
+                _ = next();
+                return new ValueTask<OpResult<int>>(OpResult<int>.Resolved(99));
             }
         }
 
@@ -1003,6 +1225,22 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
+        private sealed class CommitThenThrowRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class CommitThenThrowRootHandler :
+            IOpHandler<CommitThenThrowRootOp, int>
+        {
+            public async ValueTask<int> Handle(
+                OpFrame<CommitThenThrowRootOp> frame,
+                OpContext context)
+            {
+                await context.Dispatch(new IncrementOp(1));
+                throw new ApplicationException("handler resolution failed");
+            }
+        }
+
         private sealed class CommitThenInvalidateMiddleware : IOpMiddleware<ValueOp, int>
         {
             public async ValueTask<OpResult<int>> Invoke(
@@ -1013,6 +1251,20 @@ namespace Game.Rules.Runtime.Tests
             {
                 await context.Dispatch(new IncrementOp(1));
                 return OpResult<int>.Invalid("invalid after committed child");
+            }
+        }
+
+        private sealed class CommitThenThrowMiddleware :
+            IOpMiddleware<ValueOp, int>
+        {
+            public async ValueTask<OpResult<int>> Invoke(
+                ActiveRuleBinding binding,
+                OpFrame<ValueOp> frame,
+                OpContext context,
+                OpNext<int> next)
+            {
+                await context.Dispatch(new IncrementOp(1));
+                throw new ApplicationException("middleware resolution failed");
             }
         }
 
@@ -1101,16 +1353,51 @@ namespace Game.Rules.Runtime.Tests
             public ActiveRuleBinding Binding { get; private set; }
             public RuleSource Source { get; private set; }
             public int DispatchResult { get; private set; }
+            public int Calls { get; private set; }
 
             public async ValueTask OnFactCommitted(
                 ActiveRuleBinding binding,
                 CounterChangedFact fact,
                 FactContext context)
             {
+                Calls++;
                 Binding = context.Binding;
                 Source = context.Source;
                 OpResult<int> result = await context.Dispatch(new ReactionOp(fact.Current));
                 DispatchResult = RequireResolved(result).Value;
+            }
+        }
+
+        private sealed class ThrowingFactListener : IFactListener<CounterChangedFact>
+        {
+            public int Calls { get; private set; }
+
+            public ValueTask OnFactCommitted(
+                ActiveRuleBinding binding,
+                CounterChangedFact fact,
+                FactContext context)
+            {
+                Calls++;
+                throw new InvalidOperationException("listener notification failed");
+            }
+        }
+
+        private sealed class CapturingFactContextListener :
+            IFactListener<CounterChangedFact>
+        {
+            public FactContext Context { get; private set; }
+            public RulesSnapshot SnapshotDuringCallback { get; private set; }
+            public ResolutionTrace TraceDuringCallback { get; private set; }
+
+            public ValueTask OnFactCommitted(
+                ActiveRuleBinding binding,
+                CounterChangedFact fact,
+                FactContext context)
+            {
+                Context = context;
+                SnapshotDuringCallback = context.Snapshot;
+                TraceDuringCallback = context.Trace;
+                return default;
             }
         }
 

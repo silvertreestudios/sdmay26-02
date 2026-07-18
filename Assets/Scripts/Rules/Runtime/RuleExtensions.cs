@@ -2,10 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Runtime.ExceptionServices;
-using System.Threading;
 using System.Threading.Tasks;
-using System.Threading.Tasks.Sources;
 
 namespace Game.Rules.Runtime
 {
@@ -16,7 +13,9 @@ namespace Game.Rules.Runtime
     /// The fixed stages provide deterministic ordering without exposing arbitrary numeric
     /// priorities. Choose the stage that describes the rule's purpose. If two rules need a more
     /// specific ordering relationship, introduce a distinct lifecycle operation instead of using
-    /// a stage as an undocumented priority.
+    /// a stage as an undocumented priority. Fact listeners run in the order shown. Middleware
+    /// nests in reverse phase order so its post-<c>next</c> result settles through Prevention,
+    /// Transformation, Reaction, and finally Observation.
     /// </remarks>
     public enum RuleLifecyclePhase
     {
@@ -170,7 +169,7 @@ namespace Game.Rules.Runtime
         private readonly RuleDispatcher dispatcher;
         private readonly OpId causeId;
         private bool isActive = true;
-        private IFactDispatch activeDispatch;
+        private IOwnedValueTaskSource activeDispatch;
 
         internal FactContext(
             RuleDispatcher dispatcher,
@@ -204,12 +203,32 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Gets the latest committed rules snapshot, including the state described by the Fact.
         /// </summary>
-        public RulesSnapshot Snapshot => dispatcher.Snapshot;
+        /// <exception cref="InvalidOperationException">
+        /// The listener callback that owned this context has returned.
+        /// </exception>
+        public RulesSnapshot Snapshot
+        {
+            get
+            {
+                RequireActive();
+                return dispatcher.Snapshot;
+            }
+        }
 
         /// <summary>
         /// Gets the lifetime trace containing the committed root and listener-dispatched work.
         /// </summary>
-        public ResolutionTrace Trace => dispatcher.Trace;
+        /// <exception cref="InvalidOperationException">
+        /// The listener callback that owned this context has returned.
+        /// </exception>
+        public ResolutionTrace Trace
+        {
+            get
+            {
+                RequireActive();
+                return dispatcher.Trace;
+            }
+        }
 
         /// <summary>
         /// Dispatches an externally allowed operation as a new root caused by this notification.
@@ -227,7 +246,7 @@ namespace Game.Rules.Runtime
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
 
-            FactDispatch<TResult> dispatch;
+            OwnedValueTaskSource<OpResult<TResult>> dispatch;
             lock (gate)
             {
                 if (!isActive)
@@ -238,12 +257,9 @@ namespace Game.Rules.Runtime
                         "A Fact listener cannot overlap dispatched roots. Await the active dispatch first.");
                 }
 
-                dispatch = new FactDispatch<TResult>(
-                    this,
-                    dispatcher,
-                    op,
-                    CommittedRootId,
-                    causeId);
+                dispatch = new OwnedValueTaskSource<OpResult<TResult>>(
+                    () => dispatcher.DispatchFromFact(op, CommittedRootId, causeId),
+                    ReleaseDispatch);
                 activeDispatch = dispatch;
             }
 
@@ -253,7 +269,7 @@ namespace Game.Rules.Runtime
 
         internal async ValueTask<bool> CompleteInvocation()
         {
-            IFactDispatch pending = null;
+            IOwnedValueTaskSource pending = null;
             lock (gate)
             {
                 if (!isActive)
@@ -267,10 +283,10 @@ namespace Game.Rules.Runtime
 
             await pending.Completion;
             pending.ThrowIfFailed();
-            return !pending.WasConsumed;
+            return true;
         }
 
-        private void ReleaseDispatch(IFactDispatch dispatch)
+        private void ReleaseDispatch(IOwnedValueTaskSource dispatch)
         {
             lock (gate)
             {
@@ -279,105 +295,13 @@ namespace Game.Rules.Runtime
             }
         }
 
-        private interface IFactDispatch
+        private void RequireActive()
         {
-            Task Completion { get; }
-
-            bool WasConsumed { get; }
-
-            void ThrowIfFailed();
-        }
-
-        private sealed class FactDispatch<TResult> :
-            IFactDispatch,
-            IValueTaskSource<OpResult<TResult>>
-        {
-            private readonly FactContext owner;
-            private readonly RuleDispatcher dispatcher;
-            private readonly IRuleOp<TResult> op;
-            private readonly OpId committedRootId;
-            private readonly OpId causeId;
-            private readonly TaskCompletionSource<bool> completion =
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            private ManualResetValueTaskSourceCore<OpResult<TResult>> source;
-            private ExceptionDispatchInfo failure;
-            private int wasConsumed;
-            private int wasStarted;
-
-            public FactDispatch(
-                FactContext owner,
-                RuleDispatcher dispatcher,
-                IRuleOp<TResult> op,
-                OpId committedRootId,
-                OpId causeId)
+            lock (gate)
             {
-                this.owner = owner;
-                this.dispatcher = dispatcher;
-                this.op = op;
-                this.committedRootId = committedRootId;
-                this.causeId = causeId;
-                source.RunContinuationsAsynchronously = true;
-            }
-
-            public Task Completion => completion.Task;
-
-            public bool WasConsumed => Volatile.Read(ref wasConsumed) != 0;
-
-            public ValueTask<OpResult<TResult>> AsValueTask() =>
-                new ValueTask<OpResult<TResult>>(this, source.Version);
-
-            public void Start()
-            {
-                if (Interlocked.Exchange(ref wasStarted, 1) != 0)
-                    throw new InvalidOperationException("A Fact dispatch cannot start more than once.");
-
-                _ = Run();
-            }
-
-            public void ThrowIfFailed() => failure?.Throw();
-
-            public OpResult<TResult> GetResult(short token)
-            {
-                if (Interlocked.Exchange(ref wasConsumed, 1) != 0)
-                    throw new InvalidOperationException("A Fact dispatch result may be consumed only once.");
-
-                try
-                {
-                    return source.GetResult(token);
-                }
-                finally
-                {
-                    owner.ReleaseDispatch(this);
-                }
-            }
-
-            public ValueTaskSourceStatus GetStatus(short token) =>
-                source.GetStatus(token);
-
-            public void OnCompleted(
-                Action<object> continuation,
-                object state,
-                short token,
-                ValueTaskSourceOnCompletedFlags flags) =>
-                source.OnCompleted(continuation, state, token, flags);
-
-            private async Task Run()
-            {
-                try
-                {
-                    OpResult<TResult> result =
-                        await dispatcher.DispatchFromFact(op, committedRootId, causeId);
-                    source.SetResult(result);
-                }
-                catch (Exception exception)
-                {
-                    failure = ExceptionDispatchInfo.Capture(exception);
-                    source.SetException(exception);
-                }
-                finally
-                {
-                    completion.TrySetResult(true);
-                }
+                if (!isActive)
+                    throw new InvalidOperationException(
+                        "A Fact context cannot be used after its listener returns.");
             }
         }
     }
@@ -800,7 +724,10 @@ namespace Game.Rules.Runtime
 
         public static int Compare(BoundMiddlewareRegistration left, BoundMiddlewareRegistration right)
         {
-            int phase = left.Registration.Phase.CompareTo(right.Registration.Phase);
+            // The first selected middleware is the outermost wrapper. Reverse phase nesting makes
+            // the returned result settle in semantic phase order, leaving Observation last so it
+            // sees every transformation and reaction applied by inner middleware.
+            int phase = right.Registration.Phase.CompareTo(left.Registration.Phase);
             if (phase != 0)
                 return phase;
             int creation = left.Binding.CreationOrder.CompareTo(right.Binding.CreationOrder);
@@ -925,14 +852,14 @@ namespace Game.Rules.Runtime
         private readonly Func<ValueTask<object>> next;
         private bool isActive = true;
         private bool wasInvoked;
-        private TaskCompletionSource<bool> settlement;
+        private IOwnedValueTaskSource activeInvocation;
 
         public MiddlewareContinuation(Func<ValueTask<object>> next) =>
             this.next = next ?? throw new ArgumentNullException(nameof(next));
 
         public ValueTask<OpResult<TResult>> Invoke()
         {
-            TaskCompletionSource<bool> current;
+            OwnedValueTaskSource<OpResult<TResult>> invocation;
             lock (gate)
             {
                 if (!isActive)
@@ -940,42 +867,50 @@ namespace Game.Rules.Runtime
                 if (wasInvoked)
                     throw new InvalidOperationException("Middleware may invoke its continuation at most once.");
                 wasInvoked = true;
-                current = new TaskCompletionSource<bool>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                settlement = current;
+                invocation = new OwnedValueTaskSource<OpResult<TResult>>(
+                    InvokeNext,
+                    ReleaseInvocation);
+                activeInvocation = invocation;
             }
-            return InvokeAndSettle(current);
+
+            invocation.Start();
+            return invocation.AsValueTask();
         }
 
         public async ValueTask<bool> CompleteInvocation()
         {
-            Task pending;
+            IOwnedValueTaskSource pending;
             lock (gate)
             {
                 if (!isActive)
                     throw new InvalidOperationException("A middleware continuation completed more than once.");
                 isActive = false;
-                pending = settlement?.Task;
+                pending = activeInvocation;
             }
-            if (pending == null || pending.IsCompleted)
+
+            if (pending == null)
                 return false;
-            await pending;
+
+            await pending.Completion;
+            pending.ThrowIfFailed();
             return true;
         }
 
-        private async ValueTask<OpResult<TResult>> InvokeAndSettle(
-            TaskCompletionSource<bool> current)
+        private async ValueTask<OpResult<TResult>> InvokeNext()
         {
-            try
+            object value = await next();
+            if (!(value is OpResult<TResult> typed))
+                throw new InvalidOperationException(
+                    "Middleware continuation returned an impossible result type.");
+            return typed;
+        }
+
+        private void ReleaseInvocation(IOwnedValueTaskSource invocation)
+        {
+            lock (gate)
             {
-                object value = await next();
-                if (!(value is OpResult<TResult> typed))
-                    throw new InvalidOperationException("Middleware continuation returned an impossible result type.");
-                return typed;
-            }
-            finally
-            {
-                current.TrySetResult(true);
+                if (ReferenceEquals(activeInvocation, invocation))
+                    activeInvocation = null;
             }
         }
     }

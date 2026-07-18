@@ -434,7 +434,7 @@ Use the correct extension point:
 
 For example, a damage-prevention feature participates before `ApplyDamageReducer` commits. Cranial Detonation listens to `CreatureReducedToZeroFact` because reaching 0 HP is its completed trigger.
 
-Invalid Ops do not emit committed Facts and do not notify post-commit listeners.
+An invalid reducer transition does not commit Facts. A root deliberately returned as invalid does not open post-commit listener delivery, even when an earlier nested reducer committed state and its durable Facts remain attached for diagnostics. If resolution throws after a nested commit, listeners receive those durable Facts exactly once before the resolution exception propagates. When resolution and notification both fail, the dispatcher reports a stable aggregate with the resolution exception first and the notification exception second.
 
 ---
 
@@ -480,7 +480,7 @@ Middleware is appropriate when a rule needs to inspect or alter an in-progress o
 - a replacement effect around a damage lifecycle Op;
 - a reaction around `MovementLeavingSquareOp`.
 
-Middleware ordering is deterministic, using the fixed semantic phases `Prevention`, `Transformation`, `Reaction`, and `Observation`, followed by active binding creation order and binding ID. The first-pass design does not expose numeric priorities, which would create hard-to-see dependencies across unrelated rules. If two rules need meaningful ordering, represent that relationship with distinct lifecycle Ops or phases.
+Middleware ordering is deterministic, using the fixed semantic phases `Prevention`, `Transformation`, `Reaction`, and `Observation`, followed by active binding creation order and binding ID. Middleware nests in reverse phase order so returned results settle through those semantic phases in the listed order: observation wrappers therefore see the result after transformation and reaction middleware has finished. The first-pass design does not expose numeric priorities, which would create hard-to-see dependencies across unrelated rules. If two rules need meaningful ordering, represent that relationship with distinct lifecycle Ops or phases.
 
 Middleware may dispatch nested Ops and await their typed results. It cannot directly mutate state.
 
