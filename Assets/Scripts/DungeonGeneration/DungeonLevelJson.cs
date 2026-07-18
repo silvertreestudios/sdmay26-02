@@ -54,7 +54,8 @@ namespace Game.DungeonGeneration
         /// <returns>A complete lossless document or deterministic diagnostics with no partial document.</returns>
         public static DungeonLevelParseResult Parse(string json)
         {
-            List<DungeonGenerationDiagnostic> errors = new(); JObject root;
+            List<DungeonGenerationDiagnostic> errors = new();
+            JObject root;
             try
             {
                 root = JObject.Parse(json ?? string.Empty, new JsonLoadSettings
@@ -63,25 +64,85 @@ namespace Game.DungeonGeneration
                     LineInfoHandling = LineInfoHandling.Ignore
                 });
             }
-            catch (JsonException exception) { return Invalid("json", "JSON could not be parsed: " + exception.Message); }
-            ValidateProperties(root, "$", errors, "generation", "rows", "rooms", "doors", "stairs", "arrival", "objects", "encounterPlans", "runtimeState");
-            JObject generation = root["generation"] as JObject; JArray rowsToken = root["rows"] as JArray;
-            if (generation == null) errors.Add(D("generation", "Generation metadata is required."));
+            catch (JsonException exception)
+            {
+                return Invalid("json", "JSON could not be parsed: " + exception.Message);
+            }
+
+            ValidateProperties(
+                root,
+                "$",
+                errors,
+                "generation",
+                "rows",
+                "rooms",
+                "doors",
+                "stairs",
+                "arrival",
+                "objects",
+                "encounterPlans",
+                "runtimeState");
+            JObject generation = root["generation"] as JObject;
+            JArray rowsToken = root["rows"] as JArray;
+            if (generation == null)
+            {
+                errors.Add(D("generation", "Generation metadata is required."));
+            }
+
             DungeonGenerationMetadata metadata = ReadGeneration(generation, errors);
-            List<string> rows = ReadStrings(rowsToken, "rows", errors); bool rowsAreRectangular = ValidateRows(rows, errors);
+            List<string> rows = ReadStrings(rowsToken, "rows", errors);
+            bool rowsAreRectangular = ValidateRows(rows, errors);
             List<DungeonRoom> rooms = ReadRooms(root["rooms"] as JArray, errors);
             List<DungeonDoor> doors = ReadDoors(root["doors"] as JArray, errors);
             List<DungeonStair> stairs = ReadStairs(root["stairs"] as JArray, errors);
-            JObject arrival = root["arrival"] as JObject; DungeonCell start = ReadCell(arrival?["start"], "arrival.start", errors);
-            if (arrival == null) errors.Add(D("arrival", "Arrival must be an object."));
-            else ValidateProperties(arrival, "arrival", errors, "start", "safeCells");
+            JObject arrival = root["arrival"] as JObject;
+            DungeonCell start = ReadCell(arrival?["start"], "arrival.start", errors);
+            if (arrival == null)
+            {
+                errors.Add(D("arrival", "Arrival must be an object."));
+            }
+            else
+            {
+                ValidateProperties(arrival, "arrival", errors, "start", "safeCells");
+            }
+
             List<DungeonCell> safe = ReadCells(arrival?["safeCells"] as JArray, "arrival.safeCells", errors);
             List<DungeonObjectPlacement> objects = ReadObjects(root["objects"] as JArray, errors);
             List<DungeonEncounterPlan> encounters = ReadEncounters(root["encounterPlans"] as JArray, errors);
             DungeonRuntimeState runtime = ReadRuntime(root["runtimeState"], errors);
-            if (rowsAreRectangular) ValidateDocument(metadata, rows, rooms, doors, stairs, start, safe, objects, encounters, runtime, errors);
-            if (errors.Count > 0) return new DungeonLevelParseResult(null, errors);
-            return new DungeonLevelParseResult(new DungeonLevelDocument(metadata, rows, rooms, doors, stairs, start, safe, objects, encounters, runtime), errors);
+            if (rowsAreRectangular)
+            {
+                ValidateDocument(
+                    metadata,
+                    rows,
+                    rooms,
+                    doors,
+                    stairs,
+                    start,
+                    safe,
+                    objects,
+                    encounters,
+                    runtime,
+                    errors);
+            }
+
+            if (errors.Count > 0)
+            {
+                return new DungeonLevelParseResult(null, errors);
+            }
+
+            DungeonLevelDocument document = new(
+                metadata,
+                rows,
+                rooms,
+                doors,
+                stairs,
+                start,
+                safe,
+                objects,
+                encounters,
+                runtime);
+            return new DungeonLevelParseResult(document, errors);
         }
 
         private static DungeonGenerationMetadata ReadGeneration(JObject source, List<DungeonGenerationDiagnostic> errors)
