@@ -36,6 +36,7 @@ namespace Game.DungeonGeneration
                     break;
                 case DungeonEncounterThreat.Low:
                     baseline = 60;
+                    // Remastered GM Core Table 10-1 uses a 20-XP character adjustment.
                     adjustment = 20;
                     break;
                 case DungeonEncounterThreat.Moderate:

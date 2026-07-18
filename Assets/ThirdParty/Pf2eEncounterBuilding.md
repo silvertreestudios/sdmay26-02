@@ -15,3 +15,6 @@ The project distributes adapted ORC-licensed rules mechanics under the notices i
 [`ORCLicense.md`](../../ORCLicense.md). The enemy catalog points only to existing project-owned
 Monster Core conversions whose JSON files retain their own source and ORC provenance. No
 descriptive rules prose or setting material is copied into the planner.
+
+The Low-threat adjustment is intentionally 20 XP from the remastered *GM Core* table linked
+above. This differs from the 15-XP value in the legacy pre-remaster *Core Rulebook* table.
