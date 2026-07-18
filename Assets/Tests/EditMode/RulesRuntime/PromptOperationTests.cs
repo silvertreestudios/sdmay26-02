@@ -452,6 +452,80 @@ namespace Game.Rules.Runtime.Tests
                 new ValueTask<OpResult<ChoiceResult<bool>>>(result);
         }
 
+        private sealed class ScriptedPromptAdapter<TChoice> : IPromptAdapter<TChoice>
+        {
+            private readonly object gate = new object();
+            private readonly OpResult<ChoiceResult<TChoice>>[] results;
+            private int nextIndex;
+
+            internal ScriptedPromptAdapter(params OpResult<ChoiceResult<TChoice>>[] results)
+            {
+                if (results == null)
+                    throw new ArgumentNullException(nameof(results));
+                foreach (OpResult<ChoiceResult<TChoice>> result in results)
+                {
+                    if (result == null)
+                    {
+                        throw new ArgumentException(
+                            "A prompt script cannot contain missing results.",
+                            nameof(results));
+                    }
+                    if (result.Facts.Count != 0)
+                    {
+                        throw new ArgumentException(
+                            "A prompt script cannot contain committed Facts.",
+                            nameof(results));
+                    }
+                    if (result is ResolvedOpResult<ChoiceResult<TChoice>> resolved)
+                    {
+                        if (resolved.Value == null)
+                        {
+                            throw new ArgumentException(
+                                "A resolved prompt script result requires a choice outcome.",
+                                nameof(results));
+                        }
+                        continue;
+                    }
+                    if (result is CancelledOpResult<ChoiceResult<TChoice>>)
+                        continue;
+                    throw new ArgumentException(
+                        "A prompt script may contain only resolved choice outcomes or cancellation.",
+                        nameof(results));
+                }
+                this.results = (OpResult<ChoiceResult<TChoice>>[])results.Clone();
+            }
+
+            internal int Remaining
+            {
+                get
+                {
+                    lock (gate)
+                        return results.Length - nextIndex;
+                }
+            }
+
+            ValueTask<OpResult<ChoiceResult<TChoice>>> IPromptAdapter<TChoice>.Prompt(
+                PromptChoiceOp<TChoice> prompt,
+                RulesSnapshot snapshot)
+            {
+                if (prompt == null)
+                    throw new ArgumentNullException(nameof(prompt));
+                if (snapshot == null)
+                    throw new ArgumentNullException(nameof(snapshot));
+
+                lock (gate)
+                {
+                    if (nextIndex >= results.Length)
+                    {
+                        throw new InvalidOperationException(
+                            "The scripted prompt adapter has no result remaining.");
+                    }
+                    return new ValueTask<OpResult<ChoiceResult<TChoice>>>(
+                        results[nextIndex++]);
+                }
+            }
+        }
+
         private sealed class BypassingPromptHandler :
             IOpHandler<PromptChoiceOp<bool>, ChoiceResult<bool>>
         {

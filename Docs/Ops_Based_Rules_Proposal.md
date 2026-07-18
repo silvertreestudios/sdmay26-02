@@ -693,8 +693,9 @@ directly, pauses a coroutine, or grants presentation code a path to mutate rules
 
 All three are resolved prompt values. Only explicit cancellation of the surrounding decision workflow
 returns `CancelledOpResult<ChoiceResult<TChoice>>`; adapters do not return `Invalid` or `Interrupted`
-for expected prompt outcomes. `ScriptedPromptAdapter<TChoice>` consumes explicit results in order so
-tests, replays, and simulations exercise the same contract without UI behavior.
+for expected prompt outcomes. EditMode tests use a test-assembly scripted adapter that consumes
+explicit results in order. Production replay and simulation adapters inspect each request's stable
+identity and declared choices before selecting a result; they do not depend on prompt order alone.
 
 The dispatcher serializes root resolution through an asynchronous ownership gate. An unrelated
 external root waits before allocating its root ID or frame, so a prompt can suspend its current root
@@ -2179,7 +2180,8 @@ The trace should use stable IDs and rules data, not `ToString()` on Unity object
 
 ## 16. Testing strategy
 
-Most engine tests should be EditMode tests against an in-memory `RulesState`, deterministic roll service, and scripted prompt adapter.
+Most engine tests should be EditMode tests against an in-memory `RulesState`, deterministic roll
+service, and a test-only scripted prompt adapter.
 
 ### Dispatcher contract tests
 
@@ -2256,7 +2258,7 @@ This architecture can be introduced vertically. It does not require rewriting ev
 
 - Add ID and immutable data types needed by the first slice.
 - Implement `RulesState`, snapshots, dispatcher, frames, results, handler/reducer registration, and deterministic tracing.
-- Implement middleware, typed fact listeners, active bindings, and scripted prompts.
+- Implement middleware, typed fact listeners, active bindings, typed prompts, and test-only scripted prompt fixtures.
 - Add architecture tests for validation, costs, interruption, provenance, and Facts.
 
 ### Phase 2: split and migrate Strike
