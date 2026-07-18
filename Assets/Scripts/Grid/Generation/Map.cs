@@ -163,6 +163,18 @@ public class Map : MonoBehaviour
         validation = ValidateJson(serializedJson, catalog, JsonTileSpacing);
         if (!validation.IsValid)
             return false;
+        GridBase grid = GetComponent<GridBase>();
+        if (grid != null &&
+            !grid.CanRebindMapData(
+                validation.JsonMap.GridData,
+                validation.JsonMap.LineOfSightBlocks))
+        {
+            validation = new MapSourceValidationResult(new[]
+            {
+                "Runtime JSON population cannot safely replace the active grid state."
+            });
+            return false;
+        }
         if (!TryClearGeneratedContent(out string clearFailure))
         {
             validation = new MapSourceValidationResult(new[] { clearFailure });
@@ -186,7 +198,6 @@ public class Map : MonoBehaviour
         Transform structure = CreateContainer("Structure", generatedMap.transform);
         Transform objects = CreateContainer("Objects", generatedMap.transform);
         GenerateJson(validation.JsonMap, catalog, structure, objects);
-        GridBase grid = GetComponent<GridBase>();
         if (grid != null && !grid.TryRebindMapData(GridData, LineOfSightBlocks))
         {
             validation = new MapSourceValidationResult(new[]

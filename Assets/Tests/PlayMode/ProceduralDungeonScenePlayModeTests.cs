@@ -124,6 +124,7 @@ public sealed class ProceduralDungeonScenePlayModeTests
         GridBase grid = Object.FindFirstObjectByType<GridBase>();
         GeneratedMapRoot priorRoot = Object.FindFirstObjectByType<GeneratedMapRoot>();
         Tile[,] priorTiles = grid.GetTiles();
+        GridFSM priorFsm = grid.Fsm;
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
         DungeonCell tokenCell = parsed.Document.StartCell;
         GameObject tokenObject = new("Runtime Repopulation Token");
@@ -144,11 +145,45 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Assert.That(grid.GridData, Is.SameAs(map.GetMapData()));
         Assert.That(grid.GetLineOfSightBlocks(), Is.SameAs(map.GetLineOfSightBlocks()));
         Assert.That(grid.GetTiles(), Is.Not.SameAs(priorTiles));
+        Assert.That(grid.Fsm, Is.SameAs(priorFsm));
         Assert.That(grid.GetPathfinder(), Is.Not.Null);
         Assert.That(grid.GetTiles()[tokenCell.X, tokenCell.Z].Occupants, Contains.Item(tokenObject));
         Assert.That(grid.GetComponent<GridInput>().enabled, Is.True);
 
         Object.Destroy(tokenObject);
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator RuntimeRepopulationConflictPreservesPriorOwnedHierarchy()
+    {
+        AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
+            ScenePath,
+            new LoadSceneParameters(LoadSceneMode.Single));
+        while (!load.isDone)
+            yield return null;
+        yield return null;
+
+        Map activeMap = Object.FindFirstObjectByType<Map>();
+        GameObject duplicateObject = new("Inactive Duplicate Runtime Map");
+        duplicateObject.SetActive(false);
+        Map duplicateMap = duplicateObject.AddComponent<Map>();
+        duplicateObject.AddComponent<GridBase>();
+        GameObject priorRootObject = new("GeneratedMap");
+        priorRootObject.AddComponent<GeneratedMapRoot>();
+        priorRootObject.transform.SetParent(duplicateObject.transform, false);
+
+        Assert.That(duplicateMap.TryPopulateJson(
+                activeMap.JsonSource.text,
+                activeMap.DungeonCatalog,
+                out MapSourceValidationResult validation),
+            Is.False);
+
+        Assert.That(validation.Errors, Is.Not.Empty);
+        Assert.That(priorRootObject.transform.parent, Is.SameAs(duplicateObject.transform));
+        Assert.That(priorRootObject.activeSelf, Is.True);
+
+        Object.Destroy(duplicateObject);
         yield return null;
     }
 

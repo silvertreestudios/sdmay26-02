@@ -42,10 +42,10 @@ namespace GridPrivate
         }
 
         /// <summary>
-        /// Replaces every grid consumer atomically after runtime JSON population. New arrays are
-        /// validated and built before the prior line-of-sight registration is released.
+        /// Checks whether runtime map replacement can bind the supplied arrays without
+        /// interrupting an uncancelable action or displacing another grid singleton.
         /// </summary>
-        internal bool TryRebindMapData(TileType[,] gridData, bool[,] lineOfSightBlocks)
+        internal bool CanRebindMapData(TileType[,] gridData, bool[,] lineOfSightBlocks)
         {
             if (gridData == null || lineOfSightBlocks == null ||
                 gridData.GetLength(0) != lineOfSightBlocks.GetLength(0) ||
@@ -54,17 +54,29 @@ namespace GridPrivate
                 return false;
             }
 
-            if (GridAPI.TryGetInstance(out GridAPI activeGrid))
-            {
-                if (activeGrid != this)
-                    return false;
-            }
-            else
+            return Fsm.CanResetForGridRebind &&
+                   (!GridAPI.TryGetInstance(out GridAPI activeGrid) || activeGrid == this);
+        }
+
+        /// <summary>
+        /// Replaces every live grid consumer after validating that the operation can complete.
+        /// Duplicate grids retain the singleton base class's destruction behavior.
+        /// </summary>
+        internal bool TryRebindMapData(TileType[,] gridData, bool[,] lineOfSightBlocks)
+        {
+            bool hasActiveGrid = GridAPI.TryGetInstance(out GridAPI activeGrid);
+            if (hasActiveGrid && activeGrid != this)
             {
                 base.Awake();
-                if (!GridAPI.TryGetInstance(out activeGrid) || activeGrid != this)
-                    return false;
+                return false;
             }
+            if (!CanRebindMapData(gridData, lineOfSightBlocks) ||
+                !Fsm.TryResetForGridRebind())
+                return false;
+            if (!hasActiveGrid)
+                base.Awake();
+            if (!GridAPI.TryGetInstance(out activeGrid) || activeGrid != this)
+                return false;
 
             Tile[,] replacementTiles = new Tile[gridData.GetLength(0), gridData.GetLength(1)];
             for (int x = 0; x < gridData.GetLength(0); x++)
@@ -79,7 +91,6 @@ namespace GridPrivate
             Tiles = replacementTiles;
             Pathfinder = new Dijkstra(Tiles);
             GridLineOfSightData.Register(Tiles, LineOfSightBlocks, GridData);
-            Fsm = new GridFSM();
 
             GridInput input = GetComponent<GridInput>();
             if (input != null)
@@ -88,12 +99,19 @@ namespace GridPrivate
                 input.enabled = true;
             }
             enabled = true;
+            GetComponent<GridVisuals>()?.RebindTiles(Tiles);
 
             foreach (Token token in FindObjectsByType<Token>(
                          FindObjectsInactive.Exclude,
                          FindObjectsSortMode.None))
             {
                 token.RebindToGrid(this);
+            }
+            foreach (MindlessController controller in FindObjectsByType<MindlessController>(
+                         FindObjectsInactive.Exclude,
+                         FindObjectsSortMode.None))
+            {
+                controller.RebindGrid(this);
             }
             return true;
         }
