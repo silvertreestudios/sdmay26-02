@@ -777,11 +777,12 @@ namespace Game.DungeonGeneration
                     "Object IDs must be unique, cells must be in bounds, and rotations must be 0, 90, 180, or 270."));
             }
             HashSet<int> roomIds = new(rooms.Select(room => room.Id));
-            bool duplicateEncounterIds =
+            bool invalidEncounterIds =
+                encounters.Any(plan => string.IsNullOrWhiteSpace(plan.Id)) ||
                 encounters.Select(plan => plan.Id).Distinct(StringComparer.Ordinal).Count() != encounters.Count;
-            if (duplicateEncounterIds)
+            if (invalidEncounterIds)
             {
-                errors.Add(D("encounterPlans", "Encounter IDs must be unique."));
+                errors.Add(D("encounterPlans", "Encounter IDs must be non-empty and unique."));
             }
             bool duplicateEncounterRooms = encounters
                 .GroupBy(plan => plan.RoomId)
@@ -913,7 +914,8 @@ namespace Game.DungeonGeneration
                     new(StringComparer.Ordinal);
                 foreach (DungeonEncounterPlan plan in encounters)
                 {
-                    if (!encounterById.ContainsKey(plan.Id))
+                    if (!string.IsNullOrWhiteSpace(plan.Id) &&
+                        !encounterById.ContainsKey(plan.Id))
                         encounterById.Add(plan.Id, plan);
                 }
 

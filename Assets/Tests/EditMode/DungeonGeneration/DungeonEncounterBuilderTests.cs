@@ -327,6 +327,15 @@ public sealed class DungeonEncounterBuilderTests
             diagnostic.Field == "encounterPlans" &&
             diagnostic.Message.Contains("at most one")), Is.True);
 
+        JObject blankId = (JObject)root.DeepClone();
+        ((JObject)((JArray)blankId["encounterPlans"])[0])["id"] = "   ";
+        DungeonLevelParseResult blankIdResult = DungeonLevelJsonParser.Parse(
+            blankId.ToString());
+        Assert.That(blankIdResult.IsSuccess, Is.False);
+        Assert.That(blankIdResult.Diagnostics.Any(diagnostic =>
+            diagnostic.Field == "encounterPlans" &&
+            diagnostic.Message.Contains("non-empty")), Is.True);
+
         JObject objectCollision = (JObject)root.DeepClone();
         JObject collisionPlan = (JObject)((JArray)objectCollision["encounterPlans"])[0];
         JObject collisionCell = (JObject)((JArray)collisionPlan["spawnCells"])[0];
