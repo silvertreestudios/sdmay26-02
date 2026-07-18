@@ -345,6 +345,7 @@ namespace Game.Rules.Runtime.Tests
         /// Verifies concurrent external roots queue and execute without overlapping ownership.
         /// </summary>
         [Test]
+        [Timeout(10000)]
         public async Task ConcurrentRootsSerializeWithoutOverlappingOwnership()
         {
             InMemoryRulesStore store = CreateStore(10);
