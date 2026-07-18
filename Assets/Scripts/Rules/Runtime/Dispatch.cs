@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Runtime.ExceptionServices;
+using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Sources;
 
 namespace Game.Rules.Runtime
 {
@@ -49,7 +52,7 @@ namespace Game.Rules.Runtime
         /// A task-like value containing the successful operation result. The dispatcher wraps
         /// the value and any facts committed by the operation subtree in an <see cref="OpResult{TResult}"/>.
         /// </returns>
-        ValueTask<TResult> Handle(OpFrame<TOp> frame, OpContext context);
+        ValueTask<TResult> Handle(OpFrame<TOp> frame, OpHandlerContext context);
     }
 
     /// <summary>
@@ -63,7 +66,7 @@ namespace Game.Rules.Runtime
         ExternalAllowed,
 
         /// <summary>
-        /// The operation may be dispatched only from an active <see cref="OpContext"/>.
+        /// The operation may be dispatched only from an active <see cref="OpCallbackContext"/>.
         /// </summary>
         NestedOnly
     }
@@ -653,46 +656,155 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Exposes handler-scoped rules state, trace data, and nested dispatch.
+    /// Provides the state, trace, and nested-dispatch services shared by operation callbacks.
     /// </summary>
     /// <remarks>
-    /// The dispatcher owns the context. It is valid only while its handler is actively executing.
-    /// A handler may have at most one child dispatch in flight and must await that child before
-    /// returning or starting another child.
+    /// The dispatcher owns each concrete context. It is valid only while the callback that received
+    /// it is actively executing. Each callback may have at most one child dispatch in flight and
+    /// must await that child before returning or starting another child. Middleware child dispatch
+    /// and continuation work share the same slot and must be awaited sequentially. If a callback
+    /// fails while unconsumed work also fails during cleanup, dispatch reports both failures in an
+    /// <see cref="AggregateException"/>, with the callback failure first.
     /// </remarks>
-    public sealed class OpContext
+    public abstract class OpCallbackContext
     {
         private readonly RuleDispatcher dispatcher;
         private readonly OpId parentId;
+        private readonly CallbackWorkCoordinator work;
 
-        internal OpContext(RuleDispatcher dispatcher, OpId parentId)
+        internal OpCallbackContext(
+            RuleDispatcher dispatcher,
+            OpId parentId,
+            CallbackWorkCoordinator work)
         {
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
             this.parentId = parentId;
+            this.work = work ?? throw new ArgumentNullException(nameof(work));
         }
 
         /// <summary>
         /// Gets the latest committed rules snapshot.
         /// </summary>
-        public RulesSnapshot Snapshot => dispatcher.Snapshot;
+        public RulesSnapshot Snapshot
+        {
+            get
+            {
+                RequireActive();
+                return dispatcher.Snapshot;
+            }
+        }
 
         /// <summary>
         /// Gets the dispatcher's trace, including the current frame and previously recorded frames.
         /// </summary>
-        public ResolutionTrace Trace => dispatcher.Trace;
+        public ResolutionTrace Trace
+        {
+            get
+            {
+                RequireActive();
+                return dispatcher.Trace;
+            }
+        }
 
         /// <summary>
-        /// Dispatches a child operation under the handler that owns this context.
+        /// Dispatches a child operation under the callback that owns this context.
         /// </summary>
         /// <typeparam name="TResult">The successful result type of the child operation.</typeparam>
         /// <param name="op">The child operation to resolve.</param>
         /// <returns>A task-like value containing the child's status, value, and subtree facts.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="op"/> is <see langword="null"/>.</exception>
         /// <exception cref="InvalidOperationException">
-        /// The context is no longer active, another child is in flight, or no compatible resolver is registered.
+        /// The context is no longer active, another callback-owned operation is in flight, or no
+        /// compatible resolver is registered.
         /// </exception>
-        public ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op) =>
-            dispatcher.DispatchNested(op, parentId);
+        public ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
+        {
+            if (op == null)
+                throw new ArgumentNullException(nameof(op));
+
+            return work.StartDispatch(
+                () => dispatcher.DispatchNested(op, parentId),
+                "An operation context is not actively executing after its callback returns.",
+                $"Operation {parentId.Value} cannot begin an overlapping child dispatch. " +
+                "Await the active child before dispatching another.",
+                $"Operation {parentId.Value} cannot begin an overlapping child dispatch while " +
+                "its middleware continuation is active. Await the continuation before " +
+                "dispatching a child.");
+        }
+
+        internal ValueTask<CallbackWorkCompletion> CompleteInvocation() =>
+            work.CompleteInvocation("An operation context completed more than once.");
+
+        internal void RequireActive() => work.RequireActive(
+            "An operation context cannot be used after its callback returns.");
+    }
+
+    /// <summary>
+    /// Provides handler-scoped access to rules state, trace data, and nested dispatch.
+    /// </summary>
+    /// <remarks>
+    /// Handler contexts carry no active-rule authority. The dispatcher creates one context for each
+    /// handler invocation and closes it when that handler returns.
+    /// </remarks>
+    public sealed class OpHandlerContext : OpCallbackContext
+    {
+        private OpHandlerContext(
+            RuleDispatcher dispatcher,
+            OpId parentId,
+            CallbackWorkCoordinator work)
+            : base(dispatcher, parentId, work)
+        {
+        }
+
+        internal static OpHandlerContext Create(RuleDispatcher dispatcher, OpId parentId) =>
+            new OpHandlerContext(dispatcher, parentId, new CallbackWorkCoordinator());
+    }
+
+    /// <summary>
+    /// Provides middleware-scoped rules services and the active binding authorizing the invocation.
+    /// </summary>
+    /// <remarks>
+    /// The binding is required when the context is constructed, so middleware-only authority cannot
+    /// be represented by an unbound context. Child dispatch and the middleware continuation share
+    /// one callback-work slot and must be consumed sequentially.
+    /// </remarks>
+    public sealed class OpMiddlewareContext : OpCallbackContext
+    {
+        private readonly ActiveRuleBinding binding;
+
+        private OpMiddlewareContext(
+            RuleDispatcher dispatcher,
+            OpId parentId,
+            ActiveRuleBinding binding,
+            CallbackWorkCoordinator work)
+            : base(dispatcher, parentId, work)
+        {
+            this.binding = binding ?? throw new ArgumentNullException(nameof(binding));
+        }
+
+        /// <summary>
+        /// Gets the active binding authorizing the current middleware invocation.
+        /// </summary>
+        public ActiveRuleBinding Binding
+        {
+            get
+            {
+                RequireActive();
+                return binding;
+            }
+        }
+
+        /// <summary>
+        /// Gets the stable rule source associated with <see cref="Binding"/>.
+        /// </summary>
+        public RuleSource Source => Binding.Source;
+
+        internal static OpMiddlewareContext Create(
+            RuleDispatcher dispatcher,
+            OpId parentId,
+            ActiveRuleBinding binding,
+            CallbackWorkCoordinator work) =>
+            new OpMiddlewareContext(dispatcher, parentId, binding, work);
     }
 
     /// <summary>
@@ -708,6 +820,7 @@ namespace Game.Rules.Runtime
             new Dictionary<Type, IRegistration>();
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
+        private RuleRegistry ruleRegistry = RuleRegistry.Empty;
 
         /// <summary>
         /// Initializes a dispatcher builder with its rules store and operation ID source.
@@ -770,10 +883,30 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
+        /// Selects the immutable rule registry used for binding-controlled middleware and Fact listeners.
+        /// </summary>
+        /// <param name="registry">The static registry to validate and attach to the dispatcher.</param>
+        /// <returns>This builder so configuration can be chained.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="registry"/> is <see langword="null"/>.</exception>
+        /// <remarks>
+        /// The registry stores static definitions only. Which registrations participate is decided
+        /// from <see cref="RulesSnapshot.RuleBindings"/> each time rules work is resolved.
+        /// </remarks>
+        public RuleDispatcherBuilder UseRuleRegistry(RuleRegistry registry)
+        {
+            ruleRegistry = registry ?? throw new ArgumentNullException(nameof(registry));
+            return this;
+        }
+
+        /// <summary>
         /// Builds a dispatcher from a snapshot of the current registrations.
         /// </summary>
         /// <returns>A dispatcher that owns its registration map, trace, and diagnostics.</returns>
-        public RuleDispatcher Build() => new RuleDispatcher(store, ids, registrations);
+        public RuleDispatcher Build()
+        {
+            ruleRegistry.ValidateResolvers(registrations);
+            return new RuleDispatcher(store, ids, registrations, ruleRegistry);
+        }
 
         private void Add(IRegistration registration)
         {
@@ -789,9 +922,10 @@ namespace Game.Rules.Runtime
     /// </summary>
     /// <remarks>
     /// Root resolutions are serialized: a dispatcher rejects a second root while one is active.
-    /// Handlers may dispatch nested children through <see cref="OpContext"/>, but each active frame
-    /// may own only one child at a time and must await it. Trace and diagnostic history accumulate
-    /// for the lifetime of the dispatcher.
+    /// Handlers may dispatch nested children through <see cref="OpHandlerContext"/>, but each active frame
+    /// may own only one child at a time and must await it. Committed-Fact listeners finish before
+    /// the caller regains root ownership; listener-dispatched work runs as serialized causal roots.
+    /// Trace and diagnostic history accumulate for the lifetime of the dispatcher.
     /// </remarks>
     public sealed class RuleDispatcher
     {
@@ -801,17 +935,20 @@ namespace Game.Rules.Runtime
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
         private readonly IReadOnlyDictionary<Type, IRegistration> registrations;
+        private readonly RuleRegistry ruleRegistry;
         private RootResolution activeRoot;
 
         internal RuleDispatcher(
             IRulesStore store,
             IOpIdProvider ids,
-            IDictionary<Type, IRegistration> registrations)
+            IDictionary<Type, IRegistration> registrations,
+            RuleRegistry ruleRegistry)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
             this.registrations = new ReadOnlyDictionary<Type, IRegistration>(
                 new Dictionary<Type, IRegistration>(registrations));
+            this.ruleRegistry = ruleRegistry ?? throw new ArgumentNullException(nameof(ruleRegistry));
             Trace = new ResolutionTrace();
             Diagnostics = new ResolutionDiagnostics(Trace);
         }
@@ -845,8 +982,13 @@ namespace Game.Rules.Runtime
         /// or a handler violates nested-dispatch ownership.
         /// </exception>
         /// <remarks>
-        /// Resolver exceptions propagate to the caller. The dispatcher still releases root ownership
-        /// so a later independent root may be dispatched.
+        /// Resolver, middleware, and post-commit listener exceptions propagate to the caller. State
+        /// already committed by a reducer is not rolled back. If resolution fails after a commit,
+        /// listeners receive the durable Facts before the resolution exception is rethrown. If that
+        /// notification also fails, an <see cref="AggregateException"/> reports the resolution
+        /// exception first and the notification exception second. The dispatcher then releases root
+        /// ownership so a later independent root may be dispatched. When a callback and its unconsumed
+        /// work both fail, their aggregate likewise retains the callback exception first.
         /// </remarks>
         public async ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
         {
@@ -882,7 +1024,12 @@ namespace Game.Rules.Runtime
                     resolution.Initialize(rootId);
                 }
 
-                return await DispatchCore(op, registration, resolution, rootId, null, null);
+                return await DispatchRoot(
+                    op,
+                    registration,
+                    resolution,
+                    rootId,
+                    null);
             }
             finally
             {
@@ -937,6 +1084,52 @@ namespace Game.Rules.Runtime
             }
         }
 
+        internal async ValueTask<OpResult<TResult>> DispatchFromFact<TResult>(
+            IRuleOp<TResult> op,
+            OpId committedRootId,
+            OpId causeId)
+        {
+            if (op == null)
+                throw new ArgumentNullException(nameof(op));
+
+            IRegistration registration = RequireRegistration(op.GetType(), typeof(TResult));
+            if (registration.Policy != InvocationPolicy.ExternalAllowed)
+            {
+                throw new InvalidOperationException(
+                    $"{op.GetType().Name} is nested-only and cannot begin a Fact-listener batch.");
+            }
+
+            RootResolution owner;
+            RootResolution triggered = new RootResolution();
+            OpId rootId;
+            lock (gate)
+            {
+                if (activeRoot == null || activeRoot.RootId != committedRootId)
+                {
+                    throw new InvalidOperationException(
+                        "Fact-listener dispatch requires its completed root to retain resolution ownership.");
+                }
+
+                owner = activeRoot;
+                rootId = ids.Next();
+                triggered.Initialize(rootId);
+                activeRoot = triggered;
+            }
+
+            try
+            {
+                return await DispatchRoot(op, registration, triggered, rootId, causeId);
+            }
+            finally
+            {
+                lock (gate)
+                {
+                    if (ReferenceEquals(activeRoot, triggered))
+                        activeRoot = owner;
+                }
+            }
+        }
+
         internal ReductionResult<TResult> Reduce<TOp, TResult>(
             OpFrame<TOp> frame,
             IOpReducer<TOp, TResult> reducer,
@@ -946,6 +1139,171 @@ namespace Game.Rules.Runtime
             return store.Reduce(
                 new ReductionContext<TOp>(frame.Op, frame.Id, frame.RootId, source),
                 reducer);
+        }
+
+        internal void CaptureCommittedFacts(
+            IFrameInvocation invocation,
+            IReadOnlyList<RuleFact> facts)
+        {
+            if (invocation == null)
+                throw new ArgumentNullException(nameof(invocation));
+            if (facts == null)
+                throw new ArgumentNullException(nameof(facts));
+
+            lock (gate)
+            {
+                if (activeRoot == null || activeRoot.RootId != invocation.FrameView.RootId)
+                    throw new InvalidOperationException("Reducer Facts crossed resolution root ownership.");
+
+                // Reducer Facts enter the root batch at the store commit point. Middleware may
+                // replace the structural result or commit later children while it unwinds, neither
+                // of which may discard or reorder an already committed Fact. Root aggregation also
+                // retains the source frame's frozen listener selection for later notification.
+                invocation.CaptureDirectFacts(facts);
+                foreach (RuleFact fact in facts)
+                {
+                    activeRoot.AddFact(
+                        fact,
+                        invocation.FrameView.Id,
+                        invocation.FrameView.RootId);
+                }
+            }
+        }
+
+        private async ValueTask<OpResult<TResult>> DispatchRoot<TResult>(
+            IRuleOp<TResult> op,
+            IRegistration registration,
+            RootResolution resolution,
+            OpId rootId,
+            OpId? causeId)
+        {
+            OpResult<TResult> result;
+            try
+            {
+                result = await DispatchCore(
+                    op,
+                    registration,
+                    resolution,
+                    rootId,
+                    null,
+                    causeId);
+            }
+            catch (Exception resolutionException)
+            {
+                IReadOnlyList<CommittedFactRecord> committedFacts =
+                    SnapshotCommittedFacts(resolution, rootId);
+                if (committedFacts.Count == 0)
+                    throw;
+
+                try
+                {
+                    await NotifyFactListeners(rootId, committedFacts);
+                }
+                catch (Exception notificationException)
+                {
+                    throw new AggregateException(
+                        "Operation resolution and post-commit Fact notification both failed.",
+                        resolutionException,
+                        notificationException);
+                }
+
+                throw;
+            }
+
+            if (result.Status != OpStatus.Invalid && result.Facts.Count > 0)
+            {
+                await NotifyFactListeners(
+                    rootId,
+                    SnapshotCommittedFacts(resolution, rootId));
+            }
+            return result;
+        }
+
+        private IReadOnlyList<CommittedFactRecord> SnapshotCommittedFacts(
+            RootResolution resolution,
+            OpId rootId)
+        {
+            lock (gate)
+            {
+                RequireActiveResolution(resolution);
+                if (resolution.RootId != rootId)
+                    throw new InvalidOperationException(
+                        "Committed Facts crossed resolution root ownership.");
+                return Array.AsReadOnly(resolution.CommittedFacts.ToArray());
+            }
+        }
+
+        private async ValueTask NotifyFactListeners(
+            OpId rootId,
+            IReadOnlyList<CommittedFactRecord> committedFacts)
+        {
+            if (committedFacts.Any(committed =>
+                committed == null || committed.Fact == null ||
+                !committed.Fact.IsStamped || committed.Fact.RootOpId != rootId))
+            {
+                throw new InvalidOperationException("A completed root contains a Fact from another resolution batch.");
+            }
+
+            IReadOnlyList<FactListenerDelivery> deliveries =
+                ruleRegistry.BuildFactListenerDeliveries(rootId, committedFacts);
+            foreach (FactListenerDelivery delivery in deliveries)
+            {
+                if (delivery.Registration.IsBatch)
+                {
+                    if (ruleRegistry.IsActive(store.Snapshot, delivery.Binding))
+                    {
+                        await InvokeFactListener(
+                            delivery,
+                            delivery.Facts,
+                            delivery.RootId);
+                    }
+                    continue;
+                }
+
+                foreach (RuleFact fact in delivery.Facts)
+                {
+                    if (!ruleRegistry.IsActive(store.Snapshot, delivery.Binding))
+                        break;
+                    await InvokeFactListener(
+                        delivery,
+                        Array.AsReadOnly(new[] { fact }),
+                        fact.SourceOpId);
+                }
+            }
+        }
+
+        private async ValueTask InvokeFactListener(
+            FactListenerDelivery delivery,
+            IReadOnlyList<RuleFact> facts,
+            OpId causeId)
+        {
+            FactContext context = FactContext.Create(
+                this,
+                delivery.Binding,
+                delivery.RootId,
+                causeId);
+            try
+            {
+                await delivery.Registration.Invoke(
+                    delivery.RootId,
+                    facts,
+                    context);
+            }
+            catch (Exception callbackException)
+            {
+                await CallbackFailure.AwaitCleanupPreservingPrimary(
+                    callbackException,
+                    context.CompleteInvocation());
+                throw;
+            }
+
+            if (await context.CompleteInvocation() ==
+                CallbackWorkCompletion.UnconsumedDispatch)
+            {
+                throw new InvalidOperationException(
+                    $"Fact listener for {delivery.Registration.FactType.Name} returned before " +
+                    "awaiting its causally linked dispatch.");
+            }
         }
 
         private async ValueTask<OpResult<TResult>> DispatchCore<TResult>(
@@ -959,15 +1317,21 @@ namespace Game.Rules.Runtime
             OpId id;
             int firstFact;
             IFrameInvocation invocation;
+            IReadOnlyList<BoundMiddlewareRegistration> middleware;
+            IReadOnlyList<BoundFactListenerRegistration> factListeners;
             lock (gate)
             {
                 RequireActiveResolution(resolution);
                 id = parentId.HasValue ? ids.Next() : rootId;
                 firstFact = resolution.Facts.Count;
+                RulesSnapshot startSnapshot = store.Snapshot;
                 invocation = registration.CreateInvocation(
-                    id, rootId, parentId, causeId, op, store.Snapshot);
+                    id, rootId, parentId, causeId, op, startSnapshot);
+                middleware = ruleRegistry.SelectMiddleware(
+                    op.GetType(), typeof(TResult), startSnapshot);
+                factListeners = ruleRegistry.SelectFactListeners(startSnapshot);
                 Trace.Add(invocation.FrameView);
-                resolution.EnterFrame(id, rootId);
+                resolution.EnterFrame(id, rootId, factListeners);
             }
 
             try
@@ -975,7 +1339,11 @@ namespace Game.Rules.Runtime
                 object resultObject;
                 try
                 {
-                    resultObject = await registration.Invoke(invocation, this);
+                    resultObject = await InvokeWithMiddleware(
+                        registration,
+                        invocation,
+                        middleware,
+                        0);
                 }
                 catch
                 {
@@ -996,13 +1364,7 @@ namespace Game.Rules.Runtime
                 lock (gate)
                 {
                     RequireActiveResolution(resolution);
-                    IReadOnlyList<RuleFact> directFacts = NoFacts;
-                    if (registration.IsReducer)
-                    {
-                        directFacts = result.Facts;
-                        foreach (RuleFact fact in directFacts)
-                            resolution.AddFact(fact, id, rootId);
-                    }
+                    IReadOnlyList<RuleFact> directFacts = invocation.DirectFacts;
 
                     int subtreeFactCount = resolution.Facts.Count - firstFact;
                     IReadOnlyList<RuleFact> subtreeFacts = NoFacts;
@@ -1022,6 +1384,34 @@ namespace Game.Rules.Runtime
                 lock (gate)
                     resolution.ExitFrame(id, rootId);
             }
+        }
+
+        private ValueTask<object> InvokeWithMiddleware(
+            IRegistration registration,
+            IFrameInvocation invocation,
+            IReadOnlyList<BoundMiddlewareRegistration> middleware,
+            int index)
+        {
+            while (index < middleware.Count &&
+                !ruleRegistry.IsActive(store.Snapshot, middleware[index].Binding))
+            {
+                index++;
+            }
+
+            if (index >= middleware.Count)
+                return registration.Invoke(invocation, this);
+
+            BoundMiddlewareRegistration current = middleware[index];
+            int nextIndex = index + 1;
+            return current.Registration.Invoke(
+                current.Binding,
+                invocation,
+                this,
+                () => InvokeWithMiddleware(
+                    registration,
+                    invocation,
+                    middleware,
+                    nextIndex));
         }
 
         private async ValueTask<bool> SettleActiveChild(RootResolution resolution, OpId parentId)
@@ -1063,12 +1453,17 @@ namespace Game.Rules.Runtime
             private readonly HashSet<OpId> sealedFrames = new HashSet<OpId>();
             private readonly Dictionary<OpId, ChildReservation> activeChildren =
                 new Dictionary<OpId, ChildReservation>();
+            private readonly Dictionary<OpId, IReadOnlyList<BoundFactListenerRegistration>>
+                frameFactListeners =
+                    new Dictionary<OpId, IReadOnlyList<BoundFactListenerRegistration>>();
             private readonly HashSet<FactId> factIds = new HashSet<FactId>();
             private readonly HashSet<RuleFact> factReferences =
                 new HashSet<RuleFact>(ReferenceEqualityComparer<RuleFact>.Instance);
 
             public OpId RootId { get; private set; }
             public List<RuleFact> Facts { get; } = new List<RuleFact>();
+            public List<CommittedFactRecord> CommittedFacts { get; } =
+                new List<CommittedFactRecord>();
 
             public void Initialize(OpId rootId)
             {
@@ -1079,11 +1474,17 @@ namespace Game.Rules.Runtime
                 RootId = rootId;
             }
 
-            public void EnterFrame(OpId id, OpId rootId)
+            public void EnterFrame(
+                OpId id,
+                OpId rootId,
+                IReadOnlyList<BoundFactListenerRegistration> factListeners)
             {
                 RequireCurrentRoot(rootId);
                 if (!activeFrames.Add(id))
                     throw new InvalidOperationException($"Operation {id.Value} began executing more than once.");
+                frameFactListeners.Add(
+                    id,
+                    factListeners ?? throw new ArgumentNullException(nameof(factListeners)));
             }
 
             public void ExitFrame(OpId id, OpId rootId)
@@ -1096,6 +1497,8 @@ namespace Game.Rules.Runtime
                 }
                 if (!activeFrames.Remove(id))
                     throw new InvalidOperationException($"Operation {id.Value} was not actively executing.");
+                if (!frameFactListeners.Remove(id))
+                    throw new InvalidOperationException($"Operation {id.Value} has no listener selection.");
                 sealedFrames.Remove(id);
             }
 
@@ -1157,9 +1560,17 @@ namespace Game.Rules.Runtime
                     throw new InvalidOperationException("A reducer returned a Fact for a different source operation.");
                 if (fact.RootOpId != rootId || rootId != RootId)
                     throw new InvalidOperationException("A reducer emitted a Fact across resolution roots.");
+                if (!frameFactListeners.TryGetValue(
+                    sourceId,
+                    out IReadOnlyList<BoundFactListenerRegistration> eligibleListeners))
+                {
+                    throw new InvalidOperationException(
+                        "A committed Fact has no source-frame listener selection.");
+                }
                 if (!factIds.Add(fact.Id) || !factReferences.Add(fact))
                     throw new InvalidOperationException("A committed Fact was aggregated more than once.");
                 Facts.Add(fact);
+                CommittedFacts.Add(new CommittedFactRecord(fact, eligibleListeners));
             }
 
             private void RequireCurrentRoot(OpId rootId)
@@ -1202,18 +1613,32 @@ namespace Game.Rules.Runtime
     internal interface IFrameInvocation
     {
         IOpFrameView FrameView { get; }
+        IReadOnlyList<RuleFact> DirectFacts { get; }
+        void CaptureDirectFacts(IReadOnlyList<RuleFact> facts);
     }
 
     internal sealed class FrameInvocation<TOp> : IFrameInvocation
         where TOp : IRuleOp
     {
+        private static readonly IReadOnlyList<RuleFact> NoDirectFacts =
+            Array.AsReadOnly(Array.Empty<RuleFact>());
+        private IReadOnlyList<RuleFact> directFacts = NoDirectFacts;
+
         public OpFrame<TOp> Frame { get; }
         public IOpFrameView FrameView { get; }
+        public IReadOnlyList<RuleFact> DirectFacts => directFacts;
 
         public FrameInvocation(OpFrame<TOp> frame)
         {
             Frame = frame ?? throw new ArgumentNullException(nameof(frame));
             FrameView = new OpFrameView<TOp>(frame);
+        }
+
+        public void CaptureDirectFacts(IReadOnlyList<RuleFact> facts)
+        {
+            if (!ReferenceEquals(directFacts, NoDirectFacts))
+                throw new InvalidOperationException("A resolver captured its direct Facts more than once.");
+            directFacts = facts ?? throw new ArgumentNullException(nameof(facts));
         }
     }
 
@@ -1269,7 +1694,26 @@ namespace Game.Rules.Runtime
             RuleDispatcher dispatcher)
         {
             OpFrame<TOp> frame = GetFrame(invocation);
-            TResult value = await handler.Handle(frame, new OpContext(dispatcher, frame.Id));
+            OpHandlerContext context = OpHandlerContext.Create(dispatcher, frame.Id);
+            TResult value;
+            try
+            {
+                value = await handler.Handle(frame, context);
+            }
+            catch (Exception callbackException)
+            {
+                await CallbackFailure.AwaitCleanupPreservingPrimary(
+                    callbackException,
+                    context.CompleteInvocation());
+                throw;
+            }
+
+            if (await context.CompleteInvocation() ==
+                CallbackWorkCompletion.UnconsumedDispatch)
+            {
+                throw new InvalidOperationException(
+                    $"Operation {frame.Id.Value} returned before awaiting its active child dispatch.");
+            }
             return OpResult<TResult>.Resolved(value);
         }
     }
@@ -1295,10 +1739,353 @@ namespace Game.Rules.Runtime
         {
             OpFrame<TOp> frame = GetFrame(invocation);
             ReductionResult<TResult> reduced = dispatcher.Reduce(frame, reducer, source);
+            dispatcher.CaptureCommittedFacts(invocation, reduced.Facts);
             OpResult<TResult> result = reduced.IsAccepted
                 ? OpResult<TResult>.Resolved(reduced.Value)
                 : OpResult<TResult>.Invalid(reduced.RejectionReason);
             return new ValueTask<object>(result.WithFacts(reduced.Facts));
+        }
+    }
+
+    /// <summary>
+    /// Exposes completion and failure state for a callback-owned asynchronous result.
+    /// </summary>
+    /// <remarks>
+    /// Completion alone does not release ownership. The callback scope remains responsible for
+    /// this source until the returned task-like value consumes its result.
+    /// </remarks>
+    internal interface IOwnedValueTaskSource
+    {
+        Task Completion { get; }
+
+        void ThrowIfFailed();
+    }
+
+    /// <summary>
+    /// Preserves a callback failure when closing its scope also discovers failed unconsumed work.
+    /// </summary>
+    internal static class CallbackFailure
+    {
+        /// <summary>
+        /// Waits for callback-owned cleanup without allowing its failure to hide the callback's
+        /// original exception.
+        /// </summary>
+        /// <typeparam name="TResult">The cleanup operation's result type.</typeparam>
+        /// <param name="callbackException">The exception thrown by the callback itself.</param>
+        /// <param name="cleanup">The cleanup operation that settles any unconsumed callback work.</param>
+        /// <returns>A task that completes after cleanup succeeds.</returns>
+        /// <exception cref="AggregateException">
+        /// Thrown when cleanup also fails. The callback exception is first and the cleanup exception
+        /// is second so callers receive a stable primary-failure ordering.
+        /// </exception>
+        internal static async ValueTask AwaitCleanupPreservingPrimary<TResult>(
+            Exception callbackException,
+            ValueTask<TResult> cleanup)
+        {
+            try
+            {
+                await cleanup;
+            }
+            catch (Exception cleanupException)
+            {
+                throw new AggregateException(
+                    "Callback execution and cleanup of its unconsumed work both failed.",
+                    callbackException,
+                    cleanupException);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Identifies which callback operation owns a <see cref="CallbackWorkCoordinator"/>.
+    /// </summary>
+    internal enum CallbackWorkKind
+    {
+        Dispatch,
+        MiddlewareContinuation
+    }
+
+    /// <summary>
+    /// Describes whether a callback returned with work that it had not consumed.
+    /// </summary>
+    internal enum CallbackWorkCompletion
+    {
+        NoUnconsumedWork,
+        UnconsumedDispatch,
+        UnconsumedMiddlewareContinuation
+    }
+
+    /// <summary>
+    /// Owns one callback's lifetime and its single in-flight asynchronous work slot.
+    /// </summary>
+    /// <remarks>
+    /// Middleware shares one instance between its continuation and binding-scoped
+    /// <see cref="OpMiddlewareContext"/>. Acquiring either kind of work is therefore atomic, and a rejected
+    /// overlap cannot start or replace the work already in progress. Ownership ends only when the
+    /// returned <see cref="ValueTask{TResult}"/> consumes its result; mere operation completion does
+    /// not permit another dispatch or continuation. Rejecting a first continuation attempt while
+    /// a child owns the slot does not consume the callback's one-continuation allowance.
+    /// </remarks>
+    internal sealed class CallbackWorkCoordinator
+    {
+        private readonly object gate = new object();
+        private bool continuationWasInvoked;
+        private WorkState state = IdleWorkState.Instance;
+
+        private abstract class WorkState
+        {
+        }
+
+        private sealed class IdleWorkState : WorkState
+        {
+            internal static readonly IdleWorkState Instance = new IdleWorkState();
+
+            private IdleWorkState()
+            {
+            }
+        }
+
+        private sealed class RunningWorkState : WorkState
+        {
+            internal RunningWorkState(
+                CallbackWorkKind kind,
+                IOwnedValueTaskSource work)
+            {
+                Kind = kind;
+                Work = work ?? throw new ArgumentNullException(nameof(work));
+            }
+
+            internal CallbackWorkKind Kind { get; }
+            internal IOwnedValueTaskSource Work { get; }
+        }
+
+        private sealed class CompletedWorkState : WorkState
+        {
+            internal static readonly CompletedWorkState Instance = new CompletedWorkState();
+
+            private CompletedWorkState()
+            {
+            }
+        }
+
+        internal ValueTask<TResult> StartDispatch<TResult>(
+            Func<ValueTask<TResult>> operation,
+            string inactiveMessage,
+            string dispatchOverlapMessage,
+            string continuationOverlapMessage) =>
+            Start(
+                operation,
+                inactiveMessage,
+                dispatchOverlapMessage,
+                continuationOverlapMessage);
+
+        internal ValueTask<TResult> StartContinuation<TResult>(
+            Func<ValueTask<TResult>> operation)
+        {
+            OwnedValueTaskSource<TResult> invocation;
+            lock (gate)
+            {
+                if (state is CompletedWorkState)
+                {
+                    throw new InvalidOperationException(
+                        "Middleware cannot continue after its callback returns.");
+                }
+                if (continuationWasInvoked)
+                {
+                    throw new InvalidOperationException(
+                        "Middleware may invoke its continuation at most once.");
+                }
+                if (state is RunningWorkState)
+                {
+                    throw new InvalidOperationException(
+                        "Middleware cannot invoke its continuation while a child dispatch is active. " +
+                        "Await the active child before continuing.");
+                }
+
+                continuationWasInvoked = true;
+                invocation = Own(CallbackWorkKind.MiddlewareContinuation, operation);
+            }
+
+            invocation.Start();
+            return invocation.AsValueTask();
+        }
+
+        internal void RequireActive(string inactiveMessage)
+        {
+            lock (gate)
+            {
+                if (state is CompletedWorkState)
+                    throw new InvalidOperationException(inactiveMessage);
+            }
+        }
+
+        internal async ValueTask<CallbackWorkCompletion> CompleteInvocation(
+            string duplicateCompletionMessage)
+        {
+            RunningWorkState pending;
+            lock (gate)
+            {
+                if (state is CompletedWorkState)
+                    throw new InvalidOperationException(duplicateCompletionMessage);
+                if (state is IdleWorkState)
+                {
+                    state = CompletedWorkState.Instance;
+                    return CallbackWorkCompletion.NoUnconsumedWork;
+                }
+
+                pending = (RunningWorkState)state;
+                state = CompletedWorkState.Instance;
+            }
+
+            // The active slot is cleared only by ValueTask.GetResult. Capturing it while closing
+            // the callback therefore records a contract violation even when ignored work already
+            // completed synchronously or a retained result is consumed after the callback returns.
+            await pending.Work.Completion;
+            pending.Work.ThrowIfFailed();
+            return pending.Kind == CallbackWorkKind.MiddlewareContinuation
+                ? CallbackWorkCompletion.UnconsumedMiddlewareContinuation
+                : CallbackWorkCompletion.UnconsumedDispatch;
+        }
+
+        private ValueTask<TResult> Start<TResult>(
+            Func<ValueTask<TResult>> operation,
+            string inactiveMessage,
+            string dispatchOverlapMessage,
+            string continuationOverlapMessage)
+        {
+            OwnedValueTaskSource<TResult> owned;
+            lock (gate)
+            {
+                if (state is CompletedWorkState)
+                    throw new InvalidOperationException(inactiveMessage);
+                if (state is RunningWorkState running)
+                {
+                    throw new InvalidOperationException(
+                        running.Kind == CallbackWorkKind.MiddlewareContinuation
+                            ? continuationOverlapMessage
+                            : dispatchOverlapMessage);
+                }
+
+                owned = Own(CallbackWorkKind.Dispatch, operation);
+            }
+
+            owned.Start();
+            return owned.AsValueTask();
+        }
+
+        private OwnedValueTaskSource<TResult> Own<TResult>(
+            CallbackWorkKind kind,
+            Func<ValueTask<TResult>> operation)
+        {
+            OwnedValueTaskSource<TResult> owned =
+                new OwnedValueTaskSource<TResult>(operation, Release);
+            state = new RunningWorkState(kind, owned);
+            return owned;
+        }
+
+        private void Release(IOwnedValueTaskSource work)
+        {
+            lock (gate)
+            {
+                if (state is RunningWorkState running &&
+                    ReferenceEquals(running.Work, work))
+                {
+                    state = IdleWorkState.Instance;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adapts asynchronous work into a single-consumption <see cref="ValueTask{TResult}"/> whose
+    /// owner is released only when the caller consumes the result.
+    /// </summary>
+    /// <typeparam name="TResult">The result returned by the owned asynchronous work.</typeparam>
+    /// <remarks>
+    /// Callback APIs use this source to distinguish an awaited result from work that merely
+    /// completed before the callback returned. The separate completion task lets callback shutdown
+    /// wait for ignored work and propagate its failure without treating completion as consumption.
+    /// </remarks>
+    internal sealed class OwnedValueTaskSource<TResult> :
+        IOwnedValueTaskSource,
+        IValueTaskSource<TResult>
+    {
+        private readonly Func<ValueTask<TResult>> operation;
+        private readonly Action<IOwnedValueTaskSource> release;
+        private readonly TaskCompletionSource<bool> completion =
+            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        private ManualResetValueTaskSourceCore<TResult> source;
+        private ExceptionDispatchInfo failure;
+        private int consumptionStarted;
+        private int wasStarted;
+
+        public OwnedValueTaskSource(
+            Func<ValueTask<TResult>> operation,
+            Action<IOwnedValueTaskSource> release)
+        {
+            this.operation = operation ?? throw new ArgumentNullException(nameof(operation));
+            this.release = release ?? throw new ArgumentNullException(nameof(release));
+            source.RunContinuationsAsynchronously = true;
+        }
+
+        public Task Completion => completion.Task;
+
+        public ValueTask<TResult> AsValueTask() =>
+            new ValueTask<TResult>(this, source.Version);
+
+        public void Start()
+        {
+            if (Interlocked.Exchange(ref wasStarted, 1) != 0)
+                throw new InvalidOperationException("Owned asynchronous work cannot start more than once.");
+
+            _ = Run();
+        }
+
+        public void ThrowIfFailed() => failure?.Throw();
+
+        public TResult GetResult(short token)
+        {
+            if (Interlocked.Exchange(ref consumptionStarted, 1) != 0)
+                throw new InvalidOperationException(
+                    "An owned asynchronous result may be consumed only once.");
+
+            try
+            {
+                return source.GetResult(token);
+            }
+            finally
+            {
+                // GetResult is the ValueTask consumption boundary. Awaiter registration and work
+                // completion are insufficient because both can occur before a callback returns.
+                release(this);
+            }
+        }
+
+        public ValueTaskSourceStatus GetStatus(short token) =>
+            source.GetStatus(token);
+
+        public void OnCompleted(
+            Action<object> continuation,
+            object state,
+            short token,
+            ValueTaskSourceOnCompletedFlags flags) =>
+            source.OnCompleted(continuation, state, token, flags);
+
+        private async Task Run()
+        {
+            try
+            {
+                source.SetResult(await operation());
+            }
+            catch (Exception exception)
+            {
+                failure = ExceptionDispatchInfo.Capture(exception);
+                source.SetException(exception);
+            }
+            finally
+            {
+                completion.TrySetResult(true);
+            }
         }
     }
 
