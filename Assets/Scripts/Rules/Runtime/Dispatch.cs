@@ -110,10 +110,13 @@ namespace Game.Rules.Runtime
                 }
             }
 
-            RootResolution resolution = new RootResolution();
             await rootSerial.WaitAsync();
+            // Keep the idle sentinel until construction succeeds so the ownership gate is still
+            // released if per-resolution allocation fails.
+            RootResolution resolution = RootResolution.Idle;
             try
             {
+                resolution = new RootResolution();
                 lock (gate)
                 {
                     if (!activeRoot.IsIdle)
