@@ -735,7 +735,7 @@ namespace Game.Rules.Runtime.Tests
             public long AfterFirstVersion { get; private set; }
             public long AfterNestedVersion { get; private set; }
 
-            public async ValueTask<int> Handle(OpFrame<RootOp> frame, OpContext context)
+            public async ValueTask<int> Handle(OpFrame<RootOp> frame, OpHandlerContext context)
             {
                 StartVersion = context.Snapshot.Version;
                 await context.Dispatch(new IncrementOp(frame.Op.Amount));
@@ -754,7 +754,7 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class NestedHandler : IOpHandler<NestedHandlerOp, int>
         {
-            public async ValueTask<int> Handle(OpFrame<NestedHandlerOp> frame, OpContext context)
+            public async ValueTask<int> Handle(OpFrame<NestedHandlerOp> frame, OpHandlerContext context)
             {
                 OpResult<int> changed = await context.Dispatch(new IncrementOp(frame.Op.Amount));
                 return RequireResolved(changed).Value;
@@ -801,9 +801,9 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class ContextCapturingHandler : IOpHandler<CaptureContextOp, int>
         {
-            public OpContext Context { get; private set; }
+            public OpHandlerContext Context { get; private set; }
 
-            public ValueTask<int> Handle(OpFrame<CaptureContextOp> frame, OpContext context)
+            public ValueTask<int> Handle(OpFrame<CaptureContextOp> frame, OpHandlerContext context)
             {
                 Context = context;
                 return new ValueTask<int>(0);
@@ -825,7 +825,7 @@ namespace Game.Rules.Runtime.Tests
 
             public void Release() => release.TrySetResult(true);
 
-            public async ValueTask<int> Handle(OpFrame<SuspendedRootOp> frame, OpContext context)
+            public async ValueTask<int> Handle(OpFrame<SuspendedRootOp> frame, OpHandlerContext context)
             {
                 started.TrySetResult(true);
                 await release.Task;
@@ -850,7 +850,7 @@ namespace Game.Rules.Runtime.Tests
 
             public void Release() => release.TrySetResult(true);
 
-            public async ValueTask<int> Handle(OpFrame<RacingRootOp> frame, OpContext context)
+            public async ValueTask<int> Handle(OpFrame<RacingRootOp> frame, OpHandlerContext context)
             {
                 Interlocked.Increment(ref calls);
                 started.TrySetResult(true);
@@ -993,7 +993,7 @@ namespace Game.Rules.Runtime.Tests
             public OverlappingRootHandler(SuspendedNestedHandler suspended) =>
                 this.suspended = suspended;
 
-            public async ValueTask<int> Handle(OpFrame<OverlappingRootOp> frame, OpContext context)
+            public async ValueTask<int> Handle(OpFrame<OverlappingRootOp> frame, OpHandlerContext context)
             {
                 Task<OpResult<int>> firstChild =
                     context.Dispatch(new SuspendedNestedOp(1)).AsTask();
@@ -1034,7 +1034,7 @@ namespace Game.Rules.Runtime.Tests
 
             public void Release() => release.TrySetResult(true);
 
-            public async ValueTask<int> Handle(OpFrame<SuspendedNestedOp> frame, OpContext context)
+            public async ValueTask<int> Handle(OpFrame<SuspendedNestedOp> frame, OpHandlerContext context)
             {
                 started.TrySetResult(true);
                 await release.Task;
@@ -1052,7 +1052,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public ValueTask<int> Handle(
                 OpFrame<IgnoredSynchronousChildRootOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 _ = context.Dispatch(new IncrementOp(1));
                 return new ValueTask<int>(0);
@@ -1068,7 +1068,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public ValueTask<int> Handle(
                 OpFrame<IgnoredFailingChildRootOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 _ = context.Dispatch(new SynchronouslyFailingNestedOp());
                 return new ValueTask<int>(0);
@@ -1084,7 +1084,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public ValueTask<int> Handle(
                 OpFrame<SynchronouslyFailingNestedOp> frame,
-                OpContext context) =>
+                OpHandlerContext context) =>
                 throw new ApplicationException("synchronous child failure");
         }
 
@@ -1094,7 +1094,7 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class UnawaitedChildRootHandler : IOpHandler<UnawaitedChildRootOp, int>
         {
-            public ValueTask<int> Handle(OpFrame<UnawaitedChildRootOp> frame, OpContext context)
+            public ValueTask<int> Handle(OpFrame<UnawaitedChildRootOp> frame, OpHandlerContext context)
             {
                 _ = context.Dispatch(new SuspendedNestedOp(1));
                 return new ValueTask<int>(0);
@@ -1110,7 +1110,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public ValueTask<int> Handle(
                 OpFrame<ThrowingUnawaitedChildRootOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 _ = context.Dispatch(new SuspendedNestedOp(1));
                 throw new ApplicationException("original handler failure");
@@ -1126,7 +1126,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public ValueTask<int> Handle(
                 OpFrame<ThrowingIgnoredFailingChildRootOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 _ = context.Dispatch(new SynchronouslyInvalidNestedOp());
                 throw new ApplicationException("handler callback failure");
@@ -1142,7 +1142,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public ValueTask<int> Handle(
                 OpFrame<SynchronouslyInvalidNestedOp> frame,
-                OpContext context) =>
+                OpHandlerContext context) =>
                 throw new InvalidOperationException("ignored child failure");
         }
 
@@ -1153,9 +1153,9 @@ namespace Game.Rules.Runtime.Tests
         private sealed class SettlementRaceRootHandler
             : IOpHandler<SettlementRaceRootOp, int>
         {
-            public OpContext Context { get; private set; }
+            public OpHandlerContext Context { get; private set; }
 
-            public ValueTask<int> Handle(OpFrame<SettlementRaceRootOp> frame, OpContext context)
+            public ValueTask<int> Handle(OpFrame<SettlementRaceRootOp> frame, OpHandlerContext context)
             {
                 Context = context;
                 SynchronizationContext previous = SynchronizationContext.Current;
@@ -1192,7 +1192,7 @@ namespace Game.Rules.Runtime.Tests
 
             public void Release() => release.TrySetResult(true);
 
-            public async ValueTask<int> Handle(OpFrame<TOp> frame, OpContext context)
+            public async ValueTask<int> Handle(OpFrame<TOp> frame, OpHandlerContext context)
             {
                 started.TrySetResult(true);
                 await release.Task.ConfigureAwait(false);
@@ -1208,7 +1208,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public InvalidOperationException ChildError { get; private set; }
 
-            public async ValueTask<int> Handle(OpFrame<RecoveringRootOp> frame, OpContext context)
+            public async ValueTask<int> Handle(OpFrame<RecoveringRootOp> frame, OpHandlerContext context)
             {
                 try
                 {
@@ -1230,7 +1230,7 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class ThrowingNestedHandler : IOpHandler<ThrowingNestedOp, int>
         {
-            public async ValueTask<int> Handle(OpFrame<ThrowingNestedOp> frame, OpContext context)
+            public async ValueTask<int> Handle(OpFrame<ThrowingNestedOp> frame, OpHandlerContext context)
             {
                 await Task.Yield();
                 throw new InvalidOperationException("expected nested failure");
@@ -1243,7 +1243,7 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class RejectRootHandler : IOpHandler<RejectRootOp, OpStatus>
         {
-            public async ValueTask<OpStatus> Handle(OpFrame<RejectRootOp> frame, OpContext context)
+            public async ValueTask<OpStatus> Handle(OpFrame<RejectRootOp> frame, OpHandlerContext context)
             {
                 OpResult<int> rejected = await context.Dispatch(new RejectOp());
                 return rejected.Status;
@@ -1269,7 +1269,7 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class AmbiguousIntHandler : IOpHandler<AmbiguousOp, int>
         {
-            public ValueTask<int> Handle(OpFrame<AmbiguousOp> frame, OpContext context) =>
+            public ValueTask<int> Handle(OpFrame<AmbiguousOp> frame, OpHandlerContext context) =>
                 new ValueTask<int>(1);
         }
 
@@ -1313,7 +1313,7 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class PoisonHandler : IOpHandler<PoisonToStringOp, int>
         {
-            public async ValueTask<int> Handle(OpFrame<PoisonToStringOp> frame, OpContext context)
+            public async ValueTask<int> Handle(OpFrame<PoisonToStringOp> frame, OpHandlerContext context)
             {
                 OpResult<int> changed = await context.Dispatch(new IncrementOp(1));
                 return RequireResolved(changed).Value;
@@ -1326,7 +1326,7 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class SingleIncrementRootHandler : IOpHandler<SingleIncrementRootOp, int>
         {
-            public async ValueTask<int> Handle(OpFrame<SingleIncrementRootOp> frame, OpContext context)
+            public async ValueTask<int> Handle(OpFrame<SingleIncrementRootOp> frame, OpHandlerContext context)
             {
                 OpResult<int> changed = await context.Dispatch(new IncrementOp(1));
                 return RequireResolved(changed).Value;

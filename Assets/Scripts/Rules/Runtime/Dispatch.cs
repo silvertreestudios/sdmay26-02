@@ -52,7 +52,7 @@ namespace Game.Rules.Runtime
         /// A task-like value containing the successful operation result. The dispatcher wraps
         /// the value and any facts committed by the operation subtree in an <see cref="OpResult{TResult}"/>.
         /// </returns>
-        ValueTask<TResult> Handle(OpFrame<TOp> frame, OpContext context);
+        ValueTask<TResult> Handle(OpFrame<TOp> frame, OpHandlerContext context);
     }
 
     /// <summary>
@@ -66,7 +66,7 @@ namespace Game.Rules.Runtime
         ExternalAllowed,
 
         /// <summary>
-        /// The operation may be dispatched only from an active <see cref="OpContext"/>.
+        /// The operation may be dispatched only from an active <see cref="OpCallbackContext"/>.
         /// </summary>
         NestedOnly
     }
@@ -656,62 +656,31 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Exposes callback-scoped rules state, trace data, and nested dispatch.
+    /// Provides the state, trace, and nested-dispatch services shared by operation callbacks.
     /// </summary>
     /// <remarks>
-    /// The dispatcher owns the context. It is valid only while the handler or middleware callback
-    /// that received it is actively executing. Each callback may have at most one child dispatch
-    /// in flight and must await that child before returning or starting another child. For a
-    /// middleware callback, its child dispatch and continuation share that in-flight slot and must
-    /// be awaited sequentially. If a callback fails while unconsumed work also fails during
-    /// callback cleanup, dispatch reports both failures in an <see cref="AggregateException"/>,
-    /// with the callback failure first.
+    /// The dispatcher owns each concrete context. It is valid only while the callback that received
+    /// it is actively executing. Each callback may have at most one child dispatch in flight and
+    /// must await that child before returning or starting another child. Middleware child dispatch
+    /// and continuation work share the same slot and must be awaited sequentially. If a callback
+    /// fails while unconsumed work also fails during cleanup, dispatch reports both failures in an
+    /// <see cref="AggregateException"/>, with the callback failure first.
     /// </remarks>
-    public sealed class OpContext
+    public abstract class OpCallbackContext
     {
         private readonly RuleDispatcher dispatcher;
         private readonly OpId parentId;
-        private readonly ActiveRuleBinding activeBinding;
         private readonly CallbackWorkCoordinator work;
 
-        internal OpContext(
+        internal OpCallbackContext(
             RuleDispatcher dispatcher,
             OpId parentId,
-            ActiveRuleBinding activeBinding = null,
-            CallbackWorkCoordinator work = null)
+            CallbackWorkCoordinator work)
         {
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
             this.parentId = parentId;
-            this.activeBinding = activeBinding;
-            this.work = work ?? new CallbackWorkCoordinator();
+            this.work = work ?? throw new ArgumentNullException(nameof(work));
         }
-
-#nullable enable annotations
-        /// <summary>
-        /// Gets the active binding authorizing a middleware invocation, or <see langword="null"/>
-        /// when the context belongs to the operation's ordinary handler.
-        /// </summary>
-        public ActiveRuleBinding? ActiveBinding
-        {
-            get
-            {
-                RequireActive();
-                return activeBinding;
-            }
-        }
-
-        /// <summary>
-        /// Gets the active binding's stable rule source, or <see langword="null"/> for an ordinary handler.
-        /// </summary>
-        public RuleSource? Source
-        {
-            get
-            {
-                RequireActive();
-                return activeBinding?.Source;
-            }
-        }
-#nullable restore annotations
 
         /// <summary>
         /// Gets the latest committed rules snapshot.
@@ -753,7 +722,7 @@ namespace Game.Rules.Runtime
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
 
-            return work.StartChild(
+            return work.StartDispatch(
                 () => dispatcher.DispatchNested(op, parentId),
                 "An operation context is not actively executing after its callback returns.",
                 $"Operation {parentId.Value} cannot begin an overlapping child dispatch. " +
@@ -763,12 +732,79 @@ namespace Game.Rules.Runtime
                 "dispatching a child.");
         }
 
-        internal async ValueTask<bool> CompleteInvocation() =>
-            await work.CompleteInvocation(
-                "An operation context completed more than once.") != null;
+        internal ValueTask<CallbackWorkCompletion> CompleteInvocation() =>
+            work.CompleteInvocation("An operation context completed more than once.");
 
-        private void RequireActive() => work.RequireActive(
+        internal void RequireActive() => work.RequireActive(
             "An operation context cannot be used after its callback returns.");
+    }
+
+    /// <summary>
+    /// Provides handler-scoped access to rules state, trace data, and nested dispatch.
+    /// </summary>
+    /// <remarks>
+    /// Handler contexts carry no active-rule authority. The dispatcher creates one context for each
+    /// handler invocation and closes it when that handler returns.
+    /// </remarks>
+    public sealed class OpHandlerContext : OpCallbackContext
+    {
+        private OpHandlerContext(
+            RuleDispatcher dispatcher,
+            OpId parentId,
+            CallbackWorkCoordinator work)
+            : base(dispatcher, parentId, work)
+        {
+        }
+
+        internal static OpHandlerContext Create(RuleDispatcher dispatcher, OpId parentId) =>
+            new OpHandlerContext(dispatcher, parentId, new CallbackWorkCoordinator());
+    }
+
+    /// <summary>
+    /// Provides middleware-scoped rules services and the active binding authorizing the invocation.
+    /// </summary>
+    /// <remarks>
+    /// The binding is required when the context is constructed, so middleware-only authority cannot
+    /// be represented by an unbound context. Child dispatch and the middleware continuation share
+    /// one callback-work slot and must be consumed sequentially.
+    /// </remarks>
+    public sealed class OpMiddlewareContext : OpCallbackContext
+    {
+        private readonly ActiveRuleBinding binding;
+
+        private OpMiddlewareContext(
+            RuleDispatcher dispatcher,
+            OpId parentId,
+            ActiveRuleBinding binding,
+            CallbackWorkCoordinator work)
+            : base(dispatcher, parentId, work)
+        {
+            this.binding = binding ?? throw new ArgumentNullException(nameof(binding));
+        }
+
+        /// <summary>
+        /// Gets the active binding authorizing the current middleware invocation.
+        /// </summary>
+        public ActiveRuleBinding Binding
+        {
+            get
+            {
+                RequireActive();
+                return binding;
+            }
+        }
+
+        /// <summary>
+        /// Gets the stable rule source associated with <see cref="Binding"/>.
+        /// </summary>
+        public RuleSource Source => Binding.Source;
+
+        internal static OpMiddlewareContext Create(
+            RuleDispatcher dispatcher,
+            OpId parentId,
+            ActiveRuleBinding binding,
+            CallbackWorkCoordinator work) =>
+            new OpMiddlewareContext(dispatcher, parentId, binding, work);
     }
 
     /// <summary>
@@ -886,7 +922,7 @@ namespace Game.Rules.Runtime
     /// </summary>
     /// <remarks>
     /// Root resolutions are serialized: a dispatcher rejects a second root while one is active.
-    /// Handlers may dispatch nested children through <see cref="OpContext"/>, but each active frame
+    /// Handlers may dispatch nested children through <see cref="OpHandlerContext"/>, but each active frame
     /// may own only one child at a time and must await it. Committed-Fact listeners finish before
     /// the caller regains root ownership; listener-dispatched work runs as serialized causal roots.
     /// Trace and diagnostic history accumulate for the lifetime of the dispatcher.
@@ -1241,7 +1277,7 @@ namespace Game.Rules.Runtime
             IReadOnlyList<RuleFact> facts,
             OpId causeId)
         {
-            FactContext context = new FactContext(
+            FactContext context = FactContext.Create(
                 this,
                 delivery.Binding,
                 delivery.RootId,
@@ -1249,7 +1285,6 @@ namespace Game.Rules.Runtime
             try
             {
                 await delivery.Registration.Invoke(
-                    delivery.Binding,
                     delivery.RootId,
                     facts,
                     context);
@@ -1262,7 +1297,8 @@ namespace Game.Rules.Runtime
                 throw;
             }
 
-            if (await context.CompleteInvocation())
+            if (await context.CompleteInvocation() ==
+                CallbackWorkCompletion.UnconsumedDispatch)
             {
                 throw new InvalidOperationException(
                     $"Fact listener for {delivery.Registration.FactType.Name} returned before " +
@@ -1658,7 +1694,7 @@ namespace Game.Rules.Runtime
             RuleDispatcher dispatcher)
         {
             OpFrame<TOp> frame = GetFrame(invocation);
-            OpContext context = new OpContext(dispatcher, frame.Id);
+            OpHandlerContext context = OpHandlerContext.Create(dispatcher, frame.Id);
             TResult value;
             try
             {
@@ -1672,7 +1708,8 @@ namespace Game.Rules.Runtime
                 throw;
             }
 
-            if (await context.CompleteInvocation())
+            if (await context.CompleteInvocation() ==
+                CallbackWorkCompletion.UnconsumedDispatch)
             {
                 throw new InvalidOperationException(
                     $"Operation {frame.Id.Value} returned before awaiting its active child dispatch.");
@@ -1764,8 +1801,18 @@ namespace Game.Rules.Runtime
     /// </summary>
     internal enum CallbackWorkKind
     {
-        ChildDispatch,
+        Dispatch,
         MiddlewareContinuation
+    }
+
+    /// <summary>
+    /// Describes whether a callback returned with work that it had not consumed.
+    /// </summary>
+    internal enum CallbackWorkCompletion
+    {
+        NoUnconsumedWork,
+        UnconsumedDispatch,
+        UnconsumedMiddlewareContinuation
     }
 
     /// <summary>
@@ -1773,7 +1820,7 @@ namespace Game.Rules.Runtime
     /// </summary>
     /// <remarks>
     /// Middleware shares one instance between its continuation and binding-scoped
-    /// <see cref="OpContext"/>. Acquiring either kind of work is therefore atomic, and a rejected
+    /// <see cref="OpMiddlewareContext"/>. Acquiring either kind of work is therefore atomic, and a rejected
     /// overlap cannot start or replace the work already in progress. Ownership ends only when the
     /// returned <see cref="ValueTask{TResult}"/> consumes its result; mere operation completion does
     /// not permit another dispatch or continuation. Rejecting a first continuation attempt while
@@ -1782,20 +1829,54 @@ namespace Game.Rules.Runtime
     internal sealed class CallbackWorkCoordinator
     {
         private readonly object gate = new object();
-        private bool isActive = true;
         private bool continuationWasInvoked;
-        private IOwnedValueTaskSource activeWork;
-        private CallbackWorkKind activeKind;
+        private WorkState state = IdleWorkState.Instance;
 
-        internal ValueTask<TResult> StartChild<TResult>(
+        private abstract class WorkState
+        {
+        }
+
+        private sealed class IdleWorkState : WorkState
+        {
+            internal static readonly IdleWorkState Instance = new IdleWorkState();
+
+            private IdleWorkState()
+            {
+            }
+        }
+
+        private sealed class RunningWorkState : WorkState
+        {
+            internal RunningWorkState(
+                CallbackWorkKind kind,
+                IOwnedValueTaskSource work)
+            {
+                Kind = kind;
+                Work = work ?? throw new ArgumentNullException(nameof(work));
+            }
+
+            internal CallbackWorkKind Kind { get; }
+            internal IOwnedValueTaskSource Work { get; }
+        }
+
+        private sealed class CompletedWorkState : WorkState
+        {
+            internal static readonly CompletedWorkState Instance = new CompletedWorkState();
+
+            private CompletedWorkState()
+            {
+            }
+        }
+
+        internal ValueTask<TResult> StartDispatch<TResult>(
             Func<ValueTask<TResult>> operation,
             string inactiveMessage,
-            string childOverlapMessage,
+            string dispatchOverlapMessage,
             string continuationOverlapMessage) =>
             Start(
                 operation,
                 inactiveMessage,
-                childOverlapMessage,
+                dispatchOverlapMessage,
                 continuationOverlapMessage);
 
         internal ValueTask<TResult> StartContinuation<TResult>(
@@ -1804,7 +1885,7 @@ namespace Game.Rules.Runtime
             OwnedValueTaskSource<TResult> invocation;
             lock (gate)
             {
-                if (!isActive)
+                if (state is CompletedWorkState)
                 {
                     throw new InvalidOperationException(
                         "Middleware cannot continue after its callback returns.");
@@ -1814,7 +1895,7 @@ namespace Game.Rules.Runtime
                     throw new InvalidOperationException(
                         "Middleware may invoke its continuation at most once.");
                 }
-                if (activeWork != null)
+                if (state is RunningWorkState)
                 {
                     throw new InvalidOperationException(
                         "Middleware cannot invoke its continuation while a child dispatch is active. " +
@@ -1833,56 +1914,59 @@ namespace Game.Rules.Runtime
         {
             lock (gate)
             {
-                if (!isActive)
+                if (state is CompletedWorkState)
                     throw new InvalidOperationException(inactiveMessage);
             }
         }
 
-        internal async ValueTask<CallbackWorkKind?> CompleteInvocation(
+        internal async ValueTask<CallbackWorkCompletion> CompleteInvocation(
             string duplicateCompletionMessage)
         {
-            IOwnedValueTaskSource pending;
-            CallbackWorkKind pendingKind;
+            RunningWorkState pending;
             lock (gate)
             {
-                if (!isActive)
+                if (state is CompletedWorkState)
                     throw new InvalidOperationException(duplicateCompletionMessage);
-                isActive = false;
-                pending = activeWork;
-                pendingKind = activeKind;
-            }
+                if (state is IdleWorkState)
+                {
+                    state = CompletedWorkState.Instance;
+                    return CallbackWorkCompletion.NoUnconsumedWork;
+                }
 
-            if (pending == null)
-                return null;
+                pending = (RunningWorkState)state;
+                state = CompletedWorkState.Instance;
+            }
 
             // The active slot is cleared only by ValueTask.GetResult. Capturing it while closing
             // the callback therefore records a contract violation even when ignored work already
             // completed synchronously or a retained result is consumed after the callback returns.
-            await pending.Completion;
-            pending.ThrowIfFailed();
-            return pendingKind;
+            await pending.Work.Completion;
+            pending.Work.ThrowIfFailed();
+            return pending.Kind == CallbackWorkKind.MiddlewareContinuation
+                ? CallbackWorkCompletion.UnconsumedMiddlewareContinuation
+                : CallbackWorkCompletion.UnconsumedDispatch;
         }
 
         private ValueTask<TResult> Start<TResult>(
             Func<ValueTask<TResult>> operation,
             string inactiveMessage,
-            string childOverlapMessage,
+            string dispatchOverlapMessage,
             string continuationOverlapMessage)
         {
             OwnedValueTaskSource<TResult> owned;
             lock (gate)
             {
-                if (!isActive)
+                if (state is CompletedWorkState)
                     throw new InvalidOperationException(inactiveMessage);
-                if (activeWork != null)
+                if (state is RunningWorkState running)
                 {
                     throw new InvalidOperationException(
-                        activeKind == CallbackWorkKind.MiddlewareContinuation
+                        running.Kind == CallbackWorkKind.MiddlewareContinuation
                             ? continuationOverlapMessage
-                            : childOverlapMessage);
+                            : dispatchOverlapMessage);
                 }
 
-                owned = Own(CallbackWorkKind.ChildDispatch, operation);
+                owned = Own(CallbackWorkKind.Dispatch, operation);
             }
 
             owned.Start();
@@ -1895,8 +1979,7 @@ namespace Game.Rules.Runtime
         {
             OwnedValueTaskSource<TResult> owned =
                 new OwnedValueTaskSource<TResult>(operation, Release);
-            activeKind = kind;
-            activeWork = owned;
+            state = new RunningWorkState(kind, owned);
             return owned;
         }
 
@@ -1904,8 +1987,11 @@ namespace Game.Rules.Runtime
         {
             lock (gate)
             {
-                if (ReferenceEquals(activeWork, work))
-                    activeWork = null;
+                if (state is RunningWorkState running &&
+                    ReferenceEquals(running.Work, work))
+                {
+                    state = IdleWorkState.Instance;
+                }
             }
         }
     }

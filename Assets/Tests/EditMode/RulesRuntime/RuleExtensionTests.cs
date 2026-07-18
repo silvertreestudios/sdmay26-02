@@ -24,7 +24,7 @@ namespace Game.Rules.Runtime.Tests
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
             RuleDefinitionBuilder definition = registryBuilder.Define(DefinitionA);
             DelegateMiddleware<ValueOp, int> middleware =
-                new DelegateMiddleware<ValueOp, int>((binding, frame, context, next) => next());
+                new DelegateMiddleware<ValueOp, int>((frame, context, next) => next());
             definition.Middleware(RuleLifecyclePhase.Transformation, middleware);
 
             Assert.Throws<InvalidOperationException>(() =>
@@ -43,7 +43,7 @@ namespace Game.Rules.Runtime.Tests
             mismatchBuilder.Define(DefinitionA).Middleware(
                 RuleLifecyclePhase.Transformation,
                 new DelegateMiddleware<AmbiguousOp, string>(
-                    (binding, frame, context, next) => next()));
+                    (frame, context, next) => next()));
             InvalidOperationException mismatch = Assert.Throws<InvalidOperationException>(() =>
                 new RuleDispatcherBuilder(CreateStore())
                     .RegisterHandler<AmbiguousOp, int>(new AmbiguousIntHandler())
@@ -219,7 +219,7 @@ namespace Game.Rules.Runtime.Tests
             RuleRegistryBuilder rules = new RuleRegistryBuilder();
             rules.Define(DefinitionA).Middleware(
                 RuleLifecyclePhase.Prevention,
-                new DelegateMiddleware<ValueOp, int>((binding, frame, context, next) =>
+                new DelegateMiddleware<ValueOp, int>((frame, context, next) =>
                     new ValueTask<OpResult<int>>(OpResult<int>.Invalid("prevented"))));
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
                     CreateStore(Binding("short-circuit", DefinitionA, 0)))
@@ -1077,16 +1077,24 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class ValueHandler : IOpHandler<ValueOp, int>
         {
-            private readonly List<string> calls;
+            private static readonly Action<string> IgnoreCall = _ => { };
+            private readonly Action<string> recordCall;
 
             public int Calls { get; private set; }
 
-            public ValueHandler(List<string> calls = null) => this.calls = calls;
+            public ValueHandler() => recordCall = IgnoreCall;
 
-            public ValueTask<int> Handle(OpFrame<ValueOp> frame, OpContext context)
+            public ValueHandler(List<string> calls)
+            {
+                if (calls == null)
+                    throw new ArgumentNullException(nameof(calls));
+                recordCall = calls.Add;
+            }
+
+            public ValueTask<int> Handle(OpFrame<ValueOp> frame, OpHandlerContext context)
             {
                 Calls++;
-                calls?.Add("handler");
+                recordCall("handler");
                 return new ValueTask<int>(frame.Op.Value);
             }
         }
@@ -1105,7 +1113,7 @@ namespace Game.Rules.Runtime.Tests
 
             public async ValueTask<int> Handle(
                 OpFrame<ValueOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 Calls++;
                 if (Calls == 1)
@@ -1134,9 +1142,8 @@ namespace Game.Rules.Runtime.Tests
                 SuspendedOnceValueHandler handler) => this.handler = handler;
 
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 ValueTask<OpResult<int>> continuation = next();
@@ -1192,7 +1199,7 @@ namespace Game.Rules.Runtime.Tests
 
             public async ValueTask<int> Handle(
                 OpFrame<MiddlewareChildOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 Calls++;
                 if (Calls == 1)
@@ -1219,9 +1226,8 @@ namespace Game.Rules.Runtime.Tests
                 this.childHandler = childHandler;
 
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 ValueTask<OpResult<int>> child =
@@ -1251,7 +1257,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public ValueTask<int> Handle(
                 OpFrame<ValueOp> frame,
-                OpContext context) =>
+                OpHandlerContext context) =>
                 throw new ApplicationException("synchronous resolver failure");
         }
 
@@ -1261,27 +1267,26 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class AmbiguousIntHandler : IOpHandler<AmbiguousOp, int>
         {
-            public ValueTask<int> Handle(OpFrame<AmbiguousOp> frame, OpContext context) =>
+            public ValueTask<int> Handle(OpFrame<AmbiguousOp> frame, OpHandlerContext context) =>
                 new ValueTask<int>(1);
         }
 
         private sealed class DelegateMiddleware<TOp, TResult> : IOpMiddleware<TOp, TResult>
             where TOp : IRuleOp<TResult>
         {
-            private readonly Func<ActiveRuleBinding, OpFrame<TOp>, OpContext,
+            private readonly Func<OpFrame<TOp>, OpMiddlewareContext,
                 OpNext<TResult>, ValueTask<OpResult<TResult>>> invoke;
 
             public DelegateMiddleware(
-                Func<ActiveRuleBinding, OpFrame<TOp>, OpContext,
+                Func<OpFrame<TOp>, OpMiddlewareContext,
                     OpNext<TResult>, ValueTask<OpResult<TResult>>> invoke) =>
                 this.invoke = invoke;
 
             public ValueTask<OpResult<TResult>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<TOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<TResult> next) =>
-                invoke(binding, frame, context, next);
+                invoke(frame, context, next);
         }
 
         private sealed class CapturingContinuationMiddleware :
@@ -1290,9 +1295,8 @@ namespace Game.Rules.Runtime.Tests
             public OpNext<int> Continuation { get; private set; }
 
             public ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 Continuation = next;
@@ -1303,11 +1307,11 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class CapturingValueHandler : IOpHandler<ValueOp, int>
         {
-            public OpContext Context { get; private set; }
+            public OpHandlerContext Context { get; private set; }
 
             public ValueTask<int> Handle(
                 OpFrame<ValueOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 Context = context;
                 return new ValueTask<int>(frame.Op.Value);
@@ -1325,9 +1329,8 @@ namespace Game.Rules.Runtime.Tests
                 this.handler = handler;
 
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 OpResult<int> result = await next();
@@ -1346,12 +1349,11 @@ namespace Game.Rules.Runtime.Tests
         private sealed class CapturingPassThroughMiddleware :
             IOpMiddleware<ValueOp, int>
         {
-            public OpContext Context { get; private set; }
+            public OpMiddlewareContext Context { get; private set; }
 
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 Context = context;
@@ -1371,9 +1373,8 @@ namespace Game.Rules.Runtime.Tests
                 this.inner = inner;
 
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 OpResult<int> result = await next();
@@ -1401,12 +1402,11 @@ namespace Game.Rules.Runtime.Tests
             }
 
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
-                Assert.That(context.ActiveBinding, Is.SameAs(binding));
+                ActiveRuleBinding binding = context.Binding;
                 Assert.That(context.Source, Is.EqualTo(binding.Source));
                 calls.Add($"before:{binding.Id.Value}");
                 OpResult<int> result = await next();
@@ -1426,9 +1426,8 @@ namespace Game.Rules.Runtime.Tests
             public ObservingMiddleware(List<string> calls) => this.calls = calls;
 
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 calls.Add("observe:before");
@@ -1443,9 +1442,8 @@ namespace Game.Rules.Runtime.Tests
             IOpMiddleware<ValueOp, int>
         {
             public ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 _ = next();
@@ -1457,9 +1455,8 @@ namespace Game.Rules.Runtime.Tests
             IOpMiddleware<ValueOp, int>
         {
             public ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 _ = next();
@@ -1473,7 +1470,7 @@ namespace Game.Rules.Runtime.Tests
 
             public SynchronouslyInvalidValueHandler(string message) => this.message = message;
 
-            public ValueTask<int> Handle(OpFrame<ValueOp> frame, OpContext context) =>
+            public ValueTask<int> Handle(OpFrame<ValueOp> frame, OpHandlerContext context) =>
                 throw new InvalidOperationException(message);
         }
 
@@ -1487,12 +1484,11 @@ namespace Game.Rules.Runtime.Tests
             public NestedIncrementMiddleware(int amount) => this.amount = amount;
 
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
-                Binding = binding;
+                Binding = context.Binding;
                 OpResult<int> changed = await context.Dispatch(new IncrementOp(amount));
                 SnapshotAfterChild = context.Snapshot.Health[Creature].Current;
                 OpResult<int> current = await next();
@@ -1510,9 +1506,8 @@ namespace Game.Rules.Runtime.Tests
                 this.followUpAmount = followUpAmount;
 
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<IncrementOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 OpResult<int> reduced = await next();
@@ -1533,9 +1528,8 @@ namespace Game.Rules.Runtime.Tests
             }
 
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 calls.Add($"disable:{bindingId.Value}");
@@ -1551,9 +1545,8 @@ namespace Game.Rules.Runtime.Tests
             public EnableThenContinueMiddleware(BindingId bindingId) => this.bindingId = bindingId;
 
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 if (!context.Snapshot.RuleBindings[bindingId].IsEnabled)
@@ -1581,7 +1574,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public async ValueTask<int> Handle(
                 OpFrame<ActivateBindingBetweenIncrementsOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 await context.Dispatch(new IncrementOp(1));
                 if (frame.Op.AddBinding)
@@ -1612,7 +1605,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public async ValueTask<int> Handle(
                 OpFrame<DeactivateBindingAfterIncrementOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 OpResult<int> changed = await context.Dispatch(new IncrementOp(1));
                 if (frame.Op.RemoveBinding)
@@ -1775,7 +1768,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public async ValueTask<int> Handle(
                 OpFrame<RootIncrementOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 int current = context.Snapshot.Health[Creature].Current;
                 foreach (int amount in frame.Op.Amounts)
@@ -1796,7 +1789,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public async ValueTask<int> Handle(
                 OpFrame<CommitThenThrowRootOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 await context.Dispatch(new IncrementOp(1));
                 throw new ApplicationException("handler resolution failed");
@@ -1806,9 +1799,8 @@ namespace Game.Rules.Runtime.Tests
         private sealed class CommitThenInvalidateMiddleware : IOpMiddleware<ValueOp, int>
         {
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 await context.Dispatch(new IncrementOp(1));
@@ -1820,9 +1812,8 @@ namespace Game.Rules.Runtime.Tests
             IOpMiddleware<ValueOp, int>
         {
             public async ValueTask<OpResult<int>> Invoke(
-                ActiveRuleBinding binding,
                 OpFrame<ValueOp> frame,
-                OpContext context,
+                OpMiddlewareContext context,
                 OpNext<int> next)
             {
                 await context.Dispatch(new IncrementOp(1));
@@ -1835,14 +1826,12 @@ namespace Game.Rules.Runtime.Tests
             public List<int> ObservedValues { get; } = new List<int>();
 
             public ValueTask OnFactCommitted(
-                ActiveRuleBinding binding,
                 CounterChangedFact fact,
                 FactContext context)
             {
                 int current = context.Snapshot.Health[Creature].Current;
                 Assert.That(current, Is.EqualTo(fact.Current));
-                Assert.That(context.Binding, Is.SameAs(binding));
-                Assert.That(context.Source, Is.EqualTo(binding.Source));
+                Assert.That(context.Source, Is.EqualTo(context.Binding.Source));
                 ObservedValues.Add(current);
                 return default;
             }
@@ -1854,7 +1843,6 @@ namespace Game.Rules.Runtime.Tests
             public List<int> ObservedValues { get; } = new List<int>();
 
             public ValueTask OnFactCommitted(
-                ActiveRuleBinding binding,
                 CounterChangedFact fact,
                 FactContext context)
             {
@@ -1874,7 +1862,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public int SnapshotValue { get; private set; }
 
-            public ValueTask<int> Handle(OpFrame<ReactionOp> frame, OpContext context)
+            public ValueTask<int> Handle(OpFrame<ReactionOp> frame, OpHandlerContext context)
             {
                 SnapshotValue = context.Snapshot.Health[Creature].Current;
                 return new ValueTask<int>(frame.Op.TriggerValue);
@@ -1890,7 +1878,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public ValueTask<int> Handle(
                 OpFrame<FailingReactionOp> frame,
-                OpContext context) =>
+                OpHandlerContext context) =>
                 throw new ApplicationException("reaction failed");
         }
 
@@ -1898,7 +1886,6 @@ namespace Game.Rules.Runtime.Tests
             IFactListener<CounterChangedFact>
         {
             public ValueTask OnFactCommitted(
-                ActiveRuleBinding binding,
                 CounterChangedFact fact,
                 FactContext context)
             {
@@ -1916,7 +1903,6 @@ namespace Game.Rules.Runtime.Tests
             public void Continue() => continuation.TrySetResult(true);
 
             public async ValueTask OnFactCommitted(
-                ActiveRuleBinding binding,
                 CounterChangedFact fact,
                 FactContext context)
             {
@@ -1929,7 +1915,6 @@ namespace Game.Rules.Runtime.Tests
             IFactListener<CounterChangedFact>
         {
             public ValueTask OnFactCommitted(
-                ActiveRuleBinding binding,
                 CounterChangedFact fact,
                 FactContext context)
             {
@@ -1946,7 +1931,6 @@ namespace Game.Rules.Runtime.Tests
             public int Calls { get; private set; }
 
             public async ValueTask OnFactCommitted(
-                ActiveRuleBinding binding,
                 CounterChangedFact fact,
                 FactContext context)
             {
@@ -1963,7 +1947,6 @@ namespace Game.Rules.Runtime.Tests
             public int Calls { get; private set; }
 
             public ValueTask OnFactCommitted(
-                ActiveRuleBinding binding,
                 CounterChangedFact fact,
                 FactContext context)
             {
@@ -1980,7 +1963,6 @@ namespace Game.Rules.Runtime.Tests
             public ResolutionTrace TraceDuringCallback { get; private set; }
 
             public ValueTask OnFactCommitted(
-                ActiveRuleBinding binding,
                 CounterChangedFact fact,
                 FactContext context)
             {
@@ -1997,7 +1979,6 @@ namespace Game.Rules.Runtime.Tests
                 new List<CommittedFactBatch<CounterChangedFact>>();
 
             public ValueTask OnFactsCommitted(
-                ActiveRuleBinding binding,
                 CommittedFactBatch<CounterChangedFact> batch,
                 FactContext context)
             {
@@ -2014,11 +1995,10 @@ namespace Game.Rules.Runtime.Tests
             public LoggingFactListener(List<string> calls) => this.calls = calls;
 
             public ValueTask OnFactCommitted(
-                ActiveRuleBinding binding,
                 CounterChangedFact fact,
                 FactContext context)
             {
-                calls.Add(binding.Id.Value);
+                calls.Add(context.Binding.Id.Value);
                 return default;
             }
         }
@@ -2035,7 +2015,6 @@ namespace Game.Rules.Runtime.Tests
             }
 
             public async ValueTask OnFactCommitted(
-                ActiveRuleBinding binding,
                 CounterChangedFact fact,
                 FactContext context)
             {
@@ -2057,7 +2036,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public async ValueTask<bool> Handle(
                 OpFrame<RemoveBindingRootOp> frame,
-                OpContext context)
+                OpHandlerContext context)
             {
                 OpResult<bool> removed = await context.Dispatch(
                     new RemoveBindingOp(frame.Op.BindingId));

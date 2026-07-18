@@ -48,7 +48,7 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// Middleware may invoke this delegate at most once and must await it before returning. It may
     /// omit the call to short-circuit or replace the remaining work. The continuation and any
-    /// child dispatched through the callback's <see cref="OpContext"/> must be awaited
+    /// child dispatched through the callback's <see cref="OpMiddlewareContext"/> must be awaited
     /// sequentially; neither may begin while the other result remains unconsumed.
     /// </remarks>
     public delegate ValueTask<OpResult<TResult>> OpNext<TResult>();
@@ -69,15 +69,15 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Wraps the next stage of resolution for one active binding.
         /// </summary>
-        /// <param name="binding">The active rule instance authorizing this middleware invocation.</param>
         /// <param name="frame">The immutable frame for the operation being resolved.</param>
-        /// <param name="context">Read-only rules services and binding-scoped nested dispatch.</param>
+        /// <param name="context">
+        /// Read-only rules services, the authorizing binding, and binding-scoped nested dispatch.
+        /// </param>
         /// <param name="next">The remaining middleware chain and final resolver.</param>
         /// <returns>The structural operation result to expose to the enclosing stage.</returns>
         ValueTask<OpResult<TResult>> Invoke(
-            ActiveRuleBinding binding,
             OpFrame<TOp> frame,
-            OpContext context,
+            OpMiddlewareContext context,
             OpNext<TResult> next);
     }
 
@@ -99,12 +99,12 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Handles one matching committed Fact for one active binding.
         /// </summary>
-        /// <param name="binding">The active rule instance authorizing this notification.</param>
         /// <param name="fact">The already committed Fact.</param>
-        /// <param name="context">Post-commit state, trace data, and causal dispatch.</param>
+        /// <param name="context">
+        /// The authorizing binding, post-commit state, trace data, and causal dispatch.
+        /// </param>
         /// <returns>A task-like value that completes when the listener and its dispatched work finish.</returns>
         ValueTask OnFactCommitted(
-            ActiveRuleBinding binding,
             TFact fact,
             FactContext context);
     }
@@ -123,12 +123,12 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Handles the matching Facts from one committed root for one active binding.
         /// </summary>
-        /// <param name="binding">The active rule instance authorizing this notification.</param>
         /// <param name="batch">A non-empty, root-scoped collection in commit order.</param>
-        /// <param name="context">Post-commit state, trace data, and causal dispatch.</param>
+        /// <param name="context">
+        /// The authorizing binding, post-commit state, trace data, and causal dispatch.
+        /// </param>
         /// <returns>A task-like value that completes when the listener and its dispatched work finish.</returns>
         ValueTask OnFactsCommitted(
-            ActiveRuleBinding binding,
             CommittedFactBatch<TFact> batch,
             FactContext context);
     }
@@ -177,20 +177,20 @@ namespace Game.Rules.Runtime
     /// </remarks>
     public sealed class FactContext
     {
-        private readonly object gate = new object();
         private readonly RuleDispatcher dispatcher;
         private readonly OpId causeId;
-        private bool isActive = true;
-        private IOwnedValueTaskSource activeDispatch;
+        private readonly CallbackWorkCoordinator work;
 
-        internal FactContext(
+        private FactContext(
             RuleDispatcher dispatcher,
             ActiveRuleBinding binding,
             OpId committedRootId,
-            OpId causeId)
+            OpId causeId,
+            CallbackWorkCoordinator work)
         {
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
             Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+            this.work = work ?? throw new ArgumentNullException(nameof(work));
             if (committedRootId.IsEmpty || causeId.IsEmpty)
                 throw new ArgumentException("Fact contexts require committed root and cause IDs.");
             CommittedRootId = committedRootId;
@@ -258,64 +258,32 @@ namespace Game.Rules.Runtime
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
 
-            OwnedValueTaskSource<OpResult<TResult>> dispatch;
-            lock (gate)
-            {
-                if (!isActive)
-                    throw new InvalidOperationException("A Fact context cannot dispatch after its listener returns.");
-                if (activeDispatch != null)
-                {
-                    throw new InvalidOperationException(
-                        "A Fact listener cannot overlap dispatched roots. Await the active dispatch first.");
-                }
-
-                dispatch = new OwnedValueTaskSource<OpResult<TResult>>(
-                    () => dispatcher.DispatchFromFact(op, CommittedRootId, causeId),
-                    ReleaseDispatch);
-                activeDispatch = dispatch;
-            }
-
-            dispatch.Start();
-            return dispatch.AsValueTask();
+            const string overlapMessage =
+                "A Fact listener cannot overlap dispatched roots. Await the active dispatch first.";
+            return work.StartDispatch(
+                () => dispatcher.DispatchFromFact(op, CommittedRootId, causeId),
+                "A Fact context cannot dispatch after its listener returns.",
+                overlapMessage,
+                overlapMessage);
         }
 
-        internal async ValueTask<bool> CompleteInvocation()
-        {
-            IOwnedValueTaskSource pending = null;
-            lock (gate)
-            {
-                if (!isActive)
-                    throw new InvalidOperationException("A Fact context completed more than once.");
-                isActive = false;
-                pending = activeDispatch;
-            }
+        internal ValueTask<CallbackWorkCompletion> CompleteInvocation() =>
+            work.CompleteInvocation("A Fact context completed more than once.");
 
-            if (pending == null)
-                return false;
+        internal static FactContext Create(
+            RuleDispatcher dispatcher,
+            ActiveRuleBinding binding,
+            OpId committedRootId,
+            OpId causeId) =>
+            new FactContext(
+                dispatcher,
+                binding,
+                committedRootId,
+                causeId,
+                new CallbackWorkCoordinator());
 
-            await pending.Completion;
-            pending.ThrowIfFailed();
-            return true;
-        }
-
-        private void ReleaseDispatch(IOwnedValueTaskSource dispatch)
-        {
-            lock (gate)
-            {
-                if (ReferenceEquals(activeDispatch, dispatch))
-                    activeDispatch = null;
-            }
-        }
-
-        private void RequireActive()
-        {
-            lock (gate)
-            {
-                if (!isActive)
-                    throw new InvalidOperationException(
-                        "A Fact context cannot be used after its listener returns.");
-            }
-        }
+        private void RequireActive() => work.RequireActive(
+            "A Fact context cannot be used after its listener returns.");
     }
 
     /// <summary>
@@ -394,7 +362,6 @@ namespace Game.Rules.Runtime
         internal long RegistrationOrder { get; }
         internal abstract bool Matches(RuleFact fact);
         internal abstract ValueTask Invoke(
-            ActiveRuleBinding binding,
             OpId rootId,
             IReadOnlyList<RuleFact> facts,
             FactContext context);
@@ -964,7 +931,7 @@ namespace Game.Rules.Runtime
             CallbackWorkCoordinator work = new CallbackWorkCoordinator();
             MiddlewareContinuation<TResult> continuation =
                 new MiddlewareContinuation<TResult>(next, work);
-            OpContext context = new OpContext(
+            OpMiddlewareContext context = OpMiddlewareContext.Create(
                 dispatcher,
                 typed.Frame.Id,
                 binding,
@@ -973,7 +940,6 @@ namespace Game.Rules.Runtime
             try
             {
                 result = await middleware.Invoke(
-                    binding,
                     typed.Frame,
                     context,
                     continuation.Invoke);
@@ -987,14 +953,14 @@ namespace Game.Rules.Runtime
                 throw;
             }
 
-            CallbackWorkKind? activeWork = await work.CompleteInvocation(
+            CallbackWorkCompletion completion = await work.CompleteInvocation(
                 "A middleware callback completed more than once.");
-            if (activeWork == CallbackWorkKind.MiddlewareContinuation)
+            if (completion == CallbackWorkCompletion.UnconsumedMiddlewareContinuation)
             {
                 throw new InvalidOperationException(
                     $"Middleware for {typeof(TOp).Name} returned before awaiting its continuation.");
             }
-            if (activeWork == CallbackWorkKind.ChildDispatch)
+            if (completion == CallbackWorkCompletion.UnconsumedDispatch)
             {
                 throw new InvalidOperationException(
                     $"Middleware for {typeof(TOp).Name} returned before awaiting its child dispatch.");
@@ -1045,14 +1011,13 @@ namespace Game.Rules.Runtime
         internal override bool Matches(RuleFact fact) => fact is TFact;
 
         internal override ValueTask Invoke(
-            ActiveRuleBinding binding,
             OpId rootId,
             IReadOnlyList<RuleFact> facts,
             FactContext context)
         {
             if (facts.Count != 1 || !(facts[0] is TFact typed))
                 throw new InvalidOperationException("A single-Fact listener received an impossible delivery.");
-            return listener.OnFactCommitted(binding, typed, context);
+            return listener.OnFactCommitted(typed, context);
         }
     }
 
@@ -1070,14 +1035,12 @@ namespace Game.Rules.Runtime
         internal override bool Matches(RuleFact fact) => fact is TFact;
 
         internal override ValueTask Invoke(
-            ActiveRuleBinding binding,
             OpId rootId,
             IReadOnlyList<RuleFact> facts,
             FactContext context)
         {
             TFact[] typed = facts.Cast<TFact>().ToArray();
             return listener.OnFactsCommitted(
-                binding,
                 new CommittedFactBatch<TFact>(rootId, Array.AsReadOnly(typed)),
                 context);
         }

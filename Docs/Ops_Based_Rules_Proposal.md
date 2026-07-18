@@ -448,7 +448,7 @@ public interface IOpHandler<TOp, TResult>
 {
     ValueTask<TResult> Handle(
         OpFrame<TOp> frame,
-        OpContext context);
+        OpHandlerContext context);
 }
 ```
 
@@ -466,12 +466,16 @@ public interface IOpMiddleware<TOp, TResult>
     where TOp : IRuleOp<TResult>
 {
     ValueTask<OpResult<TResult>> Invoke(
-        ActiveRuleBinding binding,
         OpFrame<TOp> frame,
-        OpContext context,
+        OpMiddlewareContext context,
         OpNext<TResult> next);
 }
 ```
+
+`OpHandlerContext` and `OpMiddlewareContext` make callback authority explicit. Both expose snapshot,
+trace, and nested-dispatch services, while only `OpMiddlewareContext` exposes its required active
+`Binding` and `Source`. A handler therefore cannot accidentally receive or exercise binding-scoped
+authority, and middleware has one authoritative source for the binding that selected it.
 
 Middleware is appropriate when a rule needs to inspect or alter an in-progress operation. Examples include:
 
@@ -499,11 +503,14 @@ public interface IFactListener<TFact>
     where TFact : RuleFact
 {
     ValueTask OnFactCommitted(
-        ActiveRuleBinding binding,
         TFact fact,
         FactContext context);
 }
 ```
+
+`FactContext.Binding` and `FactContext.Source` identify the active rule instance that selected the
+listener, so the callback does not receive a second binding value that could disagree with its
+context.
 
 Typed registration matters. A rule interested in a creature reaching 0 HP registers once for `CreatureReducedToZeroFact`; it does not need to know every command, spell, hazard, or attack capable of dealing damage.
 
@@ -516,7 +523,6 @@ public interface IFactBatchListener<TFact>
     where TFact : RuleFact
 {
     ValueTask OnFactsCommitted(
-        ActiveRuleBinding binding,
         CommittedFactBatch<TFact> batch,
         FactContext context);
 }
@@ -1059,7 +1065,7 @@ public sealed class ResolveStrikeHandler
 
     public async ValueTask<StrikeResolution> Handle(
         OpFrame<ResolveStrikeOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         var op = frame.Op;
         var weapon = actionCatalog.GetWeaponDefinition(op.Weapon);
@@ -1129,7 +1135,7 @@ public sealed class StrikeActionHandler
 {
     public async ValueTask<StrikeOutcome> Handle(
         OpFrame<StrikeActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         // The ActionOp pipeline has already validated the action, spent one
         // action, and completed ActionBegunOp before this method runs.
@@ -1214,11 +1220,11 @@ public static class ReactiveStrikeRule
     }
 
     private static async ValueTask<OpResult<ActionStartOutcome>> OnActionBegun(
-        ActiveRuleBinding binding,
         OpFrame<ActionBegunOp> frame,
-        OpContext context,
+        OpMiddlewareContext context,
         OpNext<ActionStartOutcome> next)
     {
+        var binding = context.Binding;
         var current = await next();
         if (current is not ResolvedOpResult<ActionStartOutcome> resolvedCurrent ||
             resolvedCurrent.Value.Decision == ActionStartDecision.Interrupted)
@@ -1255,7 +1261,6 @@ public static class ReactiveStrikeRule
 
         // DispatchAuthorized proves this Op came from the active feat binding.
         var reaction = await context.DispatchAuthorized(
-            binding,
             new ReactiveStrikeActionOp(
                 binding.Owner,
                 triggering.Actor,
@@ -1270,11 +1275,11 @@ public static class ReactiveStrikeRule
 
     private static async ValueTask<OpResult<MovementTriggerOutcome>>
         OnLeavingSquare(
-            ActiveRuleBinding binding,
             OpFrame<MovementLeavingSquareOp> frame,
-            OpContext context,
+            OpMiddlewareContext context,
             OpNext<MovementTriggerOutcome> next)
     {
+        var binding = context.Binding;
         var current = await next();
         if (current is not ResolvedOpResult<MovementTriggerOutcome>)
             return current;
@@ -1294,7 +1299,6 @@ public static class ReactiveStrikeRule
             resolvedChoice.Value.Choice)
         {
             await context.DispatchAuthorized(
-                binding,
                 new ReactiveStrikeActionOp(
                     binding.Owner,
                     frame.Op.Mover,
@@ -1332,7 +1336,7 @@ public static class ReactiveStrikeRule
 
     private static async ValueTask<ReactiveStrikeOutcome> HandleReaction(
         OpFrame<ReactiveStrikeActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         // The ActionOp pipeline has now atomically spent the reaction.
         var strike = await context.Dispatch(new ResolveStrikeOp(
@@ -1446,7 +1450,7 @@ public static class BlessRule
 
     private static async ValueTask<CastSpellOutcome> HandleCast(
         OpFrame<CastSpellActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         // Store only the aura's source-of-truth instance state. Creating the
         // effect also activates the binding registered above.
@@ -1475,11 +1479,11 @@ public static class BlessRule
 
     private static async ValueTask<OpResult<ModifierCollection>>
         AddAttackModifier(
-            ActiveRuleBinding binding,
             OpFrame<CollectAttackModifiersOp> frame,
-            OpContext context,
+            OpMiddlewareContext context,
             OpNext<ModifierCollection> next)
     {
+        var binding = context.Binding;
         var result = await next();
         if (result is not ResolvedOpResult<ModifierCollection> resolvedResult)
             return result;
@@ -1533,7 +1537,7 @@ public static class BlessRule
 
     private static async ValueTask<SustainBlessOutcome> HandleSustain(
         OpFrame<SustainBlessActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         var effect = context.Snapshot.ActiveEffects.Get(frame.Op.BlessEffect);
         var state = effect.GetState<BlessAuraState>();
@@ -1663,7 +1667,7 @@ public sealed class TumbleThroughHandler
 
     public async ValueTask<TumbleThroughOutcome> Handle(
         OpFrame<TumbleThroughActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         // The common ActionOp lifecycle has spent one action and opened the
         // action-level move timing point before this method begins.
@@ -1783,7 +1787,7 @@ public sealed class TumbleThroughHandler
     private static async ValueTask DispatchFailedEntryTrigger(
         OpFrame<TumbleThroughActionOp> frame,
         GridPosition actionStartingSquare,
-        OpContext context)
+        OpHandlerContext context)
     {
         // Failure triggers reactions as though the actor had left the square
         // where the action began. A stable TriggerId supports deduplication.
@@ -1844,10 +1848,10 @@ public static class CranialDetonationRule
     }
 
     private static async ValueTask OnCreaturesReducedToZero(
-        ActiveRuleBinding binding,
         CommittedFactBatch<CreatureReducedToZeroFact> batch,
         FactContext context)
     {
+        var binding = context.Binding;
         var snapshot = context.Snapshot;
         if (!snapshot.Psychic.IsPsycheUnleashed(binding.Owner) ||
             !snapshot.Frequencies.IsAvailableThisRound(binding.Id))
@@ -1902,7 +1906,6 @@ public static class CranialDetonationRule
             }
 
             await context.DispatchAuthorized(
-                binding,
                 new CranialDetonationActionOp(
                     binding.Owner,
                     binding.Id,
@@ -1942,7 +1945,7 @@ public static class CranialDetonationRule
 
     private static async ValueTask<CranialDetonationOutcome> HandleAction(
         OpFrame<CranialDetonationActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         // The ActionOp pipeline has atomically spent the once-per-round use.
         var frontier = new Queue<CreatureId>(frame.Op.InitialOrigins);
