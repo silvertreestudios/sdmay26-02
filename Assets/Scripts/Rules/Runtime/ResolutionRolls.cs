@@ -48,7 +48,7 @@ namespace Game.Rules.Runtime
         {
             lock (gate)
             {
-                if (activeRoot == null)
+                if (activeRoot.IsIdle)
                     throw new InvalidOperationException("A rules roll requires an active root resolution.");
 
                 IOpFrameView frame = Trace.Require(operationId);

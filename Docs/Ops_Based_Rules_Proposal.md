@@ -677,9 +677,30 @@ code change. `SkillCheckOp` internally dispatches `CollectSkillCheckModifiersOp`
 `SavingThrowOp` does the same with `CollectSavingThrowModifiersOp`. Active effects therefore modify
 checks and saves through the same typed, traceable middleware pattern used for attacks.
 
-The player implementation, AI implementation, replay implementation, and tests provide adapters for `PromptChoiceOp<TChoice>`. A handler does not directly open UI or pause a coroutine.
+The player implementation, AI implementation, replay implementation, and tests register an
+`IPromptAdapter<TChoice>` for each concrete choice type they resolve. The adapter receives only the
+immutable `PromptChoiceOp<TChoice>` and the frame's captured `RulesSnapshot`; it does not receive a
+dispatcher, mutable store, callback, or privileged context. A handler therefore never opens UI
+directly, pauses a coroutine, or grants presentation code a path to mutate rules state.
 
-The dispatcher serializes a root resolution. A prompt can suspend that resolution, but another root Op cannot interleave and change combat state underneath it. Nested reactions are allowed because they belong to the same resolution tree.
+`ChoiceResult<TChoice>` uses structural cases for normal outcomes:
+
+- `SelectedChoiceResult<TChoice>` contains one request-declared choice. A content-level decline is a
+  selected value, such as `false`, rather than a cancelled operation.
+- `UnavailableChoiceResult<TChoice>` explains that no adapter can currently present or evaluate the
+  request.
+- `FailedChoiceResult<TChoice>` carries a typed `TimedOut` or `Disconnected` adapter-boundary failure.
+
+All three are resolved prompt values. Only explicit cancellation of the surrounding decision workflow
+returns `CancelledOpResult<ChoiceResult<TChoice>>`; adapters do not return `Invalid` or `Interrupted`
+for expected prompt outcomes. `ScriptedPromptAdapter<TChoice>` consumes explicit results in order so
+tests, replays, and simulations exercise the same contract without UI behavior.
+
+The dispatcher serializes root resolution through an asynchronous ownership gate. An unrelated
+external root waits before allocating its root ID or frame, so a prompt can suspend its current root
+without combat state changing underneath it. Nested reactions and other child Ops remain available
+because they belong to the same resolution tree, and causally dispatched Fact-listener roots retain
+the original external root's ownership window through post-commit notification.
 
 ### 5.7 Read-only queries stay simple
 
@@ -1262,7 +1283,8 @@ public static class ReactiveStrikeRule
             ReactiveStrikePrompt.For(binding.Owner, triggering.Actor)));
 
         if (choice is not ResolvedOpResult<ChoiceResult<bool>> resolvedChoice ||
-            !resolvedChoice.Value.Choice)
+            resolvedChoice.Value is not SelectedChoiceResult<bool> selectedChoice ||
+            !selectedChoice.Choice)
             return current;
 
         // DispatchAuthorized proves this Op came from the active feat binding.
@@ -1302,7 +1324,7 @@ public static class ReactiveStrikeRule
             ReactiveStrikePrompt.For(binding.Owner, frame.Op.Mover)));
 
         if (choice is ResolvedOpResult<ChoiceResult<bool>> resolvedChoice &&
-            resolvedChoice.Value.Choice)
+            resolvedChoice.Value is SelectedChoiceResult<bool> { Choice: true })
         {
             await context.DispatchAuthorized(
                 new ReactiveStrikeActionOp(
@@ -1906,7 +1928,9 @@ public static class CranialDetonationRule
 
             if (choice is not ResolvedOpResult<ChoiceResult<CranialDetonationChoice>>
                     resolvedChoice ||
-                !resolvedChoice.Value.Choice.Accepted)
+                resolvedChoice.Value is not
+                    SelectedChoiceResult<CranialDetonationChoice> selectedChoice ||
+                !selectedChoice.Choice.Accepted)
             {
                 continue;
             }
@@ -1917,7 +1941,7 @@ public static class CranialDetonationRule
                     binding.Id,
                     castId,
                     origins,
-                    resolvedChoice.Value.Choice.Mode));
+                    selectedChoice.Choice.Mode));
         }
     }
 

@@ -255,6 +255,31 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
+        /// Registers the engine-owned nested prompt resolver for one concrete choice data type.
+        /// </summary>
+        /// <typeparam name="TChoice">The immutable choice type handled by the adapter.</typeparam>
+        /// <param name="adapter">
+        /// The player, AI, replay, or scripted adapter that resolves this choice type.
+        /// </param>
+        /// <returns>This builder so configuration can be chained.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="adapter"/> is <see langword="null"/>.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// A resolver for <see cref="PromptChoiceOp{TChoice}"/> is already registered.
+        /// </exception>
+        /// <remarks>
+        /// Prompt operations are nested-only and bypass active rule middleware. The adapter receives
+        /// immutable request data and a read-only snapshot, so presentation or AI work cannot mutate
+        /// state or dispatch privileged operations while the root resolution is suspended.
+        /// </remarks>
+        public RuleDispatcherBuilder UsePromptAdapter<TChoice>(IPromptAdapter<TChoice> adapter)
+        {
+            if (adapter == null)
+                throw new ArgumentNullException(nameof(adapter));
+            Add(new PromptRegistration<TChoice>(adapter));
+            return this;
+        }
+
+        /// <summary>
         /// Selects the immutable rule registry used for binding-controlled middleware and Fact listeners.
         /// </summary>
         /// <param name="registry">The static registry to validate and attach to the dispatcher.</param>
