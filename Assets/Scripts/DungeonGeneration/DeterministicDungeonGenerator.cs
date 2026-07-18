@@ -309,21 +309,23 @@ namespace Game.DungeonGeneration
                 {
                     int availableHeight = Math.Max(0, coarseHeight - roomBase - coarseZ);
                     int availableWidth = Math.Max(0, coarseWidth - roomBase - coarseX);
-                    int heightRange = Math.Min(availableHeight, roomRadix);
-                    int widthRange = Math.Min(availableWidth, roomRadix);
-                    heightSteps = roomBase + (heightRange > 0 ? random.NextInt(heightRange) : 0);
-                    widthSteps = roomBase + (widthRange > 0 ? random.NextInt(widthRange) : 0);
+                    // Counts include zero extra size and the largest size that still fits.
+                    int heightRange = Math.Min(availableHeight + 1, roomRadix);
+                    int widthRange = Math.Min(availableWidth + 1, roomRadix);
+                    heightSteps = roomBase + random.NextInt(heightRange);
+                    widthSteps = roomBase + random.NextInt(widthRange);
                 }
                 else
                 {
                     heightSteps = roomBase + random.NextInt(roomRadix);
                     widthSteps = roomBase + random.NextInt(roomRadix);
-                    int verticalPositions = coarseHeight - heightSteps;
-                    int horizontalPositions = coarseWidth - widthSteps;
-                    if (verticalPositions <= 0 || horizontalPositions <= 0)
+                    // Anchor counts include the last position and the exact-fit position at zero.
+                    int verticalPositionCount = coarseHeight - heightSteps + 1;
+                    int horizontalPositionCount = coarseWidth - widthSteps + 1;
+                    if (verticalPositionCount <= 0 || horizontalPositionCount <= 0)
                         return;
-                    coarseZ = random.NextInt(verticalPositions);
-                    coarseX = random.NextInt(horizontalPositions);
+                    coarseZ = random.NextInt(verticalPositionCount);
+                    coarseX = random.NextInt(horizontalPositionCount);
                 }
 
                 int minimumX = coarseX * 2 + 1;

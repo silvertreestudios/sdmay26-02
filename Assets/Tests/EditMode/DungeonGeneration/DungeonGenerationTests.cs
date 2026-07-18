@@ -49,7 +49,7 @@ public sealed class DungeonGenerationTests
         using (SHA256 sha256 = SHA256.Create())
             hash = BitConverter.ToString(sha256.ComputeHash(Encoding.UTF8.GetBytes(first))).Replace("-", string.Empty).ToLowerInvariant();
         TestContext.WriteLine("golden sha256=" + hash);
-        Assert.That(hash, Is.EqualTo("dc7c8c3138c50021dd94b0ed592f58e05a6e4ea9f5ec68885237332dfa24fc1d"));
+        Assert.That(hash, Is.EqualTo("c80bc77db210cac66019cc976fc7a3d128d8ed572faac643b5e4050c201c0de7"));
     }
 
     [Test]
@@ -564,6 +564,8 @@ public sealed class DungeonGenerationTests
     public void GeneratedTopology_SatisfiesStructuralPropertiesAcross256Seeds()
     {
         IDungeonGenerator generator = new DeterministicDungeonGenerator();
+        bool observedPackedMaximumAtLastAnchor = false;
+        bool observedScatteredLastAnchor = false;
         for (int seed = 0; seed < 256; seed++)
         foreach (int cleanupPercent in new[] { 0, 100 })
         {
@@ -579,6 +581,19 @@ public sealed class DungeonGenerationTests
             string context = seed + " cleanup " + cleanupPercent;
             Assert.That(result.IsSuccess, Is.True, "seed " + context + ": " + string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
             AssertDocumentInvariants(result.Document, context);
+            bool TouchesLastAnchor(DungeonRoom room) =>
+                room.MaximumX == request.Width - 2 || room.MaximumZ == request.Height - 2;
+            if (request.RoomLayout == DungeonRoomLayout.Packed)
+            {
+                observedPackedMaximumAtLastAnchor |= result.Document.Rooms.Any(room =>
+                    TouchesLastAnchor(room) &&
+                    (room.MaximumX - room.MinimumX + 1 == request.MaximumRoomSize ||
+                     room.MaximumZ - room.MinimumZ + 1 == request.MaximumRoomSize));
+            }
+            else
+            {
+                observedScatteredLastAnchor |= result.Document.Rooms.Any(TouchesLastAnchor);
+            }
             string json = DungeonLevelJsonSerializer.Serialize(result.Document);
             DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
             Assert.That(parsed.IsSuccess, Is.True,
@@ -587,6 +602,14 @@ public sealed class DungeonGenerationTests
             Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json),
                 "owned lossless round-trip seed " + context);
         }
+        Assert.That(
+            observedPackedMaximumAtLastAnchor,
+            Is.True,
+            "packed sizing must include the largest fitting size at the last anchor");
+        Assert.That(
+            observedScatteredLastAnchor,
+            Is.True,
+            "scattered placement must include the last valid anchor");
     }
 
     [Test]
@@ -1562,9 +1585,9 @@ public sealed class DungeonGenerationTests
         };
         string[] expected =
         {
-            "4836d768718b1520c8a001408deecd3bf3420d35563fc048ba12e666574586d5",
-            "512e14c5118a128b37dd6f19230a61d698317cf5ca2c831620fbf9a588a58973",
-            "f156a62fc1ec5c7b57c8eca0d666fa5f2f0713d9ce95e955337b370ef2cc6da3"
+            "b1cf62dcef0c62acebc39159bf9c6a0f1e8dafe05406fd38dd5db99c8402a202",
+            "d1962e67e974ba72298a379df2d398424ce45967a69fc40b44ddcc4201da42f7",
+            "45a12819b693b993a6e377e8acf8b4261134d9e7400a44096206f1ca8bfd24db"
         };
         List<string> actual = new();
         foreach (var item in cases)
