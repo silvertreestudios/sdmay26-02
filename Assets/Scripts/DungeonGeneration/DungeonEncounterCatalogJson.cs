@@ -35,7 +35,8 @@ namespace Game.DungeonGeneration
             }
 
             EnsureOnlyProperties(root, "catalog", "schema", "enemies");
-            if (!string.Equals(root.Value<string>("schema"), Schema, StringComparison.Ordinal))
+            string schema = RequireNonEmptyString(root, "schema", "catalog");
+            if (!string.Equals(schema, Schema, StringComparison.Ordinal))
                 throw new FormatException("The encounter catalog schema identifier is unsupported.");
             if (!(root["enemies"] is JArray enemies))
                 throw new FormatException("The encounter catalog requires an enemies array.");
@@ -54,16 +55,10 @@ namespace Game.DungeonGeneration
                     "resourcePath",
                     "prefabPath");
 
-                string id = enemy.Value<string>("id");
-                string resourcePath = enemy.Value<string>("resourcePath");
-                string prefabPath = enemy.Value<string>("prefabPath");
-                if (string.IsNullOrWhiteSpace(id) ||
-                    string.IsNullOrWhiteSpace(resourcePath) ||
-                    string.IsNullOrWhiteSpace(prefabPath))
-                {
-                    throw new FormatException(
-                        $"enemies[{index}] requires non-empty id, resourcePath, and prefabPath values.");
-                }
+                string path = $"enemies[{index}]";
+                string id = RequireNonEmptyString(enemy, "id", path);
+                string resourcePath = RequireNonEmptyString(enemy, "resourcePath", path);
+                string prefabPath = RequireNonEmptyString(enemy, "prefabPath", path);
                 if (!ids.Add(id))
                     throw new FormatException($"The enemy ID '{id}' is duplicated.");
                 if (enemy["level"]?.Type != JTokenType.Integer)
@@ -91,6 +86,17 @@ namespace Game.DungeonGeneration
             }
 
             return Array.AsReadOnly(candidates.ToArray());
+        }
+
+        private static string RequireNonEmptyString(
+            JObject source,
+            string propertyName,
+            string path)
+        {
+            JToken token = source[propertyName];
+            if (token?.Type != JTokenType.String || string.IsNullOrWhiteSpace(token.Value<string>()))
+                throw new FormatException($"{path}.{propertyName} must be a non-empty string.");
+            return token.Value<string>();
         }
 
         private static void EnsureOnlyProperties(

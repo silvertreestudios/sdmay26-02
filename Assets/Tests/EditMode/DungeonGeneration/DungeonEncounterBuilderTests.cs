@@ -202,6 +202,9 @@ public sealed class DungeonEncounterBuilderTests
         Assert.Throws<FormatException>(() => DungeonEncounterCatalogJson.Parse(duplicate));
         Assert.Throws<FormatException>(() => DungeonEncounterCatalogJson.Parse(
             "{\"schema\":\"sdmay26-02/dungeon-encounter-catalog\",\"enemies\":[],\"extra\":true}"));
+        Assert.Throws<FormatException>(() => DungeonEncounterCatalogJson.Parse(
+            "{\"schema\":\"sdmay26-02/dungeon-encounter-catalog\",\"enemies\":[{" +
+            "\"id\":123,\"level\":-1,\"resourcePath\":true,\"prefabPath\":\"Assets/enemy.prefab\"}]}"));
     }
 
     [Test]
@@ -239,6 +242,36 @@ public sealed class DungeonEncounterBuilderTests
         Assert.That(planned.EncounterPlans[0].RoomId, Is.EqualTo(1));
         Assert.That(planned.EncounterPlans[0].CreatureIds, Is.Empty);
         Assert.That(planned.EncounterPlans[0].SpawnCells, Is.Empty);
+    }
+
+    [Test]
+    public void Planner_ExcludesExistingObjectAnchorsFromSpawnCells()
+    {
+        DungeonLevelDocument topology = TwoRoomDocument(0, false);
+        DungeonObjectPlacement placement = new(
+            "decoration-0002-01",
+            "dungeon/assets/fbx(unity)/banner_red",
+            new DungeonCell(5, 1));
+        DungeonLevelDocument decorated = new(
+            topology.Generation,
+            topology.Rows,
+            topology.Rooms,
+            topology.Doors,
+            topology.Stairs,
+            topology.StartCell,
+            topology.SafeCells,
+            new[] { placement },
+            Array.Empty<DungeonEncounterPlan>());
+
+        DungeonLevelDocument planned = new DungeonEncounterPlanner().Plan(
+            decorated,
+            1,
+            4,
+            LevelMinusOneCandidates);
+
+        Assert.That(planned.Objects, Is.EqualTo(decorated.Objects));
+        Assert.That(planned.EncounterPlans.SelectMany(plan => plan.SpawnCells),
+            Has.None.EqualTo(placement.Cell));
     }
 
     [Test]

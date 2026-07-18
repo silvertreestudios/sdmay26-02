@@ -97,6 +97,8 @@ namespace Game.DungeonGeneration
                 reserved.Add(stair.Cell);
                 reserved.Add(stair.ArrivalCell);
             }
+            foreach (DungeonObjectPlacement placement in source.Objects)
+                reserved.Add(placement.Cell);
 
             DungeonCell arrivalAnchor = source.StartCell;
             if (source.Generation.Depth > 0)
