@@ -783,6 +783,25 @@ namespace Game.DungeonGeneration
             {
                 errors.Add(D("encounterPlans", "Encounter IDs must be unique."));
             }
+            bool duplicateEncounterRooms = encounters
+                .GroupBy(plan => plan.RoomId)
+                .Any(group => group.Count() > 1);
+            if (duplicateEncounterRooms)
+            {
+                errors.Add(D(
+                    "encounterPlans",
+                    "A room can contain at most one deterministic encounter plan."));
+            }
+
+            HashSet<DungeonCell> reservedEncounterCells = new(safe);
+            reservedEncounterCells.Add(start);
+            foreach (DungeonDoor door in doors)
+                reservedEncounterCells.Add(door.Cell);
+            foreach (DungeonStair stair in stairs)
+            {
+                reservedEncounterCells.Add(stair.Cell);
+                reservedEncounterCells.Add(stair.ArrivalCell);
+            }
 
             foreach (DungeonEncounterPlan plan in encounters)
             {
@@ -791,6 +810,7 @@ namespace Game.DungeonGeneration
                     roomIds.Contains(plan.RoomId) &&
                     plan.Budget >= 0 &&
                     plan.SpawnCells.Count == plan.CreatureIds.Count &&
+                    plan.CreatureIds.All(id => !string.IsNullOrWhiteSpace(id)) &&
                     plan.SpawnCells.Distinct().Count() == plan.SpawnCells.Count &&
                     plan.SpawnCells.All(cell =>
                         Walkable(cell) &&
@@ -798,12 +818,14 @@ namespace Game.DungeonGeneration
                         cell.X >= room.MinimumX &&
                         cell.X <= room.MaximumX &&
                         cell.Z >= room.MinimumZ &&
-                        cell.Z <= room.MaximumZ);
+                        cell.Z <= room.MaximumZ) &&
+                    (!ownsContract || plan.SpawnCells.All(
+                        cell => !reservedEncounterCells.Contains(cell)));
                 if (!valid)
                 {
                     errors.Add(D(
                         "encounterPlans",
-                        "Every encounter must reference a room, have a nonnegative budget, and pair each creature ID with one distinct walkable spawn cell inside that room."));
+                        "Every encounter must reference a room, have a nonnegative budget, and pair each non-empty creature ID with one distinct walkable spawn cell inside that room. Generator-owned plans must also avoid door, stair, start, and safe-arrival cells."));
                 }
             }
             if (runtime == null)
