@@ -186,6 +186,15 @@ public class Map : MonoBehaviour
         Transform structure = CreateContainer("Structure", generatedMap.transform);
         Transform objects = CreateContainer("Objects", generatedMap.transform);
         GenerateJson(validation.JsonMap, catalog, structure, objects);
+        GridBase grid = GetComponent<GridBase>();
+        if (grid != null && !grid.TryRebindMapData(GridData, LineOfSightBlocks))
+        {
+            validation = new MapSourceValidationResult(new[]
+            {
+                "Runtime JSON population produced grid data that could not be rebound to GridBase."
+            });
+            return false;
+        }
         return true;
     }
 
@@ -827,6 +836,9 @@ public class Map : MonoBehaviour
 
     private static void DestroyOwned(GameObject target)
     {
+        // Runtime destruction is deferred until the end of the frame. Deactivate first so
+        // physics, rendering, and object queries cannot observe two live generations.
+        target.SetActive(false);
 #if UNITY_EDITOR
         if (!Application.isPlaying)
         {

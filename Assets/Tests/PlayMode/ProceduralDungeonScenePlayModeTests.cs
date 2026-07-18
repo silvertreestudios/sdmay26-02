@@ -3,6 +3,7 @@ using System.Linq;
 using Game.DungeonGeneration;
 using Game.KayKit;
 using GridPrivate;
+using GridPublic;
 using NUnit.Framework;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -107,6 +108,48 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Assert.That(grid.GetPathfinder().Pathfind(null, start, end), Is.Null.Or.Empty);
         Assert.That(door.transform.Find("ClosedVisual").gameObject.activeSelf, Is.True);
         Assert.That(door.transform.Find("OpenVisual").gameObject.activeSelf, Is.False);
+    }
+
+    [UnityTest]
+    public IEnumerator RuntimeRepopulationRebindsLiveGridAndImmediatelyDeactivatesPriorGeometry()
+    {
+        AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
+            ScenePath,
+            new LoadSceneParameters(LoadSceneMode.Single));
+        while (!load.isDone)
+            yield return null;
+        yield return null;
+
+        Map map = Object.FindFirstObjectByType<Map>();
+        GridBase grid = Object.FindFirstObjectByType<GridBase>();
+        GeneratedMapRoot priorRoot = Object.FindFirstObjectByType<GeneratedMapRoot>();
+        Tile[,] priorTiles = grid.GetTiles();
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
+        DungeonCell tokenCell = parsed.Document.StartCell;
+        GameObject tokenObject = new("Runtime Repopulation Token");
+        tokenObject.transform.position = new Vector3(tokenCell.X, 0f, tokenCell.Z);
+        tokenObject.AddComponent<Token>();
+        Assert.That(priorTiles[tokenCell.X, tokenCell.Z].Occupants, Contains.Item(tokenObject));
+
+        Assert.That(map.TryPopulateJson(
+                map.JsonSource.text,
+                map.DungeonCatalog,
+                out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(System.Environment.NewLine, validation.Errors));
+
+        Assert.That(priorRoot.gameObject.activeInHierarchy, Is.False,
+            "Deferred destruction must not leave the prior generation active for the rest of the frame.");
+        Assert.That(grid.IsInitialized, Is.True);
+        Assert.That(grid.GridData, Is.SameAs(map.GetMapData()));
+        Assert.That(grid.GetLineOfSightBlocks(), Is.SameAs(map.GetLineOfSightBlocks()));
+        Assert.That(grid.GetTiles(), Is.Not.SameAs(priorTiles));
+        Assert.That(grid.GetPathfinder(), Is.Not.Null);
+        Assert.That(grid.GetTiles()[tokenCell.X, tokenCell.Z].Occupants, Contains.Item(tokenObject));
+        Assert.That(grid.GetComponent<GridInput>().enabled, Is.True);
+
+        Object.Destroy(tokenObject);
+        yield return null;
     }
 
     private static (DungeonCell first, DungeonCell second) OppositeWalkableSides(

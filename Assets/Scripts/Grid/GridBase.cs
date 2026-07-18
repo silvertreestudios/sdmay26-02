@@ -28,9 +28,9 @@ namespace GridPrivate
         protected override void Awake()
         {
             Map map = GetComponent<Map>();
-            GridData = map.GetMapData();
-            LineOfSightBlocks = GridData == null ? null : map.GetLineOfSightBlocks();
-            if (GridData == null || LineOfSightBlocks == null)
+            TileType[,] gridData = map.GetMapData();
+            bool[,] lineOfSightBlocks = gridData == null ? null : map.GetLineOfSightBlocks();
+            if (!TryRebindMapData(gridData, lineOfSightBlocks))
             {
                 Debug.LogError("Grid initialization failed: Map did not provide valid grid and line-of-sight data.", this);
                 enabled = false;
@@ -39,22 +39,63 @@ namespace GridPrivate
                     input.enabled = false;
                 return;
             }
+        }
 
-            base.Awake();
-            Tiles = new Tile[GridData.GetLength(0), GridData.GetLength(1)];
-
-            for(int x = 0; x < GridData.GetLength(0); x++)
+        /// <summary>
+        /// Replaces every grid consumer atomically after runtime JSON population. New arrays are
+        /// validated and built before the prior line-of-sight registration is released.
+        /// </summary>
+        internal bool TryRebindMapData(TileType[,] gridData, bool[,] lineOfSightBlocks)
+        {
+            if (gridData == null || lineOfSightBlocks == null ||
+                gridData.GetLength(0) != lineOfSightBlocks.GetLength(0) ||
+                gridData.GetLength(1) != lineOfSightBlocks.GetLength(1))
             {
-                for (int y = 0; y < GridData.GetLength(1); y++)
-                {
-                    Tiles[x, y] = IsWalkableTile(GridData[x, y]) ? new Tile() : null;
-                }
+                return false;
             }
 
+            if (GridAPI.TryGetInstance(out GridAPI activeGrid))
+            {
+                if (activeGrid != this)
+                    return false;
+            }
+            else
+            {
+                base.Awake();
+                if (!GridAPI.TryGetInstance(out activeGrid) || activeGrid != this)
+                    return false;
+            }
+
+            Tile[,] replacementTiles = new Tile[gridData.GetLength(0), gridData.GetLength(1)];
+            for (int x = 0; x < gridData.GetLength(0); x++)
+            {
+                for (int z = 0; z < gridData.GetLength(1); z++)
+                    replacementTiles[x, z] = IsWalkableTile(gridData[x, z]) ? new Tile() : null;
+            }
+
+            GridLineOfSightData.Unregister(Tiles);
+            GridData = gridData;
+            LineOfSightBlocks = lineOfSightBlocks;
+            Tiles = replacementTiles;
             Pathfinder = new Dijkstra(Tiles);
             GridLineOfSightData.Register(Tiles, LineOfSightBlocks, GridData);
-            foreach (Token token in FindObjectsByType<Token>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
-                token.TryRegisterWithGrid(this);
+            Fsm = new GridFSM();
+
+            GridInput input = GetComponent<GridInput>();
+            if (input != null)
+            {
+                input.RebindTiles(Tiles);
+                input.enabled = true;
+            }
+            enabled = true;
+
+            foreach (Token token in FindObjectsByType<Token>(
+                         FindObjectsInactive.Exclude,
+                         FindObjectsSortMode.None))
+            {
+                token.RebindToGrid(this);
+            }
+            return true;
         }
 
         protected void OnDestroy()

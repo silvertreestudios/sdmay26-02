@@ -7,6 +7,7 @@ namespace GridPublic
     public class Token : MonoBehaviour
     {
         private bool registered;
+        private GridAPI registeredGrid;
 
         private void Awake()
         {
@@ -41,6 +42,7 @@ namespace GridPublic
             }
 
             registered = privateGrid.AddToken(gameObject);
+            registeredGrid = registered ? grid : null;
             if (!registered)
             {
                 Debug.LogWarning(
@@ -53,6 +55,16 @@ namespace GridPublic
 
         public void TryRegisterWithGrid(GridAPI grid)
         {
+            TryRegister(grid);
+        }
+
+        internal void RebindToGrid(GridAPI grid)
+        {
+            if (registered && registeredGrid != grid)
+                return;
+
+            registered = false;
+            registeredGrid = null;
             TryRegister(grid);
         }
     }
