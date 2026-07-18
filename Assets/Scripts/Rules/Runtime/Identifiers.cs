@@ -104,6 +104,59 @@ namespace Game.Rules.Runtime
         public static bool operator !=(ActionDefinitionId left, ActionDefinitionId right) => !left.Equals(right);
     }
 
+    /// <summary>
+    /// Identifies one authoritative spell-slot pool in rules state.
+    /// </summary>
+    /// <remarks>
+    /// A pool can represent a prepared slot, spontaneous repertoire rank, focus-like spell
+    /// allocation, or another data-defined source. The pool's behavior belongs to its definition;
+    /// this value supplies only stable identity for costs and state lookup.
+    /// </remarks>
+    public readonly struct SpellSlotPoolId : IEquatable<SpellSlotPoolId>
+    {
+        /// <summary>
+        /// Gets the stable, non-empty pool identifier.
+        /// </summary>
+        public string Value { get; }
+
+        /// <summary>
+        /// Gets whether this value is the uninitialized default identifier.
+        /// </summary>
+        public bool IsEmpty => string.IsNullOrEmpty(Value);
+
+        /// <summary>
+        /// Initializes a spell-slot pool identifier.
+        /// </summary>
+        /// <param name="value">The stable identifier text.</param>
+        public SpellSlotPoolId(string value) => Value = StableId.Require(value, nameof(value));
+
+        /// <inheritdoc/>
+        public bool Equals(SpellSlotPoolId other) =>
+            string.Equals(Value, other.Value, StringComparison.Ordinal);
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) => obj is SpellSlotPoolId other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() =>
+            StringComparer.Ordinal.GetHashCode(Value ?? string.Empty);
+
+        /// <inheritdoc/>
+        public override string ToString() => Value ?? string.Empty;
+
+        /// <summary>
+        /// Compares two pool identifiers by stable value.
+        /// </summary>
+        public static bool operator ==(SpellSlotPoolId left, SpellSlotPoolId right) =>
+            left.Equals(right);
+
+        /// <summary>
+        /// Compares two pool identifiers by stable value.
+        /// </summary>
+        public static bool operator !=(SpellSlotPoolId left, SpellSlotPoolId right) =>
+            !left.Equals(right);
+    }
+
     public readonly struct RuleDefinitionId : IEquatable<RuleDefinitionId>
     {
         public string Value { get; }

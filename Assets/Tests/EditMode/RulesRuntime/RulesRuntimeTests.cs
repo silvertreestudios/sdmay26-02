@@ -63,12 +63,24 @@ namespace Game.Rules.Runtime.Tests
                 effect.Id,
                 TestSource,
                 1);
+            SpellSlotState spellSlot = new SpellSlotState(
+                new SpellSlotPoolId("rank-one"),
+                Creature,
+                1,
+                1);
+            AmmunitionState ammunition = new AmmunitionState(
+                new ItemId("ammunition-1"),
+                Creature,
+                10);
 
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedCreature(new CreatureState(Creature, player, callerTraits))
                 .SeedHealth(Creature, new HealthState(20, 20))
                 .SeedPosition(Creature, new GridPosition(1, 0, 2))
                 .SeedActionEconomy(Creature, new ActionEconomyState(3, true))
+                .SeedSpellSlot(spellSlot)
+                .SeedFocusPoints(Creature, new FocusPointState(1, 3))
+                .SeedAmmunition(ammunition)
                 .SeedMultipleAttackPenalty(Creature, new MultipleAttackPenaltyState(0))
                 .SeedCondition(condition)
                 .SeedEquipment(item)
@@ -85,6 +97,9 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(snapshot.Health[Creature].Current, Is.EqualTo(20));
             Assert.That(snapshot.Positions[Creature], Is.EqualTo(new GridPosition(1, 0, 2)));
             Assert.That(snapshot.ActionEconomy[Creature].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(snapshot.SpellSlots[spellSlot.Id], Is.EqualTo(spellSlot));
+            Assert.That(snapshot.FocusPoints[Creature], Is.EqualTo(new FocusPointState(1, 3)));
+            Assert.That(snapshot.Ammunition[ammunition.Item], Is.EqualTo(ammunition));
             Assert.That(snapshot.MultipleAttackPenalty[Creature].AttackCount, Is.Zero);
             Assert.That(snapshot.Conditions[condition.Id], Is.EqualTo(condition));
             Assert.That(snapshot.Equipment[item.Id], Is.EqualTo(item));
@@ -307,6 +322,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.Throws<ArgumentException>(() => new ActiveRuleBinding(new BindingId("binding-1"), definition, default, effect, TestSource, 0));
             Assert.Throws<ArgumentException>(() => new ActiveRuleBinding(new BindingId("binding-1"), definition, Creature, default(ActiveEffectId), TestSource, 0));
             Assert.Throws<ArgumentException>(() => new ActiveRuleBinding(new BindingId("binding-1"), definition, Creature, effect, default, 0));
+            Assert.Throws<ArgumentException>(() => new SpellSlotState(default, Creature, 1, 1));
+            Assert.Throws<ArgumentException>(() => new SpellSlotState(new SpellSlotPoolId("slot"), default, 1, 1));
+            Assert.Throws<ArgumentException>(() => new AmmunitionState(default, Creature, 1));
+            Assert.Throws<ArgumentException>(() => new AmmunitionState(new ItemId("ammunition"), default, 1));
         }
 
         [Test]
@@ -317,6 +336,9 @@ namespace Game.Rules.Runtime.Tests
             Assert.Throws<ArgumentException>(() => seed.SeedHealth(default, new HealthState(1, 1)));
             Assert.Throws<ArgumentException>(() => seed.SeedPosition(default, new GridPosition(0, 0, 0)));
             Assert.Throws<ArgumentException>(() => seed.SeedActionEconomy(default, new ActionEconomyState(3, true)));
+            Assert.Throws<ArgumentException>(() => seed.SeedSpellSlot(default));
+            Assert.Throws<ArgumentException>(() => seed.SeedFocusPoints(default, new FocusPointState(1, 1)));
+            Assert.Throws<ArgumentException>(() => seed.SeedAmmunition(default));
             Assert.Throws<ArgumentException>(() => seed.SeedMultipleAttackPenalty(default, new MultipleAttackPenaltyState(0)));
             Assert.Throws<ArgumentException>(() => seed.SeedFrequency(default, new FrequencyState(0, 0)));
 

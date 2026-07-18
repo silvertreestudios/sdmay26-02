@@ -622,6 +622,12 @@ namespace Game.Rules.Runtime
                             $"{middlewareRegistration.ResultType.Name}, but its resolver returns " +
                             $"{resolver.ResultType.Name}.");
                     }
+                    if (resolver.MiddlewarePolicy == ResolverMiddlewarePolicy.Disabled)
+                    {
+                        throw new InvalidOperationException(
+                            $"Middleware for {middlewareRegistration.OperationType.Name} is not " +
+                            "allowed by its resolver registration.");
+                    }
                 }
             }
         }
