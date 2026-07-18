@@ -110,7 +110,7 @@ namespace Game.Rules.Runtime
         internal Dictionary<ConditionId, ConditionState> Conditions { get; } = new Dictionary<ConditionId, ConditionState>();
         internal Dictionary<ItemId, EquipmentState> Equipment { get; } = new Dictionary<ItemId, EquipmentState>();
         internal Dictionary<ActiveEffectId, ActiveEffectState> ActiveEffects { get; } = new Dictionary<ActiveEffectId, ActiveEffectState>();
-        internal Dictionary<BindingId, RuleBindingState> RuleBindings { get; } = new Dictionary<BindingId, RuleBindingState>();
+        internal Dictionary<BindingId, ActiveRuleBinding> RuleBindings { get; } = new Dictionary<BindingId, ActiveRuleBinding>();
         internal Dictionary<BindingId, FrequencyState> Frequencies { get; } = new Dictionary<BindingId, FrequencyState>();
 
         public RulesStateSeed SeedCreature(CreatureState value)
@@ -173,7 +173,13 @@ namespace Game.Rules.Runtime
             return this;
         }
 
-        public RulesStateSeed SeedRuleBinding(RuleBindingState value)
+        /// <summary>
+        /// Seeds one active or disabled rule binding before the store begins resolving operations.
+        /// </summary>
+        /// <param name="value">The immutable binding to add or replace by ID.</param>
+        /// <returns>This seed so initial state can be composed fluently.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
+        public RulesStateSeed SeedRuleBinding(ActiveRuleBinding value)
         {
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
@@ -207,7 +213,7 @@ namespace Game.Rules.Runtime
         public Dictionary<ConditionId, ConditionState> Conditions { get; }
         public Dictionary<ItemId, EquipmentState> Equipment { get; }
         public Dictionary<ActiveEffectId, ActiveEffectState> ActiveEffects { get; }
-        public Dictionary<BindingId, RuleBindingState> RuleBindings { get; }
+        public Dictionary<BindingId, ActiveRuleBinding> RuleBindings { get; }
         public Dictionary<BindingId, FrequencyState> Frequencies { get; }
 
         public RulesStateData(RulesStateSeed seed)
@@ -221,7 +227,7 @@ namespace Game.Rules.Runtime
                 new Dictionary<ConditionId, ConditionState>(seed.Conditions),
                 new Dictionary<ItemId, EquipmentState>(seed.Equipment),
                 new Dictionary<ActiveEffectId, ActiveEffectState>(seed.ActiveEffects),
-                new Dictionary<BindingId, RuleBindingState>(seed.RuleBindings),
+                new Dictionary<BindingId, ActiveRuleBinding>(seed.RuleBindings),
                 new Dictionary<BindingId, FrequencyState>(seed.Frequencies))
         {
         }
@@ -236,7 +242,7 @@ namespace Game.Rules.Runtime
             Dictionary<ConditionId, ConditionState> conditions,
             Dictionary<ItemId, EquipmentState> equipment,
             Dictionary<ActiveEffectId, ActiveEffectState> activeEffects,
-            Dictionary<BindingId, RuleBindingState> ruleBindings,
+            Dictionary<BindingId, ActiveRuleBinding> ruleBindings,
             Dictionary<BindingId, FrequencyState> frequencies)
         {
             Version = version;
@@ -264,7 +270,10 @@ namespace Game.Rules.Runtime
         public StateSliceSnapshot<ConditionId, ConditionState> Conditions { get; }
         public StateSliceSnapshot<ItemId, EquipmentState> Equipment { get; }
         public StateSliceSnapshot<ActiveEffectId, ActiveEffectState> ActiveEffects { get; }
-        public StateSliceSnapshot<BindingId, RuleBindingState> RuleBindings { get; }
+        /// <summary>
+        /// Gets the active and explicitly disabled rule bindings in committed state.
+        /// </summary>
+        public StateSliceSnapshot<BindingId, ActiveRuleBinding> RuleBindings { get; }
         public StateSliceSnapshot<BindingId, FrequencyState> Frequencies { get; }
 
         internal RulesSnapshot(RulesStateData data)
@@ -278,7 +287,7 @@ namespace Game.Rules.Runtime
             Conditions = new StateSliceSnapshot<ConditionId, ConditionState>(data.Conditions);
             Equipment = new StateSliceSnapshot<ItemId, EquipmentState>(data.Equipment);
             ActiveEffects = new StateSliceSnapshot<ActiveEffectId, ActiveEffectState>(data.ActiveEffects);
-            RuleBindings = new StateSliceSnapshot<BindingId, RuleBindingState>(data.RuleBindings);
+            RuleBindings = new StateSliceSnapshot<BindingId, ActiveRuleBinding>(data.RuleBindings);
             Frequencies = new StateSliceSnapshot<BindingId, FrequencyState>(data.Frequencies);
         }
     }
@@ -293,7 +302,10 @@ namespace Game.Rules.Runtime
         public StateSliceDraft<ConditionId, ConditionState> Conditions { get; }
         public StateSliceDraft<ItemId, EquipmentState> Equipment { get; }
         public StateSliceDraft<ActiveEffectId, ActiveEffectState> ActiveEffects { get; }
-        public StateSliceDraft<BindingId, RuleBindingState> RuleBindings { get; }
+        /// <summary>
+        /// Gets controlled write access to rule bindings for the current reducer transaction.
+        /// </summary>
+        public StateSliceDraft<BindingId, ActiveRuleBinding> RuleBindings { get; }
         public StateSliceDraft<BindingId, FrequencyState> Frequencies { get; }
 
         internal RulesStateDraft(RulesStateData data)
@@ -306,7 +318,7 @@ namespace Game.Rules.Runtime
             Conditions = new StateSliceDraft<ConditionId, ConditionState>(data.Conditions, (id, value) => !id.IsEmpty && value != null && id == value.Id);
             Equipment = new StateSliceDraft<ItemId, EquipmentState>(data.Equipment, (id, value) => !id.IsEmpty && value != null && id == value.Id);
             ActiveEffects = new StateSliceDraft<ActiveEffectId, ActiveEffectState>(data.ActiveEffects, (id, value) => !id.IsEmpty && value != null && id == value.Id);
-            RuleBindings = new StateSliceDraft<BindingId, RuleBindingState>(data.RuleBindings, (id, value) => !id.IsEmpty && value != null && id == value.Id);
+            RuleBindings = new StateSliceDraft<BindingId, ActiveRuleBinding>(data.RuleBindings, (id, value) => !id.IsEmpty && value != null && id == value.Id);
             Frequencies = new StateSliceDraft<BindingId, FrequencyState>(data.Frequencies, (id, value) => !id.IsEmpty);
         }
 

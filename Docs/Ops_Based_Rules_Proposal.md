@@ -434,7 +434,7 @@ Use the correct extension point:
 
 For example, a damage-prevention feature participates before `ApplyDamageReducer` commits. Cranial Detonation listens to `CreatureReducedToZeroFact` because reaching 0 HP is its completed trigger.
 
-Invalid Ops do not emit committed Facts and do not notify post-commit listeners.
+An invalid reducer transition does not commit Facts. A root deliberately returned as invalid does not open post-commit listener delivery, even when an earlier nested reducer committed state and its durable Facts remain attached for diagnostics. If resolution throws after a nested commit, listeners receive those durable Facts exactly once before the resolution exception propagates. When resolution and notification both fail, the dispatcher reports a stable aggregate with the resolution exception first and the notification exception second.
 
 ---
 
@@ -448,7 +448,7 @@ public interface IOpHandler<TOp, TResult>
 {
     ValueTask<TResult> Handle(
         OpFrame<TOp> frame,
-        OpContext context);
+        OpHandlerContext context);
 }
 ```
 
@@ -467,10 +467,15 @@ public interface IOpMiddleware<TOp, TResult>
 {
     ValueTask<OpResult<TResult>> Invoke(
         OpFrame<TOp> frame,
-        OpContext context,
+        OpMiddlewareContext context,
         OpNext<TResult> next);
 }
 ```
+
+`OpHandlerContext` and `OpMiddlewareContext` make callback authority explicit. Both expose snapshot,
+trace, and nested-dispatch services, while only `OpMiddlewareContext` exposes its required active
+`Binding` and `Source`. A handler therefore cannot accidentally receive or exercise binding-scoped
+authority, and middleware has one authoritative source for the binding that selected it.
 
 Middleware is appropriate when a rule needs to inspect or alter an in-progress operation. Examples include:
 
@@ -479,9 +484,17 @@ Middleware is appropriate when a rule needs to inspect or alter an in-progress o
 - a replacement effect around a damage lifecycle Op;
 - a reaction around `MovementLeavingSquareOp`.
 
-Middleware ordering is deterministic, using explicit lifecycle phase followed by active binding creation order and binding ID. The first-pass design does not expose numeric priorities, which would create hard-to-see dependencies across unrelated rules. If two rules need meaningful ordering, represent that relationship with distinct lifecycle Ops or phases.
+Middleware ordering is deterministic, using the fixed semantic phases `Prevention`, `Transformation`, `Reaction`, and `Observation`, followed by active binding creation order and binding ID. Middleware nests in reverse phase order so returned results settle through those semantic phases in the listed order: observation wrappers therefore see the result after transformation and reaction middleware has finished. The first-pass design does not expose numeric priorities, which would create hard-to-see dependencies across unrelated rules. If two rules need meaningful ordering, represent that relationship with distinct lifecycle Ops or phases.
 
-Middleware may dispatch nested Ops and await their typed results. It cannot directly mutate state.
+Middleware may dispatch nested Ops and await their typed results. Its `next()` continuation and a
+nested dispatch share one callback-owned in-flight work slot: middleware must consume either result
+before starting the other, even when the operation completed synchronously. A rejected overlap does
+not consume an unused continuation or disturb the work already in progress. Middleware cannot
+directly mutate state. Handler, middleware, and Fact-listener callbacks retain responsibility for
+work they start until its result is consumed. If a callback throws after leaving that work
+unconsumed, the dispatcher waits for cleanup before releasing ownership. A callback failure or
+cleanup failure propagates unchanged when it is the only failure; when both fail, the dispatcher
+reports an ordered aggregate containing the callback failure first and the cleanup failure second.
 
 ### 5.3 Fact listeners run after commits
 
@@ -490,13 +503,18 @@ public interface IFactListener<TFact>
     where TFact : RuleFact
 {
     ValueTask OnFactCommitted(
-        ActiveRuleBinding binding,
         TFact fact,
         FactContext context);
 }
 ```
 
+`FactContext.Binding` and `FactContext.Source` identify the active rule instance that selected the
+listener, so the callback does not receive a second binding value that could disagree with its
+context.
+
 Typed registration matters. A rule interested in a creature reaching 0 HP registers once for `CreatureReducedToZeroFact`; it does not need to know every command, spell, hazard, or attack capable of dealing damage.
+
+Listener eligibility is frozen from the source operation frame's start snapshot. A binding enabled or created by that frame cannot observe Facts committed by that frame or any earlier frame, but it participates in later frames that begin after the enabling commit. The dispatcher retains only the immutable bound listener registrations needed for that decision, not the complete historical snapshot. Immediately before each delivery it also checks the live snapshot, so a binding disabled, removed, or otherwise changed after an eligible Fact committed is skipped.
 
 Some rules need to consider all matching Facts from one committed root together. The registry also supports a batch form:
 
@@ -505,7 +523,6 @@ public interface IFactBatchListener<TFact>
     where TFact : RuleFact
 {
     ValueTask OnFactsCommitted(
-        ActiveRuleBinding binding,
         CommittedFactBatch<TFact> batch,
         FactContext context);
 }
@@ -697,10 +714,11 @@ public sealed record ActiveRuleBinding(
     CreatureId Owner,
     ActiveEffectId? EffectId,
     RuleSource Source,
-    long CreationOrder);
+    long CreationOrder,
+    bool IsEnabled = true);
 ```
 
-At dispatch time, the registry selects registrations whose bindings are active in the current snapshot. Removing a condition, expiring a spell, unequipping an item, or spending a temporary granted reaction removes or disables its binding without rebuilding global listener lists.
+At each operation frame boundary, the registry selects registrations whose bindings are active and enabled in the frame's start snapshot. Removing a condition, expiring a spell, unequipping an item, or spending a temporary granted reaction removes or disables its binding without rebuilding global listener lists. A binding activated during an operation begins participating with the next frame; a binding disabled or removed by a committed child operation is skipped immediately if its turn in the current middleware or listener plan has not begun. Fact delivery additionally preserves each source frame's selection as described in Section 5.3, preventing later activation from retroactively observing earlier commits in the same root.
 
 ### 6.2 Active effects own typed instance state
 
@@ -1047,7 +1065,7 @@ public sealed class ResolveStrikeHandler
 
     public async ValueTask<StrikeResolution> Handle(
         OpFrame<ResolveStrikeOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         var op = frame.Op;
         var weapon = actionCatalog.GetWeaponDefinition(op.Weapon);
@@ -1117,7 +1135,7 @@ public sealed class StrikeActionHandler
 {
     public async ValueTask<StrikeOutcome> Handle(
         OpFrame<StrikeActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         // The ActionOp pipeline has already validated the action, spent one
         // action, and completed ActionBegunOp before this method runs.
@@ -1202,11 +1220,11 @@ public static class ReactiveStrikeRule
     }
 
     private static async ValueTask<OpResult<ActionStartOutcome>> OnActionBegun(
-        ActiveRuleBinding binding,
         OpFrame<ActionBegunOp> frame,
-        OpContext context,
+        OpMiddlewareContext context,
         OpNext<ActionStartOutcome> next)
     {
+        var binding = context.Binding;
         var current = await next();
         if (current is not ResolvedOpResult<ActionStartOutcome> resolvedCurrent ||
             resolvedCurrent.Value.Decision == ActionStartDecision.Interrupted)
@@ -1243,7 +1261,6 @@ public static class ReactiveStrikeRule
 
         // DispatchAuthorized proves this Op came from the active feat binding.
         var reaction = await context.DispatchAuthorized(
-            binding,
             new ReactiveStrikeActionOp(
                 binding.Owner,
                 triggering.Actor,
@@ -1258,11 +1275,11 @@ public static class ReactiveStrikeRule
 
     private static async ValueTask<OpResult<MovementTriggerOutcome>>
         OnLeavingSquare(
-            ActiveRuleBinding binding,
             OpFrame<MovementLeavingSquareOp> frame,
-            OpContext context,
+            OpMiddlewareContext context,
             OpNext<MovementTriggerOutcome> next)
     {
+        var binding = context.Binding;
         var current = await next();
         if (current is not ResolvedOpResult<MovementTriggerOutcome>)
             return current;
@@ -1282,7 +1299,6 @@ public static class ReactiveStrikeRule
             resolvedChoice.Value.Choice)
         {
             await context.DispatchAuthorized(
-                binding,
                 new ReactiveStrikeActionOp(
                     binding.Owner,
                     frame.Op.Mover,
@@ -1320,7 +1336,7 @@ public static class ReactiveStrikeRule
 
     private static async ValueTask<ReactiveStrikeOutcome> HandleReaction(
         OpFrame<ReactiveStrikeActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         // The ActionOp pipeline has now atomically spent the reaction.
         var strike = await context.Dispatch(new ResolveStrikeOp(
@@ -1434,7 +1450,7 @@ public static class BlessRule
 
     private static async ValueTask<CastSpellOutcome> HandleCast(
         OpFrame<CastSpellActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         // Store only the aura's source-of-truth instance state. Creating the
         // effect also activates the binding registered above.
@@ -1463,11 +1479,11 @@ public static class BlessRule
 
     private static async ValueTask<OpResult<ModifierCollection>>
         AddAttackModifier(
-            ActiveRuleBinding binding,
             OpFrame<CollectAttackModifiersOp> frame,
-            OpContext context,
+            OpMiddlewareContext context,
             OpNext<ModifierCollection> next)
     {
+        var binding = context.Binding;
         var result = await next();
         if (result is not ResolvedOpResult<ModifierCollection> resolvedResult)
             return result;
@@ -1521,7 +1537,7 @@ public static class BlessRule
 
     private static async ValueTask<SustainBlessOutcome> HandleSustain(
         OpFrame<SustainBlessActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         var effect = context.Snapshot.ActiveEffects.Get(frame.Op.BlessEffect);
         var state = effect.GetState<BlessAuraState>();
@@ -1651,7 +1667,7 @@ public sealed class TumbleThroughHandler
 
     public async ValueTask<TumbleThroughOutcome> Handle(
         OpFrame<TumbleThroughActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         // The common ActionOp lifecycle has spent one action and opened the
         // action-level move timing point before this method begins.
@@ -1771,7 +1787,7 @@ public sealed class TumbleThroughHandler
     private static async ValueTask DispatchFailedEntryTrigger(
         OpFrame<TumbleThroughActionOp> frame,
         GridPosition actionStartingSquare,
-        OpContext context)
+        OpHandlerContext context)
     {
         // Failure triggers reactions as though the actor had left the square
         // where the action began. A stable TriggerId supports deduplication.
@@ -1832,10 +1848,10 @@ public static class CranialDetonationRule
     }
 
     private static async ValueTask OnCreaturesReducedToZero(
-        ActiveRuleBinding binding,
         CommittedFactBatch<CreatureReducedToZeroFact> batch,
         FactContext context)
     {
+        var binding = context.Binding;
         var snapshot = context.Snapshot;
         if (!snapshot.Psychic.IsPsycheUnleashed(binding.Owner) ||
             !snapshot.Frequencies.IsAvailableThisRound(binding.Id))
@@ -1890,7 +1906,6 @@ public static class CranialDetonationRule
             }
 
             await context.DispatchAuthorized(
-                binding,
                 new CranialDetonationActionOp(
                     binding.Owner,
                     binding.Id,
@@ -1930,7 +1945,7 @@ public static class CranialDetonationRule
 
     private static async ValueTask<CranialDetonationOutcome> HandleAction(
         OpFrame<CranialDetonationActionOp> frame,
-        OpContext context)
+        OpHandlerContext context)
     {
         // The ActionOp pipeline has atomically spent the once-per-round use.
         var frontier = new Queue<CreatureId>(frame.Op.InitialOrigins);

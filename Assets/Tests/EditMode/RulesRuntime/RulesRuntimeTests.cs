@@ -56,7 +56,7 @@ namespace Game.Rules.Runtime.Tests
                 new RuleDefinitionId("bless-aura"),
                 Creature,
                 TestSource);
-            RuleBindingState binding = new RuleBindingState(
+            ActiveRuleBinding binding = new ActiveRuleBinding(
                 new BindingId("binding-1"),
                 effect.DefinitionId,
                 Creature,
@@ -302,11 +302,11 @@ namespace Game.Rules.Runtime.Tests
             Assert.Throws<ArgumentException>(() => new ActiveEffectState(effect, default, Creature, TestSource));
             Assert.Throws<ArgumentException>(() => new ActiveEffectState(effect, definition, default, TestSource));
             Assert.Throws<ArgumentException>(() => new ActiveEffectState(effect, definition, Creature, default));
-            Assert.Throws<ArgumentException>(() => new RuleBindingState(default, definition, Creature, effect, TestSource, 0));
-            Assert.Throws<ArgumentException>(() => new RuleBindingState(new BindingId("binding-1"), default, Creature, effect, TestSource, 0));
-            Assert.Throws<ArgumentException>(() => new RuleBindingState(new BindingId("binding-1"), definition, default, effect, TestSource, 0));
-            Assert.Throws<ArgumentException>(() => new RuleBindingState(new BindingId("binding-1"), definition, Creature, default(ActiveEffectId), TestSource, 0));
-            Assert.Throws<ArgumentException>(() => new RuleBindingState(new BindingId("binding-1"), definition, Creature, effect, default, 0));
+            Assert.Throws<ArgumentException>(() => new ActiveRuleBinding(default, definition, Creature, effect, TestSource, 0));
+            Assert.Throws<ArgumentException>(() => new ActiveRuleBinding(new BindingId("binding-1"), default, Creature, effect, TestSource, 0));
+            Assert.Throws<ArgumentException>(() => new ActiveRuleBinding(new BindingId("binding-1"), definition, default, effect, TestSource, 0));
+            Assert.Throws<ArgumentException>(() => new ActiveRuleBinding(new BindingId("binding-1"), definition, Creature, default(ActiveEffectId), TestSource, 0));
+            Assert.Throws<ArgumentException>(() => new ActiveRuleBinding(new BindingId("binding-1"), definition, Creature, effect, default, 0));
         }
 
         [Test]
