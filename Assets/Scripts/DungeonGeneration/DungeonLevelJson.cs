@@ -264,24 +264,273 @@ namespace Game.DungeonGeneration
             ValidateProperties(o, p, e, "id", "roomId", "spawnCells", "creatureIds", "threat", "budget", "isResolved");
             return new DungeonEncounterPlan(RequiredString(o, "id", p, e), RequiredInt(o, "roomId", p, e), ReadThreat(RequiredString(o, "threat", p, e), p + ".threat", e), RequiredInt(o, "budget", p, e), ReadCells(o["spawnCells"] as JArray, p + ".spawnCells", e), ReadStrings(o["creatureIds"] as JArray, p + ".creatureIds", e), RequiredBool(o, "isResolved", p, e));
         });
-        private static DungeonStair ReadStair(JObject source, string path, List<DungeonGenerationDiagnostic> errors) { ValidateProperties(source, path, errors, "id", "kind", "cell", "arrivalCell"); string kind = RequiredString(source, "kind", path, errors); if (kind != "up" && kind != "down") errors.Add(D(path + ".kind", "Stair kind must be 'up' or 'down'.")); return new DungeonStair(RequiredString(source, "id", path, errors), kind == "down" ? DungeonStairKind.Down : DungeonStairKind.Up, ReadCell(source["cell"], path + ".cell", errors), ReadCell(source["arrivalCell"], path + ".arrivalCell", errors)); }
-        private static DungeonRuntimeState ReadRuntime(JToken token, List<DungeonGenerationDiagnostic> e) { if (token == null) return null; if (token is not JObject o) { e.Add(D("runtimeState", "Runtime state must be an object when provided.")); return null; } ValidateProperties(o, "runtimeState", e, "openDoorIds", "resolvedEncounterIds", "defeatedCreatureIds", "creatures"); return new DungeonRuntimeState(ReadStrings(o["openDoorIds"] as JArray, "runtimeState.openDoorIds", e), ReadStrings(o["resolvedEncounterIds"] as JArray, "runtimeState.resolvedEncounterIds", e), ReadStrings(o["defeatedCreatureIds"] as JArray, "runtimeState.defeatedCreatureIds", e), ReadCreatures(o["creatures"] as JArray, e)); }
+        private static DungeonStair ReadStair(
+            JObject source,
+            string path,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            ValidateProperties(source, path, errors, "id", "kind", "cell", "arrivalCell");
+            string kind = RequiredString(source, "kind", path, errors);
+            if (kind != "up" && kind != "down")
+                errors.Add(D(path + ".kind", "Stair kind must be 'up' or 'down'."));
+
+            return new DungeonStair(
+                RequiredString(source, "id", path, errors),
+                kind == "down" ? DungeonStairKind.Down : DungeonStairKind.Up,
+                ReadCell(source["cell"], path + ".cell", errors),
+                ReadCell(source["arrivalCell"], path + ".arrivalCell", errors));
+        }
+
+        private static DungeonRuntimeState ReadRuntime(
+            JToken token,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            if (token == null)
+                return null;
+            if (token is not JObject source)
+            {
+                errors.Add(D("runtimeState", "Runtime state must be an object when provided."));
+                return null;
+            }
+
+            ValidateProperties(
+                source,
+                "runtimeState",
+                errors,
+                "openDoorIds",
+                "resolvedEncounterIds",
+                "defeatedCreatureIds",
+                "creatures");
+            return new DungeonRuntimeState(
+                ReadStrings(source["openDoorIds"] as JArray, "runtimeState.openDoorIds", errors),
+                ReadStrings(source["resolvedEncounterIds"] as JArray, "runtimeState.resolvedEncounterIds", errors),
+                ReadStrings(source["defeatedCreatureIds"] as JArray, "runtimeState.defeatedCreatureIds", errors),
+                ReadCreatures(source["creatures"] as JArray, errors));
+        }
         private static List<DungeonCreatureRuntimeState> ReadCreatures(JArray array, List<DungeonGenerationDiagnostic> e) => ReadObjects(array, "runtimeState.creatures", e, (o, p) =>
         {
             ValidateProperties(o, p, e, "instanceId", "creatureId", "encounterId", "cell", "hitPoints", "state");
             return new DungeonCreatureRuntimeState(RequiredString(o, "instanceId", p, e), RequiredString(o, "creatureId", p, e), RequiredString(o, "encounterId", p, e), ReadCell(o["cell"], p + ".cell", e), RequiredInt(o, "hitPoints", p, e), OptionalString(o, "state", p, e));
         });
-        private static List<T> ReadObjects<T>(JArray array, string field, List<DungeonGenerationDiagnostic> e, Func<JObject, string, T> read) { List<T> result = new(); if (array == null) { e.Add(D(field, field + " must be an array.")); return result; } for (int i = 0; i < array.Count; i++) { string path = field + "[" + i.ToString(CultureInfo.InvariantCulture) + "]"; if (array[i] is JObject o) result.Add(read(o, path)); else e.Add(D(path, "Entry must be an object.")); } return result; }
-        private static List<string> ReadStrings(JArray array, string field, List<DungeonGenerationDiagnostic> e) { List<string> result = new(); if (array == null) { e.Add(D(field, field + " must be an array.")); return result; } for (int i = 0; i < array.Count; i++) { string path = field + "[" + i.ToString(CultureInfo.InvariantCulture) + "]"; if (array[i].Type == JTokenType.String) { string value = String(array[i]); if (field != "rows" && string.IsNullOrEmpty(value)) e.Add(D(path, "Entry must be a non-empty string.")); result.Add(value); } else e.Add(D(path, "Entry must be a string.")); } return result; }
-        private static List<DungeonCell> ReadCells(JArray array, string field, List<DungeonGenerationDiagnostic> e) { List<DungeonCell> result = new(); if (array == null) { e.Add(D(field, field + " must be an array.")); return result; } for (int i = 0; i < array.Count; i++) result.Add(ReadCell(array[i], field + "[" + i.ToString(CultureInfo.InvariantCulture) + "]", e)); return result; }
-        private static DungeonCell ReadCell(JToken token, string field, List<DungeonGenerationDiagnostic> e) { if (token is not JObject o) { e.Add(D(field, "Cell must be an object with integer x and z.")); return default; } ValidateProperties(o, field, e, "x", "z"); return new DungeonCell(RequiredInt(o, "x", field, e), RequiredInt(o, "z", field, e)); }
-        private static bool ValidateRows(List<string> rows, List<DungeonGenerationDiagnostic> e) { if (rows.Count == 0) { e.Add(D("rows", "At least one row is required.")); return false; } int width = rows[0].Length; bool rectangular = width > 0; if (width == 0) e.Add(D("rows", "Rows must not be empty.")); for (int z = 0; z < rows.Count; z++) { if (rows[z].Length != width) { e.Add(D("rows[" + z.ToString(CultureInfo.InvariantCulture) + "]", "Row width must equal " + width.ToString(CultureInfo.InvariantCulture) + ".")); rectangular = false; } if (rows[z].Any(c => c != ' ' && c != '#' && c != '.' && c != 'D')) e.Add(D("rows[" + z.ToString(CultureInfo.InvariantCulture) + "]", "Rows may use only space, '#', '.', and 'D'.")); } return rectangular; }
-        private static int RequiredInt(JObject o, string name, string path, List<DungeonGenerationDiagnostic> e) { int? value = Int(o[name]); if (!value.HasValue) e.Add(D(path + "." + name, "An integer is required.")); return value ?? 0; }
-        private static string RequiredString(JObject o, string name, string path, List<DungeonGenerationDiagnostic> e) { string value = o[name]?.Type == JTokenType.String ? String(o[name]) : null; if (string.IsNullOrEmpty(value)) e.Add(D(path + "." + name, "A non-empty string is required.")); return value ?? string.Empty; }
-        private static string OptionalString(JObject o, string name, string path, List<DungeonGenerationDiagnostic> e) { if (!o.TryGetValue(name, out JToken token)) return null; if (token.Type == JTokenType.String) return String(token); e.Add(D(path + "." + name, "The optional value must be a string when present.")); return null; }
-        private static bool RequiredBool(JObject o, string name, string path, List<DungeonGenerationDiagnostic> e) { if (o[name]?.Type != JTokenType.Boolean) { e.Add(D(path + "." + name, "A boolean is required.")); return false; } return o[name].Value<bool>(); }
-        private static DungeonEncounterThreat ReadThreat(string value, string path, List<DungeonGenerationDiagnostic> e) { if (value == "trivial") return DungeonEncounterThreat.Trivial; if (value == "low") return DungeonEncounterThreat.Low; if (value == "moderate") return DungeonEncounterThreat.Moderate; e.Add(D(path, "Encounter threat must be 'trivial', 'low', or 'moderate'.")); return DungeonEncounterThreat.Trivial; }
-        private static void ValidateProperties(JObject source, string path, List<DungeonGenerationDiagnostic> e, params string[] names) { HashSet<string> allowed = new(names, StringComparer.Ordinal); foreach (JProperty property in source.Properties()) if (!allowed.Contains(property.Name)) e.Add(D(path == "$" ? property.Name : path + "." + property.Name, "Unknown property is not part of the version 2 schema.")); }
+        private static List<T> ReadObjects<T>(
+            JArray array,
+            string field,
+            List<DungeonGenerationDiagnostic> errors,
+            Func<JObject, string, T> read)
+        {
+            List<T> result = new();
+            if (array == null)
+            {
+                errors.Add(D(field, field + " must be an array."));
+                return result;
+            }
+
+            for (int index = 0; index < array.Count; index++)
+            {
+                string path = field + "[" + index.ToString(CultureInfo.InvariantCulture) + "]";
+                if (array[index] is JObject source)
+                    result.Add(read(source, path));
+                else
+                    errors.Add(D(path, "Entry must be an object."));
+            }
+
+            return result;
+        }
+
+        private static List<string> ReadStrings(
+            JArray array,
+            string field,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            List<string> result = new();
+            if (array == null)
+            {
+                errors.Add(D(field, field + " must be an array."));
+                return result;
+            }
+
+            for (int index = 0; index < array.Count; index++)
+            {
+                string path = field + "[" + index.ToString(CultureInfo.InvariantCulture) + "]";
+                if (array[index].Type == JTokenType.String)
+                {
+                    string value = String(array[index]);
+                    if (field != "rows" && string.IsNullOrEmpty(value))
+                        errors.Add(D(path, "Entry must be a non-empty string."));
+                    result.Add(value);
+                }
+                else
+                {
+                    errors.Add(D(path, "Entry must be a string."));
+                }
+            }
+
+            return result;
+        }
+
+        private static List<DungeonCell> ReadCells(
+            JArray array,
+            string field,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            List<DungeonCell> result = new();
+            if (array == null)
+            {
+                errors.Add(D(field, field + " must be an array."));
+                return result;
+            }
+
+            for (int index = 0; index < array.Count; index++)
+            {
+                result.Add(ReadCell(
+                    array[index],
+                    field + "[" + index.ToString(CultureInfo.InvariantCulture) + "]",
+                    errors));
+            }
+
+            return result;
+        }
+
+        private static DungeonCell ReadCell(
+            JToken token,
+            string field,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            if (token is not JObject source)
+            {
+                errors.Add(D(field, "Cell must be an object with integer x and z."));
+                return default;
+            }
+
+            ValidateProperties(source, field, errors, "x", "z");
+            return new DungeonCell(
+                RequiredInt(source, "x", field, errors),
+                RequiredInt(source, "z", field, errors));
+        }
+
+        private static bool ValidateRows(
+            List<string> rows,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            if (rows.Count == 0)
+            {
+                errors.Add(D("rows", "At least one row is required."));
+                return false;
+            }
+
+            int width = rows[0].Length;
+            bool rectangular = width > 0;
+            if (width == 0)
+                errors.Add(D("rows", "Rows must not be empty."));
+
+            for (int z = 0; z < rows.Count; z++)
+            {
+                if (rows[z].Length != width)
+                {
+                    errors.Add(D(
+                        "rows[" + z.ToString(CultureInfo.InvariantCulture) + "]",
+                        "Row width must equal " + width.ToString(CultureInfo.InvariantCulture) + "."));
+                    rectangular = false;
+                }
+
+                if (rows[z].Any(c => c != ' ' && c != '#' && c != '.' && c != 'D'))
+                {
+                    errors.Add(D(
+                        "rows[" + z.ToString(CultureInfo.InvariantCulture) + "]",
+                        "Rows may use only space, '#', '.', and 'D'."));
+                }
+            }
+
+            return rectangular;
+        }
+
+        private static int RequiredInt(
+            JObject source,
+            string name,
+            string path,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            int? value = Int(source[name]);
+            if (!value.HasValue)
+                errors.Add(D(path + "." + name, "An integer is required."));
+            return value ?? 0;
+        }
+
+        private static string RequiredString(
+            JObject source,
+            string name,
+            string path,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            string value = source[name]?.Type == JTokenType.String ? String(source[name]) : null;
+            if (string.IsNullOrEmpty(value))
+                errors.Add(D(path + "." + name, "A non-empty string is required."));
+            return value ?? string.Empty;
+        }
+
+        private static string OptionalString(
+            JObject source,
+            string name,
+            string path,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            if (!source.TryGetValue(name, out JToken token))
+                return null;
+            if (token.Type == JTokenType.String)
+                return String(token);
+
+            errors.Add(D(path + "." + name, "The optional value must be a string when present."));
+            return null;
+        }
+
+        private static bool RequiredBool(
+            JObject source,
+            string name,
+            string path,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            if (source[name]?.Type != JTokenType.Boolean)
+            {
+                errors.Add(D(path + "." + name, "A boolean is required."));
+                return false;
+            }
+
+            return source[name].Value<bool>();
+        }
+
+        private static DungeonEncounterThreat ReadThreat(
+            string value,
+            string path,
+            List<DungeonGenerationDiagnostic> errors)
+        {
+            if (value == "trivial")
+                return DungeonEncounterThreat.Trivial;
+            if (value == "low")
+                return DungeonEncounterThreat.Low;
+            if (value == "moderate")
+                return DungeonEncounterThreat.Moderate;
+
+            errors.Add(D(path, "Encounter threat must be 'trivial', 'low', or 'moderate'."));
+            return DungeonEncounterThreat.Trivial;
+        }
+
+        private static void ValidateProperties(
+            JObject source,
+            string path,
+            List<DungeonGenerationDiagnostic> errors,
+            params string[] names)
+        {
+            HashSet<string> allowed = new(names, StringComparer.Ordinal);
+            foreach (JProperty property in source.Properties())
+            {
+                if (!allowed.Contains(property.Name))
+                {
+                    errors.Add(D(
+                        path == "$" ? property.Name : path + "." + property.Name,
+                        "Unknown property is not part of the version 2 schema."));
+                }
+            }
+        }
         private static void ValidateDocument(DungeonGenerationMetadata metadata, IReadOnlyList<string> rows, IReadOnlyList<DungeonRoom> rooms, IReadOnlyList<DungeonDoor> doors, IReadOnlyList<DungeonStair> stairs, DungeonCell start, IReadOnlyList<DungeonCell> safe, IReadOnlyList<DungeonObjectPlacement> objects, IReadOnlyList<DungeonEncounterPlan> encounters, DungeonRuntimeState runtime, List<DungeonGenerationDiagnostic> errors)
         {
             bool InBounds(DungeonCell c) => c.X >= 0 && c.Z >= 0 && c.X < rows[0].Length && c.Z < rows.Count;

@@ -162,7 +162,11 @@ namespace Game.KayKit
             if (!version.HasValue || !KayKitDungeonMapData.SupportedVersions.Contains(version.Value))
             {
                 string value = version?.ToString(CultureInfo.InvariantCulture) ?? "missing or non-integer";
-                errors.Add($"JSON map version must be one of 1 or 2; found {value}.");
+                string supportedVersions = string.Join(
+                    " or ",
+                    KayKitDungeonMapData.SupportedVersions.Select(candidate =>
+                        candidate.ToString(CultureInfo.InvariantCulture)));
+                errors.Add($"JSON map version must be one of {supportedVersions}; found {value}.");
             }
 
             JArray rowsToken = root["rows"] as JArray;

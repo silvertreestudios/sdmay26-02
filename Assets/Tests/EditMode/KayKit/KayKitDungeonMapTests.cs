@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -78,6 +79,24 @@ public sealed class KayKitDungeonMapTests
         Assert.That(result.IsValid, Is.False);
         Assert.That(result.Errors.Any(error =>
             error.IndexOf(expected, StringComparison.OrdinalIgnoreCase) >= 0), Is.True);
+    }
+
+    [Test]
+    public void UnsupportedVersionMessage_ListsTheSupportedVersionContract()
+    {
+        KayKitDungeonCatalog catalog = Catalog(Entry("prop", Vector2Int.one, false, false));
+        KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
+            @"{""version"":999,""rows"":["".""]}",
+            catalog);
+        string supportedVersions = string.Join(
+            " or ",
+            KayKitDungeonMapData.SupportedVersions.Select(version =>
+                version.ToString(CultureInfo.InvariantCulture)));
+
+        Assert.That(result.IsValid, Is.False);
+        Assert.That(
+            result.Errors,
+            Does.Contain($"JSON map version must be one of {supportedVersions}; found 999."));
     }
 
     [TestCase(@"{""version"":1,""version"":2,""rows"":["".""],""objects"":[]}")]
