@@ -165,6 +165,33 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task CostCommitCannotBeShortCircuitedByOrdinaryMiddleware()
+        {
+            ActionProfile profile = ActionProfile.OneAction(Array.Empty<Trait>());
+            ShortCircuitingCostMiddleware middleware = new ShortCircuitingCostMiddleware();
+            RuleRegistryBuilder registry = new RuleRegistryBuilder();
+            registry.Define(BindingDefinition).Middleware(
+                RuleLifecyclePhase.Transformation,
+                middleware);
+            InMemoryRulesStore store = CreateFullySeededStore();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<TestActionOp, TestActionOutcome>(
+                    new RecordingActionHandler(true))
+                .UseActionLifecycle(new FixedActionCatalog(profile))
+                .UseRuleRegistry(registry.Build())
+                .Build();
+
+            OpResult<TestActionOutcome> result =
+                await dispatcher.Dispatch(new TestActionOp());
+
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<TestActionOutcome>>());
+            Assert.That(middleware.Calls, Is.Zero,
+                "Engine-owned cost commitment must not enter bypassable operation middleware.");
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(result.Facts.OfType<ActionCostSpentFact>().Count(), Is.EqualTo(1));
+        }
+
+        [Test]
         public async Task ActionBegunInterruptionPreservesCostsAndSkipsFeatureHandler()
         {
             ActionProfile profile = ActionProfile.OneAction(Array.Empty<Trait>());
@@ -647,6 +674,22 @@ namespace Game.Rules.Runtime.Tests
             {
                 Calls++;
                 return default;
+            }
+        }
+
+        private sealed class ShortCircuitingCostMiddleware :
+            IOpMiddleware<CommitActionCostsOp, ActionCostsOutcome>
+        {
+            public int Calls { get; private set; }
+
+            public ValueTask<OpResult<ActionCostsOutcome>> Invoke(
+                OpFrame<CommitActionCostsOp> frame,
+                OpMiddlewareContext context,
+                OpNext<ActionCostsOutcome> next)
+            {
+                Calls++;
+                return new ValueTask<OpResult<ActionCostsOutcome>>(
+                    OpResult<ActionCostsOutcome>.Resolved(default));
             }
         }
 

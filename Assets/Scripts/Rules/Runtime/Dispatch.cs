@@ -1123,6 +1123,8 @@ namespace Game.Rules.Runtime
     {
         private static readonly IReadOnlyList<RuleFact> NoFacts =
             Array.AsReadOnly(Array.Empty<RuleFact>());
+        private static readonly IReadOnlyList<BoundMiddlewareRegistration> NoMiddleware =
+            Array.AsReadOnly(Array.Empty<BoundMiddlewareRegistration>());
         private readonly object gate = new object();
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
@@ -1536,8 +1538,12 @@ namespace Game.Rules.Runtime
                     op,
                     startSnapshot,
                     actionState);
-                middleware = ruleRegistry.SelectMiddleware(
-                    op.GetType(), typeof(TResult), startSnapshot);
+                middleware = op is CommitActionCostsOp
+                    ? NoMiddleware
+                    : ruleRegistry.SelectMiddleware(
+                        op.GetType(),
+                        typeof(TResult),
+                        startSnapshot);
                 factListeners = ruleRegistry.SelectFactListeners(startSnapshot);
                 Trace.Add(invocation.FrameView);
                 resolution.EnterFrame(id, rootId, factListeners);

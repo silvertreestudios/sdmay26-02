@@ -807,6 +807,9 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// Only the dispatcher can construct this nested-only operation. The profile is the exact
     /// instance frozen on the parent action frame, so feature code cannot substitute cheaper costs.
+    /// Ordinary <see cref="IOpMiddleware{TOp,TResult}"/> is deliberately skipped for this operation:
+    /// profile resolution is the supported cost-adjustment seam, and mandatory commitment cannot
+    /// depend on middleware calling its continuation.
     /// </remarks>
     public sealed class CommitActionCostsOp : IRuleOp<ActionCostsOutcome>
     {
