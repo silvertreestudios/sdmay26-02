@@ -32,8 +32,10 @@ namespace GridPrivate
 
         protected Vector3Int? Hover;
 
-        protected float HoverOffset = 0.03f;
-        protected float RangeOffset = 0.02f;
+        // KayKit floor meshes sit slightly above grid Y=0. Keep overlays above the
+        // walkable surface instead of letting them z-fight inside the floor.
+        protected float HoverOffset = 0.06f;
+        protected float RangeOffset = 0.05f;
 
         private void Awake()
         {

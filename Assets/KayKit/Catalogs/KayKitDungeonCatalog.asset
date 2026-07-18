@@ -15,423 +15,1693 @@ MonoBehaviour:
   entries:
   - id: dungeon/assets/fbx(unity)/banner_blue
     model: {fileID: 919132149155446097, guid: 01bd64b574e538642ae323c9561df388, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_brown
     model: {fileID: 919132149155446097, guid: 3ccf7e8bf367e134494284f0ce5640a1, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_green
     model: {fileID: 919132149155446097, guid: b1d5ae8aba50c614a92545bf87867069, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patterna_blue
     model: {fileID: 919132149155446097, guid: 49983f52b6797a34e894d4b50b2fc0a3, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patterna_brown
     model: {fileID: 919132149155446097, guid: e6ee00c456e05f0469a8f7feb85d482c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patterna_green
     model: {fileID: 919132149155446097, guid: 81614fc5bcfb03542b144c1b354af5c5, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patterna_red
     model: {fileID: 919132149155446097, guid: d895bd78b5890294f8dd410e41e35a7d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patterna_white
     model: {fileID: 919132149155446097, guid: 2235d9d814b30a54685086cd6f85e935, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patterna_yellow
     model: {fileID: 919132149155446097, guid: 06ced0759542f9c49b69a7545ba149b9, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternb_blue
     model: {fileID: 919132149155446097, guid: 01199c6295dbeec498859868208e10a5, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternb_brown
     model: {fileID: 919132149155446097, guid: bca88d1da067f30479ddfcaf2027a35e, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternb_green
     model: {fileID: 919132149155446097, guid: c1e68b5377f699e4aa6d9d17276f4165, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternb_red
     model: {fileID: 919132149155446097, guid: 8f898e397dafc9542b5dd0abcceb0d5e, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternb_white
     model: {fileID: 919132149155446097, guid: e21e656062b224b48b01df08c0efaa36, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternb_yellow
     model: {fileID: 919132149155446097, guid: 9ec72bb118377f545aca52586f214949, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternc_blue
     model: {fileID: 919132149155446097, guid: 55e0a77afaadb1b4bbc9b9ae432e1190, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternc_brown
     model: {fileID: 919132149155446097, guid: d0c38e4f785432d489ff8a456f0fbb44, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternc_green
     model: {fileID: 919132149155446097, guid: 22c8366fbc27a204ebd0493959f7c490, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternc_red
     model: {fileID: 919132149155446097, guid: 05eafa0a2dfaf6b48bfa43b156d6d505, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternc_white
     model: {fileID: 919132149155446097, guid: 17e3ffe2eab4b474b844426e923e7908, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_patternc_yellow
     model: {fileID: 919132149155446097, guid: 1f58c4679f8e0d74ba51e8de6fefd43f, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_red
     model: {fileID: 919132149155446097, guid: c187a078db788304397b708cad7f820f, type: 3}
+    wrapperPrefab: {fileID: 6463284077573105021, guid: 3aec238496fa896478393a96768ae371, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_shield_blue
     model: {fileID: 919132149155446097, guid: 2f4d8549c13f3934789ecf3123fe3960, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_shield_brown
     model: {fileID: 919132149155446097, guid: 8890b9b3a58503a428bd7703487a9265, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_shield_green
     model: {fileID: 919132149155446097, guid: 13677d55925b6ad458bc300944a319f1, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_shield_red
     model: {fileID: 919132149155446097, guid: 5b59778ad3fc3ef4e807d5b4919149ba, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_shield_white
     model: {fileID: 919132149155446097, guid: b39ab34a44449074d87640fabf60f004, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_shield_yellow
     model: {fileID: 919132149155446097, guid: 950fdb818624ca343b976dea3cd54b99, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_thin_blue
     model: {fileID: 919132149155446097, guid: 6657f4a75e66b8c47a81e36153979442, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_thin_brown
     model: {fileID: 919132149155446097, guid: e2c6a39d542c4ec409288d406306c81d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_thin_green
     model: {fileID: 919132149155446097, guid: b77d757c28b3a0b408ae4085eefb504f, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_thin_red
     model: {fileID: 919132149155446097, guid: 704230a7ad9da7a47ab1410c121c55a9, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_thin_white
     model: {fileID: 919132149155446097, guid: 3754ba67cf52bca44a5e78e5a0e576b1, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_thin_yellow
     model: {fileID: 919132149155446097, guid: d3753a0a553b97041a7ce13bd4d8419c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_triple_blue
     model: {fileID: 919132149155446097, guid: c8799db555db8504bbd1e8332ed4ed1a, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_triple_brown
     model: {fileID: 919132149155446097, guid: 1fb0434d54f86cd4b98bf5aaaa1bbf65, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_triple_green
     model: {fileID: 919132149155446097, guid: de8fdc9827c32f94abf451d7425bb2fe, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_triple_red
     model: {fileID: 919132149155446097, guid: de06d6300953b80499bde04298986f38, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_triple_white
     model: {fileID: 919132149155446097, guid: f5b76527231949c489ebda4ef5eb0889, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_triple_yellow
     model: {fileID: 919132149155446097, guid: 6af0b391a60b3ac45adc75474784ca49, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_white
     model: {fileID: 919132149155446097, guid: b61cc5f0637725c41bfb304b277462a4, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/banner_yellow
     model: {fileID: 919132149155446097, guid: 3349d2c7dcc1df84c83156b7d9424f0a, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/barrel_large
     model: {fileID: 919132149155446097, guid: 11a4c2fa78eec3e418dbb11bb9611177, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/barrel_large_decorated
     model: {fileID: 919132149155446097, guid: b91ae08f605c3dd4fa8ccb56e8a5f791, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/barrel_small
     model: {fileID: 919132149155446097, guid: bd3e6d37c4ff7634c8f95f16c3deaeb8, type: 3}
+    wrapperPrefab: {fileID: 687299783891388537, guid: a09f70ce56b25024ca2704434bd75a37, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/barrel_small_stack
     model: {fileID: 919132149155446097, guid: 3e0ef5d05427b4244bddf0c5b3644744, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/barrier
     model: {fileID: 919132149155446097, guid: 446b834a86b04cc458c05e645b75c71d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/barrier_colum_half
     model: {fileID: 919132149155446097, guid: dbae4543b294a1e4c86537459c606e41, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/barrier_column
     model: {fileID: 919132149155446097, guid: 3c064a96dcb25e544b6f64633c63371e, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/barrier_corner
     model: {fileID: 919132149155446097, guid: 6d847b963b2086c47923c331eb5984ed, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/barrier_half
     model: {fileID: 919132149155446097, guid: 585f4791fcfb6de48a1d0e7e88e99288, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/bed_decorated
     model: {fileID: 919132149155446097, guid: d2861c7d2e7de674095a53114d705c4c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/bed_floor
     model: {fileID: 919132149155446097, guid: e85853f515b881e48af5285a21098a3d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/bed_frame
     model: {fileID: 919132149155446097, guid: d2c1b02ac32068d499ba58f41ca323d0, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/bottle_a_brown
     model: {fileID: 919132149155446097, guid: e4090217a3c7f4c44a92dee9ce27a0a7, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/bottle_a_green
     model: {fileID: 919132149155446097, guid: 3338c2695521267479a44d0c436da35c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/bottle_a_labeled_brown
     model: {fileID: 919132149155446097, guid: e14408d9a79a9cf47bc03fbcb60c10da, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/bottle_a_labeled_green
     model: {fileID: 919132149155446097, guid: adda5f7f2acdff04da8f9b1aa522413d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/bottle_b_brown
     model: {fileID: 919132149155446097, guid: 0cfb77fabfdd5e44f9fe3961cb6a84a7, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/bottle_b_green
     model: {fileID: 919132149155446097, guid: d2e313b6bf2d9b74cb2edf27695d810b, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/bottle_c_brown
     model: {fileID: 919132149155446097, guid: 626e50ce49cafa246952e15233edc86a, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/bottle_c_green
     model: {fileID: 919132149155446097, guid: d3ec08403e2d8ce44883ee87fb66801b, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/box_large
     model: {fileID: 919132149155446097, guid: e157c962b66cec9458675872185e0ebc, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/box_small
     model: {fileID: 919132149155446097, guid: 686269c0116dd7943ad161cc117067dd, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/box_small_decorated
     model: {fileID: 919132149155446097, guid: b1ab7547ae0a97e42a876ce36bfa370d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/box_stacked
     model: {fileID: 919132149155446097, guid: 4d9cec499e89e514e812875353e5e109, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/candle
     model: {fileID: 919132149155446097, guid: 05c405d37798103498d55d91d88ed9f1, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/candle_lit
     model: {fileID: 919132149155446097, guid: 6f46757ed75a35247a076d005cd9b4f9, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/candle_melted
     model: {fileID: 919132149155446097, guid: f78dba37f59f91f47bcb88628efbf7c1, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/candle_thin
     model: {fileID: 919132149155446097, guid: 1280f2dbc7d15834e928c5f9d1483448, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/candle_thin_lit
     model: {fileID: 919132149155446097, guid: d47fc00d1c992b2419aad18ffa132ef6, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/candle_triple
     model: {fileID: 919132149155446097, guid: 8ecb36a1169229a43bb9ea1bfe31e78b, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/ceiling_tile
     model: {fileID: 919132149155446097, guid: 3e38a0f105e01e346bc3b478ed2fe61e, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/chair
     model: {fileID: 919132149155446097, guid: 9e6363939d82f694d8a4a769f97ea091, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/chest
     model: {fileID: 919132149155446097, guid: e32ce731889300940b4d4d3369b1b431, type: 3}
+    wrapperPrefab: {fileID: 3378491655417459301, guid: eb9718518a8a7304a8826e1ceeaab1c6, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/chest_gold
     model: {fileID: 919132149155446097, guid: 88541286cd61579468a0755cc169ccdc, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/coin
     model: {fileID: 919132149155446097, guid: b07fc19de691682418c190d94ef22189, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/coin_stack_large
     model: {fileID: 919132149155446097, guid: 5f3e80b634141d644a8de88348e1c2fc, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/coin_stack_medium
     model: {fileID: 919132149155446097, guid: 1c9b2d59fb3f3e04190489ffea1ad48d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/coin_stack_small
     model: {fileID: 919132149155446097, guid: 506b6d07723f8e24aa1ecdc57050fa73, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/column
     model: {fileID: 919132149155446097, guid: 707f585ea9cb8b74e9306c59db0374bd, type: 3}
+    wrapperPrefab: {fileID: 2633930341468669412, guid: 07324c46b89fbbf49a400b66851afd42, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/crates_stacked
     model: {fileID: 919132149155446097, guid: 92399ffb36e838142b477febe5a18de1, type: 3}
+    wrapperPrefab: {fileID: 2307428279394527949, guid: 68470827f6a867d47a4f138e39268906, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/floor_dirt_large
     model: {fileID: 919132149155446097, guid: bdf79eb8b496f5a43b4c395be222545d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_dirt_large_rocky
     model: {fileID: 919132149155446097, guid: b691082030b3e0d43a3b562575934d09, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_dirt_small_a
     model: {fileID: 919132149155446097, guid: 48606c1e72050a546bdfe3980b47e0d7, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_dirt_small_b
     model: {fileID: 919132149155446097, guid: a47391f56fe28ca48991f41b8ad1dc93, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_dirt_small_c
     model: {fileID: 919132149155446097, guid: cda958806bdc1844aae379ec4b6eb64f, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_dirt_small_corner
     model: {fileID: 919132149155446097, guid: c88a353d02bb0bc4cb8e99fd1b8386c5, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_dirt_small_d
     model: {fileID: 919132149155446097, guid: b95fa7b6e18d0214dab17664ac301dfc, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_dirt_small_weeds
     model: {fileID: 919132149155446097, guid: 5fee7a68aa7947d49865bd0d113eb8be, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_foundation_allsides
     model: {fileID: 919132149155446097, guid: cfdb9df48cbcf8646a0e332724ac8804, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_foundation_corner
     model: {fileID: 919132149155446097, guid: a72c91c938ceb4d4a8d5b398e237eb6c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_foundation_diagonal_corner
     model: {fileID: 919132149155446097, guid: 237730aecd6b9994b9b0e7206e94391e, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_foundation_front
     model: {fileID: 919132149155446097, guid: 4da40616077e02b4ca89d26285c73409, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_foundation_front_and_back
     model: {fileID: 919132149155446097, guid: cf9c87899fa5f13408bbadb583c1c25d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_foundation_front_and_sides
     model: {fileID: 919132149155446097, guid: 60d6ce556de23e04baa4e9743c1bbfc7, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_big_grate
     model: {fileID: 919132149155446097, guid: c0a54d5f4860abb4d852aee58c8e9387, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_big_grate_open
     model: {fileID: 919132149155446097, guid: 27ae9cf4194e9c24bacc1a6cef2409fe, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_big_spikes
     model: {fileID: 919132149155446097, guid: 364c23f11af90904482e8275336cf28a, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_extralarge_grates
     model: {fileID: 919132149155446097, guid: 97b35e6c609ef9d41930c28468a38db2, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_extralarge_grates_open
     model: {fileID: 919132149155446097, guid: b6bbee30b55f9e04ebf5b61ab380824f, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_grate
     model: {fileID: 919132149155446097, guid: 574e84dd49871c141a568f0743744b33, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_grate_open
     model: {fileID: 919132149155446097, guid: 853662d068808fe4db0acd856adb96b2, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_large
     model: {fileID: 919132149155446097, guid: e9b09207a106c704694300658edaee59, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_large_rocks
     model: {fileID: 919132149155446097, guid: 9b79d851c254ba74494b1a27462f98be, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_small
     model: {fileID: 919132149155446097, guid: 080e2759f8850e04ea73c974b2e99f60, type: 3}
+    wrapperPrefab: {fileID: 6395341306473141131, guid: f14363e737650ee42a7f8b6966d8b184, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_small_broken_a
     model: {fileID: 919132149155446097, guid: be7f10c964fc48b4e9d259959722708d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_small_broken_b
     model: {fileID: 919132149155446097, guid: 6744bd900e032934b818d04486388452, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_small_corner
     model: {fileID: 919132149155446097, guid: 3a48483313c0640409fce3173f3456ef, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_small_decorated
     model: {fileID: 919132149155446097, guid: 2ac38bdc958723a4fa4eeafd87c07f27, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_small_weeds_a
     model: {fileID: 919132149155446097, guid: 80828814b0d234e418281e46c84ab7d3, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_tile_small_weeds_b
     model: {fileID: 919132149155446097, guid: 2c6e846a156e0134c9e9eef59e988bf2, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_wood_large
     model: {fileID: 919132149155446097, guid: fc5294ce9024ce94283e1ac2308b74e7, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_wood_large_dark
     model: {fileID: 919132149155446097, guid: 5fefa75778647a343bb68e6aae8496db, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_wood_small
     model: {fileID: 919132149155446097, guid: d3b7cef01877fff4a89e5f80dd4a250d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/floor_wood_small_dark
     model: {fileID: 919132149155446097, guid: 600a68bd431b87845962749af553abf3, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/keg
     model: {fileID: 919132149155446097, guid: c8008e7dd5c5ff14ab5a7c35ab82f449, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/keg_decorated
     model: {fileID: 919132149155446097, guid: f8cf7f0239bb224418ee1a13aa3aeec3, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/key
     model: {fileID: 919132149155446097, guid: b0329bf32e8c6f443b6af411b4429f8c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/keyring
     model: {fileID: 919132149155446097, guid: aa16185745d16b446b7f4c02d261bfed, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/keyring_hanging
     model: {fileID: 919132149155446097, guid: 622f8bb92c162194e940a43b05da30cc, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/pillar
     model: {fileID: 919132149155446097, guid: 9f15bf926af20e84f8f5a773b9dc0816, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/pillar_decorated
     model: {fileID: 919132149155446097, guid: 0b037350883b9bd4f82d0bd2b256bc12, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/plate
     model: {fileID: 919132149155446097, guid: 93f90cfebe6fc1347bcd59fa44cd8bbb, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/plate_food_a
     model: {fileID: 919132149155446097, guid: 54e1da965bd18154fbf1aee6a5d2e3d6, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/plate_food_b
     model: {fileID: 919132149155446097, guid: 50316297f32d1314292fb823b669aeaa, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/plate_small
     model: {fileID: 919132149155446097, guid: 10673f7d623d262409dd389882bcf022, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/plate_stack
     model: {fileID: 919132149155446097, guid: 5330e48c83113524d8e77dff4a17c699, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/rubble_half
     model: {fileID: 919132149155446097, guid: 76f0ea30261c6424a85f99981291f0eb, type: 3}
+    wrapperPrefab: {fileID: 7874597628964740942, guid: e82f148cc5816f246b0777c34dfc4700, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/rubble_large
     model: {fileID: 919132149155446097, guid: 5263e0522749d5a4b892b4a1dfb022b5, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/shelf_large
     model: {fileID: 919132149155446097, guid: 16a921b7b0c7e6b40a8e9f2fb5e24f20, type: 3}
+    wrapperPrefab: {fileID: 6968120497534187544, guid: 4646e47b876aaee499c5ffdc1508fbac, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/shelf_small
     model: {fileID: 919132149155446097, guid: a6d17fb025b9903499b7b2df30922803, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/shelf_small_candles
     model: {fileID: 919132149155446097, guid: ac0e39ad6ac5d8842b3c610ca4884416, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/shelves
     model: {fileID: 919132149155446097, guid: 8a6916cf9ccb2aa47851cda0d5b9a8b3, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs
     model: {fileID: 919132149155446097, guid: 6b595a6ddf5320f49bf562448070b356, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_long
     model: {fileID: 919132149155446097, guid: 4bef6744782719343a39c05ef60a5e6e, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_long_modular_center
     model: {fileID: 919132149155446097, guid: 8bf8d0c755544be48ac81a34adad24fd, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_long_modular_left
     model: {fileID: 919132149155446097, guid: 0cb49801e1840554e8589bbd2e9550f3, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_long_modular_right
     model: {fileID: 919132149155446097, guid: a07a6921258888f4c95b882ded51984c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_modular_center
     model: {fileID: 919132149155446097, guid: 91b82fffdd799674280d9128a8cc78bb, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_modular_left
     model: {fileID: 919132149155446097, guid: cc59b67e4a88fc745921978e0b8f4b60, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_modular_right
     model: {fileID: 919132149155446097, guid: 2e154ec8e5f50b24c927c2bb9552df94, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_narrow
     model: {fileID: 919132149155446097, guid: 6321967f19053444ea0a5ef53ac47cf9, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_wall_left
     model: {fileID: 919132149155446097, guid: 5b88c8b776d618149aff3bb58b9e2928, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_wall_right
     model: {fileID: 919132149155446097, guid: f8b7aefd02c218e4993d6319eaa3589b, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_walled
     model: {fileID: 919132149155446097, guid: 1e6ccc151a11e344bbab21ffd6e8afc8, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_wide
     model: {fileID: 919132149155446097, guid: ac73a5359557bff4f816cfc2e834dbd7, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_wood
     model: {fileID: 919132149155446097, guid: ad68d5fa885861742bcb3ea20d38e5f8, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stairs_wood_decorated
     model: {fileID: 919132149155446097, guid: 17a520a4d882bfb47a3b12e2829e2bae, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/stool
     model: {fileID: 919132149155446097, guid: 682bdef266a5fb647a63c9f1a5aedb95, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/sword_shield
     model: {fileID: 919132149155446097, guid: 587579e3f0fb3fa47b99a5efe6e390cd, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/sword_shield_broken
     model: {fileID: 919132149155446097, guid: ec0a2c0a26b3f09409780a55b1328255, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/sword_shield_gold
     model: {fileID: 919132149155446097, guid: 958966effede6294995ef95a0dcb861b, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_long
     model: {fileID: 919132149155446097, guid: 191450c4868308f409b1a8651f17dd38, type: 3}
+    wrapperPrefab: {fileID: 428345489113997133, guid: 4e3895470b0392f40b6c98a7dd712c3b, type: 3}
+    footprint: {x: 2, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_long_broken
     model: {fileID: 919132149155446097, guid: e9be448d1f9db2a4d8fac94ff2ee4a61, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_long_decorated_a
     model: {fileID: 919132149155446097, guid: e58f10030834c9d4ba1340523d547a9e, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_long_decorated_c
     model: {fileID: 919132149155446097, guid: c617dad708ec4de47a4ef15080391532, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_long_tablecloth
     model: {fileID: 919132149155446097, guid: b4170e238e065fc4e9f913edd09bd4e6, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_long_tablecloth_decorated_a
     model: {fileID: 919132149155446097, guid: 38727ae0ab3b5494bbc5882c11bbb7a7, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_medium
     model: {fileID: 919132149155446097, guid: 8e9cf23cd93d0844aa4ad339c5b87b46, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_medium_broken
     model: {fileID: 919132149155446097, guid: 4878c8d087e9752409d039a50e23fe7c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_medium_decorated_a
     model: {fileID: 919132149155446097, guid: 8b68eab3c2a02414cbc04752043cbb04, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_medium_tablecloth
     model: {fileID: 919132149155446097, guid: fa2cb67f8fcd70a41b6525065f42a6b8, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_medium_tablecloth_decorated_b
     model: {fileID: 919132149155446097, guid: e9ecb8234d2e49a48a42759325c167c9, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_small
     model: {fileID: 919132149155446097, guid: 899d610e75797ae4ea1c19353f42128c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_small_decorated_a
     model: {fileID: 919132149155446097, guid: a6273e76efd33ba41ba8ac70aabc07c6, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/table_small_decorated_b
     model: {fileID: 919132149155446097, guid: cb22b790e18e82041bc3fe233fa4f110, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/torch
     model: {fileID: 919132149155446097, guid: fdc03d72bdcfc0a4da49470e00e4e590, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/torch_lit
     model: {fileID: 919132149155446097, guid: 2ad1733e99a7926469efaba80b28b2dc, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/torch_mounted
     model: {fileID: 919132149155446097, guid: c7d9aab4df2dbcd4c8fd4defeea9012d, type: 3}
+    wrapperPrefab: {fileID: 4858505435224138660, guid: 3062970e8a833b847aec72aab12a78c4, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/trunk_large_a
     model: {fileID: 919132149155446097, guid: f7b8c154e2bb53a48b16e165b8542a7c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/trunk_large_b
     model: {fileID: 919132149155446097, guid: 92ebd6b2ccc8c5941ae4823fe4fa406e, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/trunk_large_c
     model: {fileID: 919132149155446097, guid: 64723a7ea29cba94eb207ecd2a482465, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/trunk_medium_a
     model: {fileID: 919132149155446097, guid: 515dc68f5b58fb64994dc78c46cb399c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/trunk_medium_b
     model: {fileID: 919132149155446097, guid: f37f91e6704dfbb42a5a797ec1da982c, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/trunk_medium_c
     model: {fileID: 919132149155446097, guid: 684d2f112256d2e43b6fdf47ad5bac43, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/trunk_small_a
     model: {fileID: 919132149155446097, guid: 4cc5d0c7bafcd0944bc3ecb1e3fe10aa, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/trunk_small_b
     model: {fileID: 919132149155446097, guid: 28575064aad11e34bbbc6d55172ba529, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/trunk_small_c
     model: {fileID: 919132149155446097, guid: 38279a9535028084593272450cb7d5db, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall
     model: {fileID: 919132149155446097, guid: b641e7813b069934da006afcf9024bdc, type: 3}
+    wrapperPrefab: {fileID: 3140419716889951814, guid: 3be6f26accf4c9c4db46f3cebc320d43, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_arched
     model: {fileID: 919132149155446097, guid: 5584e78c63ac9894bbb31a9cb550d641, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_archedwindow_gated
     model: {fileID: 919132149155446097, guid: 91936043e6b565046905d7def453248d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_archedwindow_gated_scaffold
     model: {fileID: 919132149155446097, guid: 4777cdd288665bb43af9518245864d94, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_archedwindow_open
     model: {fileID: 919132149155446097, guid: f5f7c927ed89d9f489bd70ecaa86676f, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_broken
     model: {fileID: 919132149155446097, guid: cd262b991caff0241a15cd6efde2fc36, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_corner
     model: {fileID: 919132149155446097, guid: a01c7af856e91e94f89e2731d7bd60d9, type: 3}
+    wrapperPrefab: {fileID: 1684615569500809964, guid: d53675cede625eb4484c7061b1a82ac4, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_corner_gated
     model: {fileID: 919132149155446097, guid: 4858dad18c60c2e4d8d334248a2a5629, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_corner_scaffold
     model: {fileID: 919132149155446097, guid: e618305530b979545957564591f1d097, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_corner_small
     model: {fileID: 919132149155446097, guid: 90a344ddc20954145924fa36d9578cd9, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_cracked
     model: {fileID: 919132149155446097, guid: 96c2407f0c30b2548adc31ef6aabab6b, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_crossing
     model: {fileID: 919132149155446097, guid: 4d4515c7c0d3d9b499d398ac9ccf41f9, type: 3}
+    wrapperPrefab: {fileID: 391533987353502328, guid: 77e57e4367a9ae747995b6c58ce3f572, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_doorway
     model: {fileID: 919132149155446097, guid: dec878103b8229f47b71ccf1c5ae1b83, type: 3}
+    wrapperPrefab: {fileID: 1742584549298960230, guid: 641c65f6a675c3142b00a9b453c0f9f0, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_doorway_scaffold
     model: {fileID: 919132149155446097, guid: 3e055a27c0ec3714c8a3aecc43875cac, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_doorway_sides
     model: {fileID: 919132149155446097, guid: ce1c679e1d61219479b755494beda74a, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_doorway_tsplit
     model: {fileID: 919132149155446097, guid: 18fdc2486ec7bc9408104493cdd2bc39, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_endcap
     model: {fileID: 919132149155446097, guid: 65817c6048a7ce64d964224ca72bc48b, type: 3}
+    wrapperPrefab: {fileID: 7491896765388618390, guid: 27fb0b3409a5f804a80d3eaed304312e, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_gated
     model: {fileID: 919132149155446097, guid: 9d5e38ed28f90a0458bc67aae879b0f6, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_half
     model: {fileID: 919132149155446097, guid: a8fbee9fc0353ef42943979f6c584894, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_half_endcap
     model: {fileID: 919132149155446097, guid: a16b52922bc2d4941860206959be1261, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_half_endcap_sloped
     model: {fileID: 919132149155446097, guid: c4b222b35f3531642b5ccaaad90374f0, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_open_scaffold
     model: {fileID: 919132149155446097, guid: 47e39e5985cbe784b8cc307205a45605, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_pillar
     model: {fileID: 919132149155446097, guid: ff247e2cad137bd4bacbcd12a32cf54e, type: 3}
+    wrapperPrefab: {fileID: 8430772137303056828, guid: afc7c58fbe1046540ba480fdeb2bae81, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_scaffold
     model: {fileID: 919132149155446097, guid: 0619cf3b6754144448fa2e7beb938b52, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_shelves
     model: {fileID: 919132149155446097, guid: d98648653817748419bd8bcf6199bdea, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_sloped
     model: {fileID: 919132149155446097, guid: a25f4ab1ab6e617438ff977472d9a349, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_tsplit
     model: {fileID: 919132149155446097, guid: 9f0ca57197bffd84fbce362648db433d, type: 3}
+    wrapperPrefab: {fileID: 3623818040252785398, guid: c8ef4fa62eef5914cb603005a517bf26, type: 3}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 1
+    blocksLineOfSight: 1
   - id: dungeon/assets/fbx(unity)/wall_tsplit_sloped
     model: {fileID: 919132149155446097, guid: 488521f37ee69b3468d6e932058c0d18, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_window_closed
     model: {fileID: 919132149155446097, guid: 63522198ec7fed34ab9c7fc2edd2966e, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_window_closed_scaffold
     model: {fileID: 919132149155446097, guid: bc7b7e1bec5fd9043951cb1673d0757f, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_window_open
     model: {fileID: 919132149155446097, guid: 555f078eae0f2134781dc0cfcd908e51, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
   - id: dungeon/assets/fbx(unity)/wall_window_open_scaffold
     model: {fileID: 919132149155446097, guid: 012c369334afc5249b17db5b5ab00b0d, type: 3}
+    wrapperPrefab: {fileID: 0}
+    footprint: {x: 1, y: 1}
+    defaultRotation: 0
+    defaultYOffset: 0
+    blocksMovement: 0
+    blocksLineOfSight: 0
+  defaultMaterial: {fileID: 2100000, guid: 9385a0248378c4a4786b2582b73868e5, type: 2}
+  floorPrefab: {fileID: 6395341306473141131, guid: f14363e737650ee42a7f8b6966d8b184, type: 3}
+  wallPrefab: {fileID: 8553414247151822572, guid: b3b576095776972409cbefd9eb035499, type: 3}
+  doorwayPrefab: {fileID: 1742584549298960230, guid: 641c65f6a675c3142b00a9b453c0f9f0, type: 3}

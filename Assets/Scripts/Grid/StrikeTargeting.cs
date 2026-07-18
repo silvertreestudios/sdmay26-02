@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Game.KayKit;
 using UnityEngine;
 
 namespace GridPublic
@@ -208,7 +209,7 @@ namespace GridPrivate
 
         private static bool IsBlocking(Tile[,] tiles, Vector3Int cell)
         {
-            return !IsInBounds(tiles, cell) || tiles[cell.x, cell.z] == null;
+            return GridLineOfSightData.IsBlocking(tiles, cell);
         }
 
         private static bool IsRayBlocked(Tile[,] tiles, Vector3Int start, Vector3Int target, Vector2 startOffset, Vector2 targetOffset)
@@ -228,10 +229,13 @@ namespace GridPrivate
                 if (cell == start || cell == target)
                     continue;
 
-                if (!IsInBounds(tiles, cell) || tiles[cell.x, cell.z] == null)
+                if (GridLineOfSightData.IsBlocking(tiles, cell))
                     return true;
             }
-            return false;
+
+            Vector3 rayStart3D = new(rayStart.x, 0.75f, rayStart.y);
+            Vector3 rayEnd3D = new(rayEnd.x, 0.75f, rayEnd.y);
+            return MapLineOfSightBlocker.BlocksSegment(rayStart3D, rayEnd3D);
         }
 
         private static bool IsInBounds(Tile[,] tiles, Vector3Int cell)
