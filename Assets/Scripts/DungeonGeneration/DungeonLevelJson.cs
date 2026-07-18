@@ -585,7 +585,20 @@ namespace Game.DungeonGeneration
                     "arrival.safeCells",
                     "For the current Donjon generator, safeCells must exactly preserve ordered stair arrivals, ordered room centers, and the conditional deterministic walkable fallback sequence."));
             }
-            if (objects.Select(item => item.Id).Distinct(StringComparer.Ordinal).Count() != objects.Count || objects.Any(item => !InBounds(item.Cell) || (item.Rotation != 0 && item.Rotation != 90 && item.Rotation != 180 && item.Rotation != 270))) errors.Add(D("objects", "Object IDs must be unique, cells must be in bounds, and rotations must be 0, 90, 180, or 270."));
+            bool invalidObjects =
+                objects.Select(item => item.Id).Distinct(StringComparer.Ordinal).Count() != objects.Count ||
+                objects.Any(item =>
+                    !InBounds(item.Cell) ||
+                    (item.Rotation != 0 &&
+                     item.Rotation != 90 &&
+                     item.Rotation != 180 &&
+                     item.Rotation != 270));
+            if (invalidObjects)
+            {
+                errors.Add(D(
+                    "objects",
+                    "Object IDs must be unique, cells must be in bounds, and rotations must be 0, 90, 180, or 270."));
+            }
             HashSet<int> roomIds = new(rooms.Select(room => room.Id));
             if (encounters.Select(plan => plan.Id).Distinct(StringComparer.Ordinal).Count() != encounters.Count) errors.Add(D("encounterPlans", "Encounter IDs must be unique."));
             foreach (DungeonEncounterPlan plan in encounters)
