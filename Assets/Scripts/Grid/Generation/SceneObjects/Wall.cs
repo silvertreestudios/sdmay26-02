@@ -85,7 +85,8 @@ namespace GridPrivate
             }
 
             TileType tile = gridData[x, z];
-            return tile == TileType.Wall || tile == TileType.Door;
+            return tile == TileType.Wall || tile == TileType.Door ||
+                   tile == TileType.ClosedDoor;
         }
     }
 

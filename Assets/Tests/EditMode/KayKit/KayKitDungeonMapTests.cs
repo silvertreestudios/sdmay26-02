@@ -37,11 +37,11 @@ public sealed class KayKitDungeonMapTests
         Assert.That(result.Map.Width, Is.EqualTo(3));
         Assert.That(result.Map.Height, Is.EqualTo(2));
         Assert.That(result.Map.GridData[0, 1], Is.EqualTo(TileType.Wall));
-        Assert.That(result.Map.GridData[1, 1], Is.EqualTo(TileType.Door));
+        Assert.That(result.Map.GridData[1, 1], Is.EqualTo(TileType.ClosedDoor));
         Assert.That(result.Map.GridData[2, 1], Is.EqualTo(TileType.Empty));
         Assert.That(result.Map.GridData[0, 0], Is.EqualTo(TileType.Ground));
         Assert.That(result.Map.LineOfSightBlocks[0, 1], Is.True);
-        Assert.That(result.Map.LineOfSightBlocks[1, 1], Is.False);
+        Assert.That(result.Map.LineOfSightBlocks[1, 1], Is.True);
     }
 
     [Test]
@@ -133,7 +133,9 @@ public sealed class KayKitDungeonMapTests
             projectCatalog.DefaultMaterial,
             projectCatalog.FloorPrefab,
             projectCatalog.WallPrefab,
-            projectCatalog.DoorwayPrefab);
+            projectCatalog.DoorwayPrefab,
+            projectCatalog.ClosedDoorPrefab,
+            projectCatalog.StairPrefab);
         GameObject mapObject = Track(new GameObject("Collider Map"));
         Map map = mapObject.AddComponent<Map>();
         map.ConfigureJson(
@@ -214,6 +216,8 @@ public sealed class KayKitDungeonMapTests
         Assert.That(catalog.FloorPrefab, Is.Not.Null);
         Assert.That(catalog.WallPrefab, Is.Not.Null);
         Assert.That(catalog.DoorwayPrefab, Is.Not.Null);
+        Assert.That(catalog.ClosedDoorPrefab, Is.Not.Null);
+        Assert.That(catalog.StairPrefab, Is.Not.Null);
         Assert.That(catalog.DefaultMaterial, Is.Not.Null);
         Assert.That(catalog.Entries.Any(entry => entry.Id.EndsWith("/stairs")), Is.True);
     }
@@ -576,7 +580,7 @@ public sealed class KayKitDungeonMapTests
         Transform objects = generated.Find("Objects");
         Transform floor = structure.Find("Floor_001_001");
         Transform wall = structure.Find("Wall_002_001");
-        Transform doorway = structure.Find("Door_001_001");
+        Transform doorway = structure.Find("Door_door_0001");
         Transform placedObject = objects.GetChild(0);
         KayKitDungeonObjectPlacement placement = validation.JsonMap.Objects[0];
 

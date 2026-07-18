@@ -23,7 +23,16 @@ namespace Game.KayKit.Editor
         public const string WallPillarPrefabPath = DungeonPrefabRoot + "/DungeonWallPillar.prefab";
         public const string WallResolverPrefabPath = DungeonPrefabRoot + "/DungeonWallResolver.prefab";
         public const string DoorwayPrefabPath = DungeonPrefabRoot + "/DungeonDoorwayOpen.prefab";
+        /// <summary>The generated project-owned prefab used for a blocking closed door.</summary>
+        public const string ClosedDoorPrefabPath = DungeonPrefabRoot + "/DungeonDoorClosed.prefab";
+        /// <summary>The generated project-owned prefab used to mark a semantic stair endpoint.</summary>
+        public const string StairPrefabPath = DungeonPrefabRoot + "/DungeonStair.prefab";
         public const string OpenDoorwayModelName = "wall_doorway_sides";
+
+        private static readonly WrapperDescriptor ClosedDoorWrapper =
+            new("DungeonDoorClosed", "__generated_closed_door__", true, false, "wall_doorway");
+        private static readonly WrapperDescriptor StairWrapper =
+            new("DungeonStair", "__generated_stair__", false, false, "stairs");
 
         private static readonly WrapperDescriptor[] Wrappers =
         {
@@ -35,6 +44,8 @@ namespace Game.KayKit.Editor
             new("DungeonWallEndcap", "wall_endcap", true, false),
             new("DungeonWallPillar", "wall_pillar", true, false),
             new("DungeonDoorwayOpen", "wall_doorway", false, true, OpenDoorwayModelName),
+            ClosedDoorWrapper,
+            StairWrapper,
             new("BarrelSmall", "barrel_small", false, false),
             new("Column", "column", false, false),
             new("CratesStacked", "crates_stacked", false, false),
@@ -58,6 +69,18 @@ namespace Game.KayKit.Editor
             foreach (WrapperDescriptor descriptor in Wrappers)
                 CreateWrapper(descriptor, material);
             CreateWallResolver();
+        }
+
+        /// <summary>
+        /// Regenerates only the wrappers introduced for procedural floor population.
+        /// </summary>
+        /// <param name="material">The existing generated dungeon material.</param>
+        /// <remarks>Existing authored-map wrappers are intentionally left untouched.</remarks>
+        public static void RegenerateGeneratedFloorPrefabs(Material material)
+        {
+            EnsureFolder(DungeonPrefabRoot);
+            CreateWrapper(ClosedDoorWrapper, material);
+            CreateWrapper(StairWrapper, material);
         }
 
         public static KayKitDungeonCatalogEntry CreateCatalogEntry(string id, GameObject model)
@@ -108,6 +131,20 @@ namespace Game.KayKit.Editor
         public static GameObject LoadDoorwayPrefab()
         {
             return AssetDatabase.LoadAssetAtPath<GameObject>(DoorwayPrefabPath);
+        }
+
+        /// <summary>Loads the generated blocking closed-door wrapper.</summary>
+        /// <returns>The wrapper at <see cref="ClosedDoorPrefabPath"/>, or Unity's missing-object value.</returns>
+        public static GameObject LoadClosedDoorPrefab()
+        {
+            return AssetDatabase.LoadAssetAtPath<GameObject>(ClosedDoorPrefabPath);
+        }
+
+        /// <summary>Loads the generated nonblocking stair wrapper.</summary>
+        /// <returns>The wrapper at <see cref="StairPrefabPath"/>, or Unity's missing-object value.</returns>
+        public static GameObject LoadStairPrefab()
+        {
+            return AssetDatabase.LoadAssetAtPath<GameObject>(StairPrefabPath);
         }
 
         private static void CreateWrapper(WrapperDescriptor descriptor, Material material)

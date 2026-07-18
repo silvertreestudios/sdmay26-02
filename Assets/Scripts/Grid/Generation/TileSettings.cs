@@ -100,7 +100,9 @@ namespace GridPrivate
         Ground,
         Wall,
         Door,
-        Obstacle
+        Obstacle,
+        /// <summary>A generated door that currently blocks movement and line of sight.</summary>
+        ClosedDoor
     }
 
 }

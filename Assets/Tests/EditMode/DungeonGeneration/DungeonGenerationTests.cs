@@ -49,7 +49,7 @@ public sealed class DungeonGenerationTests
         using (SHA256 sha256 = SHA256.Create())
             hash = BitConverter.ToString(sha256.ComputeHash(Encoding.UTF8.GetBytes(first))).Replace("-", string.Empty).ToLowerInvariant();
         TestContext.WriteLine("golden sha256=" + hash);
-        Assert.That(hash, Is.EqualTo("c80bc77db210cac66019cc976fc7a3d128d8ed572faac643b5e4050c201c0de7"));
+        Assert.That(hash, Is.EqualTo("d8724a2f1f1829f1dcdc6cf1fb7567edba2502b2af4b207054eb626502e92613"));
     }
 
     [Test]
@@ -514,6 +514,15 @@ public sealed class DungeonGenerationTests
     {
         string json = GenerateJson(Request(-17, 31, 31));
         KayKitDungeonCatalog catalog = ScriptableObject.CreateInstance<KayKitDungeonCatalog>();
+        GameObject banner = new("Banner");
+        GameObject torch = new("Torch");
+        catalog.ReplaceEntries(new[]
+        {
+            new KayKitDungeonCatalogEntry(
+                DungeonDecorationPlanner.BannerAssetId, banner),
+            new KayKitDungeonCatalogEntry(
+                DungeonDecorationPlanner.TorchAssetId, torch)
+        });
         try
         {
             KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(json, catalog);
@@ -532,6 +541,8 @@ public sealed class DungeonGenerationTests
         finally
         {
             UnityEngine.Object.DestroyImmediate(catalog);
+            UnityEngine.Object.DestroyImmediate(banner);
+            UnityEngine.Object.DestroyImmediate(torch);
         }
     }
 
@@ -1606,9 +1617,9 @@ public sealed class DungeonGenerationTests
         };
         string[] expected =
         {
-            "b1cf62dcef0c62acebc39159bf9c6a0f1e8dafe05406fd38dd5db99c8402a202",
-            "d1962e67e974ba72298a379df2d398424ce45967a69fc40b44ddcc4201da42f7",
-            "45a12819b693b993a6e377e8acf8b4261134d9e7400a44096206f1ca8bfd24db"
+            "e00eb59aa2e8eae70b61ff441f1ab04c4162b92cef8fb8ecf3d66db5147393ba",
+            "272cb35667d923aa513ea1b9ba0c36d698d4a56f761bb1c784d4332b2f28e923",
+            "8009c3fa541ac1d73adbcbabd9eaa68cee3650a4dfcf7aee9f31efe994c2d8c4"
         };
         List<string> actual = new();
         foreach (var item in cases)

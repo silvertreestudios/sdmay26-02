@@ -329,6 +329,14 @@ namespace Game.DungeonGeneration
                     request.RunSeed,
                     request.Depth,
                     attempt);
+                IReadOnlyList<DungeonObjectPlacement> decorations =
+                    DungeonDecorationPlanner.CreatePlacements(
+                        rows,
+                        rooms,
+                        new SystemDungeonRandom(DungeonSeedSequence.ForSubstream(
+                            request.RunSeed,
+                            request.Depth,
+                            DungeonSeedSubstream.Decoration)));
                 document = new DungeonLevelDocument(
                     metadata,
                     rows,
@@ -337,7 +345,7 @@ namespace Game.DungeonGeneration
                     stairs,
                     start,
                     safe,
-                    Array.Empty<DungeonObjectPlacement>(),
+                    decorations,
                     Array.Empty<DungeonEncounterPlan>());
                 return true;
             }

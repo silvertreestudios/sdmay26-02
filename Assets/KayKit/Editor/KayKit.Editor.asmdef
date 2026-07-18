@@ -2,7 +2,8 @@
     "name": "KayKit.Editor",
     "rootNamespace": "Game.KayKit.Editor",
     "references": [
-        "MainGameAssembly"
+        "MainGameAssembly",
+        "DungeonGeneration"
     ],
     "includePlatforms": [
         "Editor"

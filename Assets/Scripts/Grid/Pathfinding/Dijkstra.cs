@@ -54,6 +54,21 @@ namespace GridPrivate
             return null;
         }
 
+        /// <summary>
+        /// Clears adjacency and search state after a walkable grid cell is added or removed.
+        /// </summary>
+        /// <remarks>
+        /// Neighbor masks deliberately cache topology, so generated door transitions must invalidate them.
+        /// </remarks>
+        internal void InvalidateTopology()
+        {
+            NeighborCache.Clear();
+            Locations.Clear();
+            Heap.Clear();
+            Distances.Clear();
+            Searched = null;
+        }
+
         public void Search(GameObject pathfinder, Vector3Int start)
         {
             Locations.Clear();

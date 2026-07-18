@@ -1,4 +1,5 @@
 using System.Collections;
+using Game.DungeonGeneration;
 using UnityEngine;
 using GridPublic;
 using System.Collections.Generic;
@@ -15,6 +16,9 @@ namespace GridPrivate
         protected Tile[,] Tiles;
         IPathfinder Pathfinder;
         public GridFSM Fsm { get; private set; } = new GridFSM();
+
+        /// <summary>Gets whether grid tiles and pathfinding have been initialized from map data.</summary>
+        public bool IsInitialized => Tiles != null && GridData != null && LineOfSightBlocks != null;
 
         public IPathfinder GetPathfinder()
         {
@@ -109,6 +113,50 @@ namespace GridPrivate
         public Tile[,] GetTiles()
         {
             return Tiles;
+        }
+
+        /// <summary>
+        /// Applies a generated door state to the shared navigation and line-of-sight arrays.
+        /// </summary>
+        /// <param name="cell">The validated generated door cell.</param>
+        /// <param name="isOpen">Whether the cell should be passable and transparent.</param>
+        /// <returns>
+        /// <see langword="true"/> when the state is applied; otherwise <see langword="false"/>
+        /// when the cell is invalid, is not a door, or an occupant prevents closing it.
+        /// </returns>
+        public bool TrySetDoorState(DungeonCell cell, bool isOpen)
+        {
+            if (GridData == null || LineOfSightBlocks == null ||
+                cell.X < 0 || cell.Z < 0 ||
+                cell.X >= GridData.GetLength(0) || cell.Z >= GridData.GetLength(1))
+            {
+                return false;
+            }
+
+            TileType current = GridData[cell.X, cell.Z];
+            if (current != TileType.Door && current != TileType.ClosedDoor)
+                return false;
+
+            if (Tiles != null && !isOpen)
+            {
+                Tile tile = Tiles[cell.X, cell.Z];
+                if (tile != null && tile.Occupants.Count > 0)
+                    return false;
+            }
+
+            GridData[cell.X, cell.Z] = isOpen ? TileType.Door : TileType.ClosedDoor;
+            LineOfSightBlocks[cell.X, cell.Z] = !isOpen;
+            if (Tiles != null)
+            {
+                if (isOpen && Tiles[cell.X, cell.Z] == null)
+                    Tiles[cell.X, cell.Z] = new Tile();
+                else if (!isOpen)
+                    Tiles[cell.X, cell.Z] = null;
+            }
+            if (Pathfinder is Dijkstra dijkstra)
+                dijkstra.InvalidateTopology();
+
+            return true;
         }
 
         public bool[,] GetLineOfSightBlocks()
