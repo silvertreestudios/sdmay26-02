@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Game.Creature;
+using Game.DungeonGeneration;
 using Game.KayKit;
 using GridPrivate;
 using GridPublic;
@@ -443,14 +444,14 @@ public sealed class InvalidGridInitializationPlayModeTests
             singletonField.SetValue(null, null);
             gridObject = new GameObject("Invalid Grid");
             gridObject.SetActive(false);
-            source = new TextAsset(@"{""version"":2,""rows"":["".""]}");
+            source = new TextAsset(PlayModeDungeonJson.InvalidUnknownRoot());
             catalog = ScriptableObject.CreateInstance<KayKitDungeonCatalog>();
 
             Map map = gridObject.AddComponent<Map>();
             map.ConfigureJson(source, catalog);
             LogAssert.Expect(
                 LogType.Error,
-                "Map data is invalid: JSON map version must equal 1; found 2.");
+                "Map data is invalid: JSON map unknown: Unknown property is not part of the current schema.");
             LogAssert.Expect(
                 LogType.Error,
                 "Grid initialization failed: Map did not provide valid grid and line-of-sight data.");
@@ -502,7 +503,7 @@ public sealed class InvalidGridInitializationPlayModeTests
             singletonField.SetValue(null, null);
             gridObject = new GameObject("Valid Grid");
             gridObject.SetActive(false);
-            source = new TextAsset(@"{""version"":1,""rows"":["".""],""objects"":[]}");
+            source = new TextAsset(PlayModeDungeonJson.Create(new[] { "." }));
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
                 "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
 
@@ -551,7 +552,7 @@ public sealed class InvalidGridInitializationPlayModeTests
             singletonField.SetValue(null, null);
             gridObject = new GameObject("Bounds Grid");
             gridObject.SetActive(false);
-            source = new TextAsset(@"{""version"":1,""rows"":["".""],""objects"":[]}");
+            source = new TextAsset(PlayModeDungeonJson.Create(new[] { "." }));
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
                 "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
             Map map = gridObject.AddComponent<Map>();
@@ -606,7 +607,7 @@ public sealed class InvalidGridInitializationPlayModeTests
 
             gridObject = new GameObject("Later Valid Grid");
             gridObject.SetActive(false);
-            source = new TextAsset(@"{""version"":1,""rows"":["".""],""objects"":[]}");
+            source = new TextAsset(PlayModeDungeonJson.Create(new[] { "." }));
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
                 "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
             Map map = gridObject.AddComponent<Map>();
@@ -658,7 +659,7 @@ public sealed class InvalidGridInitializationPlayModeTests
 
             invalidGridObject = new GameObject("Invalid Early Grid");
             invalidGridObject.SetActive(false);
-            invalidSource = new TextAsset(@"{""version"":2,""rows"":["".""],""objects"":[]}");
+            invalidSource = new TextAsset(PlayModeDungeonJson.InvalidUnknownRoot());
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
                 "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
             Map invalidMap = invalidGridObject.AddComponent<Map>();
@@ -666,7 +667,7 @@ public sealed class InvalidGridInitializationPlayModeTests
             GridBase invalidGrid = invalidGridObject.AddComponent<GridBase>();
             LogAssert.Expect(
                 LogType.Error,
-                "Map data is invalid: JSON map version must equal 1; found 2.");
+                "Map data is invalid: JSON map unknown: Unknown property is not part of the current schema.");
             LogAssert.Expect(
                 LogType.Error,
                 "Grid initialization failed: Map did not provide valid grid and line-of-sight data.");
@@ -677,7 +678,7 @@ public sealed class InvalidGridInitializationPlayModeTests
 
             validGridObject = new GameObject("Valid Later Grid");
             validGridObject.SetActive(false);
-            validSource = new TextAsset(@"{""version"":1,""rows"":["".""],""objects"":[]}");
+            validSource = new TextAsset(PlayModeDungeonJson.Create(new[] { "." }));
             Map validMap = validGridObject.AddComponent<Map>();
             validMap.ConfigureJson(validSource, catalog);
             GridBase validGrid = validGridObject.AddComponent<GridBase>();
@@ -730,7 +731,7 @@ public sealed class InvalidGridInitializationPlayModeTests
 
             gridObject = new GameObject("Grid After Token Cleanup");
             gridObject.SetActive(false);
-            source = new TextAsset(@"{""version"":1,""rows"":["".""],""objects"":[]}");
+            source = new TextAsset(PlayModeDungeonJson.Create(new[] { "." }));
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
                 "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
             Map map = gridObject.AddComponent<Map>();
@@ -775,8 +776,12 @@ public sealed class MapGenerationLifecyclePlayModeTests
                 "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
             KayKitDungeonCatalogEntry wall = catalog.Entries.Single(entry =>
                 entry.Id.EndsWith("/wall", System.StringComparison.Ordinal));
-            source = new TextAsset(
-                $"{{\"version\":1,\"rows\":[\"...\",\"...\",\"...\"],\"objects\":[{{\"assetId\":\"{wall.Id}\",\"x\":1,\"z\":1}}]}}");
+            source = new TextAsset(PlayModeDungeonJson.Create(
+                new[] { "...", "...", "..." },
+                new DungeonObjectPlacement(
+                    "wall-0001",
+                    wall.Id,
+                    new DungeonCell(1, 1))));
             mapObject = new GameObject("Wall Placement Semantics");
             Map map = mapObject.AddComponent<Map>();
             map.ConfigureJson(source, catalog);
@@ -858,7 +863,7 @@ public sealed class MapGenerationLifecyclePlayModeTests
 
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
                 "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
-            source = new TextAsset(@"{""version"":1,""rows"":[""..""],""objects"":[]}");
+            source = new TextAsset(PlayModeDungeonJson.Create(new[] { ".." }));
             map.ConfigureJson(source, catalog);
 
             Assert.That(map.TryGenerate(out MapSourceValidationResult firstResult), Is.True,
@@ -937,5 +942,32 @@ public sealed class MapGenerationLifecyclePlayModeTests
         SerializedObject serialized = new(map);
         serialized.FindProperty("legacyBitmapMigrationVersion").intValue = 0;
         serialized.ApplyModifiedPropertiesWithoutUndo();
+    }
+
+}
+internal static class PlayModeDungeonJson
+{
+    internal static string Create(
+        IReadOnlyList<string> rows,
+        params DungeonObjectPlacement[] objects)
+    {
+        DungeonCell start = new(0, 0);
+        DungeonLevelDocument document = new(
+            new DungeonGenerationMetadata("playmode-test", 0, 0, 0),
+            rows,
+            System.Array.Empty<DungeonRoom>(),
+            System.Array.Empty<DungeonDoor>(),
+            System.Array.Empty<DungeonStair>(),
+            start,
+            new[] { start },
+            objects,
+            System.Array.Empty<DungeonEncounterPlan>());
+        return DungeonLevelJsonSerializer.Serialize(document);
+    }
+
+    internal static string InvalidUnknownRoot()
+    {
+        string valid = Create(new[] { "." });
+        return "{\"unknown\":true," + valid.Substring(1);
     }
 }

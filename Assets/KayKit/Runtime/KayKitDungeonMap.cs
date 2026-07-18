@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
+using Game.DungeonGeneration;
 using GridPrivate;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace Game.KayKit
@@ -40,25 +38,29 @@ namespace Game.KayKit
 
     public sealed class KayKitDungeonMapData
     {
-        public const int SupportedVersion = 1;
-
-        public int Version { get; }
         public int Width => GridData.GetLength(0);
         public int Height => GridData.GetLength(1);
         public TileType[,] GridData { get; }
         public bool[,] LineOfSightBlocks { get; }
         public IReadOnlyList<KayKitDungeonObjectPlacement> Objects { get; }
+        /// <summary>Gets the complete source document retained for downstream runtime systems.</summary>
+        public DungeonLevelDocument LevelDocument { get; }
 
+        /// <summary>Creates projected KayKit map data for one validated dungeon document.</summary>
+        /// <param name="gridData">The required projected tile grid.</param>
+        /// <param name="lineOfSightBlocks">The required line-of-sight overlay matching the grid dimensions.</param>
+        /// <param name="objects">The deterministic projected object placements.</param>
+        /// <param name="levelDocument">The complete source document.</param>
         public KayKitDungeonMapData(
-            int version,
             TileType[,] gridData,
             bool[,] lineOfSightBlocks,
-            IReadOnlyList<KayKitDungeonObjectPlacement> objects)
+            IReadOnlyList<KayKitDungeonObjectPlacement> objects,
+            DungeonLevelDocument levelDocument)
         {
-            Version = version;
             GridData = gridData;
             LineOfSightBlocks = lineOfSightBlocks;
             Objects = objects;
+            LevelDocument = levelDocument;
         }
     }
 
@@ -77,11 +79,8 @@ namespace Game.KayKit
 
     public static class KayKitDungeonMapParser
     {
-        private static readonly HashSet<int> ValidRotations = new() { 0, 90, 180, 270 };
-
         public static KayKitDungeonMapParseResult Parse(string json, KayKitDungeonCatalog catalog)
         {
-            List<string> errors = new();
             if (string.IsNullOrWhiteSpace(json))
                 return Invalid("JSON map source is empty.");
             if (catalog == null)
@@ -94,66 +93,30 @@ namespace Game.KayKit
                         $"KayKit dungeon catalog contains duplicate id '{id}'."));
             }
 
-            JObject root;
-            try
+            DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+            if (!parsed.IsSuccess)
             {
-                root = JObject.Parse(json);
-            }
-            catch (JsonException exception)
-            {
-                return Invalid($"JSON map could not be parsed: {exception.Message}");
-            }
-
-            int? version = ReadInteger(root["version"]);
-            if (version != KayKitDungeonMapData.SupportedVersion)
-            {
-                string value = version?.ToString(CultureInfo.InvariantCulture) ?? "missing or non-integer";
-                errors.Add($"JSON map version must equal 1; found {value}.");
+                return new KayKitDungeonMapParseResult(
+                    null,
+                    parsed.Diagnostics.Select(diagnostic =>
+                        $"JSON map {diagnostic.Field}: {diagnostic.Message}"));
             }
 
-            JArray rowsToken = root["rows"] as JArray;
-            if (rowsToken == null || rowsToken.Count == 0)
-                errors.Add("JSON map rows must be a non-empty array of strings.");
-
-            List<string> rows = new();
-            if (rowsToken != null)
-            {
-                for (int rowIndex = 0; rowIndex < rowsToken.Count; rowIndex++)
-                {
-                    if (rowsToken[rowIndex]?.Type != JTokenType.String)
-                    {
-                        errors.Add($"JSON map row {rowIndex} must be a string.");
-                        continue;
-                    }
-
-                    rows.Add(rowsToken[rowIndex].Value<string>());
-                }
-            }
-
-            int width = rows.Count > 0 ? rows[0].Length : 0;
-            if (width == 0 && rows.Count > 0)
-                errors.Add("JSON map rows must not be empty.");
-            for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
-            {
-                if (rows[rowIndex].Length != width)
-                {
-                    errors.Add(
-                        $"JSON map row {rowIndex} has width {rows[rowIndex].Length}; expected {width}.");
-                }
-            }
-
-            TileType[,] grid = rows.Count > 0 && width > 0 ? new TileType[width, rows.Count] : null;
-            bool[,] lineOfSightBlocks = grid == null ? null : new bool[width, rows.Count];
-            if (grid != null)
-                ParseRows(rows, width, grid, lineOfSightBlocks, errors);
+            DungeonLevelDocument document = parsed.Document;
+            int width = document.Width;
+            TileType[,] grid = new TileType[width, document.Height];
+            bool[,] lineOfSightBlocks = new bool[width, document.Height];
+            List<string> errors = new();
+            ParseRows(document.Rows, width, grid, lineOfSightBlocks, errors);
 
             List<KayKitDungeonObjectPlacement> placements = new();
-            JToken objectsToken = root["objects"];
-            if (objectsToken != null && objectsToken.Type != JTokenType.Array)
-                errors.Add("JSON map objects must be an array when provided.");
-            else if (objectsToken is JArray objects)
-                ParseObjects(objects, catalog, grid, lineOfSightBlocks, placements, errors);
-
+            ParseObjects(
+                document.Objects,
+                catalog,
+                grid,
+                lineOfSightBlocks,
+                placements,
+                errors);
             if (errors.Count > 0)
                 return new KayKitDungeonMapParseResult(null, errors);
 
@@ -164,7 +127,11 @@ namespace Game.KayKit
                 .ThenBy(placement => placement.Rotation)
                 .ToArray();
             return new KayKitDungeonMapParseResult(
-                new KayKitDungeonMapData(version.Value, grid, lineOfSightBlocks, deterministicPlacements),
+                new KayKitDungeonMapData(
+                    grid,
+                    lineOfSightBlocks,
+                    deterministicPlacements,
+                    document),
                 Array.Empty<string>());
         }
 
@@ -178,9 +145,6 @@ namespace Game.KayKit
             for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
             {
                 string row = rows[rowIndex];
-                if (row.Length != width)
-                    continue;
-
                 int z = rows.Count - 1 - rowIndex;
                 for (int x = 0; x < width; x++)
                 {
@@ -211,7 +175,7 @@ namespace Game.KayKit
         }
 
         private static void ParseObjects(
-            JArray objects,
+            IReadOnlyList<DungeonObjectPlacement> objects,
             KayKitDungeonCatalog catalog,
             TileType[,] grid,
             bool[,] lineOfSightBlocks,
@@ -221,50 +185,10 @@ namespace Game.KayKit
             HashSet<Vector2Int> occupiedBlockingCells = new();
             for (int index = 0; index < objects.Count; index++)
             {
-                if (objects[index] is not JObject source)
+                DungeonObjectPlacement source = objects[index];
+                if (!catalog.TryGet(source.AssetId, out KayKitDungeonCatalogEntry entry))
                 {
-                    errors.Add($"JSON map object {index} must be an object.");
-                    continue;
-                }
-
-                string assetId = source["assetId"]?.Type == JTokenType.String
-                    ? source["assetId"].Value<string>()
-                    : null;
-                if (string.IsNullOrWhiteSpace(assetId))
-                {
-                    errors.Add($"JSON map object {index} requires a non-empty assetId.");
-                    continue;
-                }
-
-                if (!catalog.TryGet(assetId, out KayKitDungeonCatalogEntry entry))
-                {
-                    errors.Add($"JSON map object {index} references unknown assetId '{assetId}'.");
-                    continue;
-                }
-
-                int? x = ReadInteger(source["x"]);
-                int? z = ReadInteger(source["z"]);
-                if (!x.HasValue || !z.HasValue)
-                {
-                    errors.Add($"JSON map object {index} requires integer x and z coordinates.");
-                    continue;
-                }
-
-                int rotation = source["rotation"] == null
-                    ? entry.DefaultRotation
-                    : ReadInteger(source["rotation"]) ?? int.MinValue;
-                if (!ValidRotations.Contains(rotation))
-                {
-                    errors.Add(
-                        $"JSON map object {index} rotation must be 0, 90, 180, or 270; found " +
-                        $"{source["rotation"]?.ToString(Formatting.None) ?? rotation.ToString(CultureInfo.InvariantCulture)}.");
-                    continue;
-                }
-
-                float yOffset = entry.DefaultYOffset;
-                if (source["yOffset"] != null && !TryReadFiniteFloat(source["yOffset"], out yOffset))
-                {
-                    errors.Add($"JSON map object {index} yOffset must be a finite number.");
+                    errors.Add($"JSON map object {index} references unknown assetId '{source.AssetId}'.");
                     continue;
                 }
 
@@ -272,18 +196,21 @@ namespace Game.KayKit
                 if (sourceFootprint.x < 1 || sourceFootprint.y < 1)
                 {
                     errors.Add(
-                        $"Catalog entry '{assetId}' has invalid footprint {sourceFootprint.x}x{sourceFootprint.y}.");
+                        $"Catalog entry '{source.AssetId}' has invalid footprint {sourceFootprint.x}x{sourceFootprint.y}.");
                     continue;
                 }
 
-                Vector2Int footprint = rotation == 90 || rotation == 270
+                Vector2Int footprint = source.Rotation == 90 || source.Rotation == 270
                     ? new Vector2Int(sourceFootprint.y, sourceFootprint.x)
                     : sourceFootprint;
-                List<Vector2Int> footprintCells = FootprintCells(x.Value, z.Value, footprint).ToList();
-                if (grid == null || footprintCells.Any(cell => !IsInBounds(grid, cell)))
+                List<Vector2Int> footprintCells = FootprintCells(
+                    source.Cell.X,
+                    source.Cell.Z,
+                    footprint).ToList();
+                if (footprintCells.Any(cell => !IsInBounds(grid, cell)))
                 {
                     errors.Add(
-                        $"JSON map object {index} ('{assetId}') footprint at ({x.Value}, {z.Value}) " +
+                        $"JSON map object {index} ('{source.AssetId}') footprint at ({source.Cell.X}, {source.Cell.Z}) " +
                         $"with size {footprint.x}x{footprint.y} is out of bounds.");
                     continue;
                 }
@@ -294,7 +221,7 @@ namespace Game.KayKit
                     if (footprintCells.Any(occupiedBlockingCells.Contains))
                     {
                         errors.Add(
-                            $"Blocking JSON map object {index} ('{assetId}') overlaps another blocking " +
+                            $"Blocking JSON map object {index} ('{source.AssetId}') overlaps another blocking " +
                             $"footprint at ({overlap.x}, {overlap.y}).");
                         continue;
                     }
@@ -304,7 +231,7 @@ namespace Game.KayKit
                     if (footprintCells.Any(cell => IsMapBoundary(grid, cell)))
                     {
                         errors.Add(
-                            $"Blocking JSON map object {index} ('{assetId}') may not overlap the map " +
+                            $"Blocking JSON map object {index} ('{source.AssetId}') may not overlap the map " +
                             $"boundary; cell ({boundaryCell.x}, {boundaryCell.y}) is on the boundary.");
                         continue;
                     }
@@ -314,7 +241,7 @@ namespace Game.KayKit
                     if (footprintCells.Any(cell => grid[cell.x, cell.y] != TileType.Ground))
                     {
                         errors.Add(
-                            $"Blocking JSON map object {index} ('{assetId}') must lie entirely on Ground; " +
+                            $"Blocking JSON map object {index} ('{source.AssetId}') must lie entirely on Ground; " +
                             $"cell ({invalidCell.x}, {invalidCell.y}) is {grid[invalidCell.x, invalidCell.y]}.");
                         continue;
                     }
@@ -333,11 +260,11 @@ namespace Game.KayKit
                 }
 
                 placements.Add(new KayKitDungeonObjectPlacement(
-                    assetId,
-                    x.Value,
-                    z.Value,
-                    yOffset,
-                    rotation,
+                    source.AssetId,
+                    source.Cell.X,
+                    source.Cell.Z,
+                    source.YOffset,
+                    source.Rotation,
                     footprint,
                     entry));
             }
@@ -362,35 +289,6 @@ namespace Game.KayKit
         {
             return cell.x == 0 || cell.y == 0 ||
                    cell.x == grid.GetLength(0) - 1 || cell.y == grid.GetLength(1) - 1;
-        }
-
-        private static int? ReadInteger(JToken token)
-        {
-            if (token == null || token.Type != JTokenType.Integer)
-                return null;
-            return int.TryParse(
-                token.ToString(Formatting.None),
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out int value)
-                ? value
-                : null;
-        }
-
-        private static bool TryReadFiniteFloat(JToken token, out float value)
-        {
-            value = 0f;
-            if (token.Type != JTokenType.Integer && token.Type != JTokenType.Float)
-                return false;
-            if (token is JValue { Value: System.Numerics.BigInteger })
-                return false;
-            return float.TryParse(
-                       token.ToString(Formatting.None),
-                       NumberStyles.Float,
-                       CultureInfo.InvariantCulture,
-                       out value) &&
-                   !float.IsNaN(value) &&
-                   !float.IsInfinity(value);
         }
 
         private static KayKitDungeonMapParseResult Invalid(string message)

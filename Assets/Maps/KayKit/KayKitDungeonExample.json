@@ -1,5 +1,10 @@
 {
-  "version": 1,
+  "generation": {
+    "algorithm": "kaykit-authored",
+    "runSeed": 0,
+    "depth": 0,
+    "topologyAttempt": 0
+  },
   "rows": [
     "#########################D########################",
     "#................................................#",
@@ -52,65 +57,30 @@
     "#................................................#",
     "##################################################"
   ],
-  "objects": [
+  "rooms": [],
+  "doors": [
     {
-      "assetId": "dungeon/assets/fbx(unity)/column",
-      "x": 15,
-      "z": 15
-    },
-    {
-      "assetId": "dungeon/assets/fbx(unity)/column",
-      "x": 34,
-      "z": 34
-    },
-    {
-      "assetId": "dungeon/assets/fbx(unity)/crates_stacked",
-      "x": 18,
-      "z": 25,
-      "rotation": 90
-    },
-    {
-      "assetId": "dungeon/assets/fbx(unity)/barrel_small",
-      "x": 31,
-      "z": 25
-    },
-    {
-      "assetId": "dungeon/assets/fbx(unity)/chest",
-      "x": 19,
-      "z": 25,
-      "rotation": 90
-    },
-    {
-      "assetId": "dungeon/assets/fbx(unity)/table_long",
-      "x": 30,
-      "z": 30,
-      "rotation": 0
-    },
-    {
-      "assetId": "dungeon/assets/fbx(unity)/shelf_large",
-      "x": 36,
-      "z": 25,
-      "rotation": 270
-    },
-    {
-      "assetId": "dungeon/assets/fbx(unity)/rubble_half",
-      "x": 20,
-      "z": 25,
-      "rotation": 90
-    },
-    {
-      "assetId": "dungeon/assets/fbx(unity)/banner_red",
-      "x": 25,
-      "z": 35,
-      "yOffset": 0.25,
-      "rotation": 90
-    },
-    {
-      "assetId": "dungeon/assets/fbx(unity)/torch_mounted",
-      "x": 25,
-      "z": 1,
-      "yOffset": 0.2,
-      "rotation": 0
+      "id": "entry-door",
+      "cell": { "x": 25, "z": 49 },
+      "isOpen": false
     }
-  ]
+  ],
+  "stairs": [],
+  "arrival": {
+    "start": { "x": 1, "z": 1 },
+    "safeCells": [{ "x": 1, "z": 1 }]
+  },
+  "objects": [
+    { "id": "object-0001", "assetId": "dungeon/assets/fbx(unity)/column", "cell": { "x": 15, "z": 15 }, "rotation": 0 },
+    { "id": "object-0002", "assetId": "dungeon/assets/fbx(unity)/column", "cell": { "x": 34, "z": 34 }, "rotation": 0 },
+    { "id": "object-0003", "assetId": "dungeon/assets/fbx(unity)/crates_stacked", "cell": { "x": 18, "z": 25 }, "rotation": 90 },
+    { "id": "object-0004", "assetId": "dungeon/assets/fbx(unity)/barrel_small", "cell": { "x": 31, "z": 25 }, "rotation": 0 },
+    { "id": "object-0005", "assetId": "dungeon/assets/fbx(unity)/chest", "cell": { "x": 19, "z": 25 }, "rotation": 90 },
+    { "id": "object-0006", "assetId": "dungeon/assets/fbx(unity)/table_long", "cell": { "x": 30, "z": 30 }, "rotation": 0 },
+    { "id": "object-0007", "assetId": "dungeon/assets/fbx(unity)/shelf_large", "cell": { "x": 36, "z": 25 }, "rotation": 270 },
+    { "id": "object-0008", "assetId": "dungeon/assets/fbx(unity)/rubble_half", "cell": { "x": 20, "z": 25 }, "rotation": 90 },
+    { "id": "object-0009", "assetId": "dungeon/assets/fbx(unity)/banner_red", "cell": { "x": 25, "z": 35 }, "rotation": 90, "yOffset": 0.25 },
+    { "id": "object-0010", "assetId": "dungeon/assets/fbx(unity)/torch_mounted", "cell": { "x": 25, "z": 1 }, "rotation": 0, "yOffset": 0.2 }
+  ],
+  "encounterPlans": []
 }

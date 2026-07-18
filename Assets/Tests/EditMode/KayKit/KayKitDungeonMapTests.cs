@@ -7,6 +7,8 @@ using Game.KayKit;
 using Game.KayKit.Editor;
 using GridPrivate;
 using NUnit.Framework;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -24,11 +26,11 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
-    public void JsonVersionOne_UsesSpecifiedSymbolsAndHighestZOrientation()
+    public void JsonMap_UsesSpecifiedSymbolsAndHighestZOrientation()
     {
         KayKitDungeonCatalog catalog = Catalog();
-        KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
-            @"{""version"":1,""rows"":[""#D "",""...""],""objects"":[]}",
+        KayKitDungeonMapParseResult result = ParseMap(
+            @"{""rows"":[""#D "",""...""],""objects"":[]}",
             catalog);
 
         Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
@@ -50,8 +52,8 @@ public sealed class KayKitDungeonMapTests
             Vector2Int.one,
             false,
             false);
-        KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
-            @"{""version"":1,""rows"":[""...""],""objects"":[{""assetId"":""dungeon/assets/fbx(unity)/barrel_small"",""x"":1,""z"":0}]}",
+        KayKitDungeonMapParseResult result = ParseMap(
+            @"{""rows"":[""...""],""objects"":[{""assetId"":""dungeon/assets/fbx(unity)/barrel_small"",""x"":1,""z"":0}]}",
             Catalog(entry));
 
         Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
@@ -61,24 +63,23 @@ public sealed class KayKitDungeonMapTests
         Assert.That(result.Map.Objects[0].CatalogEntry, Is.SameAs(entry));
     }
 
-    [TestCase(@"{""version"":2,""rows"":["".""]}", "version must equal 1")]
-    [TestCase(@"{""version"":1,""rows"":[""X""]}", "unknown symbol")]
-    [TestCase(@"{""version"":1,""rows"":["".."","".""]}", "expected 2")]
-    [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""missing"",""x"":0,""z"":0}]}", "unknown assetId")]
-    [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":45}]}", "rotation must be")]
-    [TestCase(@"{""version"":9223372036854775808,""rows"":["".""]}", "version must equal 1")]
-    [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":9223372036854775808,""z"":0}]}", "integer x and z")]
-    [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":9223372036854775808}]}", "rotation must be")]
-    [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""yOffset"":9223372036854775808}]}", "yOffset must be a finite number")]
+    [TestCase(@"{""rows"":[""X""]}", "Rows may use only")]
+    [TestCase(@"{""rows"":["".."","".""]}", "Row width must equal 2")]
+    [TestCase(@"{""rows"":["".""],""objects"":[{""assetId"":""missing"",""x"":0,""z"":0}]}", "unknown assetId")]
+    [TestCase(@"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":45}]}", "rotations must be")]
+    [TestCase(@"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":9223372036854775808,""z"":0}]}", "signed 32-bit range")]
+    [TestCase(@"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":9223372036854775808}]}", "signed 32-bit range")]
+    [TestCase(@"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""yOffset"":9223372036854775808}]}", "finite number when present")]
     public void InvalidJson_FailsWithActionableMessage(string json, string expected)
     {
         KayKitDungeonCatalog catalog = Catalog(Entry("prop", Vector2Int.one, false, false));
-        KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(json, catalog);
+        KayKitDungeonMapParseResult result = ParseMap(json, catalog);
 
         Assert.That(result.IsValid, Is.False);
         Assert.That(result.Errors.Any(error =>
             error.IndexOf(expected, StringComparison.OrdinalIgnoreCase) >= 0), Is.True);
     }
+
 
     [Test]
     public void JsonMap_RejectsDuplicateCatalogIds()
@@ -87,8 +88,8 @@ public sealed class KayKitDungeonMapTests
             Entry("duplicate", Vector2Int.one, false, false),
             Entry("duplicate", Vector2Int.one, false, false));
 
-        KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
-            @"{""version"":1,""rows"":["".""],""objects"":[]}",
+        KayKitDungeonMapParseResult result = ParseMap(
+            @"{""rows"":["".""],""objects"":[]}",
             catalog);
 
         Assert.That(catalog.TryGet("duplicate", out _), Is.False);
@@ -102,8 +103,8 @@ public sealed class KayKitDungeonMapTests
     {
         KayKitDungeonCatalog catalog = Catalog(
             Entry("blocking", new Vector2Int(2, 1), true, false));
-        KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
-            @"{""version"":1,""rows"":[""....."",""....."",""....."",""....."","".....""],""objects"":[{""assetId"":""blocking"",""x"":2,""z"":1,""rotation"":90}]}",
+        KayKitDungeonMapParseResult result = ParseMap(
+            @"{""rows"":[""....."",""....."",""....."",""....."","".....""],""objects"":[{""assetId"":""blocking"",""x"":2,""z"":1,""rotation"":90}]}",
             catalog);
 
         Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
@@ -136,8 +137,8 @@ public sealed class KayKitDungeonMapTests
         GameObject mapObject = Track(new GameObject("Collider Map"));
         Map map = mapObject.AddComponent<Map>();
         map.ConfigureJson(
-            Track(new TextAsset(
-                @"{""version"":1,""rows"":[""...."",""....""],""objects"":[{""assetId"":""non-square"",""x"":1,""z"":0,""rotation"":90}]}")),
+            Track(new TextAsset(CurrentMapJson(JObject.Parse(
+                @"{""rows"":[""...."",""....""],""objects"":[{""assetId"":""non-square"",""x"":1,""z"":0,""rotation"":90}]}")))),
             catalog);
 
         Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
@@ -153,22 +154,22 @@ public sealed class KayKitDungeonMapTests
     }
 
     [TestCase(
-        @"{""version"":1,""rows"":["".."",""..""],""objects"":[{""assetId"":""blocking"",""x"":2,""z"":1}]}",
-        "out of bounds")]
+        @"{""rows"":["".."",""..""],""objects"":[{""assetId"":""blocking"",""x"":2,""z"":1}]}",
+        "cells must be in bounds")]
     [TestCase(
-        @"{""version"":1,""rows"":[""..."","".D."",""...""],""objects"":[{""assetId"":""blocking"",""x"":1,""z"":1}]}",
+        @"{""rows"":[""..."","".D."",""...""],""objects"":[{""assetId"":""blocking"",""x"":1,""z"":1}]}",
         "entirely on Ground")]
     [TestCase(
-        @"{""version"":1,""rows"":[""..."",""..."",""...""],""objects"":[{""assetId"":""blocking"",""x"":0,""z"":1}]}",
+        @"{""rows"":[""..."",""..."",""...""],""objects"":[{""assetId"":""blocking"",""x"":0,""z"":1}]}",
         "map boundary")]
     [TestCase(
-        @"{""version"":1,""rows"":[""..."",""..."",""...""],""objects"":[{""assetId"":""blocking"",""x"":1,""z"":1},{""assetId"":""blocking"",""x"":1,""z"":1}]}",
+        @"{""rows"":[""..."",""..."",""...""],""objects"":[{""assetId"":""blocking"",""x"":1,""z"":1},{""assetId"":""blocking"",""x"":1,""z"":1}]}",
         "overlaps another blocking")]
     public void InvalidBlockingFootprints_FailBeforeProducingMap(string json, string expected)
     {
         KayKitDungeonCatalog catalog = Catalog(
             Entry("blocking", Vector2Int.one, true, true));
-        KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(json, catalog);
+        KayKitDungeonMapParseResult result = ParseMap(json, catalog);
 
         Assert.That(result.Map, Is.Null);
         Assert.That(result.Errors.Any(error => error.Contains(expected)), Is.True);
@@ -246,8 +247,8 @@ public sealed class KayKitDungeonMapTests
         Assert.That(regeneratedBarrel.BlocksMovement, Is.True);
         Assert.That(regeneratedBarrel.BlocksLineOfSight, Is.False);
 
-        KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
-            $"{{\"version\":1,\"rows\":[\"###\",\"...\",\"...\"],\"objects\":[{{\"assetId\":\"{wall.Id}\",\"x\":1,\"z\":1}}]}}",
+        KayKitDungeonMapParseResult result = ParseMap(
+            $"{{\"rows\":[\"###\",\"...\",\"...\"],\"objects\":[{{\"assetId\":\"{wall.Id}\",\"x\":1,\"z\":1}}]}}",
             catalog);
 
         Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
@@ -552,8 +553,8 @@ public sealed class KayKitDungeonMapTests
             candidate.PlacementPrefab != null &&
             candidate.Footprint == Vector2Int.one &&
             !candidate.BlocksMovement);
-        TextAsset source = Track(new TextAsset(
-            $"{{\"version\":1,\"rows\":[\"#D#\",\"...\"],\"objects\":[{{\"assetId\":\"{entry.Id}\",\"x\":1,\"z\":0,\"rotation\":90}}]}}"));
+        TextAsset source = Track(new TextAsset(CurrentMapJson(JObject.Parse(
+            $"{{\"rows\":[\"#D#\",\"...\"],\"objects\":[{{\"assetId\":\"{entry.Id}\",\"x\":1,\"z\":0,\"rotation\":90}}]}}"))));
         GameObject ancestor = Track(new GameObject("JSON Map Ancestor"));
         ancestor.transform.SetPositionAndRotation(
             new Vector3(7f, -2f, -11f),
@@ -621,8 +622,8 @@ public sealed class KayKitDungeonMapTests
         manual.transform.SetParent(mapObject.transform, false);
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
             KayKitSetupTool.DungeonCatalogPath);
-        TextAsset source = Track(new TextAsset(
-            @"{""version"":1,""rows"":[""..""],""objects"":[]}"));
+        TextAsset source = Track(new TextAsset(CurrentMapJson(JObject.Parse(
+            @"{""rows"":[""..""],""objects"":[]}"))));
         map.ConfigureJson(source, catalog);
 
         map.ClearGeneratedContent();
@@ -706,8 +707,8 @@ public sealed class KayKitDungeonMapTests
 
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
             KayKitSetupTool.DungeonCatalogPath);
-        TextAsset json = Track(new TextAsset(
-            @"{""version"":1,""rows"":["".""],""objects"":[]}"));
+        TextAsset json = Track(new TextAsset(CurrentMapJson(JObject.Parse(
+            @"{""rows"":["".""],""objects"":[]}"))));
         map.ConfigureJson(json, catalog);
         SetLegacyBitmapMigrationPending(map);
 
@@ -782,8 +783,8 @@ public sealed class KayKitDungeonMapTests
         Map map = mapObject.AddComponent<Map>();
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
             KayKitSetupTool.DungeonCatalogPath);
-        TextAsset json = Track(new TextAsset(
-            @"{""version"":1,""rows"":["".""],""objects"":[]}"));
+        TextAsset json = Track(new TextAsset(CurrentMapJson(JObject.Parse(
+            @"{""rows"":["".""],""objects"":[]}"))));
         map.ConfigureJson(json, catalog);
         SetLegacyBitmapMigrationPending(map);
 
@@ -810,8 +811,8 @@ public sealed class KayKitDungeonMapTests
 
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
             KayKitSetupTool.DungeonCatalogPath);
-        TextAsset json = Track(new TextAsset(
-            @"{""version"":1,""rows"":["".""],""objects"":[]}"));
+        TextAsset json = Track(new TextAsset(CurrentMapJson(JObject.Parse(
+            @"{""rows"":["".""],""objects"":[]}"))));
         map.ConfigureJson(json, catalog);
         SetLegacyBitmapMigrationPending(map);
 
@@ -960,7 +961,7 @@ public sealed class KayKitDungeonMapTests
         Transform generated = mapObject.transform.Find("GeneratedMap");
         string[] before = Snapshot(generated);
 
-        TextAsset invalid = Track(new TextAsset(@"{""version"":99,""rows"":["".""]}"));
+        TextAsset invalid = Track(new TextAsset("not json"));
         map.ConfigureJson(invalid, catalog);
         Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.False);
 
@@ -1207,6 +1208,138 @@ public sealed class KayKitDungeonMapTests
         Assert.That(map.SourceMode, Is.EqualTo(MapSourceMode.Bitmap));
         SerializedObject serialized = new(map);
         Assert.That(serialized.FindProperty("legacyBitmapMigrationVersion").intValue, Is.GreaterThan(0));
+    }
+
+    private static KayKitDungeonMapParseResult ParseMap(
+        string json,
+        KayKitDungeonCatalog catalog)
+    {
+        JObject source;
+        try
+        {
+            source = JObject.Parse(json);
+        }
+        catch (JsonException)
+        {
+            return KayKitDungeonMapParser.Parse(json, catalog);
+        }
+
+        string currentJson = source["generation"] == null
+            ? CurrentMapJson(source)
+            : json;
+        return KayKitDungeonMapParser.Parse(currentJson, catalog);
+    }
+
+    private static string CurrentMapJson(JObject source)
+    {
+        JArray rows = source["rows"] as JArray ?? new JArray();
+        JArray doors = new();
+        JArray objects = new();
+        DungeonTestCell start = FindFirstWalkable(rows);
+        int doorIndex = 0;
+        for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+        {
+            string row = rows[rowIndex].Type == JTokenType.String
+                ? rows[rowIndex].Value<string>()
+                : string.Empty;
+            for (int x = 0; x < row.Length; x++)
+            {
+                if (row[x] != 'D')
+                    continue;
+                doorIndex++;
+                doors.Add(new JObject
+                {
+                    ["id"] = $"door-{doorIndex:0000}",
+                    ["cell"] = Cell(x, rows.Count - 1 - rowIndex),
+                    ["isOpen"] = false
+                });
+            }
+        }
+
+        if (source["objects"] is JArray sourceObjects)
+        {
+            for (int index = 0; index < sourceObjects.Count; index++)
+            {
+                if (sourceObjects[index] is not JObject item)
+                {
+                    objects.Add(sourceObjects[index].DeepClone());
+                    continue;
+                }
+                JObject mapped = new()
+                {
+                    ["id"] = $"object-{index + 1:0000}",
+                    ["assetId"] = item["assetId"]?.DeepClone(),
+                    ["cell"] = new JObject
+                    {
+                        ["x"] = item["x"]?.DeepClone(),
+                        ["z"] = item["z"]?.DeepClone()
+                    },
+                    ["rotation"] = item["rotation"]?.DeepClone() ?? 0
+                };
+                if (item["yOffset"] != null)
+                    mapped["yOffset"] = item["yOffset"].DeepClone();
+                if (item["state"] != null)
+                    mapped["state"] = item["state"].DeepClone();
+                objects.Add(mapped);
+            }
+        }
+
+        JObject root = new()
+        {
+            ["generation"] = new JObject
+            {
+                ["algorithm"] = "kaykit-authored",
+                ["runSeed"] = 0,
+                ["depth"] = 0,
+                ["topologyAttempt"] = 0
+            },
+            ["rows"] = rows.DeepClone(),
+            ["rooms"] = new JArray(),
+            ["doors"] = doors,
+            ["stairs"] = new JArray(),
+            ["arrival"] = new JObject
+            {
+                ["start"] = Cell(start.X, start.Z),
+                ["safeCells"] = new JArray(Cell(start.X, start.Z))
+            },
+            ["objects"] = objects,
+            ["encounterPlans"] = new JArray()
+        };
+        return root.ToString(Formatting.None);
+    }
+
+    private static DungeonTestCell FindFirstWalkable(JArray rows)
+    {
+        for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+        {
+            if (rows[rowIndex].Type != JTokenType.String)
+                continue;
+            string row = rows[rowIndex].Value<string>();
+            for (int x = 0; x < row.Length; x++)
+            {
+                if (row[x] == '.' || row[x] == 'D')
+                    return new DungeonTestCell(x, rows.Count - 1 - rowIndex);
+            }
+        }
+        return new DungeonTestCell(0, 0);
+    }
+
+    private static JObject Cell(int x, int z) => new()
+    {
+        ["x"] = x,
+        ["z"] = z
+    };
+
+    private readonly struct DungeonTestCell
+    {
+        public DungeonTestCell(int x, int z)
+        {
+            X = x;
+            Z = z;
+        }
+
+        public int X { get; }
+        public int Z { get; }
     }
 
     private KayKitDungeonCatalog Catalog(params KayKitDungeonCatalogEntry[] entries)
