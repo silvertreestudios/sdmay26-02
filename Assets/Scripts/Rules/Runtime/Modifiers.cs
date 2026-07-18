@@ -54,45 +54,6 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Identifies a supported PF2e skill without relying on display text.
-    /// </summary>
-    public enum Skill
-    {
-        /// <summary>Acrobatics.</summary>
-        Acrobatics,
-        /// <summary>Arcana.</summary>
-        Arcana,
-        /// <summary>Athletics.</summary>
-        Athletics,
-        /// <summary>Crafting.</summary>
-        Crafting,
-        /// <summary>Deception.</summary>
-        Deception,
-        /// <summary>Diplomacy.</summary>
-        Diplomacy,
-        /// <summary>Intimidation.</summary>
-        Intimidation,
-        /// <summary>Medicine.</summary>
-        Medicine,
-        /// <summary>Nature.</summary>
-        Nature,
-        /// <summary>Occultism.</summary>
-        Occultism,
-        /// <summary>Performance.</summary>
-        Performance,
-        /// <summary>Religion.</summary>
-        Religion,
-        /// <summary>Society.</summary>
-        Society,
-        /// <summary>Stealth.</summary>
-        Stealth,
-        /// <summary>Survival.</summary>
-        Survival,
-        /// <summary>Thievery.</summary>
-        Thievery
-    }
-
-    /// <summary>
     /// Identifies one of the three PF2e saving throws.
     /// </summary>
     public enum SaveKind

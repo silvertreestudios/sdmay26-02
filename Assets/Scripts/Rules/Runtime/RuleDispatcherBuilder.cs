@@ -194,15 +194,15 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Registers the engine-owned skill-check, saving-throw, and attack-modifier handlers with
-        /// the standard pure snapshot selectors.
+        /// Registers the engine-owned check, save, and modifier-collection handlers with the
+        /// standard pure snapshot selectors.
         /// </summary>
         /// <returns>This builder so configuration can be chained.</returns>
         public RuleDispatcherBuilder UseCheckResolution() =>
             UseCheckResolution(new RulesSelectors());
 
         /// <summary>
-        /// Registers the engine-owned skill-check, saving-throw, and attack-modifier handlers.
+        /// Registers the engine-owned check, save, and modifier-collection handlers.
         /// </summary>
         /// <param name="selectors">The pure selectors used to read base and current modifier inputs.</param>
         /// <returns>This builder so configuration can be chained.</returns>
@@ -223,6 +223,8 @@ namespace Game.Rules.Runtime
             {
                 typeof(SkillCheckOp),
                 typeof(SavingThrowOp),
+                typeof(CollectSkillCheckModifiersOp),
+                typeof(CollectSavingThrowModifiersOp),
                 typeof(CollectAttackModifiersOp)
             };
             foreach (Type reservedType in reservedTypes)
@@ -235,10 +237,16 @@ namespace Game.Rules.Runtime
             }
 
             Add(new HandlerRegistration<SkillCheckOp, CheckOutcome>(
-                new SkillCheckHandler(selectors),
+                new SkillCheckHandler(),
                 InvocationPolicy.NestedOnly));
             Add(new HandlerRegistration<SavingThrowOp, CheckOutcome>(
-                new SavingThrowHandler(selectors),
+                new SavingThrowHandler(),
+                InvocationPolicy.NestedOnly));
+            Add(new HandlerRegistration<CollectSkillCheckModifiersOp, ModifierCollection>(
+                new CollectSkillCheckModifiersHandler(selectors),
+                InvocationPolicy.NestedOnly));
+            Add(new HandlerRegistration<CollectSavingThrowModifiersOp, ModifierCollection>(
+                new CollectSavingThrowModifiersHandler(selectors),
                 InvocationPolicy.NestedOnly));
             Add(new HandlerRegistration<CollectAttackModifiersOp, ModifierCollection>(
                 new CollectAttackModifiersHandler(selectors),

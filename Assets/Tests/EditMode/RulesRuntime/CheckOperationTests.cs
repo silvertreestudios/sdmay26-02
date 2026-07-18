@@ -51,7 +51,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.Throws<OverflowException>(() => new CheckOutcome(
                 Actor,
                 CheckSource.From(new OpId(1)),
-                new RollResult(new DiceExpression(1, 20), new[] { 1 }),
+                new RollResult(DiceExpressions.D20, new[] { 1 }),
                 modifiers,
                 20));
         }
@@ -218,14 +218,14 @@ namespace Game.Rules.Runtime.Tests
             DamageThenCheckOutcome outcome = RequireResolved(
                 await dispatcher.Dispatch(new DamageThenCheckWorkflowOp())).Value;
 
-            Assert.That(outcome.Damage.Roll.Values, Is.EqualTo(new[] { 3, 5 }));
+            Assert.That(outcome.Damage.DiceRoll.Values, Is.EqualTo(new[] { 3, 5 }));
             Assert.That(outcome.Damage.BaseDamage, Is.EqualTo(10));
             Assert.That(outcome.Damage.TotalDamage, Is.EqualTo(20));
             Assert.That(outcome.Check.Roll.Values.Single(), Is.EqualTo(12));
             Assert.That(dispatcher.Trace.GetRolls(new OpId(200)).Single().Dice,
                 Is.EqualTo(new DiceExpression(2, 6)));
             Assert.That(dispatcher.Trace.GetRolls(new OpId(201)).Single().Dice,
-                Is.EqualTo(new DiceExpression(1, 20)));
+                Is.EqualTo(DiceExpressions.D20));
             Assert.That(rolls.Remaining, Is.Zero);
         }
 
@@ -372,13 +372,11 @@ namespace Game.Rules.Runtime.Tests
         private sealed class DamageThenCheckWorkflowHandler
             : IOpHandler<DamageThenCheckWorkflowOp, DamageThenCheckOutcome>
         {
-            private readonly DamageRollService damage = new DamageRollService();
-
             public async ValueTask<DamageThenCheckOutcome> Handle(
                 OpFrame<DamageThenCheckWorkflowOp> frame,
                 OpHandlerContext context)
             {
-                DamageRollOutcome damageResult = damage.Roll(
+                DamageRollOutcome damageResult = DamageRollOutcome.Roll(
                     new DiceExpression(2, 6),
                     2,
                     DegreeOfSuccess.CriticalSuccess,

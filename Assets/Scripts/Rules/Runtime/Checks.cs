@@ -155,7 +155,7 @@ namespace Game.Rules.Runtime
             Source = source;
             Roll = roll ?? throw new ArgumentNullException(nameof(roll));
             Modifiers = modifiers ?? throw new ArgumentNullException(nameof(modifiers));
-            if (roll.Dice != new DiceExpression(1, 20))
+            if (roll.Dice != DiceExpressions.D20)
                 throw new ArgumentException("A check outcome requires exactly one d20.", nameof(roll));
             DifficultyClass = difficultyClass;
             Total = checked(roll.Total + modifiers.Total);
@@ -187,40 +187,31 @@ namespace Game.Rules.Runtime
         /// <param name="skill">The typed skill to resolve.</param>
         /// <param name="difficultyClass">The positive target DC.</param>
         /// <param name="source">The ancestor operation responsible for the check.</param>
+        /// <exception cref="ArgumentException">
+        /// <paramref name="actor"/>, <paramref name="skill"/>, or <paramref name="source"/> is empty.
+        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="difficultyClass"/> is not positive.
+        /// </exception>
         public SkillCheckOp(
             CreatureId actor,
             Skill skill,
             int difficultyClass,
             CheckSource source)
         {
-            RequireActor(actor);
-            if (!Enum.IsDefined(typeof(Skill), skill))
-                throw new ArgumentOutOfRangeException(nameof(skill));
-            RequireDifficultyClass(difficultyClass);
-            RequireSource(source);
+            if (actor.IsEmpty)
+                throw new ArgumentException("A skill check requires an actor.", nameof(actor));
+            if (skill.IsEmpty)
+                throw new ArgumentException("A skill check requires a skill.", nameof(skill));
+            if (difficultyClass <= 0)
+                throw new ArgumentOutOfRangeException(nameof(difficultyClass));
+            if (source.IsEmpty)
+                throw new ArgumentException("A skill check requires trusted source provenance.", nameof(source));
 
             Actor = actor;
             Skill = skill;
             DifficultyClass = difficultyClass;
             Source = source;
-        }
-
-        private static void RequireActor(CreatureId actor)
-        {
-            if (actor.IsEmpty)
-                throw new ArgumentException("A skill check requires an actor.", nameof(actor));
-        }
-
-        private static void RequireDifficultyClass(int difficultyClass)
-        {
-            if (difficultyClass <= 0)
-                throw new ArgumentOutOfRangeException(nameof(difficultyClass));
-        }
-
-        private static void RequireSource(CheckSource source)
-        {
-            if (source.IsEmpty)
-                throw new ArgumentException("A skill check requires trusted source provenance.", nameof(source));
         }
     }
 
@@ -270,54 +261,4 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>
-    /// Collects attack-roll modifiers through active middleware before a strike roll is made.
-    /// </summary>
-    /// <remarks>
-    /// The operation is read-only but interceptable. The attacker, target, weapon, and source give
-    /// active bindings enough stable context to contribute situational modifiers without discovering
-    /// Unity components or changing authoritative state.
-    /// </remarks>
-    public sealed class CollectAttackModifiersOp : IRuleOp<ModifierCollection>
-    {
-        /// <summary>Gets the attacking creature.</summary>
-        public CreatureId Attacker { get; }
-
-        /// <summary>Gets the target creature.</summary>
-        public CreatureId Target { get; }
-
-        /// <summary>Gets the stable weapon item used by the attack.</summary>
-        public ItemId Weapon { get; }
-
-        /// <summary>Gets the ancestor operation responsible for the attack calculation.</summary>
-        public CheckSource Source { get; }
-
-        /// <summary>
-        /// Creates a nested attack-modifier collection request.
-        /// </summary>
-        /// <param name="attacker">The attacking creature.</param>
-        /// <param name="target">The target creature.</param>
-        /// <param name="weapon">The weapon item used for this attack.</param>
-        /// <param name="source">The ancestor operation responsible for the calculation.</param>
-        public CollectAttackModifiersOp(
-            CreatureId attacker,
-            CreatureId target,
-            ItemId weapon,
-            CheckSource source)
-        {
-            if (attacker.IsEmpty)
-                throw new ArgumentException("An attacker is required.", nameof(attacker));
-            if (target.IsEmpty)
-                throw new ArgumentException("A target is required.", nameof(target));
-            if (weapon.IsEmpty)
-                throw new ArgumentException("A weapon item is required.", nameof(weapon));
-            if (source.IsEmpty)
-                throw new ArgumentException("Modifier collection requires trusted source provenance.", nameof(source));
-
-            Attacker = attacker;
-            Target = target;
-            Weapon = weapon;
-            Source = source;
-        }
-    }
 }

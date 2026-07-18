@@ -71,6 +71,15 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
+    /// Provides shared immutable expressions for dice that rules workflows use repeatedly.
+    /// </summary>
+    public static class DiceExpressions
+    {
+        /// <summary>One twenty-sided die used by PF2e checks and saving throws.</summary>
+        public static readonly DiceExpression D20 = new DiceExpression(1, 20);
+    }
+
+    /// <summary>
     /// Contains the immutable individual values and total produced for one dice expression.
     /// </summary>
     public sealed class RollResult : IEquatable<RollResult>

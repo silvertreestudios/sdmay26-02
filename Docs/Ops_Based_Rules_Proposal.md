@@ -671,6 +671,12 @@ return passedThrough
     : TumbleThroughOutcome.CouldNotPass(resolvedMovement.Value);
 ```
 
+`Skill` is an open, slug-backed value rather than a closed enum. Static fields provide the standard
+PF2e skills, while data can define Lore skills and other content-specific skills without an engine
+code change. `SkillCheckOp` internally dispatches `CollectSkillCheckModifiersOp` before rolling;
+`SavingThrowOp` does the same with `CollectSavingThrowModifiersOp`. Active effects therefore modify
+checks and saves through the same typed, traceable middleware pattern used for attacks.
+
 The player implementation, AI implementation, replay implementation, and tests provide adapters for `PromptChoiceOp<TChoice>`. A handler does not directly open UI or pause a coroutine.
 
 The dispatcher serializes a root resolution. A prompt can suspend that resolution, but another root Op cannot interleave and change combat state underneath it. Nested reactions are allowed because they belong to the same resolution tree.
@@ -688,7 +694,7 @@ public interface IRulesSelectors
 }
 ```
 
-Use an Op when the work needs middleware, provenance, a typed asynchronous result, a prompt, a random roll recorded in the resolution, or any possible state change. `CollectAttackModifiersOp` is therefore an Op even though it does not mutate state: active effects must be able to contribute to it.
+Use an Op when the work needs middleware, provenance, a typed asynchronous result, a prompt, a random roll recorded in the resolution, or any possible state change. `CollectAttackModifiersOp`, `CollectSkillCheckModifiersOp`, and `CollectSavingThrowModifiersOp` are therefore Ops even though they do not mutate state: active effects must be able to contribute before the corresponding roll.
 
 ---
 
@@ -2072,7 +2078,7 @@ The five examples exercise the architecture's main extension points:
 | PF2e action cost, traits, and reaction eligibility | `ActionOp` plus frozen `ActionProfile` | Strike, Step, Cast Spell, Tumble Through |
 | Disruption after costs commit | Middleware on `ActionBegunOp` | Reactive Strike |
 | Trigger during movement | `MovementLeavingSquareOp` | Reactive Strike, failed Tumble Through |
-| Dynamic bonus contribution | Middleware on `CollectAttackModifiersOp` | Bless |
+| Dynamic bonus contribution | Middleware on typed attack, skill, or save modifier-collection Ops | Bless and other check/save effects |
 | Persistent feature-local state | Typed `ActiveEffectInstance.State` | Bless radius |
 | State change | Reducer | HP, position, MAP, action cost, aura state |
 | Reaction to committed change | Typed fact listener | Cranial Detonation |

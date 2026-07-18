@@ -7,55 +7,97 @@ namespace Game.Rules.Runtime
     // with the callback-scoped roll source so middleware and trace provenance remain engine-owned.
     internal sealed class SkillCheckHandler : IOpHandler<SkillCheckOp, CheckOutcome>
     {
-        private static readonly DiceExpression D20 = new DiceExpression(1, 20);
-        private readonly IRulesSelectors selectors;
-
-        public SkillCheckHandler(IRulesSelectors selectors) =>
-            this.selectors = selectors ?? throw new ArgumentNullException(nameof(selectors));
-
-        public ValueTask<CheckOutcome> Handle(
+        public async ValueTask<CheckOutcome> Handle(
             OpFrame<SkillCheckOp> frame,
             OpHandlerContext context)
         {
             CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
-            ModifierCollection modifiers = selectors.GetSkillCheckModifiers(
-                context.Snapshot,
-                frame.Op.Actor,
-                frame.Op.Skill);
-            RollResult roll = context.Rolls.Roll(D20);
-            return new ValueTask<CheckOutcome>(new CheckOutcome(
+            OpResult<ModifierCollection> modifiersResult = await context.Dispatch(
+                new CollectSkillCheckModifiersOp(
+                    frame.Op.Actor,
+                    frame.Op.Skill,
+                    frame.Op.Source));
+            if (!(modifiersResult is ResolvedOpResult<ModifierCollection> resolvedModifiers))
+            {
+                throw new InvalidOperationException(
+                    "Skill-check modifier collection must produce a resolved result.");
+            }
+
+            RollResult roll = context.Rolls.Roll(DiceExpressions.D20);
+            return new CheckOutcome(
                 frame.Op.Actor,
                 frame.Op.Source,
                 roll,
-                modifiers,
-                frame.Op.DifficultyClass));
+                resolvedModifiers.Value,
+                frame.Op.DifficultyClass);
         }
     }
 
     internal sealed class SavingThrowHandler : IOpHandler<SavingThrowOp, CheckOutcome>
     {
-        private static readonly DiceExpression D20 = new DiceExpression(1, 20);
-        private readonly IRulesSelectors selectors;
-
-        public SavingThrowHandler(IRulesSelectors selectors) =>
-            this.selectors = selectors ?? throw new ArgumentNullException(nameof(selectors));
-
-        public ValueTask<CheckOutcome> Handle(
+        public async ValueTask<CheckOutcome> Handle(
             OpFrame<SavingThrowOp> frame,
             OpHandlerContext context)
         {
             CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
-            ModifierCollection modifiers = selectors.GetSavingThrowModifiers(
-                context.Snapshot,
-                frame.Op.Actor,
-                frame.Op.Save);
-            RollResult roll = context.Rolls.Roll(D20);
-            return new ValueTask<CheckOutcome>(new CheckOutcome(
+            OpResult<ModifierCollection> modifiersResult = await context.Dispatch(
+                new CollectSavingThrowModifiersOp(
+                    frame.Op.Actor,
+                    frame.Op.Save,
+                    frame.Op.Source));
+            if (!(modifiersResult is ResolvedOpResult<ModifierCollection> resolvedModifiers))
+            {
+                throw new InvalidOperationException(
+                    "Saving-throw modifier collection must produce a resolved result.");
+            }
+
+            RollResult roll = context.Rolls.Roll(DiceExpressions.D20);
+            return new CheckOutcome(
                 frame.Op.Actor,
                 frame.Op.Source,
                 roll,
-                modifiers,
-                frame.Op.DifficultyClass));
+                resolvedModifiers.Value,
+                frame.Op.DifficultyClass);
+        }
+    }
+
+    internal sealed class CollectSkillCheckModifiersHandler
+        : IOpHandler<CollectSkillCheckModifiersOp, ModifierCollection>
+    {
+        private readonly IRulesSelectors selectors;
+
+        public CollectSkillCheckModifiersHandler(IRulesSelectors selectors) =>
+            this.selectors = selectors ?? throw new ArgumentNullException(nameof(selectors));
+
+        public ValueTask<ModifierCollection> Handle(
+            OpFrame<CollectSkillCheckModifiersOp> frame,
+            OpHandlerContext context)
+        {
+            CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
+            return new ValueTask<ModifierCollection>(selectors.GetSkillCheckModifiers(
+                context.Snapshot,
+                frame.Op.Actor,
+                frame.Op.Skill));
+        }
+    }
+
+    internal sealed class CollectSavingThrowModifiersHandler
+        : IOpHandler<CollectSavingThrowModifiersOp, ModifierCollection>
+    {
+        private readonly IRulesSelectors selectors;
+
+        public CollectSavingThrowModifiersHandler(IRulesSelectors selectors) =>
+            this.selectors = selectors ?? throw new ArgumentNullException(nameof(selectors));
+
+        public ValueTask<ModifierCollection> Handle(
+            OpFrame<CollectSavingThrowModifiersOp> frame,
+            OpHandlerContext context)
+        {
+            CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
+            return new ValueTask<ModifierCollection>(selectors.GetSavingThrowModifiers(
+                context.Snapshot,
+                frame.Op.Actor,
+                frame.Op.Save));
         }
     }
 

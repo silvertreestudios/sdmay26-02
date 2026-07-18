@@ -9,7 +9,7 @@ namespace Game.Rules.Runtime
     /// Stores one creature's immutable base check values and snapshot-owned modifier inputs.
     /// </summary>
     /// <remarks>
-    /// This state is plain data seeded by an adapter. It does not discover Unity components or
+    /// This state is plain data supplied by an adapter. It does not discover Unity components or
     /// perform rolls. Active rules can add situational values through modifier-collection
     /// middleware without mutating or mirroring this base state.
     /// </remarks>
@@ -49,7 +49,7 @@ namespace Game.Rules.Runtime
         public int WillModifier { get; }
 
         /// <summary>
-        /// Gets the explicitly seeded skill modifiers keyed by typed skill identity.
+        /// Gets the explicit skill modifiers keyed by open skill identity.
         /// </summary>
         public IReadOnlyDictionary<Skill, int> SkillModifiers => skillModifiers;
 
@@ -73,9 +73,8 @@ namespace Game.Rules.Runtime
         /// <exception cref="ArgumentNullException">
         /// <paramref name="skillModifiers"/> or <paramref name="modifiers"/> is <see langword="null"/>.
         /// </exception>
-        /// <exception cref="ArgumentOutOfRangeException">
-        /// <paramref name="armorClass"/> is negative or a skill key is undefined.
-        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="armorClass"/> is negative.</exception>
+        /// <exception cref="ArgumentException">A skill key is empty.</exception>
         public CreatureStatisticsState(
             CreatureId creature,
             int attackModifier,
@@ -98,8 +97,8 @@ namespace Game.Rules.Runtime
             Dictionary<Skill, int> copiedSkills = new Dictionary<Skill, int>();
             foreach (KeyValuePair<Skill, int> pair in skillModifiers)
             {
-                if (!Enum.IsDefined(typeof(Skill), pair.Key))
-                    throw new ArgumentOutOfRangeException(nameof(skillModifiers), pair.Key, "A skill key is undefined.");
+                if (pair.Key.IsEmpty)
+                    throw new ArgumentException("Skill modifiers cannot contain an empty skill.", nameof(skillModifiers));
                 copiedSkills.Add(pair.Key, pair.Value);
             }
 
@@ -114,20 +113,20 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Gets a skill's seeded modifier or zero when the adapter did not seed that skill.
+        /// Gets a skill's modifier or zero when the statistics state does not define that skill.
         /// </summary>
         /// <param name="skill">The typed skill identity.</param>
         /// <returns>The base skill modifier.</returns>
-        /// <exception cref="ArgumentOutOfRangeException"><paramref name="skill"/> is undefined.</exception>
+        /// <exception cref="ArgumentException"><paramref name="skill"/> is empty.</exception>
         public int GetSkillModifier(Skill skill)
         {
-            if (!Enum.IsDefined(typeof(Skill), skill))
-                throw new ArgumentOutOfRangeException(nameof(skill));
+            if (skill.IsEmpty)
+                throw new ArgumentException("A skill is required.", nameof(skill));
             return skillModifiers.TryGetValue(skill, out int modifier) ? modifier : 0;
         }
 
         /// <summary>
-        /// Gets the seeded modifier for the requested saving throw.
+        /// Gets the modifier for the requested saving throw.
         /// </summary>
         /// <param name="save">The saving throw identity.</param>
         /// <returns>The base saving throw modifier.</returns>
@@ -152,8 +151,8 @@ namespace Game.Rules.Runtime
             other != null && Creature == other.Creature && AttackModifier == other.AttackModifier &&
             ArmorClass == other.ArmorClass && FortitudeModifier == other.FortitudeModifier &&
             ReflexModifier == other.ReflexModifier && WillModifier == other.WillModifier &&
-            skillModifiers.OrderBy(pair => pair.Key).SequenceEqual(
-                other.skillModifiers.OrderBy(pair => pair.Key)) &&
+            skillModifiers.OrderBy(pair => pair.Key.Slug, StringComparer.Ordinal).SequenceEqual(
+                other.skillModifiers.OrderBy(pair => pair.Key.Slug, StringComparer.Ordinal)) &&
             modifiers.SequenceEqual(other.modifiers);
 
         /// <inheritdoc/>

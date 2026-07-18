@@ -28,7 +28,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(rolls.Remaining, Is.EqualTo(1),
                 "A failed request must not partially consume the script.");
 
-            Assert.That(rolls.Roll(new DiceExpression(1, 20)).Values.Single(), Is.EqualTo(20));
+            Assert.That(rolls.Roll(DiceExpressions.D20).Values.Single(), Is.EqualTo(20));
             Assert.That(rolls.Remaining, Is.Zero);
         }
 
@@ -62,6 +62,7 @@ namespace Game.Rules.Runtime.Tests
             DiceExpression empty = default;
 
             Assert.That(empty.IsEmpty, Is.True);
+            Assert.That(DiceExpressions.D20, Is.EqualTo(new DiceExpression(1, 20)));
             Assert.Throws<ArgumentException>(() => new RollResult(empty, Array.Empty<int>()));
         }
 
@@ -92,7 +93,7 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<int> result = await dispatcher.Dispatch(new RecordingRollOp(
                 new DiceExpression(2, 6),
-                new DiceExpression(1, 20)));
+                DiceExpressions.D20));
 
             Assert.That(result, Is.TypeOf<ResolvedOpResult<int>>());
             Assert.That(((ResolvedOpResult<int>)result).Value, Is.EqualTo(24));
@@ -102,7 +103,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(recorded.Select(value => value.Dice), Is.EqualTo(new[]
             {
                 new DiceExpression(2, 6),
-                new DiceExpression(1, 20)
+                DiceExpressions.D20
             }));
             Assert.That(recorded[0].Result.Values, Is.EqualTo(new[] { 5, 2 }));
             Assert.That(recorded[1].Result.Values, Is.EqualTo(new[] { 17 }));

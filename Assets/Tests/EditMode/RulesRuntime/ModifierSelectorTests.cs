@@ -84,6 +84,18 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void SkillsProvidePredefinedAndOpenContentIdentities()
+        {
+            Skill sailingLore = Skill.FromName("Sailing Lore");
+
+            Assert.That(Skill.Acrobatics.Slug, Is.EqualTo("acrobatics"));
+            Assert.That(sailingLore.Slug, Is.EqualTo("sailing-lore"));
+            Assert.That(sailingLore, Is.EqualTo(Skill.FromSlug("sailing-lore")));
+            Assert.That(default(Skill).IsEmpty, Is.True);
+            Assert.Throws<ArgumentException>(() => Skill.FromName(" "));
+        }
+
+        [Test]
         public void StatisticsCopyCallerCollectionsAndSeedByCreatureIdentity()
         {
             Dictionary<Skill, int> skills = new Dictionary<Skill, int>
