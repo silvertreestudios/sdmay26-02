@@ -179,7 +179,12 @@ namespace Game.DungeonGeneration
             string algorithm = RequiredString(source, "algorithm", "generation", errors);
             int algorithmVersion = RequiredInt(source, "algorithmVersion", "generation", errors);
             string seedText = RequiredString(source, "runSeed", "generation", errors);
-            if (!long.TryParse(seedText, NumberStyles.Integer, CultureInfo.InvariantCulture, out long runSeed))
+            bool runSeedIsValid = long.TryParse(
+                seedText,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out long runSeed);
+            if (!runSeedIsValid)
                 errors.Add(D("generation.runSeed", "Run seed must be a signed 64-bit integer encoded as a JSON string."));
             int depth = RequiredInt(source, "depth", "generation", errors);
             int topologyAttempt = RequiredInt(source, "topologyAttempt", "generation", errors);
@@ -187,11 +192,59 @@ namespace Game.DungeonGeneration
             string topologyState = RequiredString(source, "topologyState", "generation", errors);
             if (algorithmVersion < 1) errors.Add(D("generation.algorithmVersion", "Algorithm version must be positive."));
             if (depth < 0) errors.Add(D("generation.depth", "Depth must be zero or greater."));
-            if (topologyAttempt < 0 || topologyAttempt >= DeterministicDungeonGenerator.MaximumAttempts)
-                errors.Add(D("generation.topologyAttempt", "Topology attempt must be from 0 through 31."));
+            if (topologyAttempt < 0)
+                errors.Add(D("generation.topologyAttempt", "Topology attempt must be zero or greater."));
             if (!IsState(depthState)) errors.Add(D("generation.depthState", "Depth state must be exactly 16 hexadecimal digits."));
             if (!IsState(topologyState)) errors.Add(D("generation.topologyState", "Topology state must be exactly 16 hexadecimal digits."));
-            return new DungeonGenerationMetadata(algorithm, algorithmVersion, runSeed, depth, topologyAttempt, depthState, topologyState);
+            DungeonGenerationMetadata metadata = new(
+                algorithm,
+                algorithmVersion,
+                runSeed,
+                depth,
+                topologyAttempt,
+                depthState,
+                topologyState);
+            if (DeterministicDungeonGenerator.OwnsContract(metadata))
+            {
+                if (topologyAttempt >= DeterministicDungeonGenerator.MaximumAttempts)
+                {
+                    errors.Add(D(
+                        "generation.topologyAttempt",
+                        "For donjon-logical-splitmix64 algorithm version 1, topology attempt must be from 0 through 31."));
+                }
+
+                if (runSeedIsValid && depth >= 0)
+                {
+                    string expectedDepthState = DungeonSeedSequence.FormatState(
+                        DungeonSeedSequence.ForDepth(runSeed, depth));
+                    if (!string.Equals(depthState, expectedDepthState, StringComparison.Ordinal))
+                    {
+                        errors.Add(D(
+                            "generation.depthState",
+                            "For donjon-logical-splitmix64 algorithm version 1, depth state must exactly match the formatted state derived from runSeed and depth."));
+                    }
+
+                    if (topologyAttempt >= 0)
+                    {
+                        string expectedTopologyState = DungeonSeedSequence.FormatState(
+                            DungeonSeedSequence.ForTopologyAttempt(
+                                runSeed,
+                                depth,
+                                topologyAttempt));
+                        if (!string.Equals(
+                                topologyState,
+                                expectedTopologyState,
+                                StringComparison.Ordinal))
+                        {
+                            errors.Add(D(
+                                "generation.topologyState",
+                                "For donjon-logical-splitmix64 algorithm version 1, topology state must exactly match the formatted state derived from runSeed, depth, and topologyAttempt."));
+                        }
+                    }
+                }
+            }
+
+            return metadata;
         }
 
         private static List<DungeonRoom> ReadRooms(JArray array, List<DungeonGenerationDiagnostic> e) => ReadObjects(array, "rooms", e, (o, p) =>
@@ -241,12 +294,7 @@ namespace Game.DungeonGeneration
             if (!Walkable(start)) errors.Add(D("arrival.start", "Start must reference a walkable cell."));
             if (safe.Count == 0 || safe.Any(cell => !Walkable(cell))) errors.Add(D("arrival.safeCells", "At least one safe cell is required and every safe cell must be walkable."));
             if (safe.Distinct().Count() != safe.Count) errors.Add(D("arrival.safeCells", "Safe cells must be unique."));
-            if (metadata != null &&
-                string.Equals(
-                    metadata.Algorithm,
-                    DeterministicDungeonGenerator.AlgorithmId,
-                    StringComparison.Ordinal) &&
-                metadata.AlgorithmVersion == DeterministicDungeonGenerator.AlgorithmVersion &&
+            if (DeterministicDungeonGenerator.OwnsContract(metadata) &&
                 safe.Count > 0 &&
                 start != DeterministicDungeonGenerator.SelectStartCell(stairs, safe))
             {

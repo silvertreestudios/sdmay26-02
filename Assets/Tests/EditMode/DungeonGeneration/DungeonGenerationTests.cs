@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -208,6 +209,144 @@ public sealed class DungeonGenerationTests
 
         Assert.That(parsed.IsSuccess, Is.True,
             string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+    }
+
+    [TestCase(long.MinValue, 0, 0)]
+    [TestCase(-1L, 17, 31)]
+    [TestCase(long.MaxValue, int.MaxValue, 31)]
+    public void VersionTwoJson_AcceptsExactOwnedGeneratorStatesAtNumericBoundaries(
+        long runSeed,
+        int depth,
+        int topologyAttempt)
+    {
+        string json = OwnedContractJson(runSeed, depth, topologyAttempt);
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+
+        Assert.That(parsed.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsIndependentOwnedGeneratorProvenanceTampering()
+    {
+        const long runSeed = -9223372036854775807L;
+        const int depth = 17;
+        const int topologyAttempt = 0;
+        var cases = new[]
+        {
+            new
+            {
+                Name = "runSeed",
+                Field = "generation.depthState",
+                Mutate = (Action<JObject>)(generation =>
+                    generation["runSeed"] = long.MaxValue.ToString(CultureInfo.InvariantCulture))
+            },
+            new
+            {
+                Name = "depth",
+                Field = "generation.depthState",
+                Mutate = (Action<JObject>)(generation => generation["depth"] = int.MaxValue)
+            },
+            new
+            {
+                Name = "topologyAttempt",
+                Field = "generation.topologyState",
+                Mutate = (Action<JObject>)(generation => generation["topologyAttempt"] = 31)
+            },
+            new
+            {
+                Name = "depthState",
+                Field = "generation.depthState",
+                Mutate = (Action<JObject>)(generation => generation["depthState"] = "0000000000000000")
+            },
+            new
+            {
+                Name = "topologyState",
+                Field = "generation.topologyState",
+                Mutate = (Action<JObject>)(generation => generation["topologyState"] = "ffffffffffffffff")
+            }
+        };
+
+        foreach (var item in cases)
+        {
+            JObject root = JObject.Parse(OwnedContractJson(runSeed, depth, topologyAttempt));
+            item.Mutate((JObject)root["generation"]);
+
+            DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+                root.ToString(Formatting.None));
+
+            Assert.That(parsed.IsSuccess, Is.False, item.Name);
+            Assert.That(parsed.Diagnostics,
+                Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                    diagnostic.Field == item.Field &&
+                    diagnostic.Message.Contains("exactly match")),
+                item.Name);
+        }
+    }
+
+    [Test]
+    public void VersionTwoJson_RequiresExactOwnedGeneratorStateFormatting()
+    {
+        JObject root = JObject.Parse(OwnedContractJson(long.MinValue, int.MaxValue, 31));
+        JObject generation = (JObject)root["generation"];
+        generation["depthState"] = generation.Value<string>("depthState").ToUpperInvariant();
+        generation["topologyState"] = generation.Value<string>("topologyState").ToUpperInvariant();
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.Diagnostics.Select(diagnostic => diagnostic.Field),
+            Does.Contain("generation.depthState"));
+        Assert.That(parsed.Diagnostics.Select(diagnostic => diagnostic.Field),
+            Does.Contain("generation.topologyState"));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsOwnedAttemptAtMaximumBoundary()
+    {
+        JObject root = JObject.Parse(OwnedContractJson(long.MaxValue, int.MaxValue, 32));
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.IsSuccess, Is.False);
+        Assert.That(parsed.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "generation.topologyAttempt" &&
+                diagnostic.Message.Contains("0 through 31")));
+        Assert.That(parsed.Diagnostics,
+            Has.None.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "generation.topologyState"));
+    }
+
+    [TestCase("future-generator", 1, 32)]
+    [TestCase("future-generator", 1, int.MaxValue)]
+    [TestCase("donjon-logical-splitmix64", 2, 32)]
+    [TestCase("donjon-logical-splitmix64", 2, int.MaxValue)]
+    public void VersionTwoJson_OtherContractsRoundTripLargeTopologyAttempts(
+        string algorithm,
+        int algorithmVersion,
+        int topologyAttempt)
+    {
+        DungeonGenerationMetadata metadata = new(
+            algorithm,
+            algorithmVersion,
+            long.MinValue,
+            int.MaxValue,
+            topologyAttempt,
+            "ABCDEF0123456789",
+            "FEDCBA9876543210");
+        DungeonLevelDocument document = ContractDocumentWithGeneration(metadata);
+
+        string json = DungeonLevelJsonSerializer.Serialize(document);
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+
+        Assert.That(parsed.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(parsed.Document.Generation.TopologyAttempt, Is.EqualTo(topologyAttempt));
+        Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
     }
 
     [Test]
@@ -705,8 +844,19 @@ public sealed class DungeonGenerationTests
         Assert.That(actual, Is.EqualTo(expected));
     }
 
-    private static DungeonLevelDocument ContractDocument() => new(
-        new DungeonGenerationMetadata("test", 7, long.MinValue, 3, 2, "8000000000000000", "0123456789abcdef"),
+    private static DungeonLevelDocument ContractDocument() => ContractDocumentWithGeneration(
+        new DungeonGenerationMetadata(
+            "test",
+            7,
+            long.MinValue,
+            3,
+            2,
+            "8000000000000000",
+            "0123456789abcdef"));
+
+    private static DungeonLevelDocument ContractDocumentWithGeneration(
+        DungeonGenerationMetadata generation) => new(
+        generation,
         new[] { "#D#", "...", "###" },
         new[] { new DungeonRoom(1, 0, 1, 2, 1) },
         new[] { new DungeonDoor("door-0001", new DungeonCell(1, 2), true) },
@@ -741,6 +891,20 @@ public sealed class DungeonGenerationTests
             }));
 
     private static string ContractJson() => DungeonLevelJsonSerializer.Serialize(ContractDocument());
+
+    private static string OwnedContractJson(long runSeed, int depth, int topologyAttempt)
+    {
+        DungeonGenerationMetadata metadata = new(
+            "donjon-logical-splitmix64",
+            1,
+            runSeed,
+            depth,
+            topologyAttempt,
+            DungeonSeedSequence.FormatState(DungeonSeedSequence.ForDepth(runSeed, depth)),
+            DungeonSeedSequence.FormatState(
+                DungeonSeedSequence.ForTopologyAttempt(runSeed, depth, topologyAttempt)));
+        return DungeonLevelJsonSerializer.Serialize(ContractDocumentWithGeneration(metadata));
+    }
 
     private static JObject JsonCell(DungeonCell cell) => new()
     {

@@ -218,7 +218,12 @@ namespace Game.DungeonGeneration
         DungeonGenerationResult Generate(DungeonGenerationRequest request);
     }
 
-    /// <summary>Records stable generation provenance in every version 2 document.</summary>
+    /// <summary>
+    /// Records stable generation provenance in every version 2 document. The strict parser binds
+    /// metadata owned by Donjon SplitMix64 algorithm version 1 to its exact derived states and
+    /// retry range; other algorithm contracts retain general nonnegative-attempt and state-shape
+    /// validation so future producers can define their own derivation rules.
+    /// </summary>
     public sealed class DungeonGenerationMetadata
     {
         /// <summary>Creates the provenance captured for one accepted topology attempt.</summary>
@@ -226,9 +231,9 @@ namespace Game.DungeonGeneration
         /// <param name="algorithmVersion">The positive algorithm contract version.</param>
         /// <param name="runSeed">The original signed run seed.</param>
         /// <param name="depth">The nonnegative requested depth.</param>
-        /// <param name="topologyAttempt">The accepted zero-based retry attempt.</param>
-        /// <param name="depthState">The fixed-width hexadecimal depth output.</param>
-        /// <param name="topologyState">The fixed-width hexadecimal topology stream state.</param>
+        /// <param name="topologyAttempt">The accepted nonnegative retry attempt; the owned version 1 generator limits this to its first 32 attempts.</param>
+        /// <param name="depthState">The fixed-width hexadecimal depth output; the owned version 1 generator requires its exact lowercase derived format.</param>
+        /// <param name="topologyState">The fixed-width hexadecimal topology stream state; the owned version 1 generator requires its exact lowercase derived format.</param>
         public DungeonGenerationMetadata(
             string algorithm,
             int algorithmVersion,
@@ -259,7 +264,7 @@ namespace Game.DungeonGeneration
         /// <summary>Gets the requested nonnegative depth.</summary>
         public int Depth { get; }
 
-        /// <summary>Gets the accepted zero-based topology attempt.</summary>
+        /// <summary>Gets the accepted nonnegative topology attempt, subject to the producing algorithm's contract.</summary>
         public int TopologyAttempt { get; }
 
         /// <summary>Gets the depth output as exactly 16 hexadecimal digits.</summary>

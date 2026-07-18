@@ -45,6 +45,18 @@ namespace Game.DungeonGeneration
             });
         }
 
+        /// <summary>
+        /// Returns whether metadata uses the exact algorithm contract owned by this generator.
+        /// Parser invariants that depend on implementation details must use this predicate so
+        /// future versions and unrelated generators retain their own provenance semantics.
+        /// </summary>
+        /// <param name="metadata">The parsed generation metadata, or absence after a schema failure.</param>
+        /// <returns><see langword="true"/> only for the current Donjon SplitMix64 contract.</returns>
+        internal static bool OwnsContract(DungeonGenerationMetadata metadata) =>
+            metadata != null &&
+            string.Equals(metadata.Algorithm, AlgorithmId, StringComparison.Ordinal) &&
+            metadata.AlgorithmVersion == AlgorithmVersion;
+
         private static IReadOnlyList<DungeonGenerationDiagnostic> ValidateRequest(DungeonGenerationRequest request)
         {
             List<DungeonGenerationDiagnostic> errors = new();
