@@ -243,7 +243,9 @@ namespace Game.Rules.Runtime
         public long CreationOrder { get; }
 
         /// <summary>
-        /// Gets whether the binding currently contributes middleware and Fact listeners.
+        /// Gets whether the binding can be selected for middleware and Fact listeners when an
+        /// operation frame begins. A selected binding is checked against live state again before
+        /// its extension is invoked.
         /// </summary>
         public bool IsEnabled { get; }
 

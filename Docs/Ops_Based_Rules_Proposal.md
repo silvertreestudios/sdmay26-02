@@ -499,6 +499,8 @@ public interface IFactListener<TFact>
 
 Typed registration matters. A rule interested in a creature reaching 0 HP registers once for `CreatureReducedToZeroFact`; it does not need to know every command, spell, hazard, or attack capable of dealing damage.
 
+Listener eligibility is frozen from the source operation frame's start snapshot. A binding enabled or created by that frame cannot observe Facts committed by that frame or any earlier frame, but it participates in later frames that begin after the enabling commit. The dispatcher retains only the immutable bound listener registrations needed for that decision, not the complete historical snapshot. Immediately before each delivery it also checks the live snapshot, so a binding disabled, removed, or otherwise changed after an eligible Fact committed is skipped.
+
 Some rules need to consider all matching Facts from one committed root together. The registry also supports a batch form:
 
 ```csharp
@@ -702,7 +704,7 @@ public sealed record ActiveRuleBinding(
     bool IsEnabled = true);
 ```
 
-At dispatch time, the registry selects registrations whose bindings are active and enabled in the current snapshot. Removing a condition, expiring a spell, unequipping an item, or spending a temporary granted reaction removes or disables its binding without rebuilding global listener lists. A binding activated during an operation begins participating with the next frame; a binding disabled or removed by a committed child operation is skipped immediately if its turn in the current middleware or listener plan has not begun.
+At each operation frame boundary, the registry selects registrations whose bindings are active and enabled in the frame's start snapshot. Removing a condition, expiring a spell, unequipping an item, or spending a temporary granted reaction removes or disables its binding without rebuilding global listener lists. A binding activated during an operation begins participating with the next frame; a binding disabled or removed by a committed child operation is skipped immediately if its turn in the current middleware or listener plan has not begun. Fact delivery additionally preserves each source frame's selection as described in Section 5.3, preventing later activation from retroactively observing earlier commits in the same root.
 
 ### 6.2 Active effects own typed instance state
 

@@ -1163,7 +1163,8 @@ namespace Game.Rules.Runtime
 
                 // Reducer Facts enter the root batch at the store commit point. Middleware may
                 // replace the structural result or commit later children while it unwinds, neither
-                // of which may discard or reorder an already committed Fact.
+                // of which may discard or reorder an already committed Fact. Root aggregation also
+                // retains the source frame's frozen listener selection for later notification.
                 invocation.CaptureDirectFacts(facts);
                 foreach (RuleFact fact in facts)
                 {
@@ -1195,7 +1196,7 @@ namespace Game.Rules.Runtime
             }
             catch (Exception resolutionException)
             {
-                IReadOnlyList<RuleFact> committedFacts =
+                IReadOnlyList<CommittedFactRecord> committedFacts =
                     SnapshotCommittedFacts(resolution, rootId);
                 if (committedFacts.Count == 0)
                     throw;
@@ -1216,11 +1217,15 @@ namespace Game.Rules.Runtime
             }
 
             if (result.Status != OpStatus.Invalid && result.Facts.Count > 0)
-                await NotifyFactListeners(rootId, result.Facts);
+            {
+                await NotifyFactListeners(
+                    rootId,
+                    SnapshotCommittedFacts(resolution, rootId));
+            }
             return result;
         }
 
-        private IReadOnlyList<RuleFact> SnapshotCommittedFacts(
+        private IReadOnlyList<CommittedFactRecord> SnapshotCommittedFacts(
             RootResolution resolution,
             OpId rootId)
         {
@@ -1230,19 +1235,23 @@ namespace Game.Rules.Runtime
                 if (resolution.RootId != rootId)
                     throw new InvalidOperationException(
                         "Committed Facts crossed resolution root ownership.");
-                return Array.AsReadOnly(resolution.Facts.ToArray());
+                return Array.AsReadOnly(resolution.CommittedFacts.ToArray());
             }
         }
 
         private async ValueTask NotifyFactListeners(
             OpId rootId,
-            IReadOnlyList<RuleFact> facts)
+            IReadOnlyList<CommittedFactRecord> committedFacts)
         {
-            if (facts.Any(fact => fact == null || !fact.IsStamped || fact.RootOpId != rootId))
+            if (committedFacts.Any(committed =>
+                committed == null || committed.Fact == null ||
+                !committed.Fact.IsStamped || committed.Fact.RootOpId != rootId))
+            {
                 throw new InvalidOperationException("A completed root contains a Fact from another resolution batch.");
+            }
 
             IReadOnlyList<FactListenerDelivery> deliveries =
-                ruleRegistry.SelectFactListeners(rootId, facts, store.Snapshot);
+                ruleRegistry.BuildFactListenerDeliveries(rootId, committedFacts);
             foreach (FactListenerDelivery delivery in deliveries)
             {
                 if (delivery.Registration.IsBatch)
@@ -1324,6 +1333,7 @@ namespace Game.Rules.Runtime
             int firstFact;
             IFrameInvocation invocation;
             IReadOnlyList<BoundMiddlewareRegistration> middleware;
+            IReadOnlyList<BoundFactListenerRegistration> factListeners;
             lock (gate)
             {
                 RequireActiveResolution(resolution);
@@ -1334,8 +1344,9 @@ namespace Game.Rules.Runtime
                     id, rootId, parentId, causeId, op, startSnapshot);
                 middleware = ruleRegistry.SelectMiddleware(
                     op.GetType(), typeof(TResult), startSnapshot);
+                factListeners = ruleRegistry.SelectFactListeners(startSnapshot);
                 Trace.Add(invocation.FrameView);
-                resolution.EnterFrame(id, rootId);
+                resolution.EnterFrame(id, rootId, factListeners);
             }
 
             try
@@ -1457,12 +1468,17 @@ namespace Game.Rules.Runtime
             private readonly HashSet<OpId> sealedFrames = new HashSet<OpId>();
             private readonly Dictionary<OpId, ChildReservation> activeChildren =
                 new Dictionary<OpId, ChildReservation>();
+            private readonly Dictionary<OpId, IReadOnlyList<BoundFactListenerRegistration>>
+                frameFactListeners =
+                    new Dictionary<OpId, IReadOnlyList<BoundFactListenerRegistration>>();
             private readonly HashSet<FactId> factIds = new HashSet<FactId>();
             private readonly HashSet<RuleFact> factReferences =
                 new HashSet<RuleFact>(ReferenceEqualityComparer<RuleFact>.Instance);
 
             public OpId RootId { get; private set; }
             public List<RuleFact> Facts { get; } = new List<RuleFact>();
+            public List<CommittedFactRecord> CommittedFacts { get; } =
+                new List<CommittedFactRecord>();
 
             public void Initialize(OpId rootId)
             {
@@ -1473,11 +1489,17 @@ namespace Game.Rules.Runtime
                 RootId = rootId;
             }
 
-            public void EnterFrame(OpId id, OpId rootId)
+            public void EnterFrame(
+                OpId id,
+                OpId rootId,
+                IReadOnlyList<BoundFactListenerRegistration> factListeners)
             {
                 RequireCurrentRoot(rootId);
                 if (!activeFrames.Add(id))
                     throw new InvalidOperationException($"Operation {id.Value} began executing more than once.");
+                frameFactListeners.Add(
+                    id,
+                    factListeners ?? throw new ArgumentNullException(nameof(factListeners)));
             }
 
             public void ExitFrame(OpId id, OpId rootId)
@@ -1490,6 +1512,8 @@ namespace Game.Rules.Runtime
                 }
                 if (!activeFrames.Remove(id))
                     throw new InvalidOperationException($"Operation {id.Value} was not actively executing.");
+                if (!frameFactListeners.Remove(id))
+                    throw new InvalidOperationException($"Operation {id.Value} has no listener selection.");
                 sealedFrames.Remove(id);
             }
 
@@ -1551,9 +1575,17 @@ namespace Game.Rules.Runtime
                     throw new InvalidOperationException("A reducer returned a Fact for a different source operation.");
                 if (fact.RootOpId != rootId || rootId != RootId)
                     throw new InvalidOperationException("A reducer emitted a Fact across resolution roots.");
+                if (!frameFactListeners.TryGetValue(
+                    sourceId,
+                    out IReadOnlyList<BoundFactListenerRegistration> eligibleListeners))
+                {
+                    throw new InvalidOperationException(
+                        "A committed Fact has no source-frame listener selection.");
+                }
                 if (!factIds.Add(fact.Id) || !factReferences.Add(fact))
                     throw new InvalidOperationException("A committed Fact was aggregated more than once.");
                 Facts.Add(fact);
+                CommittedFacts.Add(new CommittedFactRecord(fact, eligibleListeners));
             }
 
             private void RequireCurrentRoot(OpId rootId)

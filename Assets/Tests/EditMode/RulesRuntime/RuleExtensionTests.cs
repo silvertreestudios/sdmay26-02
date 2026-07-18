@@ -290,6 +290,120 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task ListenerEnabledAfterEarlierFactReceivesOnlyLaterFrames()
+        {
+            CounterFactRecordingListener listener = new CounterFactRecordingListener();
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).FactListener(
+                RuleLifecyclePhase.Observation,
+                listener);
+            ActiveRuleBinding binding = Binding(
+                "enabled-between-facts",
+                DefinitionA,
+                0,
+                false);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore(binding))
+                .RegisterHandler<ActivateBindingBetweenIncrementsOp, int>(
+                    new ActivateBindingBetweenIncrementsHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .RegisterReducer<SetBindingEnabledOp, bool>(
+                    new SetBindingEnabledReducer(),
+                    Source)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            OpResult<int> result = await dispatcher.Dispatch(
+                new ActivateBindingBetweenIncrementsOp(binding, false));
+
+            Assert.That(RequireResolved(result).Value, Is.EqualTo(13));
+            Assert.That(listener.ObservedValues, Is.EqualTo(new[] { 13 }));
+        }
+
+        [Test]
+        public async Task ListenerAddedAfterEarlierFactReceivesOnlyLaterFrames()
+        {
+            CounterFactRecordingListener listener = new CounterFactRecordingListener();
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).FactListener(
+                RuleLifecyclePhase.Observation,
+                listener);
+            ActiveRuleBinding binding = Binding("added-between-facts", DefinitionA, 0);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore())
+                .RegisterHandler<ActivateBindingBetweenIncrementsOp, int>(
+                    new ActivateBindingBetweenIncrementsHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .RegisterReducer<AddBindingOp, bool>(new AddBindingReducer(), Source)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            OpResult<int> result = await dispatcher.Dispatch(
+                new ActivateBindingBetweenIncrementsOp(binding, true));
+
+            Assert.That(RequireResolved(result).Value, Is.EqualTo(13));
+            Assert.That(listener.ObservedValues, Is.EqualTo(new[] { 13 }));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task EligibleListenerDeactivatedBeforeDeliveryIsSkipped(bool remove)
+        {
+            CounterFactRecordingListener listener = new CounterFactRecordingListener();
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).FactListener(
+                RuleLifecyclePhase.Observation,
+                listener);
+            ActiveRuleBinding binding = Binding("deactivated-before-delivery", DefinitionA, 0);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore(binding))
+                .RegisterHandler<DeactivateBindingAfterIncrementOp, int>(
+                    new DeactivateBindingAfterIncrementHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .RegisterReducer<SetBindingEnabledOp, bool>(
+                    new SetBindingEnabledReducer(),
+                    Source)
+                .RegisterReducer<RemoveBindingOp, bool>(
+                    new RemoveBindingReducer(),
+                    Source)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            await dispatcher.Dispatch(
+                new DeactivateBindingAfterIncrementOp(binding.Id, remove));
+
+            Assert.That(listener.ObservedValues, Is.Empty);
+        }
+
+        [Test]
+        public async Task BatchListenerIncludesOnlyFactsFromEligibleSourceFrames()
+        {
+            BatchRecordingListener listener = new BatchRecordingListener();
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).FactBatchListener(
+                RuleLifecyclePhase.Observation,
+                listener);
+            ActiveRuleBinding binding = Binding(
+                "batch-enabled-between-facts",
+                DefinitionA,
+                0,
+                false);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore(binding))
+                .RegisterHandler<ActivateBindingBetweenIncrementsOp, int>(
+                    new ActivateBindingBetweenIncrementsHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .RegisterReducer<SetBindingEnabledOp, bool>(
+                    new SetBindingEnabledReducer(),
+                    Source)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            await dispatcher.Dispatch(
+                new ActivateBindingBetweenIncrementsOp(binding, false));
+
+            Assert.That(listener.Batches, Has.Count.EqualTo(1));
+            Assert.That(listener.Batches[0].Facts.Select(fact => fact.Current),
+                Is.EqualTo(new[] { 13 }));
+        }
+
+        [Test]
         public async Task FactListenerDispatchStartsANewCausallyLinkedRoot()
         {
             ReactionHandler reactionHandler = new ReactionHandler();
@@ -1083,6 +1197,67 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
+        private sealed class ActivateBindingBetweenIncrementsOp : IRuleOp<int>
+        {
+            public ActiveRuleBinding Binding { get; }
+            public bool AddBinding { get; }
+
+            public ActivateBindingBetweenIncrementsOp(
+                ActiveRuleBinding binding,
+                bool addBinding)
+            {
+                Binding = binding;
+                AddBinding = addBinding;
+            }
+        }
+
+        private sealed class ActivateBindingBetweenIncrementsHandler :
+            IOpHandler<ActivateBindingBetweenIncrementsOp, int>
+        {
+            public async ValueTask<int> Handle(
+                OpFrame<ActivateBindingBetweenIncrementsOp> frame,
+                OpContext context)
+            {
+                await context.Dispatch(new IncrementOp(1));
+                if (frame.Op.AddBinding)
+                    await context.Dispatch(new AddBindingOp(frame.Op.Binding));
+                else
+                    await context.Dispatch(new SetBindingEnabledOp(frame.Op.Binding.Id, true));
+                OpResult<int> later = await context.Dispatch(new IncrementOp(2));
+                return RequireResolved(later).Value;
+            }
+        }
+
+        private sealed class DeactivateBindingAfterIncrementOp : IRuleOp<int>
+        {
+            public BindingId BindingId { get; }
+            public bool RemoveBinding { get; }
+
+            public DeactivateBindingAfterIncrementOp(
+                BindingId bindingId,
+                bool removeBinding)
+            {
+                BindingId = bindingId;
+                RemoveBinding = removeBinding;
+            }
+        }
+
+        private sealed class DeactivateBindingAfterIncrementHandler :
+            IOpHandler<DeactivateBindingAfterIncrementOp, int>
+        {
+            public async ValueTask<int> Handle(
+                OpFrame<DeactivateBindingAfterIncrementOp> frame,
+                OpContext context)
+            {
+                OpResult<int> changed = await context.Dispatch(new IncrementOp(1));
+                if (frame.Op.RemoveBinding)
+                    await context.Dispatch(new RemoveBindingOp(frame.Op.BindingId));
+                else
+                    await context.Dispatch(new SetBindingEnabledOp(frame.Op.BindingId, false));
+                return RequireResolved(changed).Value;
+            }
+        }
+
         private sealed class IncrementOp : IRuleOp<int>
         {
             public int Amount { get; }
@@ -1134,6 +1309,28 @@ namespace Game.Rules.Runtime.Tests
                 state.Health.Set(Creature, changed);
                 facts.Stage(new CounterChangedFact(previous.Current, changed.Current));
                 return ReductionResult<int>.Accept(changed.Current);
+            }
+        }
+
+        private sealed class AddBindingOp : IRuleOp<bool>
+        {
+            public ActiveRuleBinding Binding { get; }
+
+            public AddBindingOp(ActiveRuleBinding binding) => Binding = binding;
+        }
+
+        private sealed class AddBindingReducer : IOpReducer<AddBindingOp, bool>
+        {
+            public ReductionResult<bool> Reduce(
+                ReductionContext<AddBindingOp> context,
+                RulesStateDraft state,
+                FactSink facts)
+            {
+                if (state.RuleBindings.Contains(context.Op.Binding.Id))
+                    return ReductionResult<bool>.Reject("Binding already exists.");
+                state.RuleBindings.Set(context.Op.Binding.Id, context.Op.Binding);
+                facts.Stage(new BindingChangedFact(context.Op.Binding.Id, true));
+                return ReductionResult<bool>.Accept(true);
             }
         }
 
@@ -1282,6 +1479,21 @@ namespace Game.Rules.Runtime.Tests
                 Assert.That(context.Binding, Is.SameAs(binding));
                 Assert.That(context.Source, Is.EqualTo(binding.Source));
                 ObservedValues.Add(current);
+                return default;
+            }
+        }
+
+        private sealed class CounterFactRecordingListener :
+            IFactListener<CounterChangedFact>
+        {
+            public List<int> ObservedValues { get; } = new List<int>();
+
+            public ValueTask OnFactCommitted(
+                ActiveRuleBinding binding,
+                CounterChangedFact fact,
+                FactContext context)
+            {
+                ObservedValues.Add(fact.Current);
                 return default;
             }
         }

@@ -85,7 +85,11 @@ namespace Game.Rules.Runtime
     /// <typeparam name="TFact">The committed Fact type observed by the listener.</typeparam>
     /// <remarks>
     /// A listener cannot change or cancel the state transition described by the Fact. It may
-    /// dispatch a new, causally linked root operation through <see cref="FactContext"/>.
+    /// dispatch a new, causally linked root operation through <see cref="FactContext"/>. Listener
+    /// eligibility is frozen when the Fact's source operation frame begins, then the binding is
+    /// checked again immediately before notification. A binding enabled or created by a frame
+    /// cannot observe that frame's Facts, while a binding disabled, removed, or changed before
+    /// delivery is skipped.
     /// </remarks>
     public interface IFactListener<TFact>
         where TFact : RuleFact
@@ -107,6 +111,10 @@ namespace Game.Rules.Runtime
     /// Reacts once to all matching Facts committed by one completed root resolution.
     /// </summary>
     /// <typeparam name="TFact">The committed Fact type grouped for the listener.</typeparam>
+    /// <remarks>
+    /// A batch contains only the root's matching Facts whose source frames began while the
+    /// binding was eligible. The binding must also remain active when delivery begins.
+    /// </remarks>
     public interface IFactBatchListener<TFact>
         where TFact : RuleFact
     {
@@ -394,7 +402,8 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// Definitions are immutable after construction and contain no per-binding mutable state.
     /// Runtime participation is controlled exclusively by matching <see cref="ActiveRuleBinding"/>
-    /// values in the current <see cref="RulesSnapshot"/>.
+    /// values selected from an operation frame's start <see cref="RulesSnapshot"/>. Middleware and
+    /// Fact delivery recheck the live snapshot before invoking a selected binding.
     /// </remarks>
     public sealed class RuleDefinition
     {
@@ -667,12 +676,11 @@ namespace Game.Rules.Runtime
             return selected;
         }
 
-        internal IReadOnlyList<FactListenerDelivery> SelectFactListeners(
-            OpId rootId,
-            IReadOnlyList<RuleFact> facts,
+        internal IReadOnlyList<BoundFactListenerRegistration> SelectFactListeners(
             RulesSnapshot snapshot)
         {
-            List<FactListenerDelivery> selected = new List<FactListenerDelivery>();
+            List<BoundFactListenerRegistration> selected =
+                new List<BoundFactListenerRegistration>();
             foreach (KeyValuePair<BindingId, ActiveRuleBinding> pair in snapshot.RuleBindings)
             {
                 ActiveRuleBinding binding = pair.Value;
@@ -680,21 +688,49 @@ namespace Game.Rules.Runtime
                     continue;
                 RuleDefinition definition = RequireDefinition(binding.DefinitionId);
                 foreach (FactListenerRegistration registration in definition.FactListeners)
+                    selected.Add(new BoundFactListenerRegistration(binding, registration));
+            }
+
+            selected.Sort(BoundFactListenerRegistration.Compare);
+            return Array.AsReadOnly(selected.ToArray());
+        }
+
+        internal IReadOnlyList<FactListenerDelivery> BuildFactListenerDeliveries(
+            OpId rootId,
+            IReadOnlyList<CommittedFactRecord> committedFacts)
+        {
+            Dictionary<FactListenerDeliveryKey, List<RuleFact>> groupedFacts =
+                new Dictionary<FactListenerDeliveryKey, List<RuleFact>>();
+            foreach (CommittedFactRecord committed in committedFacts)
+            {
+                foreach (BoundFactListenerRegistration listener in committed.EligibleListeners)
                 {
-                    RuleFact[] matching = facts.Where(registration.Matches).ToArray();
-                    if (matching.Length > 0)
+                    if (!listener.Registration.Matches(committed.Fact))
+                        continue;
+
+                    FactListenerDeliveryKey key = new FactListenerDeliveryKey(
+                        listener.Binding,
+                        listener.Registration);
+                    if (!groupedFacts.TryGetValue(key, out List<RuleFact> matching))
                     {
-                        selected.Add(new FactListenerDelivery(
-                            binding,
-                            registration,
-                            rootId,
-                            Array.AsReadOnly(matching)));
+                        matching = new List<RuleFact>();
+                        groupedFacts.Add(key, matching);
                     }
+                    matching.Add(committed.Fact);
                 }
             }
 
-            selected.Sort(FactListenerDelivery.Compare);
-            return selected;
+            List<FactListenerDelivery> deliveries = new List<FactListenerDelivery>();
+            foreach (KeyValuePair<FactListenerDeliveryKey, List<RuleFact>> pair in groupedFacts)
+            {
+                deliveries.Add(new FactListenerDelivery(
+                    pair.Key.Binding,
+                    pair.Key.Registration,
+                    rootId,
+                    Array.AsReadOnly(pair.Value.ToArray())));
+            }
+            deliveries.Sort(FactListenerDelivery.Compare);
+            return Array.AsReadOnly(deliveries.ToArray());
         }
 
         internal bool IsActive(RulesSnapshot snapshot, ActiveRuleBinding binding) =>
@@ -740,6 +776,137 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Freezes one binding's listener eligibility at an operation frame's start boundary.
+    /// </summary>
+    /// <remarks>
+    /// The binding and registration are immutable, so retaining this pair for committed Facts
+    /// preserves the selection decision without retaining the frame's complete rules snapshot.
+    /// </remarks>
+    internal sealed class BoundFactListenerRegistration
+    {
+        public ActiveRuleBinding Binding { get; }
+        public FactListenerRegistration Registration { get; }
+
+        public BoundFactListenerRegistration(
+            ActiveRuleBinding binding,
+            FactListenerRegistration registration)
+        {
+            Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+            Registration = registration ?? throw new ArgumentNullException(nameof(registration));
+        }
+
+        public static int Compare(
+            BoundFactListenerRegistration left,
+            BoundFactListenerRegistration right) =>
+            Compare(
+                left.Binding,
+                left.Registration,
+                right.Binding,
+                right.Registration);
+
+        internal static int Compare(
+            ActiveRuleBinding leftBinding,
+            FactListenerRegistration leftRegistration,
+            ActiveRuleBinding rightBinding,
+            FactListenerRegistration rightRegistration)
+        {
+            int phase = leftRegistration.Phase.CompareTo(rightRegistration.Phase);
+            if (phase != 0)
+                return phase;
+            int creation = leftBinding.CreationOrder.CompareTo(rightBinding.CreationOrder);
+            if (creation != 0)
+                return creation;
+            int id = string.Compare(
+                leftBinding.Id.Value,
+                rightBinding.Id.Value,
+                StringComparison.Ordinal);
+            if (id != 0)
+                return id;
+            int registration = leftRegistration.RegistrationOrder.CompareTo(
+                rightRegistration.RegistrationOrder);
+            if (registration != 0)
+                return registration;
+
+            // A binding ID normally names one immutable value throughout a root. These final
+            // comparisons keep delivery stable even if a root removes and recreates that ID with
+            // different provenance before notification.
+            int definition = string.Compare(
+                leftBinding.DefinitionId.Value,
+                rightBinding.DefinitionId.Value,
+                StringComparison.Ordinal);
+            if (definition != 0)
+                return definition;
+            int owner = string.Compare(
+                leftBinding.Owner.Value,
+                rightBinding.Owner.Value,
+                StringComparison.Ordinal);
+            if (owner != 0)
+                return owner;
+            string leftEffect = leftBinding.EffectId.HasValue
+                ? leftBinding.EffectId.Value.Value
+                : string.Empty;
+            string rightEffect = rightBinding.EffectId.HasValue
+                ? rightBinding.EffectId.Value.Value
+                : string.Empty;
+            int effect = string.Compare(leftEffect, rightEffect, StringComparison.Ordinal);
+            if (effect != 0)
+                return effect;
+            int source = string.Compare(
+                leftBinding.Source.Slug,
+                rightBinding.Source.Slug,
+                StringComparison.Ordinal);
+            if (source != 0)
+                return source;
+            return leftBinding.IsEnabled.CompareTo(rightBinding.IsEnabled);
+        }
+    }
+
+    /// <summary>
+    /// Associates one Fact with the immutable listeners selected by its source frame.
+    /// </summary>
+    internal sealed class CommittedFactRecord
+    {
+        public RuleFact Fact { get; }
+        public IReadOnlyList<BoundFactListenerRegistration> EligibleListeners { get; }
+
+        public CommittedFactRecord(
+            RuleFact fact,
+            IReadOnlyList<BoundFactListenerRegistration> eligibleListeners)
+        {
+            Fact = fact ?? throw new ArgumentNullException(nameof(fact));
+            EligibleListeners = eligibleListeners ??
+                throw new ArgumentNullException(nameof(eligibleListeners));
+        }
+    }
+
+    /// <summary>
+    /// Groups eligible Facts only when both the immutable binding value and static registration
+    /// match, so a recreated binding cannot inherit an earlier binding version's eligibility.
+    /// </summary>
+    internal sealed class FactListenerDeliveryKey : IEquatable<FactListenerDeliveryKey>
+    {
+        public ActiveRuleBinding Binding { get; }
+        public FactListenerRegistration Registration { get; }
+
+        public FactListenerDeliveryKey(
+            ActiveRuleBinding binding,
+            FactListenerRegistration registration)
+        {
+            Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+            Registration = registration ?? throw new ArgumentNullException(nameof(registration));
+        }
+
+        public bool Equals(FactListenerDeliveryKey other) =>
+            other != null && Binding.Equals(other.Binding) &&
+            ReferenceEquals(Registration, other.Registration);
+
+        public override bool Equals(object obj) =>
+            obj is FactListenerDeliveryKey other && Equals(other);
+
+        public override int GetHashCode() => HashCode.Combine(Binding, Registration);
+    }
+
     internal sealed class FactListenerDelivery
     {
         public ActiveRuleBinding Binding { get; }
@@ -760,18 +927,11 @@ namespace Game.Rules.Runtime
         }
 
         public static int Compare(FactListenerDelivery left, FactListenerDelivery right)
-        {
-            int phase = left.Registration.Phase.CompareTo(right.Registration.Phase);
-            if (phase != 0)
-                return phase;
-            int creation = left.Binding.CreationOrder.CompareTo(right.Binding.CreationOrder);
-            if (creation != 0)
-                return creation;
-            int id = string.Compare(left.Binding.Id.Value, right.Binding.Id.Value, StringComparison.Ordinal);
-            if (id != 0)
-                return id;
-            return left.Registration.RegistrationOrder.CompareTo(right.Registration.RegistrationOrder);
-        }
+            => BoundFactListenerRegistration.Compare(
+                left.Binding,
+                left.Registration,
+                right.Binding,
+                right.Registration);
     }
 
     internal sealed class TypedMiddlewareRegistration<TOp, TResult> : MiddlewareRegistration
