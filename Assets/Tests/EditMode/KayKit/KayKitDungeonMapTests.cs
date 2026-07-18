@@ -80,6 +80,18 @@ public sealed class KayKitDungeonMapTests
             error.IndexOf(expected, StringComparison.OrdinalIgnoreCase) >= 0), Is.True);
     }
 
+    [TestCase(@"{""version"":1,""version"":2,""rows"":["".""],""objects"":[]}")]
+    [TestCase(@"{""version"":2,""version"":1,""rows"":["".""],""objects"":[]}")]
+    public void JsonRoot_RejectsDuplicateVersionBeforeDispatch(string json)
+    {
+        KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(json, Catalog());
+
+        Assert.That(result.IsValid, Is.False);
+        Assert.That(result.Map, Is.Null);
+        Assert.That(result.Errors, Has.Some.EqualTo(
+            "JSON map root property 'version' must not be repeated."));
+    }
+
     [Test]
     public void JsonMap_RejectsDuplicateCatalogIds()
     {

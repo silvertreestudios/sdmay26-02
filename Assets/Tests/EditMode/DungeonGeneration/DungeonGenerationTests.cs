@@ -43,7 +43,7 @@ public sealed class DungeonGenerationTests
         using (SHA256 sha256 = SHA256.Create())
             hash = BitConverter.ToString(sha256.ComputeHash(Encoding.UTF8.GetBytes(first))).Replace("-", string.Empty).ToLowerInvariant();
         TestContext.WriteLine("golden sha256=" + hash);
-        Assert.That(hash, Is.EqualTo("dae24599310f72fa074aaed098cda6d3e830c9bb0bcbee3dc8c1713d67691e6f"));
+        Assert.That(hash, Is.EqualTo("ff987538054fb5178b3c6f75cadb549373cdda1adf2337b14dcd498862109239"));
     }
 
     [Test]
@@ -89,6 +89,78 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
+    public void StartSelection_UsesDocumentedZeroOneAndTwoStairFallbacks()
+    {
+        DungeonCell downCell = new(1, 1);
+        DungeonCell downArrival = new(1, 2);
+        DungeonCell ordinarySafeCell = new(5, 5);
+        DungeonCell upArrival = new(8, 7);
+        DungeonStair down = new("stair-down", DungeonStairKind.Down, downCell, downArrival);
+        DungeonStair up = new("stair-up", DungeonStairKind.Up, new DungeonCell(8, 8), upArrival);
+
+        Assert.That(
+            DeterministicDungeonGenerator.SelectStartCell(
+                Array.Empty<DungeonStair>(),
+                new[] { ordinarySafeCell, downArrival }),
+            Is.EqualTo(ordinarySafeCell),
+            "zero stairs use the first safe cell");
+        Assert.That(
+            DeterministicDungeonGenerator.SelectStartCell(
+                new[] { down },
+                new[] { downArrival, downCell, ordinarySafeCell }),
+            Is.EqualTo(ordinarySafeCell),
+            "one Down stair avoids both its endpoint and arrival when possible");
+        Assert.That(
+            DeterministicDungeonGenerator.SelectStartCell(
+                new[] { down },
+                new[] { downArrival }),
+            Is.EqualTo(downArrival),
+            "one Down stair falls back to the first safe cell when no alternative exists");
+        Assert.That(
+            DeterministicDungeonGenerator.SelectStartCell(
+                new[] { down, up },
+                new[] { downArrival, ordinarySafeCell, upArrival }),
+            Is.EqualTo(upArrival),
+            "two stairs prefer the Up arrival while preserving down-before-up records");
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    public void GeneratedStart_FollowsDocumentedStairCountSemantics(int stairCount)
+    {
+        DungeonGenerationRequest request = Request(152, 31, 31);
+        request.StairCount = stairCount;
+
+        DungeonGenerationResult result = new DeterministicDungeonGenerator().Generate(request);
+
+        Assert.That(result.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(result.Document.Stairs.Count, Is.EqualTo(stairCount));
+        Assert.That(
+            result.Document.StartCell,
+            Is.EqualTo(DeterministicDungeonGenerator.SelectStartCell(
+                result.Document.Stairs,
+                result.Document.SafeCells)));
+        if (stairCount == 2)
+        {
+            Assert.That(result.Document.Stairs[0].Kind, Is.EqualTo(DungeonStairKind.Down));
+            Assert.That(result.Document.Stairs[1].Kind, Is.EqualTo(DungeonStairKind.Up));
+            Assert.That(result.Document.StartCell, Is.EqualTo(result.Document.Stairs[1].ArrivalCell));
+        }
+        else if (stairCount == 1)
+        {
+            Assert.That(result.Document.Stairs[0].Kind, Is.EqualTo(DungeonStairKind.Down));
+            Assert.That(result.Document.StartCell, Is.Not.EqualTo(result.Document.Stairs[0].Cell));
+            Assert.That(result.Document.StartCell, Is.Not.EqualTo(result.Document.Stairs[0].ArrivalCell));
+        }
+        else
+        {
+            Assert.That(result.Document.StartCell, Is.EqualTo(result.Document.SafeCells[0]));
+        }
+    }
+
+    [Test]
     public void KayKitParser_AcceptsVersionTwoAndRetainsLosslessDocument()
     {
         string json = GenerateJson(Request(-17, 31, 31));
@@ -112,6 +184,31 @@ public sealed class DungeonGenerationTests
                 typeof(bool[,]),
                 typeof(IReadOnlyList<KayKitDungeonObjectPlacement>)
             }), Is.Not.Null);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(catalog);
+        }
+    }
+
+    [Test]
+    public void KayKitParser_RejectsDuplicateVersionBeforeV2PayloadCanBeDiscarded()
+    {
+        string v2 = GenerateJson(Request(152, 31, 31));
+        string duplicateVersion = v2.Replace(
+            "\"version\":2",
+            "\"version\":2,\"version\":1");
+        KayKitDungeonCatalog catalog = ScriptableObject.CreateInstance<KayKitDungeonCatalog>();
+        try
+        {
+            KayKitDungeonMapParseResult result = KayKitDungeonMapParser.Parse(
+                duplicateVersion,
+                catalog);
+
+            Assert.That(result.IsValid, Is.False);
+            Assert.That(result.Map, Is.Null);
+            Assert.That(result.Errors, Has.Some.EqualTo(
+                "JSON map root property 'version' must not be repeated."));
         }
         finally
         {
@@ -503,9 +600,9 @@ public sealed class DungeonGenerationTests
         };
         string[] expected =
         {
-            "94aa8afb226d349a681c25732a03a56fdd8e7e21a6924eec4a4432710491a003",
-            "f250a16733bc6f33674f373479a0feaf29784c9d46b655b71e9c4d962f27099b",
-            "664e1af3885cdd5f67db0e89752faf673eba07a5480e7a565a1dab56f4a49020"
+            "5cf543f8f165f035908a9f981ed7ae5e3b52c918b03f2ce8c45ac1661856ca7e",
+            "c0c3eccf0f75919f62d1507eaa7f710b86f338b8b7f4e52deb82f3d601b0beb2",
+            "fc8e3f28a3d550adc54f88a19b98696ee75994a166c3faebb6be765927b89cab"
         };
         List<string> actual = new();
         foreach (var item in cases)
@@ -621,7 +718,10 @@ public sealed class DungeonGenerationTests
         if (document.Stairs.Count > 0)
             Assert.That(document.Stairs[0].Kind, Is.EqualTo(DungeonStairKind.Down), "down-first seed " + seed);
         if (document.Stairs.Count > 1)
+        {
             Assert.That(document.Stairs[1].Kind, Is.EqualTo(DungeonStairKind.Up), "up-second seed " + seed);
+            Assert.That(document.StartCell, Is.EqualTo(document.Stairs[1].ArrivalCell), "up arrival start seed " + seed);
+        }
 
         Queue<DungeonCell> queue = new(); HashSet<DungeonCell> reached = new() { walkable.First() }; queue.Enqueue(walkable.First());
         while (queue.Count > 0)

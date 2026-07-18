@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using Game.DungeonGeneration;
 using GridPrivate;
@@ -128,6 +129,12 @@ namespace Game.KayKit
             DungeonLevelDocument levelDocument = null;
             try
             {
+                if (TryFindDuplicateRootProperty(json, out string duplicateProperty))
+                {
+                    return Invalid(
+                        $"JSON map root property '{duplicateProperty}' must not be repeated.");
+                }
+
                 root = JObject.Parse(json);
             }
             catch (JsonException exception)
@@ -213,6 +220,31 @@ namespace Game.KayKit
             return new KayKitDungeonMapParseResult(
                 new KayKitDungeonMapData(version.Value, grid, lineOfSightBlocks, deterministicPlacements, levelDocument),
                 Array.Empty<string>());
+        }
+
+        // Routing must inspect a unique root version before JObject's default last-value-wins
+        // materialization. Only depth-one properties are checked here so legacy v1 nested parsing
+        // behavior remains unchanged; strict v2 parsing still rejects duplicates at every depth.
+        private static bool TryFindDuplicateRootProperty(string json, out string duplicateProperty)
+        {
+            duplicateProperty = string.Empty;
+            HashSet<string> rootProperties = new(StringComparer.Ordinal);
+            using StringReader source = new(json);
+            using JsonTextReader reader = new(source);
+            while (reader.Read())
+            {
+                if (reader.TokenType != JsonToken.PropertyName || reader.Depth != 1)
+                    continue;
+
+                string propertyName = reader.Value?.ToString() ?? string.Empty;
+                if (!rootProperties.Add(propertyName))
+                {
+                    duplicateProperty = propertyName;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static JObject RuntimeProjection(DungeonLevelDocument document)

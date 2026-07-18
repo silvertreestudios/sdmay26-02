@@ -140,6 +140,39 @@ namespace Game.DungeonGeneration
             return false;
         }
 
+        /// <summary>
+        /// Selects the generated arrival default without coupling it to Donjon's down-before-up
+        /// stair record order. Two-stair levels use the Up arrival. A one-stair level has only a
+        /// Down stair, so it uses the first ordered safe cell outside that stair's endpoint and
+        /// arrival when possible. Zero-stair levels use the first safe cell. If every safe cell is
+        /// associated with a Down stair, the first safe cell is the deterministic last resort.
+        /// </summary>
+        /// <param name="stairs">The generated stairs in stable traversal order.</param>
+        /// <param name="safeCells">The non-empty ordered safe-cell collection.</param>
+        /// <returns>The deterministic default player start.</returns>
+        internal static DungeonCell SelectStartCell(
+            IReadOnlyList<DungeonStair> stairs,
+            IReadOnlyList<DungeonCell> safeCells)
+        {
+            foreach (DungeonStair stair in stairs)
+            {
+                if (stair.Kind == DungeonStairKind.Up)
+                    return stair.ArrivalCell;
+            }
+
+            HashSet<DungeonCell> downCells = new(
+                stairs
+                    .Where(stair => stair.Kind == DungeonStairKind.Down)
+                    .SelectMany(stair => new[] { stair.Cell, stair.ArrivalCell }));
+            foreach (DungeonCell safeCell in safeCells)
+            {
+                if (!downCells.Contains(safeCell))
+                    return safeCell;
+            }
+
+            return safeCells[0];
+        }
+
         private enum CellKind : byte { Empty, Masked, Room, Corridor, Door }
 
         private sealed class Attempt
@@ -181,7 +214,7 @@ namespace Game.DungeonGeneration
                 if (!HasValidDoors()) { rejection = "A generated door did not retain two opposite walkable neighbors or a unique stable record."; return false; }
                 List<DungeonCell> safe = BuildSafeCells();
                 if (safe.Count == 0) { rejection = "No valid safe arrival cell remained after cleanup."; return false; }
-                DungeonCell start = stairs.Count > 0 ? stairs[0].ArrivalCell : safe[0];
+                DungeonCell start = SelectStartCell(stairs, safe);
                 DungeonGenerationMetadata metadata = new(
                     "donjon-logical-splitmix64", 1, request.RunSeed, request.Depth, attempt,
                     DungeonSeedSequence.FormatState(DungeonSeedSequence.ForDepth(request.RunSeed, request.Depth)),
