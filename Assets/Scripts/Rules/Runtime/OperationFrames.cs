@@ -32,8 +32,14 @@ namespace Game.Rules.Runtime
         public OpId? ParentId { get; }
 
         /// <summary>
-        /// Gets the operation that caused this invocation, or <see langword="null"/> for a root frame.
+        /// Gets the operation that caused this invocation, or <see langword="null"/> when the
+        /// invocation has no causal operation.
         /// </summary>
+        /// <remarks>
+        /// Execution nesting and causal provenance are independent. A root frame has no
+        /// <see cref="ParentId"/>, but it can have a cause when a committed Fact starts a
+        /// listener-dispatched causal root.
+        /// </remarks>
         public OpId? CauseId { get; }
 
         /// <summary>
