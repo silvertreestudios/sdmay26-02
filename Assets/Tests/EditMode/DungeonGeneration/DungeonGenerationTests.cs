@@ -47,6 +47,48 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
+    public void ConnectorSearch_UsesStableCoordinateOrderForReachableEqualLengthPaths()
+    {
+        DungeonCell lowOrigin = new(0, 0);
+        DungeonCell highOrigin = new(0, 2);
+        HashSet<DungeonCell> targets = new()
+        {
+            new DungeonCell(2, 0),
+            new DungeonCell(2, 2)
+        };
+        HashSet<DungeonCell> traversable = new()
+        {
+            new DungeonCell(1, 0),
+            new DungeonCell(1, 2)
+        };
+
+        bool forwardFound = DeterministicDungeonGenerator.TryFindConnectorPath(
+            3,
+            3,
+            new[] { lowOrigin, highOrigin },
+            targets.Contains,
+            traversable.Contains,
+            out IReadOnlyList<DungeonCell> forward);
+        bool reverseFound = DeterministicDungeonGenerator.TryFindConnectorPath(
+            3,
+            3,
+            new[] { highOrigin, lowOrigin },
+            targets.Contains,
+            traversable.Contains,
+            out IReadOnlyList<DungeonCell> reverse);
+
+        DungeonCell[] expected =
+        {
+            new DungeonCell(1, 0),
+            new DungeonCell(2, 0)
+        };
+        Assert.That(forwardFound, Is.True);
+        Assert.That(reverseFound, Is.True);
+        Assert.That(forward, Is.EqualTo(expected));
+        Assert.That(reverse, Is.EqualTo(expected));
+    }
+
+    [Test]
     public void KayKitParser_AcceptsVersionTwoAndRetainsLosslessDocument()
     {
         string json = GenerateJson(Request(-17, 31, 31));
@@ -106,6 +148,40 @@ public sealed class DungeonGenerationTests
         Assert.That(parsed.Document.Generation.RunSeed, Is.EqualTo(long.MinValue));
         Assert.That(parsed.Document.EncounterPlans[0].Threat, Is.EqualTo(DungeonEncounterThreat.Low));
         Assert.That(parsed.Document.EncounterPlans[0].Budget, Is.EqualTo(60));
+    }
+
+    [Test]
+    public void DocumentSnapshots_ProtectTopLevelAndNestedCollectionOwnership()
+    {
+        DungeonLevelDocument document = ContractDocument();
+        string originalJson = DungeonLevelJsonSerializer.Serialize(document);
+
+        object[] snapshots =
+        {
+            document.Rows,
+            document.Rooms,
+            document.Doors,
+            document.Stairs,
+            document.SafeCells,
+            document.Objects,
+            document.EncounterPlans,
+            document.EncounterPlans[0].SpawnCells,
+            document.EncounterPlans[0].CreatureIds,
+            document.RuntimeState.OpenDoorIds,
+            document.RuntimeState.ResolvedEncounterIds,
+            document.RuntimeState.DefeatedCreatureIds,
+            document.RuntimeState.Creatures
+        };
+        Assert.That(snapshots.All(snapshot => !snapshot.GetType().IsArray), Is.True);
+
+        Assert.Throws<NotSupportedException>(
+            () => ((IList<string>)document.Rows)[0] = "###");
+        Assert.Throws<NotSupportedException>(
+            () => ((IList<DungeonCell>)document.EncounterPlans[0].SpawnCells)[0] =
+                new DungeonCell(1, 1));
+        Assert.Throws<NotSupportedException>(
+            () => ((IList<string>)document.RuntimeState.OpenDoorIds)[0] = "other-door");
+        Assert.That(DungeonLevelJsonSerializer.Serialize(document), Is.EqualTo(originalJson));
     }
 
     [Test]
@@ -189,6 +265,123 @@ public sealed class DungeonGenerationTests
         Assert.That(states.Diagnostics.Select(diagnostic => diagnostic.Field), Does.Contain("objects[0].state"));
         Assert.That(states.Diagnostics.Select(diagnostic => diagnostic.Field), Does.Contain("runtimeState.creatures[0].state"));
         Assert.That(runtimeResult.Diagnostics.Select(diagnostic => diagnostic.Field), Does.Contain("runtimeState"));
+    }
+
+    [Test]
+    public void VersionTwoJson_RequiresRuntimeIdsToExactlyMirrorPersistedFlags()
+    {
+        JObject closedButListed = JObject.Parse(ContractJson());
+        ((JObject)((JArray)closedButListed["doors"])[0])["isOpen"] = false;
+        DungeonLevelParseResult closedButListedResult = DungeonLevelJsonParser.Parse(
+            closedButListed.ToString(Formatting.None));
+
+        JObject openButMissing = JObject.Parse(ContractJson());
+        ((JObject)openButMissing["runtimeState"])["openDoorIds"] = new JArray();
+        DungeonLevelParseResult openButMissingResult = DungeonLevelJsonParser.Parse(
+            openButMissing.ToString(Formatting.None));
+
+        JObject unresolvedButListed = JObject.Parse(ContractJson());
+        ((JObject)unresolvedButListed["runtimeState"])["resolvedEncounterIds"] =
+            new JArray("encounter-1");
+        DungeonLevelParseResult unresolvedButListedResult = DungeonLevelJsonParser.Parse(
+            unresolvedButListed.ToString(Formatting.None));
+
+        JObject resolvedButMissing = JObject.Parse(ContractJson());
+        ((JObject)((JArray)resolvedButMissing["encounterPlans"])[0])["isResolved"] = true;
+        DungeonLevelParseResult resolvedButMissingResult = DungeonLevelJsonParser.Parse(
+            resolvedButMissing.ToString(Formatting.None));
+
+        Assert.That(closedButListedResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(
+            diagnostic => diagnostic.Field == "runtimeState.openDoorIds" &&
+                          diagnostic.Message.Contains("exactly match")));
+        Assert.That(openButMissingResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(
+            diagnostic => diagnostic.Field == "runtimeState.openDoorIds" &&
+                          diagnostic.Message.Contains("exactly match")));
+        Assert.That(unresolvedButListedResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(
+            diagnostic => diagnostic.Field == "runtimeState.resolvedEncounterIds" &&
+                          diagnostic.Message.Contains("exactly match")));
+        Assert.That(resolvedButMissingResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(
+            diagnostic => diagnostic.Field == "runtimeState.resolvedEncounterIds" &&
+                          diagnostic.Message.Contains("exactly match")));
+    }
+
+    [Test]
+    public void VersionTwoJson_RequiresPristineFlagsWhenRuntimeStateIsAbsent()
+    {
+        JObject openDoor = JObject.Parse(ContractJson());
+        openDoor.Property("runtimeState").Remove();
+        DungeonLevelParseResult openDoorResult = DungeonLevelJsonParser.Parse(
+            openDoor.ToString(Formatting.None));
+
+        JObject resolvedEncounter = JObject.Parse(ContractJson());
+        resolvedEncounter.Property("runtimeState").Remove();
+        ((JObject)((JArray)resolvedEncounter["doors"])[0])["isOpen"] = false;
+        ((JObject)((JArray)resolvedEncounter["encounterPlans"])[0])["isResolved"] = true;
+        DungeonLevelParseResult resolvedEncounterResult = DungeonLevelJsonParser.Parse(
+            resolvedEncounter.ToString(Formatting.None));
+
+        Assert.That(openDoorResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(
+            diagnostic => diagnostic.Field == "doors" &&
+                          diagnostic.Message.Contains("runtime state is absent")));
+        Assert.That(resolvedEncounterResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(
+            diagnostic => diagnostic.Field == "encounterPlans" &&
+                          diagnostic.Message.Contains("runtime state is absent")));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsLiveCreatureContentOutsideItsEncounterPlan()
+    {
+        JObject root = JObject.Parse(ContractJson());
+        ((JObject)((JArray)((JObject)root["runtimeState"])["creatures"])[0])["creatureId"] =
+            "unplanned-creature";
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(
+            diagnostic => diagnostic.Field == "runtimeState.creatures" &&
+                          diagnostic.Message.Contains("match one available creature entry")));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsLiveCreaturesForResolvedPlansAndExcessMultiplicity()
+    {
+        JObject resolved = JObject.Parse(ContractJson());
+        ((JObject)((JArray)resolved["encounterPlans"])[0])["isResolved"] = true;
+        ((JObject)resolved["runtimeState"])["resolvedEncounterIds"] =
+            new JArray("encounter-1");
+        DungeonLevelParseResult resolvedResult = DungeonLevelJsonParser.Parse(
+            resolved.ToString(Formatting.None));
+
+        JObject excess = JObject.Parse(ContractJson());
+        JObject duplicateCreature = (JObject)((JArray)((JObject)excess["runtimeState"])["creatures"])[0]
+            .DeepClone();
+        duplicateCreature["instanceId"] = "creature-b#2";
+        ((JArray)((JObject)excess["runtimeState"])["creatures"]).Add(duplicateCreature);
+        DungeonLevelParseResult excessResult = DungeonLevelJsonParser.Parse(
+            excess.ToString(Formatting.None));
+
+        Assert.That(resolvedResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(
+            diagnostic => diagnostic.Field == "runtimeState.creatures" &&
+                          diagnostic.Message.Contains("unresolved encounter")));
+        Assert.That(excessResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(
+            diagnostic => diagnostic.Field == "runtimeState.creatures" &&
+                          diagnostic.Message.Contains("available creature entry")));
+    }
+
+    [Test]
+    public void VersionTwoJson_RequiresDefeatedAndLiveInstanceIdsToBeDisjoint()
+    {
+        JObject root = JObject.Parse(ContractJson());
+        ((JObject)root["runtimeState"])["defeatedCreatureIds"] =
+            new JArray("creature-a#1", "creature-b#1");
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None));
+
+        Assert.That(parsed.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(
+            diagnostic => diagnostic.Field == "runtimeState.defeatedCreatureIds" &&
+                          diagnostic.Message.Contains("disjoint")));
     }
 
     [Test]
@@ -348,11 +541,11 @@ public sealed class DungeonGenerationTests
                 60,
                 new[] { new DungeonCell(0, 1), new DungeonCell(2, 1) },
                 new[] { "creature-a", "creature-b" },
-                true)
+                false)
         },
         new DungeonRuntimeState(
             new[] { "door-0001" },
-            new[] { "encounter-1" },
+            Array.Empty<string>(),
             new[] { "creature-a#1" },
             new[]
             {

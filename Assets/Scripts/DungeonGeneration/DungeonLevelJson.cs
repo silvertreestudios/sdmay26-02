@@ -16,7 +16,11 @@ namespace Game.DungeonGeneration
         /// <param name="diagnostics">The deterministic diagnostics produced while reading and validating the source.</param>
         /// <exception cref="ArgumentNullException"><paramref name="diagnostics"/> is null.</exception>
         public DungeonLevelParseResult(DungeonLevelDocument document, IEnumerable<DungeonGenerationDiagnostic> diagnostics)
-        { Document = document; Diagnostics = (diagnostics ?? throw new ArgumentNullException(nameof(diagnostics))).ToArray(); }
+        {
+            Document = document;
+            Diagnostics = Array.AsReadOnly(
+                (diagnostics ?? throw new ArgumentNullException(nameof(diagnostics))).ToArray());
+        }
         /// <summary>Gets the complete lossless document, or absence when invalid.</summary>
         public DungeonLevelDocument Document { get; }
         /// <summary>Gets an immutable snapshot of deterministic schema and semantic diagnostics.</summary>
@@ -272,14 +276,117 @@ namespace Game.DungeonGeneration
                 bool valid = roomIds.Contains(plan.RoomId) && plan.Budget >= 0 && plan.SpawnCells.Count == plan.CreatureIds.Count && plan.SpawnCells.Distinct().Count() == plan.SpawnCells.Count && plan.SpawnCells.All(cell => Walkable(cell) && room != null && cell.X >= room.MinimumX && cell.X <= room.MaximumX && cell.Z >= room.MinimumZ && cell.Z <= room.MaximumZ);
                 if (!valid) errors.Add(D("encounterPlans", "Every encounter must reference a room, have a nonnegative budget, and pair each creature ID with one distinct walkable spawn cell inside that room."));
             }
-            if (runtime != null)
+            if (runtime == null)
+            {
+                if (doors.Any(door => door.IsOpen))
+                    errors.Add(D("doors", "Door open flags must be false when runtime state is absent."));
+                if (encounters.Any(plan => plan.IsResolved))
+                    errors.Add(D("encounterPlans", "Encounter resolved flags must be false when runtime state is absent."));
+            }
+            else
             {
                 HashSet<string> doorIds = new(doors.Select(door => door.Id), StringComparer.Ordinal);
                 HashSet<string> encounterIds = new(encounters.Select(plan => plan.Id), StringComparer.Ordinal);
-                if (runtime.OpenDoorIds.Distinct(StringComparer.Ordinal).Count() != runtime.OpenDoorIds.Count || runtime.OpenDoorIds.Any(id => !doorIds.Contains(id))) errors.Add(D("runtimeState.openDoorIds", "Open door IDs must be unique and reference generated doors."));
-                if (runtime.ResolvedEncounterIds.Distinct(StringComparer.Ordinal).Count() != runtime.ResolvedEncounterIds.Count || runtime.ResolvedEncounterIds.Any(id => !encounterIds.Contains(id))) errors.Add(D("runtimeState.resolvedEncounterIds", "Resolved encounter IDs must be unique and reference encounter plans."));
-                if (runtime.DefeatedCreatureIds.Distinct(StringComparer.Ordinal).Count() != runtime.DefeatedCreatureIds.Count) errors.Add(D("runtimeState.defeatedCreatureIds", "Defeated creature IDs must be unique."));
-                if (runtime.Creatures.Select(creature => creature.InstanceId).Distinct(StringComparer.Ordinal).Count() != runtime.Creatures.Count || runtime.Creatures.Any(creature => !encounterIds.Contains(creature.EncounterId) || !Walkable(creature.Cell))) errors.Add(D("runtimeState.creatures", "Creature instance IDs must be unique and each creature must reference an encounter and walkable cell."));
+                HashSet<string> openDoorIds = new(runtime.OpenDoorIds, StringComparer.Ordinal);
+                HashSet<string> flaggedOpenDoorIds = new(
+                    doors.Where(door => door.IsOpen).Select(door => door.Id),
+                    StringComparer.Ordinal);
+                if (openDoorIds.Count != runtime.OpenDoorIds.Count ||
+                    runtime.OpenDoorIds.Any(id => !doorIds.Contains(id)))
+                {
+                    errors.Add(D("runtimeState.openDoorIds", "Open door IDs must be unique and reference generated doors."));
+                }
+                if (!openDoorIds.SetEquals(flaggedOpenDoorIds))
+                {
+                    errors.Add(D(
+                        "runtimeState.openDoorIds",
+                        "Open door IDs must exactly match doors whose isOpen flag is true."));
+                }
+
+                HashSet<string> resolvedEncounterIds = new(
+                    runtime.ResolvedEncounterIds,
+                    StringComparer.Ordinal);
+                HashSet<string> flaggedResolvedEncounterIds = new(
+                    encounters.Where(plan => plan.IsResolved).Select(plan => plan.Id),
+                    StringComparer.Ordinal);
+                if (resolvedEncounterIds.Count != runtime.ResolvedEncounterIds.Count ||
+                    runtime.ResolvedEncounterIds.Any(id => !encounterIds.Contains(id)))
+                {
+                    errors.Add(D("runtimeState.resolvedEncounterIds", "Resolved encounter IDs must be unique and reference encounter plans."));
+                }
+                if (!resolvedEncounterIds.SetEquals(flaggedResolvedEncounterIds))
+                {
+                    errors.Add(D(
+                        "runtimeState.resolvedEncounterIds",
+                        "Resolved encounter IDs must exactly match encounter plans whose isResolved flag is true."));
+                }
+
+                HashSet<string> defeatedInstanceIds = new(
+                    runtime.DefeatedCreatureIds,
+                    StringComparer.Ordinal);
+                if (defeatedInstanceIds.Count != runtime.DefeatedCreatureIds.Count)
+                {
+                    errors.Add(D("runtimeState.defeatedCreatureIds", "Defeated creature instance IDs must be unique."));
+                }
+
+                HashSet<string> liveInstanceIds = new(
+                    runtime.Creatures.Select(creature => creature.InstanceId),
+                    StringComparer.Ordinal);
+                if (liveInstanceIds.Count != runtime.Creatures.Count)
+                {
+                    errors.Add(D("runtimeState.creatures", "Live creature instance IDs must be unique."));
+                }
+                if (liveInstanceIds.Overlaps(defeatedInstanceIds))
+                {
+                    errors.Add(D(
+                        "runtimeState.defeatedCreatureIds",
+                        "Defeated creature instance IDs must be disjoint from live creature instance IDs."));
+                }
+
+                Dictionary<string, DungeonEncounterPlan> encounterById =
+                    new(StringComparer.Ordinal);
+                foreach (DungeonEncounterPlan plan in encounters)
+                {
+                    if (!encounterById.ContainsKey(plan.Id))
+                        encounterById.Add(plan.Id, plan);
+                }
+
+                bool invalidLiveCreature = false;
+                foreach (DungeonCreatureRuntimeState creature in runtime.Creatures)
+                {
+                    if (!encounterById.TryGetValue(creature.EncounterId, out DungeonEncounterPlan plan) ||
+                        plan.IsResolved ||
+                        !Walkable(creature.Cell) ||
+                        !plan.CreatureIds.Contains(creature.CreatureId, StringComparer.Ordinal))
+                    {
+                        invalidLiveCreature = true;
+                    }
+                }
+
+                bool exceedsPlannedMultiplicity = runtime.Creatures
+                    .GroupBy(creature => (creature.EncounterId, creature.CreatureId))
+                    .Any(group =>
+                    {
+                        if (!encounterById.TryGetValue(
+                                group.Key.EncounterId,
+                                out DungeonEncounterPlan plan))
+                        {
+                            return true;
+                        }
+
+                        int plannedCount = plan.CreatureIds.Count(
+                            creatureId => string.Equals(
+                                creatureId,
+                                group.Key.CreatureId,
+                                StringComparison.Ordinal));
+                        return group.Count() > plannedCount;
+                    });
+                if (invalidLiveCreature || exceedsPlannedMultiplicity)
+                {
+                    errors.Add(D(
+                        "runtimeState.creatures",
+                        "Each live creature must occupy a walkable cell, reference an unresolved encounter, and match one available creature entry in that plan."));
+                }
             }
         }
         private static bool IsState(string value) => value?.Length == 16 && ulong.TryParse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _);

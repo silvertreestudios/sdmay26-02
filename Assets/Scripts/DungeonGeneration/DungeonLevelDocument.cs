@@ -64,7 +64,10 @@ namespace Game.DungeonGeneration
         public IReadOnlyList<DungeonObjectPlacement> Objects { get; }
         /// <summary>Gets deterministic encounter plans including threat, adjusted budget, creatures, and spawn cells.</summary>
         public IReadOnlyList<DungeonEncounterPlan> EncounterPlans { get; }
-        /// <summary>Gets optional mutable runtime state, or absence for a pristine generated level.</summary>
+        /// <summary>
+        /// Gets optional mutable runtime state whose door and encounter ID sets exactly mirror the
+        /// corresponding persisted flags, or absence when all persisted facts are pristine.
+        /// </summary>
         public DungeonRuntimeState RuntimeState { get; }
         /// <summary>Gets the row width, or zero when rows are absent; validated documents are rectangular.</summary>
         public int Width => Rows.Count == 0 ? 0 : Rows[0].Length;
@@ -74,7 +77,7 @@ namespace Game.DungeonGeneration
         private static IReadOnlyList<T> Copy<T>(IEnumerable<T> values, string parameter)
         {
             if (values == null) throw new ArgumentNullException(parameter);
-            return values.ToArray();
+            return Array.AsReadOnly(values.ToArray());
         }
     }
 }

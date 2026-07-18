@@ -62,6 +62,84 @@ namespace Game.DungeonGeneration
             return errors;
         }
 
+        /// <summary>
+        /// Finds the first shortest connector from a multi-cell region using coordinate-ordered
+        /// origins and the generator's fixed direction order. Hash-based collections are used only
+        /// for membership so their enumeration order cannot affect the selected topology.
+        /// </summary>
+        /// <param name="width">The exclusive horizontal map bound.</param>
+        /// <param name="height">The exclusive vertical map bound.</param>
+        /// <param name="connectedCells">The existing connected region; enumeration order is ignored.</param>
+        /// <param name="isTarget">Returns whether a candidate reaches a different acceptable region.</param>
+        /// <param name="canTraverse">Returns whether a candidate can be carved and searched.</param>
+        /// <param name="path">The origin-exclusive, target-inclusive path in carving order, or an empty list when none is reachable.</param>
+        /// <returns><see langword="true"/> when a connector reaches an acceptable target.</returns>
+        internal static bool TryFindConnectorPath(
+            int width,
+            int height,
+            IEnumerable<DungeonCell> connectedCells,
+            Func<DungeonCell, bool> isTarget,
+            Func<DungeonCell, bool> canTraverse,
+            out IReadOnlyList<DungeonCell> path)
+        {
+            if (connectedCells == null) throw new ArgumentNullException(nameof(connectedCells));
+            if (isTarget == null) throw new ArgumentNullException(nameof(isTarget));
+            if (canTraverse == null) throw new ArgumentNullException(nameof(canTraverse));
+
+            HashSet<DungeonCell> connected = new(connectedCells);
+            Queue<DungeonCell> queue = new();
+            Dictionary<DungeonCell, DungeonCell> previous = new();
+            HashSet<DungeonCell> visited = new(connected);
+            foreach (DungeonCell origin in connected
+                         .OrderBy(cell => cell.Z)
+                         .ThenBy(cell => cell.X))
+            {
+                queue.Enqueue(origin);
+            }
+
+            while (queue.Count > 0)
+            {
+                DungeonCell current = queue.Dequeue();
+                foreach (DungeonCell direction in Directions)
+                {
+                    DungeonCell next = new(current.X + direction.X, current.Z + direction.Z);
+                    if (next.X < 0 || next.Z < 0 || next.X >= width || next.Z >= height ||
+                        visited.Contains(next))
+                    {
+                        continue;
+                    }
+
+                    previous[next] = current;
+                    if (isTarget(next))
+                    {
+                        List<DungeonCell> connector = new();
+                        DungeonCell cursor = next;
+                        while (!connected.Contains(cursor))
+                        {
+                            connector.Add(cursor);
+                            cursor = previous[cursor];
+                        }
+
+                        connector.Reverse();
+                        path = Array.AsReadOnly(connector.ToArray());
+                        return true;
+                    }
+
+                    if (!canTraverse(next))
+                    {
+                        previous.Remove(next);
+                        continue;
+                    }
+
+                    visited.Add(next);
+                    queue.Enqueue(next);
+                }
+            }
+
+            path = Array.Empty<DungeonCell>();
+            return false;
+        }
+
         private enum CellKind : byte { Empty, Masked, Room, Corridor, Door }
 
         private sealed class Attempt
@@ -378,33 +456,20 @@ namespace Game.DungeonGeneration
                     HashSet<DungeonCell> connected = new(Distances(walkable[0]).Keys);
                     if (connected.Count == walkable.Count) return true;
 
-                    Queue<DungeonCell> queue = new();
-                    Dictionary<DungeonCell, DungeonCell> previous = new();
-                    HashSet<DungeonCell> visited = new(connected);
-                    foreach (DungeonCell origin in connected) queue.Enqueue(origin);
-                    DungeonCell target = default; bool found = false;
-                    while (queue.Count > 0 && !found)
-                    {
-                        DungeonCell current = queue.Dequeue();
-                        foreach (DungeonCell direction in Directions)
-                        {
-                            DungeonCell next = new(current.X + direction.X, current.Z + direction.Z);
-                            if (!InBounds(next.X, next.Z) || visited.Contains(next)) continue;
-                            if (IsWalkable(next) && !connected.Contains(next) && cells[next.X, next.Z] != CellKind.Room)
-                            {
-                                previous[next] = current; target = next; found = true; break;
-                            }
-                            if (!CanCarveConnector(next)) continue;
-                            visited.Add(next); previous[next] = current; queue.Enqueue(next);
-                        }
-                    }
+                    bool found = TryFindConnectorPath(
+                        request.Width,
+                        request.Height,
+                        connected,
+                        cell => IsWalkable(cell) &&
+                                !connected.Contains(cell) &&
+                                cells[cell.X, cell.Z] != CellKind.Room,
+                        CanCarveConnector,
+                        out IReadOnlyList<DungeonCell> connector);
                     if (!found) return false;
-                    DungeonCell cursor = target;
-                    while (!connected.Contains(cursor))
+                    foreach (DungeonCell cell in connector)
                     {
-                        if (cells[cursor.X, cursor.Z] == CellKind.Empty)
-                            cells[cursor.X, cursor.Z] = CellKind.Corridor;
-                        cursor = previous[cursor];
+                        if (cells[cell.X, cell.Z] == CellKind.Empty)
+                            cells[cell.X, cell.Z] = CellKind.Corridor;
                     }
                 }
                 return false;

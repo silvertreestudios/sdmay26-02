@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("EditModeAssembly")]
 
 namespace Game.DungeonGeneration
 {
@@ -192,7 +195,8 @@ namespace Game.DungeonGeneration
             IEnumerable<DungeonGenerationDiagnostic> diagnostics)
         {
             Document = document;
-            Diagnostics = (diagnostics ?? Array.Empty<DungeonGenerationDiagnostic>()).ToArray();
+            Diagnostics = Array.AsReadOnly(
+                (diagnostics ?? Array.Empty<DungeonGenerationDiagnostic>()).ToArray());
         }
 
         /// <summary>Gets the complete accepted document, or absence on failure.</summary>
@@ -319,7 +323,11 @@ namespace Game.DungeonGeneration
         /// <summary>Gets the unique door cell.</summary>
         public DungeonCell Cell { get; }
 
-        /// <summary>Gets the persisted open state; newly generated doors are closed.</summary>
+        /// <summary>
+        /// Gets the persisted open state. It is mirrored exactly by
+        /// <see cref="DungeonRuntimeState.OpenDoorIds"/> when runtime state exists and must be
+        /// <see langword="false"/> for a pristine document without runtime state.
+        /// </summary>
         public bool IsOpen { get; }
     }
 
@@ -416,8 +424,10 @@ namespace Game.DungeonGeneration
             RoomId = roomId;
             Threat = threat;
             Budget = budget;
-            SpawnCells = (spawnCells ?? throw new ArgumentNullException(nameof(spawnCells))).ToArray();
-            CreatureIds = (creatureIds ?? throw new ArgumentNullException(nameof(creatureIds))).ToArray();
+            SpawnCells = Array.AsReadOnly(
+                (spawnCells ?? throw new ArgumentNullException(nameof(spawnCells))).ToArray());
+            CreatureIds = Array.AsReadOnly(
+                (creatureIds ?? throw new ArgumentNullException(nameof(creatureIds))).ToArray());
             IsResolved = isResolved;
         }
 
@@ -439,7 +449,11 @@ namespace Game.DungeonGeneration
         /// <summary>Gets ordered creature content IDs, one per <see cref="SpawnCells"/> entry.</summary>
         public IReadOnlyList<string> CreatureIds { get; }
 
-        /// <summary>Gets whether runtime play has permanently resolved this encounter.</summary>
+        /// <summary>
+        /// Gets whether runtime play has permanently resolved this encounter. It is mirrored exactly
+        /// by <see cref="DungeonRuntimeState.ResolvedEncounterIds"/> when runtime state exists and
+        /// must be <see langword="false"/> for a pristine document without runtime state.
+        /// </summary>
         public bool IsResolved { get; }
     }
 
@@ -447,10 +461,10 @@ namespace Game.DungeonGeneration
     public sealed class DungeonRuntimeState
     {
         /// <summary>Creates runtime state by copying every stable-ID and creature sequence.</summary>
-        /// <param name="openDoorIds">Stable IDs for doors currently open.</param>
-        /// <param name="resolvedEncounterIds">Stable IDs for encounters permanently resolved.</param>
-        /// <param name="defeatedCreatureIds">Stable IDs for defeated or removed creature instances.</param>
-        /// <param name="creatures">State for creature instances that still exist; null means an empty sequence.</param>
+        /// <param name="openDoorIds">Stable IDs that exactly mirror doors whose persisted <see cref="DungeonDoor.IsOpen"/> flag is set.</param>
+        /// <param name="resolvedEncounterIds">Stable IDs that exactly mirror plans whose persisted <see cref="DungeonEncounterPlan.IsResolved"/> flag is set.</param>
+        /// <param name="defeatedCreatureIds">Unique stable IDs for defeated or removed instances; these IDs must not also identify live creatures.</param>
+        /// <param name="creatures">State for unique live instances belonging to unresolved encounter plans; null means an empty sequence.</param>
         /// <exception cref="ArgumentNullException">A required ID sequence is null.</exception>
         public DungeonRuntimeState(
             IEnumerable<string> openDoorIds,
@@ -458,22 +472,26 @@ namespace Game.DungeonGeneration
             IEnumerable<string> defeatedCreatureIds,
             IEnumerable<DungeonCreatureRuntimeState> creatures = null)
         {
-            OpenDoorIds = (openDoorIds ?? throw new ArgumentNullException(nameof(openDoorIds))).ToArray();
-            ResolvedEncounterIds = (resolvedEncounterIds ?? throw new ArgumentNullException(nameof(resolvedEncounterIds))).ToArray();
-            DefeatedCreatureIds = (defeatedCreatureIds ?? throw new ArgumentNullException(nameof(defeatedCreatureIds))).ToArray();
-            Creatures = (creatures ?? Array.Empty<DungeonCreatureRuntimeState>()).ToArray();
+            OpenDoorIds = Array.AsReadOnly(
+                (openDoorIds ?? throw new ArgumentNullException(nameof(openDoorIds))).ToArray());
+            ResolvedEncounterIds = Array.AsReadOnly(
+                (resolvedEncounterIds ?? throw new ArgumentNullException(nameof(resolvedEncounterIds))).ToArray());
+            DefeatedCreatureIds = Array.AsReadOnly(
+                (defeatedCreatureIds ?? throw new ArgumentNullException(nameof(defeatedCreatureIds))).ToArray());
+            Creatures = Array.AsReadOnly(
+                (creatures ?? Array.Empty<DungeonCreatureRuntimeState>()).ToArray());
         }
 
-        /// <summary>Gets stable IDs for doors currently open.</summary>
+        /// <summary>Gets stable IDs that exactly mirror doors whose persisted open flag is set.</summary>
         public IReadOnlyList<string> OpenDoorIds { get; }
 
-        /// <summary>Gets stable IDs for encounters permanently resolved.</summary>
+        /// <summary>Gets stable IDs that exactly mirror encounter plans whose persisted resolved flag is set.</summary>
         public IReadOnlyList<string> ResolvedEncounterIds { get; }
 
-        /// <summary>Gets stable IDs for defeated or removed creature instances.</summary>
+        /// <summary>Gets stable IDs for defeated or removed instances, disjoint from live instance IDs.</summary>
         public IReadOnlyList<string> DefeatedCreatureIds { get; }
 
-        /// <summary>Gets mutable state for creature instances that still exist on the level.</summary>
+        /// <summary>Gets mutable state for unique live instances belonging to unresolved encounter plans.</summary>
         public IReadOnlyList<DungeonCreatureRuntimeState> Creatures { get; }
     }
 
@@ -482,8 +500,8 @@ namespace Game.DungeonGeneration
     {
         /// <summary>Creates a creature runtime-state record.</summary>
         /// <param name="instanceId">The stable spawned-instance identifier.</param>
-        /// <param name="creatureId">The immutable creature content identifier.</param>
-        /// <param name="encounterId">The stable encounter plan that created the instance.</param>
+        /// <param name="creatureId">The immutable creature content identifier, which must be present in the referenced plan.</param>
+        /// <param name="encounterId">The stable unresolved encounter plan that created the instance.</param>
         /// <param name="cell">The current walkable cell.</param>
         /// <param name="hitPoints">Current hit points; downstream rules own valid maximums and condition math.</param>
         /// <param name="state">An optional losslessly preserved child-persistence state token.</param>
@@ -506,10 +524,10 @@ namespace Game.DungeonGeneration
         /// <summary>Gets the stable spawned-instance ID.</summary>
         public string InstanceId { get; }
 
-        /// <summary>Gets the immutable creature content ID.</summary>
+        /// <summary>Gets the immutable creature content ID present in the referenced encounter plan.</summary>
         public string CreatureId { get; }
 
-        /// <summary>Gets the stable encounter plan that created this instance.</summary>
+        /// <summary>Gets the stable unresolved encounter plan that created this live instance.</summary>
         public string EncounterId { get; }
 
         /// <summary>Gets the creature's current walkable cell.</summary>
