@@ -6,6 +6,7 @@ namespace Game.Rules.Runtime
     public sealed class RulesStateSeed
     {
         internal Dictionary<CreatureId, CreatureState> Creatures { get; } = new Dictionary<CreatureId, CreatureState>();
+        internal Dictionary<CreatureId, CreatureStatisticsState> Statistics { get; } = new Dictionary<CreatureId, CreatureStatisticsState>();
         internal Dictionary<CreatureId, HealthState> Health { get; } = new Dictionary<CreatureId, HealthState>();
         internal Dictionary<CreatureId, GridPosition> Positions { get; } = new Dictionary<CreatureId, GridPosition>();
         internal Dictionary<CreatureId, ActionEconomyState> ActionEconomy { get; } = new Dictionary<CreatureId, ActionEconomyState>();
@@ -24,6 +25,20 @@ namespace Game.Rules.Runtime
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
             Creatures[value.Id] = value;
+            return this;
+        }
+
+        /// <summary>
+        /// Seeds one creature's base check values and snapshot-owned modifier inputs.
+        /// </summary>
+        /// <param name="value">The complete immutable statistics state.</param>
+        /// <returns>This seed so initial state can be composed fluently.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
+        public RulesStateSeed SeedStatistics(CreatureStatisticsState value)
+        {
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+            Statistics[value.Creature] = value;
             return this;
         }
 

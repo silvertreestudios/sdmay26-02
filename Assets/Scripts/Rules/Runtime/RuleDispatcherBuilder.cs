@@ -19,23 +19,62 @@ namespace Game.Rules.Runtime
             new Dictionary<Type, List<IActionValidatorRegistration>>();
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
+        private readonly IRollService rollService;
         private RuleRegistry ruleRegistry = RuleRegistry.Empty;
         private ActionRuntimeConfiguration actionRuntimeConfiguration =
             ActionRuntimeConfiguration.Unconfigured;
 
         /// <summary>
-        /// Initializes a dispatcher builder with its rules store and operation ID source.
+        /// Initializes a dispatcher builder with production roll and sequential operation-ID sources.
         /// </summary>
         /// <param name="store">The store used for snapshots and reducer commits.</param>
-        /// <param name="ids">
-        /// The identifier provider, or <see langword="null"/> to use a new
-        /// <see cref="SequentialOpIdProvider"/>.
-        /// </param>
         /// <exception cref="ArgumentNullException"><paramref name="store"/> is <see langword="null"/>.</exception>
-        public RuleDispatcherBuilder(IRulesStore store, IOpIdProvider ids = null)
+        public RuleDispatcherBuilder(IRulesStore store)
+            : this(store, new RandomRollService(), new SequentialOpIdProvider())
+        {
+        }
+
+        /// <summary>
+        /// Initializes a dispatcher builder with an explicit operation-ID source and production rolls.
+        /// </summary>
+        /// <param name="store">The store used for snapshots and reducer commits.</param>
+        /// <param name="ids">The required operation identifier provider.</param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="store"/> or <paramref name="ids"/> is <see langword="null"/>.
+        /// </exception>
+        public RuleDispatcherBuilder(IRulesStore store, IOpIdProvider ids)
+            : this(store, new RandomRollService(), ids)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a dispatcher builder with an explicit roll source and sequential operation IDs.
+        /// </summary>
+        /// <param name="store">The store used for snapshots and reducer commits.</param>
+        /// <param name="rollService">The required production, replay, or scripted roll source.</param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="store"/> or <paramref name="rollService"/> is <see langword="null"/>.
+        /// </exception>
+        public RuleDispatcherBuilder(IRulesStore store, IRollService rollService)
+            : this(store, rollService, new SequentialOpIdProvider())
+        {
+        }
+
+        /// <summary>
+        /// Initializes a dispatcher builder with explicit roll and operation-ID sources.
+        /// </summary>
+        /// <param name="store">The store used for snapshots and reducer commits.</param>
+        /// <param name="rollService">The required production, replay, or scripted roll source.</param>
+        /// <param name="ids">The required operation identifier provider.</param>
+        /// <exception cref="ArgumentNullException">Any dependency is <see langword="null"/>.</exception>
+        public RuleDispatcherBuilder(
+            IRulesStore store,
+            IRollService rollService,
+            IOpIdProvider ids)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
-            this.ids = ids ?? new SequentialOpIdProvider();
+            this.rollService = rollService ?? throw new ArgumentNullException(nameof(rollService));
+            this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
         }
 
         /// <summary>
@@ -155,6 +194,59 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
+        /// Registers the engine-owned skill-check, saving-throw, and attack-modifier handlers with
+        /// the standard pure snapshot selectors.
+        /// </summary>
+        /// <returns>This builder so configuration can be chained.</returns>
+        public RuleDispatcherBuilder UseCheckResolution() =>
+            UseCheckResolution(new RulesSelectors());
+
+        /// <summary>
+        /// Registers the engine-owned skill-check, saving-throw, and attack-modifier handlers.
+        /// </summary>
+        /// <param name="selectors">The pure selectors used to read base and current modifier inputs.</param>
+        /// <returns>This builder so configuration can be chained.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="selectors"/> is <see langword="null"/>.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Any engine-owned check operation already has a resolver.
+        /// </exception>
+        /// <remarks>
+        /// These operations are nested-only so their <see cref="CheckSource"/> can be verified as a
+        /// trusted ancestor. Feature handlers dispatch them instead of calling their resolvers directly.
+        /// </remarks>
+        public RuleDispatcherBuilder UseCheckResolution(IRulesSelectors selectors)
+        {
+            if (selectors == null)
+                throw new ArgumentNullException(nameof(selectors));
+
+            Type[] reservedTypes =
+            {
+                typeof(SkillCheckOp),
+                typeof(SavingThrowOp),
+                typeof(CollectAttackModifiersOp)
+            };
+            foreach (Type reservedType in reservedTypes)
+            {
+                if (registrations.ContainsKey(reservedType))
+                {
+                    throw new InvalidOperationException(
+                        $"{reservedType.Name} is reserved for the engine-owned check runtime.");
+                }
+            }
+
+            Add(new HandlerRegistration<SkillCheckOp, CheckOutcome>(
+                new SkillCheckHandler(selectors),
+                InvocationPolicy.NestedOnly));
+            Add(new HandlerRegistration<SavingThrowOp, CheckOutcome>(
+                new SavingThrowHandler(selectors),
+                InvocationPolicy.NestedOnly));
+            Add(new HandlerRegistration<CollectAttackModifiersOp, ModifierCollection>(
+                new CollectAttackModifiersHandler(selectors),
+                InvocationPolicy.NestedOnly));
+            return this;
+        }
+
+        /// <summary>
         /// Selects the immutable rule registry used for binding-controlled middleware and Fact listeners.
         /// </summary>
         /// <param name="registry">The static registry to validate and attach to the dispatcher.</param>
@@ -231,6 +323,7 @@ namespace Game.Rules.Runtime
             return new RuleDispatcher(
                 store,
                 ids,
+                rollService,
                 completedRegistrations,
                 ruleRegistry,
                 actionRuntime);

@@ -24,6 +24,7 @@ namespace Game.Rules.Runtime
         private readonly object gate = new object();
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
+        private readonly IRollService rollService;
         private readonly IReadOnlyDictionary<Type, IRegistration> registrations;
         private readonly RuleRegistry ruleRegistry;
         private readonly ActionRuntime actionRuntime;
@@ -32,12 +33,14 @@ namespace Game.Rules.Runtime
         internal RuleDispatcher(
             IRulesStore store,
             IOpIdProvider ids,
+            IRollService rollService,
             IDictionary<Type, IRegistration> registrations,
             RuleRegistry ruleRegistry,
             ActionRuntime actionRuntime)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
+            this.rollService = rollService ?? throw new ArgumentNullException(nameof(rollService));
             this.registrations = new ReadOnlyDictionary<Type, IRegistration>(
                 new Dictionary<Type, IRegistration>(registrations));
             this.ruleRegistry = ruleRegistry ?? throw new ArgumentNullException(nameof(ruleRegistry));

@@ -45,6 +45,13 @@ namespace Game.Rules.Runtime
                     if (frame.IsAction)
                         lines.Add($"{prefix}  profile: {frame.ActionProfile.ToDiagnosticString()}");
 
+                    foreach (ResolutionRoll roll in trace.GetRolls(frame.Id))
+                    {
+                        lines.Add(
+                            $"{prefix}  roll {roll.Sequence}: {roll.Dice} -> " +
+                            $"[{string.Join(", ", roll.Result.Values)}] total={roll.Result.Total}");
+                    }
+
                     if (completion == null)
                         continue;
                     foreach (RuleFact fact in completion.DirectFacts)
