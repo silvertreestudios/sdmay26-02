@@ -212,7 +212,8 @@ namespace Game.DungeonGeneration
 
             internal Attempt(DungeonGenerationRequest request, int attempt, int topologySeed)
             {
-                this.request = request; this.attempt = attempt;
+                this.request = request;
+                this.attempt = attempt;
                 random = new SystemDungeonRandom(topologySeed);
                 cells = new CellKind[request.Width, request.Height];
                 perimeter = new bool[request.Width, request.Height];
@@ -221,15 +222,48 @@ namespace Game.DungeonGeneration
 
             internal bool TryGenerate(out DungeonLevelDocument document, out string rejection)
             {
-                document = null; rejection = null; InitializeMask(); EmplaceRooms();
-                if (rooms.Count < request.MinimumRoomCount) { rejection = $"Placed {rooms.Count.ToString(CultureInfo.InvariantCulture)} rooms, fewer than required {request.MinimumRoomCount.ToString(CultureInfo.InvariantCulture)}."; return false; }
-                if (!OpenRooms()) { rejection = "At least one room had no structurally valid sill for an unlocked door."; return false; }
+                document = null;
+                rejection = null;
+                InitializeMask();
+                EmplaceRooms();
+                if (rooms.Count < request.MinimumRoomCount)
+                {
+                    rejection = $"Placed {rooms.Count.ToString(CultureInfo.InvariantCulture)} rooms, fewer than required {request.MinimumRoomCount.ToString(CultureInfo.InvariantCulture)}.";
+                    return false;
+                }
+
+                if (!OpenRooms())
+                {
+                    rejection = "At least one room had no structurally valid sill for an unlocked door.";
+                    return false;
+                }
+
                 TunnelCorridors();
-                if (!ConnectRegions()) { rejection = "Rooms and corridor regions could not be joined without crossing the layout mask or a room wall."; return false; }
-                if (!IsConnected()) { rejection = "Rooms and corridor regions did not form one connected walkable component."; return false; }
-                if (!EmplaceStairs()) { rejection = $"Only {stairs.Count.ToString(CultureInfo.InvariantCulture)} structurally valid stair ends were available for {request.StairCount.ToString(CultureInfo.InvariantCulture)} requested stairs."; return false; }
+                if (!ConnectRegions())
+                {
+                    rejection = "Rooms and corridor regions could not be joined without crossing the layout mask or a room wall.";
+                    return false;
+                }
+
+                if (!IsConnected())
+                {
+                    rejection = "Rooms and corridor regions did not form one connected walkable component.";
+                    return false;
+                }
+
+                if (!EmplaceStairs())
+                {
+                    rejection = $"Only {stairs.Count.ToString(CultureInfo.InvariantCulture)} structurally valid stair ends were available for {request.StairCount.ToString(CultureInfo.InvariantCulture)} requested stairs.";
+                    return false;
+                }
+
                 CleanDeadEnds();
-                if (!IsConnected()) { rejection = "Dead-end cleanup disconnected walkable topology."; return false; }
+                if (!IsConnected())
+                {
+                    rejection = "Dead-end cleanup disconnected walkable topology.";
+                    return false;
+                }
+
                 IReadOnlyList<string> rows = BuildRows();
                 if (stairs.Any(stair => !DungeonTopologyValidator.MatchesStairEnd(
                         rows,
@@ -240,17 +274,54 @@ namespace Game.DungeonGeneration
                     rejection = "Dead-end cleanup invalidated a generated stair runway.";
                     return false;
                 }
-                if (!DungeonTopologyValidator.HasProducibleLayoutMask(rows)) { rejection = "Generated rows did not retain one supported initialization mask."; return false; }
-                if (!DungeonTopologyValidator.HasValidRoomBoundaryCrossings(rows, rooms, doors)) { rejection = "A room-boundary crossing was not represented by exactly one stable door."; return false; }
-                if (!DungeonTopologyValidator.HasValidDoors(rows, rooms, doors)) { rejection = "A generated door did not retain two opposite walkable neighbors or a unique stable record."; return false; }
-                if (!DungeonTopologyValidator.HasProducibleDoorRecords(doors)) { rejection = "Generated door records did not retain stable IDs, ordering, or sill parity."; return false; }
+
+                if (!DungeonTopologyValidator.HasProducibleLayoutMask(rows))
+                {
+                    rejection = "Generated rows did not retain one supported initialization mask.";
+                    return false;
+                }
+
+                if (!DungeonTopologyValidator.HasValidRoomBoundaryCrossings(rows, rooms, doors))
+                {
+                    rejection = "A room-boundary crossing was not represented by exactly one stable door.";
+                    return false;
+                }
+
+                if (!DungeonTopologyValidator.HasValidDoors(rows, rooms, doors))
+                {
+                    rejection = "A generated door did not retain two opposite walkable neighbors or a unique stable record.";
+                    return false;
+                }
+
+                if (!DungeonTopologyValidator.HasProducibleDoorRecords(doors))
+                {
+                    rejection = "Generated door records did not retain stable IDs, ordering, or sill parity.";
+                    return false;
+                }
+
                 IReadOnlyList<DungeonCell> safe = DungeonTopologyValidator.BuildSafeCells(rows, rooms, stairs);
-                if (safe.Count == 0) { rejection = "No valid safe arrival cell remained after cleanup."; return false; }
+                if (safe.Count == 0)
+                {
+                    rejection = "No valid safe arrival cell remained after cleanup.";
+                    return false;
+                }
+
                 DungeonCell start = SelectStartCell(stairs, safe);
                 DungeonGenerationMetadata metadata = new(
-                    AlgorithmId, request.RunSeed, request.Depth, attempt);
-                document = new DungeonLevelDocument(metadata, rows, rooms, doors, stairs, start, safe,
-                    Array.Empty<DungeonObjectPlacement>(), Array.Empty<DungeonEncounterPlan>());
+                    AlgorithmId,
+                    request.RunSeed,
+                    request.Depth,
+                    attempt);
+                document = new DungeonLevelDocument(
+                    metadata,
+                    rows,
+                    rooms,
+                    doors,
+                    stairs,
+                    start,
+                    safe,
+                    Array.Empty<DungeonObjectPlacement>(),
+                    Array.Empty<DungeonEncounterPlan>());
                 return true;
             }
 
