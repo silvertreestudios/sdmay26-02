@@ -868,10 +868,8 @@ namespace Game.Rules.Runtime
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
         private RuleRegistry ruleRegistry = RuleRegistry.Empty;
-        private IActionCatalog actionCatalog = UnconfiguredActionCatalog.Instance;
-        private IActionProfileResolver actionProfileResolver =
-            IdentityActionProfileResolver.Instance;
-        private bool actionLifecycleConfigured;
+        private ActionRuntimeConfiguration actionRuntimeConfiguration =
+            ActionRuntimeConfiguration.Unconfigured;
 
         /// <summary>
         /// Initializes a dispatcher builder with its rules store and operation ID source.
@@ -963,12 +961,11 @@ namespace Game.Rules.Runtime
             IActionCatalog catalog,
             IActionProfileResolver profileResolver)
         {
-            if (actionLifecycleConfigured)
+            if (actionRuntimeConfiguration.IsConfigured)
                 throw new InvalidOperationException("Action lifecycle services are already configured.");
-            actionCatalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
-            actionProfileResolver = profileResolver ??
-                throw new ArgumentNullException(nameof(profileResolver));
-            actionLifecycleConfigured = true;
+            actionRuntimeConfiguration = ActionRuntimeConfiguration.Configure(
+                catalog,
+                profileResolver);
             return this;
         }
 
@@ -1031,7 +1028,8 @@ namespace Game.Rules.Runtime
                 new Dictionary<Type, IRegistration>(registrations);
             bool hasActionHandler = completedRegistrations.Values.Any(registration =>
                 typeof(IActionOpMetadata).IsAssignableFrom(registration.OpType));
-            if ((hasActionHandler || actionValidators.Count > 0) && !actionLifecycleConfigured)
+            if ((hasActionHandler || actionValidators.Count > 0) &&
+                !actionRuntimeConfiguration.IsConfigured)
             {
                 throw new InvalidOperationException(
                     "Action handlers and validators require UseActionLifecycle before Build.");
@@ -1046,8 +1044,7 @@ namespace Game.Rules.Runtime
                 }
             }
 
-            ActionRuntime actionRuntime = ActionRuntime.Disabled;
-            if (actionLifecycleConfigured)
+            if (actionRuntimeConfiguration.IsConfigured)
             {
                 foreach (KeyValuePair<Type, List<IActionValidatorRegistration>> pair in actionValidators)
                 {
@@ -1072,13 +1069,12 @@ namespace Game.Rules.Runtime
                     completedRegistrations,
                     new ReducerRegistration<CommitActionCostsOp, ActionCostsOutcome>(
                         new CommitActionCostsReducer(),
-                        RuleSource.FromSlug("action-lifecycle")));
-                actionRuntime = ActionRuntime.Create(
-                    actionCatalog,
-                    actionProfileResolver,
-                    actionValidators);
+                        RuleSource.FromSlug("action-lifecycle"),
+                        ResolverMiddlewarePolicy.Disabled));
             }
 
+            ActionRuntime actionRuntime = actionRuntimeConfiguration.CreateRuntime(
+                actionValidators);
             ruleRegistry.ValidateResolvers(completedRegistrations);
             return new RuleDispatcher(
                 store,
@@ -1538,7 +1534,8 @@ namespace Game.Rules.Runtime
                     op,
                     startSnapshot,
                     actionState);
-                middleware = op is CommitActionCostsOp
+                middleware = registration.MiddlewarePolicy ==
+                    ResolverMiddlewarePolicy.Disabled
                     ? NoMiddleware
                     : ruleRegistry.SelectMiddleware(
                         op.GetType(),
@@ -1861,11 +1858,33 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Declares whether rule middleware may wrap a resolver registration.
+    /// </summary>
+    /// <remarks>
+    /// This is registration metadata rather than operation-type knowledge. The rule registry
+    /// rejects middleware that targets a disabled resolver so configured extensions cannot be
+    /// silently skipped or bypass a mandatory engine transaction.
+    /// </remarks>
+    internal enum ResolverMiddlewarePolicy
+    {
+        /// <summary>
+        /// Active rule middleware participates in normal phase order.
+        /// </summary>
+        Enabled,
+
+        /// <summary>
+        /// The resolver must execute without operation middleware.
+        /// </summary>
+        Disabled
+    }
+
     internal interface IRegistration
     {
         Type OpType { get; }
         Type ResultType { get; }
         InvocationPolicy Policy { get; }
+        ResolverMiddlewarePolicy MiddlewarePolicy { get; }
         bool IsReducer { get; }
         IFrameInvocation CreateInvocation(
             OpId id,
@@ -1916,11 +1935,18 @@ namespace Game.Rules.Runtime
     internal abstract class Registration<TOp, TResult> : IRegistration
         where TOp : IRuleOp<TResult>
     {
-        protected Registration(InvocationPolicy policy) => Policy = policy;
+        protected Registration(
+            InvocationPolicy policy,
+            ResolverMiddlewarePolicy middlewarePolicy)
+        {
+            Policy = policy;
+            MiddlewarePolicy = middlewarePolicy;
+        }
 
         public Type OpType => typeof(TOp);
         public Type ResultType => typeof(TResult);
         public InvocationPolicy Policy { get; }
+        public ResolverMiddlewarePolicy MiddlewarePolicy { get; }
         public abstract bool IsReducer { get; }
 
         public IFrameInvocation CreateInvocation(
@@ -1978,7 +2004,7 @@ namespace Game.Rules.Runtime
         private readonly IOpHandler<TOp, TResult> handler;
 
         public HandlerRegistration(IOpHandler<TOp, TResult> handler, InvocationPolicy policy)
-            : base(policy) => this.handler = handler;
+            : base(policy, ResolverMiddlewarePolicy.Enabled) => this.handler = handler;
 
         public override bool IsReducer => false;
 
@@ -2017,8 +2043,11 @@ namespace Game.Rules.Runtime
         private readonly IOpReducer<TOp, TResult> reducer;
         private readonly RuleSource source;
 
-        public ReducerRegistration(IOpReducer<TOp, TResult> reducer, RuleSource source)
-            : base(InvocationPolicy.NestedOnly)
+        public ReducerRegistration(
+            IOpReducer<TOp, TResult> reducer,
+            RuleSource source,
+            ResolverMiddlewarePolicy middlewarePolicy = ResolverMiddlewarePolicy.Enabled)
+            : base(InvocationPolicy.NestedOnly, middlewarePolicy)
         {
             this.reducer = reducer;
             this.source = source;

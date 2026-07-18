@@ -165,7 +165,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task CostCommitCannotBeShortCircuitedByOrdinaryMiddleware()
+        public void CostCommitRejectsOrdinaryMiddlewareConfiguration()
         {
             ActionProfile profile = ActionProfile.OneAction(Array.Empty<Trait>());
             ShortCircuitingCostMiddleware middleware = new ShortCircuitingCostMiddleware();
@@ -173,22 +173,17 @@ namespace Game.Rules.Runtime.Tests
             registry.Define(BindingDefinition).Middleware(
                 RuleLifecyclePhase.Transformation,
                 middleware);
-            InMemoryRulesStore store = CreateFullySeededStore();
-            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                new RuleDispatcherBuilder(CreateFullySeededStore())
                 .RegisterHandler<TestActionOp, TestActionOutcome>(
                     new RecordingActionHandler(true))
                 .UseActionLifecycle(new FixedActionCatalog(profile))
                 .UseRuleRegistry(registry.Build())
-                .Build();
+                .Build());
 
-            OpResult<TestActionOutcome> result =
-                await dispatcher.Dispatch(new TestActionOp());
-
-            Assert.That(result, Is.TypeOf<ResolvedOpResult<TestActionOutcome>>());
+            Assert.That(error.Message, Does.Contain("not allowed by its resolver registration"));
             Assert.That(middleware.Calls, Is.Zero,
-                "Engine-owned cost commitment must not enter bypassable operation middleware.");
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
-            Assert.That(result.Facts.OfType<ActionCostSpentFact>().Count(), Is.EqualTo(1));
+                "Invalid middleware configuration must fail before a rule can execute.");
         }
 
         [Test]
@@ -272,6 +267,13 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task ActionEconomySupportsNoneOneToThreeReactionAndFreeAction()
         {
+            Assert.That(ActionCost.None.Amount, Is.Zero);
+            Assert.That(ActionCost.One.Amount, Is.EqualTo(1));
+            Assert.That(ActionCost.Two.Amount, Is.EqualTo(2));
+            Assert.That(ActionCost.Three.Amount, Is.EqualTo(3));
+            Assert.That(ActionCost.Reaction.Amount, Is.EqualTo(1));
+            Assert.That(ActionCost.FreeAction.Amount, Is.EqualTo(1));
+
             ActionCostExpectation[] cases =
             {
                 new ActionCostExpectation(ActionCost.None, 3, true, false),
@@ -394,6 +396,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(profile.AdditionalCosts, Has.Count.EqualTo(1));
             Assert.That(profile.Traits.Select(trait => trait.Slug),
                 Is.EqualTo(new[] { "manipulate" }));
+            Assert.That(profile.HasTrait(Trait.FromSlug("manipulate")), Is.True);
+            Assert.That(profile.HasTrait(Trait.FromSlug("attack")), Is.False);
+            Assert.That(ActionValidationResult.Valid,
+                Is.SameAs(ActionValidationResult.Valid));
             Assert.Throws<ArgumentOutOfRangeException>(() => ActionCost.FromActions(0));
             Assert.Throws<ArgumentOutOfRangeException>(() => ActionCost.FromActions(4));
             Assert.Throws<ArgumentException>(() => RuleCost.SpellSlot(default));
