@@ -19,6 +19,7 @@ namespace Game.Rules.Runtime
         private readonly RuleDispatcher dispatcher;
         private readonly OpId parentId;
         private readonly CallbackWorkCoordinator work;
+        private readonly IRollService rolls;
 
         internal OpCallbackContext(
             RuleDispatcher dispatcher,
@@ -28,6 +29,7 @@ namespace Game.Rules.Runtime
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
             this.parentId = parentId;
             this.work = work ?? throw new ArgumentNullException(nameof(work));
+            rolls = new CallbackRollService(this, dispatcher, parentId);
         }
 
         /// <summary>
@@ -51,6 +53,23 @@ namespace Game.Rules.Runtime
             {
                 RequireActive();
                 return dispatcher.Trace;
+            }
+        }
+
+        /// <summary>
+        /// Gets the callback-scoped roll source shared by check, attack, and damage calculations.
+        /// </summary>
+        /// <remarks>
+        /// Every successful roll is recorded against this context's operation frame. A retained
+        /// reference stops working when the callback returns, just like retained state, trace, and
+        /// nested-dispatch access.
+        /// </remarks>
+        public IRollService Rolls
+        {
+            get
+            {
+                RequireActive();
+                return rolls;
             }
         }
 
@@ -85,6 +104,29 @@ namespace Game.Rules.Runtime
 
         internal void RequireActive() => work.RequireActive(
             "An operation context cannot be used after its callback returns.");
+
+        private sealed class CallbackRollService : IRollService
+        {
+            private readonly OpCallbackContext owner;
+            private readonly RuleDispatcher dispatcher;
+            private readonly OpId operationId;
+
+            public CallbackRollService(
+                OpCallbackContext owner,
+                RuleDispatcher dispatcher,
+                OpId operationId)
+            {
+                this.owner = owner;
+                this.dispatcher = dispatcher;
+                this.operationId = operationId;
+            }
+
+            public RollResult Roll(DiceExpression dice)
+            {
+                owner.RequireActive();
+                return dispatcher.Roll(operationId, dice);
+            }
+        }
     }
 
     /// <summary>
