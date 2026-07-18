@@ -486,7 +486,11 @@ Middleware may dispatch nested Ops and await their typed results. Its `next()` c
 nested dispatch share one callback-owned in-flight work slot: middleware must consume either result
 before starting the other, even when the operation completed synchronously. A rejected overlap does
 not consume an unused continuation or disturb the work already in progress. Middleware cannot
-directly mutate state.
+directly mutate state. Handler, middleware, and Fact-listener callbacks retain responsibility for
+work they start until its result is consumed. If a callback throws after leaving that work
+unconsumed, the dispatcher waits for cleanup before releasing ownership. A callback failure or
+cleanup failure propagates unchanged when it is the only failure; when both fail, the dispatcher
+reports an ordered aggregate containing the callback failure first and the cleanup failure second.
 
 ### 5.3 Fact listeners run after commits
 

@@ -629,6 +629,34 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void MiddlewareAndIgnoredFailingContinuationAreAggregatedInStableOrder()
+        {
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).Middleware(
+                RuleLifecyclePhase.Transformation,
+                new ThrowingIgnoringContinuationMiddleware());
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(Binding("dual-middleware-failure", DefinitionA, 0)))
+                .RegisterHandler<ValueOp, int>(
+                    new SynchronouslyInvalidValueHandler("ignored continuation failure"))
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            AggregateException error =
+                Assert.ThrowsAsync<AggregateException>(async () =>
+                    await dispatcher.Dispatch(new ValueOp(4)));
+
+            Assert.That(error.Message,
+                Does.StartWith("Callback execution and cleanup of its unconsumed work both failed."));
+            Assert.That(error.InnerExceptions, Has.Count.EqualTo(2));
+            Assert.That(error.InnerExceptions[0], Is.TypeOf<ApplicationException>());
+            Assert.That(error.InnerExceptions[0].Message, Is.EqualTo("middleware callback failure"));
+            Assert.That(error.InnerExceptions[1], Is.TypeOf<InvalidOperationException>());
+            Assert.That(error.InnerExceptions[1].Message,
+                Is.EqualTo("ignored continuation failure"));
+        }
+
+        [Test]
         public async Task SuspendedContinuationRejectsChildDispatchThenBothPathsRecover()
         {
             SuspendedOnceValueHandler handler = new SuspendedOnceValueHandler();
@@ -832,6 +860,37 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(error.Message, Is.EqualTo("reaction failed"));
             Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(11),
                 "Awaiting unrelated work must not hide a later ignored listener dispatch.");
+        }
+
+        [Test]
+        public void ListenerAndIgnoredFailingDispatchAreAggregatedInStableOrder()
+        {
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(DefinitionA).FactListener(
+                RuleLifecyclePhase.Reaction,
+                new ThrowingIgnoringValueDispatchListener());
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(Binding("dual-listener-failure", DefinitionA, 0)))
+                .RegisterHandler<RootIncrementOp, int>(new RootIncrementHandler())
+                .RegisterHandler<ValueOp, int>(
+                    new SynchronouslyInvalidValueHandler("ignored listener dispatch failure"))
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            AggregateException error =
+                Assert.ThrowsAsync<AggregateException>(async () =>
+                    await dispatcher.Dispatch(new RootIncrementOp(new[] { 1 })));
+
+            Assert.That(error.Message,
+                Does.StartWith("Callback execution and cleanup of its unconsumed work both failed."));
+            Assert.That(error.InnerExceptions, Has.Count.EqualTo(2));
+            Assert.That(error.InnerExceptions[0], Is.TypeOf<ApplicationException>());
+            Assert.That(error.InnerExceptions[0].Message, Is.EqualTo("listener callback failure"));
+            Assert.That(error.InnerExceptions[1], Is.TypeOf<InvalidOperationException>());
+            Assert.That(error.InnerExceptions[1].Message, Is.EqualTo("ignored listener dispatch failure"));
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(11),
+                "The Fact source commit remains durable when listener callback and cleanup fail.");
         }
 
         [Test]
@@ -1351,6 +1410,30 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
+        private sealed class ThrowingIgnoringContinuationMiddleware :
+            IOpMiddleware<ValueOp, int>
+        {
+            public ValueTask<OpResult<int>> Invoke(
+                ActiveRuleBinding binding,
+                OpFrame<ValueOp> frame,
+                OpContext context,
+                OpNext<int> next)
+            {
+                _ = next();
+                throw new ApplicationException("middleware callback failure");
+            }
+        }
+
+        private sealed class SynchronouslyInvalidValueHandler : IOpHandler<ValueOp, int>
+        {
+            private readonly string message;
+
+            public SynchronouslyInvalidValueHandler(string message) => this.message = message;
+
+            public ValueTask<int> Handle(OpFrame<ValueOp> frame, OpContext context) =>
+                throw new InvalidOperationException(message);
+        }
+
         private sealed class NestedIncrementMiddleware : IOpMiddleware<ValueOp, int>
         {
             private readonly int amount;
@@ -1796,6 +1879,19 @@ namespace Game.Rules.Runtime.Tests
             {
                 await continuation.Task;
                 _ = context.Dispatch(new FailingReactionOp());
+            }
+        }
+
+        private sealed class ThrowingIgnoringValueDispatchListener :
+            IFactListener<CounterChangedFact>
+        {
+            public ValueTask OnFactCommitted(
+                ActiveRuleBinding binding,
+                CounterChangedFact fact,
+                FactContext context)
+            {
+                _ = context.Dispatch(new ValueOp(fact.Current));
+                throw new ApplicationException("listener callback failure");
             }
         }
 

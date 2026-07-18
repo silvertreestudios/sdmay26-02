@@ -663,7 +663,9 @@ namespace Game.Rules.Runtime
     /// that received it is actively executing. Each callback may have at most one child dispatch
     /// in flight and must await that child before returning or starting another child. For a
     /// middleware callback, its child dispatch and continuation share that in-flight slot and must
-    /// be awaited sequentially.
+    /// be awaited sequentially. If a callback fails while unconsumed work also fails during
+    /// callback cleanup, dispatch reports both failures in an <see cref="AggregateException"/>,
+    /// with the callback failure first.
     /// </remarks>
     public sealed class OpContext
     {
@@ -949,7 +951,8 @@ namespace Game.Rules.Runtime
         /// listeners receive the durable Facts before the resolution exception is rethrown. If that
         /// notification also fails, an <see cref="AggregateException"/> reports the resolution
         /// exception first and the notification exception second. The dispatcher then releases root
-        /// ownership so a later independent root may be dispatched.
+        /// ownership so a later independent root may be dispatched. When a callback and its unconsumed
+        /// work both fail, their aggregate likewise retains the callback exception first.
         /// </remarks>
         public async ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
         {
@@ -1243,28 +1246,19 @@ namespace Game.Rules.Runtime
                 delivery.Binding,
                 delivery.RootId,
                 causeId);
-            ValueTask listenerInvocation;
             try
             {
-                listenerInvocation = delivery.Registration.Invoke(
+                await delivery.Registration.Invoke(
                     delivery.Binding,
                     delivery.RootId,
                     facts,
                     context);
             }
-            catch
+            catch (Exception callbackException)
             {
-                await context.CompleteInvocation();
-                throw;
-            }
-
-            try
-            {
-                await listenerInvocation;
-            }
-            catch
-            {
-                await context.CompleteInvocation();
+                await CallbackFailure.AwaitCleanupPreservingPrimary(
+                    callbackException,
+                    context.CompleteInvocation());
                 throw;
             }
 
@@ -1670,9 +1664,11 @@ namespace Game.Rules.Runtime
             {
                 value = await handler.Handle(frame, context);
             }
-            catch
+            catch (Exception callbackException)
             {
-                await context.CompleteInvocation();
+                await CallbackFailure.AwaitCleanupPreservingPrimary(
+                    callbackException,
+                    context.CompleteInvocation());
                 throw;
             }
 
@@ -1726,6 +1722,41 @@ namespace Game.Rules.Runtime
         Task Completion { get; }
 
         void ThrowIfFailed();
+    }
+
+    /// <summary>
+    /// Preserves a callback failure when closing its scope also discovers failed unconsumed work.
+    /// </summary>
+    internal static class CallbackFailure
+    {
+        /// <summary>
+        /// Waits for callback-owned cleanup without allowing its failure to hide the callback's
+        /// original exception.
+        /// </summary>
+        /// <typeparam name="TResult">The cleanup operation's result type.</typeparam>
+        /// <param name="callbackException">The exception thrown by the callback itself.</param>
+        /// <param name="cleanup">The cleanup operation that settles any unconsumed callback work.</param>
+        /// <returns>A task that completes after cleanup succeeds.</returns>
+        /// <exception cref="AggregateException">
+        /// Thrown when cleanup also fails. The callback exception is first and the cleanup exception
+        /// is second so callers receive a stable primary-failure ordering.
+        /// </exception>
+        internal static async ValueTask AwaitCleanupPreservingPrimary<TResult>(
+            Exception callbackException,
+            ValueTask<TResult> cleanup)
+        {
+            try
+            {
+                await cleanup;
+            }
+            catch (Exception cleanupException)
+            {
+                throw new AggregateException(
+                    "Callback execution and cleanup of its unconsumed work both failed.",
+                    callbackException,
+                    cleanupException);
+            }
+        }
     }
 
     /// <summary>

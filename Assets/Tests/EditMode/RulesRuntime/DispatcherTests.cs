@@ -583,6 +583,37 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task HandlerAndIgnoredFailingChildFailuresAreAggregatedInStableOrder()
+        {
+            InMemoryRulesStore store = CreateStore(10);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<ThrowingIgnoredFailingChildRootOp, int>(
+                    new ThrowingIgnoredFailingChildRootHandler())
+                .RegisterHandler<SynchronouslyInvalidNestedOp, int>(
+                    new SynchronouslyInvalidNestedHandler(),
+                    InvocationPolicy.NestedOnly)
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+
+            AggregateException error =
+                Assert.ThrowsAsync<AggregateException>(async () =>
+                    await dispatcher.Dispatch(new ThrowingIgnoredFailingChildRootOp()));
+            OpResult<int> recovered =
+                await dispatcher.Dispatch(new SingleIncrementRootOp());
+
+            Assert.That(error.Message,
+                Does.StartWith("Callback execution and cleanup of its unconsumed work both failed."));
+            Assert.That(error.InnerExceptions, Has.Count.EqualTo(2));
+            Assert.That(error.InnerExceptions[0], Is.TypeOf<ApplicationException>());
+            Assert.That(error.InnerExceptions[0].Message, Is.EqualTo("handler callback failure"));
+            Assert.That(error.InnerExceptions[1], Is.TypeOf<InvalidOperationException>());
+            Assert.That(error.InnerExceptions[1].Message, Is.EqualTo("ignored child failure"));
+            Assert.That(RequireResolved(recovered).Value, Is.EqualTo(11),
+                "Aggregating callback cleanup failures must still release root ownership.");
+        }
+
+        [Test]
         [Timeout(10000)]
         public async Task ReturningFrameRejectsRetainedContextAfterChildReservationSettles()
         {
@@ -1084,6 +1115,35 @@ namespace Game.Rules.Runtime.Tests
                 _ = context.Dispatch(new SuspendedNestedOp(1));
                 throw new ApplicationException("original handler failure");
             }
+        }
+
+        private sealed class ThrowingIgnoredFailingChildRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class ThrowingIgnoredFailingChildRootHandler
+            : IOpHandler<ThrowingIgnoredFailingChildRootOp, int>
+        {
+            public ValueTask<int> Handle(
+                OpFrame<ThrowingIgnoredFailingChildRootOp> frame,
+                OpContext context)
+            {
+                _ = context.Dispatch(new SynchronouslyInvalidNestedOp());
+                throw new ApplicationException("handler callback failure");
+            }
+        }
+
+        private sealed class SynchronouslyInvalidNestedOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class SynchronouslyInvalidNestedHandler
+            : IOpHandler<SynchronouslyInvalidNestedOp, int>
+        {
+            public ValueTask<int> Handle(
+                OpFrame<SynchronouslyInvalidNestedOp> frame,
+                OpContext context) =>
+                throw new InvalidOperationException("ignored child failure");
         }
 
         private sealed class SettlementRaceRootOp : IRuleOp<int>

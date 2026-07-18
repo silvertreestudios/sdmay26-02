@@ -171,7 +171,9 @@ namespace Game.Rules.Runtime
     /// The context is valid only while its listener is executing. A listener may have at most one
     /// dispatched root in flight and must await it before returning or dispatching another. Any
     /// dispatched operation begins a new root resolution; it cannot retroactively alter the Facts
-    /// that caused the notification.
+    /// that caused the notification. If the listener and unconsumed dispatched work both fail,
+    /// dispatch reports both failures in an <see cref="AggregateException"/>, with the listener
+    /// failure first.
     /// </remarks>
     public sealed class FactContext
     {
@@ -974,10 +976,12 @@ namespace Game.Rules.Runtime
                     context,
                     continuation.Invoke);
             }
-            catch
+            catch (Exception callbackException)
             {
-                await work.CompleteInvocation(
-                    "A middleware callback completed more than once.");
+                await CallbackFailure.AwaitCleanupPreservingPrimary(
+                    callbackException,
+                    work.CompleteInvocation(
+                        "A middleware callback completed more than once."));
                 throw;
             }
 
