@@ -234,9 +234,11 @@ namespace Game.DungeonGeneration
                 CleanDeadEnds();
                 if (!IsConnected()) { rejection = "Dead-end cleanup disconnected walkable topology."; return false; }
                 IReadOnlyList<string> rows = BuildRows();
+                if (!DungeonTopologyValidator.HasProducibleLayoutMask(rows)) { rejection = "Generated rows did not retain one supported initialization mask."; return false; }
                 if (!DungeonTopologyValidator.HasValidRoomBoundaryCrossings(rows, rooms, doors)) { rejection = "A room-boundary crossing was not represented by exactly one stable door."; return false; }
                 if (!DungeonTopologyValidator.HasValidDoors(rows, rooms, doors)) { rejection = "A generated door did not retain two opposite walkable neighbors or a unique stable record."; return false; }
-                List<DungeonCell> safe = BuildSafeCells();
+                if (!DungeonTopologyValidator.HasProducibleDoorRecords(doors)) { rejection = "Generated door records did not retain stable IDs, ordering, or sill parity."; return false; }
+                IReadOnlyList<DungeonCell> safe = DungeonTopologyValidator.BuildSafeCells(rows, rooms, stairs);
                 if (safe.Count == 0) { rejection = "No valid safe arrival cell remained after cleanup."; return false; }
                 DungeonCell start = SelectStartCell(stairs, safe);
                 DungeonGenerationMetadata metadata = new(
@@ -250,32 +252,19 @@ namespace Game.DungeonGeneration
 
             private void InitializeMask()
             {
-                int[,] mask = request.Layout == DungeonLayout.Box
-                    ? new[,] { { 1, 1, 1 }, { 1, 0, 1 }, { 1, 1, 1 } }
-                    : new[,] { { 0, 1, 0 }, { 1, 1, 1 }, { 0, 1, 0 } };
-                int centerX = (request.Width - 1) / 2;
-                int centerZ = (request.Height - 1) / 2;
                 for (int z = 0; z < request.Height; z++)
                 for (int x = 0; x < request.Width; x++)
                 {
-                    bool allowed;
-                    if (request.Layout == DungeonLayout.Round)
-                    {
-                        // Donjon deliberately uses the column radius for both axes rather than fitting an ellipse.
-                        allowed = Squared(x - centerX) + Squared(z - centerZ) <= Squared(centerX);
-                    }
-                    else
-                    {
-                        int maskRow = z * 3 / request.Height;
-                        int maskColumn = x * 3 / request.Width;
-                        allowed = mask[maskRow, maskColumn] != 0;
-                    }
-
-                    cells[x, z] = allowed ? CellKind.Empty : CellKind.Masked;
+                    cells[x, z] = DungeonTopologyValidator.IsMaskedByLayout(
+                        request.Layout,
+                        request.Width,
+                        request.Height,
+                        x,
+                        z)
+                        ? CellKind.Masked
+                        : CellKind.Empty;
                 }
             }
-
-            private static long Squared(int value) => (long)value * value;
 
             private void EmplaceRooms()
             {
@@ -641,19 +630,6 @@ namespace Game.DungeonGeneration
                 int x = cell.X + offset.X;
                 int z = cell.Z + offset.Z;
                 return InBounds(x, z) && IsWalkable(new DungeonCell(x, z));
-            }
-
-            private List<DungeonCell> BuildSafeCells()
-            {
-                List<DungeonCell> safe = new();
-                foreach (DungeonStair stair in stairs) if (!safe.Contains(stair.ArrivalCell)) safe.Add(stair.ArrivalCell);
-                foreach (DungeonRoom room in rooms)
-                {
-                    DungeonCell center = new((room.MinimumX + room.MaximumX) / 2, (room.MinimumZ + room.MaximumZ) / 2);
-                    if (IsWalkable(center) && !safe.Contains(center)) safe.Add(center);
-                }
-                if (safe.Count == 0) safe.AddRange(WalkableCells().Where(c => cells[c.X, c.Z] != CellKind.Door).Take(8));
-                return safe;
             }
 
             private IReadOnlyList<string> BuildRows()

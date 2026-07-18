@@ -10,6 +10,13 @@ namespace Game.DungeonGeneration
     /// </summary>
     internal static class DungeonTopologyValidator
     {
+        private static readonly DungeonLayout[] SupportedLayouts =
+        {
+            DungeonLayout.Box,
+            DungeonLayout.Cross,
+            DungeonLayout.Round
+        };
+
         private static readonly DungeonCell[] Directions =
         {
             new(1, 0),
@@ -136,6 +143,133 @@ namespace Game.DungeonGeneration
 
             return rooms.All(room => roomIdsWithDoors.Contains(room.Id));
         }
+
+        /// <summary>
+        /// Returns whether every serialized space matches exactly one supported initialization
+        /// mask. Masked cells cannot be carved, while every allowed cell serializes as a wall,
+        /// floor, or door even when later generation stages leave it unused.
+        /// </summary>
+        internal static bool HasProducibleLayoutMask(IReadOnlyList<string> rows)
+        {
+            int width = rows[0].Length;
+            int height = rows.Count;
+            foreach (DungeonLayout layout in SupportedLayouts)
+            {
+                bool matches = true;
+                for (int z = 0; z < height && matches; z++)
+                for (int x = 0; x < width; x++)
+                {
+                    bool serializedAsMasked = Symbol(rows, new DungeonCell(x, z)) == ' ';
+                    if (serializedAsMasked != IsMaskedByLayout(layout, width, height, x, z))
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
+
+                if (matches)
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>Returns whether a cell is masked by one supported generator layout.</summary>
+        internal static bool IsMaskedByLayout(
+            DungeonLayout layout,
+            int width,
+            int height,
+            int x,
+            int z)
+        {
+            if (layout == DungeonLayout.Round)
+            {
+                int centerX = (width - 1) / 2;
+                int centerZ = (height - 1) / 2;
+                long deltaX = x - centerX;
+                long deltaZ = z - centerZ;
+                return deltaX * deltaX + deltaZ * deltaZ > (long)centerX * centerX;
+            }
+
+            int maskRow = z * 3 / height;
+            int maskColumn = x * 3 / width;
+            if (layout == DungeonLayout.Box)
+                return maskRow == 1 && maskColumn == 1;
+            if (layout == DungeonLayout.Cross)
+                return maskRow != 1 && maskColumn != 1;
+            throw new ArgumentOutOfRangeException(nameof(layout), layout, "Dungeon layout is undefined.");
+        }
+
+        /// <summary>
+        /// Returns whether door records retain the generator's ordered stable IDs and sill parity.
+        /// Odd-aligned room sills always place a door on a cell with exactly one odd coordinate.
+        /// </summary>
+        internal static bool HasProducibleDoorRecords(IReadOnlyList<DungeonDoor> doors)
+        {
+            for (int index = 0; index < doors.Count; index++)
+            {
+                DungeonDoor door = doors[index];
+                string expectedId = "door-" +
+                    (index + 1).ToString("D4", System.Globalization.CultureInfo.InvariantCulture);
+                bool xIsOdd = (door.Cell.X & 1) == 1;
+                bool zIsOdd = (door.Cell.Z & 1) == 1;
+                if (!string.Equals(door.Id, expectedId, StringComparison.Ordinal) ||
+                    xIsOdd == zIsOdd)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Builds the generator-owned safe-arrival sequence: stair arrivals in record order,
+        /// followed by room centers in room order, or the first eight non-door walkable cells in
+        /// Z-then-X order when neither source provides a cell.
+        /// </summary>
+        internal static IReadOnlyList<DungeonCell> BuildSafeCells(
+            IReadOnlyList<string> rows,
+            IReadOnlyList<DungeonRoom> rooms,
+            IReadOnlyList<DungeonStair> stairs)
+        {
+            List<DungeonCell> safe = new();
+            foreach (DungeonStair stair in stairs)
+            {
+                if (!safe.Contains(stair.ArrivalCell))
+                    safe.Add(stair.ArrivalCell);
+            }
+
+            foreach (DungeonRoom room in rooms)
+            {
+                DungeonCell center = new(
+                    (room.MinimumX + room.MaximumX) / 2,
+                    (room.MinimumZ + room.MaximumZ) / 2);
+                if (IsWalkable(rows, center) && !safe.Contains(center))
+                    safe.Add(center);
+            }
+
+            if (safe.Count == 0)
+            {
+                for (int z = 0; z < rows.Count && safe.Count < 8; z++)
+                for (int x = 0; x < rows[0].Length && safe.Count < 8; x++)
+                {
+                    DungeonCell cell = new(x, z);
+                    if (Symbol(rows, cell) == '.')
+                        safe.Add(cell);
+                }
+            }
+
+            return Array.AsReadOnly(safe.ToArray());
+        }
+
+        /// <summary>Returns whether safe cells exactly preserve the generator-owned sequence.</summary>
+        internal static bool HasProducibleSafeCells(
+            IReadOnlyList<string> rows,
+            IReadOnlyList<DungeonRoom> rooms,
+            IReadOnlyList<DungeonStair> stairs,
+            IReadOnlyList<DungeonCell> safeCells) =>
+            safeCells.SequenceEqual(BuildSafeCells(rows, rooms, stairs));
 
         /// <summary>
         /// Returns whether room records use the dimensions, coarse-grid alignment, and stable ID

@@ -300,6 +300,15 @@ namespace Game.DungeonGeneration
                     "For donjon-logical-splitmix64 algorithm version 1, width and height must each be an odd integer from 15 through 101."));
             }
             if (ownsContract &&
+                DeterministicDungeonGenerator.IsSupportedDimension(rows[0].Length) &&
+                DeterministicDungeonGenerator.IsSupportedDimension(rows.Count) &&
+                !DungeonTopologyValidator.HasProducibleLayoutMask(rows))
+            {
+                errors.Add(D(
+                    "rows",
+                    "For donjon-logical-splitmix64 algorithm version 1, serialized spaces must exactly match one supported Box, Cross, or Round generator layout mask."));
+            }
+            if (ownsContract &&
                 safe.Count > 0 &&
                 start != DeterministicDungeonGenerator.SelectStartCell(stairs, safe))
             {
@@ -363,6 +372,13 @@ namespace Game.DungeonGeneration
                     "doors",
                     "For donjon-logical-splitmix64 algorithm version 1, every recorded door must have exactly two opposite walkable neighbors and valid room adjacency, and every room must have at least one valid recorded door."));
             }
+            if (ownsContract &&
+                !DungeonTopologyValidator.HasProducibleDoorRecords(doors))
+            {
+                errors.Add(D(
+                    "doors",
+                    "For donjon-logical-splitmix64 algorithm version 1, door records must use ordered door-0001-style IDs and generator door-sill parity with exactly one odd cell coordinate."));
+            }
             bool invalidStairs =
                 stairs.Select(stair => stair.Id).Distinct(StringComparer.Ordinal).Count() != stairs.Count ||
                 stairs.Select(stair => stair.Kind).Distinct().Count() != stairs.Count ||
@@ -394,6 +410,17 @@ namespace Game.DungeonGeneration
                 errors.Add(D(
                     "stairs",
                     "For donjon-logical-splitmix64 algorithm version 1, every stair must occupy a straight three-cell corridor end with all other surrounding endpoint cells blocked."));
+            }
+            if (ownsContract &&
+                !DungeonTopologyValidator.HasProducibleSafeCells(
+                    rows,
+                    rooms,
+                    stairs,
+                    safe))
+            {
+                errors.Add(D(
+                    "arrival.safeCells",
+                    "For donjon-logical-splitmix64 algorithm version 1, safeCells must exactly preserve ordered stair arrivals, then ordered room centers, or the deterministic walkable fallback sequence."));
             }
             if (objects.Select(item => item.Id).Distinct(StringComparer.Ordinal).Count() != objects.Count || objects.Any(item => !InBounds(item.Cell) || (item.Rotation != 0 && item.Rotation != 90 && item.Rotation != 180 && item.Rotation != 270))) errors.Add(D("objects", "Object IDs must be unique, cells must be in bounds, and rotations must be 0, 90, 180, or 270."));
             HashSet<int> roomIds = new(rooms.Select(room => room.Id));
