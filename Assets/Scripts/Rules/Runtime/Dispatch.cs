@@ -98,20 +98,6 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Defines the action-lifecycle metadata slot carried by operation frames.
-    /// </summary>
-    /// <remarks>
-    /// The typed dispatch runtime currently leaves this slot empty. Keeping the placeholder in the
-    /// frame contract allows action-specific metadata to be added without replacing frame APIs.
-    /// </remarks>
-    public sealed class ActionProfile
-    {
-        internal ActionProfile()
-        {
-        }
-    }
-
-    /// <summary>
     /// Provides the common contract for every structurally distinct operation outcome.
     /// </summary>
     /// <typeparam name="TResult">The value type produced by a resolved operation.</typeparam>
@@ -278,6 +264,8 @@ namespace Game.Rules.Runtime
     public sealed class OpFrame<TOp>
         where TOp : IRuleOp
     {
+        private readonly FrameActionState actionState;
+
         /// <summary>
         /// Gets the unique identifier for this invocation.
         /// </summary>
@@ -313,12 +301,27 @@ namespace Game.Rules.Runtime
         /// </summary>
         public RulesSnapshot StartSnapshot { get; }
 
-#nullable enable annotations
         /// <summary>
-        /// Gets reserved action-lifecycle data, or <see langword="null"/> until action profiles are implemented.
+        /// Gets whether this frame represents a PF2e action with a frozen lifecycle profile.
         /// </summary>
-        public ActionProfile? ActionProfile { get; }
-#nullable restore annotations
+        public bool IsAction => actionState.IsAction;
+
+        /// <summary>
+        /// Gets the trusted action identity used to resolve this frame's effective profile.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">This frame does not represent an action.</exception>
+        public ActionOpInfo ActionInfo => actionState.RequireInfo();
+
+        /// <summary>
+        /// Gets the effective profile frozen before this action was validated.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">This frame does not represent an action.</exception>
+        /// <remarks>
+        /// Non-action operations expose an explicit <see cref="IsAction"/> state instead of a nullable
+        /// placeholder. Action validators, lifecycle middleware, and handlers therefore cannot observe
+        /// a partially initialized action frame.
+        /// </remarks>
+        public ActionProfile ActionProfile => actionState.RequireProfile();
 
         internal OpFrame(
             OpId id,
@@ -327,7 +330,8 @@ namespace Game.Rules.Runtime
             OpId? causeId,
             InvocationPolicy invocationPolicy,
             TOp op,
-            RulesSnapshot startSnapshot)
+            RulesSnapshot startSnapshot,
+            FrameActionState actionState)
         {
             if (id.IsEmpty || rootId.IsEmpty)
                 throw new ArgumentException("Frame and root IDs are required.");
@@ -341,7 +345,7 @@ namespace Game.Rules.Runtime
             InvocationPolicy = invocationPolicy;
             Op = op;
             StartSnapshot = startSnapshot ?? throw new ArgumentNullException(nameof(startSnapshot));
-            ActionProfile = null;
+            this.actionState = actionState ?? throw new ArgumentNullException(nameof(actionState));
         }
     }
 
@@ -400,6 +404,9 @@ namespace Game.Rules.Runtime
         OpId? CauseId { get; }
         Type OpType { get; }
         object TypedFrame { get; }
+        bool IsAction { get; }
+        ActionOpInfo ActionInfo { get; }
+        ActionProfile ActionProfile { get; }
     }
 
     internal sealed class OpFrameView<TOp> : IOpFrameView
@@ -416,6 +423,9 @@ namespace Game.Rules.Runtime
         public OpId? CauseId => frame.CauseId;
         public Type OpType => typeof(TOp);
         public object TypedFrame => frame;
+        public bool IsAction => frame.IsAction;
+        public ActionOpInfo ActionInfo => frame.ActionInfo;
+        public ActionProfile ActionProfile => frame.ActionProfile;
     }
 
     /// <summary>
@@ -462,6 +472,38 @@ namespace Game.Rules.Runtime
                 return typed;
             throw new InvalidOperationException(
                 $"Operation {id.Value} is {view.OpType.Name}, not {typeof(TOp).Name}.");
+        }
+
+        /// <summary>
+        /// Gets the trusted action identity for a recorded action frame.
+        /// </summary>
+        /// <param name="id">The action operation identifier.</param>
+        /// <returns>The identity and provenance used when its profile was resolved.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// The frame is absent or represents a non-action operation.
+        /// </exception>
+        public ActionOpInfo GetAction(OpId id)
+        {
+            IOpFrameView view = Require(id);
+            if (!view.IsAction)
+                throw new InvalidOperationException($"Operation {id.Value} does not represent an action.");
+            return view.ActionInfo;
+        }
+
+        /// <summary>
+        /// Gets the effective profile frozen on a recorded action frame.
+        /// </summary>
+        /// <param name="id">The action operation identifier.</param>
+        /// <returns>The exact profile shared by validation, costs, lifecycle middleware, and handling.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// The frame is absent or represents a non-action operation.
+        /// </exception>
+        public ActionProfile GetActionProfile(OpId id)
+        {
+            IOpFrameView view = Require(id);
+            if (!view.IsAction)
+                throw new InvalidOperationException($"Operation {id.Value} does not represent an action.");
+            return view.ActionProfile;
         }
 
         /// <summary>
@@ -607,6 +649,9 @@ namespace Game.Rules.Runtime
                     completions.TryGetValue(frame.Id, out DiagnosticCompletion completion);
                     string result = completion == null ? string.Empty : $" -> {completion.Status}";
                     lines.Add($"{prefix}[op {frame.Id.Value}{relation}] {frame.OpType.Name}{result}");
+
+                    if (frame.IsAction)
+                        lines.Add($"{prefix}  profile: {frame.ActionProfile.ToDiagnosticString()}");
 
                     if (completion == null)
                         continue;
@@ -818,9 +863,15 @@ namespace Game.Rules.Runtime
     {
         private readonly Dictionary<Type, IRegistration> registrations =
             new Dictionary<Type, IRegistration>();
+        private readonly Dictionary<Type, List<IActionValidatorRegistration>> actionValidators =
+            new Dictionary<Type, List<IActionValidatorRegistration>>();
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
         private RuleRegistry ruleRegistry = RuleRegistry.Empty;
+        private IActionCatalog actionCatalog = UnconfiguredActionCatalog.Instance;
+        private IActionProfileResolver actionProfileResolver =
+            IdentityActionProfileResolver.Instance;
+        private bool actionLifecycleConfigured;
 
         /// <summary>
         /// Initializes a dispatcher builder with its rules store and operation ID source.
@@ -883,6 +934,78 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
+        /// Configures the mandatory action lifecycle with definition-backed profiles and the
+        /// identity profile resolver.
+        /// </summary>
+        /// <param name="catalog">The immutable catalog used by action operations.</param>
+        /// <returns>This builder so configuration can be chained.</returns>
+        /// <remarks>
+        /// Use this overload when no live rule currently changes action profiles. The identity
+        /// resolver still freezes exactly one catalog profile per invocation.
+        /// </remarks>
+        public RuleDispatcherBuilder UseActionLifecycle(IActionCatalog catalog) =>
+            UseActionLifecycle(catalog, IdentityActionProfileResolver.Instance);
+
+        /// <summary>
+        /// Configures the mandatory action lifecycle and live profile resolver.
+        /// </summary>
+        /// <param name="catalog">The immutable catalog used by action operations.</param>
+        /// <param name="profileResolver">
+        /// The pure resolver that applies live state-dependent profile changes once per invocation.
+        /// </param>
+        /// <returns>This builder so configuration can be chained.</returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="catalog"/> or <paramref name="profileResolver"/> is
+        /// <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">Action lifecycle services were already configured.</exception>
+        public RuleDispatcherBuilder UseActionLifecycle(
+            IActionCatalog catalog,
+            IActionProfileResolver profileResolver)
+        {
+            if (actionLifecycleConfigured)
+                throw new InvalidOperationException("Action lifecycle services are already configured.");
+            actionCatalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            actionProfileResolver = profileResolver ??
+                throw new ArgumentNullException(nameof(profileResolver));
+            actionLifecycleConfigured = true;
+            return this;
+        }
+
+        /// <summary>
+        /// Registers one pure validator for a concrete action operation.
+        /// </summary>
+        /// <typeparam name="TOp">The concrete action type to validate.</typeparam>
+        /// <param name="validator">The validator invoked in registration order.</param>
+        /// <returns>This builder so registrations can be chained.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="validator"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// <typeparamref name="TOp"/> does not derive from <see cref="ActionOp{TResult}"/>.
+        /// </exception>
+        public RuleDispatcherBuilder RegisterActionValidator<TOp>(
+            IActionValidator<TOp> validator)
+            where TOp : IRuleOp
+        {
+            if (validator == null)
+                throw new ArgumentNullException(nameof(validator));
+            if (!typeof(IActionOpMetadata).IsAssignableFrom(typeof(TOp)))
+            {
+                throw new InvalidOperationException(
+                    $"{typeof(TOp).Name} is not an ActionOp and cannot use action validators.");
+            }
+
+            if (!actionValidators.TryGetValue(
+                typeof(TOp),
+                out List<IActionValidatorRegistration> registrationsForType))
+            {
+                registrationsForType = new List<IActionValidatorRegistration>();
+                actionValidators.Add(typeof(TOp), registrationsForType);
+            }
+            registrationsForType.Add(new ActionValidatorRegistration<TOp>(validator));
+            return this;
+        }
+
+        /// <summary>
         /// Selects the immutable rule registry used for binding-controlled middleware and Fact listeners.
         /// </summary>
         /// <param name="registry">The static registry to validate and attach to the dispatcher.</param>
@@ -904,8 +1027,77 @@ namespace Game.Rules.Runtime
         /// <returns>A dispatcher that owns its registration map, trace, and diagnostics.</returns>
         public RuleDispatcher Build()
         {
-            ruleRegistry.ValidateResolvers(registrations);
-            return new RuleDispatcher(store, ids, registrations, ruleRegistry);
+            Dictionary<Type, IRegistration> completedRegistrations =
+                new Dictionary<Type, IRegistration>(registrations);
+            bool hasActionHandler = completedRegistrations.Values.Any(registration =>
+                typeof(IActionOpMetadata).IsAssignableFrom(registration.OpType));
+            if ((hasActionHandler || actionValidators.Count > 0) && !actionLifecycleConfigured)
+            {
+                throw new InvalidOperationException(
+                    "Action handlers and validators require UseActionLifecycle before Build.");
+            }
+            foreach (IRegistration actionRegistration in completedRegistrations.Values.Where(
+                registration => typeof(IActionOpMetadata).IsAssignableFrom(registration.OpType)))
+            {
+                if (actionRegistration.IsReducer)
+                {
+                    throw new InvalidOperationException(
+                        $"Action operation {actionRegistration.OpType.Name} must use a feature handler, not a reducer.");
+                }
+            }
+
+            ActionRuntime actionRuntime = ActionRuntime.Disabled;
+            if (actionLifecycleConfigured)
+            {
+                foreach (KeyValuePair<Type, List<IActionValidatorRegistration>> pair in actionValidators)
+                {
+                    if (!completedRegistrations.TryGetValue(pair.Key, out IRegistration registration))
+                    {
+                        throw new InvalidOperationException(
+                            $"Action validators for {pair.Key.Name} require a registered handler.");
+                    }
+                    if (registration.IsReducer)
+                    {
+                        throw new InvalidOperationException(
+                            $"Action operation {pair.Key.Name} must use a feature handler, not a reducer.");
+                    }
+                }
+
+                AddLifecycleRegistration(
+                    completedRegistrations,
+                    new HandlerRegistration<ActionBegunOp, ActionStartOutcome>(
+                        new ActionBegunHandler(),
+                        InvocationPolicy.NestedOnly));
+                AddLifecycleRegistration(
+                    completedRegistrations,
+                    new ReducerRegistration<CommitActionCostsOp, ActionCostsOutcome>(
+                        new CommitActionCostsReducer(),
+                        RuleSource.FromSlug("action-lifecycle")));
+                actionRuntime = ActionRuntime.Create(
+                    actionCatalog,
+                    actionProfileResolver,
+                    actionValidators);
+            }
+
+            ruleRegistry.ValidateResolvers(completedRegistrations);
+            return new RuleDispatcher(
+                store,
+                ids,
+                completedRegistrations,
+                ruleRegistry,
+                actionRuntime);
+        }
+
+        private static void AddLifecycleRegistration(
+            IDictionary<Type, IRegistration> completedRegistrations,
+            IRegistration registration)
+        {
+            if (completedRegistrations.ContainsKey(registration.OpType))
+            {
+                throw new InvalidOperationException(
+                    $"{registration.OpType.Name} is reserved for the engine-owned action lifecycle.");
+            }
+            completedRegistrations.Add(registration.OpType, registration);
         }
 
         private void Add(IRegistration registration)
@@ -936,19 +1128,22 @@ namespace Game.Rules.Runtime
         private readonly IOpIdProvider ids;
         private readonly IReadOnlyDictionary<Type, IRegistration> registrations;
         private readonly RuleRegistry ruleRegistry;
+        private readonly ActionRuntime actionRuntime;
         private RootResolution activeRoot;
 
         internal RuleDispatcher(
             IRulesStore store,
             IOpIdProvider ids,
             IDictionary<Type, IRegistration> registrations,
-            RuleRegistry ruleRegistry)
+            RuleRegistry ruleRegistry,
+            ActionRuntime actionRuntime)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
             this.registrations = new ReadOnlyDictionary<Type, IRegistration>(
                 new Dictionary<Type, IRegistration>(registrations));
             this.ruleRegistry = ruleRegistry ?? throw new ArgumentNullException(nameof(ruleRegistry));
+            this.actionRuntime = actionRuntime ?? throw new ArgumentNullException(nameof(actionRuntime));
             Trace = new ResolutionTrace();
             Diagnostics = new ResolutionDiagnostics(Trace);
         }
@@ -1325,8 +1520,22 @@ namespace Game.Rules.Runtime
                 id = parentId.HasValue ? ids.Next() : rootId;
                 firstFact = resolution.Facts.Count;
                 RulesSnapshot startSnapshot = store.Snapshot;
+                FrameActionState actionState = actionRuntime.CreateFrameState(
+                    id,
+                    rootId,
+                    parentId,
+                    causeId,
+                    registration.Policy,
+                    op,
+                    startSnapshot);
                 invocation = registration.CreateInvocation(
-                    id, rootId, parentId, causeId, op, startSnapshot);
+                    id,
+                    rootId,
+                    parentId,
+                    causeId,
+                    op,
+                    startSnapshot,
+                    actionState);
                 middleware = ruleRegistry.SelectMiddleware(
                     op.GetType(), typeof(TResult), startSnapshot);
                 factListeners = ruleRegistry.SelectFactListeners(startSnapshot);
@@ -1339,11 +1548,16 @@ namespace Game.Rules.Runtime
                 object resultObject;
                 try
                 {
-                    resultObject = await InvokeWithMiddleware(
-                        registration,
-                        invocation,
-                        middleware,
-                        0);
+                    resultObject = invocation.FrameView.IsAction
+                        ? await InvokeActionLifecycle(
+                            registration,
+                            invocation,
+                            middleware)
+                        : await InvokeWithMiddleware(
+                            registration,
+                            invocation,
+                            middleware,
+                            0);
                 }
                 catch
                 {
@@ -1384,6 +1598,53 @@ namespace Game.Rules.Runtime
                 lock (gate)
                     resolution.ExitFrame(id, rootId);
             }
+        }
+
+        private async ValueTask<object> InvokeActionLifecycle(
+            IRegistration registration,
+            IFrameInvocation invocation,
+            IReadOnlyList<BoundMiddlewareRegistration> middleware)
+        {
+            ActionValidationResult validation = actionRuntime.Validate(invocation);
+            if (validation is ActionValidationResult.InvalidActionValidationResult invalid)
+                return registration.CreateInvalidResult(invalid.Reason);
+
+            ActionOpInfo action = invocation.FrameView.ActionInfo;
+            ActionProfile profile = invocation.FrameView.ActionProfile;
+            OpResult<ActionCostsOutcome> costs = await DispatchNested(
+                new CommitActionCostsOp(action.Id, action.Actor, profile),
+                action.Id);
+            if (costs is InvalidOpResult<ActionCostsOutcome> invalidCosts)
+                return registration.CreateInvalidResult(invalidCosts.Reason);
+            if (!(costs is ResolvedOpResult<ActionCostsOutcome>))
+            {
+                throw new InvalidOperationException(
+                    "Atomic action costs may only resolve or reject before an action begins.");
+            }
+
+            OpResult<ActionStartOutcome> begun = await DispatchNested(
+                new ActionBegunOp(action.Id),
+                action.Id);
+            if (!(begun is ResolvedOpResult<ActionStartOutcome> resolvedBegun))
+            {
+                throw new InvalidOperationException(
+                    "ActionBegunOp reports disruption through ActionStartOutcome.");
+            }
+            if (resolvedBegun.Value.Decision == ActionStartDecision.Interrupted)
+                return registration.CreateInterruptedResult();
+
+            object featureResult = await InvokeWithMiddleware(
+                registration,
+                invocation,
+                middleware,
+                0);
+            if (registration.GetResultStatus(featureResult) != OpStatus.Resolved)
+            {
+                throw new InvalidOperationException(
+                    "Action feature middleware cannot replace a begun action with a structural " +
+                    "Invalid, Interrupted, or Cancelled result. Disruption belongs in ActionBegunOp.");
+            }
+            return featureResult;
         }
 
         private ValueTask<object> InvokeWithMiddleware(
@@ -1606,8 +1867,12 @@ namespace Game.Rules.Runtime
             OpId? parentId,
             OpId? causeId,
             IRuleOp op,
-            RulesSnapshot snapshot);
+            RulesSnapshot snapshot,
+            FrameActionState actionState);
         ValueTask<object> Invoke(IFrameInvocation invocation, RuleDispatcher dispatcher);
+        object CreateInvalidResult(string reason);
+        object CreateInterruptedResult();
+        OpStatus GetResultStatus(object result);
     }
 
     internal interface IFrameInvocation
@@ -1658,13 +1923,35 @@ namespace Game.Rules.Runtime
             OpId? parentId,
             OpId? causeId,
             IRuleOp op,
-            RulesSnapshot snapshot)
+            RulesSnapshot snapshot,
+            FrameActionState actionState)
         {
             if (!(op is TOp typed))
                 throw new InvalidOperationException(
                     $"Registration for {typeof(TOp).Name} received {op.GetType().Name}.");
             return new FrameInvocation<TOp>(new OpFrame<TOp>(
-                id, rootId, parentId, causeId, Policy, typed, snapshot));
+                id,
+                rootId,
+                parentId,
+                causeId,
+                Policy,
+                typed,
+                snapshot,
+                actionState));
+        }
+
+        public object CreateInvalidResult(string reason) =>
+            OpResult<TResult>.Invalid(reason);
+
+        public object CreateInterruptedResult() =>
+            OpResult<TResult>.Interrupted();
+
+        public OpStatus GetResultStatus(object result)
+        {
+            if (result is OpResult<TResult> typed)
+                return typed.Status;
+            throw new InvalidOperationException(
+                $"Resolver for {typeof(TOp).Name} returned an impossible result type.");
         }
 
         public abstract ValueTask<object> Invoke(

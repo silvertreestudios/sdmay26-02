@@ -179,11 +179,22 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void FramesAreEngineOwnedAndReserveOnlyANullActionProfileSlot()
+        public void FramesAreEngineOwnedAndRepresentNonActionsWithoutANullProfile()
         {
             ConstructorInfo[] constructors = typeof(OpFrame<RootOp>).GetConstructors();
             Assert.That(constructors, Is.Empty);
             Assert.That(typeof(OpFrame<RootOp>).GetProperty(nameof(OpFrame<RootOp>.ActionProfile)), Is.Not.Null);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore(10))
+                .RegisterHandler<RootOp, int>(new RootHandler())
+                .RegisterHandler<NestedHandlerOp, int>(new NestedHandler(), InvocationPolicy.NestedOnly)
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+
+            Assert.DoesNotThrowAsync(async () => await dispatcher.Dispatch(new RootOp(1)));
+            OpFrame<RootOp> frame = dispatcher.Trace.Get<RootOp>(new OpId(1));
+            Assert.That(frame.IsAction, Is.False);
+            Assert.Throws<InvalidOperationException>(() => _ = frame.ActionProfile);
+            Assert.Throws<InvalidOperationException>(() => _ = frame.ActionInfo);
         }
 
         [Test]
@@ -720,7 +731,8 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(frame.CauseId, Is.EqualTo(cause.HasValue ? new OpId(cause.Value) : (OpId?)null));
             Assert.That(frame.InvocationPolicy, Is.EqualTo(policy));
             Assert.That(frame.StartSnapshot.Version, Is.EqualTo(startVersion));
-            Assert.That(frame.ActionProfile, Is.Null);
+            Assert.That(frame.IsAction, Is.False);
+            Assert.Throws<InvalidOperationException>(() => _ = frame.ActionProfile);
         }
 
         private sealed class RootOp : IRuleOp<int>

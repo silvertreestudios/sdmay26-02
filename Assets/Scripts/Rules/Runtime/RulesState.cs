@@ -106,6 +106,9 @@ namespace Game.Rules.Runtime
         internal Dictionary<CreatureId, HealthState> Health { get; } = new Dictionary<CreatureId, HealthState>();
         internal Dictionary<CreatureId, GridPosition> Positions { get; } = new Dictionary<CreatureId, GridPosition>();
         internal Dictionary<CreatureId, ActionEconomyState> ActionEconomy { get; } = new Dictionary<CreatureId, ActionEconomyState>();
+        internal Dictionary<SpellSlotPoolId, SpellSlotState> SpellSlots { get; } = new Dictionary<SpellSlotPoolId, SpellSlotState>();
+        internal Dictionary<CreatureId, FocusPointState> FocusPoints { get; } = new Dictionary<CreatureId, FocusPointState>();
+        internal Dictionary<ItemId, AmmunitionState> Ammunition { get; } = new Dictionary<ItemId, AmmunitionState>();
         internal Dictionary<CreatureId, MultipleAttackPenaltyState> MultipleAttackPenalty { get; } = new Dictionary<CreatureId, MultipleAttackPenaltyState>();
         internal Dictionary<ConditionId, ConditionState> Conditions { get; } = new Dictionary<ConditionId, ConditionState>();
         internal Dictionary<ItemId, EquipmentState> Equipment { get; } = new Dictionary<ItemId, EquipmentState>();
@@ -139,6 +142,45 @@ namespace Game.Rules.Runtime
         {
             RequireCreatureId(creature, nameof(creature));
             ActionEconomy[creature] = value;
+            return this;
+        }
+
+        /// <summary>
+        /// Seeds one authoritative spell-slot pool before the store begins resolving operations.
+        /// </summary>
+        /// <param name="value">The immutable pool state to add or replace by ID.</param>
+        /// <returns>This seed so initial state can be composed fluently.</returns>
+        public RulesStateSeed SeedSpellSlot(SpellSlotState value)
+        {
+            if (value.Id.IsEmpty)
+                throw new ArgumentException("A spell-slot pool ID is required.", nameof(value));
+            SpellSlots[value.Id] = value;
+            return this;
+        }
+
+        /// <summary>
+        /// Seeds one creature's authoritative Focus Point pool.
+        /// </summary>
+        /// <param name="creature">The creature that owns the pool.</param>
+        /// <param name="value">The immutable Focus Point state.</param>
+        /// <returns>This seed so initial state can be composed fluently.</returns>
+        public RulesStateSeed SeedFocusPoints(CreatureId creature, FocusPointState value)
+        {
+            RequireCreatureId(creature, nameof(creature));
+            FocusPoints[creature] = value;
+            return this;
+        }
+
+        /// <summary>
+        /// Seeds one authoritative ammunition pool before resolution begins.
+        /// </summary>
+        /// <param name="value">The immutable ammunition state to add or replace by item ID.</param>
+        /// <returns>This seed so initial state can be composed fluently.</returns>
+        public RulesStateSeed SeedAmmunition(AmmunitionState value)
+        {
+            if (value.Item.IsEmpty)
+                throw new ArgumentException("An ammunition item ID is required.", nameof(value));
+            Ammunition[value.Item] = value;
             return this;
         }
 
@@ -209,6 +251,9 @@ namespace Game.Rules.Runtime
         public Dictionary<CreatureId, HealthState> Health { get; }
         public Dictionary<CreatureId, GridPosition> Positions { get; }
         public Dictionary<CreatureId, ActionEconomyState> ActionEconomy { get; }
+        public Dictionary<SpellSlotPoolId, SpellSlotState> SpellSlots { get; }
+        public Dictionary<CreatureId, FocusPointState> FocusPoints { get; }
+        public Dictionary<ItemId, AmmunitionState> Ammunition { get; }
         public Dictionary<CreatureId, MultipleAttackPenaltyState> MultipleAttackPenalty { get; }
         public Dictionary<ConditionId, ConditionState> Conditions { get; }
         public Dictionary<ItemId, EquipmentState> Equipment { get; }
@@ -223,6 +268,9 @@ namespace Game.Rules.Runtime
                 new Dictionary<CreatureId, HealthState>(seed.Health),
                 new Dictionary<CreatureId, GridPosition>(seed.Positions),
                 new Dictionary<CreatureId, ActionEconomyState>(seed.ActionEconomy),
+                new Dictionary<SpellSlotPoolId, SpellSlotState>(seed.SpellSlots),
+                new Dictionary<CreatureId, FocusPointState>(seed.FocusPoints),
+                new Dictionary<ItemId, AmmunitionState>(seed.Ammunition),
                 new Dictionary<CreatureId, MultipleAttackPenaltyState>(seed.MultipleAttackPenalty),
                 new Dictionary<ConditionId, ConditionState>(seed.Conditions),
                 new Dictionary<ItemId, EquipmentState>(seed.Equipment),
@@ -238,6 +286,9 @@ namespace Game.Rules.Runtime
             Dictionary<CreatureId, HealthState> health,
             Dictionary<CreatureId, GridPosition> positions,
             Dictionary<CreatureId, ActionEconomyState> actionEconomy,
+            Dictionary<SpellSlotPoolId, SpellSlotState> spellSlots,
+            Dictionary<CreatureId, FocusPointState> focusPoints,
+            Dictionary<ItemId, AmmunitionState> ammunition,
             Dictionary<CreatureId, MultipleAttackPenaltyState> multipleAttackPenalty,
             Dictionary<ConditionId, ConditionState> conditions,
             Dictionary<ItemId, EquipmentState> equipment,
@@ -250,6 +301,9 @@ namespace Game.Rules.Runtime
             Health = health;
             Positions = positions;
             ActionEconomy = actionEconomy;
+            SpellSlots = spellSlots;
+            FocusPoints = focusPoints;
+            Ammunition = ammunition;
             MultipleAttackPenalty = multipleAttackPenalty;
             Conditions = conditions;
             Equipment = equipment;
@@ -266,6 +320,18 @@ namespace Game.Rules.Runtime
         public StateSliceSnapshot<CreatureId, HealthState> Health { get; }
         public StateSliceSnapshot<CreatureId, GridPosition> Positions { get; }
         public StateSliceSnapshot<CreatureId, ActionEconomyState> ActionEconomy { get; }
+        /// <summary>
+        /// Gets the authoritative spell-slot pools keyed by stable pool identity.
+        /// </summary>
+        public StateSliceSnapshot<SpellSlotPoolId, SpellSlotState> SpellSlots { get; }
+        /// <summary>
+        /// Gets authoritative Focus Point pools keyed by their owning creature.
+        /// </summary>
+        public StateSliceSnapshot<CreatureId, FocusPointState> FocusPoints { get; }
+        /// <summary>
+        /// Gets authoritative ammunition pools keyed by stable item identity.
+        /// </summary>
+        public StateSliceSnapshot<ItemId, AmmunitionState> Ammunition { get; }
         public StateSliceSnapshot<CreatureId, MultipleAttackPenaltyState> MultipleAttackPenalty { get; }
         public StateSliceSnapshot<ConditionId, ConditionState> Conditions { get; }
         public StateSliceSnapshot<ItemId, EquipmentState> Equipment { get; }
@@ -283,6 +349,9 @@ namespace Game.Rules.Runtime
             Health = new StateSliceSnapshot<CreatureId, HealthState>(data.Health);
             Positions = new StateSliceSnapshot<CreatureId, GridPosition>(data.Positions);
             ActionEconomy = new StateSliceSnapshot<CreatureId, ActionEconomyState>(data.ActionEconomy);
+            SpellSlots = new StateSliceSnapshot<SpellSlotPoolId, SpellSlotState>(data.SpellSlots);
+            FocusPoints = new StateSliceSnapshot<CreatureId, FocusPointState>(data.FocusPoints);
+            Ammunition = new StateSliceSnapshot<ItemId, AmmunitionState>(data.Ammunition);
             MultipleAttackPenalty = new StateSliceSnapshot<CreatureId, MultipleAttackPenaltyState>(data.MultipleAttackPenalty);
             Conditions = new StateSliceSnapshot<ConditionId, ConditionState>(data.Conditions);
             Equipment = new StateSliceSnapshot<ItemId, EquipmentState>(data.Equipment);
@@ -298,6 +367,18 @@ namespace Game.Rules.Runtime
         public StateSliceDraft<CreatureId, HealthState> Health { get; }
         public StateSliceDraft<CreatureId, GridPosition> Positions { get; }
         public StateSliceDraft<CreatureId, ActionEconomyState> ActionEconomy { get; }
+        /// <summary>
+        /// Gets transaction-scoped write access to spell-slot pools.
+        /// </summary>
+        public StateSliceDraft<SpellSlotPoolId, SpellSlotState> SpellSlots { get; }
+        /// <summary>
+        /// Gets transaction-scoped write access to Focus Point pools.
+        /// </summary>
+        public StateSliceDraft<CreatureId, FocusPointState> FocusPoints { get; }
+        /// <summary>
+        /// Gets transaction-scoped write access to ammunition pools.
+        /// </summary>
+        public StateSliceDraft<ItemId, AmmunitionState> Ammunition { get; }
         public StateSliceDraft<CreatureId, MultipleAttackPenaltyState> MultipleAttackPenalty { get; }
         public StateSliceDraft<ConditionId, ConditionState> Conditions { get; }
         public StateSliceDraft<ItemId, EquipmentState> Equipment { get; }
@@ -314,6 +395,15 @@ namespace Game.Rules.Runtime
             Health = new StateSliceDraft<CreatureId, HealthState>(data.Health, (id, value) => !id.IsEmpty);
             Positions = new StateSliceDraft<CreatureId, GridPosition>(data.Positions, (id, value) => !id.IsEmpty);
             ActionEconomy = new StateSliceDraft<CreatureId, ActionEconomyState>(data.ActionEconomy, (id, value) => !id.IsEmpty);
+            SpellSlots = new StateSliceDraft<SpellSlotPoolId, SpellSlotState>(
+                data.SpellSlots,
+                (id, value) => !id.IsEmpty && id == value.Id);
+            FocusPoints = new StateSliceDraft<CreatureId, FocusPointState>(
+                data.FocusPoints,
+                (id, value) => !id.IsEmpty);
+            Ammunition = new StateSliceDraft<ItemId, AmmunitionState>(
+                data.Ammunition,
+                (id, value) => !id.IsEmpty && id == value.Item);
             MultipleAttackPenalty = new StateSliceDraft<CreatureId, MultipleAttackPenaltyState>(data.MultipleAttackPenalty, (id, value) => !id.IsEmpty);
             Conditions = new StateSliceDraft<ConditionId, ConditionState>(data.Conditions, (id, value) => !id.IsEmpty && value != null && id == value.Id);
             Equipment = new StateSliceDraft<ItemId, EquipmentState>(data.Equipment, (id, value) => !id.IsEmpty && value != null && id == value.Id);
@@ -324,6 +414,7 @@ namespace Game.Rules.Runtime
 
         internal bool IsDirty =>
             Creatures.IsDirty || Health.IsDirty || Positions.IsDirty || ActionEconomy.IsDirty ||
+            SpellSlots.IsDirty || FocusPoints.IsDirty || Ammunition.IsDirty ||
             MultipleAttackPenalty.IsDirty || Conditions.IsDirty || Equipment.IsDirty ||
             ActiveEffects.IsDirty || RuleBindings.IsDirty || Frequencies.IsDirty;
 
@@ -335,6 +426,9 @@ namespace Game.Rules.Runtime
                 Health.BuildCommittedValues(),
                 Positions.BuildCommittedValues(),
                 ActionEconomy.BuildCommittedValues(),
+                SpellSlots.BuildCommittedValues(),
+                FocusPoints.BuildCommittedValues(),
+                Ammunition.BuildCommittedValues(),
                 MultipleAttackPenalty.BuildCommittedValues(),
                 Conditions.BuildCommittedValues(),
                 Equipment.BuildCommittedValues(),
