@@ -700,7 +700,9 @@ The dispatcher serializes root resolution through an asynchronous ownership gate
 external root waits before allocating its root ID or frame, so a prompt can suspend its current root
 without combat state changing underneath it. Nested reactions and other child Ops remain available
 because they belong to the same resolution tree, and causally dispatched Fact-listener roots retain
-the original external root's ownership window through post-commit notification.
+the original external root's ownership window through post-commit notification. Code already executing
+inside a resolution must use its handler, middleware, or Fact-listener context for nested work; calling
+the dispatcher's public root API reentrantly is rejected instead of waiting on its own ownership gate.
 
 ### 5.7 Read-only queries stay simple
 

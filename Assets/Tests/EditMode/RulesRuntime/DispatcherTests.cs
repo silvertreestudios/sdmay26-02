@@ -398,6 +398,35 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(802)));
         }
 
+        /// <summary>
+        /// Verifies a callback cannot deadlock its active root by reentering the public dispatch API.
+        /// </summary>
+        [Test]
+        [Timeout(10000)]
+        public void ActiveResolutionRejectsReentrantPublicRootDispatch()
+        {
+            TaskCompletionSource<RuleDispatcher> dispatcherReference =
+                new TaskCompletionSource<RuleDispatcher>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(10),
+                    new SequentialOpIdProvider(825))
+                .RegisterHandler<ReentrantRootOp, int>(
+                    new ReentrantRootHandler(dispatcherReference.Task))
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+            dispatcherReference.SetResult(dispatcher);
+
+            InvalidOperationException error = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(new ReentrantRootOp()));
+
+            Assert.That(error.Message, Does.Contain("public root Dispatch API"));
+            Assert.That(dispatcher.Trace.OrderedFrames.Select(frame => frame.Id),
+                Is.EqualTo(new[] { new OpId(825) }));
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(10));
+        }
+
         private static Task<OpResult<int>> RaceRoot(
             RuleDispatcher dispatcher,
             CountdownEvent ready,
@@ -903,6 +932,27 @@ namespace Game.Rules.Runtime.Tests
                         return;
                     observed = previous;
                 }
+            }
+        }
+
+        private sealed class ReentrantRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class ReentrantRootHandler : IOpHandler<ReentrantRootOp, int>
+        {
+            private readonly Task<RuleDispatcher> dispatcher;
+
+            public ReentrantRootHandler(Task<RuleDispatcher> dispatcher) =>
+                this.dispatcher = dispatcher;
+
+            public async ValueTask<int> Handle(
+                OpFrame<ReentrantRootOp> frame,
+                OpHandlerContext context)
+            {
+                RuleDispatcher activeDispatcher = await dispatcher;
+                await activeDispatcher.Dispatch(new SingleIncrementRootOp());
+                return 0;
             }
         }
 

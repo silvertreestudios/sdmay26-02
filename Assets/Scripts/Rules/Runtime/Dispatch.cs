@@ -25,6 +25,9 @@ namespace Game.Rules.Runtime
             Array.AsReadOnly(Array.Empty<BoundMiddlewareRegistration>());
         private readonly object gate = new object();
         private readonly SemaphoreSlim rootSerial = new SemaphoreSlim(1, 1);
+        // The async-flow marker distinguishes callbacks running inside this dispatcher's current
+        // resolution from independent callers that should wait on the serialization gate.
+        private readonly AsyncLocal<bool> activeResolutionFlow = new AsyncLocal<bool>();
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
         private readonly IRollService rollService;
@@ -77,8 +80,8 @@ namespace Game.Rules.Runtime
         /// <returns>A task-like value containing the root status, value, and all committed subtree facts.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="op"/> is <see langword="null"/>.</exception>
         /// <exception cref="InvalidOperationException">
-        /// The operation is nested-only, no compatible resolver is registered, or a handler violates
-        /// nested-dispatch ownership.
+        /// The operation is nested-only, no compatible resolver is registered, the current resolution
+        /// calls this public root API reentrantly, or a handler violates nested-dispatch ownership.
         /// </exception>
         /// <remarks>
         /// Resolver, middleware, and post-commit listener exceptions propagate to the caller. State
@@ -94,6 +97,12 @@ namespace Game.Rules.Runtime
         {
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
+            if (activeResolutionFlow.Value)
+            {
+                throw new InvalidOperationException(
+                    "An active resolution cannot call the public root Dispatch API. " +
+                    "Use its callback context for nested work.");
+            }
 
             RootResolution resolution = new RootResolution();
             await rootSerial.WaitAsync();
@@ -108,6 +117,7 @@ namespace Game.Rules.Runtime
                     }
 
                     activeRoot = resolution;
+                    activeResolutionFlow.Value = true;
                 }
 
                 IRegistration registration = RequireRegistration(op.GetType(), typeof(TResult));
@@ -134,6 +144,7 @@ namespace Game.Rules.Runtime
             }
             finally
             {
+                activeResolutionFlow.Value = false;
                 lock (gate)
                 {
                     if (ReferenceEquals(activeRoot, resolution))
