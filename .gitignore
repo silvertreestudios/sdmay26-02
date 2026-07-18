@@ -123,6 +123,7 @@ InitTestScene*.unity*
 /CodeCoverage/
 /BenchmarkSuite1/obj/
 /.agent-temp/
+/Assets/_agent-temp/
 
 # Unity recovery and merge leftovers
 /[Aa]ssets/_Recovery/

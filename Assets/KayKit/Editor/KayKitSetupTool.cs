@@ -75,6 +75,8 @@ namespace Game.KayKit.Editor
             {
                 EnsureProjectFolders();
                 Dictionary<string, Material[]> materials = GenerateMaterials();
+                Material dungeonMaterial = materials[KayKitPathUtility.DungeonRoot].Single();
+                KayKitDungeonSetupTool.RegeneratePrefabs(dungeonMaterial);
                 GenerateDungeonCatalog();
                 GenerateAnimationLibrary();
                 GenerateSourceManifest();
@@ -247,11 +249,17 @@ namespace Game.KayKit.Editor
                 GameObject model = AssetDatabase.LoadAssetAtPath<GameObject>(path);
                 if (model == null)
                     throw new InvalidOperationException($"Dungeon model could not be loaded: {path}");
-                entries.Add(new KayKitDungeonCatalogEntry(id, model));
+                entries.Add(KayKitDungeonSetupTool.CreateCatalogEntry(id, model));
             }
 
             KayKitDungeonCatalog catalog = GetOrCreate<KayKitDungeonCatalog>(DungeonCatalogPath);
             catalog.ReplaceEntries(entries.OrderBy(entry => entry.Id, StringComparer.Ordinal));
+            catalog.ConfigureStructure(
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    MaterialRoot + "/KayKitDungeon_dungeon_texture.mat"),
+                KayKitDungeonSetupTool.LoadFloorPrefab(),
+                KayKitDungeonSetupTool.LoadWallResolverPrefab(),
+                KayKitDungeonSetupTool.LoadDoorwayPrefab());
             EditorUtility.SetDirty(catalog);
         }
 

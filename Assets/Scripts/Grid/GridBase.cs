@@ -11,6 +11,7 @@ namespace GridPrivate
     public class GridBase : GridAPI, GridAPIPrivate
     {
         public TileType[,] GridData {get; set;}
+        public bool[,] LineOfSightBlocks { get; private set; }
         protected Tile[,] Tiles;
         IPathfinder Pathfinder;
         public GridFSM Fsm { get; private set; } = new GridFSM();
@@ -22,29 +23,39 @@ namespace GridPrivate
 
         protected override void Awake()
         {
-            base.Awake();
             Map map = GetComponent<Map>();
             GridData = map.GetMapData();
+            LineOfSightBlocks = GridData == null ? null : map.GetLineOfSightBlocks();
+            if (GridData == null || LineOfSightBlocks == null)
+            {
+                Debug.LogError("Grid initialization failed: Map did not provide valid grid and line-of-sight data.", this);
+                enabled = false;
+                GridInput input = GetComponent<GridInput>();
+                if (input != null)
+                    input.enabled = false;
+                return;
+            }
+
+            base.Awake();
             Tiles = new Tile[GridData.GetLength(0), GridData.GetLength(1)];
 
             for(int x = 0; x < GridData.GetLength(0); x++)
             {
                 for (int y = 0; y < GridData.GetLength(1); y++)
                 {
-                    switch(GridData[x,y])
-                    {
-                        case TileType.Ground:
-                        case TileType.Door:
-                            Tiles[x, y] = new Tile();
-                            break;
-                        default: // Forever uninhabitable, purely cosmetic and/or padding
-                            Tiles[x, y] = null;
-                            break;
-                    }
+                    Tiles[x, y] = IsWalkableTile(GridData[x, y]) ? new Tile() : null;
                 }
             }
 
             Pathfinder = new Dijkstra(Tiles);
+            GridLineOfSightData.Register(Tiles, LineOfSightBlocks, GridData);
+            foreach (Token token in FindObjectsByType<Token>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+                token.TryRegisterWithGrid(this);
+        }
+
+        protected void OnDestroy()
+        {
+            GridLineOfSightData.Unregister(Tiles);
         }
 
         public void Update()
@@ -98,6 +109,16 @@ namespace GridPrivate
         public Tile[,] GetTiles()
         {
             return Tiles;
+        }
+
+        public bool[,] GetLineOfSightBlocks()
+        {
+            return LineOfSightBlocks;
+        }
+
+        public static bool IsWalkableTile(TileType tile)
+        {
+            return tile == TileType.Ground || tile == TileType.Door;
         }
     }
 }
