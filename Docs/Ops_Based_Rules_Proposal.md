@@ -702,7 +702,9 @@ without combat state changing underneath it. Nested reactions and other child Op
 because they belong to the same resolution tree, and causally dispatched Fact-listener roots retain
 the original external root's ownership window through post-commit notification. Code already executing
 inside a resolution must use its handler, middleware, or Fact-listener context for nested work; calling
-the dispatcher's public root API reentrantly is rejected instead of waiting on its own ownership gate.
+the dispatcher's public root API while that resolution still owns the gate is rejected instead of
+waiting on its own ownership. A delayed continuation may submit a normal root after its originating
+resolution releases ownership; it then follows the same serialization rules as any independent caller.
 
 ### 5.7 Read-only queries stay simple
 

@@ -25,9 +25,11 @@ namespace Game.Rules.Runtime
             Array.AsReadOnly(Array.Empty<BoundMiddlewareRegistration>());
         private readonly object gate = new object();
         private readonly SemaphoreSlim rootSerial = new SemaphoreSlim(1, 1);
-        // The async-flow marker distinguishes callbacks running inside this dispatcher's current
-        // resolution from independent callers that should wait on the serialization gate.
-        private readonly AsyncLocal<bool> activeResolutionFlow = new AsyncLocal<bool>();
+        // Zero is the idle async-flow sentinel. A unique nonzero lease distinguishes callbacks still
+        // running inside this dispatcher's current resolution from callers that should wait on the gate.
+        private readonly AsyncLocal<long> activeResolutionFlow = new AsyncLocal<long>();
+        private long activeResolutionFlowLease;
+        private long nextResolutionFlowLease;
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
         private readonly IRollService rollService;
@@ -97,11 +99,15 @@ namespace Game.Rules.Runtime
         {
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
-            if (activeResolutionFlow.Value)
+            long callerFlowLease = activeResolutionFlow.Value;
+            lock (gate)
             {
-                throw new InvalidOperationException(
-                    "An active resolution cannot call the public root Dispatch API. " +
-                    "Use its callback context for nested work.");
+                if (callerFlowLease != 0 && callerFlowLease == activeResolutionFlowLease)
+                {
+                    throw new InvalidOperationException(
+                        "An active resolution cannot call the public root Dispatch API. " +
+                        "Use its callback context for nested work.");
+                }
             }
 
             RootResolution resolution = new RootResolution();
@@ -117,7 +123,8 @@ namespace Game.Rules.Runtime
                     }
 
                     activeRoot = resolution;
-                    activeResolutionFlow.Value = true;
+                    activeResolutionFlowLease = NextResolutionFlowLease();
+                    activeResolutionFlow.Value = activeResolutionFlowLease;
                 }
 
                 IRegistration registration = RequireRegistration(op.GetType(), typeof(TResult));
@@ -144,13 +151,25 @@ namespace Game.Rules.Runtime
             }
             finally
             {
-                activeResolutionFlow.Value = false;
                 lock (gate)
                 {
                     if (ReferenceEquals(activeRoot, resolution))
                         activeRoot = RootResolution.Idle;
+                    activeResolutionFlowLease = 0;
                 }
+                activeResolutionFlow.Value = 0;
                 rootSerial.Release();
+            }
+        }
+
+        private long NextResolutionFlowLease()
+        {
+            unchecked
+            {
+                nextResolutionFlowLease++;
+                if (nextResolutionFlowLease == 0)
+                    nextResolutionFlowLease++;
+                return nextResolutionFlowLease;
             }
         }
 

@@ -427,6 +427,49 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(10));
         }
 
+        /// <summary>
+        /// Verifies a delayed continuation may start a new root after its originating root releases ownership.
+        /// </summary>
+        [Test]
+        [Timeout(10000)]
+        public async Task CompletedResolutionExpiresCapturedReentrancyMarker()
+        {
+            TaskCompletionSource<RuleDispatcher> dispatcherReference =
+                new TaskCompletionSource<RuleDispatcher>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource<bool> releaseDelayedRoot =
+                new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource<OpResult<int>> delayedResult =
+                new TaskCompletionSource<OpResult<int>>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(10),
+                    new SequentialOpIdProvider(850))
+                .RegisterHandler<DelayedRootOp, int>(new DelayedRootHandler(
+                    dispatcherReference.Task,
+                    releaseDelayedRoot.Task,
+                    delayedResult))
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+            dispatcherReference.SetResult(dispatcher);
+
+            await dispatcher.Dispatch(new DelayedRootOp());
+            releaseDelayedRoot.SetResult(true);
+            OpResult<int> laterRoot = await delayedResult.Task;
+
+            Assert.That(laterRoot.Status, Is.EqualTo(OpStatus.Resolved));
+            Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(11));
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(11));
+            Assert.That(dispatcher.Trace.OrderedFrames.Select(frame => frame.Id), Is.EqualTo(new[]
+            {
+                new OpId(850),
+                new OpId(851),
+                new OpId(852)
+            }));
+        }
+
         private static Task<OpResult<int>> RaceRoot(
             RuleDispatcher dispatcher,
             CountdownEvent ready,
@@ -953,6 +996,50 @@ namespace Game.Rules.Runtime.Tests
                 RuleDispatcher activeDispatcher = await dispatcher;
                 await activeDispatcher.Dispatch(new SingleIncrementRootOp());
                 return 0;
+            }
+        }
+
+        private sealed class DelayedRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class DelayedRootHandler : IOpHandler<DelayedRootOp, int>
+        {
+            private readonly Task<RuleDispatcher> dispatcher;
+            private readonly Task release;
+            private readonly TaskCompletionSource<OpResult<int>> result;
+
+            public DelayedRootHandler(
+                Task<RuleDispatcher> dispatcher,
+                Task release,
+                TaskCompletionSource<OpResult<int>> result)
+            {
+                this.dispatcher = dispatcher;
+                this.release = release;
+                this.result = result;
+            }
+
+            public ValueTask<int> Handle(
+                OpFrame<DelayedRootOp> frame,
+                OpHandlerContext context)
+            {
+                _ = DispatchAfterRelease();
+                return new ValueTask<int>(0);
+            }
+
+            private async Task DispatchAfterRelease()
+            {
+                try
+                {
+                    await release;
+                    RuleDispatcher activeDispatcher = await dispatcher;
+                    result.TrySetResult(
+                        await activeDispatcher.Dispatch(new SingleIncrementRootOp()));
+                }
+                catch (Exception error)
+                {
+                    result.TrySetException(error);
+                }
             }
         }
 
