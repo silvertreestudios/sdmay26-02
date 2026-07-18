@@ -443,14 +443,14 @@ public sealed class InvalidGridInitializationPlayModeTests
             singletonField.SetValue(null, null);
             gridObject = new GameObject("Invalid Grid");
             gridObject.SetActive(false);
-            source = new TextAsset(@"{""version"":2,""rows"":["".""]}");
+            source = new TextAsset(@"{""version"":99,""rows"":["".""]}");
             catalog = ScriptableObject.CreateInstance<KayKitDungeonCatalog>();
 
             Map map = gridObject.AddComponent<Map>();
             map.ConfigureJson(source, catalog);
             LogAssert.Expect(
                 LogType.Error,
-                "Map data is invalid: JSON map version must equal 1; found 2.");
+                "Map data is invalid: JSON map version must be one of 1 or 2; found 99.");
             LogAssert.Expect(
                 LogType.Error,
                 "Grid initialization failed: Map did not provide valid grid and line-of-sight data.");
@@ -658,7 +658,7 @@ public sealed class InvalidGridInitializationPlayModeTests
 
             invalidGridObject = new GameObject("Invalid Early Grid");
             invalidGridObject.SetActive(false);
-            invalidSource = new TextAsset(@"{""version"":2,""rows"":["".""],""objects"":[]}");
+            invalidSource = new TextAsset(@"{""version"":99,""rows"":["".""],""objects"":[]}");
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
                 "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
             Map invalidMap = invalidGridObject.AddComponent<Map>();
@@ -666,7 +666,7 @@ public sealed class InvalidGridInitializationPlayModeTests
             GridBase invalidGrid = invalidGridObject.AddComponent<GridBase>();
             LogAssert.Expect(
                 LogType.Error,
-                "Map data is invalid: JSON map version must equal 1; found 2.");
+                "Map data is invalid: JSON map version must be one of 1 or 2; found 99.");
             LogAssert.Expect(
                 LogType.Error,
                 "Grid initialization failed: Map did not provide valid grid and line-of-sight data.");

@@ -61,12 +61,12 @@ public sealed class KayKitDungeonMapTests
         Assert.That(result.Map.Objects[0].CatalogEntry, Is.SameAs(entry));
     }
 
-    [TestCase(@"{""version"":2,""rows"":["".""]}", "version must equal 1")]
+    [TestCase(@"{""version"":2,""rows"":["".""]}", "v2 generation")]
     [TestCase(@"{""version"":1,""rows"":[""X""]}", "unknown symbol")]
     [TestCase(@"{""version"":1,""rows"":["".."","".""]}", "expected 2")]
     [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""missing"",""x"":0,""z"":0}]}", "unknown assetId")]
     [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":45}]}", "rotation must be")]
-    [TestCase(@"{""version"":9223372036854775808,""rows"":["".""]}", "version must equal 1")]
+    [TestCase(@"{""version"":9223372036854775808,""rows"":["".""]}", "version must be one of")]
     [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":9223372036854775808,""z"":0}]}", "integer x and z")]
     [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":9223372036854775808}]}", "rotation must be")]
     [TestCase(@"{""version"":1,""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""yOffset"":9223372036854775808}]}", "yOffset must be a finite number")]

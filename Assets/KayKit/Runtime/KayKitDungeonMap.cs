@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Game.DungeonGeneration;
 using GridPrivate;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -40,7 +41,11 @@ namespace Game.KayKit
 
     public sealed class KayKitDungeonMapData
     {
+        /// <summary>The original KayKit JSON version retained for v1 callers and fixtures.</summary>
         public const int SupportedVersion = 1;
+
+        /// <summary>Gets every JSON version accepted by <see cref="KayKitDungeonMapParser"/>.</summary>
+        public static IReadOnlyList<int> SupportedVersions { get; } = new[] { 1, DungeonLevelDocument.CurrentVersion };
 
         public int Version { get; }
         public int Width => GridData.GetLength(0);
@@ -48,17 +53,21 @@ namespace Game.KayKit
         public TileType[,] GridData { get; }
         public bool[,] LineOfSightBlocks { get; }
         public IReadOnlyList<KayKitDungeonObjectPlacement> Objects { get; }
+        /// <summary>Gets lossless version 2 data, or null for a version 1 source.</summary>
+        public DungeonLevelDocument LevelDocument { get; }
 
         public KayKitDungeonMapData(
             int version,
             TileType[,] gridData,
             bool[,] lineOfSightBlocks,
-            IReadOnlyList<KayKitDungeonObjectPlacement> objects)
+            IReadOnlyList<KayKitDungeonObjectPlacement> objects,
+            DungeonLevelDocument levelDocument = null)
         {
             Version = version;
             GridData = gridData;
             LineOfSightBlocks = lineOfSightBlocks;
             Objects = objects;
+            LevelDocument = levelDocument;
         }
     }
 
@@ -95,6 +104,7 @@ namespace Game.KayKit
             }
 
             JObject root;
+            DungeonLevelDocument levelDocument = null;
             try
             {
                 root = JObject.Parse(json);
@@ -104,11 +114,27 @@ namespace Game.KayKit
                 return Invalid($"JSON map could not be parsed: {exception.Message}");
             }
 
+            int? sourceVersion = ReadInteger(root["version"]);
+            if (sourceVersion == DungeonLevelDocument.CurrentVersion)
+            {
+                DungeonLevelParseResult parsedV2 = DungeonLevelJsonParser.Parse(json);
+                if (!parsedV2.IsSuccess)
+                {
+                    return new KayKitDungeonMapParseResult(
+                        null,
+                        parsedV2.Diagnostics.Select(diagnostic =>
+                            $"JSON map v2 {diagnostic.Field}: {diagnostic.Message}"));
+                }
+
+                levelDocument = parsedV2.Document;
+                root = RuntimeProjection(levelDocument);
+            }
+
             int? version = ReadInteger(root["version"]);
-            if (version != KayKitDungeonMapData.SupportedVersion)
+            if (!version.HasValue || !KayKitDungeonMapData.SupportedVersions.Contains(version.Value))
             {
                 string value = version?.ToString(CultureInfo.InvariantCulture) ?? "missing or non-integer";
-                errors.Add($"JSON map version must equal 1; found {value}.");
+                errors.Add($"JSON map version must be one of 1 or 2; found {value}.");
             }
 
             JArray rowsToken = root["rows"] as JArray;
@@ -164,8 +190,30 @@ namespace Game.KayKit
                 .ThenBy(placement => placement.Rotation)
                 .ToArray();
             return new KayKitDungeonMapParseResult(
-                new KayKitDungeonMapData(version.Value, grid, lineOfSightBlocks, deterministicPlacements),
+                new KayKitDungeonMapData(version.Value, grid, lineOfSightBlocks, deterministicPlacements, levelDocument),
                 Array.Empty<string>());
+        }
+
+        private static JObject RuntimeProjection(DungeonLevelDocument document)
+        {
+            JArray objects = new();
+            foreach (DungeonObjectPlacement placement in document.Objects)
+            {
+                objects.Add(new JObject
+                {
+                    ["assetId"] = placement.AssetId,
+                    ["x"] = placement.Cell.X,
+                    ["z"] = placement.Cell.Z,
+                    ["rotation"] = placement.Rotation
+                });
+            }
+
+            return new JObject
+            {
+                ["version"] = DungeonLevelDocument.CurrentVersion,
+                ["rows"] = new JArray(document.Rows),
+                ["objects"] = objects
+            };
         }
 
         private static void ParseRows(
