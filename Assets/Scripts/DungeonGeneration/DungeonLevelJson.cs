@@ -325,6 +325,16 @@ namespace Game.DungeonGeneration
                         if (Symbol(new DungeonCell(x, z)) != '.') errors.Add(D("rooms", "Every cell inside room bounds must contain '.'."));
                 }
             }
+            if (ownsContract && !invalidRooms &&
+                !DungeonTopologyValidator.HasProducibleRoomRecords(
+                    rows[0].Length,
+                    rows.Count,
+                    rooms))
+            {
+                errors.Add(D(
+                    "rooms",
+                    "For donjon-logical-splitmix64 algorithm version 1, room records must use ordered IDs starting at 1, odd-aligned bounds, and odd side lengths from 3 through the generator-supported map maximum."));
+            }
             HashSet<DungeonCell> doorCells = new(); bool invalidDoorCell = false;
             foreach (DungeonDoor door in doors) if (!doorCells.Add(door.Cell) || !InBounds(door.Cell) || Symbol(door.Cell) != 'D') invalidDoorCell = true;
             if (doors.Select(door => door.Id).Distinct(StringComparer.Ordinal).Count() != doors.Count) errors.Add(D("doors", "Door IDs must be unique."));
@@ -367,7 +377,14 @@ namespace Game.DungeonGeneration
                     "stairs",
                     "Stair IDs and kinds must be unique, and each stair must have an adjacent walkable arrival cell."));
             }
-            else if (ownsContract && !invalidRooms && stairs.Any(stair =>
+            if (ownsContract &&
+                !DungeonTopologyValidator.HasProducibleStairRecords(stairs))
+            {
+                errors.Add(D(
+                    "stairs",
+                    "For donjon-logical-splitmix64 algorithm version 1, stairs must be empty, one ordered stair-down/Down record, or ordered stair-down/Down then stair-up/Up records with distinct generator-aligned endpoint and arrival geometry."));
+            }
+            if (!invalidStairs && ownsContract && !invalidRooms && stairs.Any(stair =>
                          !DungeonTopologyValidator.MatchesStairEnd(
                              rows,
                              rooms,

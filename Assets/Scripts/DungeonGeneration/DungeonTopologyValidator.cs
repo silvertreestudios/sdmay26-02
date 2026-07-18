@@ -138,6 +138,69 @@ namespace Game.DungeonGeneration
         }
 
         /// <summary>
+        /// Returns whether room records use the dimensions, coarse-grid alignment, and stable ID
+        /// sequence that the current generator can produce for the containing map.
+        /// </summary>
+        internal static bool HasProducibleRoomRecords(
+            int mapWidth,
+            int mapHeight,
+            IReadOnlyList<DungeonRoom> rooms)
+        {
+            int maximumRoomSize = Math.Min(mapWidth, mapHeight) - 4;
+            for (int index = 0; index < rooms.Count; index++)
+            {
+                DungeonRoom room = rooms[index];
+                long width = (long)room.MaximumX - room.MinimumX + 1;
+                long height = (long)room.MaximumZ - room.MinimumZ + 1;
+                if (room.Id != index + 1 ||
+                    room.MinimumX < 1 || room.MinimumZ < 1 ||
+                    room.MaximumX > mapWidth - 2 || room.MaximumZ > mapHeight - 2 ||
+                    (room.MinimumX & 1) == 0 || (room.MinimumZ & 1) == 0 ||
+                    (room.MaximumX & 1) == 0 || (room.MaximumZ & 1) == 0 ||
+                    width < 3 || height < 3 ||
+                    width > maximumRoomSize || height > maximumRoomSize ||
+                    (width & 1) == 0 || (height & 1) == 0)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Returns whether stair records use the current generator's count-dependent IDs, kinds,
+        /// ordering, distinct geometry, and odd-coordinate endpoint scan.
+        /// </summary>
+        internal static bool HasProducibleStairRecords(IReadOnlyList<DungeonStair> stairs)
+        {
+            if (stairs.Count > 2)
+                return false;
+
+            HashSet<DungeonCell> endpoints = new();
+            HashSet<DungeonCell> arrivals = new();
+            for (int index = 0; index < stairs.Count; index++)
+            {
+                DungeonStair stair = stairs[index];
+                DungeonStairKind expectedKind = index == 0
+                    ? DungeonStairKind.Down
+                    : DungeonStairKind.Up;
+                string expectedId = index == 0 ? "stair-down" : "stair-up";
+                if (stair.Kind != expectedKind ||
+                    !string.Equals(stair.Id, expectedId, StringComparison.Ordinal) ||
+                    (stair.Cell.X & 1) == 0 ||
+                    (stair.Cell.Z & 1) == 0 ||
+                    !endpoints.Add(stair.Cell) ||
+                    !arrivals.Add(stair.ArrivalCell))
+                {
+                    return false;
+                }
+            }
+
+            return !endpoints.Overlaps(arrivals);
+        }
+
+        /// <summary>
         /// Returns whether a stair endpoint uses the generator's straight three-cell corridor
         /// runway while every other surrounding endpoint cell remains blocked.
         /// </summary>

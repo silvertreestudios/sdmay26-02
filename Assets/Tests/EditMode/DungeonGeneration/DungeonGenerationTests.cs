@@ -522,9 +522,17 @@ public sealed class DungeonGenerationTests
             request.Layout = (DungeonLayout)(seed % 3);
             request.RoomLayout = (DungeonRoomLayout)(seed % 2);
             request.CorridorLayout = (DungeonCorridorLayout)(seed % 3);
+            request.StairCount = seed % 3;
             DungeonGenerationResult result = generator.Generate(request);
             Assert.That(result.IsSuccess, Is.True, "seed " + seed + ": " + string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
             AssertDocumentInvariants(result.Document, seed);
+            string json = DungeonLevelJsonSerializer.Serialize(result.Document);
+            DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+            Assert.That(parsed.IsSuccess, Is.True,
+                "owned round-trip seed " + seed + ": " +
+                string.Join(" | ", parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+            Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json),
+                "owned lossless round-trip seed " + seed);
         }
     }
 
@@ -626,6 +634,46 @@ public sealed class DungeonGenerationTests
             diagnostic.Field == "doors" && diagnostic.Message.Contains("Every 'D'")));
         Assert.That(duplicateResult.Diagnostics, Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
             diagnostic.Field == "doors" && diagnostic.Message.Contains("unique")));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsImpossibleOwnedRoomRecords()
+    {
+        var cases = new[]
+        {
+            new { Name = "width below minimum", MinX = 1, MinZ = 1, MaxX = 1, MaxZ = 3, Id = 1 },
+            new { Name = "height below minimum", MinX = 1, MinZ = 1, MaxX = 3, MaxZ = 1, Id = 1 },
+            new { Name = "even width", MinX = 1, MinZ = 1, MaxX = 2, MaxZ = 3, Id = 1 },
+            new { Name = "even height", MinX = 1, MinZ = 1, MaxX = 3, MaxZ = 2, Id = 1 },
+            new { Name = "even x alignment", MinX = 2, MinZ = 1, MaxX = 4, MaxZ = 3, Id = 1 },
+            new { Name = "even z alignment", MinX = 1, MinZ = 2, MaxX = 3, MaxZ = 4, Id = 1 },
+            new { Name = "width above map maximum", MinX = 1, MinZ = 1, MaxX = 13, MaxZ = 3, Id = 1 },
+            new { Name = "height above map maximum", MinX = 1, MinZ = 1, MaxX = 3, MaxZ = 13, Id = 1 },
+            new { Name = "nonsequential room id", MinX = 1, MinZ = 1, MaxX = 3, MaxZ = 3, Id = 2 }
+        };
+
+        foreach (var item in cases)
+        {
+            JObject root = JObject.Parse(OwnedContractJson(152, 0, 0));
+            ConfigureOwnedSingleRoom(
+                root,
+                item.MinX,
+                item.MinZ,
+                item.MaxX,
+                item.MaxZ,
+                item.Id);
+
+            DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+                root.ToString(Formatting.None));
+
+            Assert.That(parsed.Diagnostics,
+                Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                    diagnostic.Field == "rooms" &&
+                    diagnostic.Message.Contains("ordered IDs starting at 1") &&
+                    diagnostic.Message.Contains("odd-aligned bounds") &&
+                    diagnostic.Message.Contains("odd side lengths")),
+                item.Name);
+        }
     }
 
     [Test]
@@ -802,6 +850,90 @@ public sealed class DungeonGenerationTests
         }
     }
 
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    public void VersionTwoJson_AcceptsOwnedStairRecordSequences(int stairCount)
+    {
+        DungeonGenerationRequest request = Request(152 + stairCount, 31, 31);
+        request.StairCount = stairCount;
+        string json = GenerateJson(request);
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
+
+        Assert.That(parsed.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, parsed.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
+    }
+
+    [Test]
+    public void VersionTwoJson_RejectsOwnedStairRecordDrift()
+    {
+        List<(string Name, JObject Root)> cases = new();
+
+        JObject loneUp = JObject.Parse(GenerateJson(RequestWithStairCount(201, 1)));
+        JObject loneStair = (JObject)((JArray)loneUp["stairs"])[0];
+        loneStair["id"] = "stair-up";
+        loneStair["kind"] = "up";
+        ((JObject)loneUp["arrival"])["start"] = loneStair["arrivalCell"].DeepClone();
+        cases.Add(("lone Up", loneUp));
+
+        JObject reversed = JObject.Parse(GenerateJson(RequestWithStairCount(202, 2)));
+        JArray reversedStairs = (JArray)reversed["stairs"];
+        reversed["stairs"] = new JArray(
+            reversedStairs[1].DeepClone(),
+            reversedStairs[0].DeepClone());
+        cases.Add(("reversed Down/Up records", reversed));
+
+        JObject wrongId = JObject.Parse(GenerateJson(RequestWithStairCount(203, 1)));
+        ((JObject)((JArray)wrongId["stairs"])[0])["id"] = "custom-down";
+        cases.Add(("non-generator ID", wrongId));
+
+        JObject duplicateEndpoint = JObject.Parse(GenerateJson(RequestWithStairCount(204, 2)));
+        JArray duplicateEndpointStairs = (JArray)duplicateEndpoint["stairs"];
+        JObject duplicateEndpointDown = (JObject)duplicateEndpointStairs[0];
+        JObject duplicateEndpointUp = (JObject)duplicateEndpointStairs[1];
+        duplicateEndpointUp["cell"] = duplicateEndpointDown["cell"].DeepClone();
+        duplicateEndpointUp["arrivalCell"] = duplicateEndpointDown["arrivalCell"].DeepClone();
+        ((JObject)duplicateEndpoint["arrival"])["start"] =
+            duplicateEndpointDown["arrivalCell"].DeepClone();
+        cases.Add(("duplicate endpoint", duplicateEndpoint));
+
+        JObject duplicateArrival = JObject.Parse(GenerateJson(RequestWithStairCount(205, 2)));
+        JArray duplicateArrivalStairs = (JArray)duplicateArrival["stairs"];
+        JObject duplicateArrivalDown = (JObject)duplicateArrivalStairs[0];
+        JObject duplicateArrivalUp = (JObject)duplicateArrivalStairs[1];
+        duplicateArrivalUp["arrivalCell"] = duplicateArrivalDown["arrivalCell"].DeepClone();
+        ((JObject)duplicateArrival["arrival"])["start"] =
+            duplicateArrivalDown["arrivalCell"].DeepClone();
+        cases.Add(("duplicate arrival", duplicateArrival));
+
+        JObject evenEndpoint = JObject.Parse(OwnedContractJson(152, 0, 0));
+        SetSymbol(evenEndpoint, new DungeonCell(3, 5), '.');
+        SetSymbol(evenEndpoint, new DungeonCell(4, 5), '.');
+        evenEndpoint["stairs"] = new JArray(new JObject
+        {
+            ["id"] = "stair-down",
+            ["kind"] = "down",
+            ["cell"] = JsonCell(new DungeonCell(4, 5)),
+            ["arrivalCell"] = JsonCell(new DungeonCell(3, 5))
+        });
+        cases.Add(("even endpoint coordinate", evenEndpoint));
+
+        foreach ((string name, JObject root) in cases)
+        {
+            DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+                root.ToString(Formatting.None));
+
+            Assert.That(parsed.Diagnostics,
+                Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                    diagnostic.Field == "stairs" &&
+                    diagnostic.Message.Contains("empty, one ordered stair-down/Down record") &&
+                    diagnostic.Message.Contains("distinct generator-aligned endpoint and arrival geometry")),
+                name);
+        }
+    }
+
     [TestCase("future-generator", 1)]
     [TestCase("donjon-logical-splitmix64", 2)]
     public void VersionTwoJson_DoesNotApplyOwnedDimensionsRoomsOrStairsToFutureContracts(
@@ -815,6 +947,13 @@ public sealed class DungeonGenerationTests
         ((JArray)root["rows"])[0] = "###";
         root["doors"] = new JArray();
         ((JObject)root["runtimeState"])["openDoorIds"] = new JArray();
+        ((JObject)((JArray)root["rooms"])[0])["id"] = 7;
+        ((JObject)((JArray)root["encounterPlans"])[0])["roomId"] = 7;
+        JObject duplicateStair =
+            (JObject)((JArray)root["stairs"])[0].DeepClone();
+        duplicateStair["id"] = "future-down";
+        duplicateStair["kind"] = "down";
+        ((JArray)root["stairs"]).Add(duplicateStair);
         string json = root.ToString(Formatting.None);
 
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
@@ -1253,6 +1392,58 @@ public sealed class DungeonGenerationTests
         return DungeonLevelJsonSerializer.Serialize(document);
     }
 
+    private static DungeonGenerationRequest RequestWithStairCount(long seed, int stairCount)
+    {
+        DungeonGenerationRequest request = Request(seed, 31, 31);
+        request.StairCount = stairCount;
+        return request;
+    }
+
+    private static void ConfigureOwnedSingleRoom(
+        JObject root,
+        int minimumX,
+        int minimumZ,
+        int maximumX,
+        int maximumZ,
+        int id)
+    {
+        root["rows"] = new JArray(
+            Enumerable.Repeat(new string('#', 15), 15));
+        JObject room = (JObject)((JArray)root["rooms"])[0];
+        room["id"] = id;
+        room["minX"] = minimumX;
+        room["minZ"] = minimumZ;
+        room["maxX"] = maximumX;
+        room["maxZ"] = maximumZ;
+        for (int z = minimumZ; z <= maximumZ; z++)
+        for (int x = minimumX; x <= maximumX; x++)
+            SetSymbol(root, new DungeonCell(x, z), '.');
+
+        DungeonCell doorCell;
+        DungeonCell corridorCell;
+        if (maximumZ + 2 < 15)
+        {
+            int doorX = (minimumX + maximumX) / 2;
+            doorCell = new DungeonCell(doorX, maximumZ + 1);
+            corridorCell = new DungeonCell(doorX, maximumZ + 2);
+        }
+        else
+        {
+            int doorZ = (minimumZ + maximumZ) / 2;
+            doorCell = new DungeonCell(maximumX + 1, doorZ);
+            corridorCell = new DungeonCell(maximumX + 2, doorZ);
+        }
+
+        SetSymbol(root, doorCell, 'D');
+        SetSymbol(root, corridorCell, '.');
+        JObject door = (JObject)((JArray)root["doors"])[0];
+        door["cell"] = JsonCell(doorCell);
+        DungeonCell start = new(minimumX, minimumZ);
+        JObject arrival = (JObject)root["arrival"];
+        arrival["start"] = JsonCell(start);
+        arrival["safeCells"] = new JArray(JsonCell(start));
+    }
+
     private static void SetSymbol(JObject root, DungeonCell cell, char symbol)
     {
         JArray rows = (JArray)root["rows"];
@@ -1358,10 +1549,18 @@ public sealed class DungeonGenerationTests
         Assert.That(walkable, Does.Contain(document.StartCell), "start seed " + seed);
         Assert.That(document.SafeCells.All(walkable.Contains), Is.True, "safe seed " + seed);
         Assert.That(document.Stairs.All(stair => walkable.Contains(stair.Cell) && walkable.Contains(stair.ArrivalCell)), Is.True, "stairs seed " + seed);
+        Assert.That(
+            DungeonTopologyValidator.HasProducibleStairRecords(document.Stairs),
+            Is.True,
+            "stair records seed " + seed);
         if (document.Stairs.Count > 0)
+        {
+            Assert.That(document.Stairs[0].Id, Is.EqualTo("stair-down"), "down id seed " + seed);
             Assert.That(document.Stairs[0].Kind, Is.EqualTo(DungeonStairKind.Down), "down-first seed " + seed);
+        }
         if (document.Stairs.Count > 1)
         {
+            Assert.That(document.Stairs[1].Id, Is.EqualTo("stair-up"), "up id seed " + seed);
             Assert.That(document.Stairs[1].Kind, Is.EqualTo(DungeonStairKind.Up), "up-second seed " + seed);
             Assert.That(document.StartCell, Is.EqualTo(document.Stairs[1].ArrivalCell), "up arrival start seed " + seed);
         }
@@ -1377,6 +1576,22 @@ public sealed class DungeonGenerationTests
         for (int i = 0; i < document.Rooms.Count; i++)
         for (int j = i + 1; j < document.Rooms.Count; j++)
             Assert.That(Overlaps(document.Rooms[i], document.Rooms[j]), Is.False, "rooms seed " + seed);
+        Assert.That(
+            DungeonTopologyValidator.HasProducibleRoomRecords(
+                document.Rows[0].Length,
+                document.Rows.Count,
+                document.Rooms),
+            Is.True,
+            "room records seed " + seed);
+        for (int index = 0; index < document.Rooms.Count; index++)
+        {
+            DungeonRoom room = document.Rooms[index];
+            Assert.That(room.Id, Is.EqualTo(index + 1), "room id sequence seed " + seed);
+            Assert.That(room.MinimumX % 2, Is.EqualTo(1), "room minX parity seed " + seed);
+            Assert.That(room.MinimumZ % 2, Is.EqualTo(1), "room minZ parity seed " + seed);
+            Assert.That(room.MaximumX % 2, Is.EqualTo(1), "room maxX parity seed " + seed);
+            Assert.That(room.MaximumZ % 2, Is.EqualTo(1), "room maxZ parity seed " + seed);
+        }
 
         foreach (DungeonDoor door in document.Doors)
         {
