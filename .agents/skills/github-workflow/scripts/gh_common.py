@@ -82,17 +82,21 @@ def print_plan(
     return 0
 
 
-def gh_auth_environment(account: str) -> dict[str, str]:
-    account = account.strip()
-    if not account:
-        raise SystemExit("GitHub authentication account cannot be empty")
+def gh_auth_environment(account: str | None = None) -> dict[str, str]:
+    if account is not None:
+        account = account.strip()
+        if not account:
+            raise SystemExit("GitHub authentication account cannot be empty")
 
     require_gh()
     token_lookup_environment = os.environ.copy()
     token_lookup_environment.pop("GH_TOKEN", None)
     token_lookup_environment.pop("GITHUB_TOKEN", None)
+    token_command = ["gh", "auth", "token", "--hostname", "github.com"]
+    if account is not None:
+        token_command.extend(["--user", account])
     completed = subprocess.run(
-        ["gh", "auth", "token", "--hostname", "github.com", "--user", account],
+        token_command,
         text=True,
         encoding="utf-8",
         capture_output=True,
@@ -106,9 +110,11 @@ def gh_auth_environment(account: str) -> dict[str, str]:
 
     token = completed.stdout.strip()
     if not token:
-        raise SystemExit(f"GitHub CLI returned no token for account {account}")
+        account_description = f"account {account}" if account is not None else "the active account"
+        raise SystemExit(f"GitHub CLI returned no token for {account_description}")
 
     environment = os.environ.copy()
+    environment.pop("GITHUB_TOKEN", None)
     environment["GH_TOKEN"] = token
     return environment
 
@@ -164,6 +170,7 @@ def gh_api_json(
     *,
     method: str = "GET",
     payload: dict[str, Any] | None = None,
+    environment: dict[str, str] | None = None,
 ) -> Any:
     method = method.upper()
     require_gh()
@@ -191,6 +198,7 @@ def gh_api_json(
         encoding="utf-8",
         capture_output=True,
         check=False,
+        env=environment,
     )
     if completed.returncode != 0:
         if completed.stdout:

@@ -5,6 +5,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import call, patch
@@ -15,6 +16,7 @@ sys.path.insert(0, str(SCRIPTS))
 import gh_pr  # noqa: E402
 import gh_review_comments  # noqa: E402
 import gh_common  # noqa: E402
+import gh_gist  # noqa: E402
 
 
 class CommonScriptTests(unittest.TestCase):
@@ -31,10 +33,18 @@ class CommonScriptTests(unittest.TestCase):
             "run",
             return_value=completed,
         ) as run:
-            result = gh_common.gh_api_json("/example")
+            result = gh_common.gh_api_json(
+                "/example",
+                environment={"GH_TOKEN": "process-token"},
+            )
 
         self.assertEqual(result["body"], "PF2e – review")
         self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
+        self.assertEqual(
+            run.call_args.kwargs["env"],
+            {"GH_TOKEN": "process-token"},
+        )
+        self.assertNotIn("process-token", run.call_args.args[0])
 
     def test_api_scopes_selected_account_token_to_api_process(self) -> None:
         token_result = __import__("subprocess").CompletedProcess(
@@ -94,6 +104,157 @@ class CommonScriptTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(json.loads(output.getvalue())["auth_account"], "clausman")
         run.assert_not_called()
+
+    def test_default_auth_environment_uses_active_account_without_persisting_token(self) -> None:
+        token_result = __import__("subprocess").CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="secret-token\n",
+            stderr="",
+        )
+
+        with (
+            patch.object(gh_common, "require_gh"),
+            patch.dict(
+                os.environ,
+                {"GH_TOKEN": "ambient-gh-token", "GITHUB_TOKEN": "ambient-github-token"},
+            ),
+            patch.object(gh_common.subprocess, "run", return_value=token_result) as run,
+        ):
+            environment = gh_common.gh_auth_environment()
+
+        self.assertEqual(
+            run.call_args.args[0],
+            ["gh", "auth", "token", "--hostname", "github.com"],
+        )
+        self.assertNotIn("GH_TOKEN", run.call_args.kwargs["env"])
+        self.assertNotIn("GITHUB_TOKEN", run.call_args.kwargs["env"])
+        self.assertEqual(environment["GH_TOKEN"], "secret-token")
+        self.assertNotIn("GITHUB_TOKEN", environment)
+
+
+class GistScriptTests(unittest.TestCase):
+    def test_text_create_keeps_using_gh_gist_create(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "notes.md"
+            source.write_text("review notes\n", encoding="utf-8")
+            argv = [
+                "gh_gist.py",
+                "create",
+                "--description",
+                "Review notes",
+                "--file",
+                str(source),
+                "--dry-run",
+            ]
+            with (
+                patch.object(sys, "argv", argv),
+                patch.object(gh_gist, "gh_command", return_value=0) as command,
+            ):
+                self.assertEqual(gh_gist.main(), 0)
+
+        command.assert_called_once_with(
+            ["gh", "gist", "create", str(source), "--desc", "Review notes"],
+            dry_run=True,
+        )
+
+    def test_binary_create_dry_run_declares_no_persistent_git_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "screen.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\n\0binary")
+            argv = ["gh_gist.py", "create", "--file", str(source), "--dry-run"]
+            output = io.StringIO()
+            with (
+                patch.object(sys, "argv", argv),
+                patch.object(gh_gist, "gh_api_json") as api,
+                patch.object(gh_gist, "run_git") as git,
+                contextlib.redirect_stdout(output),
+            ):
+                self.assertEqual(gh_gist.main(), 0)
+
+        plan = json.loads(output.getvalue())
+        self.assertEqual(plan["mode"], "isolated-binary-gist")
+        self.assertFalse(plan["persistent_git_changes"])
+        api.assert_not_called()
+        git.assert_not_called()
+
+    def test_binary_create_pushes_directly_without_git_remote_or_token_arguments(self) -> None:
+        created = {
+            "id": "gist-id",
+            "html_url": "https://gist.github.com/gist-id",
+            "git_pull_url": "https://gist.github.com/gist-id.git",
+            "git_push_url": "https://gist.github.com/gist-id.git",
+        }
+        uploaded = {
+            "files": {
+                "screen.png": {
+                    "raw_url": "https://gist.githubusercontent.com/raw/screen.png"
+                }
+            }
+        }
+        output = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "screen.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\n\0binary")
+            with (
+                patch.object(gh_gist.Path, "cwd", return_value=root),
+                patch.object(gh_gist, "require_gh"),
+                patch.object(gh_gist, "require_git"),
+                patch.object(gh_gist, "default_branch", return_value="main"),
+                patch.object(gh_gist, "gh_api_json", side_effect=[created, uploaded]) as api,
+                patch.object(gh_gist, "gh_auth_environment", return_value={"GH_TOKEN": "secret-token"}),
+                patch.object(gh_gist, "run_git") as git,
+                contextlib.redirect_stdout(output),
+            ):
+                self.assertEqual(
+                    gh_gist.create_binary_gist(
+                        [source],
+                        "Screenshot",
+                        False,
+                        dry_run=False,
+                    ),
+                    0,
+                )
+
+        commands = [entry.args[0] for entry in git.call_args_list]
+        self.assertFalse(any(command and command[0] == "remote" for command in commands))
+        self.assertFalse(any(command and command[0] == "config" for command in commands))
+        push_call = next(
+            entry for entry in git.call_args_list if "push" in entry.args[0]
+        )
+        self.assertIn("https://gist.github.com/gist-id.git", push_call.args[0])
+        self.assertNotIn("secret-token", push_call.args[0])
+        self.assertEqual(push_call.kwargs["env"]["GH_TOKEN"], "secret-token")
+        self.assertEqual(api.call_count, 2)
+        for api_call in api.call_args_list:
+            self.assertEqual(
+                api_call.kwargs["environment"],
+                {"GH_TOKEN": "secret-token"},
+            )
+        result = json.loads(output.getvalue())
+        self.assertEqual(
+            result["files"]["screen.png"],
+            "https://gist.githubusercontent.com/raw/screen.png",
+        )
+
+    def test_binary_create_rejects_duplicate_flat_filenames(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = root / "first" / "screen.png"
+            second = root / "second" / "SCREEN.PNG"
+            first.parent.mkdir()
+            second.parent.mkdir()
+            first.write_bytes(b"\0")
+            second.write_bytes(b"\0")
+            with self.assertRaisesRegex(SystemExit, "unique basenames"):
+                gh_gist.create_binary_gist(
+                    [first, second],
+                    "Screenshots",
+                    False,
+                    dry_run=True,
+                )
 
 
 class PullRequestScriptTests(unittest.TestCase):
