@@ -44,17 +44,39 @@ namespace Game.Rules.Unity
         /// <inheritdoc/>
         public abstract ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot);
 
-        private void OnEnable()
+        /// <summary>
+        /// Registers this component when Unity enables it after configuration.
+        /// </summary>
+        /// <remarks>
+        /// Derived components that override this Unity lifecycle message must call
+        /// <c>base.OnEnable()</c> exactly once so observation follows the enabled lifetime.
+        /// </remarks>
+        protected virtual void OnEnable()
         {
             registrationState = registrationState.Register(this);
         }
 
-        private void OnDisable()
+        /// <summary>
+        /// Unregisters this component when Unity disables it.
+        /// </summary>
+        /// <remarks>
+        /// Derived components that override this Unity lifecycle message must call
+        /// <c>base.OnDisable()</c> exactly once. Unregistration does not cancel a callback already
+        /// selected by a committed reduction.
+        /// </remarks>
+        protected virtual void OnDisable()
         {
             registrationState = registrationState.Unregister(this);
         }
 
-        private void OnDestroy()
+        /// <summary>
+        /// Performs idempotent registration cleanup when Unity destroys this component.
+        /// </summary>
+        /// <remarks>
+        /// Derived components that override this Unity lifecycle message must call
+        /// <c>base.OnDestroy()</c> exactly once.
+        /// </remarks>
+        protected virtual void OnDestroy()
         {
             registrationState = registrationState.Unregister(this);
         }

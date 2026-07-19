@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
@@ -36,12 +37,14 @@ public sealed class FactObserverBehaviourPlayModeTests
         Assert.That(observer.DeliveryCount, Is.Zero);
 
         gameObject.SetActive(true);
+        Assert.That(observer.LifecycleCalls, Is.EqualTo(new[] { "enabled" }));
         Task<OpResult<int>> observedDispatch = dispatcher
             .Dispatch(new ObserverRootOp())
             .AsTask();
         yield return AwaitCompletion(observer.Started);
         Assert.That(observer.DeliveryCount, Is.EqualTo(1));
         observer.enabled = false;
+        Assert.That(observer.LifecycleCalls, Is.EqualTo(new[] { "enabled", "disabled" }));
         Assert.That(observedDispatch.IsCompleted, Is.False,
             "Disabling removes later selection but must not cancel a frozen callback.");
         observer.Release();
@@ -54,6 +57,8 @@ public sealed class FactObserverBehaviourPlayModeTests
         Assert.That(observer.DeliveryCount, Is.EqualTo(1));
 
         observer.enabled = true;
+        Assert.That(observer.LifecycleCalls,
+            Is.EqualTo(new[] { "enabled", "disabled", "enabled" }));
         Task<OpResult<int>> reenabledDispatch = dispatcher
             .Dispatch(new ObserverRootOp())
             .AsTask();
@@ -61,6 +66,7 @@ public sealed class FactObserverBehaviourPlayModeTests
         Assert.That(observer.DeliveryCount, Is.EqualTo(2));
 
         int deliveryCountBeforeDestroy = observer.DeliveryCount;
+        List<string> lifecycleCalls = observer.LifecycleCalls;
         UnityEngine.Object.Destroy(gameObject);
         yield return null;
         Task<OpResult<int>> destroyedDispatch = dispatcher
@@ -68,6 +74,14 @@ public sealed class FactObserverBehaviourPlayModeTests
             .AsTask();
         yield return AwaitCompletion(destroyedDispatch);
         Assert.That(observer.DeliveryCount, Is.EqualTo(deliveryCountBeforeDestroy));
+        Assert.That(lifecycleCalls, Is.EqualTo(new[]
+        {
+            "enabled",
+            "disabled",
+            "enabled",
+            "disabled",
+            "destroyed"
+        }));
         Assert.That(observer == null, Is.True);
     }
 
@@ -133,6 +147,7 @@ public sealed class FactObserverBehaviourPlayModeTests
 
         public Task Started => started.Task;
         public int DeliveryCount { get; private set; }
+        public List<string> LifecycleCalls { get; } = new List<string>();
 
         public void Release() => release.TrySetResult(true);
 
@@ -146,6 +161,24 @@ public sealed class FactObserverBehaviourPlayModeTests
 
             started.TrySetResult(true);
             await release.Task;
+        }
+
+        protected override void OnEnable()
+        {
+            base.OnEnable();
+            LifecycleCalls.Add("enabled");
+        }
+
+        protected override void OnDisable()
+        {
+            LifecycleCalls.Add("disabled");
+            base.OnDisable();
+        }
+
+        protected override void OnDestroy()
+        {
+            LifecycleCalls.Add("destroyed");
+            base.OnDestroy();
         }
     }
 }
