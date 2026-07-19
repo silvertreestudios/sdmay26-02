@@ -141,21 +141,21 @@ namespace Game.Rules.Runtime
         internal async ValueTask NotifyFactObservers(
             IReadOnlyList<RuleFact> committedFacts,
             RulesSnapshot currentSnapshot,
-            IReadOnlyList<FactObserverRegistration> frozenObservers)
+            IReadOnlyList<FactObserverRegistration> committedObserverPlan)
         {
             if (committedFacts == null)
                 throw new ArgumentNullException(nameof(committedFacts));
             if (currentSnapshot == null)
                 throw new ArgumentNullException(nameof(currentSnapshot));
-            if (frozenObservers == null)
-                throw new ArgumentNullException(nameof(frozenObservers));
+            if (committedObserverPlan == null)
+                throw new ArgumentNullException(nameof(committedObserverPlan));
             if (committedFacts.Count == 0)
                 return;
 
             List<Exception> failures = new List<Exception>();
             foreach (RuleFact fact in committedFacts)
             {
-                foreach (FactObserverRegistration observer in frozenObservers)
+                foreach (FactObserverRegistration observer in committedObserverPlan)
                 {
                     if (!observer.Matches(fact))
                         continue;

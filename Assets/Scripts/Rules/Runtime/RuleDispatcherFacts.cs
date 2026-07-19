@@ -12,19 +12,22 @@ namespace Game.Rules.Runtime
             OpFrame<TOp> frame,
             IOpReducer<TOp, TResult> reducer,
             RuleSource source,
-            out FactObserverRegistration[] frozenObservers)
+            out FactObserverRegistration[] committedObserverPlan)
             where TOp : IRuleOp<TResult>
         {
             lock (gate)
             {
-                // Registration uses the same gate, so a completed registration change is ordered
-                // either before this commit or after its immutable delivery plan. The synchronous
-                // reducer receives no dispatcher API, and observer callbacks remain outside the
-                // monitor, while this narrow critical section makes the boundary linearizable.
+                // Each registration retains the exact concrete IFactObserver instance supplied to
+                // RegisterFactObserver, including instances registered by Unity lifecycle adapters.
+                // Registration uses the same gate, so copying those registrations here orders every
+                // completed registration change either before this commit or after its immutable
+                // delivery plan. The synchronous reducer receives no dispatcher API, and observer
+                // callbacks remain outside the monitor, while this narrow critical section makes
+                // the boundary linearizable.
                 ReductionResult<TResult> result = store.Reduce(
                     new ReductionContext<TOp>(frame.Op, frame.Id, frame.RootId, source),
                     reducer);
-                frozenObservers = result.Facts.Count == 0
+                committedObserverPlan = result.Facts.Count == 0
                     ? Array.Empty<FactObserverRegistration>()
                     : factObservers.ToArray();
                 return result;
