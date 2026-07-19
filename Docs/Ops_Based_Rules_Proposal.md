@@ -917,7 +917,7 @@ public sealed record TumbleThroughSelection(
     MovementMode Mode);
 
 public sealed record CastSpellSelection(
-    SpellSlotId Slot,
+    SpellSlotPoolId SlotPool,
     SpellVariantId Variant,
     ISpellTargetSelection Targets);
 ```
@@ -925,6 +925,15 @@ public sealed record CastSpellSelection(
 When the player clicks Strike, the action bar asks `StrikeActionDefinition` for its workflow. Unity runs the two choices, receives a `StrikeSelection`, calls `CreateOp`, and dispatches the resulting `StrikeActionOp`. AI can produce the same selection without using Unity UI. The rules handler receives only the completed Op and still performs authoritative validation, since preview state may have changed before dispatch.
 
 `SelectionWorkflow<TSelection>` may be one click, a path plus target, multiple creatures, an area template and orientation, or several ordered choices. The generic action bar only handles availability and launches the definition's workflow; it does not need nullable fields or a switch for every PF2e action.
+
+Each primitive request owns an immutable candidate set, and the workflow rejects an adapter value outside that preview set. Completion, cancellation, and invalidity are separate structural outcomes. `Then` and `Select` compose typed values while cancellation or invalidity discards partial choices and skips all later steps. Only a completed outcome reaches `CreateOp`; selection cancellation and invalidity create no root frame and spend no resource.
+
+During migration, Unity presents two explicit action-bar entry forms:
+
+- a legacy entry that invokes its unchanged `EntityAction` through its owning `ActionController`; and
+- a type-erased definition entry that keeps its generic selection and Op types connected internally.
+
+Every entry has an explicit stable action-bar key independent of display text. A definition suppresses a legacy entry only when their keys intentionally match, occupying that legacy entry's position; equal labels never imply identity. This permits mixed legacy and definition-backed rows without disguising legacy behavior as an Op. Definition availability is recomputed from the dispatcher's current snapshot, including after committed Facts, while legacy availability continues to use legacy action points until that action's authoritative ownership migrates.
 
 ### 7.2 Unity is an adapter, not the rules authority
 
@@ -1377,7 +1386,7 @@ Bless demonstrates spellcasting costs, active effect state, derived bonuses, sta
 // ActionBegunOp, so manipulate disruption retains both costs.
 public sealed record CastSpellActionOp(
     CreatureId Actor,
-    SpellSlotId Slot,
+    SpellSlotPoolId SlotPool,
     SpellId Spell,
     SpellVariantId Variant,
     ISpellTargetSelection Targets)
@@ -1388,7 +1397,7 @@ public sealed record CastSpellActionOp(
         var variant = catalog.GetSpellVariant(Spell, Variant);
         return new ActionProfile(
             variant.ActionCost,
-            [new SpellSlotCost(Slot)],
+            [RuleCost.SpellSlot(SlotPool)],
             variant.Traits,
             CanTriggerReactions: true);
     }

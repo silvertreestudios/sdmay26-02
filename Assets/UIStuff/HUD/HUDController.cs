@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Collections.Generic;
 using Game.Creature;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using Game.Strikes;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -8,6 +10,10 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using UniversalEvents;
 
+/// <summary>
+/// Presents combat state and a migration-safe action bar that keeps legacy actions explicit while
+/// launching typed rules-definition workflows through their shared Unity boundary.
+/// </summary>
 public class HUDController : SingletonMonoBehaviour<HUDController>
 {
     public VisualElement ui;
@@ -31,6 +37,9 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private bool speedBarVisible = true;
     private ActionController currentTurnAC;
     private Dictionary<Button, uint> buttonCostMap = new();
+    private readonly Dictionary<Button, IDefinitionActionBarEntry> definitionButtonEntries = new();
+    private int definitionExecutionId;
+
     private Button selectedActionButton;
     private Color selectedButtonBaseColor;
     private const float GlowSpeed = 3f;
@@ -410,12 +419,12 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         ClearAllRows();
         if (isPlayer)
         {
-            List<EntityAction> actions = ac.GetActions();
-            string log = turnTaker.name + " available actions (" + actions.Count + "): ";
-            foreach (EntityAction a in actions)
-                log += "[" + a.ActionName + "] ";
+            IReadOnlyList<IActionBarEntry> actionEntries = ac.GetActionBarEntries();
+            string log = turnTaker.name + " available actions (" + actionEntries.Count + "): ";
+            foreach (IActionBarEntry entry in actionEntries)
+                log += "[" + entry.DisplayName + "] ";
             Debug.Log(log);
-            BuildActionButtons(turnTaker, actions);
+            BuildActionButtons(actionEntries);
             BuildMovementButtons(turnTaker, ac.GetMovements());
         }
 
@@ -612,6 +621,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     {
         selectedActionButton = null;
         buttonCostMap.Clear();
+        definitionButtonEntries.Clear();
         buttonGrid.Query<VisualElement>(className: "btn-row").ForEach(r => r.RemoveFromHierarchy());
     }
 
@@ -691,6 +701,28 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             );
         }
 
+        foreach (var (btn, entry) in definitionButtonEntries)
+        {
+            btn.style.display = DisplayStyle.Flex;
+            ActionAvailability availability = entry.GetAvailability();
+            if (availability is AvailableActionAvailability)
+            {
+                btn.tooltip = string.Empty;
+                SetHudButtonEnabled(btn, currentTurnAC != null && !actionRunning);
+            }
+            else if (availability is UnavailableActionAvailability unavailable)
+            {
+                btn.tooltip = unavailable.Reason;
+                SetHudButtonEnabled(btn, false);
+            }
+            else
+            {
+                throw new System.InvalidOperationException(
+                    $"Action-bar entry '{entry.Key}' returned an unknown availability case."
+                );
+            }
+        }
+
         if (endTurnButton != null)
             SetHudButtonEnabled(endTurnButton, currentTurnAC != null && !actionRunning);
 
@@ -713,21 +745,95 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             btn.style.backgroundColor = StyleKeyword.Null;
     }
 
-    private void BuildActionButtons(GameObject turnTaker, List<EntityAction> actions)
+    private void BuildActionButtons(IReadOnlyList<IActionBarEntry> entries)
     {
         ClearAllRows();
-        foreach (EntityAction action in actions)
+        foreach (IActionBarEntry entry in entries)
         {
-            EntityAction captured = action;
-            Button btn = AddButtonToGrid(captured.ActionName, "btn-action");
-            buttonCostMap[btn] = captured.ActionCost;
-            btn.clicked += () =>
+            Button btn = AddButtonToGrid(entry.DisplayName, "btn-action");
+            if (entry is LegacyActionBarEntry legacyEntry)
             {
-                UniversalEvents.OnCancel.Invoke();
-                SetSelectedButton(btn, ActionButtonColor);
-                turnTaker.GetComponent<ActionController>().TakeAction(captured);
-            };
+                buttonCostMap[btn] = legacyEntry.LegacyAction.ActionCost;
+                btn.clicked += () =>
+                {
+                    UniversalEvents.OnCancel.Invoke();
+                    SetSelectedButton(btn, ActionButtonColor);
+                    legacyEntry.Invoke();
+                };
+            }
+            else if (entry is IDefinitionActionBarEntry definitionEntry)
+            {
+                definitionButtonEntries.Add(btn, definitionEntry);
+                btn.clicked += () => ExecuteDefinitionAction(btn, definitionEntry);
+            }
+            else
+            {
+                throw new System.InvalidOperationException(
+                    $"Action-bar entry '{entry.Key}' has no supported execution contract."
+                );
+            }
         }
+    }
+
+    private async void ExecuteDefinitionAction(Button btn, IDefinitionActionBarEntry entry)
+    {
+        ActionController executingController = currentTurnAC;
+        if (executingController == null || executingController.IsTakingAction)
+            return;
+
+        UniversalEvents.OnCancel.Invoke();
+        SetSelectedButton(btn, ActionButtonColor);
+        int executionId = ++definitionExecutionId;
+        executingController.IsTakingAction = true;
+        UpdateHudButtonStates();
+
+        try
+        {
+            ActionBarExecutionOutcome outcome = await entry.Execute();
+            ReportDefinitionOutcome(entry, outcome);
+        }
+        catch (System.Exception exception)
+        {
+            Debug.LogException(exception);
+        }
+        finally
+        {
+            if (executionId == definitionExecutionId)
+                executingController.IsTakingAction = false;
+            if (currentTurnAC == executingController)
+            {
+                SetSelectedButton(null);
+                UpdateHudButtonStates();
+            }
+        }
+    }
+
+    private void ReportDefinitionOutcome(
+        IDefinitionActionBarEntry entry,
+        ActionBarExecutionOutcome outcome
+    )
+    {
+        if (outcome is DispatchedActionBarExecutionOutcome)
+            return;
+        if (outcome is CancelledActionBarExecutionOutcome)
+        {
+            combatLog.Log($"- {entry.DisplayName} selection was canceled.");
+            return;
+        }
+        if (outcome is UnavailableActionBarExecutionOutcome unavailable)
+        {
+            combatLog.Log($"- {entry.DisplayName}: {unavailable.Reason}");
+            return;
+        }
+        if (outcome is InvalidActionBarExecutionOutcome invalid)
+        {
+            combatLog.Log($"- {entry.DisplayName}: {invalid.Reason}");
+            return;
+        }
+
+        throw new System.InvalidOperationException(
+            $"Action-bar entry '{entry.Key}' returned an unknown execution outcome."
+        );
     }
 
     private void BuildMovementButtons(GameObject turnTaker, List<EntityAction> movements)
@@ -768,6 +874,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     public void CancelAction()
     {
         Debug.Log("here I am");
+        definitionExecutionId++;
         UniversalEvents.OnCancel.Invoke();
         if (currentTurnAC != null)
         {
