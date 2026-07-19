@@ -34,7 +34,7 @@ namespace Game.Rules.Runtime
 
                 try
                 {
-                    await NotifyFactListeners(rootId, committedFacts);
+                    await NotifyCommittedFacts(rootId, committedFacts);
                 }
                 catch (Exception notificationException)
                 {
@@ -49,7 +49,7 @@ namespace Game.Rules.Runtime
 
             if (result.Status != OpStatus.Invalid && result.Facts.Count > 0)
             {
-                await NotifyFactListeners(
+                await NotifyCommittedFacts(
                     rootId,
                     SnapshotCommittedFacts(resolution, rootId));
             }
@@ -324,7 +324,12 @@ namespace Game.Rules.Runtime
                     throw new InvalidOperationException($"Operation {id.Value} stopped executing more than once.");
             }
 
-            public void AddFact(RuleFact fact, OpId sourceId, OpId rootId)
+            public void AddFact(
+                RuleFact fact,
+                OpId sourceId,
+                OpId rootId,
+                RulesSnapshot previousSnapshot,
+                RulesSnapshot currentSnapshot)
             {
                 if (fact == null || !fact.IsStamped)
                     throw new InvalidOperationException("A reducer returned an unstamped Fact.");
@@ -342,7 +347,11 @@ namespace Game.Rules.Runtime
                 if (!factIds.Add(fact.Id) || !factReferences.Add(fact))
                     throw new InvalidOperationException("A committed Fact was aggregated more than once.");
                 Facts.Add(fact);
-                CommittedFacts.Add(new CommittedFactRecord(fact, eligibleListeners));
+                CommittedFacts.Add(new CommittedFactRecord(
+                    fact,
+                    eligibleListeners,
+                    previousSnapshot,
+                    currentSnapshot));
             }
 
             private void RequireCurrentRoot(OpId rootId)

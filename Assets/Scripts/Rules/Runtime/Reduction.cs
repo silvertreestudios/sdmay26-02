@@ -106,9 +106,14 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Describes a reducer decision and, after store completion, the exact state transition it committed.
+    /// </summary>
+    /// <typeparam name="TResult">The accepted value produced by the reducer.</typeparam>
     public sealed class ReductionResult<TResult>
     {
         private static readonly IReadOnlyList<RuleFact> NoFacts = Array.AsReadOnly(Array.Empty<RuleFact>());
+        private readonly RulesSnapshot previousSnapshot;
         private readonly RulesSnapshot snapshot;
 
         public bool IsAccepted { get; }
@@ -121,11 +126,23 @@ namespace Game.Rules.Runtime
         public RulesSnapshot Snapshot => snapshot ?? throw new InvalidOperationException(
             "Only a result returned by IRulesStore has a committed snapshot.");
 
+        /// <summary>
+        /// Gets the store snapshot captured atomically before this exact reduction began.
+        /// </summary>
+        /// <remarks>
+        /// Dispatcher presentation uses this value instead of the operation frame's older snapshot
+        /// because reducer middleware may commit a child operation before invoking the reducer.
+        /// </remarks>
+        internal RulesSnapshot PreviousSnapshot => previousSnapshot ??
+            throw new InvalidOperationException(
+                "Only a result returned by IRulesStore has a previous snapshot.");
+
         private ReductionResult(
             bool isAccepted,
             TResult value,
             string rejectionReason,
             bool didCommit,
+            RulesSnapshot previousSnapshot,
             RulesSnapshot snapshot,
             IReadOnlyList<RuleFact> facts)
         {
@@ -133,23 +150,25 @@ namespace Game.Rules.Runtime
             Value = value;
             RejectionReason = rejectionReason;
             DidCommit = didCommit;
+            this.previousSnapshot = previousSnapshot;
             this.snapshot = snapshot;
             Facts = facts ?? NoFacts;
         }
 
         public static ReductionResult<TResult> Accept(TResult value)
         {
-            return new ReductionResult<TResult>(true, value, null, false, null, NoFacts);
+            return new ReductionResult<TResult>(true, value, null, false, null, null, NoFacts);
         }
 
         public static ReductionResult<TResult> Reject(string reason)
         {
             if (string.IsNullOrWhiteSpace(reason))
                 throw new ArgumentException("A rejected reduction requires a reason.", nameof(reason));
-            return new ReductionResult<TResult>(false, default, reason, false, null, NoFacts);
+            return new ReductionResult<TResult>(false, default, reason, false, null, null, NoFacts);
         }
 
         internal ReductionResult<TResult> Complete(
+            RulesSnapshot previousSnapshot,
             RulesSnapshot completedSnapshot,
             IReadOnlyList<RuleFact> facts,
             bool didCommit)
@@ -159,6 +178,7 @@ namespace Game.Rules.Runtime
                 Value,
                 RejectionReason,
                 didCommit,
+                previousSnapshot,
                 completedSnapshot,
                 facts);
         }
@@ -268,10 +288,18 @@ namespace Game.Rules.Runtime
                         throw new InvalidOperationException("A reducer returned null.");
 
                     if (decision.IsRejected)
-                        return decision.Complete(startingState.Snapshot, Array.AsReadOnly(Array.Empty<RuleFact>()), false);
+                        return decision.Complete(
+                            startingState.Snapshot,
+                            startingState.Snapshot,
+                            Array.AsReadOnly(Array.Empty<RuleFact>()),
+                            false);
 
                     if (!draft.IsDirty && factSink.Count == 0)
-                        return decision.Complete(startingState.Snapshot, Array.AsReadOnly(Array.Empty<RuleFact>()), false);
+                        return decision.Complete(
+                            startingState.Snapshot,
+                            startingState.Snapshot,
+                            Array.AsReadOnly(Array.Empty<RuleFact>()),
+                            false);
 
                     if (draft.IsDirty && factSink.Count == 0)
                         throw new InvalidOperationException("A committed state change requires at least one domain Fact.");
@@ -292,6 +320,7 @@ namespace Game.Rules.Runtime
                     nextFactId = pendingFactId;
 
                     return decision.Complete(
+                        startingState.Snapshot,
                         committedState.Snapshot,
                         Array.AsReadOnly(committedFacts),
                         true);

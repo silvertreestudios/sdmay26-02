@@ -207,7 +207,11 @@ namespace Game.Rules.Runtime
         {
             OpFrame<TOp> frame = GetFrame(invocation);
             ReductionResult<TResult> reduced = dispatcher.Reduce(frame, reducer, source);
-            dispatcher.CaptureCommittedFacts(invocation, reduced.Facts);
+            dispatcher.CaptureCommittedFacts(
+                invocation,
+                reduced.PreviousSnapshot,
+                reduced.Snapshot,
+                reduced.Facts);
             OpResult<TResult> result = reduced.IsAccepted
                 ? OpResult<TResult>.Resolved(reduced.Value)
                 : OpResult<TResult>.Invalid(reduced.RejectionReason);

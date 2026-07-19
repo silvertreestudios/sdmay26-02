@@ -39,6 +39,58 @@ namespace Game.Rules.Runtime
         public static bool operator !=(PlayerId left, PlayerId right) => !left.Equals(right);
     }
 
+    /// <summary>
+    /// Identifies one combat team without retaining a Unity component or display name in rules data.
+    /// </summary>
+    /// <remarks>
+    /// Team identifiers describe stable encounter identity only. Relationships and mutable team
+    /// membership remain in their declared authoritative owner until their rules-state slices are
+    /// migrated.
+    /// </remarks>
+    public readonly struct TeamId : IEquatable<TeamId>
+    {
+        /// <summary>
+        /// Gets the stable, non-empty team identifier.
+        /// </summary>
+        public string Value { get; }
+
+        /// <summary>
+        /// Gets whether this value is the uninitialized default identifier.
+        /// </summary>
+        public bool IsEmpty => string.IsNullOrEmpty(Value);
+
+        /// <summary>
+        /// Initializes a team identifier from caller-owned stable text.
+        /// </summary>
+        /// <param name="value">The stable identifier text; this is not a player-facing team name.</param>
+        /// <exception cref="ArgumentException"><paramref name="value"/> is blank.</exception>
+        public TeamId(string value) => Value = StableId.Require(value, nameof(value));
+
+        /// <inheritdoc/>
+        public bool Equals(TeamId other) =>
+            string.Equals(Value, other.Value, StringComparison.Ordinal);
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) => obj is TeamId other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() =>
+            StringComparer.Ordinal.GetHashCode(Value ?? string.Empty);
+
+        /// <inheritdoc/>
+        public override string ToString() => Value ?? string.Empty;
+
+        /// <summary>
+        /// Compares two team identifiers by ordinal stable value.
+        /// </summary>
+        public static bool operator ==(TeamId left, TeamId right) => left.Equals(right);
+
+        /// <summary>
+        /// Compares two team identifiers by ordinal stable value.
+        /// </summary>
+        public static bool operator !=(TeamId left, TeamId right) => !left.Equals(right);
+    }
+
     public readonly struct ItemId : IEquatable<ItemId>
     {
         public string Value { get; }

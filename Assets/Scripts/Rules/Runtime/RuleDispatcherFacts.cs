@@ -7,6 +7,8 @@ namespace Game.Rules.Runtime
 {
     public sealed partial class RuleDispatcher
     {
+        private static readonly IReadOnlyList<Exception> NoPresentationFailures =
+            Array.AsReadOnly(Array.Empty<Exception>());
 
         internal ReductionResult<TResult> Reduce<TOp, TResult>(
             OpFrame<TOp> frame,
@@ -21,10 +23,16 @@ namespace Game.Rules.Runtime
 
         internal void CaptureCommittedFacts(
             IFrameInvocation invocation,
+            RulesSnapshot previousSnapshot,
+            RulesSnapshot currentSnapshot,
             IReadOnlyList<RuleFact> facts)
         {
             if (invocation == null)
                 throw new ArgumentNullException(nameof(invocation));
+            if (previousSnapshot == null)
+                throw new ArgumentNullException(nameof(previousSnapshot));
+            if (currentSnapshot == null)
+                throw new ArgumentNullException(nameof(currentSnapshot));
             if (facts == null)
                 throw new ArgumentNullException(nameof(facts));
 
@@ -43,7 +51,9 @@ namespace Game.Rules.Runtime
                     activeRoot.AddFact(
                         fact,
                         invocation.FrameView.Id,
-                        invocation.FrameView.RootId);
+                        invocation.FrameView.RootId,
+                        previousSnapshot,
+                        currentSnapshot);
                 }
             }
         }
@@ -62,7 +72,7 @@ namespace Game.Rules.Runtime
             }
         }
 
-        private async ValueTask NotifyFactListeners(
+        private async ValueTask NotifyCommittedFacts(
             OpId rootId,
             IReadOnlyList<CommittedFactRecord> committedFacts)
         {
@@ -73,6 +83,78 @@ namespace Game.Rules.Runtime
                 throw new InvalidOperationException("A completed root contains a Fact from another resolution batch.");
             }
 
+            IReadOnlyList<Exception> presentationFailures =
+                PublishCommittedFacts(committedFacts);
+            try
+            {
+                await NotifyRuleFactListeners(rootId, committedFacts);
+            }
+            catch (Exception listenerException)
+            {
+                if (presentationFailures.Count > 0)
+                {
+                    List<Exception> combined = new List<Exception>(presentationFailures)
+                    {
+                        listenerException
+                    };
+                    throw new AggregateException(
+                        "Presentation observation and rules Fact notification both failed.",
+                        combined);
+                }
+                throw;
+            }
+
+            if (presentationFailures.Count == 1)
+            {
+                throw new InvalidOperationException(
+                    "A committed-Fact presentation observer failed.",
+                    presentationFailures[0]);
+            }
+            if (presentationFailures.Count > 1)
+            {
+                throw new AggregateException(
+                    "Multiple committed-Fact presentation observers failed.",
+                    presentationFailures);
+            }
+        }
+
+        private IReadOnlyList<Exception> PublishCommittedFacts(
+            IReadOnlyList<CommittedFactRecord> committedFacts)
+        {
+            Action<CommittedRuleFact> observers = FactCommitted;
+            if (observers == null)
+                return NoPresentationFailures;
+
+            List<Exception> failures = new List<Exception>();
+            Delegate[] subscriptions = observers.GetInvocationList();
+            foreach (CommittedFactRecord committed in committedFacts)
+            {
+                CommittedRuleFact envelope = new CommittedRuleFact(
+                    committed.Fact,
+                    committed.PreviousSnapshot,
+                    committed.CurrentSnapshot);
+                foreach (Delegate subscription in subscriptions)
+                {
+                    try
+                    {
+                        ((Action<CommittedRuleFact>)subscription)(envelope);
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add(exception);
+                    }
+                }
+            }
+
+            if (failures.Count == 0)
+                return NoPresentationFailures;
+            return Array.AsReadOnly(failures.ToArray());
+        }
+
+        private async ValueTask NotifyRuleFactListeners(
+            OpId rootId,
+            IReadOnlyList<CommittedFactRecord> committedFacts)
+        {
             IReadOnlyList<FactListenerDelivery> deliveries =
                 ruleRegistry.BuildFactListenerDeliveries(rootId, committedFacts);
             foreach (FactListenerDelivery delivery in deliveries)

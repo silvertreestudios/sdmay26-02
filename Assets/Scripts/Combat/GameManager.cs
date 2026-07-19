@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Game.Rules.Unity;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -11,6 +12,31 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
 
     [SerializeField]
     public TeamRules TeamRelationships { get; private set; }
+
+    private RulesCombatService rules;
+
+    /// <summary>
+    /// Gets the encounter-scoped rules runtime and explicit Unity identity mappings.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Unity requests the service before this component's <see cref="Awake"/> lifecycle phase.
+    /// </exception>
+    public RulesCombatService Rules => rules ?? throw new InvalidOperationException(
+        "The GameManager rules service is not initialized until Awake.");
+
+    protected override void Awake()
+    {
+        base.Awake();
+        if (!TryGetInstance(out GameManager current) || current != this)
+            return;
+
+        rules = RulesCombatComposition.CreateFoundation();
+        RulesUnityBridge bridge = GetComponent<RulesUnityBridge>();
+        if (bridge == null)
+            bridge = gameObject.AddComponent<RulesUnityBridge>();
+        if (!bridge.IsConfigured)
+            bridge.Configure(rules, RulesPresentationComposition.CreateDefault());
+    }
 
     private void OnEnable()
     {

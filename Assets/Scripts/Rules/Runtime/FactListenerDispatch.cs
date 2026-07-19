@@ -98,14 +98,22 @@ namespace Game.Rules.Runtime
     {
         public RuleFact Fact { get; }
         public IReadOnlyList<BoundFactListenerRegistration> EligibleListeners { get; }
+        public RulesSnapshot PreviousSnapshot { get; }
+        public RulesSnapshot CurrentSnapshot { get; }
 
         public CommittedFactRecord(
             RuleFact fact,
-            IReadOnlyList<BoundFactListenerRegistration> eligibleListeners)
+            IReadOnlyList<BoundFactListenerRegistration> eligibleListeners,
+            RulesSnapshot previousSnapshot,
+            RulesSnapshot currentSnapshot)
         {
             Fact = fact ?? throw new ArgumentNullException(nameof(fact));
             EligibleListeners = eligibleListeners ??
                 throw new ArgumentNullException(nameof(eligibleListeners));
+            PreviousSnapshot = previousSnapshot ??
+                throw new ArgumentNullException(nameof(previousSnapshot));
+            CurrentSnapshot = currentSnapshot ??
+                throw new ArgumentNullException(nameof(currentSnapshot));
         }
     }
 

@@ -17,7 +17,7 @@ namespace Game.Rules.Runtime
     /// the caller regains root ownership; listener-dispatched work runs as serialized causal roots.
     /// Trace and diagnostic history accumulate for the lifetime of the dispatcher.
     /// </remarks>
-    public sealed partial class RuleDispatcher
+    public sealed partial class RuleDispatcher : IRulesRuntime
     {
         private static readonly IReadOnlyList<RuleFact> NoFacts =
             Array.AsReadOnly(Array.Empty<RuleFact>());
@@ -37,6 +37,9 @@ namespace Game.Rules.Runtime
         private readonly RuleRegistry ruleRegistry;
         private readonly ActionRuntime actionRuntime;
         private RootResolution activeRoot = RootResolution.Idle;
+
+        /// <inheritdoc/>
+        public event Action<CommittedRuleFact> FactCommitted;
 
         internal RuleDispatcher(
             IRulesStore store,
