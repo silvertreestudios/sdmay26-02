@@ -83,8 +83,10 @@ namespace Game.Rules.Runtime
         /// The same observer is already registered for <typeparamref name="TFact"/>.
         /// </exception>
         /// <remarks>
-        /// Each committed reduction freezes its matching delivery plan before invoking callbacks.
-        /// Registration changes made during a callback therefore apply to later reductions only.
+        /// Registration and observer selection are ordered atomically at the reduction commit
+        /// boundary. Each committed reduction then retains that immutable delivery plan while it
+        /// invokes callbacks. Registration changes made during a callback therefore apply to later
+        /// reductions only.
         /// </remarks>
         public void RegisterFactObserver<TFact>(IFactObserver<TFact> observer)
             where TFact : RuleFact
@@ -114,6 +116,7 @@ namespace Game.Rules.Runtime
         /// <returns><see langword="true"/> when a matching registration was removed.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
         /// <remarks>
+        /// Removal and observer selection are ordered atomically at the reduction commit boundary.
         /// Removal does not cancel callbacks already frozen for an in-flight reduction.
         /// </remarks>
         public bool UnregisterFactObserver<TFact>(IFactObserver<TFact> observer)
@@ -137,18 +140,17 @@ namespace Game.Rules.Runtime
 
         internal async ValueTask NotifyFactObservers(
             IReadOnlyList<RuleFact> committedFacts,
-            RulesSnapshot currentSnapshot)
+            RulesSnapshot currentSnapshot,
+            IReadOnlyList<FactObserverRegistration> frozenObservers)
         {
             if (committedFacts == null)
                 throw new ArgumentNullException(nameof(committedFacts));
             if (currentSnapshot == null)
                 throw new ArgumentNullException(nameof(currentSnapshot));
+            if (frozenObservers == null)
+                throw new ArgumentNullException(nameof(frozenObservers));
             if (committedFacts.Count == 0)
                 return;
-
-            FactObserverRegistration[] frozenObservers;
-            lock (gate)
-                frozenObservers = factObservers.ToArray();
 
             List<Exception> failures = new List<Exception>();
             foreach (RuleFact fact in committedFacts)

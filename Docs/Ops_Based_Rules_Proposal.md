@@ -510,7 +510,7 @@ public interface IFactObserver<TFact>
 }
 ```
 
-The dispatcher freezes matching observers in deterministic registration order for each committed reduction, then delivers its Facts in commit order. Registration changes during a callback affect later reductions, not remaining Facts in that frozen delivery plan. Every frozen matching delivery runs even when another observer fails. State is already durable; one failure propagates unchanged and multiple failures produce a deterministic aggregate without rollback.
+Registration changes and observer selection are ordered atomically at the reduction commit boundary. The dispatcher retains that frozen observer plan in deterministic registration order, then delivers the reduction's Facts in commit order. Registration changes during a callback affect later reductions, not remaining Facts in that frozen delivery plan. Every frozen matching delivery runs even when another observer fails. State is already durable; one failure propagates unchanged and multiple failures produce a deterministic aggregate without rollback.
 
 Observers use only `currentSnapshot` for identity lookup and derived current state. Any before-and-after values needed by presentation belong in the typed Fact transition payload. There is no previous-snapshot envelope.
 

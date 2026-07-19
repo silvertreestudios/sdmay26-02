@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 
@@ -116,6 +117,41 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task RegistrationConcurrentWithCommitAppliesToTheNextReduction()
+        {
+            CommitBoundaryStore store = new CommitBoundaryStore(CreateStore());
+            RuleDispatcher dispatcher = CreateDispatcher(store);
+            CountingObserver observer = new CountingObserver();
+
+            Task<OpResult<int>> dispatch = Task.Run(async () =>
+                await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1))));
+            await store.CommitReached;
+
+            TaskCompletionSource<bool> registrationStarted =
+                new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            Task registration = Task.Run(() =>
+            {
+                registrationStarted.TrySetResult(true);
+                dispatcher.RegisterFactObserver(observer);
+            });
+            await registrationStarted.Task;
+
+            Assert.That(registration.IsCompleted, Is.False,
+                "Registration must not cross a commit whose delivery plan is still being frozen.");
+            store.ReleaseCommit();
+            await dispatch;
+            await registration;
+
+            Assert.That(observer.Count, Is.Zero,
+                "An observer registered after the commit linearization point must not see it.");
+
+            await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 2)));
+
+            Assert.That(observer.Count, Is.EqualTo(1));
+        }
+
+        [Test]
         public void ObserverFailuresRunEveryDeliveryAndAggregateInDeliveryOrderAfterCommit()
         {
             InMemoryRulesStore store = CreateStore();
@@ -179,10 +215,10 @@ namespace Game.Rules.Runtime.Tests
             return new InMemoryRulesStore(seed);
         }
 
-        private static RuleDispatcher CreateDispatcher(InMemoryRulesStore store) =>
+        private static RuleDispatcher CreateDispatcher(IRulesStore store) =>
             CreateDispatcherBuilder(store).Build();
 
-        private static RuleDispatcherBuilder CreateDispatcherBuilder(InMemoryRulesStore store) =>
+        private static RuleDispatcherBuilder CreateDispatcherBuilder(IRulesStore store) =>
             new RuleDispatcherBuilder(store)
                 .RegisterHandler<RootOp, int>(new RootHandler())
                 .RegisterHandler<RejectionAndNoCommitRootOp, int>(
@@ -420,6 +456,47 @@ namespace Game.Rules.Runtime.Tests
             {
                 Facts.Add(fact);
                 return default;
+            }
+        }
+
+        private sealed class CommitBoundaryStore : IRulesStore
+        {
+            private readonly InMemoryRulesStore inner;
+            private readonly TaskCompletionSource<bool> commitReached =
+                new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource<bool> commitRelease =
+                new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            private int hasBlockedCommit;
+
+            public CommitBoundaryStore(InMemoryRulesStore inner)
+            {
+                this.inner = inner;
+            }
+
+            public RulesSnapshot Snapshot => inner.Snapshot;
+
+            public Task CommitReached => commitReached.Task;
+
+            public void ReleaseCommit() => commitRelease.TrySetResult(true);
+
+            public ReductionResult<TResult> Reduce<TOp, TResult>(
+                ReductionContext<TOp> context,
+                IOpReducer<TOp, TResult> reducer)
+                where TOp : IRuleOp<TResult>
+            {
+                ReductionResult<TResult> result = inner.Reduce(context, reducer);
+                if (result.DidCommit && Interlocked.CompareExchange(
+                    ref hasBlockedCommit,
+                    1,
+                    0) == 0)
+                {
+                    commitReached.TrySetResult(true);
+                    commitRelease.Task.GetAwaiter().GetResult();
+                }
+
+                return result;
             }
         }
     }

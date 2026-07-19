@@ -206,10 +206,19 @@ namespace Game.Rules.Runtime
             RuleDispatcher dispatcher)
         {
             OpFrame<TOp> frame = GetFrame(invocation);
-            ReductionResult<TResult> reduced = dispatcher.Reduce(frame, reducer, source);
+            ReductionResult<TResult> reduced = dispatcher.Reduce(
+                frame,
+                reducer,
+                source,
+                out FactObserverRegistration[] frozenObservers);
             dispatcher.CaptureCommittedFacts(invocation, reduced.Facts);
             if (reduced.Facts.Count > 0)
-                await dispatcher.NotifyFactObservers(reduced.Facts, reduced.Snapshot);
+            {
+                await dispatcher.NotifyFactObservers(
+                    reduced.Facts,
+                    reduced.Snapshot,
+                    frozenObservers);
+            }
             OpResult<TResult> result = reduced.IsAccepted
                 ? OpResult<TResult>.Resolved(reduced.Value)
                 : OpResult<TResult>.Invalid(reduced.RejectionReason);
