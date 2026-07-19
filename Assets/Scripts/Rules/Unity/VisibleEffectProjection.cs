@@ -124,7 +124,7 @@ namespace Game.Rules.Unity
                         "A visible-effect projection source returned a null effect."));
                 }
             }
-            return Array.AsReadOnly(combined.ToArray());
+            return combined.AsReadOnly();
         }
     }
 
@@ -217,7 +217,7 @@ namespace Game.Rules.Unity
                 left.Value,
                 right.Value,
                 StringComparison.Ordinal));
-            return Array.AsReadOnly(ordered.ToArray());
+            return ordered.AsReadOnly();
         }
 
         private interface IInvalidatorRegistration
