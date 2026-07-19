@@ -8,14 +8,29 @@ namespace Game.KayKit
     [Serializable]
     public sealed class KayKitDungeonCatalogEntry
     {
-        [SerializeField] private string id;
-        [SerializeField] private GameObject model;
-        [SerializeField] private GameObject wrapperPrefab;
-        [SerializeField] private Vector2Int footprint = Vector2Int.one;
-        [SerializeField] private int defaultRotation;
-        [SerializeField] private float defaultYOffset;
-        [SerializeField] private bool blocksMovement;
-        [SerializeField] private bool blocksLineOfSight;
+        [SerializeField]
+        private string id;
+
+        [SerializeField]
+        private GameObject model;
+
+        [SerializeField]
+        private GameObject wrapperPrefab;
+
+        [SerializeField]
+        private Vector2Int footprint = Vector2Int.one;
+
+        [SerializeField]
+        private int defaultRotation;
+
+        [SerializeField]
+        private float defaultYOffset;
+
+        [SerializeField]
+        private bool blocksMovement;
+
+        [SerializeField]
+        private bool blocksLineOfSight;
 
         public string Id => id;
         public GameObject Model => model;
@@ -28,14 +43,12 @@ namespace Game.KayKit
         public bool BlocksLineOfSight => blocksLineOfSight || WrapperBlocksLineOfSight;
 
         private bool WrapperBlocksLineOfSight =>
-            wrapperPrefab != null &&
-            wrapperPrefab.GetComponent<Collider>() != null &&
-            wrapperPrefab.GetComponent<MapLineOfSightBlocker>() != null;
+            wrapperPrefab != null
+            && wrapperPrefab.GetComponent<Collider>() != null
+            && wrapperPrefab.GetComponent<MapLineOfSightBlocker>() != null;
 
         public KayKitDungeonCatalogEntry(string id, GameObject model)
-            : this(id, model, null, Vector2Int.one, 0, 0f, false, false)
-        {
-        }
+            : this(id, model, null, Vector2Int.one, 0, 0f, false, false) { }
 
         public KayKitDungeonCatalogEntry(
             string id,
@@ -45,7 +58,8 @@ namespace Game.KayKit
             int defaultRotation,
             float defaultYOffset,
             bool blocksMovement,
-            bool blocksLineOfSight)
+            bool blocksLineOfSight
+        )
         {
             this.id = id;
             this.model = model;
@@ -61,11 +75,20 @@ namespace Game.KayKit
     [CreateAssetMenu(menuName = "KayKit/Dungeon Catalog", fileName = "KayKitDungeonCatalog")]
     public sealed class KayKitDungeonCatalog : ScriptableObject
     {
-        [SerializeField] private List<KayKitDungeonCatalogEntry> entries = new();
-        [SerializeField] private Material defaultMaterial;
-        [SerializeField] private GameObject floorPrefab;
-        [SerializeField] private GameObject wallPrefab;
-        [SerializeField] private GameObject doorwayPrefab;
+        [SerializeField]
+        private List<KayKitDungeonCatalogEntry> entries = new();
+
+        [SerializeField]
+        private Material defaultMaterial;
+
+        [SerializeField]
+        private GameObject floorPrefab;
+
+        [SerializeField]
+        private GameObject wallPrefab;
+
+        [SerializeField]
+        private GameObject doorwayPrefab;
 
         private Dictionary<string, KayKitDungeonCatalogEntry> entriesById;
         private HashSet<string> duplicateIds;
@@ -102,9 +125,13 @@ namespace Game.KayKit
 
             entriesById = new Dictionary<string, KayKitDungeonCatalogEntry>(StringComparer.Ordinal);
             duplicateIds = new HashSet<string>(StringComparer.Ordinal);
-            foreach (IGrouping<string, KayKitDungeonCatalogEntry> group in entries
-                         .Where(candidate => candidate != null && !string.IsNullOrWhiteSpace(candidate.Id))
-                         .GroupBy(candidate => candidate.Id, StringComparer.Ordinal))
+            foreach (
+                IGrouping<string, KayKitDungeonCatalogEntry> group in entries
+                    .Where(candidate =>
+                        candidate != null && !string.IsNullOrWhiteSpace(candidate.Id)
+                    )
+                    .GroupBy(candidate => candidate.Id, StringComparer.Ordinal)
+            )
             {
                 if (group.Count() == 1)
                     entriesById.Add(group.Key, group.First());
@@ -124,7 +151,8 @@ namespace Game.KayKit
             Material material,
             GameObject floor,
             GameObject wall,
-            GameObject doorway)
+            GameObject doorway
+        )
         {
             defaultMaterial = material;
             floorPrefab = floor;

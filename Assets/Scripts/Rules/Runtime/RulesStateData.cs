@@ -36,9 +36,8 @@ namespace Game.Rules.Runtime
                 new Dictionary<ItemId, EquipmentState>(seed.Equipment),
                 new Dictionary<ActiveEffectId, ActiveEffectState>(seed.ActiveEffects),
                 new Dictionary<BindingId, ActiveRuleBinding>(seed.RuleBindings),
-                new Dictionary<BindingId, FrequencyState>(seed.Frequencies))
-        {
-        }
+                new Dictionary<BindingId, FrequencyState>(seed.Frequencies)
+            ) { }
 
         public RulesStateData(
             long version,
@@ -55,7 +54,8 @@ namespace Game.Rules.Runtime
             Dictionary<ItemId, EquipmentState> equipment,
             Dictionary<ActiveEffectId, ActiveEffectState> activeEffects,
             Dictionary<BindingId, ActiveRuleBinding> ruleBindings,
-            Dictionary<BindingId, FrequencyState> frequencies)
+            Dictionary<BindingId, FrequencyState> frequencies
+        )
         {
             Version = version;
             Creatures = creatures;

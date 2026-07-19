@@ -1,6 +1,6 @@
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace Game.Creature.Rules
@@ -13,7 +13,9 @@ namespace Game.Creature.Rules
         public string ClassName;
         public string SubclassName;
         public string ClassFeatName;
-        public readonly Dictionary<string, string> RuleSelections = new(StringComparer.OrdinalIgnoreCase);
+        public readonly Dictionary<string, string> RuleSelections = new(
+            StringComparer.OrdinalIgnoreCase
+        );
         public readonly List<string> TrainedSkills = new();
 
         /// <summary>

@@ -7,12 +7,23 @@ namespace Game.KayKit
 {
     public sealed class CreatureEquipmentVisuals : MonoBehaviour
     {
-        [SerializeField] private Animator animator;
-        [SerializeField] private EquipmentVisualCatalog catalog;
-        [SerializeField] private string species;
-        [SerializeField] private string defaultWeaponSlug = EquipmentVisualCatalog.UnarmedSlug;
-        [SerializeField] private Transform backSocket;
-        [SerializeField] private Transform quiverSocket;
+        [SerializeField]
+        private Animator animator;
+
+        [SerializeField]
+        private EquipmentVisualCatalog catalog;
+
+        [SerializeField]
+        private string species;
+
+        [SerializeField]
+        private string defaultWeaponSlug = EquipmentVisualCatalog.UnarmedSlug;
+
+        [SerializeField]
+        private Transform backSocket;
+
+        [SerializeField]
+        private Transform quiverSocket;
 
         private readonly List<GameObject> accessoryInstances = new();
         private readonly HashSet<string> warnedMappings = new(StringComparer.OrdinalIgnoreCase);
@@ -44,7 +55,8 @@ namespace Game.KayKit
             string targetSpecies,
             string initialWeaponSlug,
             Transform targetBackSocket,
-            Transform targetQuiverSocket)
+            Transform targetQuiverSocket
+        )
         {
             animator = targetAnimator;
             catalog = equipmentCatalog;
@@ -68,7 +80,10 @@ namespace Game.KayKit
 
         public AnimationStyle GetAnimationStyle(EquipmentWeapon weapon)
         {
-            if (catalog != null && catalog.TryResolve(weapon, species, out EquipmentVisualCatalogEntry entry))
+            if (
+                catalog != null
+                && catalog.TryResolve(weapon, species, out EquipmentVisualCatalogEntry entry)
+            )
                 return entry.AnimationStyle;
 
             return InferStyle(weapon);
@@ -83,15 +98,17 @@ namespace Game.KayKit
 
             EquipmentWeapon displayedWeapon = SelectDisplayedWeapon();
             EquipmentVisualCatalogEntry entry;
-            bool resolved = hasActiveWeaponOverride && displayedWeapon == null
-                ? catalog.TryResolveSlug(EquipmentVisualCatalog.UnarmedSlug, species, out entry)
-                : displayedWeapon != null
-                ? catalog.TryResolve(displayedWeapon, species, out entry)
+            bool resolved =
+                hasActiveWeaponOverride && displayedWeapon == null
+                    ? catalog.TryResolveSlug(EquipmentVisualCatalog.UnarmedSlug, species, out entry)
+                : displayedWeapon != null ? catalog.TryResolve(displayedWeapon, species, out entry)
                 : catalog.TryResolveSlug(defaultWeaponSlug, species, out entry);
 
             if (!resolved || entry == null)
             {
-                WarnUnresolvedOnce(displayedWeapon != null ? displayedWeapon.name : defaultWeaponSlug);
+                WarnUnresolvedOnce(
+                    displayedWeapon != null ? displayedWeapon.name : defaultWeaponSlug
+                );
                 return;
             }
 
@@ -201,7 +218,10 @@ namespace Game.KayKit
             if (!warnedMappings.Add(key))
                 return;
             if (Application.isEditor || Debug.isDebugBuild)
-                Debug.LogWarning($"No KayKit equipment visual mapping resolved for '{key}' on {name}.", this);
+                Debug.LogWarning(
+                    $"No KayKit equipment visual mapping resolved for '{key}' on {name}.",
+                    this
+                );
         }
 
         private static bool HasName(EquipmentWeapon weapon)
@@ -216,7 +236,9 @@ namespace Game.KayKit
             if (string.Equals(weapon.group, "bow", StringComparison.OrdinalIgnoreCase))
                 return AnimationStyle.Bow;
             if (weapon.range > 0)
-                return weapon.hands == 1 ? AnimationStyle.OneHandRanged : AnimationStyle.TwoHandRanged;
+                return weapon.hands == 1
+                    ? AnimationStyle.OneHandRanged
+                    : AnimationStyle.TwoHandRanged;
             return weapon.hands >= 2 ? AnimationStyle.TwoHandMelee : AnimationStyle.OneHandMelee;
         }
     }

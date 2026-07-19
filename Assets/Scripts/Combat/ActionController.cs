@@ -1,9 +1,9 @@
-using UnityEngine;
 using System.Collections.Generic;
-using Game.Creature;
-using NUnit.Framework;
-using Game.Strikes;
 using Game.Combat.Spells;
+using Game.Creature;
+using Game.Strikes;
+using NUnit.Framework;
+using UnityEngine;
 
 public abstract class ActionController : MonoBehaviour
 {
@@ -13,6 +13,7 @@ public abstract class ActionController : MonoBehaviour
     protected List<EntityAction> Reactions = new();
     protected bool IsTurn = false;
     public bool IsTakingAction { get; set; } = false;
+
     [field: SerializeField]
     public uint ActionPoints { get; set; }
     public bool Reacted { get; set; }
@@ -26,8 +27,6 @@ public abstract class ActionController : MonoBehaviour
 
     [SerializeField]
     List<string> _actionNames = new List<string>(); // Temporary list of action names to add for testing purposes.  TODO remove
-
-
 
     /// <summary>
     /// Starts this creature's turn
@@ -43,7 +42,6 @@ public abstract class ActionController : MonoBehaviour
     }
 
     public abstract void EndTurn();
-
 
     /// <summary>
     /// Returns a copied list of all actions the controller can perform, excluding movements
@@ -101,15 +99,25 @@ public abstract class ActionController : MonoBehaviour
     {
         int initiativeBonus = this.gameObject.GetComponent<CreatureComponent>().GetInitiative();
         uint roll = (uint)Random.Range(1, 20);
-        Debug.Log(this.gameObject.name + " rolled initiative: " + roll +" +"+ initiativeBonus +" = " + (roll + initiativeBonus));
+        Debug.Log(
+            this.gameObject.name
+                + " rolled initiative: "
+                + roll
+                + " +"
+                + initiativeBonus
+                + " = "
+                + (roll + initiativeBonus)
+        );
         roll += (uint)initiativeBonus;
         return roll;
     }
+
     public void AddAction(EntityAction action)
     {
         Actions.Add(action);
         _actionNames.Add(action.ToString()); // Add action name to the list for testing purposes
     }
+
     public void RemoveAction(EntityAction action)
     {
         Actions.Remove(action);
@@ -118,9 +126,9 @@ public abstract class ActionController : MonoBehaviour
     public string GetActionNames() // Temporary method for testing purposes to display available actions in log
     {
         string names = "";
-        for(int i = 0; i < Actions.Count; i++)
+        for (int i = 0; i < Actions.Count; i++)
         {
-            names += i+": "+Actions[i]+"   ";
+            names += i + ": " + Actions[i] + "   ";
         }
         return names;
     }

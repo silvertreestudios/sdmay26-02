@@ -12,16 +12,30 @@ namespace Game.Combat.Rules
     {
         private const int DefaultUnarmedReachFeet = 5;
 
-        public static bool GrantsOffGuardToMeleeAttack(GameObject attacker, GameObject target, StrikeProfile strike)
+        public static bool GrantsOffGuardToMeleeAttack(
+            GameObject attacker,
+            GameObject target,
+            StrikeProfile strike
+        )
         {
             if (attacker == null || target == null || strike == null || strike.IsRangedAttack)
                 return false;
 
             Tile[,] tiles = TryGetTiles();
-            return IsFlanking(attacker, target, tiles, Math.Max(DefaultUnarmedReachFeet, strike.ReachFeet));
+            return IsFlanking(
+                attacker,
+                target,
+                tiles,
+                Math.Max(DefaultUnarmedReachFeet, strike.ReachFeet)
+            );
         }
 
-        public static bool IsFlanking(GameObject attacker, GameObject target, Tile[,] tiles, int attackerReachFeet = DefaultUnarmedReachFeet)
+        public static bool IsFlanking(
+            GameObject attacker,
+            GameObject target,
+            Tile[,] tiles,
+            int attackerReachFeet = DefaultUnarmedReachFeet
+        )
         {
             if (!CanFlank(attacker) || target == null || !target.activeInHierarchy)
                 return false;
@@ -31,7 +45,11 @@ namespace Game.Combat.Rules
 
             Team attackerTeam = attacker.GetComponent<Team>();
             Team targetTeam = target.GetComponent<Team>();
-            if (attackerTeam == null || targetTeam == null || AreFriendly(attackerTeam.Name, targetTeam.Name))
+            if (
+                attackerTeam == null
+                || targetTeam == null
+                || AreFriendly(attackerTeam.Name, targetTeam.Name)
+            )
                 return false;
 
             Vector3Int attackerCell = CellOf(attacker);
@@ -45,7 +63,11 @@ namespace Game.Combat.Rules
                     continue;
 
                 Team allyTeam = ally.GetComponent<Team>();
-                if (allyTeam == null || !AreFriendly(attackerTeam.Name, allyTeam.Name) || AreFriendly(allyTeam.Name, targetTeam.Name))
+                if (
+                    allyTeam == null
+                    || !AreFriendly(attackerTeam.Name, allyTeam.Name)
+                    || AreFriendly(allyTeam.Name, targetTeam.Name)
+                )
                     continue;
 
                 if (!ThreatensTarget(ally, target, tiles, GetBestMeleeReachFeet(ally)))
@@ -71,7 +93,12 @@ namespace Game.Combat.Rules
                 && GetBestMeleeReachFeet(combatant) > 0;
         }
 
-        private static bool ThreatensTarget(GameObject attacker, GameObject target, Tile[,] tiles, int reachFeet)
+        private static bool ThreatensTarget(
+            GameObject attacker,
+            GameObject target,
+            Tile[,] tiles,
+            int reachFeet
+        )
         {
             if (attacker == null || target == null || reachFeet <= 0)
                 return false;
@@ -80,7 +107,7 @@ namespace Game.Combat.Rules
             {
                 ReachFeet = reachFeet,
                 IsRanged = false,
-                RequiresLineOfEffect = true
+                RequiresLineOfEffect = true,
             };
 
             if (tiles != null)
@@ -105,7 +132,14 @@ namespace Game.Combat.Rules
                     continue;
                 }
 
-                if (action is Unarmed || string.Equals(action.ActionName, "Unarmed Strike", StringComparison.OrdinalIgnoreCase))
+                if (
+                    action is Unarmed
+                    || string.Equals(
+                        action.ActionName,
+                        "Unarmed Strike",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
                     reachFeet = Math.Max(reachFeet, DefaultUnarmedReachFeet);
             }
 
@@ -135,26 +169,38 @@ namespace Game.Combat.Rules
                 yield break;
             }
 
-            foreach (ActionController controller in UnityEngine.Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None))
+            foreach (
+                ActionController controller in UnityEngine.Object.FindObjectsByType<ActionController>(
+                    FindObjectsSortMode.None
+                )
+            )
             {
                 if (controller != null && seen.Add(controller.gameObject))
                     yield return controller.gameObject;
             }
         }
 
-        private static bool IsOppositeSideOrCorner(Vector3Int attackerCell, Vector3Int allyCell, Vector3Int targetCell)
+        private static bool IsOppositeSideOrCorner(
+            Vector3Int attackerCell,
+            Vector3Int allyCell,
+            Vector3Int targetCell
+        )
         {
             Vector2Int attackerDirection = DirectionFromTarget(attackerCell, targetCell);
             Vector2Int allyDirection = DirectionFromTarget(allyCell, targetCell);
             if (attackerDirection == Vector2Int.zero || allyDirection == Vector2Int.zero)
                 return false;
 
-            return attackerDirection.x == -allyDirection.x && attackerDirection.y == -allyDirection.y;
+            return attackerDirection.x == -allyDirection.x
+                && attackerDirection.y == -allyDirection.y;
         }
 
         private static Vector2Int DirectionFromTarget(Vector3Int cell, Vector3Int targetCell)
         {
-            return new Vector2Int(Math.Sign(cell.x - targetCell.x), Math.Sign(cell.z - targetCell.z));
+            return new Vector2Int(
+                Math.Sign(cell.x - targetCell.x),
+                Math.Sign(cell.z - targetCell.z)
+            );
         }
 
         private static Vector3Int CellOf(GameObject go)
@@ -168,7 +214,11 @@ namespace Game.Combat.Rules
                 return false;
 
             TeamRules teamRules = TeamRules.GetInstance();
-            if (teamRules == null || !teamRules.Contains(firstTeam) || !teamRules.Contains(secondTeam))
+            if (
+                teamRules == null
+                || !teamRules.Contains(firstTeam)
+                || !teamRules.Contains(secondTeam)
+            )
                 return string.Equals(firstTeam, secondTeam, StringComparison.OrdinalIgnoreCase);
 
             return teamRules.IsFriendly(firstTeam, secondTeam);

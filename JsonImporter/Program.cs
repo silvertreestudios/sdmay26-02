@@ -22,7 +22,6 @@ namespace JsonImporter
 
         static async Task Main(string[] args)
         {
-
             // get GitHub token from gitToken.txt in current directory
             string? tokenPath = Path.Combine(Directory.GetCurrentDirectory(), "gitToken.txt");
             try
@@ -31,7 +30,9 @@ namespace JsonImporter
                 Constants.token = (raw ?? string.Empty).Trim();
                 if (string.IsNullOrEmpty(Constants.token))
                 {
-                    Console.WriteLine($"Error: {tokenPath} is empty. Please add your GitHub token to the file.");
+                    Console.WriteLine(
+                        $"Error: {tokenPath} is empty. Please add your GitHub token to the file."
+                    );
                     return;
                 }
                 Console.WriteLine($"Loaded token from: {tokenPath}");
@@ -55,7 +56,7 @@ namespace JsonImporter
                     { "packs/spells", JsonProcessingFunctions.ProcessSpellJson },
                     { "packs/equipment", JsonProcessingFunctions.ProcessEquipmentJson },
                     { "packs/pathfinder-monster-core", JsonProcessingFunctions.ProcessMonsterJson },
-                    { "packs/iconics", JsonProcessingFunctions.ProcessMonsterJson   } //TODO confirm if converts properly
+                    { "packs/iconics", JsonProcessingFunctions.ProcessMonsterJson }, //TODO confirm if converts properly
                 };
                 var parser = new JSONParser(Constants.whitelist, processingFunctions, httpClient);
                 await parser.SyncJsonFilesAsync(Constants.localRoot);
@@ -103,7 +104,12 @@ namespace JsonImporter
         public const string targetDir = "packs";
 
         // Local root directory to save imported files.
-        public static readonly string localRoot = Path.Combine(ComputeLocalRoot(), "Assets", "Resources", "DataFiles");
+        public static readonly string localRoot = Path.Combine(
+            ComputeLocalRoot(),
+            "Assets",
+            "Resources",
+            "DataFiles"
+        );
 
         // GitHub Personal Access Token is now loaded at runtime from gitToken.txt (populated into this field by Program.Main)
         public static string token = "";
@@ -164,12 +170,13 @@ namespace JsonImporter
                 AppContext.BaseDirectory ?? string.Empty,
                 Directory.GetCurrentDirectory(),
                 Environment.CurrentDirectory,
-                AppDomain.CurrentDomain.BaseDirectory ?? string.Empty
+                AppDomain.CurrentDomain.BaseDirectory ?? string.Empty,
             };
 
             foreach (var s in starts)
             {
-                if (string.IsNullOrWhiteSpace(s)) continue;
+                if (string.IsNullOrWhiteSpace(s))
+                    continue;
                 try
                 {
                     var dir = Path.GetFullPath(s);
@@ -177,7 +184,13 @@ namespace JsonImporter
                     while (cur != null)
                     {
                         // Case A: the current folder is named "JsonImporter" -> return its parent as the repo root (<X>)
-                        if (string.Equals(cur.Name, "JsonImporter", StringComparison.OrdinalIgnoreCase))
+                        if (
+                            string.Equals(
+                                cur.Name,
+                                "JsonImporter",
+                                StringComparison.OrdinalIgnoreCase
+                            )
+                        )
                         {
                             var parent = cur.Parent;
                             if (parent != null)
@@ -217,7 +230,11 @@ namespace JsonImporter
         private readonly HttpClient httpClient;
 
         // Constructor
-        public JSONParser(HashSet<string> whitelist, Dictionary<string, Func<string, string>> processingFunctions, HttpClient httpClient)
+        public JSONParser(
+            HashSet<string> whitelist,
+            Dictionary<string, Func<string, string>> processingFunctions,
+            HttpClient httpClient
+        )
         {
             this.whitelist = whitelist;
             this.processingFunctions = processingFunctions;
@@ -235,53 +252,63 @@ namespace JsonImporter
             int maxDegreeOfParallelism = 8; // Adjust as needed
             using (var semaphore = new System.Threading.SemaphoreSlim(maxDegreeOfParallelism))
             {
-                var tasks = allFiles.Select(async filePath =>
-                {
-                    await semaphore.WaitAsync();
-                    try
+                var tasks = allFiles
+                    .Select(async filePath =>
                     {
-                        // Check whitelist: only process files in whitelisted directories
-                        bool isWhitelisted = false;
-                        foreach (var allowed in whitelist)
+                        await semaphore.WaitAsync();
+                        try
                         {
-                            if (filePath.Replace("\\", "/").StartsWith(allowed, StringComparison.OrdinalIgnoreCase))
+                            // Check whitelist: only process files in whitelisted directories
+                            bool isWhitelisted = false;
+                            foreach (var allowed in whitelist)
                             {
-                                isWhitelisted = true;
-                                break;
+                                if (
+                                    filePath
+                                        .Replace("\\", "/")
+                                        .StartsWith(allowed, StringComparison.OrdinalIgnoreCase)
+                                )
+                                {
+                                    isWhitelisted = true;
+                                    break;
+                                }
                             }
+                            if (!isWhitelisted)
+                                return;
+
+                            // Download JSON file
+                            string fileUrl =
+                                $"{Constants.apiRoot}{filePath}".Replace("\\", "/")
+                                + $"?ref={Constants.apiRef}";
+                            string jsonContent = await DownloadJsonAsync(fileUrl);
+
+                            // License check
+                            if (!IsContentApproved(jsonContent))
+                            {
+                                System.Threading.Interlocked.Increment(ref rejectedCount);
+                                return;
+                            }
+
+                            // Determine source directory for processing function
+                            string sourceDir = Path.GetDirectoryName(filePath).Replace("\\", "/");
+                            string processedJson = ProcessJson(sourceDir, jsonContent);
+
+                            // Build local path, maintaining hierarchy
+                            string relativePath = filePath.StartsWith("packs/")
+                                ? filePath.Substring("packs/".Length)
+                                : filePath;
+                            string localPath = Path.Combine(localRootPath, relativePath);
+                            await SaveJsonAsync(localPath, processedJson);
                         }
-                        if (!isWhitelisted)
-                            return;
-
-                        // Download JSON file
-                        string fileUrl = $"{Constants.apiRoot}{filePath}".Replace("\\", "/") + $"?ref={Constants.apiRef}";
-                        string jsonContent = await DownloadJsonAsync(fileUrl);
-
-                        // License check
-                        if (!IsContentApproved(jsonContent))
+                        catch (Exception ex)
                         {
-                            System.Threading.Interlocked.Increment(ref rejectedCount);
-                            return;
+                            Console.WriteLine($"Error processing {filePath}: {ex.Message}");
                         }
-
-                        // Determine source directory for processing function
-                        string sourceDir = Path.GetDirectoryName(filePath).Replace("\\", "/");
-                        string processedJson = ProcessJson(sourceDir, jsonContent);
-
-                        // Build local path, maintaining hierarchy
-                        string relativePath = filePath.StartsWith("packs/") ? filePath.Substring("packs/".Length) : filePath;
-                        string localPath = Path.Combine(localRootPath, relativePath);
-                        await SaveJsonAsync(localPath, processedJson);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error processing {filePath}: {ex.Message}");
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                }).ToList();
+                        finally
+                        {
+                            semaphore.Release();
+                        }
+                    })
+                    .ToList();
 
                 await Task.WhenAll(tasks);
             }
@@ -298,7 +325,9 @@ namespace JsonImporter
                 Console.WriteLine($"Failed to download: {fileUrl} (Status: {response.StatusCode})");
                 var body = await response.Content.ReadAsStringAsync();
                 Console.WriteLine($"Response body: {body}");
-                throw new Exception($"Failed to download JSON file: {fileUrl} (Status: {response.StatusCode})");
+                throw new Exception(
+                    $"Failed to download JSON file: {fileUrl} (Status: {response.StatusCode})"
+                );
             }
 
             var json = await response.Content.ReadAsStringAsync();
@@ -314,7 +343,9 @@ namespace JsonImporter
             else
             {
                 // Sometimes the response might not include "content" (unexpected); log full response for debugging
-                Console.WriteLine($"No content field in API response for {fileUrl}. Full response: {json}");
+                Console.WriteLine(
+                    $"No content field in API response for {fileUrl}. Full response: {json}"
+                );
                 throw new Exception($"No content found in API response for {fileUrl}");
             }
         }
@@ -325,7 +356,10 @@ namespace JsonImporter
             string dir = sourceDir;
             while (!string.IsNullOrEmpty(dir))
             {
-                if (processingFunctions != null && processingFunctions.TryGetValue(dir, out var processFunc))
+                if (
+                    processingFunctions != null
+                    && processingFunctions.TryGetValue(dir, out var processFunc)
+                )
                 {
                     // Optionally: Ensure the JSON is valid before processing
                     try
@@ -361,7 +395,8 @@ namespace JsonImporter
                 }
                 // Move up one directory
                 int lastSlash = dir.LastIndexOf('/');
-                if (lastSlash == -1) break;
+                if (lastSlash == -1)
+                    break;
                 dir = dir.Substring(0, lastSlash);
             }
             // No processing function, but still validate JSON
@@ -396,8 +431,12 @@ namespace JsonImporter
             foreach (var allowed in whitelist)
             {
                 string allowedNorm = allowed.Replace("\\", "/");
-                if (allowedNorm.StartsWith(Constants.targetDir + "/", StringComparison.OrdinalIgnoreCase) ||
-                    allowedNorm.Equals(Constants.targetDir, StringComparison.OrdinalIgnoreCase))
+                if (
+                    allowedNorm.StartsWith(
+                        Constants.targetDir + "/",
+                        StringComparison.OrdinalIgnoreCase
+                    ) || allowedNorm.Equals(Constants.targetDir, StringComparison.OrdinalIgnoreCase)
+                )
                 {
                     if (allowedNorm.EndsWith("/"))
                     {
@@ -415,7 +454,9 @@ namespace JsonImporter
                         else
                         {
                             var body = await response.Content.ReadAsStringAsync();
-                            Console.WriteLine($"ListGitHubFilesAsync: GET failed for {apiUrl} (Status: {response.StatusCode})");
+                            Console.WriteLine(
+                                $"ListGitHubFilesAsync: GET failed for {apiUrl} (Status: {response.StatusCode})"
+                            );
                             Console.WriteLine($"Response body: {body}");
                         }
                     }
@@ -441,20 +482,28 @@ namespace JsonImporter
                 if (long.TryParse(resetStr, out long resetUnix))
                 {
                     var resetTime = DateTimeOffset.FromUnixTimeSeconds(resetUnix).ToLocalTime();
-                    Console.WriteLine($"GitHub API rate limit remaining: {string.Join(",", remaining)} resets at: {resetTime} (local time)");
+                    Console.WriteLine(
+                        $"GitHub API rate limit remaining: {string.Join(",", remaining)} resets at: {resetTime} (local time)"
+                    );
                 }
                 else
                 {
-                    Console.WriteLine($"GitHub API rate limit remaining: {string.Join(",", remaining)} resets at: {resetStr} (Unix timestamp)");
+                    Console.WriteLine(
+                        $"GitHub API rate limit remaining: {string.Join(",", remaining)} resets at: {resetStr} (Unix timestamp)"
+                    );
                 }
             }
 
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"Failed to list directory: {apiUrl} (Status: {response.StatusCode})");
+                Console.WriteLine(
+                    $"Failed to list directory: {apiUrl} (Status: {response.StatusCode})"
+                );
                 Console.WriteLine($"Response body: {body}");
-                Console.WriteLine("Check that the ref (tag or branch name) and path are correct; the API is case-sensitive and ref must exist.");
+                Console.WriteLine(
+                    "Check that the ref (tag or branch name) and path are correct; the API is case-sensitive and ref must exist."
+                );
                 return;
             }
 
@@ -490,8 +539,8 @@ namespace JsonImporter
                 var jsonObj = JToken.Parse(jsonContent);
 
                 bool IsValidLicense(string? license) =>
-                    license != null && (license.Equals("ORC", StringComparison.OrdinalIgnoreCase) );
-                    // || license.Equals("OGL", StringComparison.OrdinalIgnoreCase));
+                    license != null && (license.Equals("ORC", StringComparison.OrdinalIgnoreCase));
+                // || license.Equals("OGL", StringComparison.OrdinalIgnoreCase));
 
                 bool IsValidRemaster(JToken publication) =>
                     !Constants.requireRemaster || (publication["remaster"]?.Value<bool>() == true);
@@ -538,8 +587,7 @@ namespace JsonImporter
 
                 // All publications must have valid license and remaster
                 bool allValidLicenseRemaster = allPublications.All(pub =>
-                    IsValidLicense(pub["license"]?.ToString()) &&
-                    IsValidRemaster(pub)
+                    IsValidLicense(pub["license"]?.ToString()) && IsValidRemaster(pub)
                 );
 
                 bool approved = hasValidTitle && allValidLicenseRemaster;
@@ -547,7 +595,9 @@ namespace JsonImporter
                 if (!approved)
                 {
                     var name = jsonObj.SelectToken("name")?.ToString() ?? "<unknown file>";
-                    Console.WriteLine($"Rejected file (publication criteria not met): {name}, hasValidTitle: {hasValidTitle}, allValidLicenseRemaster: {allValidLicenseRemaster}");
+                    Console.WriteLine(
+                        $"Rejected file (publication criteria not met): {name}, hasValidTitle: {hasValidTitle}, allValidLicenseRemaster: {allValidLicenseRemaster}"
+                    );
                 }
                 return approved;
             }
@@ -556,6 +606,6 @@ namespace JsonImporter
                 Console.WriteLine("Rejected file (invalid JSON or missing publication field)");
                 return false;
             }
-        }   
+        }
     }
 }

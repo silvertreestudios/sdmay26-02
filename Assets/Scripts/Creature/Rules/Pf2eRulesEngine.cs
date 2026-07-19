@@ -1,9 +1,9 @@
-using Game.AbilityActions;
-using Game.Combat.Rules;
-using Game.Creature;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.AbilityActions;
+using Game.Combat.Rules;
+using Game.Creature;
 using UnityEngine;
 
 namespace Game.Creature.Rules
@@ -21,7 +21,9 @@ namespace Game.Creature.Rules
             if (context == null)
                 throw new ArgumentNullException(nameof(context));
 
-            PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(context.AttackerCreature);
+            PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(
+                context.AttackerCreature
+            );
             List<string> itemOptions = BuildStrikeItemOptions(prepared, context);
             context.ItemOptions = itemOptions;
             ApplyAbilityDamageModifiers(context, prepared, itemOptions);
@@ -65,7 +67,10 @@ namespace Game.Creature.Rules
             }
         }
 
-        private static void ApplyImportedPassiveAbilities(ActionController controller, CreatureComponent creature)
+        private static void ApplyImportedPassiveAbilities(
+            ActionController controller,
+            CreatureComponent creature
+        )
         {
             if (controller == null || creature?.passives == null)
                 return;
@@ -88,7 +93,12 @@ namespace Game.Creature.Rules
         /// <param name="itemSlug">The slug of the item being altered.</param>
         /// <param name="existingTraits">The traits already present on the item.</param>
         /// <returns>A new trait list containing existing traits plus any matching additions.</returns>
-        public static List<string> GetAlteredTraits(PreparedCharacter prepared, string itemType, string itemSlug, IEnumerable<string> existingTraits)
+        public static List<string> GetAlteredTraits(
+            PreparedCharacter prepared,
+            string itemType,
+            string itemSlug,
+            IEnumerable<string> existingTraits
+        )
         {
             List<string> traits = new(existingTraits ?? Enumerable.Empty<string>());
             if (prepared == null)
@@ -108,27 +118,45 @@ namespace Game.Creature.Rules
             return traits;
         }
 
-        private static void ApplyFlatStrikeDamageModifiers(StrikeResolutionContext context, PreparedCharacter prepared, List<string> itemOptions)
+        private static void ApplyFlatStrikeDamageModifiers(
+            StrikeResolutionContext context,
+            PreparedCharacter prepared,
+            List<string> itemOptions
+        )
         {
-            List<RuleModifier> modifiers = prepared.Modifiers
-                .Where(m => string.Equals(m.Selector, "strike-damage", StringComparison.OrdinalIgnoreCase))
+            List<RuleModifier> modifiers = prepared
+                .Modifiers.Where(m =>
+                    string.Equals(m.Selector, "strike-damage", StringComparison.OrdinalIgnoreCase)
+                )
                 .Where(m => Pf2ePredicate.Evaluate(m.Predicate, prepared, itemOptions))
                 .GroupBy(m => m.Slug, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.Last())
                 .ToList();
 
-            foreach (RuleAdjustment adjustment in prepared.Adjustments
-                .Where(a => string.Equals(a.Selector, "strike-damage", StringComparison.OrdinalIgnoreCase))
-                .Where(a => Pf2ePredicate.Evaluate(a.Predicate, prepared, itemOptions))
-                .OrderBy(a => a.Priority))
+            foreach (
+                RuleAdjustment adjustment in prepared
+                    .Adjustments.Where(a =>
+                        string.Equals(
+                            a.Selector,
+                            "strike-damage",
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                    .Where(a => Pf2ePredicate.Evaluate(a.Predicate, prepared, itemOptions))
+                    .OrderBy(a => a.Priority)
+            )
             {
-                RuleModifier modifier = modifiers.LastOrDefault(m => string.Equals(m.Slug, adjustment.Slug, StringComparison.OrdinalIgnoreCase));
+                RuleModifier modifier = modifiers.LastOrDefault(m =>
+                    string.Equals(m.Slug, adjustment.Slug, StringComparison.OrdinalIgnoreCase)
+                );
                 if (modifier == null)
                     continue;
 
                 if (string.Equals(adjustment.Mode, "upgrade", StringComparison.OrdinalIgnoreCase))
                     modifier.Value = Math.Max(modifier.Value, Mathf.RoundToInt(adjustment.Value));
-                else if (string.Equals(adjustment.Mode, "multiply", StringComparison.OrdinalIgnoreCase))
+                else if (
+                    string.Equals(adjustment.Mode, "multiply", StringComparison.OrdinalIgnoreCase)
+                )
                     modifier.Value = Mathf.FloorToInt(modifier.Value * adjustment.Value);
             }
 
@@ -137,23 +165,48 @@ namespace Game.Creature.Rules
                 if (modifier.Value == 0)
                     continue;
 
-                string damageType = context.FlatDamages.Count > 0 ? context.FlatDamages[0].DamageType : context.DamageDice.FirstOrDefault()?.damageType ?? "Untyped";
+                string damageType =
+                    context.FlatDamages.Count > 0
+                        ? context.FlatDamages[0].DamageType
+                        : context.DamageDice.FirstOrDefault()?.damageType ?? "Untyped";
                 context.FlatDamages.Add(new DamageValue(damageType, modifier.Value));
             }
         }
 
-        private static void ApplyAbilityDamageModifiers(StrikeResolutionContext context, PreparedCharacter prepared, List<string> itemOptions)
+        private static void ApplyAbilityDamageModifiers(
+            StrikeResolutionContext context,
+            PreparedCharacter prepared,
+            List<string> itemOptions
+        )
         {
-            if (context.AttackerCreature == null || context.Profile == null || context.Profile.IsRangedAttack)
+            if (
+                context.AttackerCreature == null
+                || context.Profile == null
+                || context.Profile.IsRangedAttack
+            )
                 return;
 
-            foreach (RuleModifier modifier in prepared.Modifiers
-                .Where(m => string.Equals(m.Selector, "melee-strike-damage", StringComparison.OrdinalIgnoreCase))
-                .Where(m => !string.IsNullOrWhiteSpace(m.Ability))
-                .Where(m => Pf2ePredicate.Evaluate(m.Predicate, prepared, itemOptions)))
+            foreach (
+                RuleModifier modifier in prepared
+                    .Modifiers.Where(m =>
+                        string.Equals(
+                            m.Selector,
+                            "melee-strike-damage",
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                    .Where(m => !string.IsNullOrWhiteSpace(m.Ability))
+                    .Where(m => Pf2ePredicate.Evaluate(m.Predicate, prepared, itemOptions))
+            )
             {
-                int abilityModifier = GetAbilityModifier(context.AttackerCreature, modifier.Ability);
-                string damageType = context.FlatDamages.Count > 0 ? context.FlatDamages[0].DamageType : context.DamageDice.FirstOrDefault()?.damageType ?? "Untyped";
+                int abilityModifier = GetAbilityModifier(
+                    context.AttackerCreature,
+                    modifier.Ability
+                );
+                string damageType =
+                    context.FlatDamages.Count > 0
+                        ? context.FlatDamages[0].DamageType
+                        : context.DamageDice.FirstOrDefault()?.damageType ?? "Untyped";
                 if (context.FlatDamages.Count == 0)
                     context.FlatDamages.Add(new DamageValue(damageType, abilityModifier));
                 else
@@ -161,27 +214,60 @@ namespace Game.Creature.Rules
             }
         }
 
-        private static void ApplyStrikeDamageDice(StrikeResolutionContext context, PreparedCharacter prepared, List<string> itemOptions)
+        private static void ApplyStrikeDamageDice(
+            StrikeResolutionContext context,
+            PreparedCharacter prepared,
+            List<string> itemOptions
+        )
         {
-            foreach (RuleDamageDice damageDice in prepared.DamageDice
-                .Where(d => string.Equals(d.Selector, "strike-damage", StringComparison.OrdinalIgnoreCase))
-                .Where(d => d.DiceNumber > 0 && d.DieSize > 0)
-                .Where(d => Pf2ePredicate.Evaluate(d.Predicate, prepared, itemOptions)))
+            foreach (
+                RuleDamageDice damageDice in prepared
+                    .DamageDice.Where(d =>
+                        string.Equals(
+                            d.Selector,
+                            "strike-damage",
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                    .Where(d => d.DiceNumber > 0 && d.DieSize > 0)
+                    .Where(d => Pf2ePredicate.Evaluate(d.Predicate, prepared, itemOptions))
+            )
             {
-                context.DamageDice.Add(new Dice(damageDice.DiceNumber, damageDice.DieSize, damageDice.Category ?? "precision"));
+                context.DamageDice.Add(
+                    new Dice(
+                        damageDice.DiceNumber,
+                        damageDice.DieSize,
+                        damageDice.Category ?? "precision"
+                    )
+                );
             }
         }
 
-        private static List<string> BuildStrikeItemOptions(PreparedCharacter prepared, StrikeResolutionContext context)
+        private static List<string> BuildStrikeItemOptions(
+            PreparedCharacter prepared,
+            StrikeResolutionContext context
+        )
         {
-            List<string> options = BuildItemOptions(context.Profile?.ItemSlug, context.Profile?.WeaponCategory, context.Profile?.IsRangedAttack ?? false, context.Traits, context.DamageDice.FirstOrDefault());
+            List<string> options = BuildItemOptions(
+                context.Profile?.ItemSlug,
+                context.Profile?.WeaponCategory,
+                context.Profile?.IsRangedAttack ?? false,
+                context.Traits,
+                context.DamageDice.FirstOrDefault()
+            );
             AddAlteredItemTags(prepared, options);
             AddTargetConditionOptions(context.TargetCreature, options);
             AddFlankingTargetConditionOption(context, options);
             return options;
         }
 
-        private static List<string> BuildItemOptions(string itemSlug, string category, bool isRanged, IEnumerable<string> traits, Dice firstDamageDie)
+        private static List<string> BuildItemOptions(
+            string itemSlug,
+            string category,
+            bool isRanged,
+            IEnumerable<string> traits,
+            Dice firstDamageDie
+        )
         {
             List<string> options = new();
             foreach (string trait in traits ?? Enumerable.Empty<string>())
@@ -228,13 +314,25 @@ namespace Game.Creature.Rules
             }
         }
 
-        private static void AddFlankingTargetConditionOption(StrikeResolutionContext context, List<string> options)
+        private static void AddFlankingTargetConditionOption(
+            StrikeResolutionContext context,
+            List<string> options
+        )
         {
-            if (FlankingRule.GrantsOffGuardToMeleeAttack(context?.AttackerObject, context?.TargetObject, context?.Profile))
+            if (
+                FlankingRule.GrantsOffGuardToMeleeAttack(
+                    context?.AttackerObject,
+                    context?.TargetObject,
+                    context?.Profile
+                )
+            )
                 AddOption(options, "target:condition:off-guard");
         }
 
-        private static void AddTargetConditionOptions(CreatureComponent target, List<string> options)
+        private static void AddTargetConditionOptions(
+            CreatureComponent target,
+            List<string> options
+        )
         {
             Conditions conditions = target?.GetComponent<Conditions>();
             if (conditions == null)
@@ -247,8 +345,10 @@ namespace Game.Creature.Rules
                     continue;
 
                 AddOption(options, $"target:condition:{slug}");
-                if (string.Equals(slug, "flat-footed", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(slug, "offguard", StringComparison.OrdinalIgnoreCase))
+                if (
+                    string.Equals(slug, "flat-footed", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(slug, "offguard", StringComparison.OrdinalIgnoreCase)
+                )
                 {
                     AddOption(options, "target:condition:off-guard");
                 }
@@ -261,7 +361,11 @@ namespace Game.Creature.Rules
                 options.Add(option);
         }
 
-        private static bool MatchesAlteration(ItemAlterationRule alteration, string itemType, string property)
+        private static bool MatchesAlteration(
+            ItemAlterationRule alteration,
+            string itemType,
+            string property
+        )
         {
             return alteration != null
                 && string.Equals(alteration.ItemType, itemType, StringComparison.OrdinalIgnoreCase)
@@ -279,7 +383,7 @@ namespace Game.Creature.Rules
                 "int" => creature.intMod,
                 "wis" => creature.wisMod,
                 "cha" => creature.chaMod,
-                _ => 0
+                _ => 0,
             };
         }
     }

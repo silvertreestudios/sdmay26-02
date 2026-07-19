@@ -15,9 +15,12 @@ namespace Game.Rules.Runtime.Tests
         private static readonly CreatureId Target = new CreatureId("check-target");
         private static readonly ItemId Weapon = new ItemId("check-weapon");
         private static readonly RuleSource ExistingStatus = RuleSource.FromSlug("existing-status");
-        private static readonly RuleSource MiddlewareSource = RuleSource.FromSlug("middleware-status");
-        private static readonly RuleDefinitionId MiddlewareDefinition =
-            new RuleDefinitionId("modifier-middleware");
+        private static readonly RuleSource MiddlewareSource = RuleSource.FromSlug(
+            "middleware-status"
+        );
+        private static readonly RuleDefinitionId MiddlewareDefinition = new RuleDefinitionId(
+            "modifier-middleware"
+        );
 
         [TestCase(10, 30, 20, DegreeOfSuccess.CriticalSuccess)]
         [TestCase(10, 20, 20, DegreeOfSuccess.Success)]
@@ -31,11 +34,13 @@ namespace Game.Rules.Runtime.Tests
             int naturalRoll,
             int total,
             int difficultyClass,
-            DegreeOfSuccess expected)
+            DegreeOfSuccess expected
+        )
         {
             Assert.That(
                 DegreeOfSuccessResolver.Resolve(naturalRoll, total, difficultyClass),
-                Is.EqualTo(expected));
+                Is.EqualTo(expected)
+            );
         }
 
         [Test]
@@ -43,17 +48,18 @@ namespace Game.Rules.Runtime.Tests
         {
             ModifierCollection modifiers = new ModifierCollection(
                 Statistic.SkillCheck,
-                new[]
-                {
-                    Modifier.Untyped(int.MaxValue, ExistingStatus, Statistic.SkillCheck)
-                });
+                new[] { Modifier.Untyped(int.MaxValue, ExistingStatus, Statistic.SkillCheck) }
+            );
 
-            Assert.Throws<OverflowException>(() => new CheckOutcome(
-                Actor,
-                CheckSource.From(new OpId(1)),
-                new RollResult(DiceExpressions.D20, new[] { 1 }),
-                modifiers,
-                20));
+            Assert.Throws<OverflowException>(() =>
+                new CheckOutcome(
+                    Actor,
+                    CheckSource.From(new OpId(1)),
+                    new RollResult(DiceExpressions.D20, new[] { 1 }),
+                    modifiers,
+                    20
+                )
+            );
         }
 
         [Test]
@@ -61,15 +67,17 @@ namespace Game.Rules.Runtime.Tests
         {
             ScriptedRollService rolls = new ScriptedRollService(14);
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
-                    new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
-                    rolls,
-                    new SequentialOpIdProvider(100))
+                new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
+                rolls,
+                new SequentialOpIdProvider(100)
+            )
                 .RegisterHandler<SkillWorkflowOp, CheckOutcome>(new SkillWorkflowHandler())
                 .UseCheckResolution()
                 .Build();
 
             OpResult<CheckOutcome> result = await dispatcher.Dispatch(
-                new SkillWorkflowOp(Skill.Acrobatics, 20));
+                new SkillWorkflowOp(Skill.Acrobatics, 20)
+            );
 
             ResolvedOpResult<CheckOutcome> resolved = RequireResolved(result);
             Assert.That(resolved.Value.Roll.Values.Single(), Is.EqualTo(14));
@@ -81,8 +89,10 @@ namespace Game.Rules.Runtime.Tests
             OpFrame<SkillCheckOp> check = dispatcher.Trace.Get<SkillCheckOp>(new OpId(101));
             Assert.That(check.ParentId, Is.EqualTo(new OpId(100)));
             Assert.That(check.Op.Source.OperationId, Is.EqualTo(new OpId(100)));
-            Assert.That(dispatcher.Trace.GetRolls(check.Id).Single().Result.Values,
-                Is.EqualTo(new[] { 14 }));
+            Assert.That(
+                dispatcher.Trace.GetRolls(check.Id).Single().Result.Values,
+                Is.EqualTo(new[] { 14 })
+            );
             Assert.That(rolls.Remaining, Is.Zero);
         }
 
@@ -90,14 +100,16 @@ namespace Game.Rules.Runtime.Tests
         public async Task OrdinaryFailedSkillCheckRemainsAResolvedOperation()
         {
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
-                    new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
-                    new ScriptedRollService(7))
+                new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
+                new ScriptedRollService(7)
+            )
                 .RegisterHandler<SkillWorkflowOp, CheckOutcome>(new SkillWorkflowHandler())
                 .UseCheckResolution()
                 .Build();
 
             OpResult<CheckOutcome> result = await dispatcher.Dispatch(
-                new SkillWorkflowOp(Skill.Acrobatics, 20));
+                new SkillWorkflowOp(Skill.Acrobatics, 20)
+            );
 
             Assert.That(result, Is.TypeOf<ResolvedOpResult<CheckOutcome>>());
             Assert.That(RequireResolved(result).Value.Total, Is.EqualTo(13));
@@ -108,14 +120,16 @@ namespace Game.Rules.Runtime.Tests
         public async Task SavingThrowUsesSelectedSaveAndNaturalOneAdjustment()
         {
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
-                    new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
-                    new ScriptedRollService(1))
+                new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
+                new ScriptedRollService(1)
+            )
                 .RegisterHandler<SaveWorkflowOp, CheckOutcome>(new SaveWorkflowHandler())
                 .UseCheckResolution()
                 .Build();
 
             OpResult<CheckOutcome> result = await dispatcher.Dispatch(
-                new SaveWorkflowOp(SaveKind.Reflex, 15));
+                new SaveWorkflowOp(SaveKind.Reflex, 15)
+            );
 
             CheckOutcome outcome = RequireResolved(result).Value;
             Assert.That(outcome.Modifiers.Statistic, Is.EqualTo(Statistic.ReflexSave));
@@ -127,40 +141,45 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task ActiveMiddlewareAddsSourcedModifierAndRecomputesSuppression()
         {
-            Modifier existing = Modifier.StatusBonus(
-                2,
-                ExistingStatus,
-                Statistic.AttackRoll);
+            Modifier existing = Modifier.StatusBonus(2, ExistingStatus, Statistic.AttackRoll);
             ActiveRuleBinding binding = new ActiveRuleBinding(
                 new BindingId("modifier-binding"),
                 MiddlewareDefinition,
                 Actor,
                 new ActiveEffectId("modifier-effect"),
                 MiddlewareSource,
-                0);
+                0
+            );
             RuleRegistryBuilder registry = new RuleRegistryBuilder();
-            registry.Define(MiddlewareDefinition).Middleware(
-                RuleLifecyclePhase.Transformation,
-                new AttackStatusMiddleware());
+            registry
+                .Define(MiddlewareDefinition)
+                .Middleware(RuleLifecyclePhase.Transformation, new AttackStatusMiddleware());
             RulesStateSeed seed = CreateSeed(new[] { existing }).SeedRuleBinding(binding);
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
-                    new InMemoryRulesStore(seed),
-                    new ScriptedRollService())
+                new InMemoryRulesStore(seed),
+                new ScriptedRollService()
+            )
                 .RegisterHandler<AttackModifierWorkflowOp, ModifierCollection>(
-                    new AttackModifierWorkflowHandler())
+                    new AttackModifierWorkflowHandler()
+                )
                 .UseCheckResolution()
                 .UseRuleRegistry(registry.Build())
                 .Build();
 
             OpResult<ModifierCollection> result = await dispatcher.Dispatch(
-                new AttackModifierWorkflowOp());
+                new AttackModifierWorkflowOp()
+            );
 
             ModifierCollection modifiers = RequireResolved(result).Value;
             Assert.That(modifiers.Total, Is.EqualTo(9));
-            Assert.That(modifiers.Applied.Select(modifier => modifier.Source),
-                Does.Contain(ExistingStatus));
-            Assert.That(modifiers.Suppressed.Select(modifier => modifier.Source),
-                Is.EqualTo(new[] { MiddlewareSource }));
+            Assert.That(
+                modifiers.Applied.Select(modifier => modifier.Source),
+                Does.Contain(ExistingStatus)
+            );
+            Assert.That(
+                modifiers.Suppressed.Select(modifier => modifier.Source),
+                Is.EqualTo(new[] { MiddlewareSource })
+            );
             Assert.That(modifiers.Suppressed.Single().Value, Is.EqualTo(1));
         }
 
@@ -169,35 +188,41 @@ namespace Game.Rules.Runtime.Tests
         {
             ScriptedRollService externalRolls = new ScriptedRollService(10);
             RuleDispatcher externalDispatcher = new RuleDispatcherBuilder(
-                    new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
-                    externalRolls)
+                new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
+                externalRolls
+            )
                 .UseCheckResolution()
                 .Build();
             SkillCheckOp external = new SkillCheckOp(
                 Actor,
                 Skill.Acrobatics,
                 15,
-                CheckSource.From(new OpId(1)));
+                CheckSource.From(new OpId(1))
+            );
 
-            InvalidOperationException externalError =
-                Assert.ThrowsAsync<InvalidOperationException>(async () =>
-                    await externalDispatcher.Dispatch(external));
+            InvalidOperationException externalError = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await externalDispatcher.Dispatch(external)
+            );
             Assert.That(externalError.Message, Does.Contain("nested-only"));
             Assert.That(externalRolls.Remaining, Is.EqualTo(1));
 
             ScriptedRollService untrustedRolls = new ScriptedRollService(10);
             RuleDispatcher untrustedDispatcher = new RuleDispatcherBuilder(
-                    new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
-                    untrustedRolls,
-                    new SequentialOpIdProvider(20))
+                new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
+                untrustedRolls,
+                new SequentialOpIdProvider(20)
+            )
                 .RegisterHandler<UntrustedCheckWorkflowOp, CheckOutcome>(
-                    new UntrustedCheckWorkflowHandler())
+                    new UntrustedCheckWorkflowHandler()
+                )
                 .UseCheckResolution()
                 .Build();
 
-            InvalidOperationException sourceError =
-                Assert.ThrowsAsync<InvalidOperationException>(async () =>
-                    await untrustedDispatcher.Dispatch(new UntrustedCheckWorkflowOp()));
+            InvalidOperationException sourceError = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await untrustedDispatcher.Dispatch(new UntrustedCheckWorkflowOp())
+            );
             Assert.That(sourceError.Message, Does.Contain("is not an ancestor"));
             Assert.That(untrustedRolls.Remaining, Is.EqualTo(1));
         }
@@ -207,25 +232,32 @@ namespace Game.Rules.Runtime.Tests
         {
             ScriptedRollService rolls = new ScriptedRollService(3, 5, 12);
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
-                    new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
-                    rolls,
-                    new SequentialOpIdProvider(200))
+                new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
+                rolls,
+                new SequentialOpIdProvider(200)
+            )
                 .RegisterHandler<DamageThenCheckWorkflowOp, DamageThenCheckOutcome>(
-                    new DamageThenCheckWorkflowHandler())
+                    new DamageThenCheckWorkflowHandler()
+                )
                 .UseCheckResolution()
                 .Build();
 
             DamageThenCheckOutcome outcome = RequireResolved(
-                await dispatcher.Dispatch(new DamageThenCheckWorkflowOp())).Value;
+                await dispatcher.Dispatch(new DamageThenCheckWorkflowOp())
+            ).Value;
 
             Assert.That(outcome.Damage.DiceRoll.Values, Is.EqualTo(new[] { 3, 5 }));
             Assert.That(outcome.Damage.BaseDamage, Is.EqualTo(10));
             Assert.That(outcome.Damage.TotalDamage, Is.EqualTo(20));
             Assert.That(outcome.Check.Roll.Values.Single(), Is.EqualTo(12));
-            Assert.That(dispatcher.Trace.GetRolls(new OpId(200)).Single().Dice,
-                Is.EqualTo(new DiceExpression(2, 6)));
-            Assert.That(dispatcher.Trace.GetRolls(new OpId(201)).Single().Dice,
-                Is.EqualTo(DiceExpressions.D20));
+            Assert.That(
+                dispatcher.Trace.GetRolls(new OpId(200)).Single().Dice,
+                Is.EqualTo(new DiceExpression(2, 6))
+            );
+            Assert.That(
+                dispatcher.Trace.GetRolls(new OpId(201)).Single().Dice,
+                Is.EqualTo(DiceExpressions.D20)
+            );
             Assert.That(rolls.Remaining, Is.Zero);
         }
 
@@ -236,15 +268,18 @@ namespace Game.Rules.Runtime.Tests
             return new RulesStateSeed()
                 .SeedCreature(new CreatureState(Actor, players, Array.Empty<Trait>()))
                 .SeedCreature(new CreatureState(Target, enemies, Array.Empty<Trait>()))
-                .SeedStatistics(new CreatureStatisticsState(
-                    Actor,
-                    7,
-                    18,
-                    6,
-                    8,
-                    5,
-                    new Dictionary<Skill, int> { [Skill.Acrobatics] = 6 },
-                    modifiers));
+                .SeedStatistics(
+                    new CreatureStatisticsState(
+                        Actor,
+                        7,
+                        18,
+                        6,
+                        8,
+                        5,
+                        new Dictionary<Skill, int> { [Skill.Acrobatics] = 6 },
+                        modifiers
+                    )
+                );
         }
 
         private static ResolvedOpResult<T> RequireResolved<T>(OpResult<T> result)
@@ -269,12 +304,18 @@ namespace Game.Rules.Runtime.Tests
         {
             public async ValueTask<CheckOutcome> Handle(
                 OpFrame<SkillWorkflowOp> frame,
-                OpHandlerContext context) =>
-                RequireResolved(await context.Dispatch(new SkillCheckOp(
-                    Actor,
-                    frame.Op.Skill,
-                    frame.Op.DifficultyClass,
-                    CheckSource.From(frame.Id)))).Value;
+                OpHandlerContext context
+            ) =>
+                RequireResolved(
+                    await context.Dispatch(
+                        new SkillCheckOp(
+                            Actor,
+                            frame.Op.Skill,
+                            frame.Op.DifficultyClass,
+                            CheckSource.From(frame.Id)
+                        )
+                    )
+                ).Value;
         }
 
         private sealed class SaveWorkflowOp : IRuleOp<CheckOutcome>
@@ -293,29 +334,39 @@ namespace Game.Rules.Runtime.Tests
         {
             public async ValueTask<CheckOutcome> Handle(
                 OpFrame<SaveWorkflowOp> frame,
-                OpHandlerContext context) =>
-                RequireResolved(await context.Dispatch(new SavingThrowOp(
-                    Actor,
-                    frame.Op.Save,
-                    frame.Op.DifficultyClass,
-                    CheckSource.From(frame.Id)))).Value;
+                OpHandlerContext context
+            ) =>
+                RequireResolved(
+                    await context.Dispatch(
+                        new SavingThrowOp(
+                            Actor,
+                            frame.Op.Save,
+                            frame.Op.DifficultyClass,
+                            CheckSource.From(frame.Id)
+                        )
+                    )
+                ).Value;
         }
 
-        private sealed class AttackModifierWorkflowOp : IRuleOp<ModifierCollection>
-        {
-        }
+        private sealed class AttackModifierWorkflowOp : IRuleOp<ModifierCollection> { }
 
         private sealed class AttackModifierWorkflowHandler
             : IOpHandler<AttackModifierWorkflowOp, ModifierCollection>
         {
             public async ValueTask<ModifierCollection> Handle(
                 OpFrame<AttackModifierWorkflowOp> frame,
-                OpHandlerContext context) =>
-                RequireResolved(await context.Dispatch(new CollectAttackModifiersOp(
-                    Actor,
-                    Target,
-                    Weapon,
-                    CheckSource.From(frame.Id)))).Value;
+                OpHandlerContext context
+            ) =>
+                RequireResolved(
+                    await context.Dispatch(
+                        new CollectAttackModifiersOp(
+                            Actor,
+                            Target,
+                            Weapon,
+                            CheckSource.From(frame.Id)
+                        )
+                    )
+                ).Value;
         }
 
         private sealed class AttackStatusMiddleware
@@ -324,38 +375,44 @@ namespace Game.Rules.Runtime.Tests
             public async ValueTask<OpResult<ModifierCollection>> Invoke(
                 OpFrame<CollectAttackModifiersOp> frame,
                 OpMiddlewareContext context,
-                OpNext<ModifierCollection> next)
+                OpNext<ModifierCollection> next
+            )
             {
                 OpResult<ModifierCollection> result = await next();
                 if (result is ResolvedOpResult<ModifierCollection> resolved)
                 {
-                    return OpResult<ModifierCollection>.Resolved(resolved.Value.Add(
-                        Modifier.StatusBonus(1, context.Source, Statistic.AttackRoll)));
+                    return OpResult<ModifierCollection>.Resolved(
+                        resolved.Value.Add(
+                            Modifier.StatusBonus(1, context.Source, Statistic.AttackRoll)
+                        )
+                    );
                 }
                 return result;
             }
         }
 
-        private sealed class UntrustedCheckWorkflowOp : IRuleOp<CheckOutcome>
-        {
-        }
+        private sealed class UntrustedCheckWorkflowOp : IRuleOp<CheckOutcome> { }
 
         private sealed class UntrustedCheckWorkflowHandler
             : IOpHandler<UntrustedCheckWorkflowOp, CheckOutcome>
         {
             public async ValueTask<CheckOutcome> Handle(
                 OpFrame<UntrustedCheckWorkflowOp> frame,
-                OpHandlerContext context) =>
-                RequireResolved(await context.Dispatch(new SkillCheckOp(
-                    Actor,
-                    Skill.Acrobatics,
-                    15,
-                    CheckSource.From(new OpId(999))))).Value;
+                OpHandlerContext context
+            ) =>
+                RequireResolved(
+                    await context.Dispatch(
+                        new SkillCheckOp(
+                            Actor,
+                            Skill.Acrobatics,
+                            15,
+                            CheckSource.From(new OpId(999))
+                        )
+                    )
+                ).Value;
         }
 
-        private sealed class DamageThenCheckWorkflowOp : IRuleOp<DamageThenCheckOutcome>
-        {
-        }
+        private sealed class DamageThenCheckWorkflowOp : IRuleOp<DamageThenCheckOutcome> { }
 
         private sealed class DamageThenCheckOutcome
         {
@@ -374,18 +431,20 @@ namespace Game.Rules.Runtime.Tests
         {
             public async ValueTask<DamageThenCheckOutcome> Handle(
                 OpFrame<DamageThenCheckWorkflowOp> frame,
-                OpHandlerContext context)
+                OpHandlerContext context
+            )
             {
                 DamageRollOutcome damageResult = DamageRollOutcome.Roll(
                     new DiceExpression(2, 6),
                     2,
                     DegreeOfSuccess.CriticalSuccess,
-                    context.Rolls);
-                CheckOutcome check = RequireResolved(await context.Dispatch(new SkillCheckOp(
-                    Actor,
-                    Skill.Acrobatics,
-                    20,
-                    CheckSource.From(frame.Id)))).Value;
+                    context.Rolls
+                );
+                CheckOutcome check = RequireResolved(
+                    await context.Dispatch(
+                        new SkillCheckOp(Actor, Skill.Acrobatics, 20, CheckSource.From(frame.Id))
+                    )
+                ).Value;
                 return new DamageThenCheckOutcome(damageResult, check);
             }
         }

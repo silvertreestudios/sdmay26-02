@@ -91,9 +91,7 @@ namespace Game.Rules.Unity
         {
             public static UnconfiguredState Instance { get; } = new UnconfiguredState();
 
-            private UnconfiguredState()
-            {
-            }
+            private UnconfiguredState() { }
 
             public IRegistrationState Register(IFactObserver<TFact> observer) => this;
 

@@ -1,7 +1,7 @@
-using UnityEngine;
-using System.Collections.Generic;
 using System.Collections;
+using System.Collections.Generic;
 using GridPublic;
+using UnityEngine;
 
 namespace GridPrivate
 {
@@ -19,7 +19,12 @@ namespace GridPrivate
         protected Vector3Int HoverCell;
         protected Vector3Int StartPosition;
 
-        public StateStrike(GameObject character, StrikeTargetRequest request, CoroutineResult<StrikeTargetResult> selection, GridFSM fsm)
+        public StateStrike(
+            GameObject character,
+            StrikeTargetRequest request,
+            CoroutineResult<StrikeTargetResult> selection,
+            GridFSM fsm
+        )
         {
             Fsm = fsm;
             Character = character;
@@ -42,7 +47,12 @@ namespace GridPrivate
                 if (ai.BestTarget == null)
                     Debug.LogWarning("AI has no target, skipping strike");
                 else
-                    Selection.Value = StrikeTargeting.Evaluate(Character, ai.BestTarget, Tiles, Request);
+                    Selection.Value = StrikeTargeting.Evaluate(
+                        Character,
+                        ai.BestTarget,
+                        Tiles,
+                        Request
+                    );
                 CoroutineRunner.Run(ChangeToIdle());
             }
             else
@@ -62,7 +72,12 @@ namespace GridPrivate
                         if (occupant == Character)
                             continue;
 
-                        StrikeTargetResult result = StrikeTargeting.Evaluate(Character, occupant, Tiles, Request);
+                        StrikeTargetResult result = StrikeTargeting.Evaluate(
+                            Character,
+                            occupant,
+                            Tiles,
+                            Request
+                        );
                         if (result != null && result.IsLegal)
                             OccupantsInRange.Add(occupant);
                     }
@@ -80,7 +95,12 @@ namespace GridPrivate
 
         public override void Leftclick()
         {
-            if (HoverCell.x < 0 || HoverCell.z < 0 || HoverCell.x >= Tiles.GetLength(0) || HoverCell.z >= Tiles.GetLength(1))
+            if (
+                HoverCell.x < 0
+                || HoverCell.z < 0
+                || HoverCell.x >= Tiles.GetLength(0)
+                || HoverCell.z >= Tiles.GetLength(1)
+            )
                 return;
 
             Tile tile = Tiles[HoverCell.x, HoverCell.z];
@@ -94,7 +114,12 @@ namespace GridPrivate
                 return;
             }
 
-            StrikeTargetResult result = StrikeTargeting.Evaluate(Character, tile.Occupants[0], Tiles, Request);
+            StrikeTargetResult result = StrikeTargeting.Evaluate(
+                Character,
+                tile.Occupants[0],
+                Tiles,
+                Request
+            );
             if (result == null || !result.IsLegal)
                 return;
 
@@ -105,7 +130,8 @@ namespace GridPrivate
 
         public override void Rightclick()
         {
-            if (!canCancel) return;
+            if (!canCancel)
+                return;
             UniversalEvents.OnCancel.Invoke();
         }
 

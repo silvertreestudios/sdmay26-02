@@ -22,7 +22,8 @@ public class HowToPlayMenuControl : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (backButton != null) backButton.clicked -= Close;
+        if (backButton != null)
+            backButton.clicked -= Close;
     }
 
     public bool IsOpen => ui.style.display == DisplayStyle.Flex;

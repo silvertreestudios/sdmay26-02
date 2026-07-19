@@ -9,7 +9,7 @@ namespace Game.Creature.Rules
         SetTakingActionFalse,
         GainSourceTempHp,
         RemoveSourceTempHp,
-        AddTempHpImmunity
+        AddTempHpImmunity,
     }
 
     /// <summary>
@@ -22,7 +22,12 @@ namespace Game.Creature.Rules
         public int Amount { get; }
         public uint ActionCost { get; }
 
-        private RuleEffect(RuleEffectType type, string source = null, int amount = 0, uint actionCost = 0)
+        private RuleEffect(
+            RuleEffectType type,
+            string source = null,
+            int amount = 0,
+            uint actionCost = 0
+        )
         {
             Type = type;
             Source = source;

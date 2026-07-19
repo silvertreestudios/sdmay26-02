@@ -9,12 +9,12 @@ namespace Game.KayKit
         OneHandRanged,
         TwoHandRanged,
         Magic,
-        Tool
+        Tool,
     }
 
     public enum KayKitRigProfile
     {
         Adventurer,
-        Skeleton
+        Skeleton,
     }
 }

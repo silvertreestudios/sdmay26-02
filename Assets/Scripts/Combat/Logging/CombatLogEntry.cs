@@ -6,7 +6,7 @@ public enum CombatLogEntryKind
     Attack,
     Movement,
     Turn,
-    Damage
+    Damage,
 }
 
 public enum CombatLogOutcome
@@ -17,7 +17,7 @@ public enum CombatLogOutcome
     CriticalSuccess,
     Failure,
     CriticalFailure,
-    Damage
+    Damage,
 }
 
 public sealed class CombatLogEntry
@@ -34,13 +34,20 @@ public sealed class CombatLogEntry
     public HashSet<string> Tags { get; } = new();
     public bool Expanded { get; set; }
 
-    public static CombatLogEntry FromMessage(string message, IEnumerable<string> tags = null, CombatLogEntryKind kind = CombatLogEntryKind.System)
+    public static CombatLogEntry FromMessage(
+        string message,
+        IEnumerable<string> tags = null,
+        CombatLogEntryKind kind = CombatLogEntryKind.System
+    )
     {
         CombatLogEntry entry = new CombatLogEntry
         {
             Kind = kind,
-            Outcome = kind == CombatLogEntryKind.Damage ? CombatLogOutcome.Damage : CombatLogOutcome.System,
-            Message = message ?? string.Empty
+            Outcome =
+                kind == CombatLogEntryKind.Damage
+                    ? CombatLogOutcome.Damage
+                    : CombatLogOutcome.System,
+            Message = message ?? string.Empty,
         };
         if (tags != null)
         {
@@ -53,4 +60,3 @@ public sealed class CombatLogEntry
         return entry;
     }
 }
-

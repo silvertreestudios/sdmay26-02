@@ -23,7 +23,8 @@ namespace Game.KayKit
                 RaycastBuffer,
                 distance,
                 Physics.DefaultRaycastLayers,
-                QueryTriggerInteraction.UseGlobal);
+                QueryTriggerInteraction.UseGlobal
+            );
             if (ContainsBlocker(RaycastBuffer, hitCount))
                 return true;
             if (hitCount < RaycastBuffer.Length)
@@ -34,7 +35,8 @@ namespace Game.KayKit
                 normalizedDirection,
                 distance,
                 Physics.DefaultRaycastLayers,
-                QueryTriggerInteraction.UseGlobal);
+                QueryTriggerInteraction.UseGlobal
+            );
             return ContainsBlocker(allHits, allHits.Length);
         }
 
@@ -43,7 +45,10 @@ namespace Game.KayKit
             for (int index = 0; index < count; index++)
             {
                 Collider collider = hits[index].collider;
-                if (collider != null && collider.GetComponentInParent<MapLineOfSightBlocker>() != null)
+                if (
+                    collider != null
+                    && collider.GetComponentInParent<MapLineOfSightBlocker>() != null
+                )
                     return true;
             }
 

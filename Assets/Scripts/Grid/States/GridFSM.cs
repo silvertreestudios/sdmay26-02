@@ -1,6 +1,6 @@
-using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 using UniversalEvents;
 
 namespace GridPrivate
@@ -16,7 +16,8 @@ namespace GridPrivate
         public GridFSM()
         {
             CurrentState = IdleState;
-            OnCancel.AddListener(() => {
+            OnCancel.AddListener(() =>
+            {
                 Debug.Log("Action Cancel");
                 if (ChangeState(new StateIdle()))
                     OnActionCancel.Invoke();
@@ -38,7 +39,8 @@ namespace GridPrivate
         // Update is called once per frame
         public void InputUpdate()
         {
-            if (HUDController.IsPointerOverHUD) return;
+            if (HUDController.IsPointerOverHUD)
+                return;
 
             TimeSinceLastClick = Time.time - LastClickTime;
             if (InputCompat.LeftClickDown())

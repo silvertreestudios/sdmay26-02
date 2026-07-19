@@ -1,7 +1,7 @@
 using System.Collections;
-using UnityEngine;
-using GridPublic;
 using System.Collections.Generic;
+using GridPublic;
+using UnityEngine;
 using UnityEngine.TextCore.Text;
 
 namespace GridPrivate
@@ -10,7 +10,7 @@ namespace GridPrivate
     [RequireComponent(typeof(GridInput))]
     public class GridBase : GridAPI, GridAPIPrivate
     {
-        public TileType[,] GridData {get; set;}
+        public TileType[,] GridData { get; set; }
         public bool[,] LineOfSightBlocks { get; private set; }
         protected Tile[,] Tiles;
         IPathfinder Pathfinder;
@@ -28,7 +28,10 @@ namespace GridPrivate
             LineOfSightBlocks = GridData == null ? null : map.GetLineOfSightBlocks();
             if (GridData == null || LineOfSightBlocks == null)
             {
-                Debug.LogError("Grid initialization failed: Map did not provide valid grid and line-of-sight data.", this);
+                Debug.LogError(
+                    "Grid initialization failed: Map did not provide valid grid and line-of-sight data.",
+                    this
+                );
                 enabled = false;
                 GridInput input = GetComponent<GridInput>();
                 if (input != null)
@@ -39,7 +42,7 @@ namespace GridPrivate
             base.Awake();
             Tiles = new Tile[GridData.GetLength(0), GridData.GetLength(1)];
 
-            for(int x = 0; x < GridData.GetLength(0); x++)
+            for (int x = 0; x < GridData.GetLength(0); x++)
             {
                 for (int y = 0; y < GridData.GetLength(1); y++)
                 {
@@ -49,7 +52,12 @@ namespace GridPrivate
 
             Pathfinder = new Dijkstra(Tiles);
             GridLineOfSightData.Register(Tiles, LineOfSightBlocks, GridData);
-            foreach (Token token in FindObjectsByType<Token>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            foreach (
+                Token token in FindObjectsByType<Token>(
+                    FindObjectsInactive.Exclude,
+                    FindObjectsSortMode.None
+                )
+            )
                 token.TryRegisterWithGrid(this);
         }
 
@@ -67,7 +75,7 @@ namespace GridPrivate
         {
             Vector3Int position = Vector3Int.RoundToInt(token.transform.position);
             Tile tile = Tiles[position.x, position.z];
-            if(tile == null || tile.Occupants.Count > 0)
+            if (tile == null || tile.Occupants.Count > 0)
                 return false;
             tile.Occupants.Add(token);
             return true;
@@ -93,14 +101,21 @@ namespace GridPrivate
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 
-        public override IEnumerator GetStrikeTarget(GameObject attacker, StrikeTargetRequest request, CoroutineResult<StrikeTargetResult> target)
+        public override IEnumerator GetStrikeTarget(
+            GameObject attacker,
+            StrikeTargetRequest request,
+            CoroutineResult<StrikeTargetResult> target
+        )
         {
             if (Fsm.ChangeState(new StateStrike(attacker, request, target, Fsm)))
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 
-
-        public override IEnumerator GetAreaTarget(AreaTargetSource source, AreaTargetRequest request, CoroutineResult<AreaTargetResult> target)
+        public override IEnumerator GetAreaTarget(
+            AreaTargetSource source,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> target
+        )
         {
             if (Fsm.ChangeState(new StateAreaTarget(source, request, target, Fsm)))
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);

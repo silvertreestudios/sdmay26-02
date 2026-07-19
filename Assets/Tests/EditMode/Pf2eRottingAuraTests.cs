@@ -26,7 +26,9 @@ namespace TestsCombat
         [Test]
         public void ImportedRottingAuraZombieDropsBiteAndAddsAuraRuleData()
         {
-            GameObject zombieObject = CreatureJsonConverter.CreateFromFile("DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura");
+            GameObject zombieObject = CreatureJsonConverter.CreateFromFile(
+                "DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura"
+            );
             cleanup.Add(zombieObject);
             CreatureComponent zombie = zombieObject.GetComponent<CreatureComponent>();
 
@@ -48,14 +50,25 @@ namespace TestsCombat
         public void RottingAuraDamagesOnlyWoundedLivingTargetsInsideEmanation()
         {
             Tile[,] tiles = BuildTiles(8, 8);
-            TestActionController source = CreateCombatant("aura zombie", 3, 3, 20, 20, new[] { "undead", "zombie" });
-            source.GetComponent<CreatureComponent>().auras.Add(new CreatureAura
-            {
-                name = "Rotting Aura",
-                slug = RottingAuraRule.RuleSlug,
-                radiusFeet = 10,
-                traits = new List<string> { "disease", "void" }
-            });
+            TestActionController source = CreateCombatant(
+                "aura zombie",
+                3,
+                3,
+                20,
+                20,
+                new[] { "undead", "zombie" }
+            );
+            source
+                .GetComponent<CreatureComponent>()
+                .auras.Add(
+                    new CreatureAura
+                    {
+                        name = "Rotting Aura",
+                        slug = RottingAuraRule.RuleSlug,
+                        radiusFeet = 10,
+                        traits = new List<string> { "disease", "void" },
+                    }
+                );
             TestActionController wounded = CreateCombatant("wounded hero", 5, 3, 7, 10);
             TestActionController healthy = CreateCombatant("healthy hero", 4, 3, 10, 10);
             TestActionController outside = CreateCombatant("outside hero", 7, 3, 7, 10);
@@ -64,21 +77,27 @@ namespace TestsCombat
             Place(tiles, healthy.gameObject);
             Place(tiles, outside.gameObject);
 
-            List<CreatureAuraEffectResult> woundedResults = CreatureAuraResolver.ApplyTurnStartAuras(
-                wounded,
-                new[] { source, wounded, healthy, outside },
-                tiles,
-                new FixedDiceRoller(3));
-            List<CreatureAuraEffectResult> healthyResults = CreatureAuraResolver.ApplyTurnStartAuras(
-                healthy,
-                new[] { source, wounded, healthy, outside },
-                tiles,
-                new FixedDiceRoller(3));
-            List<CreatureAuraEffectResult> outsideResults = CreatureAuraResolver.ApplyTurnStartAuras(
-                outside,
-                new[] { source, wounded, healthy, outside },
-                tiles,
-                new FixedDiceRoller(3));
+            List<CreatureAuraEffectResult> woundedResults =
+                CreatureAuraResolver.ApplyTurnStartAuras(
+                    wounded,
+                    new[] { source, wounded, healthy, outside },
+                    tiles,
+                    new FixedDiceRoller(3)
+                );
+            List<CreatureAuraEffectResult> healthyResults =
+                CreatureAuraResolver.ApplyTurnStartAuras(
+                    healthy,
+                    new[] { source, wounded, healthy, outside },
+                    tiles,
+                    new FixedDiceRoller(3)
+                );
+            List<CreatureAuraEffectResult> outsideResults =
+                CreatureAuraResolver.ApplyTurnStartAuras(
+                    outside,
+                    new[] { source, wounded, healthy, outside },
+                    tiles,
+                    new FixedDiceRoller(3)
+                );
 
             Assert.AreEqual(1, woundedResults.Count);
             Assert.AreEqual(4, wounded.GetComponent<CreatureComponent>().hp);
@@ -93,13 +112,47 @@ namespace TestsCombat
         {
             Tile[,] tiles = BuildTiles(8, 8);
             TestActionController source = CreateAuraZombie(tiles, 3, 3, level: 0);
-            TestActionController undead = CreateCombatant("undead target", 4, 3, 7, 10, new[] { "undead" });
-            TestActionController construct = CreateCombatant("construct target", 5, 3, 7, 10, new[] { "construct" });
+            TestActionController undead = CreateCombatant(
+                "undead target",
+                4,
+                3,
+                7,
+                10,
+                new[] { "undead" }
+            );
+            TestActionController construct = CreateCombatant(
+                "construct target",
+                5,
+                3,
+                7,
+                10,
+                new[] { "construct" }
+            );
             Place(tiles, undead.gameObject);
             Place(tiles, construct.gameObject);
 
-            Assert.AreEqual(0, CreatureAuraResolver.ApplyTurnStartAuras(undead, new[] { source, undead }, tiles, new FixedDiceRoller(6)).Count);
-            Assert.AreEqual(0, CreatureAuraResolver.ApplyTurnStartAuras(construct, new[] { source, construct }, tiles, new FixedDiceRoller(6)).Count);
+            Assert.AreEqual(
+                0,
+                CreatureAuraResolver
+                    .ApplyTurnStartAuras(
+                        undead,
+                        new[] { source, undead },
+                        tiles,
+                        new FixedDiceRoller(6)
+                    )
+                    .Count
+            );
+            Assert.AreEqual(
+                0,
+                CreatureAuraResolver
+                    .ApplyTurnStartAuras(
+                        construct,
+                        new[] { source, construct },
+                        tiles,
+                        new FixedDiceRoller(6)
+                    )
+                    .Count
+            );
             Assert.AreEqual(7, undead.GetComponent<CreatureComponent>().hp);
             Assert.AreEqual(7, construct.GetComponent<CreatureComponent>().hp);
         }
@@ -119,7 +172,8 @@ namespace TestsCombat
                 target,
                 new[] { source, target },
                 tiles,
-                new FixedDiceRoller(2));
+                new FixedDiceRoller(2)
+            );
 
             Assert.AreEqual(1, results.Count);
             Assert.AreEqual(4, results[0].RolledDamage, "Level 6 aura should roll 2d6.");
@@ -142,21 +196,37 @@ namespace TestsCombat
 
         private TestActionController CreateAuraZombie(Tile[,] tiles, int x, int z, int level)
         {
-            TestActionController controller = CreateCombatant("aura zombie", x, z, 20, 20, new[] { "undead", "zombie" });
+            TestActionController controller = CreateCombatant(
+                "aura zombie",
+                x,
+                z,
+                20,
+                20,
+                new[] { "undead", "zombie" }
+            );
             CreatureComponent creature = controller.GetComponent<CreatureComponent>();
             creature.level = level;
-            creature.auras.Add(new CreatureAura
-            {
-                name = "Rotting Aura",
-                slug = RottingAuraRule.RuleSlug,
-                radiusFeet = 10,
-                traits = new List<string> { "disease", "void" }
-            });
+            creature.auras.Add(
+                new CreatureAura
+                {
+                    name = "Rotting Aura",
+                    slug = RottingAuraRule.RuleSlug,
+                    radiusFeet = 10,
+                    traits = new List<string> { "disease", "void" },
+                }
+            );
             Place(tiles, controller.gameObject);
             return controller;
         }
 
-        private TestActionController CreateCombatant(string name, int x, int z, int hp, int maxHp, IEnumerable<string> traits = null)
+        private TestActionController CreateCombatant(
+            string name,
+            int x,
+            int z,
+            int hp,
+            int maxHp,
+            IEnumerable<string> traits = null
+        )
         {
             GameObject obj = new(name);
             cleanup.Add(obj);
@@ -210,9 +280,7 @@ namespace TestsCombat
 
         private sealed class TestActionController : ActionController
         {
-            public override void EndTurn()
-            {
-            }
+            public override void EndTurn() { }
         }
     }
 }

@@ -3,7 +3,8 @@ using UnityEngine;
 
 public abstract class MultiFrameEntityAction : EntityAction
 {
-    public MultiFrameEntityAction(uint cost) : base(cost) { }
+    public MultiFrameEntityAction(uint cost)
+        : base(cost) { }
 
     public override void Invoke(GameObject target)
     {

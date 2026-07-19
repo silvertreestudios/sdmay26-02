@@ -9,18 +9,25 @@ namespace GridPrivate
 
         public static void Register(Tile[,] tiles, bool[,] blockers, TileType[,] gridData = null)
         {
-            if (tiles == null || blockers == null ||
-                tiles.GetLength(0) != blockers.GetLength(0) ||
-                tiles.GetLength(1) != blockers.GetLength(1))
+            if (
+                tiles == null
+                || blockers == null
+                || tiles.GetLength(0) != blockers.GetLength(0)
+                || tiles.GetLength(1) != blockers.GetLength(1)
+            )
             {
-                Debug.LogWarning("Grid line-of-sight data was not registered because tile and blocker dimensions are invalid.");
+                Debug.LogWarning(
+                    "Grid line-of-sight data was not registered because tile and blocker dimensions are invalid."
+                );
                 return;
             }
 
             bool[,] transparentObstacles = new bool[tiles.GetLength(0), tiles.GetLength(1)];
-            if (gridData != null &&
-                gridData.GetLength(0) == tiles.GetLength(0) &&
-                gridData.GetLength(1) == tiles.GetLength(1))
+            if (
+                gridData != null
+                && gridData.GetLength(0) == tiles.GetLength(0)
+                && gridData.GetLength(1) == tiles.GetLength(1)
+            )
             {
                 for (int x = 0; x < tiles.GetLength(0); x++)
                 {
@@ -48,9 +55,11 @@ namespace GridPrivate
 
             if (VisibilityByGrid.TryGetValue(tiles, out VisibilityGrid visibility))
             {
-                return visibility.Blockers[cell.x, cell.z] ||
-                       (tiles[cell.x, cell.z] == null &&
-                        !visibility.TransparentObstacles[cell.x, cell.z]);
+                return visibility.Blockers[cell.x, cell.z]
+                    || (
+                        tiles[cell.x, cell.z] == null
+                        && !visibility.TransparentObstacles[cell.x, cell.z]
+                    );
             }
 
             return tiles[cell.x, cell.z] == null;
@@ -58,9 +67,11 @@ namespace GridPrivate
 
         private static bool IsInBounds(Tile[,] tiles, Vector3Int cell)
         {
-            return tiles != null &&
-                   cell.x >= 0 && cell.z >= 0 &&
-                   cell.x < tiles.GetLength(0) && cell.z < tiles.GetLength(1);
+            return tiles != null
+                && cell.x >= 0
+                && cell.z >= 0
+                && cell.x < tiles.GetLength(0)
+                && cell.z < tiles.GetLength(1);
         }
 
         private sealed class VisibilityGrid

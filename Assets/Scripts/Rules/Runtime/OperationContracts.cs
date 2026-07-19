@@ -9,9 +9,7 @@ namespace Game.Rules.Runtime
     /// This non-generic contract lets dispatcher infrastructure track operations without
     /// discarding the result type carried by <see cref="IRuleOp{TResult}"/>.
     /// </remarks>
-    public interface IRuleOp
-    {
-    }
+    public interface IRuleOp { }
 
     /// <summary>
     /// Defines a rules operation that resolves to a value of <typeparamref name="TResult"/>.
@@ -19,9 +17,7 @@ namespace Game.Rules.Runtime
     /// <typeparam name="TResult">
     /// The value produced when the operation resolves successfully.
     /// </typeparam>
-    public interface IRuleOp<TResult> : IRuleOp
-    {
-    }
+    public interface IRuleOp<TResult> : IRuleOp { }
 
     /// <summary>
     /// Handles a typed operation and may coordinate nested operations through the supplied context.
@@ -61,7 +57,7 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// The operation may be dispatched only from an active <see cref="OpCallbackContext"/>.
         /// </summary>
-        NestedOnly
+        NestedOnly,
     }
 
     /// <summary>
@@ -87,6 +83,6 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// The operation was cancelled before normal resolution completed.
         /// </summary>
-        Cancelled
+        Cancelled,
     }
 }

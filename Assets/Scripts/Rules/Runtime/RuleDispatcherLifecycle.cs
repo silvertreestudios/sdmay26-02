@@ -6,11 +6,11 @@ namespace Game.Rules.Runtime
 {
     public sealed partial class RuleDispatcher
     {
-
         private async ValueTask<object> InvokeActionLifecycle(
             IRegistration registration,
             IFrameInvocation invocation,
-            IReadOnlyList<BoundMiddlewareRegistration> middleware)
+            IReadOnlyList<BoundMiddlewareRegistration> middleware
+        )
         {
             ActionValidationResult validation = actionRuntime.Validate(invocation);
             if (validation is ActionValidationResult.InvalidActionValidationResult invalid)
@@ -20,22 +20,26 @@ namespace Game.Rules.Runtime
             ActionProfile profile = invocation.FrameView.ActionProfile;
             OpResult<ActionCostsOutcome> costs = await DispatchNested(
                 new CommitActionCostsOp(action.Id, action.Actor, profile),
-                action.Id);
+                action.Id
+            );
             if (costs is InvalidOpResult<ActionCostsOutcome> invalidCosts)
                 return registration.CreateInvalidResult(invalidCosts.Reason);
             if (!(costs is ResolvedOpResult<ActionCostsOutcome>))
             {
                 throw new InvalidOperationException(
-                    "Atomic action costs may only resolve or reject before an action begins.");
+                    "Atomic action costs may only resolve or reject before an action begins."
+                );
             }
 
             OpResult<ActionStartOutcome> begun = await DispatchNested(
                 new ActionBegunOp(action.Id),
-                action.Id);
+                action.Id
+            );
             if (!(begun is ResolvedOpResult<ActionStartOutcome> resolvedBegun))
             {
                 throw new InvalidOperationException(
-                    "ActionBegunOp reports disruption through ActionStartOutcome.");
+                    "ActionBegunOp reports disruption through ActionStartOutcome."
+                );
             }
             if (resolvedBegun.Value.Decision == ActionStartDecision.Interrupted)
                 return registration.CreateInterruptedResult();
@@ -44,12 +48,14 @@ namespace Game.Rules.Runtime
                 registration,
                 invocation,
                 middleware,
-                0);
+                0
+            );
             if (registration.GetResultStatus(featureResult) != OpStatus.Resolved)
             {
                 throw new InvalidOperationException(
-                    "Action feature middleware cannot replace a begun action with a structural " +
-                    "Invalid, Interrupted, or Cancelled result. Disruption belongs in ActionBegunOp.");
+                    "Action feature middleware cannot replace a begun action with a structural "
+                        + "Invalid, Interrupted, or Cancelled result. Disruption belongs in ActionBegunOp."
+                );
             }
             return featureResult;
         }
@@ -58,10 +64,13 @@ namespace Game.Rules.Runtime
             IRegistration registration,
             IFrameInvocation invocation,
             IReadOnlyList<BoundMiddlewareRegistration> middleware,
-            int index)
+            int index
+        )
         {
-            while (index < middleware.Count &&
-                !ruleRegistry.IsActive(store.Snapshot, middleware[index].Binding))
+            while (
+                index < middleware.Count
+                && !ruleRegistry.IsActive(store.Snapshot, middleware[index].Binding)
+            )
             {
                 index++;
             }
@@ -75,12 +84,8 @@ namespace Game.Rules.Runtime
                 current.Binding,
                 invocation,
                 this,
-                () => InvokeWithMiddleware(
-                    registration,
-                    invocation,
-                    middleware,
-                    nextIndex));
+                () => InvokeWithMiddleware(registration, invocation, middleware, nextIndex)
+            );
         }
-
     }
 }

@@ -1,10 +1,10 @@
-using UnityEngine;
 using System.Collections.Generic;
-using UnityEngine.Events;
 using Game.Creature;
 using Game.Creature.Rules;
 using GridPrivate;
 using GridPublic;
+using UnityEngine;
+using UnityEngine.Events;
 
 public class CombatManager : CombatManagerInterface
 {
@@ -31,7 +31,7 @@ public class CombatManager : CombatManagerInterface
     public override void Remove(ActionController combatant)
     {
         Combatants.Remove(combatant);
-        for(int i = 0; i < TurnQueue.Count; i++) 
+        for (int i = 0; i < TurnQueue.Count; i++)
         {
             if (TurnQueue[i].Player == combatant)
                 TurnQueue.RemoveAt(i);
@@ -91,9 +91,9 @@ public class CombatManager : CombatManagerInterface
     {
         List<ActionController> turnOrder = new();
         List<uint> initiatives = new();
-        
+
         // Insert all AC's in sorted turnOrder
-        foreach (ActionController ac in Combatants) 
+        foreach (ActionController ac in Combatants)
         {
             // Attempt to insert
             int i;
@@ -108,23 +108,30 @@ public class CombatManager : CombatManagerInterface
                 }
             }
             // If no insertion, insert at end
-            if(i == initiatives.Count)
+            if (i == initiatives.Count)
             {
                 initiatives.Add(initiative);
                 turnOrder.Add(ac);
             }
         }
-        // Show initiative order in Combat Log 
+        // Show initiative order in Combat Log
         string log = "Initiative Order:\n";
-        for (int i = 0; i < turnOrder.Count; i++)        {
-            log +="  " +(i + 1) + ". " + turnOrder[i].gameObject.name + " (Initiative: " + initiatives[i] + ")\n";
+        for (int i = 0; i < turnOrder.Count; i++)
+        {
+            log +=
+                "  "
+                + (i + 1)
+                + ". "
+                + turnOrder[i].gameObject.name
+                + " (Initiative: "
+                + initiatives[i]
+                + ")\n";
         }
         CombatLog.GetInstance().Log(log);
 
-
         // Clear TurnQueue and add by initiative
         TurnQueue.Clear();
-        foreach(ActionController ac in turnOrder)
+        foreach (ActionController ac in turnOrder)
             TurnQueue.Add(new TurnStep(ac));
     }
 
@@ -142,7 +149,7 @@ public class CombatManager : CombatManagerInterface
         {
             Debug.Log("Team " + teams[0] + " wins!");
             Pf2eRulesEngine.EndEncounter(Combatants);
-            OnCombatEnd.Invoke(teams[0]);// Signal end
+            OnCombatEnd.Invoke(teams[0]); // Signal end
             if (teams[0].ToLower() == "players")
             {
                 OnCombatOutcome.Invoke(true);
@@ -158,7 +165,7 @@ public class CombatManager : CombatManagerInterface
 
     public override void NextTurn()
     {
-        if(CheckForEndOfGame() || TurnQueue.Count == 0)
+        if (CheckForEndOfGame() || TurnQueue.Count == 0)
             return;
         // Take the next turn.
         TurnStep e = TurnQueue[0];
@@ -191,9 +198,9 @@ public class CombatManager : CombatManagerInterface
 
     private static bool CanTakeTurn(ActionController actionController)
     {
-        return actionController != null &&
-               actionController.gameObject.activeSelf &&
-               actionController.isActiveAndEnabled;
+        return actionController != null
+            && actionController.gameObject.activeSelf
+            && actionController.isActiveAndEnabled;
     }
 
     private void ApplyTurnStartAuras(ActionController acting)
@@ -214,7 +221,7 @@ public class CombatManager : CombatManagerInterface
     {
         Vector3[] positions = new Vector3[Combatants.Count];
         int i = 0;
-        foreach(var c in Combatants)
+        foreach (var c in Combatants)
         {
             positions[i] = c.gameObject.transform.position;
             i++;

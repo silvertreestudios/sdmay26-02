@@ -14,12 +14,15 @@ namespace GridPrivate
             new Vector2(-CornerOffset, -CornerOffset),
             new Vector2(CornerOffset, -CornerOffset),
             new Vector2(-CornerOffset, CornerOffset),
-            new Vector2(CornerOffset, CornerOffset)
+            new Vector2(CornerOffset, CornerOffset),
         };
 
         public static int MeasureGridDistanceFeet(Vector3Int start, Vector3Int target)
         {
-            return MeasureGridDistanceFeet(Mathf.Abs(target.x - start.x), Mathf.Abs(target.z - start.z));
+            return MeasureGridDistanceFeet(
+                Mathf.Abs(target.x - start.x),
+                Mathf.Abs(target.z - start.z)
+            );
         }
 
         public static int MeasureGridDistanceFeet(int dx, int dz)
@@ -65,14 +68,26 @@ namespace GridPrivate
             {
                 foreach (Vector2 targetOffset in CornerOffsets)
                 {
-                    if (!IsRayBlocked(tiles, CellPoint(start, startOffset), CellPoint(target, targetOffset), start, target))
+                    if (
+                        !IsRayBlocked(
+                            tiles,
+                            CellPoint(start, startOffset),
+                            CellPoint(target, targetOffset),
+                            start,
+                            target
+                        )
+                    )
                         clear++;
                 }
             }
             return clear;
         }
 
-        public static int CountClearRaysFromPoint(Tile[,] tiles, Vector2 startPoint, Vector3Int target)
+        public static int CountClearRaysFromPoint(
+            Tile[,] tiles,
+            Vector2 startPoint,
+            Vector3Int target
+        )
         {
             int clear = 0;
             foreach (Vector2 targetOffset in CornerOffsets)
@@ -96,7 +111,13 @@ namespace GridPrivate
             return new Vector2(cell.x + 0.5f + offset.x, cell.z + 0.5f + offset.y);
         }
 
-        private static bool IsRayBlocked(Tile[,] tiles, Vector2 rayStart, Vector2 rayEnd, Vector3Int? startCell, Vector3Int targetCell)
+        private static bool IsRayBlocked(
+            Tile[,] tiles,
+            Vector2 rayStart,
+            Vector2 rayEnd,
+            Vector3Int? startCell,
+            Vector3Int targetCell
+        )
         {
             Vector2 delta = rayEnd - rayStart;
             float distance = delta.magnitude;
@@ -107,7 +128,11 @@ namespace GridPrivate
             for (int i = 1; i < samples; i++)
             {
                 Vector2 sample = rayStart + delta * (i / (float)samples);
-                Vector3Int cell = new(Mathf.FloorToInt(sample.x), targetCell.y, Mathf.FloorToInt(sample.y));
+                Vector3Int cell = new(
+                    Mathf.FloorToInt(sample.x),
+                    targetCell.y,
+                    Mathf.FloorToInt(sample.y)
+                );
                 if ((startCell.HasValue && cell == startCell.Value) || cell == targetCell)
                     continue;
 

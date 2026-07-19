@@ -52,7 +52,7 @@ public class Heap<T>
             if (Equal(Data[i], oldData))
             {
                 Data[i] = newData;
-                if(Compare(oldData, newData))
+                if (Compare(oldData, newData))
                     HeapifyUp(i);
                 else
                     HeapifyDown(i);
@@ -66,7 +66,8 @@ public class Heap<T>
                 smallest = left;
             if (right < Data.Count && Compare(Data[right], Data[smallest]))
                 smallest = right;
-            if (smallest == i) break;
+            if (smallest == i)
+                break;
 
             (Data[i], Data[smallest]) = (Data[smallest], Data[i]);
             i = smallest;
@@ -93,7 +94,7 @@ public class Heap<T>
     /// <returns></returns>
     public T Peak()
     {
-        if(Data.Count > 0)
+        if (Data.Count > 0)
             return Data[0];
         return default;
     }
@@ -106,7 +107,8 @@ public class Heap<T>
         while (i > 0)
         {
             int parentIdx = (i - 1) >> 1;
-            if (!Compare(Data[i], Data[parentIdx])) break;
+            if (!Compare(Data[i], Data[parentIdx]))
+                break;
             (Data[i], Data[parentIdx]) = (Data[parentIdx], Data[i]);
             i = parentIdx;
         }
@@ -127,7 +129,8 @@ public class Heap<T>
                 smallest = left;
             if (right < Data.Count && Compare(Data[right], Data[smallest]))
                 smallest = right;
-            if (smallest == i) break;
+            if (smallest == i)
+                break;
 
             (Data[i], Data[smallest]) = (Data[smallest], Data[i]);
             i = smallest;

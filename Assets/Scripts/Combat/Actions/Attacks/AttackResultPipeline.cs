@@ -1,4 +1,3 @@
-using UnityEngine;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -6,6 +5,7 @@ using Game.Combat.Rules;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules;
+using UnityEngine;
 
 /// <summary>
 /// Resolves Strikes through deterministic phases. The invoking action owns target selection, resource checks, action cost, and MAP increment.
@@ -16,9 +16,15 @@ public static class StrikeResolutionPipeline
     {
         StrikeResolutionContext context = StrikeResolutionContext.FromRequest(request);
         if (context.AttackerCreature == null)
-            throw new ArgumentException("Strike resolution requires an attacker CreatureComponent.", nameof(request));
+            throw new ArgumentException(
+                "Strike resolution requires an attacker CreatureComponent.",
+                nameof(request)
+            );
         if (context.TargetCreature == null)
-            throw new ArgumentException("Strike resolution requires a target CreatureComponent.", nameof(request));
+            throw new ArgumentException(
+                "Strike resolution requires a target CreatureComponent.",
+                nameof(request)
+            );
 
         List<IStrikeAdjustment> adjustments = BuildAdjustments(context);
 
@@ -55,7 +61,7 @@ public static class StrikeResolutionPipeline
             new RollDamageAdjustment(),
             new CriticalDoublingAdjustment(),
             new ApplyDefenseAndDamageAdjustment(),
-            new AttackHitLogAdjustment()
+            new AttackHitLogAdjustment(),
         };
 
         adjustments.AddRange(AttackTraitStrikeAdjustmentResolver.Resolve(context));
@@ -68,17 +74,27 @@ public static class StrikeResolutionPipeline
             .ToList();
     }
 
-    private static void AddAttackerProviderAdjustments(List<IStrikeAdjustment> adjustments, StrikeResolutionContext context)
+    private static void AddAttackerProviderAdjustments(
+        List<IStrikeAdjustment> adjustments,
+        StrikeResolutionContext context
+    )
     {
         AddProviderAdjustments(adjustments, context.AttackerObject, context);
     }
 
-    private static void AddTargetProviderAdjustments(List<IStrikeAdjustment> adjustments, StrikeResolutionContext context)
+    private static void AddTargetProviderAdjustments(
+        List<IStrikeAdjustment> adjustments,
+        StrikeResolutionContext context
+    )
     {
         AddProviderAdjustments(adjustments, context.TargetObject, context);
     }
 
-    private static void AddProviderAdjustments(List<IStrikeAdjustment> adjustments, GameObject owner, StrikeResolutionContext context)
+    private static void AddProviderAdjustments(
+        List<IStrikeAdjustment> adjustments,
+        GameObject owner,
+        StrikeResolutionContext context
+    )
     {
         if (owner == null)
             return;
@@ -101,7 +117,11 @@ public static class StrikeResolutionPipeline
         }
     }
 
-    private static void ApplyPhase(List<IStrikeAdjustment> adjustments, StrikeAdjustmentPhase phase, StrikeResolutionContext context)
+    private static void ApplyPhase(
+        List<IStrikeAdjustment> adjustments,
+        StrikeAdjustmentPhase phase,
+        StrikeResolutionContext context
+    )
     {
         foreach (IStrikeAdjustment adjustment in adjustments)
             if (adjustment.Phase == phase)
@@ -126,7 +146,8 @@ public abstract class StrikeAdjustmentBase : IStrikeAdjustment
 
 internal sealed class PreparedCharacterStrikeAdjustment : StrikeAdjustmentBase
 {
-    public PreparedCharacterStrikeAdjustment() : base(StrikeAdjustmentPhase.PrepareProfile, 0, "Prepared character rules") { }
+    public PreparedCharacterStrikeAdjustment()
+        : base(StrikeAdjustmentPhase.PrepareProfile, 0, "Prepared character rules") { }
 
     public override void Apply(StrikeResolutionContext context)
     {
@@ -136,26 +157,47 @@ internal sealed class PreparedCharacterStrikeAdjustment : StrikeAdjustmentBase
 
 internal sealed class MultipleAttackAndRangePenaltyAdjustment : StrikeAdjustmentBase
 {
-    public MultipleAttackAndRangePenaltyAdjustment() : base(StrikeAdjustmentPhase.BeforeAttackRoll, 0, "Strike penalties") { }
+    public MultipleAttackAndRangePenaltyAdjustment()
+        : base(StrikeAdjustmentPhase.BeforeAttackRoll, 0, "Strike penalties") { }
 
     public override void Apply(StrikeResolutionContext context)
     {
-        uint strikePenaltyCount = context.AttackerObject.GetComponent<ActionController>()?.StrikePenalty ?? 0;
+        uint strikePenaltyCount =
+            context.AttackerObject.GetComponent<ActionController>()?.StrikePenalty ?? 0;
         context.MultipleAttackPenalty = CalculateMultipleAttackPenalty(context, strikePenaltyCount);
         context.RangePenalty = context.TargetingResult?.RangePenalty ?? 0;
 
         if (context.MultipleAttackPenalty != 0)
-            context.AttackModifiers.Add(new Pf2eModifier(-context.MultipleAttackPenalty, Pf2eModifierType.Untyped, "Multiple attack penalty", Pf2eStatistic.AttackRoll));
+            context.AttackModifiers.Add(
+                new Pf2eModifier(
+                    -context.MultipleAttackPenalty,
+                    Pf2eModifierType.Untyped,
+                    "Multiple attack penalty",
+                    Pf2eStatistic.AttackRoll
+                )
+            );
         if (context.RangePenalty != 0)
-            context.AttackModifiers.Add(new Pf2eModifier(context.RangePenalty, Pf2eModifierType.Untyped, "Range penalty", Pf2eStatistic.AttackRoll));
+            context.AttackModifiers.Add(
+                new Pf2eModifier(
+                    context.RangePenalty,
+                    Pf2eModifierType.Untyped,
+                    "Range penalty",
+                    Pf2eStatistic.AttackRoll
+                )
+            );
     }
 
-    private static int CalculateMultipleAttackPenalty(StrikeResolutionContext context, uint strikePenaltyCount)
+    private static int CalculateMultipleAttackPenalty(
+        StrikeResolutionContext context,
+        uint strikePenaltyCount
+    )
     {
         if (strikePenaltyCount == 0)
             return 0;
 
-        bool agile = context.Traits.Any(trait => string.Equals(trait, "agile", StringComparison.OrdinalIgnoreCase));
+        bool agile = context.Traits.Any(trait =>
+            string.Equals(trait, "agile", StringComparison.OrdinalIgnoreCase)
+        );
         if (strikePenaltyCount == 1)
             return agile ? 4 : 5;
         return agile ? 8 : 10;
@@ -164,42 +206,71 @@ internal sealed class MultipleAttackAndRangePenaltyAdjustment : StrikeAdjustment
 
 internal sealed class ArmorClassContextAdjustment : StrikeAdjustmentBase
 {
-    public ArmorClassContextAdjustment() : base(StrikeAdjustmentPhase.BeforeArmorClassResolution, 0, "Strike target defenses") { }
+    public ArmorClassContextAdjustment()
+        : base(StrikeAdjustmentPhase.BeforeArmorClassResolution, 0, "Strike target defenses") { }
 
     public override void Apply(StrikeResolutionContext context)
     {
         context.CoverAcBonus = context.TargetingResult?.CoverAcBonus ?? 0;
-        context.FlankedOffGuard = FlankingRule.GrantsOffGuardToMeleeAttack(context.AttackerObject, context.TargetObject, context.Profile);
+        context.FlankedOffGuard = FlankingRule.GrantsOffGuardToMeleeAttack(
+            context.AttackerObject,
+            context.TargetObject,
+            context.Profile
+        );
 
         if (context.CoverAcBonus != 0)
-            context.ArmorClassModifiers.Add(new Pf2eModifier(context.CoverAcBonus, Pf2eModifierType.Circumstance, "Cover", Pf2eStatistic.ArmorClass));
+            context.ArmorClassModifiers.Add(
+                new Pf2eModifier(
+                    context.CoverAcBonus,
+                    Pf2eModifierType.Circumstance,
+                    "Cover",
+                    Pf2eStatistic.ArmorClass
+                )
+            );
         if (context.FlankedOffGuard)
-            context.ArmorClassModifiers.Add(new Pf2eModifier(-2, Pf2eModifierType.Circumstance, "Off-Guard", Pf2eStatistic.ArmorClass));
+            context.ArmorClassModifiers.Add(
+                new Pf2eModifier(
+                    -2,
+                    Pf2eModifierType.Circumstance,
+                    "Off-Guard",
+                    Pf2eStatistic.ArmorClass
+                )
+            );
     }
 }
 
 internal sealed class ResolveAttackRollAdjustment : StrikeAdjustmentBase
 {
-    public ResolveAttackRollAdjustment() : base(StrikeAdjustmentPhase.ResolveAttackRoll, 0, "Attack roll") { }
+    public ResolveAttackRollAdjustment()
+        : base(StrikeAdjustmentPhase.ResolveAttackRoll, 0, "Attack roll") { }
 
     public override void Apply(StrikeResolutionContext context)
     {
-        context.AttackBonus = context.Profile.AttackModifierOverride ?? context.AttackerCreature.attackBonus;
-        context.AttackResolution = context.AttackerCreature.ResolveAttackRoll(context.Profile.AttackModifierOverride, context.AttackModifiers);
+        context.AttackBonus =
+            context.Profile.AttackModifierOverride ?? context.AttackerCreature.attackBonus;
+        context.AttackResolution = context.AttackerCreature.ResolveAttackRoll(
+            context.Profile.AttackModifierOverride,
+            context.AttackModifiers
+        );
         context.BaseArmorClassResolution = context.TargetCreature.ResolveArmorClass();
-        context.TargetArmorClassResolution = context.TargetCreature.ResolveArmorClass(context.ArmorClassModifiers);
+        context.TargetArmorClassResolution = context.TargetCreature.ResolveArmorClass(
+            context.ArmorClassModifiers
+        );
         context.BaseArmorClass = context.BaseArmorClassResolution.Total;
         context.TargetArmorClass = context.TargetArmorClassResolution.Total;
         context.TotalAttackModifier = context.AttackResolution.Total;
         context.D20Result = D20.Roll(context.TotalAttackModifier, context.TargetArmorClass);
         context.Degree = context.D20Result.degree;
-        context.IsHit = context.Degree == DegreeOfSuccess.Success || context.Degree == DegreeOfSuccess.CriticalSuccess;
+        context.IsHit =
+            context.Degree == DegreeOfSuccess.Success
+            || context.Degree == DegreeOfSuccess.CriticalSuccess;
     }
 }
 
 internal sealed class AttackMissLogAdjustment : StrikeAdjustmentBase
 {
-    public AttackMissLogAdjustment() : base(StrikeAdjustmentPhase.AfterAttackRoll, 0, "Attack miss log") { }
+    public AttackMissLogAdjustment()
+        : base(StrikeAdjustmentPhase.AfterAttackRoll, 0, "Attack miss log") { }
 
     public override void Apply(StrikeResolutionContext context)
     {
@@ -213,7 +284,8 @@ internal sealed class AttackMissLogAdjustment : StrikeAdjustmentBase
 
 internal sealed class AttackHitLogAdjustment : StrikeAdjustmentBase
 {
-    public AttackHitLogAdjustment() : base(StrikeAdjustmentPhase.AfterDamageApplied, 1000, "Attack hit log") { }
+    public AttackHitLogAdjustment()
+        : base(StrikeAdjustmentPhase.AfterDamageApplied, 1000, "Attack hit log") { }
 
     public override void Apply(StrikeResolutionContext context)
     {
@@ -237,19 +309,60 @@ internal static class StrikeCombatLogBuilder
                 NaturalRoll = context.D20Result.roll,
                 TotalModifier = context.AttackResolution.Total,
                 Total = context.D20Result.total,
-                DifficultyClass = context.TargetArmorClass
+                DifficultyClass = context.TargetArmorClass,
             },
-            Damage = context.DamageResolution?.Damage
+            Damage = context.DamageResolution?.Damage,
         };
 
         entry.Tags.Add("attack");
-        entry.Details.Add(new CombatLogDetail("D20 Roll", context.D20Result.total + " (" + context.D20Result.roll + " + " + context.AttackResolution.Total + ")"));
-        entry.Details.Add(new CombatLogDetail("Target AC", FormatArmorClass(context.TargetArmorClass, context.BaseArmorClass, context.CoverAcBonus)));
-        entry.Details.Add(new CombatLogDetail("Attack Modifiers", FormatResolution(context.AttackResolution)));
-        entry.Details.Add(new CombatLogDetail("AC Modifiers", FormatResolution(context.TargetArmorClassResolution)));
-        entry.Details.Add(new CombatLogDetail("MAP", context.MultipleAttackPenalty == 0 ? "none" : "-" + context.MultipleAttackPenalty));
-        entry.Details.Add(new CombatLogDetail("Range Penalty", context.RangePenalty == 0 ? "none" : context.RangePenalty.ToString()));
-        entry.Details.Add(new CombatLogDetail("Cover", context.CoverAcBonus == 0 ? "none" : "+" + context.CoverAcBonus + " AC"));
+        entry.Details.Add(
+            new CombatLogDetail(
+                "D20 Roll",
+                context.D20Result.total
+                    + " ("
+                    + context.D20Result.roll
+                    + " + "
+                    + context.AttackResolution.Total
+                    + ")"
+            )
+        );
+        entry.Details.Add(
+            new CombatLogDetail(
+                "Target AC",
+                FormatArmorClass(
+                    context.TargetArmorClass,
+                    context.BaseArmorClass,
+                    context.CoverAcBonus
+                )
+            )
+        );
+        entry.Details.Add(
+            new CombatLogDetail("Attack Modifiers", FormatResolution(context.AttackResolution))
+        );
+        entry.Details.Add(
+            new CombatLogDetail(
+                "AC Modifiers",
+                FormatResolution(context.TargetArmorClassResolution)
+            )
+        );
+        entry.Details.Add(
+            new CombatLogDetail(
+                "MAP",
+                context.MultipleAttackPenalty == 0 ? "none" : "-" + context.MultipleAttackPenalty
+            )
+        );
+        entry.Details.Add(
+            new CombatLogDetail(
+                "Range Penalty",
+                context.RangePenalty == 0 ? "none" : context.RangePenalty.ToString()
+            )
+        );
+        entry.Details.Add(
+            new CombatLogDetail(
+                "Cover",
+                context.CoverAcBonus == 0 ? "none" : "+" + context.CoverAcBonus + " AC"
+            )
+        );
         entry.Details.Add(new CombatLogDetail("Result", context.Degree.ToString()));
 
         if (context.DamageResolution != null)
@@ -268,7 +381,9 @@ internal static class StrikeCombatLogBuilder
         if (!string.IsNullOrWhiteSpace(context.SourceInfo?.Name))
             return context.SourceInfo.Name;
         if (!string.IsNullOrWhiteSpace(context.Profile?.ItemSlug))
-            return context.Profile.ItemSlug == "unarmed" ? "Unarmed Strike" : context.Profile.ItemSlug;
+            return context.Profile.ItemSlug == "unarmed"
+                ? "Unarmed Strike"
+                : context.Profile.ItemSlug;
         return "Strike";
     }
 
@@ -286,13 +401,19 @@ internal static class StrikeCombatLogBuilder
             DegreeOfSuccess.CriticalSuccess => CombatLogOutcome.CriticalSuccess,
             DegreeOfSuccess.Success => CombatLogOutcome.Success,
             DegreeOfSuccess.CriticalFail => CombatLogOutcome.CriticalFailure,
-            _ => CombatLogOutcome.Failure
+            _ => CombatLogOutcome.Failure,
         };
     }
 
     private static string FormatResolution(Pf2eModifierResolution resolution)
     {
-        return "total " + resolution.Total + "; applied [" + FormatModifiers(resolution.AppliedModifiers) + "]; suppressed [" + FormatModifiers(resolution.SuppressedModifiers) + "]";
+        return "total "
+            + resolution.Total
+            + "; applied ["
+            + FormatModifiers(resolution.AppliedModifiers)
+            + "]; suppressed ["
+            + FormatModifiers(resolution.SuppressedModifiers)
+            + "]";
     }
 
     private static string FormatModifiers(IReadOnlyList<Pf2eModifier> modifiers)
@@ -314,21 +435,26 @@ internal static class StrikeCombatLogBuilder
 
 internal sealed class RollDamageAdjustment : StrikeAdjustmentBase
 {
-    public RollDamageAdjustment() : base(StrikeAdjustmentPhase.RollDamage, 0, "Damage roll") { }
+    public RollDamageAdjustment()
+        : base(StrikeAdjustmentPhase.RollDamage, 0, "Damage roll") { }
 
     public override void Apply(StrikeResolutionContext context)
     {
         if (context.DamageDice.Count > 0)
             OnDamageDealt.Invoke(context.DamageDice[0].damageType);
 
-        context.DamageResolution = DamageRoller.StartDamageResolution(context.DamageDice, context.FlatDamages);
+        context.DamageResolution = DamageRoller.StartDamageResolution(
+            context.DamageDice,
+            context.FlatDamages
+        );
         context.DamageValues = context.DamageResolution.DamageValues;
     }
 }
 
 internal sealed class CriticalDoublingAdjustment : StrikeAdjustmentBase
 {
-    public CriticalDoublingAdjustment() : base(StrikeAdjustmentPhase.AfterCriticalDoubling, 0, "Critical damage") { }
+    public CriticalDoublingAdjustment()
+        : base(StrikeAdjustmentPhase.AfterCriticalDoubling, 0, "Critical damage") { }
 
     public override void Apply(StrikeResolutionContext context)
     {
@@ -339,12 +465,17 @@ internal sealed class CriticalDoublingAdjustment : StrikeAdjustmentBase
 
 internal sealed class ApplyDefenseAndDamageAdjustment : StrikeAdjustmentBase
 {
-    public ApplyDefenseAndDamageAdjustment() : base(StrikeAdjustmentPhase.ApplyDefenseAndDamage, 0, "Defense and damage") { }
+    public ApplyDefenseAndDamageAdjustment()
+        : base(StrikeAdjustmentPhase.ApplyDefenseAndDamage, 0, "Defense and damage") { }
 
     public override void Apply(StrikeResolutionContext context)
     {
         context.DamageResolution.DamageValues = context.DamageValues;
-        DamageRoller.ApplyWeaknessAndResistance(context.DamageResolution, context.TargetCreature.weaknesses, context.TargetCreature.resistances);
+        DamageRoller.ApplyWeaknessAndResistance(
+            context.DamageResolution,
+            context.TargetCreature.weaknesses,
+            context.TargetCreature.resistances
+        );
         DamageRoller.FinalizeDamageResolution(context.DamageResolution);
         context.DamageValues = context.DamageResolution.DamageValues;
         context.FinalAppliedDamage = (uint)Mathf.Max(0, context.DamageResolution.TotalDamage);
@@ -360,7 +491,10 @@ public sealed class CriticalSpecializationStrikeAdjustment : StrikeAdjustmentBas
     private readonly string group;
     private readonly Action<StrikeResolutionContext> apply;
 
-    public CriticalSpecializationStrikeAdjustment(string group, Action<StrikeResolutionContext> apply)
+    public CriticalSpecializationStrikeAdjustment(
+        string group,
+        Action<StrikeResolutionContext> apply
+    )
         : base(StrikeAdjustmentPhase.AfterDamageApplied, 0, "Critical specialization")
     {
         this.group = group ?? string.Empty;
@@ -400,7 +534,10 @@ internal static class AttackTraitStrikeAdjustmentResolver
     private static bool TryParseTraitDie(string trait, string prefix, out int sides)
     {
         sides = 0;
-        if (string.IsNullOrWhiteSpace(trait) || !trait.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        if (
+            string.IsNullOrWhiteSpace(trait)
+            || !trait.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+        )
             return false;
 
         return int.TryParse(trait.Substring(prefix.Length), out sides) && sides > 0;
@@ -421,20 +558,36 @@ internal sealed class DeadlyStrikeAdjustment : StrikeAdjustmentBase
 
     public override void Apply(StrikeResolutionContext context)
     {
-        if (context.Degree != DegreeOfSuccess.CriticalSuccess || context.DamageDice == null || context.DamageDice.Count == 0)
+        if (
+            context.Degree != DegreeOfSuccess.CriticalSuccess
+            || context.DamageDice == null
+            || context.DamageDice.Count == 0
+        )
             return;
 
         AddCriticalTraitDamage(context, trait, sides);
     }
 
-    internal static void AddCriticalTraitDamage(StrikeResolutionContext context, string trait, int sides)
+    internal static void AddCriticalTraitDamage(
+        StrikeResolutionContext context,
+        string trait,
+        int sides
+    )
     {
         string damageType = context.DamageDice[0].damageType;
-        DamageValue extraDamage = new DamageValue(damageType, UnityEngine.Random.Range(1, sides + 1));
+        DamageValue extraDamage = new DamageValue(
+            damageType,
+            UnityEngine.Random.Range(1, sides + 1)
+        );
         context.DamageValues = DamageRoller.AddOrMergeDamage(context.DamageValues, extraDamage);
         if (context.DamageResolution != null)
             context.DamageResolution.DamageValues = context.DamageValues;
-        context.LogDetails.Add(new CombatLogDetail("Critical Trait", "+" + extraDamage.DamageAmount + " " + trait + " critical damage"));
+        context.LogDetails.Add(
+            new CombatLogDetail(
+                "Critical Trait",
+                "+" + extraDamage.DamageAmount + " " + trait + " critical damage"
+            )
+        );
     }
 }
 
@@ -452,7 +605,11 @@ internal sealed class FatalDamageDieUpgradeStrikeAdjustment : StrikeAdjustmentBa
 
     public override void Apply(StrikeResolutionContext context)
     {
-        if (context.Degree != DegreeOfSuccess.CriticalSuccess || context.DamageDice == null || context.DamageDice.Count == 0)
+        if (
+            context.Degree != DegreeOfSuccess.CriticalSuccess
+            || context.DamageDice == null
+            || context.DamageDice.Count == 0
+        )
             return;
 
         Dice primary = context.DamageDice[0];
@@ -460,7 +617,12 @@ internal sealed class FatalDamageDieUpgradeStrikeAdjustment : StrikeAdjustmentBa
             return;
 
         context.DamageDice[0] = new Dice(primary.numberOfDice, sides, primary.damageType);
-        context.LogDetails.Add(new CombatLogDetail("Critical Trait", trait + " upgrades critical damage dice to d" + sides));
+        context.LogDetails.Add(
+            new CombatLogDetail(
+                "Critical Trait",
+                trait + " upgrades critical damage dice to d" + sides
+            )
+        );
     }
 }
 
@@ -478,7 +640,11 @@ internal sealed class FatalExtraDieStrikeAdjustment : StrikeAdjustmentBase
 
     public override void Apply(StrikeResolutionContext context)
     {
-        if (context.Degree != DegreeOfSuccess.CriticalSuccess || context.DamageDice == null || context.DamageDice.Count == 0)
+        if (
+            context.Degree != DegreeOfSuccess.CriticalSuccess
+            || context.DamageDice == null
+            || context.DamageDice.Count == 0
+        )
             return;
 
         DeadlyStrikeAdjustment.AddCriticalTraitDamage(context, trait, sides);

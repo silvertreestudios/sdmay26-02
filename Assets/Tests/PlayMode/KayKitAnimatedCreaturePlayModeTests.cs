@@ -48,7 +48,8 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
         try
         {
             yield return null;
-            CreatureAnimationController controller = instance.GetComponent<CreatureAnimationController>();
+            CreatureAnimationController controller =
+                instance.GetComponent<CreatureAnimationController>();
             Assert.That(controller.Animator.applyRootMotion, Is.False);
             Assert.That(controller.IsMoving, Is.False);
 
@@ -57,17 +58,19 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
             controller.SetMoving(false, 0.0f);
             Assert.That(controller.IsMoving, Is.False);
 
-            foreach (AnimationStyle style in new[]
-                     {
-                         AnimationStyle.Unarmed,
-                         AnimationStyle.OneHandMelee,
-                         AnimationStyle.TwoHandMelee,
-                         AnimationStyle.Bow,
-                         AnimationStyle.OneHandRanged,
-                         AnimationStyle.TwoHandRanged,
-                         AnimationStyle.Magic,
-                         AnimationStyle.Tool
-                     })
+            foreach (
+                AnimationStyle style in new[]
+                {
+                    AnimationStyle.Unarmed,
+                    AnimationStyle.OneHandMelee,
+                    AnimationStyle.TwoHandMelee,
+                    AnimationStyle.Bow,
+                    AnimationStyle.OneHandRanged,
+                    AnimationStyle.TwoHandRanged,
+                    AnimationStyle.Magic,
+                    AnimationStyle.Tool,
+                }
+            )
             {
                 controller.PlayAttack(style);
                 Assert.That(controller.IsActionPlaying, Is.True, style.ToString());
@@ -92,7 +95,8 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
         try
         {
             yield return null;
-            CreatureAnimationController controller = instance.GetComponent<CreatureAnimationController>();
+            CreatureAnimationController controller =
+                instance.GetComponent<CreatureAnimationController>();
             controller.PlayHit();
             Assert.That(controller.CurrentClipId, Is.EqualTo("animation/general/hit_a"));
             float deadline = Time.realtimeSinceStartup + 5.0f;
@@ -107,14 +111,14 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
             Assert.That(controller.IsActionPlaying, Is.False);
 
             KayKitAnimationLibrary library = AssetDatabase.LoadAssetAtPath<KayKitAnimationLibrary>(
-                "Assets/KayKit/Catalogs/KayKitAnimationLibrary.asset");
+                "Assets/KayKit/Catalogs/KayKitAnimationLibrary.asset"
+            );
             foreach (KayKitAnimationEntry entry in library.Entries)
             {
                 Assert.That(controller.PlayClip(entry.Id), Is.True, entry.Id);
                 controller.StopAction();
                 yield return null;
             }
-
         }
         finally
         {
@@ -130,15 +134,18 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
         try
         {
             yield return null;
-            CreatureAnimationController controller = instance.GetComponent<CreatureAnimationController>();
+            CreatureAnimationController controller =
+                instance.GetComponent<CreatureAnimationController>();
             Animator animator = controller.Animator;
             const string loopClip = "animation/general/idle_a";
 
             Assert.That(controller.PlayClip(loopClip), Is.True);
             float deadline = Time.realtimeSinceStartup + 3.0f;
             AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
-            while ((!state.IsName("Base Layer.Action") || state.normalizedTime < 0.35f) &&
-                   Time.realtimeSinceStartup < deadline)
+            while (
+                (!state.IsName("Base Layer.Action") || state.normalizedTime < 0.35f)
+                && Time.realtimeSinceStartup < deadline
+            )
             {
                 yield return null;
                 state = animator.GetCurrentAnimatorStateInfo(0);
@@ -159,7 +166,8 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
             Assert.That(
                 restarted.normalizedTime,
                 Is.LessThan(normalizedTimeBeforeRestart),
-                "A consecutive action request should restart Action from the beginning.");
+                "A consecutive action request should restart Action from the beginning."
+            );
             controller.StopAction();
         }
         finally
@@ -218,7 +226,9 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
     [UnityTest]
     public IEnumerator CharacterPreviewReplacementCleansPreviousVisual()
     {
-        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/UI/ViewModel.prefab");
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+            "Assets/Prefabs/UI/ViewModel.prefab"
+        );
         GameObject instance = Object.Instantiate(prefab);
         try
         {
@@ -230,7 +240,11 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
                 viewModel.setMeshName(key);
                 yield return null;
                 Assert.That(viewModel.transform.Find("VisualRoot").childCount, Is.EqualTo(1), key);
-                Assert.That(viewModel.ActiveVisualInstance.GetComponentsInChildren<Animator>(true), Has.Length.EqualTo(1), key);
+                Assert.That(
+                    viewModel.ActiveVisualInstance.GetComponentsInChildren<Animator>(true),
+                    Has.Length.EqualTo(1),
+                    key
+                );
             }
 
             // The first frame after prefab instantiation can report a zero delta time in
@@ -238,7 +252,10 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
             yield return new WaitForSeconds(0.05f);
             Assert.That(viewModel.rotate, Is.True);
             Assert.That(viewModel.rotationSpeed, Is.EqualTo(20.0f));
-            Assert.That(Quaternion.Angle(beforeRotation, viewModel.transform.rotation), Is.GreaterThan(0.0f));
+            Assert.That(
+                Quaternion.Angle(beforeRotation, viewModel.transform.rotation),
+                Is.GreaterThan(0.0f)
+            );
         }
         finally
         {
@@ -256,10 +273,16 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
         float setupDeadline = Time.realtimeSinceStartup + 10.0f;
         while (Time.realtimeSinceStartup < setupDeadline)
         {
-            foreach (CreatureComponent candidate in Object.FindObjectsByType<CreatureComponent>(FindObjectsSortMode.None))
+            foreach (
+                CreatureComponent candidate in Object.FindObjectsByType<CreatureComponent>(
+                    FindObjectsSortMode.None
+                )
+            )
             {
-                if (candidate.name == "Lena" &&
-                    candidate.GetComponent<CreaturePresentation>()?.AnimationController != null)
+                if (
+                    candidate.name == "Lena"
+                    && candidate.GetComponent<CreaturePresentation>()?.AnimationController != null
+                )
                 {
                     lena = candidate;
                     break;
@@ -282,7 +305,11 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
         foreach (Collider targetCollider in lena.GetComponentsInChildren<Collider>(true))
             Assert.That(targetCollider.enabled, Is.False);
         Assert.That(lena.GetComponent<ActionController>().enabled, Is.False);
-        Assert.That(lena.gameObject.activeSelf, Is.True, "Animated death should keep presentation active briefly.");
+        Assert.That(
+            lena.gameObject.activeSelf,
+            Is.True,
+            "Animated death should keep presentation active briefly."
+        );
 
         float deathDeadline = Time.realtimeSinceStartup + 6.0f;
         while (lena.gameObject.activeSelf && Time.realtimeSinceStartup < deathDeadline)
@@ -298,7 +325,7 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
             group = group,
             hands = hands,
             range = range,
-            damage = new Dice(1, 6, "slashing")
+            damage = new Dice(1, 6, "slashing"),
         };
     }
 }

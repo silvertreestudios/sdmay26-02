@@ -12,7 +12,7 @@ public class Team : MonoBehaviour
             return;
 
         TeamRules tr = TeamRules.GetInstance();
-        if(!tr.Contains(Name)) 
+        if (!tr.Contains(Name))
         {
             tr.AddHostileTeam(Name);
             tr.OneWayFriendly(Name, Name);

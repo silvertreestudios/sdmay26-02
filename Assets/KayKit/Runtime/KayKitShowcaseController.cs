@@ -16,19 +16,39 @@ namespace Game.KayKit
         private const float MaximumCameraDistance = 16.0f;
 
         [Header("Animation")]
-        [SerializeField] private KayKitAnimationLibrary animationLibrary;
-        [SerializeField] private GameObject adventurerRoot;
-        [SerializeField] private Animator adventurerAnimator;
-        [SerializeField] private GameObject skeletonRoot;
-        [SerializeField] private Animator skeletonAnimator;
+        [SerializeField]
+        private KayKitAnimationLibrary animationLibrary;
+
+        [SerializeField]
+        private GameObject adventurerRoot;
+
+        [SerializeField]
+        private Animator adventurerAnimator;
+
+        [SerializeField]
+        private GameObject skeletonRoot;
+
+        [SerializeField]
+        private Animator skeletonAnimator;
 
         [Header("Presentation")]
-        [SerializeField] private GameObject environmentRoot;
-        [SerializeField] private GameObject accessoryRoot;
-        [SerializeField] private Camera showcaseCamera;
-        [SerializeField] private Transform cameraFocus;
-        [SerializeField] private float cameraHeight = 3.2f;
-        [SerializeField] private float cameraDistance = 11.0f;
+        [SerializeField]
+        private GameObject environmentRoot;
+
+        [SerializeField]
+        private GameObject accessoryRoot;
+
+        [SerializeField]
+        private Camera showcaseCamera;
+
+        [SerializeField]
+        private Transform cameraFocus;
+
+        [SerializeField]
+        private float cameraHeight = 3.2f;
+
+        [SerializeField]
+        private float cameraDistance = 11.0f;
 
         private readonly List<KayKitAnimationEntry> playableEntries = new();
         private readonly List<KayKitAnimationEntry> visibleEntries = new();
@@ -59,17 +79,23 @@ namespace Game.KayKit
         public GameObject AccessoryRoot => accessoryRoot;
         public Camera ShowcaseCamera => showcaseCamera;
         public Transform CameraFocus => cameraFocus;
-        public int AvailableClipCount => animationLibrary == null
-            ? 0
-            : animationLibrary.Entries.Count(entry => entry.Clip != null);
-        public bool HasRequiredReferences => animationLibrary != null &&
-            adventurerRoot != null && adventurerAnimator != null &&
-            skeletonRoot != null && skeletonAnimator != null &&
-            environmentRoot != null && accessoryRoot != null &&
-            showcaseCamera != null && cameraFocus != null;
+        public int AvailableClipCount =>
+            animationLibrary == null
+                ? 0
+                : animationLibrary.Entries.Count(entry => entry.Clip != null);
+        public bool HasRequiredReferences =>
+            animationLibrary != null
+            && adventurerRoot != null
+            && adventurerAnimator != null
+            && skeletonRoot != null
+            && skeletonAnimator != null
+            && environmentRoot != null
+            && accessoryRoot != null
+            && showcaseCamera != null
+            && cameraFocus != null;
         public bool IsPlaying => isPlaying;
-        public KayKitAnimationEntry SelectedEntry => selectedEntryIndex >= 0 &&
-            selectedEntryIndex < playableEntries.Count
+        public KayKitAnimationEntry SelectedEntry =>
+            selectedEntryIndex >= 0 && selectedEntryIndex < playableEntries.Count
                 ? playableEntries[selectedEntryIndex]
                 : null;
         public float NormalizedTime => GetNormalizedTime();
@@ -81,17 +107,16 @@ namespace Game.KayKit
             GameObject environment,
             GameObject accessory,
             Camera camera,
-            Transform focus)
+            Transform focus
+        )
         {
             animationLibrary = library;
             adventurerRoot = adventurer;
-            adventurerAnimator = adventurer == null
-                ? null
-                : adventurer.GetComponentInChildren<Animator>(true);
+            adventurerAnimator =
+                adventurer == null ? null : adventurer.GetComponentInChildren<Animator>(true);
             skeletonRoot = skeleton;
-            skeletonAnimator = skeleton == null
-                ? null
-                : skeleton.GetComponentInChildren<Animator>(true);
+            skeletonAnimator =
+                skeleton == null ? null : skeleton.GetComponentInChildren<Animator>(true);
             environmentRoot = environment;
             accessoryRoot = accessory;
             showcaseCamera = camera;
@@ -109,7 +134,8 @@ namespace Game.KayKit
                 return false;
 
             int index = playableEntries.FindIndex(entry =>
-                string.Equals(entry.Id, clipId, StringComparison.OrdinalIgnoreCase));
+                string.Equals(entry.Id, clipId, StringComparison.OrdinalIgnoreCase)
+            );
             if (index < 0)
                 return false;
 
@@ -125,7 +151,12 @@ namespace Game.KayKit
         private void Update()
         {
             if (spinAccessory && accessoryRoot != null && accessoryRoot.activeInHierarchy)
-                accessoryRoot.transform.Rotate(0.0f, 25.0f * Time.unscaledDeltaTime, 0.0f, Space.World);
+                accessoryRoot.transform.Rotate(
+                    0.0f,
+                    25.0f * Time.unscaledDeltaTime,
+                    0.0f,
+                    Space.World
+                );
 
             KayKitAnimationEntry entry = SelectedEntry;
             if (!isPlaying || entry == null || entry.Loop || clipPlayables.Count == 0)
@@ -149,21 +180,28 @@ namespace Game.KayKit
 
             Rect safeArea = Screen.safeArea;
             float width = Mathf.Clamp(safeArea.width * 0.29f, 330.0f, 430.0f);
-            Rect panel = new(safeArea.x + 12.0f, safeArea.y + 12.0f, width, safeArea.height - 24.0f);
+            Rect panel = new(
+                safeArea.x + 12.0f,
+                safeArea.y + 12.0f,
+                width,
+                safeArea.height - 24.0f
+            );
 
             GUILayout.BeginArea(panel, GUI.skin.box);
             GUILayout.Label("KayKit Showcase", headerStyle);
             GUILayout.Label(
-                "Press Play, then browse a category or search for any imported clip. " +
-                "Both Humanoid rigs preview the same animation.",
-                metadataStyle);
+                "Press Play, then browse a category or search for any imported clip. "
+                    + "Both Humanoid rigs preview the same animation.",
+                metadataStyle
+            );
             GUILayout.Space(6.0f);
 
             if (!HasRequiredReferences)
             {
                 GUILayout.Label(
                     "The scene is missing one or more required showcase references.",
-                    metadataStyle);
+                    metadataStyle
+                );
                 GUILayout.EndArea();
                 return;
             }
@@ -195,10 +233,18 @@ namespace Game.KayKit
             ConfigureAnimator(skeletonAnimator);
 
             int defaultIndex = playableEntries.FindIndex(entry =>
-                string.Equals(entry.Id, DefaultClipId, StringComparison.OrdinalIgnoreCase));
+                string.Equals(entry.Id, DefaultClipId, StringComparison.OrdinalIgnoreCase)
+            );
             SelectEntry(defaultIndex >= 0 ? defaultIndex : 0);
-            int categoryIndex = Array.FindIndex(categories, category =>
-                string.Equals(category, SelectedEntry?.SourceCategory, StringComparison.OrdinalIgnoreCase));
+            int categoryIndex = Array.FindIndex(
+                categories,
+                category =>
+                    string.Equals(
+                        category,
+                        SelectedEntry?.SourceCategory,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+            );
             selectedCategoryIndex = Mathf.Max(0, categoryIndex);
             RebuildVisibleEntries();
         }
@@ -208,9 +254,11 @@ namespace Game.KayKit
             playableEntries.Clear();
             if (animationLibrary != null)
             {
-                playableEntries.AddRange(animationLibrary.Entries
-                    .Where(entry => entry.Clip != null)
-                    .OrderBy(entry => entry.Id, StringComparer.Ordinal));
+                playableEntries.AddRange(
+                    animationLibrary
+                        .Entries.Where(entry => entry.Clip != null)
+                        .OrderBy(entry => entry.Id, StringComparer.Ordinal)
+                );
             }
 
             categories = playableEntries
@@ -221,7 +269,8 @@ namespace Game.KayKit
             selectedCategoryIndex = Mathf.Clamp(
                 selectedCategoryIndex,
                 0,
-                Mathf.Max(0, categories.Length - 1));
+                Mathf.Max(0, categories.Length - 1)
+            );
             RebuildVisibleEntries();
         }
 
@@ -258,7 +307,8 @@ namespace Game.KayKit
             AnimationPlayableOutput output = AnimationPlayableOutput.Create(
                 playableGraph,
                 outputName,
-                target);
+                target
+            );
             output.SetSourcePlayable(clipPlayable);
             clipPlayables.Add(clipPlayable);
         }
@@ -282,8 +332,12 @@ namespace Game.KayKit
             GUILayout.EndHorizontal();
             bool nextSpinAccessory = GUILayout.Toggle(spinAccessory, "Rotate ranger bow display");
 
-            if (nextAdventurer == showAdventurer && nextSkeleton == showSkeleton &&
-                nextEnvironment == showEnvironment && nextSpinAccessory == spinAccessory)
+            if (
+                nextAdventurer == showAdventurer
+                && nextSkeleton == showSkeleton
+                && nextEnvironment == showEnvironment
+                && nextSpinAccessory == spinAccessory
+            )
             {
                 return;
             }
@@ -307,9 +361,10 @@ namespace Game.KayKit
 
             GUILayout.Label(Humanize(entry.Clip.name), headerStyle);
             GUILayout.Label(
-                $"{entry.SourceCategory}  |  {entry.Duration:0.00}s  |  " +
-                (entry.Loop ? "Looping" : "One-shot"),
-                metadataStyle);
+                $"{entry.SourceCategory}  |  {entry.Duration:0.00}s  |  "
+                    + (entry.Loop ? "Looping" : "One-shot"),
+                metadataStyle
+            );
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Previous"))
@@ -332,7 +387,8 @@ namespace Game.KayKit
             float nextSpeed = GUILayout.HorizontalSlider(
                 playbackSpeed,
                 MinimumPlaybackSpeed,
-                MaximumPlaybackSpeed);
+                MaximumPlaybackSpeed
+            );
             GUILayout.Label($"{nextSpeed:0.00}x", GUILayout.Width(42.0f));
             GUILayout.EndHorizontal();
             if (!Mathf.Approximately(playbackSpeed, nextSpeed))
@@ -344,10 +400,7 @@ namespace Game.KayKit
             GUILayout.Label($"Clips ({visibleEntries.Count}/{playableEntries.Count})", headerStyle);
             if (categories.Length > 0)
             {
-                int nextCategory = GUILayout.SelectionGrid(
-                    selectedCategoryIndex,
-                    categories,
-                    2);
+                int nextCategory = GUILayout.SelectionGrid(selectedCategoryIndex, categories, 2);
                 if (nextCategory != selectedCategoryIndex)
                 {
                     selectedCategoryIndex = nextCategory;
@@ -405,7 +458,8 @@ namespace Game.KayKit
             float nextDistance = GUILayout.HorizontalSlider(
                 cameraDistance,
                 MinimumCameraDistance,
-                MaximumCameraDistance);
+                MaximumCameraDistance
+            );
             GUILayout.EndHorizontal();
             if (!Mathf.Approximately(cameraDistance, nextDistance))
             {
@@ -424,7 +478,8 @@ namespace Game.KayKit
             if (visibleIndex < 0)
                 visibleIndex = 0;
             else
-                visibleIndex = (visibleIndex + offset + visibleEntries.Count) % visibleEntries.Count;
+                visibleIndex =
+                    (visibleIndex + offset + visibleEntries.Count) % visibleEntries.Count;
 
             SelectEntry(playableEntries.IndexOf(visibleEntries[visibleIndex]));
         }
@@ -512,17 +567,23 @@ namespace Game.KayKit
             bool isSearching = !string.IsNullOrWhiteSpace(searchText);
             foreach (KayKitAnimationEntry entry in playableEntries)
             {
-                if (!isSearching && !string.Equals(
+                if (
+                    !isSearching
+                    && !string.Equals(
                         entry.SourceCategory,
                         category,
-                        StringComparison.OrdinalIgnoreCase))
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
                 {
                     continue;
                 }
 
-                if (isSearching &&
-                    entry.Clip.name.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) < 0 &&
-                    entry.Id.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) < 0)
+                if (
+                    isSearching
+                    && entry.Clip.name.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) < 0
+                    && entry.Id.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) < 0
+                )
                 {
                     continue;
                 }
@@ -561,25 +622,16 @@ namespace Game.KayKit
             {
                 fontSize = 16,
                 fontStyle = FontStyle.Bold,
-                wordWrap = true
+                wordWrap = true,
             };
-            metadataStyle = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 12,
-                wordWrap = true
-            };
-            selectedClipStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontStyle = FontStyle.Bold
-            };
+            metadataStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
+            selectedClipStyle = new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold };
             selectedClipStyle.normal.textColor = new Color(1.0f, 0.85f, 0.35f);
         }
 
         private static string Humanize(string value)
         {
-            return string.IsNullOrWhiteSpace(value)
-                ? "Unnamed"
-                : value.Replace('_', ' ');
+            return string.IsNullOrWhiteSpace(value) ? "Unnamed" : value.Replace('_', ' ');
         }
     }
 }

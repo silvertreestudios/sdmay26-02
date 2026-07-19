@@ -1,0 +1,17 @@
+repos:
+  - repo: local
+    hooks:
+      - id: dotnet-tool-restore
+        name: Restore pinned .NET tools
+        entry: dotnet tool restore
+        language: system
+        always_run: true
+        pass_filenames: false
+        description: Restore the tools declared in .config/dotnet-tools.json.
+
+      - id: csharpier
+        name: Format staged C# with CSharpier
+        entry: dotnet tool run csharpier format
+        language: system
+        types: [c#]
+        description: Format staged C# files using the repository-pinned CSharpier version.

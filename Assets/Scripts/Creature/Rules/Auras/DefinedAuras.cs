@@ -5,9 +5,11 @@ namespace Game.Creature.Rules
 {
     public static class DefinedAuras
     {
-        private static readonly Dictionary<string, ICreatureAuraRule> Auras = new(StringComparer.OrdinalIgnoreCase)
+        private static readonly Dictionary<string, ICreatureAuraRule> Auras = new(
+            StringComparer.OrdinalIgnoreCase
+        )
         {
-            { RottingAuraRule.RuleSlug, new RottingAuraRule() }
+            { RottingAuraRule.RuleSlug, new RottingAuraRule() },
         };
 
         public static ICreatureAuraRule TryGet(string slug)

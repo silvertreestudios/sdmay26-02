@@ -1,9 +1,9 @@
-using Game.Creature;
-using Game.Creature.Rules;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Creature;
+using Game.Creature.Rules;
 using UnityEngine;
 
 namespace Game.Combat.Spells
@@ -18,7 +18,8 @@ namespace Game.Combat.Spells
         public PreparedSpell Spell => spell;
         public override string ActionName => BuildActionName(spell, variantActionCost);
 
-        public CastSpellAction(PreparedSpell spell, uint actionCost, ISpellDefinition definition) : base(actionCost)
+        public CastSpellAction(PreparedSpell spell, uint actionCost, ISpellDefinition definition)
+            : base(actionCost)
         {
             this.spell = spell;
             variantActionCost = actionCost;
@@ -27,13 +28,18 @@ namespace Game.Combat.Spells
 
         public static void AddSpellActions(GameObject caster)
         {
-            CreatureComponent creature = caster != null ? caster.GetComponent<CreatureComponent>() : null;
-            ActionController controller = caster != null ? caster.GetComponent<ActionController>() : null;
+            CreatureComponent creature =
+                caster != null ? caster.GetComponent<CreatureComponent>() : null;
+            ActionController controller =
+                caster != null ? caster.GetComponent<ActionController>() : null;
             SpellcastingState state = creature?.Prepared?.Spellcasting;
             if (controller == null || state == null)
                 return;
 
-            HashSet<string> existing = controller.GetActions().Select(action => action.ActionName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> existing = controller
+                .GetActions()
+                .Select(action => action.ActionName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (PreparedSpell preparedSpell in state.PreparedSpells)
             {
                 if (!SpellRegistry.TryGet(preparedSpell.Slug, out ISpellDefinition spellDefinition))
@@ -53,9 +59,20 @@ namespace Game.Combat.Spells
             }
         }
 
-        public CastSpellResult Cast(GameObject caster, IReadOnlyList<GameObject> targets = null, GridPublic.AreaTargetResult area = null)
+        public CastSpellResult Cast(
+            GameObject caster,
+            IReadOnlyList<GameObject> targets = null,
+            GridPublic.AreaTargetResult area = null
+        )
         {
-            return SpellcastingRuntime.Cast(caster, spell, variantActionCost, targets, area, spendActions: true);
+            return SpellcastingRuntime.Cast(
+                caster,
+                spell,
+                variantActionCost,
+                targets,
+                area,
+                spendActions: true
+            );
         }
 
         protected override IEnumerator MFInvoke(GameObject caster)
@@ -68,7 +85,13 @@ namespace Game.Combat.Spells
                 yield break;
             }
 
-            SpellCastContext context = new(caster, spell, variantActionCost, spendActions: true, definition);
+            SpellCastContext context = new(
+                caster,
+                spell,
+                variantActionCost,
+                spendActions: true,
+                definition
+            );
             yield return definition.SelectAndCast(context);
         }
 

@@ -23,10 +23,14 @@ namespace Game.KayKit.Editor
         {
             TextAsset source = RequireAsset<TextAsset>(JsonPath);
             KayKitDungeonCatalog catalog = RequireAsset<KayKitDungeonCatalog>(
-                KayKitSetupTool.DungeonCatalogPath);
-            if (!ConfirmSceneTransition(
+                KayKitSetupTool.DungeonCatalogPath
+            );
+            if (
+                !ConfirmSceneTransition(
                     HasDirtyOpenScenes(),
-                    EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo))
+                    EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo
+                )
+            )
             {
                 return;
             }
@@ -37,14 +41,18 @@ namespace Game.KayKit.Editor
 
             Map map = Object.FindFirstObjectByType<Map>();
             if (map == null)
-                throw new InvalidOperationException("Source scene does not contain a Map component.");
+                throw new InvalidOperationException(
+                    "Source scene does not contain a Map component."
+                );
             map.ClearLegacyBitmapGeneratedContent();
             Undo.RecordObject(map, "Configure KayKit dungeon JSON source");
             map.ConfigureJson(source, catalog);
             EditorUtility.SetDirty(map);
             PrefabUtility.RecordPrefabInstancePropertyModifications(map);
             if (!map.TryGenerate(out MapSourceValidationResult validation))
-                throw new InvalidOperationException(string.Join(Environment.NewLine, validation.Errors));
+                throw new InvalidOperationException(
+                    string.Join(Environment.NewLine, validation.Errors)
+                );
 
             RemoveExistingCombatants(scene);
             RemoveRootObjects(scene, "Grass");
@@ -52,16 +60,22 @@ namespace Game.KayKit.Editor
             ConfigureCamera();
             ConfigureLighting();
 
-            if (EditorBuildSettings.scenes.Any(entry =>
-                    string.Equals(entry.path, ScenePath, StringComparison.OrdinalIgnoreCase)))
+            if (
+                EditorBuildSettings.scenes.Any(entry =>
+                    string.Equals(entry.path, ScenePath, StringComparison.OrdinalIgnoreCase)
+                )
+            )
             {
                 throw new InvalidOperationException(
-                    "KayKitDungeonExample must remain excluded from EditorBuildSettings.");
+                    "KayKitDungeonExample must remain excluded from EditorBuildSettings."
+                );
             }
 
             EditorSceneManager.MarkSceneDirty(scene);
             if (!EditorSceneManager.SaveScene(scene, ScenePath, false))
-                throw new InvalidOperationException($"Could not save generated scene at {ScenePath}.");
+                throw new InvalidOperationException(
+                    $"Could not save generated scene at {ScenePath}."
+                );
             AssetDatabase.SaveAssets();
             Debug.Log($"Generated standalone KayKit dungeon example at {ScenePath}.");
         }
@@ -84,35 +98,50 @@ namespace Game.KayKit.Editor
 
         private static void CreateEncounter()
         {
-            InstantiateCreature("Assets/Prefabs/Creatures/Lena.prefab", "Lena", "Players", new Vector3(21f, 0f, 22f));
-            InstantiateCreature("Assets/Prefabs/Creatures/Torgrim.prefab", "Torgrim", "Players", new Vector3(21f, 0f, 24f));
+            InstantiateCreature(
+                "Assets/Prefabs/Creatures/Lena.prefab",
+                "Lena",
+                "Players",
+                new Vector3(21f, 0f, 22f)
+            );
+            InstantiateCreature(
+                "Assets/Prefabs/Creatures/Torgrim.prefab",
+                "Torgrim",
+                "Players",
+                new Vector3(21f, 0f, 24f)
+            );
             InstantiateCreature(
                 "Assets/Prefabs/Creatures/zombie-shambler.prefab",
                 "Zombie Shambler A",
                 "Enemies",
-                new Vector3(28f, 0f, 27f));
+                new Vector3(28f, 0f, 27f)
+            );
             InstantiateCreature(
                 "Assets/Prefabs/Creatures/zombie-shambler.prefab",
                 "Zombie Shambler B",
                 "Enemies",
-                new Vector3(27f, 0f, 25f));
+                new Vector3(27f, 0f, 25f)
+            );
             InstantiateCreature(
                 "Assets/Prefabs/Creatures/skeleton-guard.prefab",
                 "Skeleton Guard A",
                 "Enemies",
-                new Vector3(28f, 0f, 22f));
+                new Vector3(28f, 0f, 22f)
+            );
             InstantiateCreature(
                 "Assets/Prefabs/Creatures/skeleton-guard.prefab",
                 "Skeleton Guard B",
                 "Enemies",
-                new Vector3(24f, 0f, 27f));
+                new Vector3(24f, 0f, 27f)
+            );
         }
 
         private static void InstantiateCreature(
             string path,
             string name,
             string teamName,
-            Vector3 position)
+            Vector3 position
+        )
         {
             GameObject prefab = RequireAsset<GameObject>(path);
             GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
@@ -127,12 +156,17 @@ namespace Game.KayKit.Editor
 
         private static void ConfigureCamera()
         {
-            Camera camera = SelectGameplayCamera(Object.FindObjectsByType<Camera>(
-                FindObjectsInactive.Include,
-                FindObjectsSortMode.None));
+            Camera camera = SelectGameplayCamera(
+                Object.FindObjectsByType<Camera>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None
+                )
+            );
             CameraManager cameraManager = Object.FindFirstObjectByType<CameraManager>();
             if (cameraManager == null)
-                throw new InvalidOperationException("Source scene does not contain a CameraManager.");
+                throw new InvalidOperationException(
+                    "Source scene does not contain a CameraManager."
+                );
 
             ApplyCameraConfiguration(camera);
             cameraManager.minCamearYLimit = CameraMinY;
@@ -144,16 +178,18 @@ namespace Game.KayKit.Editor
         {
             Camera[] candidates = cameras
                 .Where(candidate =>
-                    candidate != null &&
-                    candidate.enabled &&
-                    candidate.gameObject.activeInHierarchy &&
-                    candidate.targetTexture == null &&
-                    candidate.CompareTag("MainCamera"))
+                    candidate != null
+                    && candidate.enabled
+                    && candidate.gameObject.activeInHierarchy
+                    && candidate.targetTexture == null
+                    && candidate.CompareTag("MainCamera")
+                )
                 .ToArray();
             if (candidates.Length != 1)
             {
                 throw new InvalidOperationException(
-                    $"Source scene must contain exactly one active, enabled, unbound MainCamera; found {candidates.Length}.");
+                    $"Source scene must contain exactly one active, enabled, unbound MainCamera; found {candidates.Length}."
+                );
             }
 
             return candidates[0];
@@ -174,10 +210,13 @@ namespace Game.KayKit.Editor
 
         private static void ConfigureLighting()
         {
-            Light light = Object.FindObjectsByType<Light>(FindObjectsSortMode.None)
+            Light light = Object
+                .FindObjectsByType<Light>(FindObjectsSortMode.None)
                 .FirstOrDefault(candidate => candidate.type == LightType.Directional);
             if (light == null)
-                throw new InvalidOperationException("Source scene does not contain a Directional Light.");
+                throw new InvalidOperationException(
+                    "Source scene does not contain a Directional Light."
+                );
 
             light.intensity = 0.9f;
             light.color = new Color(0.82f, 0.88f, 1f);
@@ -196,15 +235,19 @@ namespace Game.KayKit.Editor
 
         private static void RemoveRootObjects(Scene scene, string name)
         {
-            foreach (GameObject root in scene.GetRootGameObjects()
-                         .Where(root => string.Equals(root.name, name, StringComparison.Ordinal))
-                         .ToArray())
+            foreach (
+                GameObject root in scene
+                    .GetRootGameObjects()
+                    .Where(root => string.Equals(root.name, name, StringComparison.Ordinal))
+                    .ToArray()
+            )
             {
                 Object.DestroyImmediate(root);
             }
         }
 
-        private static T RequireAsset<T>(string path) where T : Object
+        private static T RequireAsset<T>(string path)
+            where T : Object
         {
             T asset = AssetDatabase.LoadAssetAtPath<T>(path);
             if (asset == null)

@@ -30,9 +30,7 @@ namespace Game.Rules.Runtime
         /// <param name="store">The store used for snapshots and reducer commits.</param>
         /// <exception cref="ArgumentNullException"><paramref name="store"/> is <see langword="null"/>.</exception>
         public RuleDispatcherBuilder(IRulesStore store)
-            : this(store, new RandomRollService(), new SequentialOpIdProvider())
-        {
-        }
+            : this(store, new RandomRollService(), new SequentialOpIdProvider()) { }
 
         /// <summary>
         /// Initializes a dispatcher builder with an explicit operation-ID source and production rolls.
@@ -43,9 +41,7 @@ namespace Game.Rules.Runtime
         /// <paramref name="store"/> or <paramref name="ids"/> is <see langword="null"/>.
         /// </exception>
         public RuleDispatcherBuilder(IRulesStore store, IOpIdProvider ids)
-            : this(store, new RandomRollService(), ids)
-        {
-        }
+            : this(store, new RandomRollService(), ids) { }
 
         /// <summary>
         /// Initializes a dispatcher builder with an explicit roll source and sequential operation IDs.
@@ -56,9 +52,7 @@ namespace Game.Rules.Runtime
         /// <paramref name="store"/> or <paramref name="rollService"/> is <see langword="null"/>.
         /// </exception>
         public RuleDispatcherBuilder(IRulesStore store, IRollService rollService)
-            : this(store, rollService, new SequentialOpIdProvider())
-        {
-        }
+            : this(store, rollService, new SequentialOpIdProvider()) { }
 
         /// <summary>
         /// Initializes a dispatcher builder with explicit roll and operation-ID sources.
@@ -67,10 +61,7 @@ namespace Game.Rules.Runtime
         /// <param name="rollService">The required production, replay, or scripted roll source.</param>
         /// <param name="ids">The required operation identifier provider.</param>
         /// <exception cref="ArgumentNullException">Any dependency is <see langword="null"/>.</exception>
-        public RuleDispatcherBuilder(
-            IRulesStore store,
-            IRollService rollService,
-            IOpIdProvider ids)
+        public RuleDispatcherBuilder(IRulesStore store, IRollService rollService, IOpIdProvider ids)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.rollService = rollService ?? throw new ArgumentNullException(nameof(rollService));
@@ -92,7 +83,8 @@ namespace Game.Rules.Runtime
         /// </exception>
         public RuleDispatcherBuilder RegisterHandler<TOp, TResult>(
             IOpHandler<TOp, TResult> handler,
-            InvocationPolicy policy = InvocationPolicy.ExternalAllowed)
+            InvocationPolicy policy = InvocationPolicy.ExternalAllowed
+        )
             where TOp : IRuleOp<TResult>
         {
             if (handler == null)
@@ -117,13 +109,17 @@ namespace Game.Rules.Runtime
         /// </exception>
         public RuleDispatcherBuilder RegisterReducer<TOp, TResult>(
             IOpReducer<TOp, TResult> reducer,
-            RuleSource source)
+            RuleSource source
+        )
             where TOp : IRuleOp<TResult>
         {
             if (reducer == null)
                 throw new ArgumentNullException(nameof(reducer));
             if (source.IsEmpty)
-                throw new ArgumentException("A reducer registration requires a rule source.", nameof(source));
+                throw new ArgumentException(
+                    "A reducer registration requires a rule source.",
+                    nameof(source)
+                );
             Add(new ReducerRegistration<TOp, TResult>(reducer, source));
             return this;
         }
@@ -156,13 +152,17 @@ namespace Game.Rules.Runtime
         /// <exception cref="InvalidOperationException">Action lifecycle services were already configured.</exception>
         public RuleDispatcherBuilder UseActionLifecycle(
             IActionCatalog catalog,
-            IActionProfileResolver profileResolver)
+            IActionProfileResolver profileResolver
+        )
         {
             if (actionRuntimeConfiguration.IsConfigured)
-                throw new InvalidOperationException("Action lifecycle services are already configured.");
+                throw new InvalidOperationException(
+                    "Action lifecycle services are already configured."
+                );
             actionRuntimeConfiguration = ActionRuntimeConfiguration.Configure(
                 catalog,
-                profileResolver);
+                profileResolver
+            );
             return this;
         }
 
@@ -176,8 +176,7 @@ namespace Game.Rules.Runtime
         /// <exception cref="InvalidOperationException">
         /// <typeparamref name="TOp"/> does not derive from <see cref="ActionOp{TResult}"/>.
         /// </exception>
-        public RuleDispatcherBuilder RegisterActionValidator<TOp>(
-            IActionValidator<TOp> validator)
+        public RuleDispatcherBuilder RegisterActionValidator<TOp>(IActionValidator<TOp> validator)
             where TOp : IRuleOp
         {
             if (validator == null)
@@ -185,12 +184,16 @@ namespace Game.Rules.Runtime
             if (!typeof(IActionOpMetadata).IsAssignableFrom(typeof(TOp)))
             {
                 throw new InvalidOperationException(
-                    $"{typeof(TOp).Name} is not an ActionOp and cannot use action validators.");
+                    $"{typeof(TOp).Name} is not an ActionOp and cannot use action validators."
+                );
             }
 
-            if (!actionValidators.TryGetValue(
-                typeof(TOp),
-                out List<IActionValidatorRegistration> registrationsForType))
+            if (
+                !actionValidators.TryGetValue(
+                    typeof(TOp),
+                    out List<IActionValidatorRegistration> registrationsForType
+                )
+            )
             {
                 registrationsForType = new List<IActionValidatorRegistration>();
                 actionValidators.Add(typeof(TOp), registrationsForType);
@@ -231,32 +234,48 @@ namespace Game.Rules.Runtime
                 typeof(SavingThrowOp),
                 typeof(CollectSkillCheckModifiersOp),
                 typeof(CollectSavingThrowModifiersOp),
-                typeof(CollectAttackModifiersOp)
+                typeof(CollectAttackModifiersOp),
             };
             foreach (Type reservedType in reservedTypes)
             {
                 if (registrations.ContainsKey(reservedType))
                 {
                     throw new InvalidOperationException(
-                        $"{reservedType.Name} is reserved for the engine-owned check runtime.");
+                        $"{reservedType.Name} is reserved for the engine-owned check runtime."
+                    );
                 }
             }
 
-            Add(new HandlerRegistration<SkillCheckOp, CheckOutcome>(
-                new SkillCheckHandler(),
-                InvocationPolicy.NestedOnly));
-            Add(new HandlerRegistration<SavingThrowOp, CheckOutcome>(
-                new SavingThrowHandler(),
-                InvocationPolicy.NestedOnly));
-            Add(new HandlerRegistration<CollectSkillCheckModifiersOp, ModifierCollection>(
-                new CollectSkillCheckModifiersHandler(selectors),
-                InvocationPolicy.NestedOnly));
-            Add(new HandlerRegistration<CollectSavingThrowModifiersOp, ModifierCollection>(
-                new CollectSavingThrowModifiersHandler(selectors),
-                InvocationPolicy.NestedOnly));
-            Add(new HandlerRegistration<CollectAttackModifiersOp, ModifierCollection>(
-                new CollectAttackModifiersHandler(selectors),
-                InvocationPolicy.NestedOnly));
+            Add(
+                new HandlerRegistration<SkillCheckOp, CheckOutcome>(
+                    new SkillCheckHandler(),
+                    InvocationPolicy.NestedOnly
+                )
+            );
+            Add(
+                new HandlerRegistration<SavingThrowOp, CheckOutcome>(
+                    new SavingThrowHandler(),
+                    InvocationPolicy.NestedOnly
+                )
+            );
+            Add(
+                new HandlerRegistration<CollectSkillCheckModifiersOp, ModifierCollection>(
+                    new CollectSkillCheckModifiersHandler(selectors),
+                    InvocationPolicy.NestedOnly
+                )
+            );
+            Add(
+                new HandlerRegistration<CollectSavingThrowModifiersOp, ModifierCollection>(
+                    new CollectSavingThrowModifiersHandler(selectors),
+                    InvocationPolicy.NestedOnly
+                )
+            );
+            Add(
+                new HandlerRegistration<CollectAttackModifiersOp, ModifierCollection>(
+                    new CollectAttackModifiersHandler(selectors),
+                    InvocationPolicy.NestedOnly
+                )
+            );
             return this;
         }
 
@@ -307,39 +326,58 @@ namespace Game.Rules.Runtime
         /// <returns>A dispatcher that owns its registration map, trace, and diagnostics.</returns>
         public RuleDispatcher Build()
         {
-            Dictionary<Type, IRegistration> completedRegistrations =
-                new Dictionary<Type, IRegistration>(registrations);
+            Dictionary<Type, IRegistration> completedRegistrations = new Dictionary<
+                Type,
+                IRegistration
+            >(registrations);
             bool hasActionHandler = completedRegistrations.Values.Any(registration =>
-                typeof(IActionOpMetadata).IsAssignableFrom(registration.OpType));
-            if ((hasActionHandler || actionValidators.Count > 0) &&
-                !actionRuntimeConfiguration.IsConfigured)
+                typeof(IActionOpMetadata).IsAssignableFrom(registration.OpType)
+            );
+            if (
+                (hasActionHandler || actionValidators.Count > 0)
+                && !actionRuntimeConfiguration.IsConfigured
+            )
             {
                 throw new InvalidOperationException(
-                    "Action handlers and validators require UseActionLifecycle before Build.");
+                    "Action handlers and validators require UseActionLifecycle before Build."
+                );
             }
-            foreach (IRegistration actionRegistration in completedRegistrations.Values.Where(
-                registration => typeof(IActionOpMetadata).IsAssignableFrom(registration.OpType)))
+            foreach (
+                IRegistration actionRegistration in completedRegistrations.Values.Where(
+                    registration => typeof(IActionOpMetadata).IsAssignableFrom(registration.OpType)
+                )
+            )
             {
                 if (actionRegistration.IsReducer)
                 {
                     throw new InvalidOperationException(
-                        $"Action operation {actionRegistration.OpType.Name} must use a feature handler, not a reducer.");
+                        $"Action operation {actionRegistration.OpType.Name} must use a feature handler, not a reducer."
+                    );
                 }
             }
 
             if (actionRuntimeConfiguration.IsConfigured)
             {
-                foreach (KeyValuePair<Type, List<IActionValidatorRegistration>> pair in actionValidators)
+                foreach (
+                    KeyValuePair<Type, List<IActionValidatorRegistration>> pair in actionValidators
+                )
                 {
-                    if (!completedRegistrations.TryGetValue(pair.Key, out IRegistration registration))
+                    if (
+                        !completedRegistrations.TryGetValue(
+                            pair.Key,
+                            out IRegistration registration
+                        )
+                    )
                     {
                         throw new InvalidOperationException(
-                            $"Action validators for {pair.Key.Name} require a registered handler.");
+                            $"Action validators for {pair.Key.Name} require a registered handler."
+                        );
                     }
                     if (registration.IsReducer)
                     {
                         throw new InvalidOperationException(
-                            $"Action operation {pair.Key.Name} must use a feature handler, not a reducer.");
+                            $"Action operation {pair.Key.Name} must use a feature handler, not a reducer."
+                        );
                     }
                 }
 
@@ -347,17 +385,22 @@ namespace Game.Rules.Runtime
                     completedRegistrations,
                     new HandlerRegistration<ActionBegunOp, ActionStartOutcome>(
                         new ActionBegunHandler(),
-                        InvocationPolicy.NestedOnly));
+                        InvocationPolicy.NestedOnly
+                    )
+                );
                 AddLifecycleRegistration(
                     completedRegistrations,
                     new ReducerRegistration<CommitActionCostsOp, ActionCostsOutcome>(
                         new CommitActionCostsReducer(),
                         RuleSource.FromSlug("action-lifecycle"),
-                        ResolverMiddlewarePolicy.Disabled));
+                        ResolverMiddlewarePolicy.Disabled
+                    )
+                );
             }
 
             ActionRuntime actionRuntime = actionRuntimeConfiguration.CreateRuntime(
-                actionValidators);
+                actionValidators
+            );
             ruleRegistry.ValidateResolvers(completedRegistrations);
             return new RuleDispatcher(
                 store,
@@ -365,33 +408,40 @@ namespace Game.Rules.Runtime
                 rollService,
                 completedRegistrations,
                 ruleRegistry,
-                actionRuntime);
+                actionRuntime
+            );
         }
 
         private static void AddLifecycleRegistration(
             IDictionary<Type, IRegistration> completedRegistrations,
-            IRegistration registration)
+            IRegistration registration
+        )
         {
             if (completedRegistrations.ContainsKey(registration.OpType))
             {
                 throw new InvalidOperationException(
-                    $"{registration.OpType.Name} is reserved for the engine-owned action lifecycle.");
+                    $"{registration.OpType.Name} is reserved for the engine-owned action lifecycle."
+                );
             }
             completedRegistrations.Add(registration.OpType, registration);
         }
 
         private void Add(IRegistration registration)
         {
-            if (registration.OpType.IsGenericType &&
-                registration.OpType.GetGenericTypeDefinition() == typeof(PromptChoiceOp<>) &&
-                !(registration is IPromptRegistration))
+            if (
+                registration.OpType.IsGenericType
+                && registration.OpType.GetGenericTypeDefinition() == typeof(PromptChoiceOp<>)
+                && !(registration is IPromptRegistration)
+            )
             {
                 throw new InvalidOperationException(
-                    $"{registration.OpType.Name} is reserved for UsePromptAdapter.");
+                    $"{registration.OpType.Name} is reserved for UsePromptAdapter."
+                );
             }
             if (registrations.ContainsKey(registration.OpType))
                 throw new InvalidOperationException(
-                    $"A resolver is already registered for {registration.OpType.Name}.");
+                    $"A resolver is already registered for {registration.OpType.Name}."
+                );
             registrations.Add(registration.OpType, registration);
         }
     }

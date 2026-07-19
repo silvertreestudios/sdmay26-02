@@ -1,24 +1,23 @@
 using System.Collections;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
-using UnityEngine.SceneManagement;
 
 namespace TestsUI
 {
     public class MainMenuTests : PlayModeBase
     {
-
         [UnitySetUp]
         public override IEnumerator Setup()
         {
             Time.timeScale = 1f;
             yield return SceneManager.LoadSceneAsync("MainMenuScene");
-            
+
             doc = Object.FindFirstObjectByType<UIDocument>();
             Assert.IsNotNull(doc, "UIDocument not found in MainMenuScene");
-            
+
             root = doc.rootVisualElement;
             Assert.IsNotNull(root, "Root VisualElement not found in UIDocument");
         }
@@ -51,7 +50,10 @@ namespace TestsUI
         [UnityTest]
         public IEnumerator AllButtonsExist()
         {
-            Assert.IsNotNull(root.Q<Button>("CharacterCreationButton"), "Character Creation button not found");
+            Assert.IsNotNull(
+                root.Q<Button>("CharacterCreationButton"),
+                "Character Creation button not found"
+            );
             Assert.IsNotNull(root.Q<Button>("QuickPlayButton"), "Quick Play button not found");
             Assert.IsNotNull(root.Q<Button>("OptionsButton"), "Options button not found");
             Assert.IsNotNull(root.Q<Button>("ExitButton"), "Exit button not found");
@@ -65,10 +67,22 @@ namespace TestsUI
         [UnityTest]
         public IEnumerator ButtonsAreInteractable()
         {
-            Assert.IsTrue(root.Q<Button>("CharacterCreationButton").enabledSelf, "Character Creation button should be interactable");
-            Assert.IsTrue(root.Q<Button>("QuickPlayButton").enabledSelf, "Quick Play button should be interactable");
-            Assert.IsTrue(root.Q<Button>("OptionsButton").enabledSelf, "Options button should be interactable");
-            Assert.IsTrue(root.Q<Button>("ExitButton").enabledSelf, "Exit button should be interactable");
+            Assert.IsTrue(
+                root.Q<Button>("CharacterCreationButton").enabledSelf,
+                "Character Creation button should be interactable"
+            );
+            Assert.IsTrue(
+                root.Q<Button>("QuickPlayButton").enabledSelf,
+                "Quick Play button should be interactable"
+            );
+            Assert.IsTrue(
+                root.Q<Button>("OptionsButton").enabledSelf,
+                "Options button should be interactable"
+            );
+            Assert.IsTrue(
+                root.Q<Button>("ExitButton").enabledSelf,
+                "Exit button should be interactable"
+            );
 
             yield return null;
         }
@@ -84,14 +98,21 @@ namespace TestsUI
 
             // Simulate button click
             PushButton(button);
-            
+
             // Wait until the scene changes or it times out
             float timeoutTime = Time.realtimeSinceStartup + 5f;
-            yield return new WaitUntil(() => SceneManager.GetActiveScene().name == "CharacterCreationScene" || Time.realtimeSinceStartup > timeoutTime);
+            yield return new WaitUntil(() =>
+                SceneManager.GetActiveScene().name == "CharacterCreationScene"
+                || Time.realtimeSinceStartup > timeoutTime
+            );
 
             // Check if scene changed according to MainMenuControl.NewGame()
             string currentScene = SceneManager.GetActiveScene().name;
-            Assert.AreEqual("CharacterCreationScene", currentScene, "Scene should change to CharacterCreationScene after clicking New Game");
+            Assert.AreEqual(
+                "CharacterCreationScene",
+                currentScene,
+                "Scene should change to CharacterCreationScene after clicking New Game"
+            );
         }
 
         /// <summary>
@@ -105,14 +126,21 @@ namespace TestsUI
 
             // Simulate button click
             PushButton(button);
-            
+
             // Wait until the scene changes or it times out
             float timeoutTime = Time.realtimeSinceStartup + 5f;
-            yield return new WaitUntil(() => SceneManager.GetActiveScene().name == "Level1" || Time.realtimeSinceStartup > timeoutTime);
+            yield return new WaitUntil(() =>
+                SceneManager.GetActiveScene().name == "Level1"
+                || Time.realtimeSinceStartup > timeoutTime
+            );
 
             // Check if scene changed according to MainMenuControl.LoadGame()
             string currentScene = SceneManager.GetActiveScene().name;
-            Assert.AreEqual("Level1", currentScene, "Scene should change to Level1 after clicking Load Game");
+            Assert.AreEqual(
+                "Level1",
+                currentScene,
+                "Scene should change to Level1 after clicking Load Game"
+            );
         }
 
         /// <summary>
@@ -126,10 +154,10 @@ namespace TestsUI
 
             bool wasClicked = false;
             button.clicked += () => wasClicked = true;
-            
+
             // Simulate button click
             PushButton(button);
-            
+
             yield return null;
 
             Assert.IsTrue(wasClicked, "Options button click handler was not invoked");

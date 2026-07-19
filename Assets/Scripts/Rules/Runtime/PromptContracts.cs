@@ -25,8 +25,7 @@ namespace Game.Rules.Runtime
         /// <summary>Creates a stable choice-request identifier.</summary>
         /// <param name="value">The non-empty identifier text.</param>
         /// <exception cref="ArgumentException"><paramref name="value"/> is blank.</exception>
-        public ChoiceRequestId(string value) =>
-            this.value = StableId.Require(value, nameof(value));
+        public ChoiceRequestId(string value) => this.value = StableId.Require(value, nameof(value));
 
         /// <inheritdoc/>
         public bool Equals(ChoiceRequestId other) =>
@@ -36,8 +35,7 @@ namespace Game.Rules.Runtime
         public override bool Equals(object obj) => obj is ChoiceRequestId other && Equals(other);
 
         /// <inheritdoc/>
-        public override int GetHashCode() =>
-            StringComparer.Ordinal.GetHashCode(Value);
+        public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Value);
 
         /// <inheritdoc/>
         public override string ToString() => Value;
@@ -87,21 +85,33 @@ namespace Game.Rules.Runtime
         public ChoiceRequest(ChoiceRequestId id, IEnumerable<TChoice> choices)
         {
             if (id.IsEmpty)
-                throw new ArgumentException("A choice request requires a stable identity.", nameof(id));
+                throw new ArgumentException(
+                    "A choice request requires a stable identity.",
+                    nameof(id)
+                );
             if (choices == null)
                 throw new ArgumentNullException(nameof(choices));
 
             TChoice[] copied = choices.ToArray();
             if (copied.Length == 0)
-                throw new ArgumentException("A choice request requires at least one choice.", nameof(choices));
+                throw new ArgumentException(
+                    "A choice request requires at least one choice.",
+                    nameof(choices)
+                );
 
             HashSet<TChoice> unique = new HashSet<TChoice>();
             foreach (TChoice choice in copied)
             {
                 if (ReferenceEquals(choice, null))
-                    throw new ArgumentException("Choice requests cannot contain null values.", nameof(choices));
+                    throw new ArgumentException(
+                        "Choice requests cannot contain null values.",
+                        nameof(choices)
+                    );
                 if (!unique.Add(choice))
-                    throw new ArgumentException("Choice requests cannot contain duplicate values.", nameof(choices));
+                    throw new ArgumentException(
+                        "Choice requests cannot contain duplicate values.",
+                        nameof(choices)
+                    );
             }
 
             Id = id;
@@ -118,7 +128,7 @@ namespace Game.Rules.Runtime
         TimedOut = 1,
 
         /// <summary>The player, controller, or replay source disconnected before answering.</summary>
-        Disconnected = 2
+        Disconnected = 2,
     }
 
     /// <summary>
@@ -148,7 +158,10 @@ namespace Game.Rules.Runtime
             if (!Enum.IsDefined(typeof(PromptAdapterFailureKind), kind))
                 throw new ArgumentOutOfRangeException(nameof(kind));
             if (string.IsNullOrWhiteSpace(reason))
-                throw new ArgumentException("A prompt-adapter failure requires a reason.", nameof(reason));
+                throw new ArgumentException(
+                    "A prompt-adapter failure requires a reason.",
+                    nameof(reason)
+                );
 
             Kind = kind;
             this.reason = reason.Trim();
@@ -159,7 +172,8 @@ namespace Game.Rules.Runtime
             Kind == other.Kind && string.Equals(Reason, other.Reason, StringComparison.Ordinal);
 
         /// <inheritdoc/>
-        public override bool Equals(object obj) => obj is PromptAdapterFailure other && Equals(other);
+        public override bool Equals(object obj) =>
+            obj is PromptAdapterFailure other && Equals(other);
 
         /// <inheritdoc/>
         public override int GetHashCode() => HashCode.Combine(Kind, Reason);
@@ -190,9 +204,7 @@ namespace Game.Rules.Runtime
     /// </remarks>
     public abstract class ChoiceResult<TChoice>
     {
-        private protected ChoiceResult()
-        {
-        }
+        private protected ChoiceResult() { }
 
         /// <summary>Creates a resolved selection, including a normal decline value.</summary>
         /// <param name="choice">One value declared by the corresponding request.</param>
@@ -241,7 +253,10 @@ namespace Game.Rules.Runtime
         internal UnavailableChoiceResult(string reason)
         {
             if (string.IsNullOrWhiteSpace(reason))
-                throw new ArgumentException("An unavailable prompt requires a reason.", nameof(reason));
+                throw new ArgumentException(
+                    "An unavailable prompt requires a reason.",
+                    nameof(reason)
+                );
             Reason = reason.Trim();
         }
     }
@@ -256,7 +271,10 @@ namespace Game.Rules.Runtime
         internal FailedChoiceResult(PromptAdapterFailure failure)
         {
             if (failure.IsEmpty)
-                throw new ArgumentException("A failed prompt requires failure details.", nameof(failure));
+                throw new ArgumentException(
+                    "A failed prompt requires failure details.",
+                    nameof(failure)
+                );
             Failure = failure;
         }
     }

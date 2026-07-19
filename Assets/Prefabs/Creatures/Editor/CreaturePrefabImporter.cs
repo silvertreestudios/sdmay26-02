@@ -24,10 +24,13 @@ public static class CreaturePrefabImporter
         string playerCoreRoot = Path.Combine(dataRoot, "playerCharacters");
 
         List<string> creatureJsonPaths = new() { monsterCoreRoot, playerCoreRoot };
-        foreach (var path in creatureJsonPaths.ToList()) {
+        foreach (var path in creatureJsonPaths.ToList())
+        {
             if (!Directory.Exists(path))
             {
-                Debug.LogWarning($"CreaturePrefabImporter: directory not found: {path}. No prefabs will be created from this path.");
+                Debug.LogWarning(
+                    $"CreaturePrefabImporter: directory not found: {path}. No prefabs will be created from this path."
+                );
                 creatureJsonPaths.Remove(path);
             }
         }
@@ -44,7 +47,9 @@ public static class CreaturePrefabImporter
         }
         else
         {
-            Debug.LogWarning($"CreaturePrefabImporter: template prefab '{templateName}' not found. Instances will be created without a template.");
+            Debug.LogWarning(
+                $"CreaturePrefabImporter: template prefab '{templateName}' not found. Instances will be created without a template."
+            );
         }
 
         string prefabFolder = "Assets/Prefabs/Creatures";
@@ -53,17 +58,22 @@ public static class CreaturePrefabImporter
         if (!AssetDatabase.IsValidFolder(prefabFolder))
             AssetDatabase.CreateFolder("Assets/Prefabs", "Creatures");
 
-        
         // Only enumerate JSON files under DataFiles/pathfinder-monster-core
         var jsonFiles = new List<string>();
-        foreach (var root in creatureJsonPaths) {
-            var rootFiles = Directory.GetFiles(root, "*.json", SearchOption.AllDirectories)
-                                 .OrderBy(f => f).ToArray();
+        foreach (var root in creatureJsonPaths)
+        {
+            var rootFiles = Directory
+                .GetFiles(root, "*.json", SearchOption.AllDirectories)
+                .OrderBy(f => f)
+                .ToArray();
             jsonFiles.AddRange(rootFiles);
         }
 
         // Reflection setup: try to find SaveAsPrefabAssetAsVariant method if available
-        MethodInfo saveVariantMethod = typeof(PrefabUtility).GetMethod("SaveAsPrefabAssetAsVariant", BindingFlags.Public | BindingFlags.Static);
+        MethodInfo saveVariantMethod = typeof(PrefabUtility).GetMethod(
+            "SaveAsPrefabAssetAsVariant",
+            BindingFlags.Public | BindingFlags.Static
+        );
 
         int created = 0;
         int skipped = 0;
@@ -75,15 +85,22 @@ public static class CreaturePrefabImporter
                 string resourceJsonPath = ToResourcesRelativePath(file);
                 if (string.IsNullOrEmpty(resourceJsonPath))
                 {
-                    Debug.LogWarning($"CreaturePrefabImporter: could not convert file path to Resources-relative path: {file}");
+                    Debug.LogWarning(
+                        $"CreaturePrefabImporter: could not convert file path to Resources-relative path: {file}"
+                    );
                     continue;
                 }
 
                 // Use the template prefab if found; otherwise converter will create a plain GameObject
-                GameObject go = CreatureJsonConverter.CreateFromFile(resourceJsonPath, templatePrefab);
+                GameObject go = CreatureJsonConverter.CreateFromFile(
+                    resourceJsonPath,
+                    templatePrefab
+                );
                 if (go == null)
                 {
-                    Debug.LogWarning($"CreaturePrefabImporter: converter returned null for {resourceJsonPath} (source: {file})");
+                    Debug.LogWarning(
+                        $"CreaturePrefabImporter: converter returned null for {resourceJsonPath} (source: {file})"
+                    );
                     continue;
                 }
 
@@ -104,7 +121,9 @@ public static class CreaturePrefabImporter
                     }
                     else
                     {
-                        Debug.LogWarning($"CreaturePrefabImporter: failed to update CreatureComponent for existing prefab at {prefabPath}");
+                        Debug.LogWarning(
+                            $"CreaturePrefabImporter: failed to update CreatureComponent for existing prefab at {prefabPath}"
+                        );
                     }
 
                     Object.DestroyImmediate(go);
@@ -120,19 +139,35 @@ public static class CreaturePrefabImporter
                     }
                     catch (TargetInvocationException tie)
                     {
-                        Debug.LogWarning($"CreaturePrefabImporter: variant save failed (invocation): {tie.InnerException?.Message}. Falling back to standard prefab save.");
-                        PrefabUtility.SaveAsPrefabAssetAndConnect(go, prefabPath, InteractionMode.UserAction);
+                        Debug.LogWarning(
+                            $"CreaturePrefabImporter: variant save failed (invocation): {tie.InnerException?.Message}. Falling back to standard prefab save."
+                        );
+                        PrefabUtility.SaveAsPrefabAssetAndConnect(
+                            go,
+                            prefabPath,
+                            InteractionMode.UserAction
+                        );
                     }
                     catch (System.Exception ex)
                     {
-                        Debug.LogWarning($"CreaturePrefabImporter: variant save failed: {ex.Message}. Falling back to standard prefab save.");
-                        PrefabUtility.SaveAsPrefabAssetAndConnect(go, prefabPath, InteractionMode.UserAction);
+                        Debug.LogWarning(
+                            $"CreaturePrefabImporter: variant save failed: {ex.Message}. Falling back to standard prefab save."
+                        );
+                        PrefabUtility.SaveAsPrefabAssetAndConnect(
+                            go,
+                            prefabPath,
+                            InteractionMode.UserAction
+                        );
                     }
                 }
                 else
                 {
                     // No variant API available (or no template) � save as a normal prefab.
-                    PrefabUtility.SaveAsPrefabAssetAndConnect(go, prefabPath, InteractionMode.UserAction);
+                    PrefabUtility.SaveAsPrefabAssetAndConnect(
+                        go,
+                        prefabPath,
+                        InteractionMode.UserAction
+                    );
                 }
 
                 Object.DestroyImmediate(go);
@@ -146,7 +181,9 @@ public static class CreaturePrefabImporter
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
-        Debug.Log($"CreaturePrefabImporter: processed {jsonFiles.Count} creature(s). Created: {created}, Updated: {updated}, Skipped: {skipped} in {prefabFolder}");
+        Debug.Log(
+            $"CreaturePrefabImporter: processed {jsonFiles.Count} creature(s). Created: {created}, Updated: {updated}, Skipped: {skipped} in {prefabFolder}"
+        );
     }
 
     private static string ToResourcesRelativePath(string filePath)
@@ -167,12 +204,17 @@ public static class CreaturePrefabImporter
         return null;
     }
 
-    private static int UpdateCreatureComponentOnExistingPrefab(string prefabPath, GameObject sourceObject)
+    private static int UpdateCreatureComponentOnExistingPrefab(
+        string prefabPath,
+        GameObject sourceObject
+    )
     {
         var sourceComponent = sourceObject.GetComponent<CreatureComponent>();
         if (sourceComponent == null)
         {
-            Debug.LogWarning($"CreaturePrefabImporter: source object has no CreatureComponent for {prefabPath}");
+            Debug.LogWarning(
+                $"CreaturePrefabImporter: source object has no CreatureComponent for {prefabPath}"
+            );
             return -1;
         }
 
@@ -200,7 +242,9 @@ public static class CreaturePrefabImporter
         }
         catch (System.Exception ex)
         {
-            Debug.LogError($"CreaturePrefabImporter: error updating prefab {prefabPath}: {ex.Message}");
+            Debug.LogError(
+                $"CreaturePrefabImporter: error updating prefab {prefabPath}: {ex.Message}"
+            );
             return -1;
         }
         finally
@@ -212,7 +256,10 @@ public static class CreaturePrefabImporter
         }
     }
 
-    private static bool AreCreatureComponentsIdentical(CreatureComponent source, CreatureComponent target)
+    private static bool AreCreatureComponentsIdentical(
+        CreatureComponent source,
+        CreatureComponent target
+    )
     {
         // Serialize both components and compare the JSON representations
         string sourceJson = JsonUtility.ToJson(source, false);

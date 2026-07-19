@@ -16,7 +16,7 @@ public abstract class CombatLogInterface : SingletonMonoBehaviour<CombatLogInter
     /// Displays Dev messages
     /// </summary>
     public abstract void DevMode();
-    
+
     /// <summary>
     /// Hides Dev messages
     /// </summary>

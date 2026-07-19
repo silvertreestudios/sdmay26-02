@@ -49,7 +49,6 @@ namespace GridPrivate
         public List<Vector3Int> CalculateEmination(Vector3Int start, float range);
     }
 
-
     /// <summary>
     /// Class representing a path
     /// </summary>

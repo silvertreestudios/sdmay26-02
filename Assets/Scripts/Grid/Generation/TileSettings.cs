@@ -41,7 +41,8 @@ namespace GridPrivate
 
         public bool TryGetTileInfo(
             Color32 pixel,
-            out (TileType Tile, GameObject Prefab, Material Floor) tileInfo)
+            out (TileType Tile, GameObject Prefab, Material Floor) tileInfo
+        )
         {
             BuildCache();
             pixel.a = 255;
@@ -69,7 +70,11 @@ namespace GridPrivate
         {
             if (TryGetTileInfo(color, out var output))
                 return output;
-            Debug.LogError("Undefined color used in tile image: " + color + "\nPlease define color in TileSettings on MapGenerator");
+            Debug.LogError(
+                "Undefined color used in tile image: "
+                    + color
+                    + "\nPlease define color in TileSettings on MapGenerator"
+            );
             return (TileType.Empty, null, null);
         }
 
@@ -89,7 +94,8 @@ namespace GridPrivate
                 definition.Color.a = 255;
                 FastAccess.Add(
                     definition.Color,
-                    (definition.Tile, definition.Prefab, definition.Floor));
+                    (definition.Tile, definition.Prefab, definition.Floor)
+                );
             }
         }
     }
@@ -100,7 +106,6 @@ namespace GridPrivate
         Ground,
         Wall,
         Door,
-        Obstacle
+        Obstacle,
     }
-
 }

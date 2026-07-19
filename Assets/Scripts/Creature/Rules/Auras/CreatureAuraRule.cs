@@ -8,7 +8,7 @@ namespace Game.Creature.Rules
 {
     public enum CreatureAuraTiming
     {
-        TurnStart
+        TurnStart,
     }
 
     public interface IPf2eDiceRoller
@@ -59,7 +59,8 @@ namespace Game.Creature.Rules
             CreatureAura aura,
             Tile[,] tiles,
             AreaTargetResult area,
-            IPf2eDiceRoller diceRoller)
+            IPf2eDiceRoller diceRoller
+        )
         {
             SourceController = sourceController;
             TargetController = targetController;
@@ -79,13 +80,20 @@ namespace Game.Creature.Rules
         public Tile[,] Tiles { get; }
         public AreaTargetResult Area { get; }
         public IPf2eDiceRoller DiceRoller { get; }
-        public GameObject SourceObject => SourceController == null ? null : SourceController.gameObject;
-        public GameObject TargetObject => TargetController == null ? null : TargetController.gameObject;
+        public GameObject SourceObject =>
+            SourceController == null ? null : SourceController.gameObject;
+        public GameObject TargetObject =>
+            TargetController == null ? null : TargetController.gameObject;
     }
 
     public sealed class CreatureAuraInstance
     {
-        public CreatureAuraInstance(ActionController sourceController, CreatureComponent sourceCreature, CreatureAura aura, ICreatureAuraRule rule)
+        public CreatureAuraInstance(
+            ActionController sourceController,
+            CreatureComponent sourceCreature,
+            CreatureAura aura,
+            ICreatureAuraRule rule
+        )
         {
             SourceController = sourceController;
             SourceCreature = sourceCreature;
@@ -97,6 +105,7 @@ namespace Game.Creature.Rules
         public CreatureComponent SourceCreature { get; }
         public CreatureAura Aura { get; }
         public ICreatureAuraRule Rule { get; }
-        public GameObject SourceObject => SourceController == null ? null : SourceController.gameObject;
+        public GameObject SourceObject =>
+            SourceController == null ? null : SourceController.gameObject;
     }
 }

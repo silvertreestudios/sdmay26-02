@@ -35,7 +35,8 @@ namespace Game.Rules.Runtime
             CreatureId attacker,
             CreatureId target,
             ItemId weapon,
-            CheckSource source)
+            CheckSource source
+        )
         {
             if (attacker.IsEmpty)
                 throw new ArgumentException("An attacker is required.", nameof(attacker));
@@ -44,7 +45,10 @@ namespace Game.Rules.Runtime
             if (weapon.IsEmpty)
                 throw new ArgumentException("A weapon item is required.", nameof(weapon));
             if (source.IsEmpty)
-                throw new ArgumentException("Modifier collection requires trusted source provenance.", nameof(source));
+                throw new ArgumentException(
+                    "Modifier collection requires trusted source provenance.",
+                    nameof(source)
+                );
 
             Attacker = attacker;
             Target = target;
@@ -80,17 +84,23 @@ namespace Game.Rules.Runtime
         /// <exception cref="ArgumentException">
         /// <paramref name="actor"/>, <paramref name="skill"/>, or <paramref name="source"/> is empty.
         /// </exception>
-        public CollectSkillCheckModifiersOp(
-            CreatureId actor,
-            Skill skill,
-            CheckSource source)
+        public CollectSkillCheckModifiersOp(CreatureId actor, Skill skill, CheckSource source)
         {
             if (actor.IsEmpty)
-                throw new ArgumentException("A skill modifier collection requires an actor.", nameof(actor));
+                throw new ArgumentException(
+                    "A skill modifier collection requires an actor.",
+                    nameof(actor)
+                );
             if (skill.IsEmpty)
-                throw new ArgumentException("A skill modifier collection requires a skill.", nameof(skill));
+                throw new ArgumentException(
+                    "A skill modifier collection requires a skill.",
+                    nameof(skill)
+                );
             if (source.IsEmpty)
-                throw new ArgumentException("Modifier collection requires trusted source provenance.", nameof(source));
+                throw new ArgumentException(
+                    "Modifier collection requires trusted source provenance.",
+                    nameof(source)
+                );
 
             Actor = actor;
             Skill = skill;
@@ -124,17 +134,20 @@ namespace Game.Rules.Runtime
         /// <paramref name="actor"/> or <paramref name="source"/> is empty.
         /// </exception>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="save"/> is undefined.</exception>
-        public CollectSavingThrowModifiersOp(
-            CreatureId actor,
-            SaveKind save,
-            CheckSource source)
+        public CollectSavingThrowModifiersOp(CreatureId actor, SaveKind save, CheckSource source)
         {
             if (actor.IsEmpty)
-                throw new ArgumentException("A saving throw modifier collection requires an actor.", nameof(actor));
+                throw new ArgumentException(
+                    "A saving throw modifier collection requires an actor.",
+                    nameof(actor)
+                );
             if (!Enum.IsDefined(typeof(SaveKind), save))
                 throw new ArgumentOutOfRangeException(nameof(save));
             if (source.IsEmpty)
-                throw new ArgumentException("Modifier collection requires trusted source provenance.", nameof(source));
+                throw new ArgumentException(
+                    "Modifier collection requires trusted source provenance.",
+                    nameof(source)
+                );
 
             Actor = actor;
             Save = save;

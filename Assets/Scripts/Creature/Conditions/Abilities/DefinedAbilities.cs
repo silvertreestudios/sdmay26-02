@@ -1,11 +1,10 @@
 using System.Collections.Generic;
-using UnityEngine;
+using Game.AbilityActions;
 using Game.Creature;
 using Game.Strikes;
-using UnityEngine.Events;
 using Unity.VisualScripting;
-
-using Game.AbilityActions;
+using UnityEngine;
+using UnityEngine.Events;
 
 public static class DefinedAbilities
 {
@@ -37,63 +36,74 @@ public static class DefinedAbilities
         return null;
     }
 
-    private static Ability Slow = new("Slow", (GameObject g) =>
-    {
-        ActionController actionController = g.GetComponent<ActionController>();
-        if (actionController == null)
-            return;
-
-        Conditions conditions = g.GetComponent<Conditions>() ?? g.AddComponent<Conditions>();
-        if (conditions.Contains("Slowed", Slow))
-            return;
-
-        Condition slow;
-        if ((slow = DefinedConditions.TryGet("Slowed 1")) != null)
+    private static Ability Slow = new(
+        "Slow",
+        (GameObject g) =>
         {
-            slow.Apply(Slow, g);
+            ActionController actionController = g.GetComponent<ActionController>();
+            if (actionController == null)
+                return;
+
+            Conditions conditions = g.GetComponent<Conditions>() ?? g.AddComponent<Conditions>();
+            if (conditions.Contains("Slowed", Slow))
+                return;
+
+            Condition slow;
+            if ((slow = DefinedConditions.TryGet("Slowed 1")) != null)
+            {
+                slow.Apply(Slow, g);
+            }
+
+            actionController.GetReactionsEvent.AddListener(
+                (List<EntityAction> reactions) => reactions.Clear()
+            );
         }
+    );
 
-        actionController.GetReactionsEvent.AddListener(
-            (List<EntityAction> reactions) => reactions.Clear()
-        );
-    });
+    private static Ability QuickTempered = new(
+        "Quick-Tempered",
+        (GameObject g) =>
+        {
+            // On combat start, IF conditions met, instantly use rage with no action point cost
+            Debug.Log("Applying Quick-Tempered to " + g.name);
+            Rage rageAction = new Rage(0);
+            rageAction.UseRage(g);
+        }
+    );
 
-    private static Ability QuickTempered = new("Quick-Tempered", (GameObject g) =>
-    {
-        // On combat start, IF conditions met, instantly use rage with no action point cost
-        Debug.Log("Applying Quick-Tempered to " + g.name);
-        Rage rageAction = new Rage(0);
-        rageAction.UseRage(g);
-    });
+    private static Ability FuryInstinct = new(
+        "Fury-Instinct",
+        (GameObject g) =>
+        {
+            // On combat start, IF conditions met, instantly use rage with no action point cost
+            Debug.Log("Applying Fury-Instinct to " + g.name);
+            // Currently handled in Rage
+        }
+    );
 
-    private static Ability FuryInstinct = new("Fury-Instinct", (GameObject g) =>
-    {
-        // On combat start, IF conditions met, instantly use rage with no action point cost
-        Debug.Log("Applying Fury-Instinct to " + g.name);
-        // Currently handled in Rage
-    });
-
-    private static Ability ZombieFist = new("Zombie-Fist", (GameObject g) =>
-    {
-        // On combat start, IF conditions met, add unarmed strike with 1d6 bludgeoning damage instead of 1d4
-        // TODO add grapple and move from passives
-        CreatureComponent cc = g.GetComponent<CreatureComponent>();
-        List<Dice> damageDice = new() { new Dice(1, 6, "Bludgeoning") };
-        List<DamageValue> damageFlat = new() { new DamageValue("Bludgeoning", cc.strMod) };
-        Unarmed unarmedStrike = new Unarmed(1, damageDice, damageFlat);
-        g.GetComponent<ActionController>().AddAction(unarmedStrike);
-        Debug.Log("Zombie-Fist added to " + g.name);
-    });
+    private static Ability ZombieFist = new(
+        "Zombie-Fist",
+        (GameObject g) =>
+        {
+            // On combat start, IF conditions met, add unarmed strike with 1d6 bludgeoning damage instead of 1d4
+            // TODO add grapple and move from passives
+            CreatureComponent cc = g.GetComponent<CreatureComponent>();
+            List<Dice> damageDice = new() { new Dice(1, 6, "Bludgeoning") };
+            List<DamageValue> damageFlat = new() { new DamageValue("Bludgeoning", cc.strMod) };
+            Unarmed unarmedStrike = new Unarmed(1, damageDice, damageFlat);
+            g.GetComponent<ActionController>().AddAction(unarmedStrike);
+            Debug.Log("Zombie-Fist added to " + g.name);
+        }
+    );
 
     /// <summary>
     /// Keep last in file, needs to be initialized after all referenced abilities
     /// </summary>
     private static Dictionary<string, Ability> Abilities = new()
     {
-        {"Slow", Slow },
-        {"Quick-Tempered", QuickTempered},
-        {"Fury-Instinct", FuryInstinct },
-        {"Zombie-Fist", ZombieFist }
+        { "Slow", Slow },
+        { "Quick-Tempered", QuickTempered },
+        { "Fury-Instinct", FuryInstinct },
+        { "Zombie-Fist", ZombieFist },
     };
-
 }

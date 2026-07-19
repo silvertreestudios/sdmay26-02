@@ -1,8 +1,8 @@
+using System.Collections;
+using System.Collections.Generic;
 using Game.Creature;
 using Game.Creature.Rules;
 using NUnit.Framework;
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -33,7 +33,9 @@ public class Pf2eBarbarianSmokeTests
         GameObject managerGo = Create("CombatManager");
         CombatManager manager = managerGo.AddComponent<CombatManager>();
 
-        GameObject torgrim = CreatureJsonConverter.CreateFromFile("DataFiles/playerCharacters/Torgrim");
+        GameObject torgrim = CreatureJsonConverter.CreateFromFile(
+            "DataFiles/playerCharacters/Torgrim"
+        );
         created.Add(torgrim);
         torgrim.AddComponent<Conditions>();
         torgrim.AddComponent<TestActionController>();
@@ -59,7 +61,10 @@ public class Pf2eBarbarianSmokeTests
         CreatureComponent torgrimCreature = torgrim.GetComponent<CreatureComponent>();
         Assert.That(torgrimCreature.Prepared.HasOwnedItem("quick-tempered"), Is.True);
         Assert.That(torgrimCreature.Prepared.HasActiveEffect("rage"), Is.True);
-        Assert.That(torgrimCreature.tempHp, Is.EqualTo(torgrimCreature.level + torgrimCreature.conMod));
+        Assert.That(
+            torgrimCreature.tempHp,
+            Is.EqualTo(torgrimCreature.level + torgrimCreature.conMod)
+        );
     }
 
     [UnityTest]
@@ -101,6 +106,7 @@ public class Pf2eBarbarianSmokeTests
         Assert.That(lenaCreature.Prepared.HasOwnedItem("thief"), Is.True);
         Assert.That(lenaCreature.Prepared.HasActiveEffect("rage"), Is.False);
     }
+
     private GameObject Create(string name)
     {
         GameObject go = new(name);
@@ -110,9 +116,7 @@ public class Pf2eBarbarianSmokeTests
 
     private sealed class TestActionController : ActionController
     {
-        public override void EndTurn()
-        {
-        }
+        public override void EndTurn() { }
     }
 
     private sealed class TestCombatLog : CombatLogInterface
@@ -120,15 +124,25 @@ public class Pf2eBarbarianSmokeTests
         private readonly List<string> messages = new();
 
         public override void DevMode() { }
+
         public override void ReleaseMode() { }
+
         public override void AddWhiteList(string tag) { }
+
         public override void AddBlackList(string tag) { }
+
         public override void Log(string msg) => messages.Add(msg);
+
         public override void DevLog(string msg) => messages.Add(msg);
+
         public override void DevLog(string msg, string tag) => messages.Add(msg);
+
         public override void DevLog(string msg, List<string> tags) => messages.Add(msg);
+
         public override void Log(string msg, string tag) => messages.Add(msg);
+
         public override void Log(string msg, List<string> tags) => messages.Add(msg);
+
         public override List<string> GetMessages() => new(messages);
     }
 }

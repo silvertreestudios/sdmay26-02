@@ -8,4 +8,3 @@ public sealed class CombatLogRoll
 
     public string Summary => Total + " vs AC " + DifficultyClass;
 }
-

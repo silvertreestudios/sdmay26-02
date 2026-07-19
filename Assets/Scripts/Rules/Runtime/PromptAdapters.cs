@@ -23,6 +23,7 @@ namespace Game.Rules.Runtime
         /// </returns>
         ValueTask<OpResult<ChoiceResult<TChoice>>> Prompt(
             PromptChoiceOp<TChoice> prompt,
-            RulesSnapshot snapshot);
+            RulesSnapshot snapshot
+        );
     }
 }

@@ -16,12 +16,21 @@ namespace Game.Rules.Runtime
         }
 
         public static Trait FromName(string value) => FromSlug(Pf2eSlug.FromName(value));
+
         public static Trait FromSlug(string value) => new Trait(Pf2eSlug.FromName(value));
-        public bool Equals(Trait other) => string.Equals(Slug, other.Slug, StringComparison.Ordinal);
+
+        public bool Equals(Trait other) =>
+            string.Equals(Slug, other.Slug, StringComparison.Ordinal);
+
         public override bool Equals(object obj) => obj is Trait other && Equals(other);
-        public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Slug ?? string.Empty);
+
+        public override int GetHashCode() =>
+            StringComparer.Ordinal.GetHashCode(Slug ?? string.Empty);
+
         public override string ToString() => Slug ?? string.Empty;
+
         public static bool operator ==(Trait left, Trait right) => left.Equals(right);
+
         public static bool operator !=(Trait left, Trait right) => !left.Equals(right);
     }
 
@@ -39,12 +48,21 @@ namespace Game.Rules.Runtime
         }
 
         public static RuleSource FromName(string value) => FromSlug(Pf2eSlug.FromName(value));
+
         public static RuleSource FromSlug(string value) => new RuleSource(Pf2eSlug.FromName(value));
-        public bool Equals(RuleSource other) => string.Equals(Slug, other.Slug, StringComparison.Ordinal);
+
+        public bool Equals(RuleSource other) =>
+            string.Equals(Slug, other.Slug, StringComparison.Ordinal);
+
         public override bool Equals(object obj) => obj is RuleSource other && Equals(other);
-        public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Slug ?? string.Empty);
+
+        public override int GetHashCode() =>
+            StringComparer.Ordinal.GetHashCode(Slug ?? string.Empty);
+
         public override string ToString() => Slug ?? string.Empty;
+
         public static bool operator ==(RuleSource left, RuleSource right) => left.Equals(right);
+
         public static bool operator !=(RuleSource left, RuleSource right) => !left.Equals(right);
     }
 
@@ -62,11 +80,17 @@ namespace Game.Rules.Runtime
         }
 
         public bool Equals(GridPosition other) => X == other.X && Y == other.Y && Z == other.Z;
+
         public override bool Equals(object obj) => obj is GridPosition other && Equals(other);
+
         public override int GetHashCode() => HashCode.Combine(X, Y, Z);
+
         public override string ToString() => $"({X}, {Y}, {Z})";
+
         public static bool operator ==(GridPosition left, GridPosition right) => left.Equals(right);
-        public static bool operator !=(GridPosition left, GridPosition right) => !left.Equals(right);
+
+        public static bool operator !=(GridPosition left, GridPosition right) =>
+            !left.Equals(right);
     }
 
     public readonly struct GridDistance : IEquatable<GridDistance>, IComparable<GridDistance>
@@ -81,11 +105,18 @@ namespace Game.Rules.Runtime
         }
 
         public int CompareTo(GridDistance other) => Feet.CompareTo(other.Feet);
+
         public bool Equals(GridDistance other) => Feet == other.Feet;
+
         public override bool Equals(object obj) => obj is GridDistance other && Equals(other);
+
         public override int GetHashCode() => Feet;
+
         public override string ToString() => $"{Feet} feet";
+
         public static bool operator ==(GridDistance left, GridDistance right) => left.Equals(right);
-        public static bool operator !=(GridDistance left, GridDistance right) => !left.Equals(right);
+
+        public static bool operator !=(GridDistance left, GridDistance right) =>
+            !left.Equals(right);
     }
 }

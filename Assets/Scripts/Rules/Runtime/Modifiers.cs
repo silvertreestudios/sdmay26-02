@@ -27,7 +27,7 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// A status modifier; only the greatest bonus and worst penalty apply.
         /// </summary>
-        Status
+        Status,
     }
 
     /// <summary>
@@ -37,20 +37,27 @@ namespace Game.Rules.Runtime
     {
         /// <summary>An attack roll total.</summary>
         AttackRoll,
+
         /// <summary>Armor Class.</summary>
         ArmorClass,
+
         /// <summary>A Fortitude saving throw.</summary>
         FortitudeSave,
+
         /// <summary>A Reflex saving throw.</summary>
         ReflexSave,
+
         /// <summary>A Will saving throw.</summary>
         WillSave,
+
         /// <summary>A skill check.</summary>
         SkillCheck,
+
         /// <summary>An initiative roll.</summary>
         Initiative,
+
         /// <summary>A general difficulty class.</summary>
-        DifficultyClass
+        DifficultyClass,
     }
 
     /// <summary>
@@ -60,10 +67,12 @@ namespace Game.Rules.Runtime
     {
         /// <summary>Fortitude.</summary>
         Fortitude,
+
         /// <summary>Reflex.</summary>
         Reflex,
+
         /// <summary>Will.</summary>
-        Will
+        Will,
     }
 
     /// <summary>
@@ -118,7 +127,10 @@ namespace Game.Rules.Runtime
             if (!Enum.IsDefined(typeof(Statistic), statistic))
                 throw new ArgumentOutOfRangeException(nameof(statistic));
             if (source.IsEmpty)
-                throw new ArgumentException("A modifier requires a stable rule source.", nameof(source));
+                throw new ArgumentException(
+                    "A modifier requires a stable rule source.",
+                    nameof(source)
+                );
 
             Value = value;
             Type = type;
@@ -147,14 +159,19 @@ namespace Game.Rules.Runtime
         public static Modifier StatusBonus(int value, RuleSource source, Statistic statistic)
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), "A status bonus must be positive.");
+                throw new ArgumentOutOfRangeException(
+                    nameof(value),
+                    "A status bonus must be positive."
+                );
             return new Modifier(value, ModifierType.Status, source, statistic);
         }
 
         /// <inheritdoc/>
         public bool Equals(Modifier other) =>
-            Value == other.Value && Type == other.Type && Source == other.Source &&
-            Statistic == other.Statistic;
+            Value == other.Value
+            && Type == other.Type
+            && Source == other.Source
+            && Statistic == other.Statistic;
 
         /// <inheritdoc/>
         public override bool Equals(object obj) => obj is Modifier other && Equals(other);
@@ -229,7 +246,10 @@ namespace Game.Rules.Runtime
             Statistic = statistic;
             Modifier[] copied = candidates.ToArray();
             if (copied.Any(modifier => modifier.IsEmpty))
-                throw new ArgumentException("Modifier candidates cannot contain an empty value.", nameof(candidates));
+                throw new ArgumentException(
+                    "Modifier candidates cannot contain an empty value.",
+                    nameof(candidates)
+                );
             this.candidates = Array.AsReadOnly(copied);
 
             List<Modifier> relevant = copied
@@ -259,8 +279,9 @@ namespace Game.Rules.Runtime
 
         /// <inheritdoc/>
         public bool Equals(ModifierCollection other) =>
-            other != null && Statistic == other.Statistic &&
-            candidates.SequenceEqual(other.candidates);
+            other != null
+            && Statistic == other.Statistic
+            && candidates.SequenceEqual(other.candidates);
 
         /// <inheritdoc/>
         public override bool Equals(object obj) => obj is ModifierCollection other && Equals(other);
@@ -272,7 +293,8 @@ namespace Game.Rules.Runtime
             IEnumerable<Modifier> relevant,
             ModifierType type,
             ICollection<Modifier> applied,
-            ICollection<Modifier> suppressed)
+            ICollection<Modifier> suppressed
+        )
         {
             Modifier[] bonuses = relevant
                 .Where(modifier => modifier.Type == type && modifier.Value > 0)

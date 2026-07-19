@@ -1,9 +1,9 @@
 using System.Collections;
 using NUnit.Framework;
+using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.TestTools;
-using UnityEditor.SceneManagement;
-using UnityEditor;
 
 namespace TestsGrid
 {
@@ -24,7 +24,10 @@ namespace TestsGrid
             Map map = Object.FindFirstObjectByType<Map>();
 
             // Assert that the Map component was found in the scene
-            Assert.IsNotNull(map, "Map component was not found. Ensure 'UnitTestingScene' has a GameObject with the Map component.");
+            Assert.IsNotNull(
+                map,
+                "Map component was not found. Ensure 'UnitTestingScene' has a GameObject with the Map component."
+            );
 
             // Force generation directly since we are in EditMode
             map.Generate();
@@ -33,7 +36,11 @@ namespace TestsGrid
             Assert.IsNotNull(map.GetMapData(), "Map Data should be populated upon generation.");
 
             // Since Map.cs generates tiles as children for the level, assert children exist
-            Assert.Greater(map.transform.childCount, 0, "Map should generate child tile objects to display the level.");
+            Assert.Greater(
+                map.transform.childCount,
+                0,
+                "Map should generate child tile objects to display the level."
+            );
         }
     }
 }

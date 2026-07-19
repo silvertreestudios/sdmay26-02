@@ -1,19 +1,17 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-
 /// <summary>
 /// TODO
 /// - Allow to take in Vector3Int list as path points
-/// - Allow to have linear interpolation between points with new data type 
+/// - Allow to have linear interpolation between points with new data type
 /// - Implement a lookAt()
-/// 
+///
 /// </summary>
-
 public class Movement : MonoBehaviour
 {
-    // Jump points for the piece to move between 
-    [Header("Path Points")]  
+    // Jump points for the piece to move between
+    [Header("Path Points")]
     public GameObject path_point_1;
     public GameObject path_point_2;
     public GameObject path_point_3;
@@ -28,7 +26,7 @@ public class Movement : MonoBehaviour
     [Header("General")]
     public GameObject targetCamera;
     public Vector3Int enemy;
-    
+
     [Header("Jump Parameters")]
     public float stepHeight;
     public float maxRotation;
@@ -43,7 +41,6 @@ public class Movement : MonoBehaviour
     private Vector3 direction;
     private int currentPathIndex = 0;
 
-
     void Start()
     {
         current_jump_point = transform.position;
@@ -56,7 +53,7 @@ public class Movement : MonoBehaviour
         path_buffer.Add(Vector3Int.RoundToInt(path_point_4.transform.position));
         path_buffer.Add(Vector3Int.RoundToInt(path_point_5.transform.position));
 
-        setPathPoints(path_buffer); 
+        setPathPoints(path_buffer);
     }
 
     void Update()
@@ -70,9 +67,7 @@ public class Movement : MonoBehaviour
         // Move the piece along the path buffer, with a interval of 0.5 seconds per jump
         moveAlongPath(0.5f);
         lookAt(enemy);
-
     }
-
 
     // Sets the path points for the piece to follow, returns 0 on success, -1 on failure
     int setPathPoints(List<Vector3Int> points)
@@ -89,8 +84,6 @@ public class Movement : MonoBehaviour
             return 0;
         }
     }
-
-
 
     // Moves the piece along the given list of target positions, with each jump taking the specified time
     void moveAlongPath(float time)
@@ -141,7 +134,11 @@ public class Movement : MonoBehaviour
 
         // Apply the new position and rotation
         transform.position = position;
-        transform.rotation = Quaternion.Euler(maxRotation * yLerp.Evaluate(time) * direction.z, 0.0f, maxRotation * yLerp.Evaluate(time) * -direction.x);
+        transform.rotation = Quaternion.Euler(
+            maxRotation * yLerp.Evaluate(time) * direction.z,
+            0.0f,
+            maxRotation * yLerp.Evaluate(time) * -direction.x
+        );
 
         // If the jump is complete
         if (time >= 1.0f)
@@ -162,7 +159,11 @@ public class Movement : MonoBehaviour
         if (direction != Vector3.zero)
         {
             Quaternion targetRotation = Quaternion.LookRotation(direction);
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * 5f); // Smooth rotation
+            transform.rotation = Quaternion.Slerp(
+                transform.rotation,
+                targetRotation,
+                Time.deltaTime * 5f
+            ); // Smooth rotation
         }
     }
 }

@@ -14,8 +14,9 @@ namespace Game.Rules.Runtime
     /// </remarks>
     public sealed class ResolutionTrace
     {
-        private static readonly IReadOnlyList<ResolutionRoll> NoRolls =
-            Array.AsReadOnly(Array.Empty<ResolutionRoll>());
+        private static readonly IReadOnlyList<ResolutionRoll> NoRolls = Array.AsReadOnly(
+            Array.Empty<ResolutionRoll>()
+        );
         private readonly Dictionary<OpId, IOpFrameView> frames =
             new Dictionary<OpId, IOpFrameView>();
         private readonly Dictionary<OpId, OperationRollLog> rolls =
@@ -28,27 +29,24 @@ namespace Game.Rules.Runtime
             frames.Add(frame.Id, frame);
         }
 
-        internal void RecordRoll(
-            OpId operationId,
-            DiceExpression dice,
-            RollResult result)
+        internal void RecordRoll(OpId operationId, DiceExpression dice, RollResult result)
         {
             Require(operationId);
             if (result == null)
                 throw new ArgumentNullException(nameof(result));
             if (result.Dice != dice)
-                throw new InvalidOperationException("A roll result does not match its requested dice expression.");
+                throw new InvalidOperationException(
+                    "A roll result does not match its requested dice expression."
+                );
 
             if (!rolls.TryGetValue(operationId, out OperationRollLog operationRolls))
             {
                 operationRolls = new OperationRollLog();
                 rolls.Add(operationId, operationRolls);
             }
-            operationRolls.Entries.Add(new ResolutionRoll(
-                operationId,
-                operationRolls.Entries.Count + 1,
-                dice,
-                result));
+            operationRolls.Entries.Add(
+                new ResolutionRoll(operationId, operationRolls.Entries.Count + 1, dice, result)
+            );
         }
 
         /// <summary>
@@ -91,7 +89,8 @@ namespace Game.Rules.Runtime
             if (view.TypedFrame is OpFrame<TOp> typed)
                 return typed;
             throw new InvalidOperationException(
-                $"Operation {id.Value} is {view.OpType.Name}, not {typeof(TOp).Name}.");
+                $"Operation {id.Value} is {view.OpType.Name}, not {typeof(TOp).Name}."
+            );
         }
 
         /// <summary>
@@ -106,7 +105,9 @@ namespace Game.Rules.Runtime
         {
             IOpFrameView view = Require(id);
             if (!view.IsAction)
-                throw new InvalidOperationException($"Operation {id.Value} does not represent an action.");
+                throw new InvalidOperationException(
+                    $"Operation {id.Value} does not represent an action."
+                );
             return view.ActionInfo;
         }
 
@@ -122,7 +123,9 @@ namespace Game.Rules.Runtime
         {
             IOpFrameView view = Require(id);
             if (!view.IsAction)
-                throw new InvalidOperationException($"Operation {id.Value} does not represent an action.");
+                throw new InvalidOperationException(
+                    $"Operation {id.Value} does not represent an action."
+                );
             return view.ActionProfile;
         }
 
@@ -166,8 +169,7 @@ namespace Game.Rules.Runtime
         /// The candidate is absent, a referenced frame is absent, or the ancestry contains a cycle.
         /// </exception>
         public OpFrame<TOp> FindNearestAncestor<TOp>(OpId candidateId)
-            where TOp : IRuleOp =>
-            FindFollowing<TOp>(candidateId, frame => frame.ParentId);
+            where TOp : IRuleOp => FindFollowing<TOp>(candidateId, frame => frame.ParentId);
 
         /// <summary>
         /// Finds the closest causal-chain ancestor with the requested operation type.
@@ -179,8 +181,7 @@ namespace Game.Rules.Runtime
         /// The candidate is absent, a referenced frame is absent, or the causal chain contains a cycle.
         /// </exception>
         public OpFrame<TOp> FindCausingAncestor<TOp>(OpId candidateId)
-            where TOp : IRuleOp =>
-            FindFollowing<TOp>(candidateId, frame => frame.CauseId);
+            where TOp : IRuleOp => FindFollowing<TOp>(candidateId, frame => frame.CauseId);
 
         internal IReadOnlyList<IOpFrameView> OrderedFrames =>
             frames.Values.OrderBy(frame => frame.Id.Value).ToArray();
@@ -204,10 +205,7 @@ namespace Game.Rules.Runtime
             }
         }
 
-        private bool Follows(
-            OpId candidateId,
-            OpId targetId,
-            Func<IOpFrameView, OpId?> next)
+        private bool Follows(OpId candidateId, OpId targetId, Func<IOpFrameView, OpId?> next)
         {
             IOpFrameView current = Require(candidateId);
             HashSet<OpId> visited = new HashSet<OpId> { candidateId };
@@ -223,9 +221,7 @@ namespace Game.Rules.Runtime
             return false;
         }
 
-        private OpFrame<TOp> FindFollowing<TOp>(
-            OpId candidateId,
-            Func<IOpFrameView, OpId?> next)
+        private OpFrame<TOp> FindFollowing<TOp>(OpId candidateId, Func<IOpFrameView, OpId?> next)
             where TOp : IRuleOp
         {
             IOpFrameView current = Require(candidateId);

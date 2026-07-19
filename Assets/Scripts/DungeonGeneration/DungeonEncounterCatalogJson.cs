@@ -27,10 +27,13 @@ namespace Game.DungeonGeneration
             JObject root;
             try
             {
-                root = JObject.Parse(json, new JsonLoadSettings
-                {
-                    DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error
-                });
+                root = JObject.Parse(
+                    json,
+                    new JsonLoadSettings
+                    {
+                        DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error,
+                    }
+                );
             }
             catch (JsonException exception)
             {
@@ -40,7 +43,9 @@ namespace Game.DungeonGeneration
             EnsureOnlyProperties(root, "catalog", "schema", "enemies");
             string schema = RequireNonEmptyString(root, "schema", "catalog");
             if (!string.Equals(schema, Schema, StringComparison.Ordinal))
-                throw new FormatException("The encounter catalog schema identifier is unsupported.");
+                throw new FormatException(
+                    "The encounter catalog schema identifier is unsupported."
+                );
             if (!(root["enemies"] is JArray enemies))
                 throw new FormatException("The encounter catalog requires an enemies array.");
 
@@ -56,7 +61,8 @@ namespace Game.DungeonGeneration
                     "id",
                     "level",
                     "resourcePath",
-                    "prefabPath");
+                    "prefabPath"
+                );
 
                 string path = $"enemies[{index}]";
                 string id = RequireNonEmptyString(enemy, "id", path);
@@ -72,20 +78,16 @@ namespace Game.DungeonGeneration
                 {
                     level = enemy.Value<int>("level");
                 }
-                catch (Exception exception) when (
-                    exception is OverflowException ||
-                    exception is InvalidCastException)
+                catch (Exception exception)
+                    when (exception is OverflowException || exception is InvalidCastException)
                 {
                     throw new FormatException(
                         $"enemies[{index}].level must fit in a 32-bit integer.",
-                        exception);
+                        exception
+                    );
                 }
 
-                candidates.Add(new DungeonEncounterCandidate(
-                    id,
-                    level,
-                    resourcePath,
-                    prefabPath));
+                candidates.Add(new DungeonEncounterCandidate(id, level, resourcePath, prefabPath));
             }
 
             return Array.AsReadOnly(candidates.ToArray());
@@ -94,10 +96,14 @@ namespace Game.DungeonGeneration
         private static string RequireNonEmptyString(
             JObject source,
             string propertyName,
-            string path)
+            string path
+        )
         {
             JToken token = source[propertyName];
-            if (token?.Type != JTokenType.String || string.IsNullOrWhiteSpace(token.Value<string>()))
+            if (
+                token?.Type != JTokenType.String
+                || string.IsNullOrWhiteSpace(token.Value<string>())
+            )
                 throw new FormatException($"{path}.{propertyName} must be a non-empty string.");
             return token.Value<string>();
         }
@@ -105,10 +111,12 @@ namespace Game.DungeonGeneration
         private static void EnsureOnlyProperties(
             JObject source,
             string path,
-            params string[] allowed)
+            params string[] allowed
+        )
         {
             HashSet<string> names = new(allowed, StringComparer.Ordinal);
-            string unknown = source.Properties()
+            string unknown = source
+                .Properties()
                 .Select(property => property.Name)
                 .FirstOrDefault(name => !names.Contains(name));
             if (unknown != null)

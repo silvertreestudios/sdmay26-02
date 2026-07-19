@@ -7,7 +7,8 @@ public class SceneTransitionManager : MonoBehaviour
 {
     private static SceneTransitionManager _instance;
 
-    [SerializeField] private PanelSettings panelSettings;
+    [SerializeField]
+    private PanelSettings panelSettings;
 
     private UIDocument _doc;
     private VisualElement _overlay;
@@ -30,7 +31,8 @@ public class SceneTransitionManager : MonoBehaviour
         {
             // Fallback: borrow PanelSettings from any UIDocument in the scene
             var existing = FindFirstObjectByType<UIDocument>();
-            if (existing != null) panelSettings = existing.panelSettings;
+            if (existing != null)
+                panelSettings = existing.panelSettings;
         }
 
         _doc = gameObject.AddComponent<UIDocument>();
@@ -64,7 +66,8 @@ public class SceneTransitionManager : MonoBehaviour
 
     private static void EnsureInstance()
     {
-        if (_instance != null) return;
+        if (_instance != null)
+            return;
         var go = new GameObject("SceneTransitionManager");
         go.AddComponent<SceneTransitionManager>();
     }
@@ -82,9 +85,10 @@ public class SceneTransitionManager : MonoBehaviour
         _overlay.style.opacity = 1f;
 
         // Start async load, hold activation until fade completes
-        AsyncOperation op = sceneName != null
-            ? SceneManager.LoadSceneAsync(sceneName)
-            : SceneManager.LoadSceneAsync(buildIndex.Value);
+        AsyncOperation op =
+            sceneName != null
+                ? SceneManager.LoadSceneAsync(sceneName)
+                : SceneManager.LoadSceneAsync(buildIndex.Value);
 
         op.allowSceneActivation = false;
         while (op.progress < 0.9f)

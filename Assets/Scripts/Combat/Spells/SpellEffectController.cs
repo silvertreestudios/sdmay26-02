@@ -1,14 +1,19 @@
-using Game.Creature;
-using Game.Rules;
 using System;
 using System.Collections.Generic;
+using Game.Creature;
+using Game.Rules;
 using UnityEngine;
 
 namespace Game.Combat.Spells
 {
     public abstract class ActiveSpellEffect
     {
-        protected ActiveSpellEffect(GameObject source, string sourceLabel, int remainingTargetTurnStarts = 0, bool expiresAtSourceTurnStart = false)
+        protected ActiveSpellEffect(
+            GameObject source,
+            string sourceLabel,
+            int remainingTargetTurnStarts = 0,
+            bool expiresAtSourceTurnStart = false
+        )
         {
             Source = source;
             SourceLabel = sourceLabel ?? string.Empty;
@@ -28,7 +33,11 @@ namespace Game.Combat.Spells
             return other != null
                 && GetType() == other.GetType()
                 && Source == other.Source
-                && string.Equals(SourceLabel, other.SourceLabel, StringComparison.OrdinalIgnoreCase);
+                && string.Equals(
+                    SourceLabel,
+                    other.SourceLabel,
+                    StringComparison.OrdinalIgnoreCase
+                );
         }
 
         public void RefreshFrom(ActiveSpellEffect other)
@@ -40,12 +49,18 @@ namespace Game.Combat.Spells
             Consumed = false;
         }
 
-        public virtual IEnumerable<Pf2eModifier> GetModifiers(Pf2eStatistic statistic, SpellEffectController owner)
+        public virtual IEnumerable<Pf2eModifier> GetModifiers(
+            Pf2eStatistic statistic,
+            SpellEffectController owner
+        )
         {
             yield break;
         }
 
-        public virtual IEnumerable<IStrikeAdjustment> GetStrikeAdjustments(StrikeResolutionContext context, SpellEffectController owner)
+        public virtual IEnumerable<IStrikeAdjustment> GetStrikeAdjustments(
+            StrikeResolutionContext context,
+            SpellEffectController owner
+        )
         {
             yield break;
         }
@@ -54,25 +69,32 @@ namespace Game.Combat.Spells
     public sealed class ShieldSpellEffect : ActiveSpellEffect
     {
         public ShieldSpellEffect(GameObject source)
-            : base(source, "Shield", expiresAtSourceTurnStart: true)
-        {
-        }
+            : base(source, "Shield", expiresAtSourceTurnStart: true) { }
 
-        public override IEnumerable<Pf2eModifier> GetModifiers(Pf2eStatistic statistic, SpellEffectController owner)
+        public override IEnumerable<Pf2eModifier> GetModifiers(
+            Pf2eStatistic statistic,
+            SpellEffectController owner
+        )
         {
             if (statistic == Pf2eStatistic.ArmorClass)
-                yield return new Pf2eModifier(1, Pf2eModifierType.Circumstance, "Shield", statistic);
+                yield return new Pf2eModifier(
+                    1,
+                    Pf2eModifierType.Circumstance,
+                    "Shield",
+                    statistic
+                );
         }
     }
 
     public sealed class GuidanceSpellEffect : ActiveSpellEffect
     {
         public GuidanceSpellEffect(GameObject source)
-            : base(source, "Guidance", expiresAtSourceTurnStart: true)
-        {
-        }
+            : base(source, "Guidance", expiresAtSourceTurnStart: true) { }
 
-        public override IEnumerable<Pf2eModifier> GetModifiers(Pf2eStatistic statistic, SpellEffectController owner)
+        public override IEnumerable<Pf2eModifier> GetModifiers(
+            Pf2eStatistic statistic,
+            SpellEffectController owner
+        )
         {
             if (Consumed || !IsGuidanceStatistic(statistic))
                 yield break;
@@ -96,21 +118,20 @@ namespace Game.Combat.Spells
     public sealed class GuidanceImmunitySpellEffect : ActiveSpellEffect
     {
         public GuidanceImmunitySpellEffect(GameObject source)
-            : base(source, "Guidance Immunity")
-        {
-        }
+            : base(source, "Guidance Immunity") { }
     }
 
     public sealed class BlessSpellEffect : ActiveSpellEffect
     {
         public BlessSpellEffect(GameObject source)
-            : base(source, "Bless", remainingTargetTurnStarts: 10)
-        {
-        }
+            : base(source, "Bless", remainingTargetTurnStarts: 10) { }
 
         public override bool ExpiresWhenTargetTurnCounterReachesZero => true;
 
-        public override IEnumerable<Pf2eModifier> GetModifiers(Pf2eStatistic statistic, SpellEffectController owner)
+        public override IEnumerable<Pf2eModifier> GetModifiers(
+            Pf2eStatistic statistic,
+            SpellEffectController owner
+        )
         {
             if (statistic == Pf2eStatistic.AttackRoll)
                 yield return new Pf2eModifier(1, Pf2eModifierType.Status, "Bless", statistic);
@@ -120,26 +141,37 @@ namespace Game.Combat.Spells
     public sealed class InfuseVitalitySpellEffect : ActiveSpellEffect
     {
         public InfuseVitalitySpellEffect(GameObject source)
-            : base(source, "Infuse Vitality", remainingTargetTurnStarts: 10)
-        {
-        }
+            : base(source, "Infuse Vitality", remainingTargetTurnStarts: 10) { }
 
         public override bool ExpiresWhenTargetTurnCounterReachesZero => true;
 
-        public override IEnumerable<IStrikeAdjustment> GetStrikeAdjustments(StrikeResolutionContext context, SpellEffectController owner)
+        public override IEnumerable<IStrikeAdjustment> GetStrikeAdjustments(
+            StrikeResolutionContext context,
+            SpellEffectController owner
+        )
         {
-            if (context?.AttackerObject == owner.gameObject && context.Profile != null && IsWeaponOrUnarmedStrike(context.Profile))
+            if (
+                context?.AttackerObject == owner.gameObject
+                && context.Profile != null
+                && IsWeaponOrUnarmedStrike(context.Profile)
+            )
                 yield return new InfuseVitalityStrikeAdjustment();
         }
 
         private static bool IsWeaponOrUnarmedStrike(StrikeProfile strike)
         {
-            return string.Equals(strike.WeaponCategory, "unarmed", StringComparison.OrdinalIgnoreCase)
-                || !string.IsNullOrWhiteSpace(strike.WeaponCategory);
+            return string.Equals(
+                    strike.WeaponCategory,
+                    "unarmed",
+                    StringComparison.OrdinalIgnoreCase
+                ) || !string.IsNullOrWhiteSpace(strike.WeaponCategory);
         }
     }
 
-    public class SpellEffectController : MonoBehaviour, IPf2eModifierProvider, IStrikeAdjustmentProvider
+    public class SpellEffectController
+        : MonoBehaviour,
+            IPf2eModifierProvider,
+            IStrikeAdjustmentProvider
     {
         private readonly List<ActiveSpellEffect> effects = new();
         private static readonly List<SpellEffectController> instances = new();
@@ -189,7 +221,8 @@ namespace Game.Combat.Spells
                 existing.RefreshFrom(effect);
         }
 
-        public bool HasEffect<T>() where T : ActiveSpellEffect
+        public bool HasEffect<T>()
+            where T : ActiveSpellEffect
         {
             return effects.Exists(effect => effect is T && !effect.Consumed);
         }
@@ -215,7 +248,9 @@ namespace Game.Combat.Spells
 
         private void ExpireForTurnStart(GameObject creature)
         {
-            effects.RemoveAll(effect => effect.ExpiresAtSourceTurnStart && effect.Source == creature);
+            effects.RemoveAll(effect =>
+                effect.ExpiresAtSourceTurnStart && effect.Source == creature
+            );
             if (creature == gameObject)
             {
                 foreach (ActiveSpellEffect effect in effects)
@@ -223,7 +258,10 @@ namespace Game.Combat.Spells
                     if (effect.RemainingTargetTurnStarts > 0)
                         effect.RemainingTargetTurnStarts--;
                 }
-                effects.RemoveAll(effect => effect.RemainingTargetTurnStarts == 0 && effect.ExpiresWhenTargetTurnCounterReachesZero);
+                effects.RemoveAll(effect =>
+                    effect.RemainingTargetTurnStarts == 0
+                    && effect.ExpiresWhenTargetTurnCounterReachesZero
+                );
             }
         }
     }
@@ -231,9 +269,7 @@ namespace Game.Combat.Spells
     public sealed class InfuseVitalityStrikeAdjustment : StrikeAdjustmentBase
     {
         public InfuseVitalityStrikeAdjustment()
-            : base(StrikeAdjustmentPhase.BeforeDamageRoll, 0, "Infuse Vitality")
-        {
-        }
+            : base(StrikeAdjustmentPhase.BeforeDamageRoll, 0, "Infuse Vitality") { }
 
         public override void Apply(StrikeResolutionContext context)
         {

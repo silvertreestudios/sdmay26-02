@@ -15,13 +15,16 @@ namespace Game.KayKit.Editor
         public const float DungeonVisualScale = 0.50f;
         public const string DungeonPrefabRoot = KayKitSetupTool.PrefabRoot + "/Dungeon";
         public const string FloorPrefabPath = DungeonPrefabRoot + "/DungeonFloorSmall.prefab";
-        public const string WallStraightPrefabPath = DungeonPrefabRoot + "/DungeonWallStraight.prefab";
+        public const string WallStraightPrefabPath =
+            DungeonPrefabRoot + "/DungeonWallStraight.prefab";
         public const string WallCornerPrefabPath = DungeonPrefabRoot + "/DungeonWallCorner.prefab";
-        public const string WallTPrefabPath = DungeonPrefabRoot + "/DungeonWallTIntersection.prefab";
+        public const string WallTPrefabPath =
+            DungeonPrefabRoot + "/DungeonWallTIntersection.prefab";
         public const string WallCrossPrefabPath = DungeonPrefabRoot + "/DungeonWallCrossing.prefab";
         public const string WallEndcapPrefabPath = DungeonPrefabRoot + "/DungeonWallEndcap.prefab";
         public const string WallPillarPrefabPath = DungeonPrefabRoot + "/DungeonWallPillar.prefab";
-        public const string WallResolverPrefabPath = DungeonPrefabRoot + "/DungeonWallResolver.prefab";
+        public const string WallResolverPrefabPath =
+            DungeonPrefabRoot + "/DungeonWallResolver.prefab";
         public const string DoorwayPrefabPath = DungeonPrefabRoot + "/DungeonDoorwayOpen.prefab";
         public const string OpenDoorwayModelName = "wall_doorway_sides";
 
@@ -43,14 +46,15 @@ namespace Game.KayKit.Editor
             new("ShelfLarge", "shelf_large", false, false),
             new("RubbleHalf", "rubble_half", false, false),
             new("BannerRed", "banner_red", false, false),
-            new("TorchMounted", "torch_mounted", false, false)
+            new("TorchMounted", "torch_mounted", false, false),
         };
 
         private static readonly Dictionary<string, string> WrapperPathByModel =
             Wrappers.ToDictionary(
                 descriptor => descriptor.ModelName,
                 descriptor => $"{DungeonPrefabRoot}/{descriptor.PrefabName}.prefab",
-                StringComparer.OrdinalIgnoreCase);
+                StringComparer.OrdinalIgnoreCase
+            );
 
         public static void RegeneratePrefabs(Material material)
         {
@@ -67,21 +71,28 @@ namespace Game.KayKit.Editor
             if (WrapperPathByModel.TryGetValue(name, out string wrapperPath))
                 wrapper = AssetDatabase.LoadAssetAtPath<GameObject>(wrapperPath);
 
-            Vector2Int footprint = string.Equals(name, "table_long", StringComparison.OrdinalIgnoreCase)
+            Vector2Int footprint = string.Equals(
+                name,
+                "table_long",
+                StringComparison.OrdinalIgnoreCase
+            )
                 ? new Vector2Int(2, 1)
                 : Vector2Int.one;
             bool wrapperBlocksPlacement =
-                wrapper != null &&
-                wrapper.GetComponent<Collider>() != null &&
-                wrapper.GetComponent<MapLineOfSightBlocker>() != null;
-            bool blocksMovement = wrapperBlocksPlacement || IsOneOf(
-                name,
-                "barrel_small",
-                "column",
-                "crates_stacked",
-                "chest",
-                "table_long",
-                "shelf_large");
+                wrapper != null
+                && wrapper.GetComponent<Collider>() != null
+                && wrapper.GetComponent<MapLineOfSightBlocker>() != null;
+            bool blocksMovement =
+                wrapperBlocksPlacement
+                || IsOneOf(
+                    name,
+                    "barrel_small",
+                    "column",
+                    "crates_stacked",
+                    "chest",
+                    "table_long",
+                    "shelf_large"
+                );
             bool blocksLineOfSight = wrapperBlocksPlacement;
 
             return new KayKitDungeonCatalogEntry(
@@ -92,7 +103,8 @@ namespace Game.KayKit.Editor
                 0,
                 0f,
                 blocksMovement,
-                blocksLineOfSight);
+                blocksLineOfSight
+            );
         }
 
         public static GameObject LoadFloorPrefab()
@@ -142,7 +154,13 @@ namespace Game.KayKit.Editor
                     AddDoorPost(root.transform, "RightDoorPostCollider", 0.43f);
                 }
 
-                if (string.Equals(descriptor.ModelName, "torch_mounted", StringComparison.OrdinalIgnoreCase))
+                if (
+                    string.Equals(
+                        descriptor.ModelName,
+                        "torch_mounted",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
                 {
                     GameObject lightObject = new("TorchLight");
                     lightObject.transform.SetParent(root.transform, false);
@@ -156,7 +174,8 @@ namespace Game.KayKit.Editor
 
                 PrefabUtility.SaveAsPrefabAsset(
                     root,
-                    $"{DungeonPrefabRoot}/{descriptor.PrefabName}.prefab");
+                    $"{DungeonPrefabRoot}/{descriptor.PrefabName}.prefab"
+                );
             }
             finally
             {
@@ -214,7 +233,7 @@ namespace Game.KayKit.Editor
                 "corner",
                 "crossIntersection",
                 "pillar",
-                "tIntersection"
+                "tIntersection",
             };
             foreach (string field in fields)
             {
@@ -245,14 +264,21 @@ namespace Game.KayKit.Editor
 
         private static GameObject LoadDungeonModel(string modelName)
         {
-            string path = AssetDatabase.FindAssets(string.Empty, new[] { KayKitPathUtility.DungeonRoot })
+            string path = AssetDatabase
+                .FindAssets(string.Empty, new[] { KayKitPathUtility.DungeonRoot })
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .FirstOrDefault(candidate =>
-                    string.Equals(Path.GetExtension(candidate), ".fbx", StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(
+                        Path.GetExtension(candidate),
+                        ".fbx",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                    && string.Equals(
                         Path.GetFileNameWithoutExtension(candidate),
                         modelName,
-                        StringComparison.OrdinalIgnoreCase));
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                );
             GameObject model = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             if (model == null)
                 throw new InvalidOperationException($"Missing Dungeon model '{modelName}'.");
@@ -271,7 +297,8 @@ namespace Game.KayKit.Editor
         private static bool IsOneOf(string value, params string[] candidates)
         {
             return candidates.Any(candidate =>
-                string.Equals(value, candidate, StringComparison.OrdinalIgnoreCase));
+                string.Equals(value, candidate, StringComparison.OrdinalIgnoreCase)
+            );
         }
 
         private static void EnsureFolder(string path)
@@ -297,7 +324,8 @@ namespace Game.KayKit.Editor
                 string modelName,
                 bool wallCollider,
                 bool openDoorway,
-                string sourceModelName = null)
+                string sourceModelName = null
+            )
             {
                 PrefabName = prefabName;
                 ModelName = modelName;

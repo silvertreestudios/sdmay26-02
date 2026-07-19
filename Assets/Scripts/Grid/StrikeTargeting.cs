@@ -10,13 +10,13 @@ namespace GridPublic
         None,
         Lesser,
         Standard,
-        Greater
+        Greater,
     }
 
     public enum StrikeLineOfEffect
     {
         Clear,
-        Blocked
+        Blocked,
     }
 
     public class StrikeTargetRequest
@@ -59,7 +59,7 @@ namespace GridPublic
                     StrikeCover.Lesser => 1,
                     StrikeCover.Standard => 2,
                     StrikeCover.Greater => 4,
-                    _ => 0
+                    _ => 0,
                 };
             }
         }
@@ -80,7 +80,7 @@ namespace GridPrivate
             new Vector2(-CornerOffset, -CornerOffset),
             new Vector2(CornerOffset, -CornerOffset),
             new Vector2(-CornerOffset, CornerOffset),
-            new Vector2(CornerOffset, CornerOffset)
+            new Vector2(CornerOffset, CornerOffset),
         };
 
         public static int MeasureGridDistanceFeet(Vector3Int start, Vector3Int target)
@@ -93,7 +93,11 @@ namespace GridPrivate
             return diagonalFeet + straight * 5;
         }
 
-        public static bool IsWithinStrikeRange(Vector3Int start, Vector3Int target, GridPublic.StrikeTargetRequest request)
+        public static bool IsWithinStrikeRange(
+            Vector3Int start,
+            Vector3Int target,
+            GridPublic.StrikeTargetRequest request
+        )
         {
             if (request == null)
                 return false;
@@ -115,12 +119,19 @@ namespace GridPrivate
 
             int increment = Mathf.CeilToInt(distanceFeet / (float)rangeIncrementFeet);
             if (increment > 6)
-                throw new ArgumentOutOfRangeException(nameof(distanceFeet), "Ranged Strikes cannot target beyond six range increments.");
+                throw new ArgumentOutOfRangeException(
+                    nameof(distanceFeet),
+                    "Ranged Strikes cannot target beyond six range increments."
+                );
 
             return -2 * (increment - 1);
         }
 
-        public static List<Vector3Int> CellsInRange(Tile[,] tiles, Vector3Int start, GridPublic.StrikeTargetRequest request)
+        public static List<Vector3Int> CellsInRange(
+            Tile[,] tiles,
+            Vector3Int start,
+            GridPublic.StrikeTargetRequest request
+        )
         {
             List<Vector3Int> result = new();
             if (tiles == null || request == null)
@@ -142,7 +153,12 @@ namespace GridPrivate
             return result;
         }
 
-        public static GridPublic.StrikeTargetResult Evaluate(GameObject attacker, GameObject target, Tile[,] tiles, GridPublic.StrikeTargetRequest request)
+        public static GridPublic.StrikeTargetResult Evaluate(
+            GameObject attacker,
+            GameObject target,
+            Tile[,] tiles,
+            GridPublic.StrikeTargetRequest request
+        )
         {
             if (attacker == null || target == null || tiles == null || request == null)
                 return null;
@@ -153,21 +169,28 @@ namespace GridPrivate
             if (!IsWithinStrikeRange(start, targetCell, request))
                 return null;
 
-            int clearRays = GridTargeting.BlocksDiagonalCorner(tiles, start, targetCell) ? 0 : CountClearRays(tiles, start, targetCell);
-            GridPublic.StrikeLineOfEffect lineOfEffect = clearRays > 0
-                ? GridPublic.StrikeLineOfEffect.Clear
-                : GridPublic.StrikeLineOfEffect.Blocked;
+            int clearRays = GridTargeting.BlocksDiagonalCorner(tiles, start, targetCell)
+                ? 0
+                : CountClearRays(tiles, start, targetCell);
+            GridPublic.StrikeLineOfEffect lineOfEffect =
+                clearRays > 0
+                    ? GridPublic.StrikeLineOfEffect.Clear
+                    : GridPublic.StrikeLineOfEffect.Blocked;
 
-            if (request.RequiresLineOfEffect && lineOfEffect == GridPublic.StrikeLineOfEffect.Blocked)
+            if (
+                request.RequiresLineOfEffect
+                && lineOfEffect == GridPublic.StrikeLineOfEffect.Blocked
+            )
                 return null;
 
             GridPublic.StrikeCover cover = GridPublic.StrikeCover.None;
             if (request.IsRanged && clearRays > 0 && clearRays < 16)
                 cover = GridPublic.StrikeCover.Standard;
 
-            int rangePenalty = request.IsRanged && request.FixedRangeFeet <= 0
-                ? CalculateRangePenalty(distance, request.RangeIncrementFeet)
-                : 0;
+            int rangePenalty =
+                request.IsRanged && request.FixedRangeFeet <= 0
+                    ? CalculateRangePenalty(distance, request.RangeIncrementFeet)
+                    : 0;
 
             return new GridPublic.StrikeTargetResult
             {
@@ -175,7 +198,7 @@ namespace GridPrivate
                 DistanceFeet = distance,
                 LineOfEffect = lineOfEffect,
                 Cover = cover,
-                RangePenalty = rangePenalty
+                RangePenalty = rangePenalty,
             };
         }
 
@@ -212,10 +235,19 @@ namespace GridPrivate
             return GridLineOfSightData.IsBlocking(tiles, cell);
         }
 
-        private static bool IsRayBlocked(Tile[,] tiles, Vector3Int start, Vector3Int target, Vector2 startOffset, Vector2 targetOffset)
+        private static bool IsRayBlocked(
+            Tile[,] tiles,
+            Vector3Int start,
+            Vector3Int target,
+            Vector2 startOffset,
+            Vector2 targetOffset
+        )
         {
             Vector2 rayStart = new(start.x + 0.5f + startOffset.x, start.z + 0.5f + startOffset.y);
-            Vector2 rayEnd = new(target.x + 0.5f + targetOffset.x, target.z + 0.5f + targetOffset.y);
+            Vector2 rayEnd = new(
+                target.x + 0.5f + targetOffset.x,
+                target.z + 0.5f + targetOffset.y
+            );
             Vector2 delta = rayEnd - rayStart;
             float distance = delta.magnitude;
             if (distance <= Mathf.Epsilon)
@@ -225,7 +257,11 @@ namespace GridPrivate
             for (int i = 1; i < samples; i++)
             {
                 Vector2 sample = rayStart + delta * (i / (float)samples);
-                Vector3Int cell = new(Mathf.FloorToInt(sample.x), start.y, Mathf.FloorToInt(sample.y));
+                Vector3Int cell = new(
+                    Mathf.FloorToInt(sample.x),
+                    start.y,
+                    Mathf.FloorToInt(sample.y)
+                );
                 if (cell == start || cell == target)
                     continue;
 
@@ -240,7 +276,10 @@ namespace GridPrivate
 
         private static bool IsInBounds(Tile[,] tiles, Vector3Int cell)
         {
-            return cell.x >= 0 && cell.z >= 0 && cell.x < tiles.GetLength(0) && cell.z < tiles.GetLength(1);
+            return cell.x >= 0
+                && cell.z >= 0
+                && cell.x < tiles.GetLength(0)
+                && cell.z < tiles.GetLength(1);
         }
     }
 }

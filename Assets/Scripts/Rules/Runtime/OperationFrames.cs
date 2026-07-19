@@ -87,7 +87,8 @@ namespace Game.Rules.Runtime
             InvocationPolicy invocationPolicy,
             TOp op,
             RulesSnapshot startSnapshot,
-            FrameActionState actionState)
+            FrameActionState actionState
+        )
         {
             if (id.IsEmpty || rootId.IsEmpty)
                 throw new ArgumentException("Frame and root IDs are required.");

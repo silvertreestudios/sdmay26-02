@@ -1,11 +1,11 @@
+using System.Collections.Generic;
+using System.Linq;
 using Game.AbilityActions;
 using Game.Creature;
 using Game.Creature.Rules;
 using GridPublic;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
-using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 public class Pf2eRulesTests
@@ -27,20 +27,43 @@ public class Pf2eRulesTests
     {
         Pf2eItemCatalog catalog = Pf2eItemCatalog.Instance;
 
-        Assert.That(catalog.Resolve("Compendium.pf2e.classes.Item.Barbarian")?.Slug, Is.EqualTo("barbarian"));
-        Assert.That(catalog.Resolve("Compendium.pf2e.actionspf2e.Item.Rage")?.Slug, Is.EqualTo("rage"));
-        Assert.That(catalog.Resolve("Compendium.pf2e.feat-effects.Item.Effect: Rage")?.Slug, Is.EqualTo("effect-rage"));
-        Assert.That(catalog.Resolve("Raging Intimidation")?.Slug, Is.EqualTo("raging-intimidation"));
-        Assert.That(catalog.Resolve("Compendium.pf2e.classes.Item.Rogue")?.Slug, Is.EqualTo("rogue"));
-        Assert.That(catalog.Resolve("Compendium.pf2e.classfeatures.Item.Sneak Attack")?.Slug, Is.EqualTo("sneak-attack"));
-        Assert.That(catalog.Resolve("Compendium.pf2e.classfeatures.Item.Thief")?.Slug, Is.EqualTo("thief"));
+        Assert.That(
+            catalog.Resolve("Compendium.pf2e.classes.Item.Barbarian")?.Slug,
+            Is.EqualTo("barbarian")
+        );
+        Assert.That(
+            catalog.Resolve("Compendium.pf2e.actionspf2e.Item.Rage")?.Slug,
+            Is.EqualTo("rage")
+        );
+        Assert.That(
+            catalog.Resolve("Compendium.pf2e.feat-effects.Item.Effect: Rage")?.Slug,
+            Is.EqualTo("effect-rage")
+        );
+        Assert.That(
+            catalog.Resolve("Raging Intimidation")?.Slug,
+            Is.EqualTo("raging-intimidation")
+        );
+        Assert.That(
+            catalog.Resolve("Compendium.pf2e.classes.Item.Rogue")?.Slug,
+            Is.EqualTo("rogue")
+        );
+        Assert.That(
+            catalog.Resolve("Compendium.pf2e.classfeatures.Item.Sneak Attack")?.Slug,
+            Is.EqualTo("sneak-attack")
+        );
+        Assert.That(
+            catalog.Resolve("Compendium.pf2e.classfeatures.Item.Thief")?.Slug,
+            Is.EqualTo("thief")
+        );
         Assert.That(catalog.Resolve("Nimble Dodge")?.Slug, Is.EqualTo("nimble-dodge"));
     }
 
     [Test]
     public void TorgrimPreparesBarbarianFeaturesFromBuildData()
     {
-        GameObject torgrim = CreatureJsonConverter.CreateFromFile("DataFiles/playerCharacters/Torgrim");
+        GameObject torgrim = CreatureJsonConverter.CreateFromFile(
+            "DataFiles/playerCharacters/Torgrim"
+        );
         created.Add(torgrim);
         CreatureComponent creature = torgrim.GetComponent<CreatureComponent>();
 
@@ -51,13 +74,18 @@ public class Pf2eRulesTests
         Assert.That(creature.Prepared.HasOwnedItem("rage"), Is.True);
         Assert.That(creature.Prepared.HasOwnedItem("fury-instinct"), Is.True);
         Assert.That(creature.Prepared.HasOwnedItem("raging-intimidation"), Is.True);
-        Assert.That(creature.Prepared.Build.RuleSelections["furyInstinct"], Does.Contain("Raging Intimidation"));
+        Assert.That(
+            creature.Prepared.Build.RuleSelections["furyInstinct"],
+            Does.Contain("Raging Intimidation")
+        );
     }
 
     [Test]
     public void ZombiePassiveSlowAppliesAtCombatStart()
     {
-        GameObject zombie = CreatureJsonConverter.CreateFromFile("DataFiles/pathfinder-monster-core/zombie-shambler");
+        GameObject zombie = CreatureJsonConverter.CreateFromFile(
+            "DataFiles/pathfinder-monster-core/zombie-shambler"
+        );
         created.Add(zombie);
         TestActionController actionController = zombie.AddComponent<TestActionController>();
 
@@ -73,7 +101,9 @@ public class Pf2eRulesTests
     [Test]
     public void ZombiePassiveSlowDoesNotStackWhenCombatStartRulesRunAgain()
     {
-        GameObject zombie = CreatureJsonConverter.CreateFromFile("DataFiles/pathfinder-monster-core/zombie-shambler");
+        GameObject zombie = CreatureJsonConverter.CreateFromFile(
+            "DataFiles/pathfinder-monster-core/zombie-shambler"
+        );
         created.Add(zombie);
         TestActionController actionController = zombie.AddComponent<TestActionController>();
 
@@ -93,10 +123,36 @@ public class Pf2eRulesTests
         prepared.RollOptions.Add("self:level:7");
         prepared.SkillRanks["intimidation"] = 4;
 
-        Assert.That(Pf2ePredicate.Evaluate(JToken.Parse("[\"class:barbarian\", {\"not\": \"item:ranged\"}]"), prepared), Is.True);
-        Assert.That(Pf2ePredicate.Evaluate(JToken.Parse("[{\"or\": [\"item:ranged\", \"self:effect:rage\"]}]"), prepared), Is.True);
-        Assert.That(Pf2ePredicate.Evaluate(JToken.Parse("[{\"gte\": [\"self:level\", 7]}, {\"gte\": [\"skill:intimidation:rank\", 4]}]"), prepared), Is.True);
-        Assert.That(Pf2ePredicate.Evaluate(JToken.Parse("[{\"and\": [\"class:barbarian\", {\"not\": \"item:ranged\"}]}]"), prepared), Is.True);
+        Assert.That(
+            Pf2ePredicate.Evaluate(
+                JToken.Parse("[\"class:barbarian\", {\"not\": \"item:ranged\"}]"),
+                prepared
+            ),
+            Is.True
+        );
+        Assert.That(
+            Pf2ePredicate.Evaluate(
+                JToken.Parse("[{\"or\": [\"item:ranged\", \"self:effect:rage\"]}]"),
+                prepared
+            ),
+            Is.True
+        );
+        Assert.That(
+            Pf2ePredicate.Evaluate(
+                JToken.Parse(
+                    "[{\"gte\": [\"self:level\", 7]}, {\"gte\": [\"skill:intimidation:rank\", 4]}]"
+                ),
+                prepared
+            ),
+            Is.True
+        );
+        Assert.That(
+            Pf2ePredicate.Evaluate(
+                JToken.Parse("[{\"and\": [\"class:barbarian\", {\"not\": \"item:ranged\"}]}]"),
+                prepared
+            ),
+            Is.True
+        );
     }
 
     [Test]
@@ -105,12 +161,19 @@ public class Pf2eRulesTests
         CreatureComponent creature = CreatePreparedBarbarian();
         CreatureRulesState state = UnityCreatureRulesAdapter.From(creature.gameObject);
 
-        RageRuleResult result = RageRule.Apply(new RageRequest { Creature = state, ActionCost = 0 });
+        RageRuleResult result = RageRule.Apply(
+            new RageRequest { Creature = state, ActionCost = 0 }
+        );
 
         Assert.That(result.Applied, Is.True);
         Assert.That(creature.Prepared.HasActiveEffect("effect-rage"), Is.True);
         Assert.That(creature.Prepared.RollOptions.Contains("self:effect:effect-rage"), Is.True);
-        Assert.That(result.Effects.Any(e => e.Type == RuleEffectType.GainSourceTempHp && e.Source == "rage" && e.Amount == 2), Is.True);
+        Assert.That(
+            result.Effects.Any(e =>
+                e.Type == RuleEffectType.GainSourceTempHp && e.Source == "rage" && e.Amount == 2
+            ),
+            Is.True
+        );
     }
 
     [Test]
@@ -118,54 +181,82 @@ public class Pf2eRulesTests
     {
         CreatureComponent creature = CreatePreparedBarbarian();
 
-        Assert.That(RageRule.CanApply(new RageRequest
-        {
-            Creature = new CreatureRulesState
-            {
-                Prepared = creature.Prepared,
-                Conditions = new[] { "Fatigued" }
-            }
-        }), Is.False);
+        Assert.That(
+            RageRule.CanApply(
+                new RageRequest
+                {
+                    Creature = new CreatureRulesState
+                    {
+                        Prepared = creature.Prepared,
+                        Conditions = new[] { "Fatigued" },
+                    },
+                }
+            ),
+            Is.False
+        );
 
-        Assert.That(RageRule.CanApply(new RageRequest
-        {
-            Creature = new CreatureRulesState
-            {
-                Prepared = creature.Prepared,
-                Conditions = new[] { "Encumbered" }
-            }
-        }), Is.False);
+        Assert.That(
+            RageRule.CanApply(
+                new RageRequest
+                {
+                    Creature = new CreatureRulesState
+                    {
+                        Prepared = creature.Prepared,
+                        Conditions = new[] { "Encumbered" },
+                    },
+                }
+            ),
+            Is.False
+        );
 
-        Assert.That(RageRule.CanApply(new RageRequest
-        {
-            Creature = new CreatureRulesState
-            {
-                Prepared = creature.Prepared,
-                ArmorCategory = "heavy"
-            }
-        }), Is.False);
+        Assert.That(
+            RageRule.CanApply(
+                new RageRequest
+                {
+                    Creature = new CreatureRulesState
+                    {
+                        Prepared = creature.Prepared,
+                        ArmorCategory = "heavy",
+                    },
+                }
+            ),
+            Is.False
+        );
     }
 
     [Test]
     public void RageRuleEndRemovesActiveEffectAndEmitsCleanupEffects()
     {
         CreatureComponent creature = CreatePreparedBarbarian();
-        RageRule.Apply(new RageRequest { Creature = UnityCreatureRulesAdapter.From(creature.gameObject), ActionCost = 0 });
+        RageRule.Apply(
+            new RageRequest
+            {
+                Creature = UnityCreatureRulesAdapter.From(creature.gameObject),
+                ActionCost = 0,
+            }
+        );
 
         RageRuleResult end = RageRule.End(UnityCreatureRulesAdapter.From(creature.gameObject));
 
         Assert.That(end.Applied, Is.True);
         Assert.That(creature.Prepared.HasActiveEffect("effect-rage"), Is.False);
         Assert.That(creature.Prepared.HasActiveEffect("rage-temp-hp-immunity"), Is.True);
-        Assert.That(end.Effects.Any(e => e.Type == RuleEffectType.RemoveSourceTempHp && e.Source == "rage"), Is.True);
-        Assert.That(end.Effects.Any(e => e.Type == RuleEffectType.AddTempHpImmunity && e.Source == "rage"), Is.True);
+        Assert.That(
+            end.Effects.Any(e => e.Type == RuleEffectType.RemoveSourceTempHp && e.Source == "rage"),
+            Is.True
+        );
+        Assert.That(
+            end.Effects.Any(e => e.Type == RuleEffectType.AddTempHpImmunity && e.Source == "rage"),
+            Is.True
+        );
     }
 
     [Test]
     public void RageUnityActionAppliesRuleEffectsToUnityComponents()
     {
         CreatureComponent creature = CreatePreparedBarbarian();
-        TestActionController actionController = creature.gameObject.AddComponent<TestActionController>();
+        TestActionController actionController =
+            creature.gameObject.AddComponent<TestActionController>();
         actionController.ActionPoints = 3;
         actionController.IsTakingAction = true;
 
@@ -190,17 +281,26 @@ public class Pf2eRulesTests
         CreatureComponent creature = CreatePreparedBarbarian();
         Assert.That(new Rage(0).UseRage(creature.gameObject), Is.True);
 
-        StrikeProfile greataxe = new(new List<Dice> { new Dice(1, 12, "Slashing") }, new List<DamageValue> { new DamageValue("Slashing", 4) });
+        StrikeProfile greataxe = new(
+            new List<Dice> { new Dice(1, 12, "Slashing") },
+            new List<DamageValue> { new DamageValue("Slashing", 4) }
+        );
         StrikeResolutionContext greataxeContext = PrepareStrike(creature, greataxe);
         Assert.That(greataxeContext.FlatDamages.Last().DamageAmount, Is.EqualTo(3));
 
-        StrikeProfile agile = new(new List<Dice> { new Dice(1, 4, "Bludgeoning") }, new List<DamageValue> { new DamageValue("Bludgeoning", 4) });
+        StrikeProfile agile = new(
+            new List<Dice> { new Dice(1, 4, "Bludgeoning") },
+            new List<DamageValue> { new DamageValue("Bludgeoning", 4) }
+        );
         agile.Traits.Add("agile");
         StrikeResolutionContext agileContext = PrepareStrike(creature, agile);
         Assert.That(agileContext.FlatDamages.Last().DamageAmount, Is.EqualTo(1));
 
         new Rage(0).EndRage(creature.gameObject);
-        StrikeProfile notRaging = new(new List<Dice> { new Dice(1, 12, "Slashing") }, new List<DamageValue> { new DamageValue("Slashing", 4) });
+        StrikeProfile notRaging = new(
+            new List<Dice> { new Dice(1, 12, "Slashing") },
+            new List<DamageValue> { new DamageValue("Slashing", 4) }
+        );
         StrikeResolutionContext notRagingContext = PrepareStrike(creature, notRaging);
         Assert.That(notRagingContext.FlatDamages.Count, Is.EqualTo(1));
     }
@@ -210,11 +310,21 @@ public class Pf2eRulesTests
     {
         CreatureComponent creature = CreatePreparedBarbarian();
 
-        List<string> beforeRage = Pf2eRulesEngine.GetAlteredTraits(creature.Prepared, "action", "demoralize", new List<string>());
+        List<string> beforeRage = Pf2eRulesEngine.GetAlteredTraits(
+            creature.Prepared,
+            "action",
+            "demoralize",
+            new List<string>()
+        );
         Assert.That(beforeRage, Does.Not.Contain("rage"));
 
         Assert.That(new Rage(0).UseRage(creature.gameObject), Is.True);
-        List<string> duringRage = Pf2eRulesEngine.GetAlteredTraits(creature.Prepared, "action", "demoralize", new List<string>());
+        List<string> duringRage = Pf2eRulesEngine.GetAlteredTraits(
+            creature.Prepared,
+            "action",
+            "demoralize",
+            new List<string>()
+        );
         Assert.That(duringRage, Does.Contain("rage"));
     }
 
@@ -235,7 +345,10 @@ public class Pf2eRulesTests
         Assert.That(creature.Prepared.HasOwnedItem("nimble-dodge"), Is.True);
         Assert.That(creature.Prepared.SkillRanks["stealth"], Is.EqualTo(1));
         Assert.That(creature.Prepared.SkillRanks["thievery"], Is.EqualTo(1));
-        Assert.That(creature.weaponBonuses.First(b => b.category == "martial").bonus, Is.EqualTo(2));
+        Assert.That(
+            creature.weaponBonuses.First(b => b.category == "martial").bonus,
+            Is.EqualTo(2)
+        );
         Assert.That(creature.armorBonuses.First(b => b.category == "light").bonus, Is.EqualTo(2));
     }
 
@@ -253,20 +366,26 @@ public class Pf2eRulesTests
     {
         CreatureComponent creature = CreatePreparedRogue();
 
-        StrikeProfile finesseStrike = new(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue> { new DamageValue("slashing", creature.strMod) })
+        StrikeProfile finesseStrike = new(
+            new List<Dice> { new Dice(1, 6, "slashing") },
+            new List<DamageValue> { new DamageValue("slashing", creature.strMod) }
+        )
         {
             Traits = new List<string> { "agile", "finesse" },
             ItemSlug = "dogslicer",
-            WeaponCategory = "martial"
+            WeaponCategory = "martial",
         };
         StrikeResolutionContext finesseContext = PrepareStrike(creature, finesseStrike);
         Assert.That(finesseContext.FlatDamages[0].DamageAmount, Is.EqualTo(creature.dexMod));
 
-        StrikeProfile nonFinesseStrike = new(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue> { new DamageValue("slashing", creature.strMod) })
+        StrikeProfile nonFinesseStrike = new(
+            new List<Dice> { new Dice(1, 6, "slashing") },
+            new List<DamageValue> { new DamageValue("slashing", creature.strMod) }
+        )
         {
             Traits = new List<string> { "forceful" },
             ItemSlug = "scimitar",
-            WeaponCategory = "martial"
+            WeaponCategory = "martial",
         };
         StrikeResolutionContext nonFinesseContext = PrepareStrike(creature, nonFinesseStrike);
         Assert.That(nonFinesseContext.FlatDamages[0].DamageAmount, Is.EqualTo(creature.strMod));
@@ -290,11 +409,14 @@ public class Pf2eRulesTests
         Assert.That(offGuardContext.DamageDice.Last().sidesPerDie, Is.EqualTo(6));
         Assert.That(offGuardContext.DamageDice.Last().damageType, Is.EqualTo("precision"));
 
-        StrikeProfile ineligibleWeapon = new(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue> { new DamageValue("slashing", rogue.strMod) })
+        StrikeProfile ineligibleWeapon = new(
+            new List<Dice> { new Dice(1, 6, "slashing") },
+            new List<DamageValue> { new DamageValue("slashing", rogue.strMod) }
+        )
         {
             Traits = new List<string> { "forceful" },
             ItemSlug = "scimitar",
-            WeaponCategory = "martial"
+            WeaponCategory = "martial",
         };
         StrikeResolutionContext ineligibleContext = PrepareStrike(rogue, ineligibleWeapon, target);
         Assert.That(ineligibleContext.DamageDice.Count, Is.EqualTo(1));
@@ -307,12 +429,15 @@ public class Pf2eRulesTests
         CreatureComponent target = CreateTarget("Flat-Footed Target");
         target.GetComponent<Conditions>().Add("Flat-Footed", new ConditionSource());
 
-        StrikeProfile shortbowStrike = new(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>())
+        StrikeProfile shortbowStrike = new(
+            new List<Dice> { new Dice(1, 6, "piercing") },
+            new List<DamageValue>()
+        )
         {
             Traits = new List<string> { "deadly-d10" },
             ItemSlug = "shortbow",
             WeaponCategory = "martial",
-            IsRangedAttack = true
+            IsRangedAttack = true,
         };
 
         StrikeResolutionContext shortbowContext = PrepareStrike(rogue, shortbowStrike, target);
@@ -322,6 +447,7 @@ public class Pf2eRulesTests
         Assert.That(shortbowContext.DamageDice.Last().sidesPerDie, Is.EqualTo(6));
         Assert.That(shortbowContext.DamageDice.Last().damageType, Is.EqualTo("precision"));
     }
+
     private CreatureComponent CreatePreparedBarbarian()
     {
         GameObject go = new("Prepared Barbarian");
@@ -334,7 +460,7 @@ public class Pf2eRulesTests
         {
             ClassName = "Barbarian",
             SubclassName = "Fury Instinct",
-            ClassFeatName = "Raging Intimidation"
+            ClassFeatName = "Raging Intimidation",
         };
         creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
         return creature;
@@ -353,7 +479,7 @@ public class Pf2eRulesTests
         {
             ClassName = "Rogue",
             SubclassName = "Thief",
-            ClassFeatName = "Nimble Dodge"
+            ClassFeatName = "Nimble Dodge",
         };
         creature.Build.TrainedSkills.Add("stealth");
         creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
@@ -372,37 +498,46 @@ public class Pf2eRulesTests
         return creature;
     }
 
-    private StrikeResolutionContext PrepareStrike(CreatureComponent attacker, StrikeProfile profile, CreatureComponent target = null)
+    private StrikeResolutionContext PrepareStrike(
+        CreatureComponent attacker,
+        StrikeProfile profile,
+        CreatureComponent target = null
+    )
     {
         CreatureComponent resolvedTarget = target ?? CreateTarget("Prepared Strike Target");
-        StrikeResolutionContext context = StrikeResolutionContext.FromRequest(new StrikeResolutionRequest
-        {
-            Attacker = attacker.gameObject,
-            Target = resolvedTarget.gameObject,
-            Profile = profile,
-            TargetingResult = new StrikeTargetResult
+        StrikeResolutionContext context = StrikeResolutionContext.FromRequest(
+            new StrikeResolutionRequest
             {
+                Attacker = attacker.gameObject,
                 Target = resolvedTarget.gameObject,
-                LineOfEffect = StrikeLineOfEffect.Clear,
-                Cover = StrikeCover.None
+                Profile = profile,
+                TargetingResult = new StrikeTargetResult
+                {
+                    Target = resolvedTarget.gameObject,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                    Cover = StrikeCover.None,
+                },
             }
-        });
+        );
         Pf2eRulesEngine.ApplyPreparedStrikeAdjustments(context);
         return context;
     }
+
     private static StrikeProfile CreateDogslicerStrike(CreatureComponent rogue)
     {
-        return new StrikeProfile(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue> { new DamageValue("slashing", rogue.strMod) })
+        return new StrikeProfile(
+            new List<Dice> { new Dice(1, 6, "slashing") },
+            new List<DamageValue> { new DamageValue("slashing", rogue.strMod) }
+        )
         {
             Traits = new List<string> { "agile", "finesse" },
             ItemSlug = "dogslicer",
-            WeaponCategory = "martial"
+            WeaponCategory = "martial",
         };
     }
+
     private sealed class TestActionController : ActionController
     {
-        public override void EndTurn()
-        {
-        }
+        public override void EndTurn() { }
     }
 }

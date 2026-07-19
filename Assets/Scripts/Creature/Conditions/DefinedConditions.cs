@@ -6,9 +6,9 @@ public static class DefinedConditions
 {
     private static Dictionary<string, Condition> Conditions = new()
     {
-        {"Slowed 1", new Condition("Slowed", (GameObject g) => Slowed(g, 1)) },
-        {"Slowed 2", new Condition("Slowed", (GameObject g) => Slowed(g, 2)) },
-        {"Slowed 3", new Condition("Slowed", (GameObject g) => Slowed(g, 3)) },
+        { "Slowed 1", new Condition("Slowed", (GameObject g) => Slowed(g, 1)) },
+        { "Slowed 2", new Condition("Slowed", (GameObject g) => Slowed(g, 2)) },
+        { "Slowed 3", new Condition("Slowed", (GameObject g) => Slowed(g, 3)) },
     };
 
     /// <summary>
@@ -18,7 +18,7 @@ public static class DefinedConditions
     /// <returns>False if condition already exists</returns>
     public static bool Add(Condition condition)
     {
-        if(!Conditions.TryGetValue(condition.Name, out _))
+        if (!Conditions.TryGetValue(condition.Name, out _))
         {
             return false;
         }
@@ -34,7 +34,7 @@ public static class DefinedConditions
     public static Condition TryGet(string conditionName)
     {
         Condition result;
-        if(Conditions.TryGetValue(conditionName, out result))
+        if (Conditions.TryGetValue(conditionName, out result))
             return result;
         return null;
     }
@@ -72,7 +72,7 @@ public static class DefinedConditions
     /// <summary>Bleeding out; unconscious; must check recovery each turn; can die if condition reaches 4.</summary>
     public static void Dying(GameObject target) { }
 
-    /// <summary>Carrying too much; clumsy 1 and –10-foot penalty to all Speeds.</summary>
+    /// <summary>Carrying too much; clumsy 1 and ï¿½10-foot penalty to all Speeds.</summary>
     public static void Encumbered(GameObject target) { }
 
     /// <summary>Physically weakened; status penalty to Str-based rolls and DCs.</summary>
@@ -81,7 +81,7 @@ public static class DefinedConditions
     /// <summary>Distracted by something; status penalty to Perception and skill checks; limits concentrate actions.</summary>
     public static void Fascinated(GameObject target) { }
 
-    /// <summary>Tired; –1 status penalty to AC and saves; can't use exploration activities.</summary>
+    /// <summary>Tired; ï¿½1 status penalty to AC and saves; can't use exploration activities.</summary>
     public static void Fatigued(GameObject target) { }
 
     /// <summary>Forced to run away from source; must use actions to escape.</summary>
@@ -108,7 +108,7 @@ public static class DefinedConditions
     /// <summary>Incapable of movement; can't take move actions or move traits.</summary>
     public static void Immobilized(GameObject target) { }
 
-    /// <summary>Creature's disposition is indifferent; doesn’t care about character.</summary>
+    /// <summary>Creature's disposition is indifferent; doesnï¿½t care about character.</summary>
     public static void Indifferent(GameObject target) { }
 
     /// <summary>Target takes a circumstance penalty to AC; distracted and off-guard.</summary>
@@ -136,10 +136,15 @@ public static class DefinedConditions
     public static void Sickened(GameObject target) { }
 
     /// <summary>Fewer actions; actions regained reduced by slowed value.</summary>
-    public static void Slowed(GameObject target, uint tier) 
+    public static void Slowed(GameObject target, uint tier)
     {
         ActionController ac = target.GetComponent<ActionController>();
-        ac.ResetActionPointsEvent.AddListener((Ref<uint> points) => { points.Value -= tier; });
+        ac.ResetActionPointsEvent.AddListener(
+            (Ref<uint> points) =>
+            {
+                points.Value -= tier;
+            }
+        );
     }
 
     /// <summary>Senseless; lose actions; stunned may include total actions lost.</summary>

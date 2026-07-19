@@ -1,6 +1,7 @@
 using UnityEngine;
 
-public abstract class SingletonMonoBehaviour<T> : MonoBehaviour where T : MonoBehaviour
+public abstract class SingletonMonoBehaviour<T> : MonoBehaviour
+    where T : MonoBehaviour
 {
     private static T Instance;
 
@@ -10,7 +11,7 @@ public abstract class SingletonMonoBehaviour<T> : MonoBehaviour where T : MonoBe
         {
             return Instance;
         }
-        else 
+        else
         {
             Debug.LogError($"Required instance of {typeof(T).FullName} not found in the scene.");
         }

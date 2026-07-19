@@ -11,9 +11,7 @@ namespace Game.DungeonGeneration
         /// <param name="id">The stable non-empty creature content ID.</param>
         /// <param name="level">The creature's PF2e level.</param>
         public DungeonEncounterCandidate(string id, int level)
-            : this(id, level, string.Empty, string.Empty)
-        {
-        }
+            : this(id, level, string.Empty, string.Empty) { }
 
         /// <summary>Creates a candidate backed by an existing creature resource and prefab.</summary>
         /// <param name="id">The stable non-empty creature content ID.</param>
@@ -25,7 +23,8 @@ namespace Game.DungeonGeneration
             string id,
             int level,
             string resourcePath,
-            string prefabPath)
+            string prefabPath
+        )
         {
             if (string.IsNullOrWhiteSpace(id))
                 throw new ArgumentException("A candidate requires a stable ID.", nameof(id));
@@ -61,13 +60,15 @@ namespace Game.DungeonGeneration
             DungeonEncounterThreat threat,
             int budget,
             int spentXp,
-            IEnumerable<string> creatureIds)
+            IEnumerable<string> creatureIds
+        )
         {
             Threat = threat;
             Budget = budget;
             SpentXp = spentXp;
             CreatureIds = Array.AsReadOnly(
-                (creatureIds ?? throw new ArgumentNullException(nameof(creatureIds))).ToArray());
+                (creatureIds ?? throw new ArgumentNullException(nameof(creatureIds))).ToArray()
+            );
         }
 
         /// <summary>Gets the requested threat.</summary>
@@ -103,7 +104,8 @@ namespace Game.DungeonGeneration
             DungeonEncounterThreat threat,
             IReadOnlyList<DungeonEncounterCandidate> candidates,
             int roomCapacity,
-            IDungeonRandom rng);
+            IDungeonRandom rng
+        );
     }
 
     /// <summary>Uses bounded dynamic programming to implement <see cref="IEncounterBuilder"/>.</summary>
@@ -116,7 +118,8 @@ namespace Game.DungeonGeneration
             DungeonEncounterThreat threat,
             IReadOnlyList<DungeonEncounterCandidate> candidates,
             int roomCapacity,
-            IDungeonRandom rng)
+            IDungeonRandom rng
+        )
         {
             if (candidates == null)
                 throw new ArgumentNullException(nameof(candidates));
@@ -130,9 +133,14 @@ namespace Game.DungeonGeneration
                 .OrderBy(candidate => candidate?.Id, StringComparer.Ordinal)
                 .ToArray();
             if (ordered.Any(candidate => candidate == null))
-                throw new ArgumentException("Candidate collections cannot contain null entries.", nameof(candidates));
-            if (ordered.Select(candidate => candidate.Id)
-                .Distinct(StringComparer.Ordinal).Count() != ordered.Length)
+                throw new ArgumentException(
+                    "Candidate collections cannot contain null entries.",
+                    nameof(candidates)
+                );
+            if (
+                ordered.Select(candidate => candidate.Id).Distinct(StringComparer.Ordinal).Count()
+                != ordered.Length
+            )
             {
                 throw new ArgumentException("Candidate IDs must be unique.", nameof(candidates));
             }
@@ -143,7 +151,8 @@ namespace Game.DungeonGeneration
                     bool supported = DungeonEncounterRules.TryGetCreatureXp(
                         partyLevel,
                         candidate.Level,
-                        out int xp);
+                        out int xp
+                    );
                     return new Option(candidate.Id, supported ? xp : 0, supported);
                 })
                 .Where(option => option.IsSupported && option.Xp <= budget)
@@ -156,31 +165,36 @@ namespace Game.DungeonGeneration
             Shuffle(options, rng);
             int minimumXp = options.Min(option => option.Xp);
             int capacity = Math.Min(roomCapacity, budget / minimumXp);
-            Dictionary<int, CompositionState>[] states =
-                new Dictionary<int, CompositionState>[capacity + 1];
+            Dictionary<int, CompositionState>[] states = new Dictionary<int, CompositionState>[
+                capacity + 1
+            ];
             // Each state is keyed by exact (creature count, spent XP). Because every transition
             // adds one positive-XP creature, retaining the first predecessor for a key cannot
             // discard a composition that is better under either optimization criterion. The
             // normalized randomized option order decides only compositions tied on both values.
             states[0] = new Dictionary<int, CompositionState>
             {
-                [0] = new CompositionState(null, null, 0, 0)
+                [0] = new CompositionState(null, null, 0, 0),
             };
 
             for (int count = 0; count < capacity; count++)
             {
                 states[count + 1] = new Dictionary<int, CompositionState>();
-                foreach (KeyValuePair<int, CompositionState> state in
-                         states[count].OrderBy(pair => pair.Key))
+                foreach (
+                    KeyValuePair<int, CompositionState> state in states[count]
+                        .OrderBy(pair => pair.Key)
+                )
                 {
                     foreach (Option option in options)
                     {
                         int spent = state.Key + option.Xp;
                         if (spent <= budget && !states[count + 1].ContainsKey(spent))
                         {
-                            states[count + 1].Add(
-                                spent,
-                                new CompositionState(state.Value, option, count + 1, spent));
+                            states[count + 1]
+                                .Add(
+                                    spent,
+                                    new CompositionState(state.Value, option, count + 1, spent)
+                                );
                         }
                     }
                 }
@@ -195,9 +209,8 @@ namespace Game.DungeonGeneration
                 .Select(group => group[bestSpent])
                 .Where(state => Math.Abs(state.Count - partySize) == bestDistance)
                 .ToArray();
-            CompositionState chosen = finalists.Length == 1
-                ? finalists[0]
-                : finalists[rng.NextInt(finalists.Length)];
+            CompositionState chosen =
+                finalists.Length == 1 ? finalists[0] : finalists[rng.NextInt(finalists.Length)];
 
             List<string> ids = new();
             for (CompositionState state = chosen; state.Option != null; state = state.Previous)
@@ -235,7 +248,8 @@ namespace Game.DungeonGeneration
                 CompositionState previous,
                 Option option,
                 int count,
-                int spentXp)
+                int spentXp
+            )
             {
                 Previous = previous;
                 Option = option;

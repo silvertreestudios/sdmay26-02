@@ -39,9 +39,15 @@ namespace Game.Rules.Runtime
         public DiceExpression(int count, int sides)
         {
             if (count <= 0)
-                throw new ArgumentOutOfRangeException(nameof(count), "A roll requires at least one die.");
+                throw new ArgumentOutOfRangeException(
+                    nameof(count),
+                    "A roll requires at least one die."
+                );
             if (sides <= 0)
-                throw new ArgumentOutOfRangeException(nameof(sides), "A die requires at least one side.");
+                throw new ArgumentOutOfRangeException(
+                    nameof(sides),
+                    "A die requires at least one side."
+                );
 
             Count = count;
             Sides = sides;
@@ -62,12 +68,14 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Compares two dice expressions by count and die size.
         /// </summary>
-        public static bool operator ==(DiceExpression left, DiceExpression right) => left.Equals(right);
+        public static bool operator ==(DiceExpression left, DiceExpression right) =>
+            left.Equals(right);
 
         /// <summary>
         /// Compares two dice expressions by count and die size.
         /// </summary>
-        public static bool operator !=(DiceExpression left, DiceExpression right) => !left.Equals(right);
+        public static bool operator !=(DiceExpression left, DiceExpression right) =>
+            !left.Equals(right);
     }
 
     /// <summary>
@@ -116,7 +124,10 @@ namespace Game.Rules.Runtime
         public RollResult(DiceExpression dice, IEnumerable<int> values)
         {
             if (dice.IsEmpty)
-                throw new ArgumentException("A roll result requires a valid dice expression.", nameof(dice));
+                throw new ArgumentException(
+                    "A roll result requires a valid dice expression.",
+                    nameof(dice)
+                );
             if (values == null)
                 throw new ArgumentNullException(nameof(values));
 
@@ -125,7 +136,8 @@ namespace Game.Rules.Runtime
             {
                 throw new ArgumentException(
                     $"{dice} requires {dice.Count} results, but {copied.Length} were supplied.",
-                    nameof(values));
+                    nameof(values)
+                );
             }
 
             int total = 0;
@@ -135,7 +147,8 @@ namespace Game.Rules.Runtime
                 {
                     throw new ArgumentException(
                         $"Roll value {copied[index]} is outside the 1-{dice.Sides} range for {dice}.",
-                        nameof(values));
+                        nameof(values)
+                    );
                 }
                 total = checked(total + copied[index]);
             }
@@ -262,8 +275,9 @@ namespace Game.Rules.Runtime
                 if (values.Length - nextIndex < dice.Count)
                 {
                     throw new InvalidOperationException(
-                        $"The scripted roll source needs {dice.Count} values for {dice}, but only " +
-                        $"{values.Length - nextIndex} remain.");
+                        $"The scripted roll source needs {dice.Count} values for {dice}, but only "
+                            + $"{values.Length - nextIndex} remain."
+                    );
                 }
 
                 for (int offset = 0; offset < dice.Count; offset++)
@@ -272,7 +286,8 @@ namespace Game.Rules.Runtime
                     if (value < 1 || value > dice.Sides)
                     {
                         throw new InvalidOperationException(
-                            $"Scripted value {value} is outside the 1-{dice.Sides} range for {dice}.");
+                            $"Scripted value {value} is outside the 1-{dice.Sides} range for {dice}."
+                        );
                     }
                 }
 

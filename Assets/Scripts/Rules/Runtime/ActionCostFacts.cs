@@ -23,7 +23,8 @@ namespace Game.Rules.Runtime
             {
                 throw new ArgumentException(
                     "Only actions or a reaction produce an action-cost spending Fact.",
-                    nameof(cost));
+                    nameof(cost)
+                );
             }
             ActionOpId = actionOpId;
             Actor = actor;
@@ -64,7 +65,8 @@ namespace Game.Rules.Runtime
             CreatureId actor,
             SpellSlotPoolId pool,
             int amount,
-            int remaining)
+            int remaining
+        )
         {
             if (actionOpId.IsEmpty)
                 throw new ArgumentException("An action Op ID is required.", nameof(actionOpId));
@@ -121,11 +123,7 @@ namespace Game.Rules.Runtime
         /// <param name="actor">The creature whose Focus Points changed.</param>
         /// <param name="amount">The positive number of points spent.</param>
         /// <param name="remaining">The remaining points after the commit.</param>
-        public FocusPointsSpentFact(
-            OpId actionOpId,
-            CreatureId actor,
-            int amount,
-            int remaining)
+        public FocusPointsSpentFact(OpId actionOpId, CreatureId actor, int amount, int remaining)
         {
             if (actionOpId.IsEmpty)
                 throw new ArgumentException("An action Op ID is required.", nameof(actionOpId));
@@ -180,7 +178,8 @@ namespace Game.Rules.Runtime
             CreatureId actor,
             ItemId item,
             int amount,
-            int remaining)
+            int remaining
+        )
         {
             if (actionOpId.IsEmpty)
                 throw new ArgumentException("An action Op ID is required.", nameof(actionOpId));
@@ -243,7 +242,8 @@ namespace Game.Rules.Runtime
             CreatureId actor,
             BindingId binding,
             int round,
-            int uses)
+            int uses
+        )
         {
             if (actionOpId.IsEmpty)
                 throw new ArgumentException("An action Op ID is required.", nameof(actionOpId));
@@ -287,5 +287,4 @@ namespace Game.Rules.Runtime
         /// </summary>
         public int Uses { get; }
     }
-
 }

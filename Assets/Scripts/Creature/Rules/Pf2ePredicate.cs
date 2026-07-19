@@ -1,7 +1,7 @@
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json.Linq;
 
 namespace Game.Creature.Rules
 {
@@ -17,7 +17,11 @@ namespace Game.Creature.Rules
         /// <param name="prepared">The prepared character supplying roll options and numeric rule facts.</param>
         /// <param name="itemOptions">Optional item-scoped options such as traits for a Strike or item alteration.</param>
         /// <returns>True when the predicate is empty or all supported clauses match.</returns>
-        public static bool Evaluate(JToken predicate, PreparedCharacter prepared, IEnumerable<string> itemOptions = null)
+        public static bool Evaluate(
+            JToken predicate,
+            PreparedCharacter prepared,
+            IEnumerable<string> itemOptions = null
+        )
         {
             if (predicate == null || predicate.Type == JTokenType.Null)
                 return true;
@@ -31,9 +35,13 @@ namespace Game.Creature.Rules
             if (predicate is JObject obj)
             {
                 if (obj.TryGetValue("and", out JToken andToken))
-                    return (andToken as JArray)?.All(entry => Evaluate(entry, prepared, itemOptions)) ?? Evaluate(andToken, prepared, itemOptions);
+                    return (andToken as JArray)?.All(entry =>
+                            Evaluate(entry, prepared, itemOptions)
+                        )
+                        ?? Evaluate(andToken, prepared, itemOptions);
                 if (obj.TryGetValue("or", out JToken orToken))
-                    return (orToken as JArray)?.Any(entry => Evaluate(entry, prepared, itemOptions)) ?? Evaluate(orToken, prepared, itemOptions);
+                    return (orToken as JArray)?.Any(entry => Evaluate(entry, prepared, itemOptions))
+                        ?? Evaluate(orToken, prepared, itemOptions);
                 if (obj.TryGetValue("not", out JToken notToken))
                     return !Evaluate(notToken, prepared, itemOptions);
                 if (obj.TryGetValue("gte", out JToken gteToken))
@@ -43,21 +51,36 @@ namespace Game.Creature.Rules
             return false;
         }
 
-        private static bool EvaluateAtomic(string option, PreparedCharacter prepared, IEnumerable<string> itemOptions)
+        private static bool EvaluateAtomic(
+            string option,
+            PreparedCharacter prepared,
+            IEnumerable<string> itemOptions
+        )
         {
             if (string.IsNullOrWhiteSpace(option))
                 return true;
 
-            if (option.StartsWith("skill:", StringComparison.OrdinalIgnoreCase) && option.EndsWith(":rank", StringComparison.OrdinalIgnoreCase))
+            if (
+                option.StartsWith("skill:", StringComparison.OrdinalIgnoreCase)
+                && option.EndsWith(":rank", StringComparison.OrdinalIgnoreCase)
+            )
                 return GetNumeric(option, prepared) > 0;
 
-            if (option.StartsWith("skill:", StringComparison.OrdinalIgnoreCase) && option.Contains(":rank:", StringComparison.OrdinalIgnoreCase))
+            if (
+                option.StartsWith("skill:", StringComparison.OrdinalIgnoreCase)
+                && option.Contains(":rank:", StringComparison.OrdinalIgnoreCase)
+            )
             {
                 string[] parts = option.Split(':');
-                return parts.Length == 4 && int.TryParse(parts[3], out int rank) && GetNumeric($"skill:{parts[1]}:rank", prepared) >= rank;
+                return parts.Length == 4
+                    && int.TryParse(parts[3], out int rank)
+                    && GetNumeric($"skill:{parts[1]}:rank", prepared) >= rank;
             }
 
-            if (itemOptions != null && itemOptions.Contains(option, StringComparer.OrdinalIgnoreCase))
+            if (
+                itemOptions != null
+                && itemOptions.Contains(option, StringComparer.OrdinalIgnoreCase)
+            )
                 return true;
 
             return prepared?.RollOptions.Contains(option) ?? false;
@@ -77,14 +100,26 @@ namespace Game.Creature.Rules
         {
             if (string.Equals(path, "self:level", StringComparison.OrdinalIgnoreCase))
             {
-                string levelOption = prepared.RollOptions.FirstOrDefault(option => option.StartsWith("self:level:", StringComparison.OrdinalIgnoreCase));
-                if (levelOption != null && int.TryParse(levelOption.Substring("self:level:".Length), out int level))
+                string levelOption = prepared.RollOptions.FirstOrDefault(option =>
+                    option.StartsWith("self:level:", StringComparison.OrdinalIgnoreCase)
+                );
+                if (
+                    levelOption != null
+                    && int.TryParse(levelOption.Substring("self:level:".Length), out int level)
+                )
                     return level;
             }
 
-            if (path != null && path.StartsWith("skill:", StringComparison.OrdinalIgnoreCase) && path.EndsWith(":rank", StringComparison.OrdinalIgnoreCase))
+            if (
+                path != null
+                && path.StartsWith("skill:", StringComparison.OrdinalIgnoreCase)
+                && path.EndsWith(":rank", StringComparison.OrdinalIgnoreCase)
+            )
             {
-                string skill = path.Substring("skill:".Length, path.Length - "skill:".Length - ":rank".Length);
+                string skill = path.Substring(
+                    "skill:".Length,
+                    path.Length - "skill:".Length - ":rank".Length
+                );
                 return prepared.SkillRanks.TryGetValue(skill, out int rank) ? rank : 0;
             }
 

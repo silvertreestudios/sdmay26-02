@@ -35,7 +35,8 @@ namespace JsonImporter
                 foreach (var item in actionsArr.OfType<JObject>())
                 {
                     // create a readily-available clone of the item's system for branches that need it
-                    var clonedSystem = item["system"] != null ? item["system"].DeepClone() as JObject : null;
+                    var clonedSystem =
+                        item["system"] != null ? item["system"].DeepClone() as JObject : null;
 
                     string type = item["type"]?.ToString();
                     if (type == "weapon" || type == "ammo")
@@ -46,8 +47,8 @@ namespace JsonImporter
                             ["name"] = item["name"],
                             ["type"] = item["type"],
                             ["hands"] = system.SelectToken("equipped.handsHeld"),
-                            ["category"] =system.SelectToken("category"),
-                            ["quantity"] = system?["quantity"]?.Value<int?>() ?? 1
+                            ["category"] = system.SelectToken("category"),
+                            ["quantity"] = system?["quantity"]?.Value<int?>() ?? 1,
                         };
                         equipmentArr.Add(newEquip);
                     }
@@ -59,17 +60,18 @@ namespace JsonImporter
                             ["name"] = item["name"],
                             ["type"] = item["type"],
                             ["hands"] = system.SelectToken("equipped.handsHeld"),
-                            ["category"] =system.SelectToken("category"),
+                            ["category"] = system.SelectToken("category"),
                             ["quantity"] = system?["quantity"]?.Value<int?>() ?? 1,
                             ["acBonus"] = system.SelectToken("acBonus"),
-                            ["dexCap"] = system.SelectToken("dexCap")
+                            ["dexCap"] = system.SelectToken("dexCap"),
                         };
                         equipmentArr.Add(newEquip);
                     }
                     else if (type == "melee" || type == "ranged")
                     {
                         // Option A: start with the full original system, then apply normalizations
-                        var mergedSystem = item["system"] != null ? item["system"].DeepClone() as JObject : null;
+                        var mergedSystem =
+                            item["system"] != null ? item["system"].DeepClone() as JObject : null;
 
                         // Normalize damageRolls into a JArray of { "damage", "damageType" } objects.
                         // This replaces any named properties with indexed array positions.
@@ -81,15 +83,23 @@ namespace JsonImporter
                             {
                                 // Distinguish between a "flat" single-roll object (has damage/damageType directly)
                                 // and a multi-roll object (named properties whose values are roll objects).
-                                bool isFlatSingle = damageRollsObj.Properties().Any(p =>
-                                    p.Name.Equals("damage", StringComparison.OrdinalIgnoreCase) ||
-                                    p.Name.Equals("damageType", StringComparison.OrdinalIgnoreCase));
+                                bool isFlatSingle = damageRollsObj
+                                    .Properties()
+                                    .Any(p =>
+                                        p.Name.Equals("damage", StringComparison.OrdinalIgnoreCase)
+                                        || p.Name.Equals(
+                                            "damageType",
+                                            StringComparison.OrdinalIgnoreCase
+                                        )
+                                    );
 
                                 if (isFlatSingle)
                                 {
                                     var elem = new JObject();
-                                    if (damageRollsObj["damage"] != null) elem["damage"] = damageRollsObj["damage"];
-                                    if (damageRollsObj["damageType"] != null) elem["damageType"] = damageRollsObj["damageType"];
+                                    if (damageRollsObj["damage"] != null)
+                                        elem["damage"] = damageRollsObj["damage"];
+                                    if (damageRollsObj["damageType"] != null)
+                                        elem["damageType"] = damageRollsObj["damageType"];
                                     mergedSystem["damageRolls"] = new JArray(elem);
                                 }
                                 else
@@ -100,8 +110,10 @@ namespace JsonImporter
                                         if (prop.Value is JObject rollObj)
                                         {
                                             var elem = new JObject();
-                                            if (rollObj["damage"] != null) elem["damage"] = rollObj["damage"];
-                                            if (rollObj["damageType"] != null) elem["damageType"] = rollObj["damageType"];
+                                            if (rollObj["damage"] != null)
+                                                elem["damage"] = rollObj["damage"];
+                                            if (rollObj["damageType"] != null)
+                                                elem["damageType"] = rollObj["damageType"];
                                             arr.Add(elem);
                                         }
                                     }
@@ -120,8 +132,10 @@ namespace JsonImporter
                                     if (token is JObject rollObj)
                                     {
                                         var elem = new JObject();
-                                        if (rollObj["damage"] != null) elem["damage"] = rollObj["damage"];
-                                        if (rollObj["damageType"] != null) elem["damageType"] = rollObj["damageType"];
+                                        if (rollObj["damage"] != null)
+                                            elem["damage"] = rollObj["damage"];
+                                        if (rollObj["damageType"] != null)
+                                            elem["damageType"] = rollObj["damageType"];
                                         arr.Add(elem);
                                     }
                                 }
@@ -139,7 +153,10 @@ namespace JsonImporter
 
                         // Omit publication if title is empty (apply to merged system)
                         var publication = mergedSystem?["publication"] as JObject;
-                        if (publication != null && string.IsNullOrEmpty(publication["title"]?.ToString()))
+                        if (
+                            publication != null
+                            && string.IsNullOrEmpty(publication["title"]?.ToString())
+                        )
                         {
                             mergedSystem.Remove("publication");
                         }
@@ -148,12 +165,18 @@ namespace JsonImporter
                         if (mergedSystem != null && mergedSystem["description"] != null)
                         {
                             var descToken = mergedSystem["description"];
-                            string descHtml = descToken.Type == JTokenType.Object && descToken["value"] != null
-                                ? descToken["value"].ToString()
-                                : descToken.ToString();
+                            string descHtml =
+                                descToken.Type == JTokenType.Object && descToken["value"] != null
+                                    ? descToken["value"].ToString()
+                                    : descToken.ToString();
 
                             // Request only paragraphs and contexts by default. If descHtml is empty, helper will return paragraphs = null.
-                            HtmlUtils.ExtractPlainAndParagraphs(descHtml, out _, out JArray descParagraphs, out JArray descContexts);
+                            HtmlUtils.ExtractPlainAndParagraphs(
+                                descHtml,
+                                out _,
+                                out JArray descParagraphs,
+                                out JArray descContexts
+                            );
 
                             // Remove any existing entries to avoid duplicates
                             mergedSystem.Property("descriptionPlain")?.Remove();
@@ -164,7 +187,9 @@ namespace JsonImporter
                             {
                                 var descProp = mergedSystem.Property("description");
                                 if (descProp != null)
-                                    descProp.AddAfterSelf(new JProperty("descriptionParagraphs", descParagraphs));
+                                    descProp.AddAfterSelf(
+                                        new JProperty("descriptionParagraphs", descParagraphs)
+                                    );
                                 else
                                     mergedSystem["descriptionParagraphs"] = descParagraphs;
 
@@ -173,7 +198,9 @@ namespace JsonImporter
                                 {
                                     var parProp = mergedSystem.Property("descriptionParagraphs");
                                     if (parProp != null)
-                                        parProp.AddAfterSelf(new JProperty("descriptionContext", descContexts));
+                                        parProp.AddAfterSelf(
+                                            new JProperty("descriptionContext", descContexts)
+                                        );
                                     else
                                         mergedSystem["descriptionContext"] = descContexts;
                                 }
@@ -183,7 +210,9 @@ namespace JsonImporter
                                 // paragraphs missing but contexts exist: add context after description
                                 var descProp = mergedSystem.Property("description");
                                 if (descProp != null)
-                                    descProp.AddAfterSelf(new JProperty("descriptionContext", descContexts));
+                                    descProp.AddAfterSelf(
+                                        new JProperty("descriptionContext", descContexts)
+                                    );
                                 else
                                     mergedSystem["descriptionContext"] = descContexts;
                             }
@@ -198,7 +227,7 @@ namespace JsonImporter
                             ["name"] = item["name"],
                             ["type"] = item["type"],
                             // put the merged (full + normalized) system into system
-                            ["system"] = mergedSystem
+                            ["system"] = mergedSystem,
                             // Note: systemRaw is dropped per your instruction
                         };
 
@@ -207,7 +236,8 @@ namespace JsonImporter
                     else if (type == "action")
                     {
                         // use the clonedSystem prepared at the top of the loop
-                        var cloned = clonedSystem != null ? clonedSystem.DeepClone() as JObject : null;
+                        var cloned =
+                            clonedSystem != null ? clonedSystem.DeepClone() as JObject : null;
 
                         // Omit publication if title is empty
                         var pub = cloned?["publication"] as JObject;
@@ -220,11 +250,17 @@ namespace JsonImporter
                         if (cloned != null && cloned["description"] != null)
                         {
                             var descToken = cloned["description"];
-                            string descHtml = descToken.Type == JTokenType.Object && descToken["value"] != null
-                                ? descToken["value"].ToString()
-                                : descToken.ToString();
+                            string descHtml =
+                                descToken.Type == JTokenType.Object && descToken["value"] != null
+                                    ? descToken["value"].ToString()
+                                    : descToken.ToString();
 
-                            HtmlUtils.ExtractPlainAndParagraphs(descHtml, out _, out JArray descParagraphs, out JArray descContexts);
+                            HtmlUtils.ExtractPlainAndParagraphs(
+                                descHtml,
+                                out _,
+                                out JArray descParagraphs,
+                                out JArray descContexts
+                            );
 
                             cloned.Property("descriptionPlain")?.Remove();
                             cloned.Property("descriptionParagraphs")?.Remove();
@@ -234,7 +270,9 @@ namespace JsonImporter
                             {
                                 var descProp = cloned.Property("description");
                                 if (descProp != null)
-                                    descProp.AddAfterSelf(new JProperty("descriptionParagraphs", descParagraphs));
+                                    descProp.AddAfterSelf(
+                                        new JProperty("descriptionParagraphs", descParagraphs)
+                                    );
                                 else
                                     cloned["descriptionParagraphs"] = descParagraphs;
 
@@ -242,7 +280,9 @@ namespace JsonImporter
                                 {
                                     var parProp = cloned.Property("descriptionParagraphs");
                                     if (parProp != null)
-                                        parProp.AddAfterSelf(new JProperty("descriptionContext", descContexts));
+                                        parProp.AddAfterSelf(
+                                            new JProperty("descriptionContext", descContexts)
+                                        );
                                     else
                                         cloned["descriptionContext"] = descContexts;
                                 }
@@ -251,7 +291,9 @@ namespace JsonImporter
                             {
                                 var descProp = cloned.Property("description");
                                 if (descProp != null)
-                                    descProp.AddAfterSelf(new JProperty("descriptionContext", descContexts));
+                                    descProp.AddAfterSelf(
+                                        new JProperty("descriptionContext", descContexts)
+                                    );
                                 else
                                     cloned["descriptionContext"] = descContexts;
                             }
@@ -262,14 +304,14 @@ namespace JsonImporter
                             ["name"] = item["name"],
                             ["type"] = item["type"],
                             // keep action system mostly intact but with description normalized
-                            ["system"] = cloned
+                            ["system"] = cloned,
                         };
-
 
                         if (item["system"]?["actionType"]?["value"]?.ToString() == "reaction")
                         {
                             reactionsArr.Add(newItem);
-                        }else if (item["system"]?["actionType"]?["value"]?.ToString() == "passive")
+                        }
+                        else if (item["system"]?["actionType"]?["value"]?.ToString() == "passive")
                         {
                             passivesArr.Add(newItem);
                         }
@@ -286,11 +328,17 @@ namespace JsonImporter
                         if (clonedSys != null && clonedSys["description"] != null)
                         {
                             var descToken = clonedSys["description"];
-                            string descHtml = descToken.Type == JTokenType.Object && descToken["value"] != null
-                                ? descToken["value"].ToString()
-                                : descToken.ToString();
+                            string descHtml =
+                                descToken.Type == JTokenType.Object && descToken["value"] != null
+                                    ? descToken["value"].ToString()
+                                    : descToken.ToString();
 
-                            HtmlUtils.ExtractPlainAndParagraphs(descHtml, out _, out JArray descParagraphs, out JArray descContexts);
+                            HtmlUtils.ExtractPlainAndParagraphs(
+                                descHtml,
+                                out _,
+                                out JArray descParagraphs,
+                                out JArray descContexts
+                            );
 
                             clonedSys.Property("descriptionPlain")?.Remove();
                             clonedSys.Property("descriptionParagraphs")?.Remove();
@@ -301,7 +349,9 @@ namespace JsonImporter
                                 var descProp = clonedSys.Property("description");
                                 if (descProp != null)
                                 {
-                                    descProp.AddAfterSelf(new JProperty("descriptionParagraphs", descParagraphs));
+                                    descProp.AddAfterSelf(
+                                        new JProperty("descriptionParagraphs", descParagraphs)
+                                    );
                                 }
                                 else
                                 {
@@ -312,7 +362,9 @@ namespace JsonImporter
                                 {
                                     var parProp = clonedSys.Property("descriptionParagraphs");
                                     if (parProp != null)
-                                        parProp.AddAfterSelf(new JProperty("descriptionContext", descContexts));
+                                        parProp.AddAfterSelf(
+                                            new JProperty("descriptionContext", descContexts)
+                                        );
                                     else
                                         clonedSys["descriptionContext"] = descContexts;
                                 }
@@ -322,7 +374,9 @@ namespace JsonImporter
                                 var descProp = clonedSys.Property("description");
                                 if (descProp != null)
                                 {
-                                    descProp.AddAfterSelf(new JProperty("descriptionContext", descContexts));
+                                    descProp.AddAfterSelf(
+                                        new JProperty("descriptionContext", descContexts)
+                                    );
                                 }
                                 else
                                 {
@@ -359,7 +413,11 @@ namespace JsonImporter
                     int baseVal = 0;
                     if (valObj != null)
                     {
-                        baseVal = valObj["base"]?.Value<int?>() ?? valObj["mod"]?.Value<int?>() ?? valObj["value"]?.Value<int?>() ?? 0;
+                        baseVal =
+                            valObj["base"]?.Value<int?>()
+                            ?? valObj["mod"]?.Value<int?>()
+                            ?? valObj["value"]?.Value<int?>()
+                            ?? 0;
                     }
                     flattenedSkills[prop.Name] = baseVal;
                 }
@@ -376,10 +434,7 @@ namespace JsonImporter
                 var baseSpeedToken = speedObj["value"] ?? speedObj["base"];
                 if (baseSpeedToken != null)
                 {
-                    speedEntries.Add(new JObject
-                    {
-                        ["value"] = GetIntValue(baseSpeedToken)
-                    });
+                    speedEntries.Add(new JObject { ["value"] = GetIntValue(baseSpeedToken) });
                 }
 
                 if (speedObj["otherSpeeds"] is JArray otherSpeeds)
@@ -391,10 +446,9 @@ namespace JsonImporter
                             continue;
 
                         var movementName = char.ToUpperInvariant(type[0]) + type.Substring(1);
-                        speedEntries.Add(new JObject
-                        {
-                            [movementName] = GetIntValue(entry["value"])
-                        });
+                        speedEntries.Add(
+                            new JObject { [movementName] = GetIntValue(entry["value"]) }
+                        );
                     }
                 }
 
@@ -415,7 +469,8 @@ namespace JsonImporter
 
                     if (token is JObject abilityObj)
                     {
-                        int value = abilityObj["mod"]?.Value<int?>()
+                        int value =
+                            abilityObj["mod"]?.Value<int?>()
                             ?? abilityObj["value"]?.Value<int?>()
                             ?? 0;
                         flattenedAbilities[ability] = value;
@@ -450,7 +505,10 @@ namespace JsonImporter
                 var levelToken = detailsObj["level"];
                 if (levelToken is JObject levelObj)
                 {
-                    detailsObj["level"] = GetIntValue(levelObj["value"], GetIntValue(levelObj["base"], GetIntValue(levelObj["mod"])));
+                    detailsObj["level"] = GetIntValue(
+                        levelObj["value"],
+                        GetIntValue(levelObj["base"], GetIntValue(levelObj["mod"]))
+                    );
                 }
                 else if (levelToken != null)
                 {
@@ -462,22 +520,30 @@ namespace JsonImporter
             {
                 var publicNotesToken = detailsObj["publicNotes"];
                 // obtain html string as before
-                string html = publicNotesToken.Type == JTokenType.Object && publicNotesToken["value"] != null
-                    ? publicNotesToken["value"].ToString()
-                    : publicNotesToken.ToString();
+                string html =
+                    publicNotesToken.Type == JTokenType.Object && publicNotesToken["value"] != null
+                        ? publicNotesToken["value"].ToString()
+                        : publicNotesToken.ToString();
 
                 // call helper
-                HtmlUtils.ExtractPlainAndParagraphs(html, out string plain, out JArray paragraphs, out JArray contexts);
+                HtmlUtils.ExtractPlainAndParagraphs(
+                    html,
+                    out string plain,
+                    out JArray paragraphs,
+                    out JArray contexts
+                );
 
                 // remove existing properties and insert immediately after publicNotes (existing logic)
                 detailsObj.Property("publicNotesPlain")?.Remove();
                 detailsObj.Property("publicNotesParagraphs")?.Remove();
                 // remove privateNotes since it is an empty field in every file we've seen
-                detailsObj.Property("privateNotes")?.Remove();             
+                detailsObj.Property("privateNotes")?.Remove();
                 var publicNotesProp = detailsObj.Property("publicNotes");
                 if (publicNotesProp != null)
                 {
-                    publicNotesProp.AddAfterSelf(new JProperty("publicNotesParagraphs", paragraphs));
+                    publicNotesProp.AddAfterSelf(
+                        new JProperty("publicNotesParagraphs", paragraphs)
+                    );
                     //publicNotesProp.AddAfterSelf(new JProperty("publicNotesPlain", plain));
                 }
                 else
@@ -498,7 +564,10 @@ namespace JsonImporter
                         var token = savesObj[key];
                         if (token is JObject tokenObj)
                         {
-                            savesObj[key] = GetIntValue(tokenObj["value"], GetIntValue(tokenObj["base"], GetIntValue(tokenObj["mod"])));
+                            savesObj[key] = GetIntValue(
+                                tokenObj["value"],
+                                GetIntValue(tokenObj["base"], GetIntValue(tokenObj["mod"]))
+                            );
                         }
                         else if (token != null)
                         {
@@ -515,7 +584,10 @@ namespace JsonImporter
                         var token = attributesObj[key];
                         if (token is JObject tokenObj)
                         {
-                            attributesObj[key] = GetIntValue(tokenObj["value"], GetIntValue(tokenObj["base"], GetIntValue(tokenObj["mod"])));
+                            attributesObj[key] = GetIntValue(
+                                tokenObj["value"],
+                                GetIntValue(tokenObj["base"], GetIntValue(tokenObj["mod"]))
+                            );
                         }
                         else if (token != null)
                         {
@@ -587,14 +659,18 @@ namespace JsonImporter
                 var sizeToken = traitsObj["size"];
                 if (sizeToken is JObject sizeObj)
                 {
-                    traitsObj["size"] = sizeObj["value"]?.ToString() ?? sizeObj["base"]?.ToString() ?? sizeObj["mod"]?.ToString() ?? string.Empty;
+                    traitsObj["size"] =
+                        sizeObj["value"]?.ToString()
+                        ?? sizeObj["base"]?.ToString()
+                        ?? sizeObj["mod"]?.ToString()
+                        ?? string.Empty;
                 }
                 else if (sizeToken != null)
                 {
                     traitsObj["size"] = sizeToken.ToString();
                 }
             }
-            
+
             JObject weaponProfs = InferProficiencies(orderedActions, equipmentArr, obj);
             JObject armorProfs = inferArmorProficiencies(equipmentArr, obj);
             // Build the output object in the specified order and include Source if present
@@ -610,7 +686,7 @@ namespace JsonImporter
                 ["conditions"] = conditionsArr,
                 ["weaponBonuses"] = weaponProfs,
                 ["armorBonuses"] = armorProfs,
-                ["playerOnlyStuff"] = new JArray()
+                ["playerOnlyStuff"] = new JArray(),
             };
 
             // Preserve Source if it existed in the original file (some JSON uses capital "Source")
@@ -670,17 +746,27 @@ namespace JsonImporter
             if (attributeToken == null)
                 return 0;
 
-            if (attributeToken.Type == JTokenType.Integer || attributeToken.Type == JTokenType.Float)
+            if (
+                attributeToken.Type == JTokenType.Integer
+                || attributeToken.Type == JTokenType.Float
+            )
                 return attributeToken.Value<int>();
 
             if (attributeToken is JObject attributeObj)
-                return GetIntValue(attributeObj["value"], GetIntValue(attributeObj["base"], GetIntValue(attributeObj["mod"])));
+                return GetIntValue(
+                    attributeObj["value"],
+                    GetIntValue(attributeObj["base"], GetIntValue(attributeObj["mod"]))
+                );
 
             return 0;
         }
 
         // Rough method for inferring monster weapon proficiencies based on their action bonuses
-        public static JObject InferProficiencies(JArray actions, JArray equipment, JObject character)
+        public static JObject InferProficiencies(
+            JArray actions,
+            JArray equipment,
+            JObject character
+        )
         {
             int unarmedBonus = 0;
             int simpleBonus = 0;
@@ -717,7 +803,7 @@ namespace JsonImporter
                                 martialBonus = Math.Max(proficiency, martialBonus);
                             else if (category == "advanced")
                                 advancedBonus = Math.Max(proficiency, advancedBonus);
-                        }   
+                        }
                     }
                 }
             }
@@ -732,7 +818,7 @@ namespace JsonImporter
                 ["unarmed"] = unarmedBonus,
                 ["simple"] = simpleBonus,
                 ["martial"] = martialBonus,
-                ["advanced"] = advancedBonus
+                ["advanced"] = advancedBonus,
             };
             return profs;
         }
@@ -756,7 +842,7 @@ namespace JsonImporter
                     int dexMod = GetAbilityModifier(character, "dex");
                     int level = GetIntValue(character["system"]?["details"]?["level"]);
 
-                    int prof = ac - 10 -acBonus - Math.Min(dexMod, dexCap);
+                    int prof = ac - 10 - acBonus - Math.Min(dexMod, dexCap);
 
                     if (category == "light")
                         lightBonus = Math.Max(prof, lightBonus);
@@ -777,7 +863,7 @@ namespace JsonImporter
                 ["unarmored"] = unarmoredBonus,
                 ["light"] = lightBonus,
                 ["medium"] = mediumBonus,
-                ["heavy"] = heavyBonus
+                ["heavy"] = heavyBonus,
             };
             return profs;
         }

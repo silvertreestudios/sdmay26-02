@@ -23,13 +23,21 @@ namespace Game.Rules.Runtime
             Player = player;
             Trait[] copied = (traits ?? Array.Empty<Trait>()).Distinct().ToArray();
             if (copied.Any(trait => trait.IsEmpty))
-                throw new ArgumentException("Creature traits cannot contain an empty trait.", nameof(traits));
+                throw new ArgumentException(
+                    "Creature traits cannot contain an empty trait.",
+                    nameof(traits)
+                );
             this.traits = Array.AsReadOnly(copied);
         }
 
         public bool Equals(CreatureState other) =>
-            other != null && Id == other.Id && Player == other.Player && traits.SequenceEqual(other.traits);
+            other != null
+            && Id == other.Id
+            && Player == other.Player
+            && traits.SequenceEqual(other.traits);
+
         public override bool Equals(object obj) => obj is CreatureState other && Equals(other);
+
         public override int GetHashCode() => HashCode.Combine(Id, Player);
     }
 
@@ -55,9 +63,13 @@ namespace Game.Rules.Runtime
 
         public bool Equals(HealthState other) =>
             Current == other.Current && Maximum == other.Maximum && Temporary == other.Temporary;
+
         public override bool Equals(object obj) => obj is HealthState other && Equals(other);
+
         public override int GetHashCode() => HashCode.Combine(Current, Maximum, Temporary);
+
         public static bool operator ==(HealthState left, HealthState right) => left.Equals(right);
+
         public static bool operator !=(HealthState left, HealthState right) => !left.Equals(right);
     }
 
@@ -75,11 +87,18 @@ namespace Game.Rules.Runtime
         }
 
         public bool Equals(ActionEconomyState other) =>
-            ActionsRemaining == other.ActionsRemaining && ReactionAvailable == other.ReactionAvailable;
+            ActionsRemaining == other.ActionsRemaining
+            && ReactionAvailable == other.ReactionAvailable;
+
         public override bool Equals(object obj) => obj is ActionEconomyState other && Equals(other);
+
         public override int GetHashCode() => HashCode.Combine(ActionsRemaining, ReactionAvailable);
-        public static bool operator ==(ActionEconomyState left, ActionEconomyState right) => left.Equals(right);
-        public static bool operator !=(ActionEconomyState left, ActionEconomyState right) => !left.Equals(right);
+
+        public static bool operator ==(ActionEconomyState left, ActionEconomyState right) =>
+            left.Equals(right);
+
+        public static bool operator !=(ActionEconomyState left, ActionEconomyState right) =>
+            !left.Equals(right);
     }
 
     public readonly struct MultipleAttackPenaltyState : IEquatable<MultipleAttackPenaltyState>
@@ -94,10 +113,21 @@ namespace Game.Rules.Runtime
         }
 
         public bool Equals(MultipleAttackPenaltyState other) => AttackCount == other.AttackCount;
-        public override bool Equals(object obj) => obj is MultipleAttackPenaltyState other && Equals(other);
+
+        public override bool Equals(object obj) =>
+            obj is MultipleAttackPenaltyState other && Equals(other);
+
         public override int GetHashCode() => AttackCount;
-        public static bool operator ==(MultipleAttackPenaltyState left, MultipleAttackPenaltyState right) => left.Equals(right);
-        public static bool operator !=(MultipleAttackPenaltyState left, MultipleAttackPenaltyState right) => !left.Equals(right);
+
+        public static bool operator ==(
+            MultipleAttackPenaltyState left,
+            MultipleAttackPenaltyState right
+        ) => left.Equals(right);
+
+        public static bool operator !=(
+            MultipleAttackPenaltyState left,
+            MultipleAttackPenaltyState right
+        ) => !left.Equals(right);
     }
 
     public sealed class ConditionState : IEquatable<ConditionState>
@@ -113,14 +143,18 @@ namespace Game.Rules.Runtime
             RuleDefinitionId definitionId,
             CreatureId owner,
             int value,
-            RuleSource source)
+            RuleSource source
+        )
         {
             if (value < 0)
                 throw new ArgumentOutOfRangeException(nameof(value));
             if (id.IsEmpty)
                 throw new ArgumentException("A condition ID is required.", nameof(id));
             if (definitionId.IsEmpty)
-                throw new ArgumentException("A rule definition ID is required.", nameof(definitionId));
+                throw new ArgumentException(
+                    "A rule definition ID is required.",
+                    nameof(definitionId)
+                );
             if (owner.IsEmpty)
                 throw new ArgumentException("An owner creature ID is required.", nameof(owner));
             if (source.IsEmpty)
@@ -133,10 +167,17 @@ namespace Game.Rules.Runtime
         }
 
         public bool Equals(ConditionState other) =>
-            other != null && Id == other.Id && DefinitionId == other.DefinitionId &&
-            Owner == other.Owner && Value == other.Value && Source == other.Source;
+            other != null
+            && Id == other.Id
+            && DefinitionId == other.DefinitionId
+            && Owner == other.Owner
+            && Value == other.Value
+            && Source == other.Source;
+
         public override bool Equals(object obj) => obj is ConditionState other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(Id, DefinitionId, Owner, Value, Source);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Id, DefinitionId, Owner, Value, Source);
     }
 
     public sealed class EquipmentState : IEquatable<EquipmentState>
@@ -146,12 +187,20 @@ namespace Game.Rules.Runtime
         public CreatureId Holder { get; }
         public bool IsWielded { get; }
 
-        public EquipmentState(ItemId id, ItemDefinitionId definitionId, CreatureId holder, bool isWielded)
+        public EquipmentState(
+            ItemId id,
+            ItemDefinitionId definitionId,
+            CreatureId holder,
+            bool isWielded
+        )
         {
             if (id.IsEmpty)
                 throw new ArgumentException("An item ID is required.", nameof(id));
             if (definitionId.IsEmpty)
-                throw new ArgumentException("An item definition ID is required.", nameof(definitionId));
+                throw new ArgumentException(
+                    "An item definition ID is required.",
+                    nameof(definitionId)
+                );
             if (holder.IsEmpty)
                 throw new ArgumentException("A holder creature ID is required.", nameof(holder));
             Id = id;
@@ -161,9 +210,14 @@ namespace Game.Rules.Runtime
         }
 
         public bool Equals(EquipmentState other) =>
-            other != null && Id == other.Id && DefinitionId == other.DefinitionId &&
-            Holder == other.Holder && IsWielded == other.IsWielded;
+            other != null
+            && Id == other.Id
+            && DefinitionId == other.DefinitionId
+            && Holder == other.Holder
+            && IsWielded == other.IsWielded;
+
         public override bool Equals(object obj) => obj is EquipmentState other && Equals(other);
+
         public override int GetHashCode() => HashCode.Combine(Id, DefinitionId, Holder, IsWielded);
     }
 }
