@@ -1,0 +1,29 @@
+{
+  "schema": "sdmay26-02/dungeon-encounter-catalog",
+  "enemies": [
+    {
+      "id": "goblin-warrior",
+      "level": -1,
+      "resourcePath": "DataFiles/pathfinder-monster-core/goblin-warrior",
+      "prefabPath": "Assets/Prefabs/Creatures/goblin-warrior.prefab"
+    },
+    {
+      "id": "kobold-warrior",
+      "level": -1,
+      "resourcePath": "DataFiles/pathfinder-monster-core/kobold-warrior",
+      "prefabPath": "Assets/Prefabs/Creatures/kobold-warrior.prefab"
+    },
+    {
+      "id": "skeleton-guard",
+      "level": -1,
+      "resourcePath": "DataFiles/pathfinder-monster-core/skeleton-guard",
+      "prefabPath": "Assets/Prefabs/Creatures/skeleton-guard.prefab"
+    },
+    {
+      "id": "zombie-shambler",
+      "level": -1,
+      "resourcePath": "DataFiles/pathfinder-monster-core/zombie-shambler",
+      "prefabPath": "Assets/Prefabs/Creatures/zombie-shambler.prefab"
+    }
+  ]
+}
