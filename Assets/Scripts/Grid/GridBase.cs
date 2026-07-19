@@ -78,9 +78,9 @@ namespace GridPrivate
             Map map = GetComponent<Map>();
             TileType[,] gridData = map.GetMapData();
             bool[,] lineOfSightBlocks = gridData == null ? null : map.GetLineOfSightBlocks();
-            if (!TryRebindMapData(gridData, lineOfSightBlocks))
+            if (!TryRebindMapData(gridData, lineOfSightBlocks, out string failure))
             {
-                Debug.LogError("Grid initialization failed: Map did not provide valid grid and line-of-sight data.", this);
+                Debug.LogError($"Grid initialization failed: {failure}", this);
                 enabled = false;
                 GridInput input = GetComponent<GridInput>();
                 if (input != null)
@@ -92,20 +92,37 @@ namespace GridPrivate
         private bool TryPrepareGridRebind(
             TileType[,] gridData,
             bool[,] lineOfSightBlocks,
-            out GridRebindPlan plan)
+            out GridRebindPlan plan,
+            out string failure)
         {
-            if (gridData == null || lineOfSightBlocks == null ||
-                gridData.GetLength(0) != lineOfSightBlocks.GetLength(0) ||
+            failure = string.Empty;
+            if (gridData == null)
+            {
+                plan = GridRebindPlan.Invalid;
+                failure = "Replacement grid data is missing.";
+                return false;
+            }
+            if (lineOfSightBlocks == null)
+            {
+                plan = GridRebindPlan.Invalid;
+                failure = "Replacement line-of-sight data is missing.";
+                return false;
+            }
+            if (gridData.GetLength(0) != lineOfSightBlocks.GetLength(0) ||
                 gridData.GetLength(1) != lineOfSightBlocks.GetLength(1))
             {
                 plan = GridRebindPlan.Invalid;
+                failure =
+                    $"Replacement grid dimensions {gridData.GetLength(0)}x{gridData.GetLength(1)} " +
+                    $"do not match line-of-sight dimensions " +
+                    $"{lineOfSightBlocks.GetLength(0)}x{lineOfSightBlocks.GetLength(1)}.";
                 return false;
             }
 
-            if (!Fsm.CanResetForGridRebind ||
-                (GridAPI.TryGetInstance(out GridAPI activeGrid) && activeGrid != this))
+            if (!Fsm.CanResetForGridRebind)
             {
                 plan = GridRebindPlan.Invalid;
+                failure = "The grid is processing an action and cannot be reset for replacement.";
                 return false;
             }
 
@@ -125,11 +142,28 @@ namespace GridPrivate
                 if (!token.TryGetRebindCell(this, out Vector3Int cell))
                     continue;
                 if (cell.x < 0 || cell.z < 0 ||
-                    cell.x >= gridData.GetLength(0) || cell.z >= gridData.GetLength(1) ||
-                    !IsWalkableTile(gridData[cell.x, cell.z]) ||
-                    !occupiedCells.Add(new Vector2Int(cell.x, cell.z)))
+                    cell.x >= gridData.GetLength(0) || cell.z >= gridData.GetLength(1))
                 {
                     plan = GridRebindPlan.Invalid;
+                    failure =
+                        $"Token '{token.name}' at cell ({cell.x}, {cell.z}) is outside " +
+                        $"replacement bounds {gridData.GetLength(0)}x{gridData.GetLength(1)}.";
+                    return false;
+                }
+                if (!IsWalkableTile(gridData[cell.x, cell.z]))
+                {
+                    plan = GridRebindPlan.Invalid;
+                    failure =
+                        $"Token '{token.name}' cannot occupy non-walkable replacement cell " +
+                        $"({cell.x}, {cell.z}).";
+                    return false;
+                }
+                if (!occupiedCells.Add(new Vector2Int(cell.x, cell.z)))
+                {
+                    plan = GridRebindPlan.Invalid;
+                    failure =
+                        $"Token '{token.name}' cannot occupy replacement cell " +
+                        $"({cell.x}, {cell.z}) because another token already reserves it.";
                     return false;
                 }
 
@@ -147,6 +181,9 @@ namespace GridPrivate
                 if (!controller.CanRebindGrid(this))
                 {
                     plan = GridRebindPlan.Invalid;
+                    failure =
+                        $"AI controller '{controller.name}' has pending turn or action work " +
+                        "and cannot rebind to the replacement grid.";
                     return false;
                 }
             }
@@ -166,18 +203,38 @@ namespace GridPrivate
         /// </summary>
         /// <param name="gridData">The replacement movement topology.</param>
         /// <param name="lineOfSightBlocks">The matching replacement visibility topology.</param>
+        /// <param name="failure">
+        /// A specific pre-commit reason when the replacement is rejected; otherwise an empty string.
+        /// </param>
         /// <returns>
         /// <see langword="false"/> before any live grid state changes when preparation is unsafe;
         /// otherwise <see langword="true"/> after the non-failing commit completes.
         /// </returns>
-        internal bool TryRebindMapData(TileType[,] gridData, bool[,] lineOfSightBlocks)
+        internal bool TryRebindMapData(
+            TileType[,] gridData,
+            bool[,] lineOfSightBlocks,
+            out string failure)
         {
+            failure = string.Empty;
             bool hasActiveGrid = GridAPI.TryGetInstance(out GridAPI activeGrid);
             if (hasActiveGrid && activeGrid != this)
+            {
+                failure = "A different grid is already active and owns the live grid binding.";
                 return false;
-            if (!TryPrepareGridRebind(gridData, lineOfSightBlocks, out GridRebindPlan plan) ||
-                !Fsm.TryResetForGridRebind())
+            }
+            if (!TryPrepareGridRebind(
+                    gridData,
+                    lineOfSightBlocks,
+                    out GridRebindPlan plan,
+                    out failure))
+            {
                 return false;
+            }
+            if (!Fsm.TryResetForGridRebind())
+            {
+                failure = "The grid stopped being resettable before replacement could commit.";
+                return false;
+            }
             if (!hasActiveGrid)
                 base.Awake();
 

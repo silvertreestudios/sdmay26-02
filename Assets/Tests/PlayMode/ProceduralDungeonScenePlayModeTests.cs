@@ -384,7 +384,12 @@ public sealed class ProceduralDungeonScenePlayModeTests
                 out MapSourceValidationResult validation),
             Is.False);
 
-        Assert.That(validation.Errors, Is.Not.Empty);
+        Assert.That(validation.Errors, Is.EqualTo(new[]
+        {
+            "Runtime JSON population could not rebind GridBase: " +
+            "AI controller 'Pending Inactive AI' has pending turn or action work " +
+            "and cannot rebind to the replacement grid."
+        }));
         Assert.That(Object.FindFirstObjectByType<GeneratedMapRoot>(), Is.SameAs(priorRoot));
         Assert.That(map.transform.Find("GeneratedMap"), Is.SameAs(priorRoot.transform));
         Assert.That(priorRoot.gameObject.activeInHierarchy, Is.True);

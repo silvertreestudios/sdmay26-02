@@ -217,12 +217,13 @@ public class Map : MonoBehaviour
         if (grid != null &&
             !grid.TryRebindMapData(
                 validation.JsonMap.GridData,
-                validation.JsonMap.LineOfSightBlocks))
+                validation.JsonMap.LineOfSightBlocks,
+                out string rebindFailure))
         {
             DestroyOwned(generatedMap);
             validation = new MapSourceValidationResult(new[]
             {
-                "Runtime JSON population produced grid data that could not be rebound to GridBase."
+                $"Runtime JSON population could not rebind GridBase: {rebindFailure}"
             });
             return false;
         }
