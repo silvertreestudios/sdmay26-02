@@ -777,12 +777,34 @@ namespace Game.DungeonGeneration
                     "Object IDs must be unique, cells must be in bounds, and rotations must be 0, 90, 180, or 270."));
             }
             HashSet<int> roomIds = new(rooms.Select(room => room.Id));
-            bool duplicateEncounterIds =
+            bool invalidEncounterIds =
+                encounters.Any(plan => string.IsNullOrWhiteSpace(plan.Id)) ||
                 encounters.Select(plan => plan.Id).Distinct(StringComparer.Ordinal).Count() != encounters.Count;
-            if (duplicateEncounterIds)
+            if (invalidEncounterIds)
             {
-                errors.Add(D("encounterPlans", "Encounter IDs must be unique."));
+                errors.Add(D("encounterPlans", "Encounter IDs must be non-empty and unique."));
             }
+            bool duplicateEncounterRooms = encounters
+                .GroupBy(plan => plan.RoomId)
+                .Any(group => group.Count() > 1);
+            if (duplicateEncounterRooms)
+            {
+                errors.Add(D(
+                    "encounterPlans",
+                    "A room can contain at most one deterministic encounter plan."));
+            }
+
+            HashSet<DungeonCell> reservedEncounterCells = new(safe);
+            reservedEncounterCells.Add(start);
+            foreach (DungeonDoor door in doors)
+                reservedEncounterCells.Add(door.Cell);
+            foreach (DungeonStair stair in stairs)
+            {
+                reservedEncounterCells.Add(stair.Cell);
+                reservedEncounterCells.Add(stair.ArrivalCell);
+            }
+            foreach (DungeonObjectPlacement placement in objects)
+                reservedEncounterCells.Add(placement.Cell);
 
             foreach (DungeonEncounterPlan plan in encounters)
             {
@@ -791,6 +813,7 @@ namespace Game.DungeonGeneration
                     roomIds.Contains(plan.RoomId) &&
                     plan.Budget >= 0 &&
                     plan.SpawnCells.Count == plan.CreatureIds.Count &&
+                    plan.CreatureIds.All(id => !string.IsNullOrWhiteSpace(id)) &&
                     plan.SpawnCells.Distinct().Count() == plan.SpawnCells.Count &&
                     plan.SpawnCells.All(cell =>
                         Walkable(cell) &&
@@ -798,12 +821,14 @@ namespace Game.DungeonGeneration
                         cell.X >= room.MinimumX &&
                         cell.X <= room.MaximumX &&
                         cell.Z >= room.MinimumZ &&
-                        cell.Z <= room.MaximumZ);
+                        cell.Z <= room.MaximumZ) &&
+                    (!ownsContract || plan.SpawnCells.All(
+                        cell => !reservedEncounterCells.Contains(cell)));
                 if (!valid)
                 {
                     errors.Add(D(
                         "encounterPlans",
-                        "Every encounter must reference a room, have a nonnegative budget, and pair each creature ID with one distinct walkable spawn cell inside that room."));
+                        "Every encounter must reference a room, have a nonnegative budget, and pair each non-empty creature ID with one distinct walkable spawn cell inside that room. Generator-owned plans must also avoid object, door, stair, start, and safe-arrival cells."));
                 }
             }
             if (runtime == null)
@@ -889,7 +914,8 @@ namespace Game.DungeonGeneration
                     new(StringComparer.Ordinal);
                 foreach (DungeonEncounterPlan plan in encounters)
                 {
-                    if (!encounterById.ContainsKey(plan.Id))
+                    if (!string.IsNullOrWhiteSpace(plan.Id) &&
+                        !encounterById.ContainsKey(plan.Id))
                         encounterById.Add(plan.Id, plan);
                 }
 

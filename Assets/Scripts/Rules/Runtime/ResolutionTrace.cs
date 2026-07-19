@@ -14,8 +14,12 @@ namespace Game.Rules.Runtime
     /// </remarks>
     public sealed class ResolutionTrace
     {
+        private static readonly IReadOnlyList<ResolutionRoll> NoRolls =
+            Array.AsReadOnly(Array.Empty<ResolutionRoll>());
         private readonly Dictionary<OpId, IOpFrameView> frames =
             new Dictionary<OpId, IOpFrameView>();
+        private readonly Dictionary<OpId, OperationRollLog> rolls =
+            new Dictionary<OpId, OperationRollLog>();
 
         internal void Add(IOpFrameView frame)
         {
@@ -24,12 +28,52 @@ namespace Game.Rules.Runtime
             frames.Add(frame.Id, frame);
         }
 
+        internal void RecordRoll(
+            OpId operationId,
+            DiceExpression dice,
+            RollResult result)
+        {
+            Require(operationId);
+            if (result == null)
+                throw new ArgumentNullException(nameof(result));
+            if (result.Dice != dice)
+                throw new InvalidOperationException("A roll result does not match its requested dice expression.");
+
+            if (!rolls.TryGetValue(operationId, out OperationRollLog operationRolls))
+            {
+                operationRolls = new OperationRollLog();
+                rolls.Add(operationId, operationRolls);
+            }
+            operationRolls.Entries.Add(new ResolutionRoll(
+                operationId,
+                operationRolls.Entries.Count + 1,
+                dice,
+                result));
+        }
+
         /// <summary>
         /// Determines whether a frame with the specified identifier has been recorded.
         /// </summary>
         /// <param name="id">The operation identifier to look up.</param>
         /// <returns><see langword="true"/> when the trace contains the frame; otherwise, <see langword="false"/>.</returns>
         public bool Exists(OpId id) => frames.ContainsKey(id);
+
+        /// <summary>
+        /// Gets every recorded roll consumed by one operation in execution order.
+        /// </summary>
+        /// <param name="id">The recorded operation identifier.</param>
+        /// <returns>
+        /// A stable read-only view, which is empty when the operation did not roll. Repeated queries
+        /// return the same view; its contents can grow only while the operation records rolls.
+        /// </returns>
+        /// <exception cref="InvalidOperationException">The operation is absent from this trace.</exception>
+        public IReadOnlyList<ResolutionRoll> GetRolls(OpId id)
+        {
+            Require(id);
+            if (!rolls.TryGetValue(id, out OperationRollLog operationRolls))
+                return NoRolls;
+            return operationRolls.View;
+        }
 
         /// <summary>
         /// Gets a recorded frame and verifies its concrete operation type.
@@ -146,6 +190,18 @@ namespace Game.Rules.Runtime
             if (!frames.TryGetValue(id, out IOpFrameView frame))
                 throw new InvalidOperationException($"Operation {id.Value} is not in this trace.");
             return frame;
+        }
+
+        private sealed class OperationRollLog
+        {
+            public List<ResolutionRoll> Entries { get; } = new List<ResolutionRoll>();
+
+            public IReadOnlyList<ResolutionRoll> View { get; }
+
+            public OperationRollLog()
+            {
+                View = Entries.AsReadOnly();
+            }
         }
 
         private bool Follows(

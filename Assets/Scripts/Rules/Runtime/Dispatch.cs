@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
@@ -9,7 +10,8 @@ namespace Game.Rules.Runtime
     /// Resolves typed rules operations while preserving frame provenance, committed facts, and diagnostics.
     /// </summary>
     /// <remarks>
-    /// Root resolutions are serialized: a dispatcher rejects a second root while one is active.
+    /// Root resolutions are serialized: a second external root waits until the active root and its
+    /// post-commit listeners finish.
     /// Handlers may dispatch nested children through <see cref="OpHandlerContext"/>, but each active frame
     /// may own only one child at a time and must await it. Committed-Fact listeners finish before
     /// the caller regains root ownership; listener-dispatched work runs as serialized causal roots.
@@ -22,22 +24,31 @@ namespace Game.Rules.Runtime
         private static readonly IReadOnlyList<BoundMiddlewareRegistration> NoMiddleware =
             Array.AsReadOnly(Array.Empty<BoundMiddlewareRegistration>());
         private readonly object gate = new object();
+        private readonly SemaphoreSlim rootSerial = new SemaphoreSlim(1, 1);
+        // Zero is the idle async-flow sentinel. A unique nonzero lease distinguishes callbacks still
+        // running inside this dispatcher's current resolution from callers that should wait on the gate.
+        private readonly AsyncLocal<long> activeResolutionFlow = new AsyncLocal<long>();
+        private long activeResolutionFlowLease;
+        private long nextResolutionFlowLease;
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
+        private readonly IRollService rollService;
         private readonly IReadOnlyDictionary<Type, IRegistration> registrations;
         private readonly RuleRegistry ruleRegistry;
         private readonly ActionRuntime actionRuntime;
-        private RootResolution activeRoot;
+        private RootResolution activeRoot = RootResolution.Idle;
 
         internal RuleDispatcher(
             IRulesStore store,
             IOpIdProvider ids,
+            IRollService rollService,
             IDictionary<Type, IRegistration> registrations,
             RuleRegistry ruleRegistry,
             ActionRuntime actionRuntime)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
+            this.rollService = rollService ?? throw new ArgumentNullException(nameof(rollService));
             this.registrations = new ReadOnlyDictionary<Type, IRegistration>(
                 new Dictionary<Type, IRegistration>(registrations));
             this.ruleRegistry = ruleRegistry ?? throw new ArgumentNullException(nameof(ruleRegistry));
@@ -71,8 +82,8 @@ namespace Game.Rules.Runtime
         /// <returns>A task-like value containing the root status, value, and all committed subtree facts.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="op"/> is <see langword="null"/>.</exception>
         /// <exception cref="InvalidOperationException">
-        /// Another root is active, the operation is nested-only, no compatible resolver is registered,
-        /// or a handler violates nested-dispatch ownership.
+        /// The operation is nested-only, no compatible resolver is registered, the current resolution
+        /// calls this public root API reentrantly, or a handler violates nested-dispatch ownership.
         /// </exception>
         /// <remarks>
         /// Resolver, middleware, and post-commit listener exceptions propagate to the caller. State
@@ -81,25 +92,42 @@ namespace Game.Rules.Runtime
         /// notification also fails, an <see cref="AggregateException"/> reports the resolution
         /// exception first and the notification exception second. The dispatcher then releases root
         /// ownership so a later independent root may be dispatched. When a callback and its unconsumed
-        /// work both fail, their aggregate likewise retains the callback exception first.
+        /// work both fail, their aggregate likewise retains the callback exception first. Other
+        /// external roots remain queued until this entire resolution releases ownership.
         /// </remarks>
         public async ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
         {
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
+            long callerFlowLease = activeResolutionFlow.Value;
+            lock (gate)
+            {
+                if (callerFlowLease != 0 && callerFlowLease == activeResolutionFlowLease)
+                {
+                    throw new InvalidOperationException(
+                        "An active resolution cannot call the public root Dispatch API. " +
+                        "Use its callback context for nested work.");
+                }
+            }
 
-            RootResolution resolution = new RootResolution();
+            await rootSerial.WaitAsync();
+            // Keep the idle sentinel until construction succeeds so the ownership gate is still
+            // released if per-resolution allocation fails.
+            RootResolution resolution = RootResolution.Idle;
             try
             {
+                resolution = new RootResolution();
                 lock (gate)
                 {
-                    if (activeRoot != null)
+                    if (!activeRoot.IsIdle)
                     {
                         throw new InvalidOperationException(
-                            "A root operation cannot interleave with an active resolution.");
+                            "Serialized root ownership was not released before the next root began.");
                     }
 
                     activeRoot = resolution;
+                    activeResolutionFlowLease = NextResolutionFlowLease();
+                    activeResolutionFlow.Value = activeResolutionFlowLease;
                 }
 
                 IRegistration registration = RequireRegistration(op.GetType(), typeof(TResult));
@@ -129,8 +157,22 @@ namespace Game.Rules.Runtime
                 lock (gate)
                 {
                     if (ReferenceEquals(activeRoot, resolution))
-                        activeRoot = null;
+                        activeRoot = RootResolution.Idle;
+                    activeResolutionFlowLease = 0;
                 }
+                activeResolutionFlow.Value = 0;
+                rootSerial.Release();
+            }
+        }
+
+        private long NextResolutionFlowLease()
+        {
+            unchecked
+            {
+                nextResolutionFlowLease++;
+                if (nextResolutionFlowLease == 0)
+                    nextResolutionFlowLease++;
+                return nextResolutionFlowLease;
             }
         }
 
@@ -145,7 +187,7 @@ namespace Game.Rules.Runtime
             ChildReservation reservation;
             lock (gate)
             {
-                if (activeRoot == null)
+                if (activeRoot.IsIdle)
                     throw new InvalidOperationException("Nested dispatch requires an active root resolution.");
 
                 resolution = activeRoot;
@@ -197,7 +239,7 @@ namespace Game.Rules.Runtime
             OpId rootId;
             lock (gate)
             {
-                if (activeRoot == null || activeRoot.RootId != committedRootId)
+                if (activeRoot.IsIdle || activeRoot.RootId != committedRootId)
                 {
                     throw new InvalidOperationException(
                         "Fact-listener dispatch requires its completed root to retain resolution ownership.");

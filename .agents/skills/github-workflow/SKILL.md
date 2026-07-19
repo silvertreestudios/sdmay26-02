@@ -77,6 +77,12 @@ Use gists for temporary review artifacts that do not belong in the PR branch. Pr
 python .agents/skills/github-workflow/scripts/gh_gist.py create --description "PR 123 screenshots" --file .agent-temp/screen.png --dry-run
 ```
 
+The same `create` command handles text and binary files. For PNGs or other binary input, it
+creates an isolated temporary repository under `.agent-temp/`, pushes directly to the Gist URL
+with credentials from the active GitHub CLI account, and prints the Gist page plus raw file URLs.
+It never changes Git remotes or configuration in the caller repository. Binary Gists require Git
+internally because the Gist REST API accepts file content as text.
+
 ## Verification
 
 When changing this skill, run:

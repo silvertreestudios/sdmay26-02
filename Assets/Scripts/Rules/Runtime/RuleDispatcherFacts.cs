@@ -30,7 +30,7 @@ namespace Game.Rules.Runtime
 
             lock (gate)
             {
-                if (activeRoot == null || activeRoot.RootId != invocation.FrameView.RootId)
+                if (activeRoot.IsIdle || activeRoot.RootId != invocation.FrameView.RootId)
                     throw new InvalidOperationException("Reducer Facts crossed resolution root ownership.");
 
                 // Reducer Facts enter the root batch at the store commit point. Middleware may

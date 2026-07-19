@@ -3,6 +3,10 @@ namespace Game.Rules.Runtime
     public sealed class RulesStateDraft
     {
         public StateSliceDraft<CreatureId, CreatureState> Creatures { get; }
+        /// <summary>
+        /// Gets transaction-scoped write access to creature statistics and modifier inputs.
+        /// </summary>
+        public StateSliceDraft<CreatureId, CreatureStatisticsState> Statistics { get; }
         public StateSliceDraft<CreatureId, HealthState> Health { get; }
         public StateSliceDraft<CreatureId, GridPosition> Positions { get; }
         public StateSliceDraft<CreatureId, ActionEconomyState> ActionEconomy { get; }
@@ -31,6 +35,9 @@ namespace Game.Rules.Runtime
         internal RulesStateDraft(RulesStateData data)
         {
             Creatures = new StateSliceDraft<CreatureId, CreatureState>(data.Creatures, (id, value) => !id.IsEmpty && value != null && id == value.Id);
+            Statistics = new StateSliceDraft<CreatureId, CreatureStatisticsState>(
+                data.Statistics,
+                (id, value) => !id.IsEmpty && value != null && id == value.Creature);
             Health = new StateSliceDraft<CreatureId, HealthState>(data.Health, (id, value) => !id.IsEmpty);
             Positions = new StateSliceDraft<CreatureId, GridPosition>(data.Positions, (id, value) => !id.IsEmpty);
             ActionEconomy = new StateSliceDraft<CreatureId, ActionEconomyState>(data.ActionEconomy, (id, value) => !id.IsEmpty);
@@ -52,7 +59,7 @@ namespace Game.Rules.Runtime
         }
 
         internal bool IsDirty =>
-            Creatures.IsDirty || Health.IsDirty || Positions.IsDirty || ActionEconomy.IsDirty ||
+            Creatures.IsDirty || Statistics.IsDirty || Health.IsDirty || Positions.IsDirty || ActionEconomy.IsDirty ||
             SpellSlots.IsDirty || FocusPoints.IsDirty || Ammunition.IsDirty ||
             MultipleAttackPenalty.IsDirty || Conditions.IsDirty || Equipment.IsDirty ||
             ActiveEffects.IsDirty || RuleBindings.IsDirty || Frequencies.IsDirty;
@@ -62,6 +69,7 @@ namespace Game.Rules.Runtime
             return new RulesStateData(
                 version,
                 Creatures.BuildCommittedValues(),
+                Statistics.BuildCommittedValues(),
                 Health.BuildCommittedValues(),
                 Positions.BuildCommittedValues(),
                 ActionEconomy.BuildCommittedValues(),

@@ -671,9 +671,41 @@ return passedThrough
     : TumbleThroughOutcome.CouldNotPass(resolvedMovement.Value);
 ```
 
-The player implementation, AI implementation, replay implementation, and tests provide adapters for `PromptChoiceOp<TChoice>`. A handler does not directly open UI or pause a coroutine.
+`Skill` is an open, slug-backed value rather than a closed enum. Static fields provide the standard
+PF2e skills, while data can define Lore skills and other content-specific skills without an engine
+code change. `SkillCheckOp` internally dispatches `CollectSkillCheckModifiersOp` before rolling;
+`SavingThrowOp` does the same with `CollectSavingThrowModifiersOp`. Active effects therefore modify
+checks and saves through the same typed, traceable middleware pattern used for attacks.
 
-The dispatcher serializes a root resolution. A prompt can suspend that resolution, but another root Op cannot interleave and change combat state underneath it. Nested reactions are allowed because they belong to the same resolution tree.
+The player implementation, AI implementation, replay implementation, and tests register an
+`IPromptAdapter<TChoice>` for each concrete choice type they resolve. The adapter receives only the
+immutable `PromptChoiceOp<TChoice>` and the frame's captured `RulesSnapshot`; it does not receive a
+dispatcher, mutable store, callback, or privileged context. A handler therefore never opens UI
+directly, pauses a coroutine, or grants presentation code a path to mutate rules state.
+
+`ChoiceResult<TChoice>` uses structural cases for normal outcomes:
+
+- `SelectedChoiceResult<TChoice>` contains one request-declared choice. A content-level decline is a
+  selected value, such as `false`, rather than a cancelled operation.
+- `UnavailableChoiceResult<TChoice>` explains that no adapter can currently present or evaluate the
+  request.
+- `FailedChoiceResult<TChoice>` carries a typed `TimedOut` or `Disconnected` adapter-boundary failure.
+
+All three are resolved prompt values. Only explicit cancellation of the surrounding decision workflow
+returns `CancelledOpResult<ChoiceResult<TChoice>>`; adapters do not return `Invalid` or `Interrupted`
+for expected prompt outcomes. EditMode tests use a test-assembly scripted adapter that consumes
+explicit results in order. Production replay and simulation adapters inspect each request's stable
+identity and declared choices before selecting a result; they do not depend on prompt order alone.
+
+The dispatcher serializes root resolution through an asynchronous ownership gate. An unrelated
+external root waits before allocating its root ID or frame, so a prompt can suspend its current root
+without combat state changing underneath it. Nested reactions and other child Ops remain available
+because they belong to the same resolution tree, and causally dispatched Fact-listener roots retain
+the original external root's ownership window through post-commit notification. Code already executing
+inside a resolution must use its handler, middleware, or Fact-listener context for nested work; calling
+the dispatcher's public root API while that resolution still owns the gate is rejected instead of
+waiting on its own ownership. A delayed continuation may submit a normal root after its originating
+resolution releases ownership; it then follows the same serialization rules as any independent caller.
 
 ### 5.7 Read-only queries stay simple
 
@@ -688,7 +720,7 @@ public interface IRulesSelectors
 }
 ```
 
-Use an Op when the work needs middleware, provenance, a typed asynchronous result, a prompt, a random roll recorded in the resolution, or any possible state change. `CollectAttackModifiersOp` is therefore an Op even though it does not mutate state: active effects must be able to contribute to it.
+Use an Op when the work needs middleware, provenance, a typed asynchronous result, a prompt, a random roll recorded in the resolution, or any possible state change. `CollectAttackModifiersOp`, `CollectSkillCheckModifiersOp`, and `CollectSavingThrowModifiersOp` are therefore Ops even though they do not mutate state: active effects must be able to contribute before the corresponding roll.
 
 ---
 
@@ -1256,7 +1288,8 @@ public static class ReactiveStrikeRule
             ReactiveStrikePrompt.For(binding.Owner, triggering.Actor)));
 
         if (choice is not ResolvedOpResult<ChoiceResult<bool>> resolvedChoice ||
-            !resolvedChoice.Value.Choice)
+            resolvedChoice.Value is not SelectedChoiceResult<bool> selectedChoice ||
+            !selectedChoice.Choice)
             return current;
 
         // DispatchAuthorized proves this Op came from the active feat binding.
@@ -1296,7 +1329,7 @@ public static class ReactiveStrikeRule
             ReactiveStrikePrompt.For(binding.Owner, frame.Op.Mover)));
 
         if (choice is ResolvedOpResult<ChoiceResult<bool>> resolvedChoice &&
-            resolvedChoice.Value.Choice)
+            resolvedChoice.Value is SelectedChoiceResult<bool> { Choice: true })
         {
             await context.DispatchAuthorized(
                 new ReactiveStrikeActionOp(
@@ -1900,7 +1933,9 @@ public static class CranialDetonationRule
 
             if (choice is not ResolvedOpResult<ChoiceResult<CranialDetonationChoice>>
                     resolvedChoice ||
-                !resolvedChoice.Value.Choice.Accepted)
+                resolvedChoice.Value is not
+                    SelectedChoiceResult<CranialDetonationChoice> selectedChoice ||
+                !selectedChoice.Choice.Accepted)
             {
                 continue;
             }
@@ -1911,7 +1946,7 @@ public static class CranialDetonationRule
                     binding.Id,
                     castId,
                     origins,
-                    resolvedChoice.Value.Choice.Mode));
+                    selectedChoice.Choice.Mode));
         }
     }
 
@@ -2072,7 +2107,7 @@ The five examples exercise the architecture's main extension points:
 | PF2e action cost, traits, and reaction eligibility | `ActionOp` plus frozen `ActionProfile` | Strike, Step, Cast Spell, Tumble Through |
 | Disruption after costs commit | Middleware on `ActionBegunOp` | Reactive Strike |
 | Trigger during movement | `MovementLeavingSquareOp` | Reactive Strike, failed Tumble Through |
-| Dynamic bonus contribution | Middleware on `CollectAttackModifiersOp` | Bless |
+| Dynamic bonus contribution | Middleware on typed attack, skill, or save modifier-collection Ops | Bless and other check/save effects |
 | Persistent feature-local state | Typed `ActiveEffectInstance.State` | Bless radius |
 | State change | Reducer | HP, position, MAP, action cost, aura state |
 | Reaction to committed change | Typed fact listener | Cranial Detonation |
@@ -2145,7 +2180,8 @@ The trace should use stable IDs and rules data, not `ToString()` on Unity object
 
 ## 16. Testing strategy
 
-Most engine tests should be EditMode tests against an in-memory `RulesState`, deterministic roll service, and scripted prompt adapter.
+Most engine tests should be EditMode tests against an in-memory `RulesState`, deterministic roll
+service, and a test-only scripted prompt adapter.
 
 ### Dispatcher contract tests
 
@@ -2222,7 +2258,7 @@ This architecture can be introduced vertically. It does not require rewriting ev
 
 - Add ID and immutable data types needed by the first slice.
 - Implement `RulesState`, snapshots, dispatcher, frames, results, handler/reducer registration, and deterministic tracing.
-- Implement middleware, typed fact listeners, active bindings, and scripted prompts.
+- Implement middleware, typed fact listeners, active bindings, typed prompts, and test-only scripted prompt fixtures.
 - Add architecture tests for validation, costs, interruption, provenance, and Facts.
 
 ### Phase 2: split and migrate Strike

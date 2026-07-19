@@ -4,6 +4,10 @@ namespace Game.Rules.Runtime
     {
         public long Version { get; }
         public StateSliceSnapshot<CreatureId, CreatureState> Creatures { get; }
+        /// <summary>
+        /// Gets base check values and snapshot-owned modifier inputs keyed by creature.
+        /// </summary>
+        public StateSliceSnapshot<CreatureId, CreatureStatisticsState> Statistics { get; }
         public StateSliceSnapshot<CreatureId, HealthState> Health { get; }
         public StateSliceSnapshot<CreatureId, GridPosition> Positions { get; }
         public StateSliceSnapshot<CreatureId, ActionEconomyState> ActionEconomy { get; }
@@ -33,6 +37,7 @@ namespace Game.Rules.Runtime
         {
             Version = data.Version;
             Creatures = new StateSliceSnapshot<CreatureId, CreatureState>(data.Creatures);
+            Statistics = new StateSliceSnapshot<CreatureId, CreatureStatisticsState>(data.Statistics);
             Health = new StateSliceSnapshot<CreatureId, HealthState>(data.Health);
             Positions = new StateSliceSnapshot<CreatureId, GridPosition>(data.Positions);
             ActionEconomy = new StateSliceSnapshot<CreatureId, ActionEconomyState>(data.ActionEconomy);
