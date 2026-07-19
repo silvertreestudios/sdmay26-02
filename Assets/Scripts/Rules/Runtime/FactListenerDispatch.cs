@@ -166,12 +166,12 @@ namespace Game.Rules.Runtime
     internal sealed class TypedFactListenerRegistration<TFact> : FactListenerRegistration
         where TFact : RuleFact
     {
-        private readonly IFactListener<TFact> listener;
+        private readonly IRuleFactListener<TFact> listener;
 
         public TypedFactListenerRegistration(
             RuleLifecyclePhase phase,
             long registrationOrder,
-            IFactListener<TFact> listener)
+            IRuleFactListener<TFact> listener)
             : base(typeof(TFact), phase, false, registrationOrder) => this.listener = listener;
 
         internal override bool Matches(RuleFact fact) => fact is TFact;
@@ -190,12 +190,12 @@ namespace Game.Rules.Runtime
     internal sealed class TypedFactBatchListenerRegistration<TFact> : FactListenerRegistration
         where TFact : RuleFact
     {
-        private readonly IFactBatchListener<TFact> listener;
+        private readonly IRuleFactBatchListener<TFact> listener;
 
         public TypedFactBatchListenerRegistration(
             RuleLifecyclePhase phase,
             long registrationOrder,
-            IFactBatchListener<TFact> listener)
+            IRuleFactBatchListener<TFact> listener)
             : base(typeof(TFact), phase, true, registrationOrder) => this.listener = listener;
 
         internal override bool Matches(RuleFact fact) => fact is TFact;

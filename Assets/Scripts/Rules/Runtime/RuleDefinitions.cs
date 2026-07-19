@@ -108,7 +108,7 @@ namespace Game.Rules.Runtime
         /// </exception>
         public RuleDefinitionBuilder FactListener<TFact>(
             RuleLifecyclePhase phase,
-            IFactListener<TFact> value)
+            IRuleFactListener<TFact> value)
             where TFact : RuleFact
         {
             AddFactListener(
@@ -130,7 +130,7 @@ namespace Game.Rules.Runtime
         /// </exception>
         public RuleDefinitionBuilder FactBatchListener<TFact>(
             RuleLifecyclePhase phase,
-            IFactBatchListener<TFact> value)
+            IRuleFactBatchListener<TFact> value)
             where TFact : RuleFact
         {
             AddFactListener(
