@@ -283,11 +283,24 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
-    public void GeneratedDungeonModels_UseTheSameHalfScaleAsCreatureVisuals()
+    public void GeneratedDungeonModels_UseUniformScaleForTheirGridFootprint()
     {
         Assert.That(
             KayKitDungeonSetupTool.DungeonVisualScale,
             Is.EqualTo(KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale));
+        Assert.That(KayKitDungeonSetupTool.WallVisualScale, Is.EqualTo(0.25f));
+
+        HashSet<string> wallWrappers = new(StringComparer.Ordinal)
+        {
+            "DungeonWallStraight",
+            "DungeonWallCorner",
+            "DungeonWallTIntersection",
+            "DungeonWallCrossing",
+            "DungeonWallEndcap",
+            "DungeonWallPillar",
+            "DungeonDoorwayOpen",
+            "DungeonDoorClosed"
+        };
 
         GameObject[] wrappers = AssetDatabase.FindAssets(
                 "t:Prefab",
@@ -299,11 +312,39 @@ public sealed class KayKitDungeonMapTests
         Assert.That(wrappers, Is.Not.Empty);
         foreach (GameObject wrapper in wrappers)
         {
+            float expectedScale = wallWrappers.Contains(wrapper.name)
+                ? KayKitDungeonSetupTool.WallVisualScale
+                : KayKitDungeonSetupTool.DungeonVisualScale;
             Assert.That(
                 wrapper.transform.Find("Model").localScale,
-                Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.DungeonVisualScale),
+                Is.EqualTo(Vector3.one * expectedScale),
                 wrapper.name);
         }
+    }
+
+    [Test]
+    public void StraightWallPrefab_OccupiesOneUnitAndTouchesItsNeighbor()
+    {
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+            KayKitDungeonSetupTool.WallStraightPrefabPath);
+        GameObject first = Track((GameObject)PrefabUtility.InstantiatePrefab(prefab));
+        GameObject second = Track((GameObject)PrefabUtility.InstantiatePrefab(prefab));
+        second.transform.position = Vector3.right;
+
+        Transform firstModel = first.transform.Find("Model");
+        Transform secondModel = second.transform.Find("Model");
+        Renderer firstRenderer = firstModel.GetComponentInChildren<Renderer>();
+        Renderer secondRenderer = secondModel.GetComponentInChildren<Renderer>();
+        BoxCollider collider = first.GetComponent<BoxCollider>();
+
+        Assert.That(firstModel.localScale,
+            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.WallVisualScale));
+        Assert.That(firstRenderer.bounds.size.x, Is.EqualTo(1f).Within(0.001f));
+        Assert.That(firstRenderer.bounds.size.y, Is.EqualTo(1f).Within(0.001f));
+        Assert.That(firstRenderer.bounds.max.x,
+            Is.EqualTo(secondRenderer.bounds.min.x).Within(0.001f));
+        Assert.That(collider.center.y, Is.EqualTo(0.5f).Within(0.001f));
+        Assert.That(collider.size.y, Is.EqualTo(1f).Within(0.001f));
     }
 
     [Test]
@@ -347,7 +388,11 @@ public sealed class KayKitDungeonMapTests
             ~0,
             QueryTriggerInteraction.Collide);
 
-        Assert.That(instance.GetComponentsInChildren<BoxCollider>(), Has.Length.EqualTo(2));
+        BoxCollider[] doorwayPosts = instance.GetComponentsInChildren<BoxCollider>();
+        Assert.That(doorwayPosts, Has.Length.EqualTo(2));
+        Assert.That(doorwayPosts.All(post =>
+            Mathf.Approximately(post.center.y, 0f) &&
+            Mathf.Approximately(post.size.y, 1f)), Is.True);
         Assert.That(centerHits.Any(hit => hit.collider.transform.IsChildOf(instance.transform)),
             Is.False,
             "The open doorway center must remain physically passable.");

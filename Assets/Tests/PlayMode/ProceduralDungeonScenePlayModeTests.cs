@@ -56,6 +56,22 @@ public sealed class ProceduralDungeonScenePlayModeTests
             Is.Null,
             "Solid interior cells remain blocked data but must not create scene geometry.");
 
+        Transform firstStraightWall = structure.Find("Wall_011_000");
+        Transform secondStraightWall = structure.Find("Wall_012_000");
+        Assert.That(firstStraightWall, Is.Not.Null);
+        Assert.That(secondStraightWall, Is.Not.Null);
+        Renderer firstStraightRenderer = firstStraightWall
+            .GetComponentsInChildren<Renderer>(false)
+            .Single();
+        Renderer secondStraightRenderer = secondStraightWall
+            .GetComponentsInChildren<Renderer>(false)
+            .Single();
+        Assert.That(firstStraightRenderer.bounds.size.x, Is.EqualTo(1f).Within(0.001f));
+        Assert.That(firstStraightRenderer.bounds.size.y, Is.EqualTo(1f).Within(0.001f));
+        Assert.That(firstStraightRenderer.bounds.max.x,
+            Is.EqualTo(secondStraightRenderer.bounds.min.x).Within(0.001f),
+            "Adjacent one-unit wall segments must touch without overlapping.");
+
         DungeonDoorController[] doors = Object.FindObjectsByType<DungeonDoorController>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);

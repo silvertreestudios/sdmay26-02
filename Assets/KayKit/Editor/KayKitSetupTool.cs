@@ -106,7 +106,7 @@ namespace Game.KayKit.Editor
         }
 
         /// <summary>
-        /// Regenerates procedural-floor wrappers and structural catalog references while preserving entries.
+        /// Regenerates procedural-floor and wall wrappers plus structural catalog references while preserving entries.
         /// </summary>
         [MenuItem("Tools/KayKit/Regenerate Dungeon Assets")]
         public static void RegenerateDungeonAssets()
@@ -121,6 +121,7 @@ namespace Game.KayKit.Editor
 
             EnsureProjectFolders();
             KayKitDungeonSetupTool.RegenerateGeneratedFloorPrefabs(material);
+            KayKitDungeonSetupTool.RegenerateWallPrefabs(material);
             KayKitDungeonCatalog catalog =
                 AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(DungeonCatalogPath);
             if (catalog == null)
