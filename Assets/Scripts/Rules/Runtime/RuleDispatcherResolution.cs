@@ -205,6 +205,9 @@ namespace Game.Rules.Runtime
 
         private sealed class RootResolution
         {
+            public static RootResolution Idle { get; } = new RootResolution(true);
+
+            private readonly bool isIdle;
             private readonly HashSet<OpId> activeFrames = new HashSet<OpId>();
             private readonly HashSet<OpId> sealedFrames = new HashSet<OpId>();
             private readonly Dictionary<OpId, ChildReservation> activeChildren =
@@ -217,12 +220,25 @@ namespace Game.Rules.Runtime
                 new HashSet<RuleFact>(ReferenceEqualityComparer<RuleFact>.Instance);
 
             public OpId RootId { get; private set; }
+            public bool IsIdle => isIdle;
             public List<RuleFact> Facts { get; } = new List<RuleFact>();
             public List<CommittedFactRecord> CommittedFacts { get; } =
                 new List<CommittedFactRecord>();
 
+            public RootResolution()
+                : this(false)
+            {
+            }
+
+            private RootResolution(bool isIdle)
+            {
+                this.isIdle = isIdle;
+            }
+
             public void Initialize(OpId rootId)
             {
+                if (IsIdle)
+                    throw new InvalidOperationException("The idle root sentinel cannot be initialized.");
                 if (!RootId.IsEmpty)
                     throw new InvalidOperationException("A root resolution was initialized more than once.");
                 if (rootId.IsEmpty)

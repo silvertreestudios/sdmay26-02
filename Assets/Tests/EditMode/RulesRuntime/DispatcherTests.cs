@@ -8,6 +8,9 @@ using NUnit.Framework;
 
 namespace Game.Rules.Runtime.Tests
 {
+    /// <summary>
+    /// Verifies dispatcher ownership, trace, result, cleanup, and failure invariants.
+    /// </summary>
     public sealed class DispatcherTests
     {
         private static readonly CreatureId Creature = new CreatureId("dispatcher-creature");
@@ -338,8 +341,12 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(12));
         }
 
+        /// <summary>
+        /// Verifies concurrent external roots queue and execute without overlapping ownership.
+        /// </summary>
         [Test]
-        public async Task ConcurrentRootsAtomicallyChooseOneOwnerAndRejectTheOther()
+        [Timeout(10000)]
+        public async Task ConcurrentRootsSerializeWithoutOverlappingOwnership()
         {
             InMemoryRulesStore store = CreateStore(10);
             CountingOpIdProvider ids = new CountingOpIdProvider(800);
@@ -353,47 +360,124 @@ namespace Game.Rules.Runtime.Tests
             using (CountdownEvent ready = new CountdownEvent(2))
             using (ManualResetEventSlim start = new ManualResetEventSlim())
             {
-                Task<DispatchAttempt> first = RaceRoot(dispatcher, ready, start);
-                Task<DispatchAttempt> second = RaceRoot(dispatcher, ready, start);
+                Task<OpResult<int>> first = RaceRoot(dispatcher, ready, start);
+                Task<OpResult<int>> second = RaceRoot(dispatcher, ready, start);
                 Assert.That(ready.Wait(TimeSpan.FromSeconds(5)), Is.True);
                 start.Set();
                 await handler.Started;
 
-                Task<DispatchAttempt> rejectedTask = await Task.WhenAny(first, second);
-                DispatchAttempt rejected = await rejectedTask;
-
-                Assert.That(rejected.Error, Is.Not.Null);
-                Assert.That(rejected.Error.Message, Does.Contain("active resolution"));
+                Assert.That(first.IsCompleted, Is.False);
+                Assert.That(second.IsCompleted, Is.False);
                 Assert.That(handler.Calls, Is.EqualTo(1));
                 Assert.That(ids.Calls, Is.EqualTo(1),
-                    "The rejected caller must not allocate a root ID.");
+                    "The queued caller must not allocate a root ID.");
                 Assert.That(dispatcher.Trace.OrderedFrames.Select(frame => frame.Id),
                     Is.EqualTo(new[] { new OpId(800) }));
 
                 handler.Release();
-                DispatchAttempt[] attempts = await Task.WhenAll(first, second);
-                Assert.That(attempts.Count(attempt => attempt.Result != null), Is.EqualTo(1));
-                Assert.That(attempts.Count(attempt => attempt.Error != null), Is.EqualTo(1));
+                OpResult<int>[] results = await Task.WhenAll(first, second);
+                Assert.That(results.All(result => result is ResolvedOpResult<int>), Is.True);
+                Assert.That(handler.Calls, Is.EqualTo(2));
+                Assert.That(handler.MaximumConcurrency, Is.EqualTo(1));
+                Assert.That(ids.Calls, Is.EqualTo(2));
             }
 
             OpResult<int> laterRoot = await dispatcher.Dispatch(new SingleIncrementRootOp());
 
             Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(11));
-            Assert.That(ids.Calls, Is.EqualTo(3));
+            Assert.That(ids.Calls, Is.EqualTo(4));
             Assert.That(dispatcher.Trace.OrderedFrames.Select(frame => frame.Id),
-                Is.EqualTo(new[] { new OpId(800), new OpId(801), new OpId(802) }));
+                Is.EqualTo(new[]
+                {
+                    new OpId(800),
+                    new OpId(801),
+                    new OpId(802),
+                    new OpId(803)
+                }));
             Assert.That(dispatcher.Trace.OrderedFrames.Select(frame => frame.Id).Distinct().Count(),
-                Is.EqualTo(3));
-            Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(801)));
+                Is.EqualTo(4));
+            Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(802)));
         }
 
-        private static Task<DispatchAttempt> RaceRoot(
+        /// <summary>
+        /// Verifies a callback cannot deadlock its active root by reentering the public dispatch API.
+        /// </summary>
+        [Test]
+        [Timeout(10000)]
+        public void ActiveResolutionRejectsReentrantPublicRootDispatch()
+        {
+            TaskCompletionSource<RuleDispatcher> dispatcherReference =
+                new TaskCompletionSource<RuleDispatcher>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(10),
+                    new SequentialOpIdProvider(825))
+                .RegisterHandler<ReentrantRootOp, int>(
+                    new ReentrantRootHandler(dispatcherReference.Task))
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+            dispatcherReference.SetResult(dispatcher);
+
+            InvalidOperationException error = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(new ReentrantRootOp()));
+
+            Assert.That(error.Message, Does.Contain("public root Dispatch API"));
+            Assert.That(dispatcher.Trace.OrderedFrames.Select(frame => frame.Id),
+                Is.EqualTo(new[] { new OpId(825) }));
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(10));
+        }
+
+        /// <summary>
+        /// Verifies a delayed continuation may start a new root after its originating root releases ownership.
+        /// </summary>
+        [Test]
+        [Timeout(10000)]
+        public async Task CompletedResolutionExpiresCapturedReentrancyMarker()
+        {
+            TaskCompletionSource<RuleDispatcher> dispatcherReference =
+                new TaskCompletionSource<RuleDispatcher>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource<bool> releaseDelayedRoot =
+                new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource<OpResult<int>> delayedResult =
+                new TaskCompletionSource<OpResult<int>>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                    CreateStore(10),
+                    new SequentialOpIdProvider(850))
+                .RegisterHandler<DelayedRootOp, int>(new DelayedRootHandler(
+                    dispatcherReference.Task,
+                    releaseDelayedRoot.Task,
+                    delayedResult))
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+            dispatcherReference.SetResult(dispatcher);
+
+            await dispatcher.Dispatch(new DelayedRootOp());
+            releaseDelayedRoot.SetResult(true);
+            OpResult<int> laterRoot = await delayedResult.Task;
+
+            Assert.That(laterRoot.Status, Is.EqualTo(OpStatus.Resolved));
+            Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(11));
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(11));
+            Assert.That(dispatcher.Trace.OrderedFrames.Select(frame => frame.Id), Is.EqualTo(new[]
+            {
+                new OpId(850),
+                new OpId(851),
+                new OpId(852)
+            }));
+        }
+
+        private static Task<OpResult<int>> RaceRoot(
             RuleDispatcher dispatcher,
             CountdownEvent ready,
             ManualResetEventSlim start)
         {
-            TaskCompletionSource<DispatchAttempt> completion =
-                new TaskCompletionSource<DispatchAttempt>(
+            TaskCompletionSource<OpResult<int>> completion =
+                new TaskCompletionSource<OpResult<int>>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
             Thread thread = new Thread(() =>
             {
@@ -401,13 +485,8 @@ namespace Game.Rules.Runtime.Tests
                 start.Wait();
                 try
                 {
-                    completion.TrySetResult(new DispatchAttempt(
-                        dispatcher.Dispatch(new RacingRootOp()).AsTask().GetAwaiter().GetResult(),
-                        null));
-                }
-                catch (InvalidOperationException error)
-                {
-                    completion.TrySetResult(new DispatchAttempt(null, error));
+                    completion.TrySetResult(
+                        dispatcher.Dispatch(new RacingRootOp()).AsTask().GetAwaiter().GetResult());
                 }
                 catch (Exception error)
                 {
@@ -498,6 +577,9 @@ namespace Game.Rules.Runtime.Tests
                 "A propagated ignored failure must still release root ownership.");
         }
 
+        /// <summary>
+        /// Verifies an unawaited child retains root ownership until cleanup, then releases a queued root.
+        /// </summary>
         [Test]
         public async Task UnawaitedSuspendedChildKeepsRootOwnedUntilItSettlesThenFailsClearly()
         {
@@ -516,37 +598,30 @@ namespace Game.Rules.Runtime.Tests
             await child.Started;
 
             Assert.That(root.IsCompleted, Is.False);
-            InvalidOperationException overlap = Assert.ThrowsAsync<InvalidOperationException>(async () =>
-                await dispatcher.Dispatch(new SingleIncrementRootOp()));
-            Assert.That(overlap.Message, Does.Contain("active resolution"));
+            Task<OpResult<int>> queuedRoot = dispatcher.Dispatch(
+                new SingleIncrementRootOp()).AsTask();
+            Assert.That(queuedRoot.IsCompleted, Is.False);
 
             child.Release();
-            InvalidOperationException unawaited = null;
-            try
-            {
-                await root;
-            }
-            catch (InvalidOperationException error)
-            {
-                unawaited = error;
-            }
+            InvalidOperationException unawaited =
+                await RequireFailure<InvalidOperationException>(root);
+            OpResult<int> queuedResult = await queuedRoot;
 
-            Assert.That(unawaited, Is.Not.Null);
             Assert.That(unawaited.Message, Does.Contain("returned before awaiting its active child dispatch"));
-            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(11));
+            Assert.That(RequireResolved(queuedResult).Value, Is.EqualTo(12));
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(12));
             Assert.That(dispatcher.Trace.Get<IncrementOp>(new OpId(902)).RootId,
                 Is.EqualTo(new OpId(900)));
             Assert.That(dispatcher.Diagnostics.Compact,
                 Does.Contain("[op 901 parent=900 cause=900] SuspendedNestedOp -> Resolved"));
             Assert.That(dispatcher.Diagnostics.Compact,
                 Does.Not.Contain("[op 900 root] UnawaitedChildRootOp -> Resolved"));
-
-            OpResult<int> laterRoot = await dispatcher.Dispatch(new SingleIncrementRootOp());
-
-            Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(12));
-            Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(903)));
+            Assert.That(queuedResult.Facts.Single().RootOpId, Is.EqualTo(new OpId(903)));
         }
 
+        /// <summary>
+        /// Verifies child cleanup preserves a handler exception before releasing a queued root.
+        /// </summary>
         [Test]
         public async Task HandlerExceptionWaitsForActiveChildAndPreservesOriginalFailure()
         {
@@ -567,30 +642,20 @@ namespace Game.Rules.Runtime.Tests
             await child.Started;
 
             Assert.That(root.IsCompleted, Is.False);
-            Assert.ThrowsAsync<InvalidOperationException>(async () =>
-                await dispatcher.Dispatch(new SingleIncrementRootOp()));
+            Task<OpResult<int>> queuedRoot = dispatcher.Dispatch(
+                new SingleIncrementRootOp()).AsTask();
+            Assert.That(queuedRoot.IsCompleted, Is.False);
 
             child.Release();
-            ApplicationException original = null;
-            try
-            {
-                await root;
-            }
-            catch (ApplicationException error)
-            {
-                original = error;
-            }
+            ApplicationException original = await RequireFailure<ApplicationException>(root);
+            OpResult<int> queuedResult = await queuedRoot;
 
-            Assert.That(original, Is.Not.Null);
             Assert.That(original.Message, Is.EqualTo("original handler failure"));
-            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(11));
+            Assert.That(RequireResolved(queuedResult).Value, Is.EqualTo(12));
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(12));
             Assert.That(dispatcher.Trace.Get<IncrementOp>(new OpId(952)).RootId,
                 Is.EqualTo(new OpId(950)));
-
-            OpResult<int> laterRoot = await dispatcher.Dispatch(new SingleIncrementRootOp());
-
-            Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(12));
-            Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(953)));
+            Assert.That(queuedResult.Facts.Single().RootOpId, Is.EqualTo(new OpId(953)));
         }
 
         [Test]
@@ -713,6 +778,22 @@ namespace Game.Rules.Runtime.Tests
         {
             Assert.That(result, Is.TypeOf<ResolvedOpResult<TResult>>());
             return (ResolvedOpResult<TResult>)result;
+        }
+
+        private static async Task<TException> RequireFailure<TException>(Task task)
+            where TException : Exception
+        {
+            try
+            {
+                await task;
+            }
+            catch (TException error)
+            {
+                return error;
+            }
+
+            throw new AssertionException(
+                $"Expected {typeof(TException).Name}, but the task completed successfully.");
         }
 
         private static void AssertFrame<TOp>(
@@ -856,18 +937,110 @@ namespace Game.Rules.Runtime.Tests
             private readonly TaskCompletionSource<bool> release =
                 new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             private int calls;
+            private int active;
+            private int maximumConcurrency;
 
             public Task Started => started.Task;
-            public int Calls => calls;
+            public int Calls => Volatile.Read(ref calls);
+            public int MaximumConcurrency => Volatile.Read(ref maximumConcurrency);
 
             public void Release() => release.TrySetResult(true);
 
             public async ValueTask<int> Handle(OpFrame<RacingRootOp> frame, OpHandlerContext context)
             {
                 Interlocked.Increment(ref calls);
+                int current = Interlocked.Increment(ref active);
+                UpdateMaximum(current);
                 started.TrySetResult(true);
-                await release.Task;
+                try
+                {
+                    await release.Task;
+                    return 0;
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref active);
+                }
+            }
+
+            private void UpdateMaximum(int candidate)
+            {
+                int observed = Volatile.Read(ref maximumConcurrency);
+                while (candidate > observed)
+                {
+                    int previous = Interlocked.CompareExchange(
+                        ref maximumConcurrency,
+                        candidate,
+                        observed);
+                    if (previous == observed)
+                        return;
+                    observed = previous;
+                }
+            }
+        }
+
+        private sealed class ReentrantRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class ReentrantRootHandler : IOpHandler<ReentrantRootOp, int>
+        {
+            private readonly Task<RuleDispatcher> dispatcher;
+
+            public ReentrantRootHandler(Task<RuleDispatcher> dispatcher) =>
+                this.dispatcher = dispatcher;
+
+            public async ValueTask<int> Handle(
+                OpFrame<ReentrantRootOp> frame,
+                OpHandlerContext context)
+            {
+                RuleDispatcher activeDispatcher = await dispatcher;
+                await activeDispatcher.Dispatch(new SingleIncrementRootOp());
                 return 0;
+            }
+        }
+
+        private sealed class DelayedRootOp : IRuleOp<int>
+        {
+        }
+
+        private sealed class DelayedRootHandler : IOpHandler<DelayedRootOp, int>
+        {
+            private readonly Task<RuleDispatcher> dispatcher;
+            private readonly Task release;
+            private readonly TaskCompletionSource<OpResult<int>> result;
+
+            public DelayedRootHandler(
+                Task<RuleDispatcher> dispatcher,
+                Task release,
+                TaskCompletionSource<OpResult<int>> result)
+            {
+                this.dispatcher = dispatcher;
+                this.release = release;
+                this.result = result;
+            }
+
+            public ValueTask<int> Handle(
+                OpFrame<DelayedRootOp> frame,
+                OpHandlerContext context)
+            {
+                _ = DispatchAfterRelease();
+                return new ValueTask<int>(0);
+            }
+
+            private async Task DispatchAfterRelease()
+            {
+                try
+                {
+                    await release;
+                    RuleDispatcher activeDispatcher = await dispatcher;
+                    result.TrySetResult(
+                        await activeDispatcher.Dispatch(new SingleIncrementRootOp()));
+                }
+                catch (Exception error)
+                {
+                    result.TrySetException(error);
+                }
             }
         }
 

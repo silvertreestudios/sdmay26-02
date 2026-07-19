@@ -86,7 +86,10 @@ namespace Game.Rules.Runtime
         /// <param name="policy">Whether the operation may begin as a root dispatch.</param>
         /// <returns>This builder so registrations can be chained.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="handler"/> is <see langword="null"/>.</exception>
-        /// <exception cref="InvalidOperationException"><typeparamref name="TOp"/> already has a resolver.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// <typeparamref name="TOp"/> is a reserved <see cref="PromptChoiceOp{TChoice}"/> type or
+        /// already has a resolver. Register prompt adapters through <see cref="UsePromptAdapter{TChoice}"/>.
+        /// </exception>
         public RuleDispatcherBuilder RegisterHandler<TOp, TResult>(
             IOpHandler<TOp, TResult> handler,
             InvocationPolicy policy = InvocationPolicy.ExternalAllowed)
@@ -108,7 +111,10 @@ namespace Game.Rules.Runtime
         /// <returns>This builder so registrations can be chained.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="reducer"/> is <see langword="null"/>.</exception>
         /// <exception cref="ArgumentException"><paramref name="source"/> is empty.</exception>
-        /// <exception cref="InvalidOperationException"><typeparamref name="TOp"/> already has a resolver.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// <typeparamref name="TOp"/> is a reserved <see cref="PromptChoiceOp{TChoice}"/> type or
+        /// already has a resolver. Register prompt adapters through <see cref="UsePromptAdapter{TChoice}"/>.
+        /// </exception>
         public RuleDispatcherBuilder RegisterReducer<TOp, TResult>(
             IOpReducer<TOp, TResult> reducer,
             RuleSource source)
@@ -255,6 +261,31 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
+        /// Registers the engine-owned nested prompt resolver for one concrete choice data type.
+        /// </summary>
+        /// <typeparam name="TChoice">The immutable choice type handled by the adapter.</typeparam>
+        /// <param name="adapter">
+        /// The player, AI, replay, or scripted adapter that resolves this choice type.
+        /// </param>
+        /// <returns>This builder so configuration can be chained.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="adapter"/> is <see langword="null"/>.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// A resolver for <see cref="PromptChoiceOp{TChoice}"/> is already registered.
+        /// </exception>
+        /// <remarks>
+        /// Prompt operations are nested-only and bypass active rule middleware. The adapter receives
+        /// immutable request data and a read-only snapshot, so presentation or AI work cannot mutate
+        /// state or dispatch privileged operations while the root resolution is suspended.
+        /// </remarks>
+        public RuleDispatcherBuilder UsePromptAdapter<TChoice>(IPromptAdapter<TChoice> adapter)
+        {
+            if (adapter == null)
+                throw new ArgumentNullException(nameof(adapter));
+            Add(new PromptRegistration<TChoice>(adapter));
+            return this;
+        }
+
+        /// <summary>
         /// Selects the immutable rule registry used for binding-controlled middleware and Fact listeners.
         /// </summary>
         /// <param name="registry">The static registry to validate and attach to the dispatcher.</param>
@@ -351,6 +382,13 @@ namespace Game.Rules.Runtime
 
         private void Add(IRegistration registration)
         {
+            if (registration.OpType.IsGenericType &&
+                registration.OpType.GetGenericTypeDefinition() == typeof(PromptChoiceOp<>) &&
+                !(registration is IPromptRegistration))
+            {
+                throw new InvalidOperationException(
+                    $"{registration.OpType.Name} is reserved for UsePromptAdapter.");
+            }
             if (registrations.ContainsKey(registration.OpType))
                 throw new InvalidOperationException(
                     $"A resolver is already registered for {registration.OpType.Name}.");
