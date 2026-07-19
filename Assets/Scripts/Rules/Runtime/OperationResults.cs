@@ -15,8 +15,9 @@ namespace Game.Rules.Runtime
     /// </remarks>
     public abstract class OpResult<TResult>
     {
-        private static readonly IReadOnlyList<RuleFact> NoFacts =
-            Array.AsReadOnly(Array.Empty<RuleFact>());
+        private static readonly IReadOnlyList<RuleFact> NoFacts = Array.AsReadOnly(
+            Array.Empty<RuleFact>()
+        );
 
         private protected OpResult(IReadOnlyList<RuleFact> facts)
         {
@@ -129,9 +130,7 @@ namespace Game.Rules.Runtime
     public sealed class InterruptedOpResult<TResult> : OpResult<TResult>
     {
         internal InterruptedOpResult(IReadOnlyList<RuleFact> facts)
-            : base(facts)
-        {
-        }
+            : base(facts) { }
 
         /// <inheritdoc/>
         public override OpStatus Status => OpStatus.Interrupted;
@@ -147,9 +146,7 @@ namespace Game.Rules.Runtime
     public sealed class CancelledOpResult<TResult> : OpResult<TResult>
     {
         internal CancelledOpResult(IReadOnlyList<RuleFact> facts)
-            : base(facts)
-        {
-        }
+            : base(facts) { }
 
         /// <inheritdoc/>
         public override OpStatus Status => OpStatus.Cancelled;

@@ -3,9 +3,7 @@ using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
-    internal interface IPromptRegistration
-    {
-    }
+    internal interface IPromptRegistration { }
 
     /// <summary>
     /// Requests one typed player, AI, replay, or test decision as a nested rules operation.
@@ -39,7 +37,8 @@ namespace Game.Rules.Runtime
     }
 
     internal sealed class PromptRegistration<TChoice>
-        : Registration<PromptChoiceOp<TChoice>, ChoiceResult<TChoice>>, IPromptRegistration
+        : Registration<PromptChoiceOp<TChoice>, ChoiceResult<TChoice>>,
+            IPromptRegistration
     {
         private readonly IPromptAdapter<TChoice> adapter;
 
@@ -53,26 +52,37 @@ namespace Game.Rules.Runtime
 
         public override async ValueTask<object> Invoke(
             IFrameInvocation invocation,
-            RuleDispatcher dispatcher)
+            RuleDispatcher dispatcher
+        )
         {
             OpFrame<PromptChoiceOp<TChoice>> frame = GetFrame(invocation);
             OpResult<ChoiceResult<TChoice>> result = await adapter.Prompt(
                 frame.Op,
-                frame.StartSnapshot);
+                frame.StartSnapshot
+            );
             if (result == null)
-                throw new InvalidOperationException("A prompt adapter returned no operation result.");
+                throw new InvalidOperationException(
+                    "A prompt adapter returned no operation result."
+                );
             if (result.Facts.Count != 0)
-                throw new InvalidOperationException("Prompt adapters cannot attach committed Facts.");
+                throw new InvalidOperationException(
+                    "Prompt adapters cannot attach committed Facts."
+                );
 
             if (result is ResolvedOpResult<ChoiceResult<TChoice>> resolved)
             {
                 if (resolved.Value == null)
-                    throw new InvalidOperationException("A resolved prompt requires a choice outcome.");
-                if (resolved.Value is SelectedChoiceResult<TChoice> selected &&
-                    !frame.Op.Request.Contains(selected.Choice))
+                    throw new InvalidOperationException(
+                        "A resolved prompt requires a choice outcome."
+                    );
+                if (
+                    resolved.Value is SelectedChoiceResult<TChoice> selected
+                    && !frame.Op.Request.Contains(selected.Choice)
+                )
                 {
                     throw new InvalidOperationException(
-                        "A prompt adapter selected a value not declared by the request.");
+                        "A prompt adapter selected a value not declared by the request."
+                    );
                 }
                 return result;
             }
@@ -81,7 +91,8 @@ namespace Game.Rules.Runtime
                 return result;
 
             throw new InvalidOperationException(
-                "A prompt adapter may return only a resolved choice outcome or explicit cancellation.");
+                "A prompt adapter may return only a resolved choice outcome or explicit cancellation."
+            );
         }
     }
 }

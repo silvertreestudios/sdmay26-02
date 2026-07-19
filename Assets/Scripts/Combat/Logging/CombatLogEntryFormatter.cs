@@ -8,11 +8,20 @@ public static class CombatLogEntryFormatter
             return string.Empty;
 
         if (entry.Kind != CombatLogEntryKind.Attack)
-            return string.IsNullOrWhiteSpace(entry.Message) ? JoinNonEmpty(" | ", entry.Actor, entry.Action, entry.Target) : entry.Message;
+            return string.IsNullOrWhiteSpace(entry.Message)
+                ? JoinNonEmpty(" | ", entry.Actor, entry.Action, entry.Target)
+                : entry.Message;
 
         string participants = JoinNonEmpty(" -> ", entry.Actor, entry.Target);
         string damage = entry.Damage == null ? "No damage" : entry.Damage.Summary;
-        return JoinNonEmpty(" | ", participants, entry.Action, entry.Roll?.Summary, FormatOutcome(entry.Outcome), damage);
+        return JoinNonEmpty(
+            " | ",
+            participants,
+            entry.Action,
+            entry.Roll?.Summary,
+            FormatOutcome(entry.Outcome),
+            damage
+        );
     }
 
     public static string ToPlainText(CombatLogEntry entry)
@@ -44,7 +53,7 @@ public static class CombatLogEntryFormatter
             CombatLogOutcome.Failure => "Miss",
             CombatLogOutcome.Damage => "Damage",
             CombatLogOutcome.System => "System",
-            _ => string.Empty
+            _ => string.Empty,
         };
     }
 
@@ -59,4 +68,3 @@ public static class CombatLogEntryFormatter
         return string.Join(separator, filtered);
     }
 }
-

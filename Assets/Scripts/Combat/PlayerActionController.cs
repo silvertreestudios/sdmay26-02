@@ -1,14 +1,14 @@
-using UnityEngine;
 using System.Collections.Generic;
 using Game.Creature;
 using NUnit.Framework;
+using UnityEngine;
 
 public class PlayerActionController : ActionController
 {
     protected void Awake()
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);
-        
+
         Stride strideAction = new Stride(1); // Cost of 1 action point
         Movements.Add(strideAction);
     }
@@ -19,7 +19,7 @@ public class PlayerActionController : ActionController
     public override void StartTurn()
     {
         base.StartTurn();
-        
+
         // Provide Options
         // Prompt user or AI for action
         //Debug.Log("Turn: " + this.gameObject.name);
@@ -33,7 +33,7 @@ public class PlayerActionController : ActionController
         {
             IsTurn = false;
             Debug.Log("Turn End: " + this.gameObject.name);
-            CombatLog.GetInstance().Log("- " + this.gameObject.name +" ended their turn.");
+            CombatLog.GetInstance().Log("- " + this.gameObject.name + " ended their turn.");
             // Clean up turn state
             // I.E. UI, etc
             CombatManagerInterface.GetInstance().NextTurn();

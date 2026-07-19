@@ -25,7 +25,9 @@ namespace Game.Rules.Runtime
             if (id.IsEmpty)
                 throw new ArgumentException("A rule definition ID is required.", nameof(id));
             if (definitions.ContainsKey(id))
-                throw new InvalidOperationException($"Rule definition {id.Value} is already registered.");
+                throw new InvalidOperationException(
+                    $"Rule definition {id.Value} is already registered."
+                );
 
             RuleDefinitionBuilder definition = new RuleDefinitionBuilder(id);
             definitions.Add(id, definition);
@@ -36,7 +38,8 @@ namespace Game.Rules.Runtime
         /// Builds an immutable registry snapshot from all definitions currently registered.
         /// </summary>
         /// <returns>A registry that is unaffected by later builder changes.</returns>
-        public RuleRegistry Build() => new RuleRegistry(definitions.Values.Select(value => value.Build()));
+        public RuleRegistry Build() =>
+            new RuleRegistry(definitions.Values.Select(value => value.Build()));
     }
 
     /// <summary>
@@ -46,17 +49,19 @@ namespace Game.Rules.Runtime
     {
         private readonly IReadOnlyDictionary<RuleDefinitionId, RuleDefinition> byId;
 
-        internal static RuleRegistry Empty { get; } = new RuleRegistry(Array.Empty<RuleDefinition>());
+        internal static RuleRegistry Empty { get; } =
+            new RuleRegistry(Array.Empty<RuleDefinition>());
 
         internal RuleRegistry(IEnumerable<RuleDefinition> definitions)
         {
             Dictionary<RuleDefinitionId, RuleDefinition> values = definitions.ToDictionary(
                 definition => definition.Id,
-                definition => definition);
+                definition => definition
+            );
             byId = new ReadOnlyDictionary<RuleDefinitionId, RuleDefinition>(values);
-            Definitions = Array.AsReadOnly(values.Values
-                .OrderBy(value => value.Id.Value, StringComparer.Ordinal)
-                .ToArray());
+            Definitions = Array.AsReadOnly(
+                values.Values.OrderBy(value => value.Id.Value, StringComparer.Ordinal).ToArray()
+            );
         }
 
         /// <summary>
@@ -70,25 +75,31 @@ namespace Game.Rules.Runtime
             {
                 foreach (MiddlewareRegistration middlewareRegistration in definition.Middleware)
                 {
-                    if (!resolvers.TryGetValue(
-                        middlewareRegistration.OperationType,
-                        out IRegistration resolver))
+                    if (
+                        !resolvers.TryGetValue(
+                            middlewareRegistration.OperationType,
+                            out IRegistration resolver
+                        )
+                    )
                     {
                         throw new InvalidOperationException(
-                            $"Middleware for {middlewareRegistration.OperationType.Name} has no registered resolver.");
+                            $"Middleware for {middlewareRegistration.OperationType.Name} has no registered resolver."
+                        );
                     }
                     if (resolver.ResultType != middlewareRegistration.ResultType)
                     {
                         throw new InvalidOperationException(
-                            $"Middleware for {middlewareRegistration.OperationType.Name} expects " +
-                            $"{middlewareRegistration.ResultType.Name}, but its resolver returns " +
-                            $"{resolver.ResultType.Name}.");
+                            $"Middleware for {middlewareRegistration.OperationType.Name} expects "
+                                + $"{middlewareRegistration.ResultType.Name}, but its resolver returns "
+                                + $"{resolver.ResultType.Name}."
+                        );
                     }
                     if (resolver.MiddlewarePolicy == ResolverMiddlewarePolicy.Disabled)
                     {
                         throw new InvalidOperationException(
-                            $"Middleware for {middlewareRegistration.OperationType.Name} is not " +
-                            "allowed by its resolver registration.");
+                            $"Middleware for {middlewareRegistration.OperationType.Name} is not "
+                                + "allowed by its resolver registration."
+                        );
                     }
                 }
             }
@@ -97,7 +108,8 @@ namespace Game.Rules.Runtime
         internal IReadOnlyList<BoundMiddlewareRegistration> SelectMiddleware(
             Type operationType,
             Type resultType,
-            RulesSnapshot snapshot)
+            RulesSnapshot snapshot
+        )
         {
             List<BoundMiddlewareRegistration> selected = new List<BoundMiddlewareRegistration>();
             foreach (KeyValuePair<BindingId, ActiveRuleBinding> pair in snapshot.RuleBindings)
@@ -108,7 +120,10 @@ namespace Game.Rules.Runtime
                 RuleDefinition definition = RequireDefinition(binding.DefinitionId);
                 foreach (MiddlewareRegistration registration in definition.Middleware)
                 {
-                    if (registration.OperationType == operationType && registration.ResultType == resultType)
+                    if (
+                        registration.OperationType == operationType
+                        && registration.ResultType == resultType
+                    )
                         selected.Add(new BoundMiddlewareRegistration(binding, registration));
                 }
             }
@@ -118,7 +133,8 @@ namespace Game.Rules.Runtime
         }
 
         internal IReadOnlyList<BoundFactListenerRegistration> SelectFactListeners(
-            RulesSnapshot snapshot)
+            RulesSnapshot snapshot
+        )
         {
             List<BoundFactListenerRegistration> selected =
                 new List<BoundFactListenerRegistration>();
@@ -138,7 +154,8 @@ namespace Game.Rules.Runtime
 
         internal IReadOnlyList<FactListenerDelivery> BuildFactListenerDeliveries(
             OpId rootId,
-            IReadOnlyList<CommittedFactRecord> committedFacts)
+            IReadOnlyList<CommittedFactRecord> committedFacts
+        )
         {
             Dictionary<FactListenerDeliveryKey, List<RuleFact>> groupedFacts =
                 new Dictionary<FactListenerDeliveryKey, List<RuleFact>>();
@@ -151,7 +168,8 @@ namespace Game.Rules.Runtime
 
                     FactListenerDeliveryKey key = new FactListenerDeliveryKey(
                         listener.Binding,
-                        listener.Registration);
+                        listener.Registration
+                    );
                     if (!groupedFacts.TryGetValue(key, out List<RuleFact> matching))
                     {
                         matching = new List<RuleFact>();
@@ -164,24 +182,30 @@ namespace Game.Rules.Runtime
             List<FactListenerDelivery> deliveries = new List<FactListenerDelivery>();
             foreach (KeyValuePair<FactListenerDeliveryKey, List<RuleFact>> pair in groupedFacts)
             {
-                deliveries.Add(new FactListenerDelivery(
-                    pair.Key.Binding,
-                    pair.Key.Registration,
-                    rootId,
-                    Array.AsReadOnly(pair.Value.ToArray())));
+                deliveries.Add(
+                    new FactListenerDelivery(
+                        pair.Key.Binding,
+                        pair.Key.Registration,
+                        rootId,
+                        Array.AsReadOnly(pair.Value.ToArray())
+                    )
+                );
             }
             deliveries.Sort(FactListenerDelivery.Compare);
             return Array.AsReadOnly(deliveries.ToArray());
         }
 
         internal bool IsActive(RulesSnapshot snapshot, ActiveRuleBinding binding) =>
-            snapshot.RuleBindings.TryGet(binding.Id, out ActiveRuleBinding current) &&
-            current.IsEnabled && current.Equals(binding);
+            snapshot.RuleBindings.TryGet(binding.Id, out ActiveRuleBinding current)
+            && current.IsEnabled
+            && current.Equals(binding);
 
         private RuleDefinition RequireDefinition(RuleDefinitionId id)
         {
             if (!byId.TryGetValue(id, out RuleDefinition definition))
-                throw new InvalidOperationException($"Active binding references unknown rule definition {id.Value}.");
+                throw new InvalidOperationException(
+                    $"Active binding references unknown rule definition {id.Value}."
+                );
             return definition;
         }
     }

@@ -14,7 +14,7 @@ public sealed class DungeonEncounterBuilderTests
         new("goblin-warrior", -1),
         new("kobold-warrior", -1),
         new("skeleton-guard", -1),
-        new("zombie-shambler", -1)
+        new("zombie-shambler", -1),
     };
 
     [TestCase(1, DungeonEncounterThreat.Trivial, 10)]
@@ -32,7 +32,8 @@ public sealed class DungeonEncounterBuilderTests
     public void Budget_UsesPf2ePartySizeAdjustments(
         int partySize,
         DungeonEncounterThreat threat,
-        int expected)
+        int expected
+    )
     {
         Assert.That(DungeonEncounterRules.GetBudget(partySize, threat), Is.EqualTo(expected));
     }
@@ -48,9 +49,7 @@ public sealed class DungeonEncounterBuilderTests
     [TestCase(4, 160)]
     public void CreatureXp_UsesOfficialRelativeLevelTable(int difference, int expected)
     {
-        Assert.That(
-            DungeonEncounterRules.TryGetCreatureXp(7, 7 + difference, out int xp),
-            Is.True);
+        Assert.That(DungeonEncounterRules.TryGetCreatureXp(7, 7 + difference, out int xp), Is.True);
         Assert.That(xp, Is.EqualTo(expected));
     }
 
@@ -60,7 +59,8 @@ public sealed class DungeonEncounterBuilderTests
     {
         Assert.That(
             DungeonEncounterRules.TryGetCreatureXp(7, 7 + difference, out int xp),
-            Is.False);
+            Is.False
+        );
         Assert.That(xp, Is.Zero);
     }
 
@@ -69,7 +69,8 @@ public sealed class DungeonEncounterBuilderTests
     [TestCase(DungeonEncounterThreat.Moderate, 2)]
     public void TwoLevelOneCharacters_ReceiveRequiredLevelMinusOneCounts(
         DungeonEncounterThreat threat,
-        int expectedCount)
+        int expectedCount
+    )
     {
         DungeonEncounterBuildResult result = new DungeonEncounterBuilder().Build(
             1,
@@ -77,7 +78,8 @@ public sealed class DungeonEncounterBuilderTests
             threat,
             LevelMinusOneCandidates,
             10,
-            new SystemDungeonRandom(155));
+            new SystemDungeonRandom(155)
+        );
 
         Assert.That(result.CreatureIds, Has.Count.EqualTo(expectedCount));
         Assert.That(result.SpentXp, Is.EqualTo(expectedCount * 20));
@@ -95,10 +97,11 @@ public sealed class DungeonEncounterBuilderTests
             {
                 new DungeonEncounterCandidate("same", 5),
                 new DungeonEncounterCandidate("minus-one", 4),
-                new DungeonEncounterCandidate("minus-two", 3)
+                new DungeonEncounterCandidate("minus-two", 3),
             },
             2,
-            new SystemDungeonRandom(1));
+            new SystemDungeonRandom(1)
+        );
         Assert.That(maximum.SpentXp, Is.EqualTo(60));
         Assert.That(maximum.CreatureIds, Is.EquivalentTo(new[] { "same", "minus-two" }));
 
@@ -109,10 +112,11 @@ public sealed class DungeonEncounterBuilderTests
             new[]
             {
                 new DungeonEncounterCandidate("minus-one", 4),
-                new DungeonEncounterCandidate("minus-two", 3)
+                new DungeonEncounterCandidate("minus-two", 3),
             },
             4,
-            new SystemDungeonRandom(2));
+            new SystemDungeonRandom(2)
+        );
         Assert.That(nearest.SpentXp, Is.EqualTo(60));
         Assert.That(nearest.CreatureIds, Has.Count.EqualTo(3));
         Assert.That(nearest.CreatureIds, Has.All.EqualTo("minus-two"));
@@ -124,9 +128,21 @@ public sealed class DungeonEncounterBuilderTests
         DungeonEncounterCandidate[] forward = LevelMinusOneCandidates.ToArray();
         DungeonEncounterCandidate[] reverse = forward.Reverse().ToArray();
         DungeonEncounterBuildResult first = new DungeonEncounterBuilder().Build(
-            1, 4, DungeonEncounterThreat.Moderate, forward, 4, new SystemDungeonRandom(99));
+            1,
+            4,
+            DungeonEncounterThreat.Moderate,
+            forward,
+            4,
+            new SystemDungeonRandom(99)
+        );
         DungeonEncounterBuildResult second = new DungeonEncounterBuilder().Build(
-            1, 4, DungeonEncounterThreat.Moderate, reverse, 4, new SystemDungeonRandom(99));
+            1,
+            4,
+            DungeonEncounterThreat.Moderate,
+            reverse,
+            4,
+            new SystemDungeonRandom(99)
+        );
 
         Assert.That(second.CreatureIds, Is.EqualTo(first.CreatureIds));
         Assert.That(first.CreatureIds, Has.Count.EqualTo(4));
@@ -136,17 +152,45 @@ public sealed class DungeonEncounterBuilderTests
     public void Builder_HandlesZeroCapacityEmptyAndUnsatisfiableCandidates()
     {
         DungeonEncounterBuilder builder = new();
-        Assert.That(builder.Build(
-            1, 4, DungeonEncounterThreat.Moderate, LevelMinusOneCandidates, 0,
-            new SystemDungeonRandom(1)).CreatureIds, Is.Empty);
-        Assert.That(builder.Build(
-            1, 4, DungeonEncounterThreat.Moderate,
-            Array.Empty<DungeonEncounterCandidate>(), 8,
-            new SystemDungeonRandom(1)).CreatureIds, Is.Empty);
-        Assert.That(builder.Build(
-            1, 4, DungeonEncounterThreat.Moderate,
-            new[] { new DungeonEncounterCandidate("too-high", 6) }, 8,
-            new SystemDungeonRandom(1)).CreatureIds, Is.Empty);
+        Assert.That(
+            builder
+                .Build(
+                    1,
+                    4,
+                    DungeonEncounterThreat.Moderate,
+                    LevelMinusOneCandidates,
+                    0,
+                    new SystemDungeonRandom(1)
+                )
+                .CreatureIds,
+            Is.Empty
+        );
+        Assert.That(
+            builder
+                .Build(
+                    1,
+                    4,
+                    DungeonEncounterThreat.Moderate,
+                    Array.Empty<DungeonEncounterCandidate>(),
+                    8,
+                    new SystemDungeonRandom(1)
+                )
+                .CreatureIds,
+            Is.Empty
+        );
+        Assert.That(
+            builder
+                .Build(
+                    1,
+                    4,
+                    DungeonEncounterThreat.Moderate,
+                    new[] { new DungeonEncounterCandidate("too-high", 6) },
+                    8,
+                    new SystemDungeonRandom(1)
+                )
+                .CreatureIds,
+            Is.Empty
+        );
     }
 
     [TestCase(0, 49, DungeonEncounterThreat.Trivial)]
@@ -165,11 +209,13 @@ public sealed class DungeonEncounterBuilderTests
     public void ThreatDistribution_UsesPinnedDepthBoundaries(
         int depth,
         int draw,
-        DungeonEncounterThreat expected)
+        DungeonEncounterThreat expected
+    )
     {
         Assert.That(
             DungeonEncounterRules.SelectThreat(depth, new ScriptedRandom(draw)),
-            Is.EqualTo(expected));
+            Is.EqualTo(expected)
+        );
     }
 
     [Test]
@@ -177,37 +223,49 @@ public sealed class DungeonEncounterBuilderTests
     {
         TextAsset asset = Resources.Load<TextAsset>("DataFiles/dungeon/encounter-enemies");
         Assert.That(asset, Is.Not.Null);
-        IReadOnlyList<DungeonEncounterCandidate> candidates =
-            DungeonEncounterCatalogJson.Parse(asset.text);
+        IReadOnlyList<DungeonEncounterCandidate> candidates = DungeonEncounterCatalogJson.Parse(
+            asset.text
+        );
 
-        Assert.That(candidates.Select(candidate => candidate.Id), Is.EqualTo(new[]
-        {
-            "goblin-warrior",
-            "kobold-warrior",
-            "skeleton-guard",
-            "zombie-shambler"
-        }));
+        Assert.That(
+            candidates.Select(candidate => candidate.Id),
+            Is.EqualTo(
+                new[] { "goblin-warrior", "kobold-warrior", "skeleton-guard", "zombie-shambler" }
+            )
+        );
         foreach (DungeonEncounterCandidate candidate in candidates)
         {
-            Assert.That(Resources.Load<TextAsset>(candidate.ResourcePath), Is.Not.Null, candidate.Id);
+            Assert.That(
+                Resources.Load<TextAsset>(candidate.ResourcePath),
+                Is.Not.Null,
+                candidate.Id
+            );
             Assert.That(
                 AssetDatabase.LoadAssetAtPath<GameObject>(candidate.PrefabPath),
                 Is.Not.Null,
-                candidate.Id);
+                candidate.Id
+            );
         }
 
-        string duplicate = asset.text.Replace(
-            "\"kobold-warrior\"",
-            "\"goblin-warrior\"");
+        string duplicate = asset.text.Replace("\"kobold-warrior\"", "\"goblin-warrior\"");
         Assert.Throws<FormatException>(() => DungeonEncounterCatalogJson.Parse(duplicate));
-        Assert.Throws<FormatException>(() => DungeonEncounterCatalogJson.Parse(
-            "{\"schema\":\"sdmay26-02/dungeon-encounter-catalog\",\"enemies\":[],\"extra\":true}"));
-        Assert.Throws<FormatException>(() => DungeonEncounterCatalogJson.Parse(
-            "{\"schema\":\"sdmay26-02/dungeon-encounter-catalog\",\"enemies\":[{" +
-            "\"id\":123,\"level\":-1,\"resourcePath\":true,\"prefabPath\":\"Assets/enemy.prefab\"}]}"));
-        Assert.Throws<FormatException>(() => DungeonEncounterCatalogJson.Parse(
-            "{\"schema\":\"sdmay26-02/dungeon-encounter-catalog\"," +
-            "\"schema\":\"sdmay26-02/dungeon-encounter-catalog\",\"enemies\":[]}"));
+        Assert.Throws<FormatException>(() =>
+            DungeonEncounterCatalogJson.Parse(
+                "{\"schema\":\"sdmay26-02/dungeon-encounter-catalog\",\"enemies\":[],\"extra\":true}"
+            )
+        );
+        Assert.Throws<FormatException>(() =>
+            DungeonEncounterCatalogJson.Parse(
+                "{\"schema\":\"sdmay26-02/dungeon-encounter-catalog\",\"enemies\":[{"
+                    + "\"id\":123,\"level\":-1,\"resourcePath\":true,\"prefabPath\":\"Assets/enemy.prefab\"}]}"
+            )
+        );
+        Assert.Throws<FormatException>(() =>
+            DungeonEncounterCatalogJson.Parse(
+                "{\"schema\":\"sdmay26-02/dungeon-encounter-catalog\","
+                    + "\"schema\":\"sdmay26-02/dungeon-encounter-catalog\",\"enemies\":[]}"
+            )
+        );
     }
 
     [Test]
@@ -216,7 +274,12 @@ public sealed class DungeonEncounterBuilderTests
         DungeonLevelDocument source = TwoRoomDocument(0, false);
         DungeonEncounterPlanner planner = new();
         DungeonLevelDocument first = planner.Plan(source, 1, 4, LevelMinusOneCandidates);
-        DungeonLevelDocument second = planner.Plan(source, 1, 4, LevelMinusOneCandidates.Reverse().ToArray());
+        DungeonLevelDocument second = planner.Plan(
+            source,
+            1,
+            4,
+            LevelMinusOneCandidates.Reverse().ToArray()
+        );
 
         Assert.That(first.EncounterPlans, Has.Count.EqualTo(1));
         Assert.That(first.EncounterPlans[0].RoomId, Is.EqualTo(2));
@@ -224,11 +287,16 @@ public sealed class DungeonEncounterBuilderTests
         Assert.That(first.EncounterPlans[0].SpawnCells, Is.Unique);
         Assert.That(
             DungeonLevelJsonSerializer.Serialize(second),
-            Is.EqualTo(DungeonLevelJsonSerializer.Serialize(first)));
+            Is.EqualTo(DungeonLevelJsonSerializer.Serialize(first))
+        );
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
-            DungeonLevelJsonSerializer.Serialize(first));
-        Assert.That(parsed.IsSuccess, Is.True,
-            string.Join(Environment.NewLine, parsed.Diagnostics.Select(item => item.Message)));
+            DungeonLevelJsonSerializer.Serialize(first)
+        );
+        Assert.That(
+            parsed.IsSuccess,
+            Is.True,
+            string.Join(Environment.NewLine, parsed.Diagnostics.Select(item => item.Message))
+        );
     }
 
     [Test]
@@ -239,7 +307,8 @@ public sealed class DungeonEncounterBuilderTests
             source,
             1,
             4,
-            Array.Empty<DungeonEncounterCandidate>());
+            Array.Empty<DungeonEncounterCandidate>()
+        );
 
         Assert.That(planned.EncounterPlans, Has.Count.EqualTo(1));
         Assert.That(planned.EncounterPlans[0].RoomId, Is.EqualTo(1));
@@ -254,7 +323,8 @@ public sealed class DungeonEncounterBuilderTests
         DungeonObjectPlacement placement = new(
             "decoration-0002-01",
             "dungeon/assets/fbx(unity)/banner_red",
-            new DungeonCell(5, 1));
+            new DungeonCell(5, 1)
+        );
         DungeonLevelDocument decorated = new(
             topology.Generation,
             topology.Rows,
@@ -264,17 +334,21 @@ public sealed class DungeonEncounterBuilderTests
             topology.StartCell,
             topology.SafeCells,
             new[] { placement },
-            Array.Empty<DungeonEncounterPlan>());
+            Array.Empty<DungeonEncounterPlan>()
+        );
 
         DungeonLevelDocument planned = new DungeonEncounterPlanner().Plan(
             decorated,
             1,
             4,
-            LevelMinusOneCandidates);
+            LevelMinusOneCandidates
+        );
 
         Assert.That(planned.Objects, Is.EqualTo(decorated.Objects));
-        Assert.That(planned.EncounterPlans.SelectMany(plan => plan.SpawnCells),
-            Has.None.EqualTo(placement.Cell));
+        Assert.That(
+            planned.EncounterPlans.SelectMany(plan => plan.SpawnCells),
+            Has.None.EqualTo(placement.Cell)
+        );
     }
 
     [Test]
@@ -287,7 +361,7 @@ public sealed class DungeonEncounterBuilderTests
             Width = 31,
             Height = 31,
             MinimumRoomCount = 2,
-            StairCount = 0
+            StairCount = 0,
         };
         DungeonGenerationResult generated = new DeterministicDungeonGenerator().Generate(request);
         Assert.That(generated.IsSuccess, Is.True);
@@ -295,7 +369,8 @@ public sealed class DungeonEncounterBuilderTests
             generated.Document,
             1,
             2,
-            LevelMinusOneCandidates);
+            LevelMinusOneCandidates
+        );
         JObject root = JObject.Parse(DungeonLevelJsonSerializer.Serialize(planned));
         JArray plans = (JArray)root["encounterPlans"];
         Assert.That(plans, Is.Not.Empty);
@@ -303,17 +378,17 @@ public sealed class DungeonEncounterBuilderTests
         JObject reservedSpawn = (JObject)root.DeepClone();
         JObject firstPlan = (JObject)((JArray)reservedSpawn["encounterPlans"])[0];
         DungeonCell start = planned.StartCell;
-        ((JArray)firstPlan["spawnCells"])[0] = new JObject
-        {
-            ["x"] = start.X,
-            ["z"] = start.Z
-        };
+        ((JArray)firstPlan["spawnCells"])[0] = new JObject { ["x"] = start.X, ["z"] = start.Z };
         DungeonLevelParseResult reservedResult = DungeonLevelJsonParser.Parse(
-            reservedSpawn.ToString());
+            reservedSpawn.ToString()
+        );
         Assert.That(reservedResult.IsSuccess, Is.False);
-        Assert.That(reservedResult.Diagnostics.Any(diagnostic =>
-            diagnostic.Field == "encounterPlans" &&
-            diagnostic.Message.Contains("safe-arrival")), Is.True);
+        Assert.That(
+            reservedResult.Diagnostics.Any(diagnostic =>
+                diagnostic.Field == "encounterPlans" && diagnostic.Message.Contains("safe-arrival")
+            ),
+            Is.True
+        );
 
         JObject duplicateRoom = (JObject)root.DeepClone();
         JArray duplicatePlans = (JArray)duplicateRoom["encounterPlans"];
@@ -321,37 +396,49 @@ public sealed class DungeonEncounterBuilderTests
         duplicate["id"] = duplicate.Value<string>("id") + "-duplicate";
         duplicatePlans.Add(duplicate);
         DungeonLevelParseResult duplicateResult = DungeonLevelJsonParser.Parse(
-            duplicateRoom.ToString());
+            duplicateRoom.ToString()
+        );
         Assert.That(duplicateResult.IsSuccess, Is.False);
-        Assert.That(duplicateResult.Diagnostics.Any(diagnostic =>
-            diagnostic.Field == "encounterPlans" &&
-            diagnostic.Message.Contains("at most one")), Is.True);
+        Assert.That(
+            duplicateResult.Diagnostics.Any(diagnostic =>
+                diagnostic.Field == "encounterPlans" && diagnostic.Message.Contains("at most one")
+            ),
+            Is.True
+        );
 
         JObject blankId = (JObject)root.DeepClone();
         ((JObject)((JArray)blankId["encounterPlans"])[0])["id"] = "   ";
-        DungeonLevelParseResult blankIdResult = DungeonLevelJsonParser.Parse(
-            blankId.ToString());
+        DungeonLevelParseResult blankIdResult = DungeonLevelJsonParser.Parse(blankId.ToString());
         Assert.That(blankIdResult.IsSuccess, Is.False);
-        Assert.That(blankIdResult.Diagnostics.Any(diagnostic =>
-            diagnostic.Field == "encounterPlans" &&
-            diagnostic.Message.Contains("non-empty")), Is.True);
+        Assert.That(
+            blankIdResult.Diagnostics.Any(diagnostic =>
+                diagnostic.Field == "encounterPlans" && diagnostic.Message.Contains("non-empty")
+            ),
+            Is.True
+        );
 
         JObject objectCollision = (JObject)root.DeepClone();
         JObject collisionPlan = (JObject)((JArray)objectCollision["encounterPlans"])[0];
         JObject collisionCell = (JObject)((JArray)collisionPlan["spawnCells"])[0];
-        ((JArray)objectCollision["objects"]).Add(new JObject
-        {
-            ["id"] = "object-collision",
-            ["assetId"] = "dungeon/assets/fbx(unity)/banner_red",
-            ["cell"] = collisionCell.DeepClone(),
-            ["rotation"] = 0
-        });
+        ((JArray)objectCollision["objects"]).Add(
+            new JObject
+            {
+                ["id"] = "object-collision",
+                ["assetId"] = "dungeon/assets/fbx(unity)/banner_red",
+                ["cell"] = collisionCell.DeepClone(),
+                ["rotation"] = 0,
+            }
+        );
         DungeonLevelParseResult objectCollisionResult = DungeonLevelJsonParser.Parse(
-            objectCollision.ToString());
+            objectCollision.ToString()
+        );
         Assert.That(objectCollisionResult.IsSuccess, Is.False);
-        Assert.That(objectCollisionResult.Diagnostics.Any(diagnostic =>
-            diagnostic.Field == "encounterPlans" &&
-            diagnostic.Message.Contains("object")), Is.True);
+        Assert.That(
+            objectCollisionResult.Diagnostics.Any(diagnostic =>
+                diagnostic.Field == "encounterPlans" && diagnostic.Message.Contains("object")
+            ),
+            Is.True
+        );
     }
 
     [Test]
@@ -366,20 +453,32 @@ public sealed class DungeonEncounterBuilderTests
                 Width = 31,
                 Height = 31,
                 MinimumRoomCount = 1,
-                StairCount = 0
+                StairCount = 0,
             };
-            DungeonGenerationResult generated = new DeterministicDungeonGenerator().Generate(request);
+            DungeonGenerationResult generated = new DeterministicDungeonGenerator().Generate(
+                request
+            );
             Assert.That(generated.IsSuccess, Is.True, $"seed {seed}");
             DungeonLevelDocument planned = new DungeonEncounterPlanner().Plan(
                 generated.Document,
                 1,
                 2,
-                LevelMinusOneCandidates);
+                LevelMinusOneCandidates
+            );
 
             DungeonRoom excluded = generated.Document.Rooms.Single(room =>
-                Contains(room, generated.Document.StartCell));
-            Assert.That(planned.EncounterPlans, Has.Count.EqualTo(planned.Rooms.Count - 1), $"seed {seed}");
-            Assert.That(planned.EncounterPlans.Any(plan => plan.RoomId == excluded.Id), Is.False, $"seed {seed}");
+                Contains(room, generated.Document.StartCell)
+            );
+            Assert.That(
+                planned.EncounterPlans,
+                Has.Count.EqualTo(planned.Rooms.Count - 1),
+                $"seed {seed}"
+            );
+            Assert.That(
+                planned.EncounterPlans.Any(plan => plan.RoomId == excluded.Id),
+                Is.False,
+                $"seed {seed}"
+            );
             HashSet<DungeonCell> reserved = new(planned.SafeCells);
             reserved.Add(planned.StartCell);
             foreach (DungeonDoor door in planned.Doors)
@@ -395,19 +494,31 @@ public sealed class DungeonEncounterBuilderTests
                 DungeonRoom room = planned.Rooms.Single(candidate => candidate.Id == plan.RoomId);
                 Assert.That(plan.SpawnCells, Is.Unique, $"seed {seed} room {room.Id}");
                 Assert.That(plan.SpawnCells.Count, Is.EqualTo(plan.CreatureIds.Count));
-                Assert.That(plan.CreatureIds.All(id => LevelMinusOneCandidates.Any(
-                    candidate => candidate.Id == id)), Is.True);
+                Assert.That(
+                    plan.CreatureIds.All(id =>
+                        LevelMinusOneCandidates.Any(candidate => candidate.Id == id)
+                    ),
+                    Is.True
+                );
                 Assert.That(plan.CreatureIds.Count * 20, Is.LessThanOrEqualTo(plan.Budget));
-                Assert.That(plan.SpawnCells.All(cell =>
-                    Contains(room, cell) &&
-                    !reserved.Contains(cell) &&
-                    IsWalkable(planned, cell)), Is.True, $"seed {seed} room {room.Id}");
+                Assert.That(
+                    plan.SpawnCells.All(cell =>
+                        Contains(room, cell)
+                        && !reserved.Contains(cell)
+                        && IsWalkable(planned, cell)
+                    ),
+                    Is.True,
+                    $"seed {seed} room {room.Id}"
+                );
             }
 
             string json = DungeonLevelJsonSerializer.Serialize(planned);
             DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
-            Assert.That(parsed.IsSuccess, Is.True,
-                $"seed {seed}: {string.Join("; ", parsed.Diagnostics.Select(item => item.Message))}");
+            Assert.That(
+                parsed.IsSuccess,
+                Is.True,
+                $"seed {seed}: {string.Join("; ", parsed.Diagnostics.Select(item => item.Message))}"
+            );
             Assert.That(DungeonLevelJsonSerializer.Serialize(parsed.Document), Is.EqualTo(json));
         }
     }
@@ -421,35 +532,28 @@ public sealed class DungeonEncounterBuilderTests
                     "stair-up",
                     DungeonStairKind.Up,
                     new DungeonCell(4, 2),
-                    new DungeonCell(5, 2))
+                    new DungeonCell(5, 2)
+                ),
             }
             : Array.Empty<DungeonStair>();
         return new DungeonLevelDocument(
             new DungeonGenerationMetadata("test", 155, depth, 0),
-            new[]
-            {
-                "#########",
-                "#...#...#",
-                "#...D...#",
-                "#...#...#",
-                "#########"
-            },
-            new[]
-            {
-                new DungeonRoom(1, 1, 1, 3, 3),
-                new DungeonRoom(2, 5, 1, 7, 3)
-            },
+            new[] { "#########", "#...#...#", "#...D...#", "#...#...#", "#########" },
+            new[] { new DungeonRoom(1, 1, 1, 3, 3), new DungeonRoom(2, 5, 1, 7, 3) },
             new[] { new DungeonDoor("door", new DungeonCell(4, 2)) },
             stairs,
             new DungeonCell(2, 2),
             new[] { new DungeonCell(2, 2), new DungeonCell(6, 2) },
             Array.Empty<DungeonObjectPlacement>(),
-            Array.Empty<DungeonEncounterPlan>());
+            Array.Empty<DungeonEncounterPlan>()
+        );
     }
 
     private static bool Contains(DungeonRoom room, DungeonCell cell) =>
-        cell.X >= room.MinimumX && cell.X <= room.MaximumX &&
-        cell.Z >= room.MinimumZ && cell.Z <= room.MaximumZ;
+        cell.X >= room.MinimumX
+        && cell.X <= room.MaximumX
+        && cell.Z >= room.MinimumZ
+        && cell.Z <= room.MaximumZ;
 
     private static bool IsWalkable(DungeonLevelDocument document, DungeonCell cell)
     {

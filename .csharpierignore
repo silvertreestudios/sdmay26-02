@@ -1,0 +1,8 @@
+# This repository rollout intentionally covers C# only. Do not rewrite Unity or MSBuild XML.
+**/*.config
+**/*.csproj
+**/*.props
+**/*.slnx
+**/*.targets
+**/*.xaml
+**/*.xml

@@ -6,29 +6,25 @@ namespace Game.Rules.Runtime
 {
     public sealed partial class RuleDispatcher
     {
-
         private async ValueTask<OpResult<TResult>> DispatchRoot<TResult>(
             IRuleOp<TResult> op,
             IRegistration registration,
             RootResolution resolution,
             OpId rootId,
-            OpId? causeId)
+            OpId? causeId
+        )
         {
             OpResult<TResult> result;
             try
             {
-                result = await DispatchCore(
-                    op,
-                    registration,
-                    resolution,
-                    rootId,
-                    null,
-                    causeId);
+                result = await DispatchCore(op, registration, resolution, rootId, null, causeId);
             }
             catch (Exception resolutionException)
             {
-                IReadOnlyList<CommittedFactRecord> committedFacts =
-                    SnapshotCommittedFacts(resolution, rootId);
+                IReadOnlyList<CommittedFactRecord> committedFacts = SnapshotCommittedFacts(
+                    resolution,
+                    rootId
+                );
                 if (committedFacts.Count == 0)
                     throw;
 
@@ -41,7 +37,8 @@ namespace Game.Rules.Runtime
                     throw new AggregateException(
                         "Operation resolution and post-commit Fact notification both failed.",
                         resolutionException,
-                        notificationException);
+                        notificationException
+                    );
                 }
 
                 throw;
@@ -49,9 +46,7 @@ namespace Game.Rules.Runtime
 
             if (result.Status != OpStatus.Invalid && result.Facts.Count > 0)
             {
-                await NotifyFactListeners(
-                    rootId,
-                    SnapshotCommittedFacts(resolution, rootId));
+                await NotifyFactListeners(rootId, SnapshotCommittedFacts(resolution, rootId));
             }
             return result;
         }
@@ -62,7 +57,8 @@ namespace Game.Rules.Runtime
             RootResolution resolution,
             OpId rootId,
             OpId? parentId,
-            OpId? causeId)
+            OpId? causeId
+        )
         {
             OpId id;
             int firstFact;
@@ -87,7 +83,8 @@ namespace Game.Rules.Runtime
                 causeId,
                 registration.Policy,
                 op,
-                startSnapshot);
+                startSnapshot
+            );
 
             lock (gate)
             {
@@ -100,14 +97,16 @@ namespace Game.Rules.Runtime
                     causeId,
                     op,
                     startSnapshot,
-                    actionState);
-                middleware = registration.MiddlewarePolicy ==
-                    ResolverMiddlewarePolicy.Disabled
-                    ? NoMiddleware
-                    : ruleRegistry.SelectMiddleware(
-                        op.GetType(),
-                        typeof(TResult),
-                        startSnapshot);
+                    actionState
+                );
+                middleware =
+                    registration.MiddlewarePolicy == ResolverMiddlewarePolicy.Disabled
+                        ? NoMiddleware
+                        : ruleRegistry.SelectMiddleware(
+                            op.GetType(),
+                            typeof(TResult),
+                            startSnapshot
+                        );
                 factListeners = ruleRegistry.SelectFactListeners(startSnapshot);
                 Trace.Add(invocation.FrameView);
                 resolution.EnterFrame(id, rootId, factListeners);
@@ -119,15 +118,8 @@ namespace Game.Rules.Runtime
                 try
                 {
                     resultObject = invocation.FrameView.IsAction
-                        ? await InvokeActionLifecycle(
-                            registration,
-                            invocation,
-                            middleware)
-                        : await InvokeWithMiddleware(
-                            registration,
-                            invocation,
-                            middleware,
-                            0);
+                        ? await InvokeActionLifecycle(registration, invocation, middleware)
+                        : await InvokeWithMiddleware(registration, invocation, middleware, 0);
                 }
                 catch
                 {
@@ -138,12 +130,14 @@ namespace Game.Rules.Runtime
                 if (await SettleActiveChild(resolution, id))
                 {
                     throw new InvalidOperationException(
-                        $"Operation {id.Value} returned before awaiting its active child dispatch.");
+                        $"Operation {id.Value} returned before awaiting its active child dispatch."
+                    );
                 }
 
                 if (!(resultObject is OpResult<TResult> result))
                     throw new InvalidOperationException(
-                        $"Resolver for {op.GetType().Name} returned an impossible result type.");
+                        $"Resolver for {op.GetType().Name} returned an impossible result type."
+                    );
 
                 lock (gate)
                 {
@@ -190,16 +184,21 @@ namespace Game.Rules.Runtime
         private void RequireActiveResolution(RootResolution resolution)
         {
             if (!ReferenceEquals(activeRoot, resolution))
-                throw new InvalidOperationException("An operation crossed resolution root ownership.");
+                throw new InvalidOperationException(
+                    "An operation crossed resolution root ownership."
+                );
         }
 
         private IRegistration RequireRegistration(Type opType, Type resultType)
         {
             if (!registrations.TryGetValue(opType, out IRegistration registration))
-                throw new InvalidOperationException($"No resolver is registered for {opType.Name}.");
+                throw new InvalidOperationException(
+                    $"No resolver is registered for {opType.Name}."
+                );
             if (registration.ResultType != resultType)
                 throw new InvalidOperationException(
-                    $"Registration for {opType.Name} returns {registration.ResultType.Name}, not {resultType.Name}.");
+                    $"Registration for {opType.Name} returns {registration.ResultType.Name}, not {resultType.Name}."
+                );
             return registration;
         }
 
@@ -212,12 +211,15 @@ namespace Game.Rules.Runtime
             private readonly HashSet<OpId> sealedFrames = new HashSet<OpId>();
             private readonly Dictionary<OpId, ChildReservation> activeChildren =
                 new Dictionary<OpId, ChildReservation>();
-            private readonly Dictionary<OpId, IReadOnlyList<BoundFactListenerRegistration>>
-                frameFactListeners =
-                    new Dictionary<OpId, IReadOnlyList<BoundFactListenerRegistration>>();
+            private readonly Dictionary<
+                OpId,
+                IReadOnlyList<BoundFactListenerRegistration>
+            > frameFactListeners =
+                new Dictionary<OpId, IReadOnlyList<BoundFactListenerRegistration>>();
             private readonly HashSet<FactId> factIds = new HashSet<FactId>();
-            private readonly HashSet<RuleFact> factReferences =
-                new HashSet<RuleFact>(ReferenceEqualityComparer<RuleFact>.Instance);
+            private readonly HashSet<RuleFact> factReferences = new HashSet<RuleFact>(
+                ReferenceEqualityComparer<RuleFact>.Instance
+            );
 
             public OpId RootId { get; private set; }
             public bool IsIdle => isIdle;
@@ -226,9 +228,7 @@ namespace Game.Rules.Runtime
                 new List<CommittedFactRecord>();
 
             public RootResolution()
-                : this(false)
-            {
-            }
+                : this(false) { }
 
             private RootResolution(bool isIdle)
             {
@@ -238,25 +238,36 @@ namespace Game.Rules.Runtime
             public void Initialize(OpId rootId)
             {
                 if (IsIdle)
-                    throw new InvalidOperationException("The idle root sentinel cannot be initialized.");
+                    throw new InvalidOperationException(
+                        "The idle root sentinel cannot be initialized."
+                    );
                 if (!RootId.IsEmpty)
-                    throw new InvalidOperationException("A root resolution was initialized more than once.");
+                    throw new InvalidOperationException(
+                        "A root resolution was initialized more than once."
+                    );
                 if (rootId.IsEmpty)
-                    throw new ArgumentException("A root resolution requires an operation ID.", nameof(rootId));
+                    throw new ArgumentException(
+                        "A root resolution requires an operation ID.",
+                        nameof(rootId)
+                    );
                 RootId = rootId;
             }
 
             public void EnterFrame(
                 OpId id,
                 OpId rootId,
-                IReadOnlyList<BoundFactListenerRegistration> factListeners)
+                IReadOnlyList<BoundFactListenerRegistration> factListeners
+            )
             {
                 RequireCurrentRoot(rootId);
                 if (!activeFrames.Add(id))
-                    throw new InvalidOperationException($"Operation {id.Value} began executing more than once.");
+                    throw new InvalidOperationException(
+                        $"Operation {id.Value} began executing more than once."
+                    );
                 frameFactListeners.Add(
                     id,
-                    factListeners ?? throw new ArgumentNullException(nameof(factListeners)));
+                    factListeners ?? throw new ArgumentNullException(nameof(factListeners))
+                );
             }
 
             public void ExitFrame(OpId id, OpId rootId)
@@ -265,12 +276,17 @@ namespace Game.Rules.Runtime
                 if (activeChildren.ContainsKey(id))
                 {
                     throw new InvalidOperationException(
-                        $"Operation {id.Value} cannot exit while its child dispatch is active.");
+                        $"Operation {id.Value} cannot exit while its child dispatch is active."
+                    );
                 }
                 if (!activeFrames.Remove(id))
-                    throw new InvalidOperationException($"Operation {id.Value} was not actively executing.");
+                    throw new InvalidOperationException(
+                        $"Operation {id.Value} was not actively executing."
+                    );
                 if (!frameFactListeners.Remove(id))
-                    throw new InvalidOperationException($"Operation {id.Value} has no listener selection.");
+                    throw new InvalidOperationException(
+                        $"Operation {id.Value} has no listener selection."
+                    );
                 sealedFrames.Remove(id);
             }
 
@@ -279,13 +295,15 @@ namespace Game.Rules.Runtime
                 if (!activeFrames.Contains(parentId) || sealedFrames.Contains(parentId))
                 {
                     throw new InvalidOperationException(
-                        $"Operation context {parentId.Value} is not actively executing in the current root resolution.");
+                        $"Operation context {parentId.Value} is not actively executing in the current root resolution."
+                    );
                 }
                 if (activeChildren.ContainsKey(parentId))
                 {
                     throw new InvalidOperationException(
-                        $"Operation {parentId.Value} cannot begin an overlapping child dispatch. " +
-                        "Await the active child before dispatching another.");
+                        $"Operation {parentId.Value} cannot begin an overlapping child dispatch. "
+                            + "Await the active child before dispatching another."
+                    );
                 }
 
                 ChildReservation reservation = new ChildReservation(parentId);
@@ -295,15 +313,20 @@ namespace Game.Rules.Runtime
 
             public void ReleaseChild(ChildReservation reservation)
             {
-                if (reservation == null ||
-                    !activeChildren.TryGetValue(reservation.ParentId, out ChildReservation active) ||
-                    !ReferenceEquals(active, reservation))
+                if (
+                    reservation == null
+                    || !activeChildren.TryGetValue(
+                        reservation.ParentId,
+                        out ChildReservation active
+                    )
+                    || !ReferenceEquals(active, reservation)
+                )
                 {
-                    string owner = reservation == null
-                        ? "<unknown>"
-                        : reservation.ParentId.Value.ToString();
+                    string owner =
+                        reservation == null ? "<unknown>" : reservation.ParentId.Value.ToString();
                     throw new InvalidOperationException(
-                        $"Operation {owner} does not own its active child reservation.");
+                        $"Operation {owner} does not own its active child reservation."
+                    );
                 }
                 activeChildren.Remove(reservation.ParentId);
             }
@@ -318,10 +341,13 @@ namespace Game.Rules.Runtime
                 if (!activeFrames.Contains(id))
                 {
                     throw new InvalidOperationException(
-                        $"Operation {id.Value} cannot stop accepting children in its current state.");
+                        $"Operation {id.Value} cannot stop accepting children in its current state."
+                    );
                 }
                 if (!sealedFrames.Add(id))
-                    throw new InvalidOperationException($"Operation {id.Value} stopped executing more than once.");
+                    throw new InvalidOperationException(
+                        $"Operation {id.Value} stopped executing more than once."
+                    );
             }
 
             public void AddFact(RuleFact fact, OpId sourceId, OpId rootId)
@@ -329,18 +355,28 @@ namespace Game.Rules.Runtime
                 if (fact == null || !fact.IsStamped)
                     throw new InvalidOperationException("A reducer returned an unstamped Fact.");
                 if (fact.SourceOpId != sourceId)
-                    throw new InvalidOperationException("A reducer returned a Fact for a different source operation.");
+                    throw new InvalidOperationException(
+                        "A reducer returned a Fact for a different source operation."
+                    );
                 if (fact.RootOpId != rootId || rootId != RootId)
-                    throw new InvalidOperationException("A reducer emitted a Fact across resolution roots.");
-                if (!frameFactListeners.TryGetValue(
-                    sourceId,
-                    out IReadOnlyList<BoundFactListenerRegistration> eligibleListeners))
+                    throw new InvalidOperationException(
+                        "A reducer emitted a Fact across resolution roots."
+                    );
+                if (
+                    !frameFactListeners.TryGetValue(
+                        sourceId,
+                        out IReadOnlyList<BoundFactListenerRegistration> eligibleListeners
+                    )
+                )
                 {
                     throw new InvalidOperationException(
-                        "A committed Fact has no source-frame listener selection.");
+                        "A committed Fact has no source-frame listener selection."
+                    );
                 }
                 if (!factIds.Add(fact.Id) || !factReferences.Add(fact))
-                    throw new InvalidOperationException("A committed Fact was aggregated more than once.");
+                    throw new InvalidOperationException(
+                        "A committed Fact was aggregated more than once."
+                    );
                 Facts.Add(fact);
                 CommittedFacts.Add(new CommittedFactRecord(fact, eligibleListeners));
             }
@@ -348,14 +384,17 @@ namespace Game.Rules.Runtime
             private void RequireCurrentRoot(OpId rootId)
             {
                 if (rootId != RootId)
-                    throw new InvalidOperationException("An operation frame crossed resolution roots.");
+                    throw new InvalidOperationException(
+                        "An operation frame crossed resolution roots."
+                    );
             }
         }
 
         private sealed class ChildReservation
         {
-            private readonly TaskCompletionSource<bool> settled =
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource<bool> settled = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
 
             public OpId ParentId { get; }
             public Task Settlement => settled.Task;
@@ -364,6 +403,5 @@ namespace Game.Rules.Runtime
 
             public void Settle() => settled.TrySetResult(true);
         }
-
     }
 }

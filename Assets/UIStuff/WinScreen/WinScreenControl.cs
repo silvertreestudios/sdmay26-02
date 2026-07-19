@@ -21,14 +21,17 @@ public class WinScreenControl : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (mainMenuButton != null) mainMenuButton.clicked -= GoToMainMenu;
+        if (mainMenuButton != null)
+            mainMenuButton.clicked -= GoToMainMenu;
         OnCombatOutcome.RemoveListener(OnCombatOutcomeHandler);
     }
 
     private void OnCombatOutcomeHandler(bool playerWon)
     {
-        if (!playerWon) return;
-        if (SceneManager.GetActiveScene().name != "Level3") return;
+        if (!playerWon)
+            return;
+        if (SceneManager.GetActiveScene().name != "Level3")
+            return;
 
         TextAsset jsonAsset = Resources.Load<TextAsset>("storyboard");
         if (jsonAsset != null)
@@ -41,7 +44,8 @@ public class WinScreenControl : MonoBehaviour
         mainMenuButton.clicked += GoToMainMenu;
 
         HUDController hud = FindFirstObjectByType<HUDController>();
-        if (hud != null) hud.ui.style.display = DisplayStyle.None;
+        if (hud != null)
+            hud.ui.style.display = DisplayStyle.None;
 
         Time.timeScale = 0f;
         ui.style.display = DisplayStyle.Flex;

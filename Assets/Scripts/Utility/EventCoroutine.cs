@@ -20,24 +20,37 @@ public class EventCoroutine<T>
     /// Adds a listener to the event
     /// </summary>
     /// <param name="listener"></param>
-    public void AddListener(Listener listener) { Listeners.Add(listener); }
+    public void AddListener(Listener listener)
+    {
+        Listeners.Add(listener);
+    }
 
     /// <summary>
     /// Removes a listener from the event
     /// </summary>
     /// <param name="listener"></param>
-    public void RemoveListener(Listener listener) { Listeners.Remove(listener); }
+    public void RemoveListener(Listener listener)
+    {
+        Listeners.Remove(listener);
+    }
 
     /// <summary>
     /// Removes all listeners from the event
     /// </summary>
-    public void RemoveAllListeners() { Listeners.Clear(); }
+    public void RemoveAllListeners()
+    {
+        Listeners.Clear();
+    }
 
     /// <summary>
     /// Invokes the Event
     /// </summary>
     /// <param name="data">passed to the listeners</param>
-    public IEnumerator Invoke(T data) { foreach (Listener l in Listeners) yield return l(data); }
+    public IEnumerator Invoke(T data)
+    {
+        foreach (Listener l in Listeners)
+            yield return l(data);
+    }
 }
 
 /// <summary>
@@ -55,21 +68,34 @@ public class EventCoroutine
     /// Adds a listener to the event
     /// </summary>
     /// <param name="listener"></param>
-    public void AddListener(Listener listener) { Listeners.Add(listener); }
+    public void AddListener(Listener listener)
+    {
+        Listeners.Add(listener);
+    }
 
     /// <summary>
     /// Removes a listener from the event
     /// </summary>
     /// <param name="listener"></param>
-    public void RemoveListener(Listener listener) { Listeners.Remove(listener); }
+    public void RemoveListener(Listener listener)
+    {
+        Listeners.Remove(listener);
+    }
 
     /// <summary>
     /// Removes all listeners from the event
     /// </summary>
-    public void RemoveAllListeners() { Listeners.Clear(); }
+    public void RemoveAllListeners()
+    {
+        Listeners.Clear();
+    }
 
     /// <summary>
     /// Invokes the Event
     /// </summary>
-    public IEnumerator Invoke() { foreach (Listener l in Listeners) yield return l(); }
+    public IEnumerator Invoke()
+    {
+        foreach (Listener l in Listeners)
+            yield return l();
+    }
 }

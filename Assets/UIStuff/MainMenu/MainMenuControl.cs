@@ -2,22 +2,24 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 
-
 public class MainMenuControl : MonoBehaviour
 {
-
     public VisualElement ui;
-    [SerializeField] private SettingsMenuControl settingsMenuControl;
+
+    [SerializeField]
+    private SettingsMenuControl settingsMenuControl;
     public Button newGameButton;
     public Button loadGameButton;
     public Button optionsButton;
     public Button exitButton;
 
-    private void Awake() {
+    private void Awake()
+    {
         ui = GetComponent<UIDocument>().rootVisualElement;
     }
 
-    private void OnEnable() {
+    private void OnEnable()
+    {
         newGameButton = ui.Q<Button>("CharacterCreationButton");
         newGameButton.clicked += CharacterCreation;
 
@@ -31,20 +33,24 @@ public class MainMenuControl : MonoBehaviour
         exitButton.clicked += Exit;
     }
 
-    public void CharacterCreation() {
+    public void CharacterCreation()
+    {
         SceneTransitionManager.FadeAndLoad("CharacterCreationScene");
     }
 
-    public void PlayGame() {
+    public void PlayGame()
+    {
         SceneTransitionManager.FadeAndLoad("Level1");
     }
 
-    public void Options() {
+    public void Options()
+    {
         if (settingsMenuControl != null)
             settingsMenuControl.Open();
     }
 
-    public void Exit() {
+    public void Exit()
+    {
         Application.Quit();
         Debug.Log("Clicked Exit button");
     }

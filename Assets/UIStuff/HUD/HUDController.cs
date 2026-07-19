@@ -1,16 +1,15 @@
+using System.Collections;
+using System.Collections.Generic;
+using Game.Creature;
+using Game.Strikes;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
-using Game.Creature;
-using Game.Strikes;
-using System.Collections;
-using System.Collections.Generic;
 using UniversalEvents;
 
 public class HUDController : SingletonMonoBehaviour<HUDController>
 {
-
     public VisualElement ui;
     public Button endTurnButton;
     private VisualElement buttonGrid;
@@ -56,9 +55,9 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private const string ActionMedallionEmptyClass = "action-medallion--empty";
     public const string DisabledHudButtonClass = "btn-hud-disabled";
 
+    //####Player Queue Card Variables####
+    private VisualElement cardHolder;
 
-    //####Player Queue Card Variables####   
-    private VisualElement cardHolder; 
     [SerializeField]
     private VisualTreeAsset playerCardTemplate;
     private bool needToUpdateCards = true;
@@ -71,16 +70,20 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private static bool IsActive = false;
 
     private CombatLogInterface combatLog;
-    
 
-    protected override void Awake() {
+    protected override void Awake()
+    {
         base.Awake();
         //Debug.Log("Awake called");
         ui = GetComponent<UIDocument>().rootVisualElement;
         combatLog = CombatLog.GetInstance();
         combatLog.Log("Game Started. Combat Log Initialized.");
         Debug.Log("Listener");
-        OnCombatStart.AddListener(() => { EnableUi(); Setup(); });
+        OnCombatStart.AddListener(() =>
+        {
+            EnableUi();
+            Setup();
+        });
         OnNextTurn.AddListener(OnTurnChanged);
         OnActionConfirm.AddListener(() => canCancelAction = false);
         OnActionComplete.AddListener(() => canCancelAction = true);
@@ -95,14 +98,22 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private void RegisterHUDHover(VisualElement el)
     {
-        el.RegisterCallback<MouseEnterEvent>(_ => { _hudHoverCount++; IsPointerOverHUD = true; });
-        el.RegisterCallback<MouseLeaveEvent>(_ => { _hudHoverCount = Mathf.Max(0, --_hudHoverCount); IsPointerOverHUD = _hudHoverCount > 0; });
+        el.RegisterCallback<MouseEnterEvent>(_ =>
+        {
+            _hudHoverCount++;
+            IsPointerOverHUD = true;
+        });
+        el.RegisterCallback<MouseLeaveEvent>(_ =>
+        {
+            _hudHoverCount = Mathf.Max(0, --_hudHoverCount);
+            IsPointerOverHUD = _hudHoverCount > 0;
+        });
     }
 
-    private void OnEnable() {
+    private void OnEnable()
+    {
         //Debug.Log("OnEnable called");
         //####Button Setup####
-
 
         buttonGrid = ui.Q<VisualElement>("ButtonGrid");
         panel = ui.Q<VisualElement>("Panel");
@@ -121,7 +132,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         cancelActionButton.text = "Cancel";
         cancelActionButton.AddToClassList("btn-cancel");
 
-
         //####Player Queue Card Setup####
         cardHolder = ui.Q<VisualElement>("CardHolder");
         // fillPlayerCards(); // Fix: Let Update() handle the initial fill to avoid double execution
@@ -135,15 +145,19 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         if (logToggleButton != null)
             logToggleButton.clicked += ToggleLog;
 
-        pauseButton      = ui.Q<Button>("PauseButton");
-        speed2xButton    = ui.Q<Button>("Speed2xButton");
-        speed3xButton    = ui.Q<Button>("Speed3xButton");
+        pauseButton = ui.Q<Button>("PauseButton");
+        speed2xButton = ui.Q<Button>("Speed2xButton");
+        speed3xButton = ui.Q<Button>("Speed3xButton");
         speedToggleButton = ui.Q<Button>("SpeedToggleButton");
-        speedButtonsBox  = ui.Q<VisualElement>("SpeedButtonsBox");
-        if (pauseButton != null)       pauseButton.clicked       += OnPauseClicked;
-        if (speed2xButton != null)     speed2xButton.clicked     += OnSpeed2xClicked;
-        if (speed3xButton != null)     speed3xButton.clicked     += OnSpeed3xClicked;
-        if (speedToggleButton != null) speedToggleButton.clicked += ToggleSpeedBar;
+        speedButtonsBox = ui.Q<VisualElement>("SpeedButtonsBox");
+        if (pauseButton != null)
+            pauseButton.clicked += OnPauseClicked;
+        if (speed2xButton != null)
+            speed2xButton.clicked += OnSpeed2xClicked;
+        if (speed3xButton != null)
+            speed3xButton.clicked += OnSpeed3xClicked;
+        if (speedToggleButton != null)
+            speedToggleButton.clicked += ToggleSpeedBar;
 
         resizeHandle = ui.Q<VisualElement>("ResizeHandle");
         if (resizeHandle != null)
@@ -157,33 +171,44 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         combatLogElement.RegisterCallback<GeometryChangedEvent>(ClampLogHeightToScreen);
 
         logVisible = true;
-        if (logToggleButton != null) logToggleButton.text = "▶";
+        if (logToggleButton != null)
+            logToggleButton.text = "▶";
         if (combatLogWrapper != null)
-            combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(0, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel)));
+            combatLogWrapper.style.translate = new StyleTranslate(
+                new Translate(new Length(0, LengthUnit.Pixel), new Length(0, LengthUnit.Pixel))
+            );
 
         RegisterHUDHover(panel);
         RegisterHUDHover(combatLogWrapper);
         RegisterHUDHover(cardHolder);
-        if (speedButtonsBox != null) RegisterHUDHover(speedButtonsBox);
+        if (speedButtonsBox != null)
+            RegisterHUDHover(speedButtonsBox);
 
         SettingsMenuControl.OnLogOpacityChanged += ApplyLogOpacity;
-        ApplyLogOpacity(PlayerPrefs.GetFloat(SettingsMenuControl.LogOpacityKey, SettingsMenuControl.LogOpacityDefault));
-
-
-        
+        ApplyLogOpacity(
+            PlayerPrefs.GetFloat(
+                SettingsMenuControl.LogOpacityKey,
+                SettingsMenuControl.LogOpacityDefault
+            )
+        );
     }
 
-    private void OnDisable() {
+    private void OnDisable()
+    {
         //Debug.Log("OnDisable called");
         OnNextTurn.RemoveListener(OnTurnChanged);
         if (toggleAutoCameraAction != null)
             toggleAutoCameraAction.performed -= OnToggleAutoCamera;
         if (logToggleButton != null)
             logToggleButton.clicked -= ToggleLog;
-        if (pauseButton != null)       pauseButton.clicked       -= OnPauseClicked;
-        if (speed2xButton != null)     speed2xButton.clicked     -= OnSpeed2xClicked;
-        if (speed3xButton != null)     speed3xButton.clicked     -= OnSpeed3xClicked;
-        if (speedToggleButton != null) speedToggleButton.clicked -= ToggleSpeedBar;
+        if (pauseButton != null)
+            pauseButton.clicked -= OnPauseClicked;
+        if (speed2xButton != null)
+            speed2xButton.clicked -= OnSpeed2xClicked;
+        if (speed3xButton != null)
+            speed3xButton.clicked -= OnSpeed3xClicked;
+        if (speedToggleButton != null)
+            speedToggleButton.clicked -= ToggleSpeedBar;
         if (resizeHandle != null)
         {
             resizeHandle.UnregisterCallback<PointerDownEvent>(OnResizeStart);
@@ -198,14 +223,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     public void EnableUi()
     {
-        
         this.enabled = true;
     }
 
     public static void Setup()
     {
         Players = CombatManagerInterface.GetInstance().GetCombatants();
-        
+
         IsActive = true;
     }
 
@@ -214,15 +238,19 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         if (!IsActive)
             return;
         List<GameObject> currentCombatants = CombatManagerInterface.GetInstance().GetCombatants();
-        if (Players == null) {
+        if (Players == null)
+        {
             Players = currentCombatants;
             needToUpdateCards = true;
-        } else if (HaveCombatantsChanged(currentCombatants)) {
+        }
+        else if (HaveCombatantsChanged(currentCombatants))
+        {
             Players.RemoveAll(p => !currentCombatants.Contains(p));
             needToUpdateCards = true;
         }
 
-        if (needToUpdateCards) {
+        if (needToUpdateCards)
+        {
             fillPlayerCards();
             needToUpdateCards = false;
         }
@@ -235,11 +263,12 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
         wasFollowing = isFollowing;
 
-        if(currentTurnAC != null)
+        if (currentTurnAC != null)
         {
-            cancelActionButton.style.display = (currentTurnAC.IsTakingAction && canCancelAction)? 
-                DisplayStyle.Flex: 
-                DisplayStyle.None;
+            cancelActionButton.style.display =
+                (currentTurnAC.IsTakingAction && canCancelAction)
+                    ? DisplayStyle.Flex
+                    : DisplayStyle.None;
             if (!currentTurnAC.IsTakingAction && selectedActionButton != null)
                 SetSelectedButton(null);
         }
@@ -250,26 +279,31 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             Color bright = new Color(
                 Mathf.Min(selectedButtonBaseColor.r * 1.8f, 1f),
                 Mathf.Min(selectedButtonBaseColor.g * 1.8f, 1f),
-                Mathf.Min(selectedButtonBaseColor.b * 1.8f, 1f), 1f);
-            selectedActionButton.style.backgroundColor = new StyleColor(Color.Lerp(selectedButtonBaseColor, bright, t));
+                Mathf.Min(selectedButtonBaseColor.b * 1.8f, 1f),
+                1f
+            );
+            selectedActionButton.style.backgroundColor = new StyleColor(
+                Color.Lerp(selectedButtonBaseColor, bright, t)
+            );
         }
 
         UpdateHudButtonStates();
 
         // Highlight the current player's card
-        
+
         updatePlayerQueueCards();
     }
 
-
-
     // Card Logic attempt by Ryan
-    private void fillPlayerCards() {
-        if (cardHolder == null || Players == null) {
+    private void fillPlayerCards()
+    {
+        if (cardHolder == null || Players == null)
+        {
             return;
         }
         cardHolder.Clear();
-        for (int i = 0; i < Players.Count; i++) {
+        for (int i = 0; i < Players.Count; i++)
+        {
             CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
             TemplateContainer cardInstance = playerCardTemplate.Instantiate();
             cardHolder.Add(cardInstance);
@@ -279,36 +313,42 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             Color cardColor = teamName switch
             {
                 "Zombies" => new Color(120f / 255f, 50f / 255f, 160f / 255f, 1f), // purple
-                "Goblins" => new Color(85f  / 255f, 120f / 255f, 40f  / 255f, 1f), // sickly green
-                _         => Players[i].GetComponent<PlayerActionController>() != null
-                             ? new Color(28 / 255f, 114 / 255f, 135 / 255f, 1f)      // player green
-                             : new Color(166f / 255f, 49f / 255f, 49f / 255f, 1f)  // default red
+                "Goblins" => new Color(85f / 255f, 120f / 255f, 40f / 255f, 1f), // sickly green
+                _ => Players[i].GetComponent<PlayerActionController>() != null
+                    ? new Color(28 / 255f, 114 / 255f, 135 / 255f, 1f) // player green
+                    : new Color(166f / 255f, 49f / 255f, 49f / 255f, 1f), // default red
             };
             cardInstance.Q<VisualElement>("Card").style.backgroundColor = new StyleColor(cardColor);
 
             var portraitImage = cardInstance.Q<Image>("PortraitImage");
-            if (portraitImage != null) {
+            if (portraitImage != null)
+            {
                 portraitImage.scaleMode = ScaleMode.ScaleToFit;
             }
             // Get portrait snapshot and display it
             Portrait portraitScript = Players[i].GetComponent<Portrait>();
-            if (portraitScript != null) {
+            if (portraitScript != null)
+            {
                 Texture2D portraitSnapshot = portraitScript.GetPortraitSnapshot();
-                if (portraitSnapshot == null) {
+                if (portraitSnapshot == null)
+                {
                     portraitScript.RefreshSnapshot();
                     portraitSnapshot = portraitScript.GetPortraitSnapshot();
                 }
-                if (portraitSnapshot != null && portraitImage != null) {
+                if (portraitSnapshot != null && portraitImage != null)
+                {
                     portraitImage.image = portraitSnapshot;
                 }
             }
 
             // Pan camera to player when card is clicked
             GameObject captured = Players[i];
-            cardInstance.Q<VisualElement>("Card").RegisterCallback<ClickEvent>(evt =>
-            {
-                CameraManager.GetInstance().PanToTarget(captured);
-            });
+            cardInstance
+                .Q<VisualElement>("Card")
+                .RegisterCallback<ClickEvent>(evt =>
+                {
+                    CameraManager.GetInstance().PanToTarget(captured);
+                });
             UpdateActionPointMedallions(cardInstance, Players[i].GetComponent<ActionController>());
         }
     }
@@ -330,7 +370,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         return false;
     }
 
-
     private void OnToggleAutoCamera(InputAction.CallbackContext context)
     {
         autoCameraEnabled = !autoCameraEnabled;
@@ -351,9 +390,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private void OnTurnChanged(GameObject turnTaker)
     {
         ActionController ac = turnTaker.GetComponent<ActionController>();
-        if (ac == null) return;
+        if (ac == null)
+            return;
 
-        if (slideCoroutine != null) StopCoroutine(slideCoroutine);
+        if (slideCoroutine != null)
+            StopCoroutine(slideCoroutine);
         slideCoroutine = StartCoroutine(TurnTransitionRoutine(turnTaker, ac));
     }
 
@@ -388,18 +429,26 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private IEnumerator Slide(bool visible)
     {
-        if (panel == null) yield break;
+        if (panel == null)
+            yield break;
         float startX = visible ? -PanelHiddenPercent : 0f;
-        float endX   = visible ? 0f : -PanelHiddenPercent;
+        float endX = visible ? 0f : -PanelHiddenPercent;
         float elapsed = 0f;
         while (elapsed < SlideDuration)
         {
             elapsed += Time.deltaTime;
             float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / SlideDuration));
-            panel.style.translate = new StyleTranslate(new Translate(new Length(Mathf.Lerp(startX, endX, t), LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
+            panel.style.translate = new StyleTranslate(
+                new Translate(
+                    new Length(Mathf.Lerp(startX, endX, t), LengthUnit.Percent),
+                    new Length(0, LengthUnit.Pixel)
+                )
+            );
             yield return null;
         }
-        panel.style.translate = new StyleTranslate(new Translate(new Length(endX, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
+        panel.style.translate = new StyleTranslate(
+            new Translate(new Length(endX, LengthUnit.Percent), new Length(0, LengthUnit.Pixel))
+        );
     }
 
     private void OnResizeStart(PointerDownEvent e)
@@ -413,15 +462,21 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private void OnResizeMove(PointerMoveEvent e)
     {
-        if (!isResizing) return;
+        if (!isResizing)
+            return;
         float delta = e.position.y - resizeStartY;
-        combatLogElement.style.height = Mathf.Clamp(resizeStartHeight + delta, LogMinHeight, GetSafeMaxLogHeight());
+        combatLogElement.style.height = Mathf.Clamp(
+            resizeStartHeight + delta,
+            LogMinHeight,
+            GetSafeMaxLogHeight()
+        );
         e.StopPropagation();
     }
 
     private void OnResizeEnd(PointerUpEvent e)
     {
-        if (!isResizing) return;
+        if (!isResizing)
+            return;
         isResizing = false;
         resizeHandle.ReleasePointer(e.pointerId);
         PlayerPrefs.SetFloat(LogHeightKey, combatLogElement.resolvedStyle.height);
@@ -430,7 +485,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private float GetSafeMaxLogHeight()
     {
-        if (cardHolder == null || combatLogElement == null) return LogMaxHeight;
+        if (cardHolder == null || combatLogElement == null)
+            return LogMaxHeight;
         float available = cardHolder.worldBound.yMin - combatLogElement.worldBound.yMin - 30f;
         return Mathf.Min(LogMaxHeight, Mathf.Max(LogMinHeight, available));
     }
@@ -469,8 +525,10 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             speedToggleButton.text = speedBarVisible ? "▲" : "▼";
     }
 
-    private void OnPauseClicked()   => ToggleSpeed(0f);
+    private void OnPauseClicked() => ToggleSpeed(0f);
+
     private void OnSpeed2xClicked() => ToggleSpeed(2f);
+
     private void OnSpeed3xClicked() => ToggleSpeed(3f);
 
     private void ToggleSpeed(float speed)
@@ -481,21 +539,25 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private void UpdateSpeedButtons()
     {
-        SetSpeedActive(pauseButton,   Time.timeScale == 0f);
+        SetSpeedActive(pauseButton, Time.timeScale == 0f);
         SetSpeedActive(speed2xButton, Time.timeScale == 2f);
         SetSpeedActive(speed3xButton, Time.timeScale == 3f);
     }
 
     private void SetSpeedActive(Button btn, bool active)
     {
-        if (btn == null) return;
-        if (active) btn.AddToClassList("btn-speed--active");
-        else        btn.RemoveFromClassList("btn-speed--active");
+        if (btn == null)
+            return;
+        if (active)
+            btn.AddToClassList("btn-speed--active");
+        else
+            btn.RemoveFromClassList("btn-speed--active");
     }
 
     private void ToggleLog()
     {
-        if (logSlideCoroutine != null) StopCoroutine(logSlideCoroutine);
+        if (logSlideCoroutine != null)
+            StopCoroutine(logSlideCoroutine);
         logVisible = !logVisible;
         logToggleButton.text = logVisible ? "▶" : "◀";
         logSlideCoroutine = StartCoroutine(LogSlide(logVisible));
@@ -503,22 +565,40 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private IEnumerator LogSlide(bool visible)
     {
-        if (combatLogWrapper == null) yield break;
+        if (combatLogWrapper == null)
+            yield break;
         float startX = visible ? LogHiddenPercent : 0f;
-        float endX   = visible ? 0f : LogHiddenPercent;
+        float endX = visible ? 0f : LogHiddenPercent;
         float elapsed = 0f;
         while (elapsed < SlideDuration)
         {
             elapsed += Time.deltaTime;
             float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / SlideDuration));
-            combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(Mathf.Lerp(startX, endX, t), LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
+            combatLogWrapper.style.translate = new StyleTranslate(
+                new Translate(
+                    new Length(Mathf.Lerp(startX, endX, t), LengthUnit.Percent),
+                    new Length(0, LengthUnit.Pixel)
+                )
+            );
             yield return null;
         }
-        combatLogWrapper.style.translate = new StyleTranslate(new Translate(new Length(endX, LengthUnit.Percent), new Length(0, LengthUnit.Pixel)));
+        combatLogWrapper.style.translate = new StyleTranslate(
+            new Translate(new Length(endX, LengthUnit.Percent), new Length(0, LengthUnit.Pixel))
+        );
     }
 
-    private static readonly Color ActionButtonColor   = new Color(180/255f,  80/255f,  20/255f, 1f);
-    private static readonly Color MovementButtonColor = new Color( 30/255f,  60/255f, 140/255f, 1f);
+    private static readonly Color ActionButtonColor = new Color(
+        180 / 255f,
+        80 / 255f,
+        20 / 255f,
+        1f
+    );
+    private static readonly Color MovementButtonColor = new Color(
+        30 / 255f,
+        60 / 255f,
+        140 / 255f,
+        1f
+    );
 
     private void SetSelectedButton(Button btn, Color baseColor = default)
     {
@@ -605,19 +685,26 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         foreach (var (btn, cost) in buttonCostMap)
         {
             btn.style.display = DisplayStyle.Flex;
-            SetHudButtonEnabled(btn, currentTurnAC != null && !actionRunning && cost <= currentTurnAC.ActionPoints);
+            SetHudButtonEnabled(
+                btn,
+                currentTurnAC != null && !actionRunning && cost <= currentTurnAC.ActionPoints
+            );
         }
 
         if (endTurnButton != null)
             SetHudButtonEnabled(endTurnButton, currentTurnAC != null && !actionRunning);
 
         if (cancelActionButton != null)
-            SetHudButtonEnabled(cancelActionButton, currentTurnAC != null && currentTurnAC.IsTakingAction && canCancelAction);
+            SetHudButtonEnabled(
+                cancelActionButton,
+                currentTurnAC != null && currentTurnAC.IsTakingAction && canCancelAction
+            );
     }
 
     private void SetHudButtonEnabled(Button btn, bool enabled)
     {
-        if (btn == null) return;
+        if (btn == null)
+            return;
 
         btn.SetEnabled(enabled);
         btn.EnableInClassList(DisabledHudButtonClass, !enabled);
@@ -664,11 +751,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
         PlayerActionController pac = g.GetComponent<PlayerActionController>();
-        if (pac == null) return;
+        if (pac == null)
+            return;
         UniversalEvents.OnCancel.Invoke();
         pac.EndTurn();
     }
-    
 
     // Commented out for now - ToggleTempHpBar
     // public void ToggleTempHpBar(CreatureComponent cc, ProgressBar bar) {
@@ -678,7 +765,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     //         bar.style.visibility = Visibility.Hidden;
     // }
 
-    public void CancelAction() {
+    public void CancelAction()
+    {
         Debug.Log("here I am");
         UniversalEvents.OnCancel.Invoke();
         if (currentTurnAC != null)
@@ -692,61 +780,82 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         combatLog.Log("- " + g.name + " canceled their action.");
     }
 
-    public void focusOnPlayer(int playerIndex) {
+    public void focusOnPlayer(int playerIndex)
+    {
         //Debug.Log("focusOnPlayer called");
         //Debug.Log("Focus on player: " + Players[playerIndex]);
     }
 
-    public void getQueuePoisition() {
+    public void getQueuePoisition()
+    {
         //Debug.Log("getQueuePoisition called");
         // Need current player index from turn manager
     }
 
-    public bool isActionRunning(){
+    public bool isActionRunning()
+    {
         return currentTurnAC != null && currentTurnAC.IsTakingAction;
     }
 
-
-
-    private void updatePlayerQueueCards() {
-        if (cardHolder == null || Players == null) return;
+    private void updatePlayerQueueCards()
+    {
+        if (cardHolder == null || Players == null)
+            return;
         CombatManagerInterface cm = CombatManager.GetInstance();
-        if (cm == null) { Debug.LogWarning("CombatManager is null"); return; }
+        if (cm == null)
+        {
+            Debug.LogWarning("CombatManager is null");
+            return;
+        }
         GameObject turnGO = cm.WhosTurn();
-        if (turnGO == null) { Debug.LogWarning("WhosTurn returned null"); return; }
+        if (turnGO == null)
+        {
+            Debug.LogWarning("WhosTurn returned null");
+            return;
+        }
         CreatureComponent currentTurn = turnGO.GetComponent<CreatureComponent>();
-        if (currentTurn == null) { Debug.LogWarning($"No CreatureComponent on {turnGO.name}"); return; }
+        if (currentTurn == null)
+        {
+            Debug.LogWarning($"No CreatureComponent on {turnGO.name}");
+            return;
+        }
 
-        for (int i = 0; i < cardHolder.childCount; i++) {
-            try {
+        for (int i = 0; i < cardHolder.childCount; i++)
+        {
+            try
+            {
                 var card = cardHolder.ElementAt(i);
                 CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
                 var hbGreen = card.Q<VisualElement>("HealthBarGreen");
-                var hbBlue  = card.Q<VisualElement>("HealthBarBlue");
+                var hbBlue = card.Q<VisualElement>("HealthBarBlue");
                 var hbEmpty = card.Q<VisualElement>("HealthBarEmpty");
                 var hbLabel = card.Q<Label>("HealthBarLabel");
                 int tempHp = p.tempHp;
                 int emptyAmount = Mathf.Max(0, p.maxHp - p.hp);
                 hbGreen.style.flexGrow = p.hp;
-                hbBlue.style.flexGrow  = tempHp;
+                hbBlue.style.flexGrow = tempHp;
                 hbEmpty.style.flexGrow = emptyAmount;
                 hbLabel.text = (p.hp + tempHp) + "/" + (p.maxHp + tempHp);
 
                 VisualElement cardVE = card.Q<VisualElement>("Card");
-                if (p == currentTurn) {
+                if (p == currentTurn)
+                {
                     // card.style.opacity = 1f;
                     cardVE.RemoveFromClassList("card-inactive");
-                } else {
+                }
+                else
+                {
                     // card.style.opacity = 0.5f;
                     cardVE.AddToClassList("card-inactive");
                 }
                 UpdateActionPointMedallions(card, p.GetComponent<ActionController>());
-                if (p.hp <= 0) {
+                if (p.hp <= 0)
+                {
                     continue;
                 }
-                
-                
-            } catch (System.Exception e) {
+            }
+            catch (System.Exception e)
+            {
                 Debug.LogError($"Error updating card: {e.Message}\n{e.StackTrace}");
             }
         }
@@ -755,8 +864,12 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private void UpdateActionPointMedallions(VisualElement card, ActionController actionController)
     {
-        List<VisualElement> medallions = card.Query<VisualElement>(className: ActionMedallionClass).ToList();
-        int actionPoints = actionController != null ? Mathf.Clamp((int)actionController.ActionPoints, 0, MaxActionMedallions) : 0;
+        List<VisualElement> medallions = card.Query<VisualElement>(className: ActionMedallionClass)
+            .ToList();
+        int actionPoints =
+            actionController != null
+                ? Mathf.Clamp((int)actionController.ActionPoints, 0, MaxActionMedallions)
+                : 0;
 
         for (int i = 0; i < medallions.Count; i++)
         {

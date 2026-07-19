@@ -1,5 +1,5 @@
-using Game.Creature;
 using System;
+using Game.Creature;
 using UnityEngine;
 
 namespace Game.Creature.Rules
@@ -33,7 +33,7 @@ namespace Game.Creature.Rules
                 ArmorCategory = creature.equippedArmor?.category,
                 Prepared = prepared,
                 Conditions = conditions?.GetConditionNames() ?? Array.Empty<string>(),
-                TempHpImmunitySources = creature.GetTempHpImmunitySources()
+                TempHpImmunitySources = creature.GetTempHpImmunitySources(),
             };
         }
     }

@@ -13,8 +13,9 @@ namespace Game.Rules.Runtime.Tests
     {
         private static readonly CreatureId Creature = new CreatureId("fact-observer-creature");
         private static readonly RuleSource Source = RuleSource.FromSlug("fact-observer-test");
-        private static readonly RuleDefinitionId ListenerDefinition =
-            new RuleDefinitionId("fact-observer-listener");
+        private static readonly RuleDefinitionId ListenerDefinition = new RuleDefinitionId(
+            "fact-observer-listener"
+        );
 
         [Test]
         public async Task ObserverReceivesExactCommittedSnapshotAndPacesTheNextReduction()
@@ -25,9 +26,7 @@ namespace Game.Rules.Runtime.Tests
             dispatcher.RegisterFactObserver(observer);
 
             Task<OpResult<int>> dispatch = dispatcher
-                .Dispatch(new RootOp(
-                    new ChangeOp(1, 1),
-                    new ChangeOp(1, 2)))
+                .Dispatch(new RootOp(new ChangeOp(1, 1), new ChangeOp(1, 2)))
                 .AsTask();
 
             await observer.FirstStarted;
@@ -77,13 +76,10 @@ namespace Game.Rules.Runtime.Tests
 
             await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 10, 11)));
 
-            Assert.That(deliveries, Is.EqualTo(new[]
-            {
-                "10:first",
-                "10:second",
-                "11:first",
-                "11:second"
-            }));
+            Assert.That(
+                deliveries,
+                Is.EqualTo(new[] { "10:first", "10:second", "11:first", "11:second" })
+            );
         }
 
         [Test]
@@ -97,22 +93,28 @@ namespace Game.Rules.Runtime.Tests
                 dispatcher,
                 removed,
                 added,
-                deliveries);
+                deliveries
+            );
             dispatcher.RegisterFactObserver(mutating);
             dispatcher.RegisterFactObserver(removed);
 
             await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1, 2)));
             await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 3)));
 
-            Assert.That(deliveries, Is.EqualTo(new[]
-            {
-                "1:mutating",
-                "1:removed",
-                "2:mutating",
-                "2:removed",
-                "3:mutating",
-                "3:added"
-            }));
+            Assert.That(
+                deliveries,
+                Is.EqualTo(
+                    new[]
+                    {
+                        "1:mutating",
+                        "1:removed",
+                        "2:mutating",
+                        "2:removed",
+                        "3:mutating",
+                        "3:added",
+                    }
+                )
+            );
         }
 
         [Test]
@@ -128,7 +130,8 @@ namespace Game.Rules.Runtime.Tests
             dispatcher.RegisterFactObserver(completed);
 
             AggregateException failure = Assert.ThrowsAsync<AggregateException>(async () =>
-                await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1))));
+                await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)))
+            );
 
             Assert.That(failure.InnerExceptions, Is.EqualTo(new Exception[] { first, second }));
             Assert.That(completed.Count, Is.EqualTo(1));
@@ -145,13 +148,12 @@ namespace Game.Rules.Runtime.Tests
                 Creature,
                 default,
                 Source,
-                0);
+                0
+            );
             InMemoryRulesStore store = CreateStore(binding);
             CapturingFactListener listener = new CapturingFactListener();
             RuleRegistryBuilder rules = new RuleRegistryBuilder();
-            rules.Define(ListenerDefinition).FactListener(
-                RuleLifecyclePhase.Observation,
-                listener);
+            rules.Define(ListenerDefinition).FactListener(RuleLifecyclePhase.Observation, listener);
             RuleDispatcher dispatcher = CreateDispatcherBuilder(store)
                 .UseRuleRegistry(rules.Build())
                 .Build();
@@ -159,21 +161,28 @@ namespace Game.Rules.Runtime.Tests
             ThrowingObserver observer = new ThrowingObserver(expected);
             dispatcher.RegisterFactObserver(observer);
 
-            InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(async () =>
-                await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1))));
+            InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)))
+            );
 
             Assert.That(actual, Is.SameAs(expected));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(1));
             Assert.That(observer.Facts, Has.Count.EqualTo(1));
             Assert.That(listener.Facts, Has.Count.EqualTo(1));
-            Assert.That(listener.Facts.Single(), Is.SameAs(observer.Facts.Single()),
-                "Observer failure must not discard the durable Fact before root listeners run.");
+            Assert.That(
+                listener.Facts.Single(),
+                Is.SameAs(observer.Facts.Single()),
+                "Observer failure must not discard the durable Fact before root listeners run."
+            );
         }
 
         private static InMemoryRulesStore CreateStore(params ActiveRuleBinding[] bindings)
         {
-            RulesStateSeed seed = new RulesStateSeed()
-                .SeedHealth(Creature, new HealthState(0, 100));
+            RulesStateSeed seed = new RulesStateSeed().SeedHealth(
+                Creature,
+                new HealthState(0, 100)
+            );
             foreach (ActiveRuleBinding binding in bindings)
                 seed.SeedRuleBinding(binding);
             return new InMemoryRulesStore(seed);
@@ -186,7 +195,8 @@ namespace Game.Rules.Runtime.Tests
             new RuleDispatcherBuilder(store)
                 .RegisterHandler<RootOp, int>(new RootHandler())
                 .RegisterHandler<RejectionAndNoCommitRootOp, int>(
-                    new RejectionAndNoCommitRootHandler())
+                    new RejectionAndNoCommitRootHandler()
+                )
                 .RegisterReducer<ChangeOp, int>(new ChangeReducer(), Source)
                 .RegisterReducer<RejectOp, int>(new RejectReducer(), Source)
                 .RegisterReducer<NoCommitOp, int>(new NoCommitReducer(), Source);
@@ -233,7 +243,8 @@ namespace Game.Rules.Runtime.Tests
             public ReductionResult<int> Reduce(
                 ReductionContext<ChangeOp> context,
                 RulesStateDraft state,
-                FactSink facts)
+                FactSink facts
+            )
             {
                 if (!state.Health.TryGet(Creature, out HealthState previous))
                     throw new InvalidOperationException("Missing Fact-observer health seed.");
@@ -259,16 +270,15 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
-        private sealed class RejectionAndNoCommitRootOp : IRuleOp<int>
-        {
-        }
+        private sealed class RejectionAndNoCommitRootOp : IRuleOp<int> { }
 
-        private sealed class RejectionAndNoCommitRootHandler :
-            IOpHandler<RejectionAndNoCommitRootOp, int>
+        private sealed class RejectionAndNoCommitRootHandler
+            : IOpHandler<RejectionAndNoCommitRootOp, int>
         {
             public async ValueTask<int> Handle(
                 OpFrame<RejectionAndNoCommitRootOp> frame,
-                OpHandlerContext context)
+                OpHandlerContext context
+            )
             {
                 OpResult<int> rejected = await context.Dispatch(new RejectOp());
                 OpResult<int> noCommit = await context.Dispatch(new NoCommitOp());
@@ -278,28 +288,26 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
-        private sealed class RejectOp : IRuleOp<int>
-        {
-        }
+        private sealed class RejectOp : IRuleOp<int> { }
 
         private sealed class RejectReducer : IOpReducer<RejectOp, int>
         {
             public ReductionResult<int> Reduce(
                 ReductionContext<RejectOp> context,
                 RulesStateDraft state,
-                FactSink facts) => ReductionResult<int>.Reject("rejected");
+                FactSink facts
+            ) => ReductionResult<int>.Reject("rejected");
         }
 
-        private sealed class NoCommitOp : IRuleOp<int>
-        {
-        }
+        private sealed class NoCommitOp : IRuleOp<int> { }
 
         private sealed class NoCommitReducer : IOpReducer<NoCommitOp, int>
         {
             public ReductionResult<int> Reduce(
                 ReductionContext<NoCommitOp> context,
                 RulesStateDraft state,
-                FactSink facts) => ReductionResult<int>.Accept(0);
+                FactSink facts
+            ) => ReductionResult<int>.Accept(0);
         }
 
         private sealed class FirstDeliveryGateObserver : IFactObserver<ChangedFact>
@@ -316,9 +324,7 @@ namespace Game.Rules.Runtime.Tests
 
             public void ReleaseFirst() => firstRelease.TrySetResult(true);
 
-            public async ValueTask OnFactCommitted(
-                ChangedFact fact,
-                RulesSnapshot currentSnapshot)
+            public async ValueTask OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
             {
                 Facts.Add(fact);
                 Sequences.Add(fact.Sequence);
@@ -372,7 +378,8 @@ namespace Game.Rules.Runtime.Tests
                 RuleDispatcher dispatcher,
                 RecordingObserver removed,
                 RecordingObserver added,
-                List<string> deliveries)
+                List<string> deliveries
+            )
             {
                 this.dispatcher = dispatcher;
                 this.removed = removed;
@@ -422,6 +429,5 @@ namespace Game.Rules.Runtime.Tests
                 return default;
             }
         }
-
     }
 }

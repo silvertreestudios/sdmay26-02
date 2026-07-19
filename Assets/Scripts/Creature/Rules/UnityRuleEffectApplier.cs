@@ -1,5 +1,5 @@
-using Game.Creature;
 using System.Collections.Generic;
+using Game.Creature;
 using UnityEngine;
 
 namespace Game.Creature.Rules

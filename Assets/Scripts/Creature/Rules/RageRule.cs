@@ -1,6 +1,6 @@
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 
 namespace Game.Creature.Rules
 {
@@ -23,7 +23,11 @@ namespace Game.Creature.Rules
         public string FailureReason { get; }
         public IReadOnlyList<RuleEffect> Effects { get; }
 
-        private RageRuleResult(bool applied, string failureReason, IReadOnlyList<RuleEffect> effects)
+        private RageRuleResult(
+            bool applied,
+            string failureReason,
+            IReadOnlyList<RuleEffect> effects
+        )
         {
             Applied = applied;
             FailureReason = failureReason;
@@ -91,7 +95,7 @@ namespace Game.Creature.Rules
             List<RuleEffect> effects = new()
             {
                 RuleEffect.SpendActions(request.ActionCost),
-                RuleEffect.SetTakingActionFalse()
+                RuleEffect.SetTakingActionFalse(),
             };
 
             int tempHp = Math.Max(0, creature.Level + creature.ConstitutionModifier);
@@ -107,7 +111,10 @@ namespace Game.Creature.Rules
         /// <param name="creature">The Unity-free creature facts and prepared state.</param>
         /// <param name="catalog">Optional catalog override for resolving the immunity effect in tests.</param>
         /// <returns>A rule result containing cleanup effects, or a blocked result when the creature is not raging.</returns>
-        public static RageRuleResult End(CreatureRulesState creature, Pf2eItemCatalog catalog = null)
+        public static RageRuleResult End(
+            CreatureRulesState creature,
+            Pf2eItemCatalog catalog = null
+        )
         {
             if (creature?.Prepared == null || !creature.Prepared.HasActiveEffect(RageSource))
                 return RageRuleResult.Blocked("Creature is not raging.");
@@ -117,11 +124,13 @@ namespace Game.Creature.Rules
             Pf2eItem immunity = catalog.Resolve("Effect: Rage Temporary Hit Points Immunity");
             creature.Prepared.AddActiveEffect(immunity, RageTempHpImmunitySource);
 
-            return RageRuleResult.Success(new List<RuleEffect>
-            {
-                RuleEffect.RemoveSourceTempHp(RageSource),
-                RuleEffect.AddTempHpImmunity(RageSource)
-            });
+            return RageRuleResult.Success(
+                new List<RuleEffect>
+                {
+                    RuleEffect.RemoveSourceTempHp(RageSource),
+                    RuleEffect.AddTempHpImmunity(RageSource),
+                }
+            );
         }
 
         private static string GetBlockReason(RageRequest request)
@@ -139,8 +148,10 @@ namespace Game.Creature.Rules
             if (creature.HasCondition("Encumbered"))
                 return "Creature is encumbered.";
 
-            if (string.Equals(creature.ArmorCategory, "heavy", StringComparison.OrdinalIgnoreCase)
-                && !creature.Prepared.RollOptions.Contains("feat:invulnerable-rager"))
+            if (
+                string.Equals(creature.ArmorCategory, "heavy", StringComparison.OrdinalIgnoreCase)
+                && !creature.Prepared.RollOptions.Contains("feat:invulnerable-rager")
+            )
                 return "Creature is wearing heavy armor.";
 
             return null;

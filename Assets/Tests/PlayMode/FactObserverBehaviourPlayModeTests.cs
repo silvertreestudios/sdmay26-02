@@ -19,8 +19,9 @@ public sealed class FactObserverBehaviourPlayModeTests
     [UnityTest]
     public IEnumerator ConfigurationTracksEnableDisableDestroyAndDoesNotCancelInFlightDelivery()
     {
-        InMemoryRulesStore store = new InMemoryRulesStore(new RulesStateSeed()
-            .SeedHealth(Creature, new HealthState(0, 100)));
+        InMemoryRulesStore store = new InMemoryRulesStore(
+            new RulesStateSeed().SeedHealth(Creature, new HealthState(0, 100))
+        );
         RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
             .RegisterHandler<ObserverRootOp, int>(new ObserverRootHandler())
             .RegisterReducer<ObserverChangeOp, int>(new ObserverChangeReducer(), Source)
@@ -30,38 +31,35 @@ public sealed class FactObserverBehaviourPlayModeTests
         TestFactObserverBehaviour observer = gameObject.AddComponent<TestFactObserverBehaviour>();
         observer.Configure(dispatcher);
 
-        Task<OpResult<int>> inactiveDispatch = dispatcher
-            .Dispatch(new ObserverRootOp())
-            .AsTask();
+        Task<OpResult<int>> inactiveDispatch = dispatcher.Dispatch(new ObserverRootOp()).AsTask();
         yield return AwaitCompletion(inactiveDispatch);
         Assert.That(observer.DeliveryCount, Is.Zero);
 
         gameObject.SetActive(true);
         Assert.That(observer.LifecycleCalls, Is.EqualTo(new[] { "enabled" }));
-        Task<OpResult<int>> observedDispatch = dispatcher
-            .Dispatch(new ObserverRootOp())
-            .AsTask();
+        Task<OpResult<int>> observedDispatch = dispatcher.Dispatch(new ObserverRootOp()).AsTask();
         yield return AwaitCompletion(observer.Started);
         Assert.That(observer.DeliveryCount, Is.EqualTo(1));
         observer.enabled = false;
         Assert.That(observer.LifecycleCalls, Is.EqualTo(new[] { "enabled", "disabled" }));
-        Assert.That(observedDispatch.IsCompleted, Is.False,
-            "Disabling removes later selection but must not cancel a frozen callback.");
+        Assert.That(
+            observedDispatch.IsCompleted,
+            Is.False,
+            "Disabling removes later selection but must not cancel a frozen callback."
+        );
         observer.Release();
         yield return AwaitCompletion(observedDispatch);
 
-        Task<OpResult<int>> disabledDispatch = dispatcher
-            .Dispatch(new ObserverRootOp())
-            .AsTask();
+        Task<OpResult<int>> disabledDispatch = dispatcher.Dispatch(new ObserverRootOp()).AsTask();
         yield return AwaitCompletion(disabledDispatch);
         Assert.That(observer.DeliveryCount, Is.EqualTo(1));
 
         observer.enabled = true;
-        Assert.That(observer.LifecycleCalls,
-            Is.EqualTo(new[] { "enabled", "disabled", "enabled" }));
-        Task<OpResult<int>> reenabledDispatch = dispatcher
-            .Dispatch(new ObserverRootOp())
-            .AsTask();
+        Assert.That(
+            observer.LifecycleCalls,
+            Is.EqualTo(new[] { "enabled", "disabled", "enabled" })
+        );
+        Task<OpResult<int>> reenabledDispatch = dispatcher.Dispatch(new ObserverRootOp()).AsTask();
         yield return AwaitCompletion(reenabledDispatch);
         Assert.That(observer.DeliveryCount, Is.EqualTo(2));
 
@@ -69,19 +67,13 @@ public sealed class FactObserverBehaviourPlayModeTests
         List<string> lifecycleCalls = observer.LifecycleCalls;
         UnityEngine.Object.Destroy(gameObject);
         yield return null;
-        Task<OpResult<int>> destroyedDispatch = dispatcher
-            .Dispatch(new ObserverRootOp())
-            .AsTask();
+        Task<OpResult<int>> destroyedDispatch = dispatcher.Dispatch(new ObserverRootOp()).AsTask();
         yield return AwaitCompletion(destroyedDispatch);
         Assert.That(observer.DeliveryCount, Is.EqualTo(deliveryCountBeforeDestroy));
-        Assert.That(lifecycleCalls, Is.EqualTo(new[]
-        {
-            "enabled",
-            "disabled",
-            "enabled",
-            "disabled",
-            "destroyed"
-        }));
+        Assert.That(
+            lifecycleCalls,
+            Is.EqualTo(new[] { "enabled", "disabled", "enabled", "disabled", "destroyed" })
+        );
         Assert.That(observer == null, Is.True);
     }
 
@@ -92,31 +84,26 @@ public sealed class FactObserverBehaviourPlayModeTests
         task.GetAwaiter().GetResult();
     }
 
-    private sealed class ObserverRootOp : IRuleOp<int>
-    {
-    }
+    private sealed class ObserverRootOp : IRuleOp<int> { }
 
     private sealed class ObserverRootHandler : IOpHandler<ObserverRootOp, int>
     {
-        public async ValueTask<int> Handle(
-            OpFrame<ObserverRootOp> frame,
-            OpHandlerContext context)
+        public async ValueTask<int> Handle(OpFrame<ObserverRootOp> frame, OpHandlerContext context)
         {
             OpResult<int> changed = await context.Dispatch(new ObserverChangeOp());
             return ((ResolvedOpResult<int>)changed).Value;
         }
     }
 
-    private sealed class ObserverChangeOp : IRuleOp<int>
-    {
-    }
+    private sealed class ObserverChangeOp : IRuleOp<int> { }
 
     private sealed class ObserverChangeReducer : IOpReducer<ObserverChangeOp, int>
     {
         public ReductionResult<int> Reduce(
             ReductionContext<ObserverChangeOp> context,
             RulesStateDraft state,
-            FactSink facts)
+            FactSink facts
+        )
         {
             if (!state.Health.TryGet(Creature, out HealthState previous))
                 throw new InvalidOperationException("Missing PlayMode Fact-observer health seed.");
@@ -137,13 +124,14 @@ public sealed class FactObserverBehaviourPlayModeTests
         public int Current { get; }
     }
 
-    internal sealed class TestFactObserverBehaviour :
-        FactObserverBehaviour<ObserverChangedFact>
+    internal sealed class TestFactObserverBehaviour : FactObserverBehaviour<ObserverChangedFact>
     {
-        private readonly TaskCompletionSource<bool> started =
-            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource<bool> release =
-            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> started = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private readonly TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
 
         public Task Started => started.Task;
         public int DeliveryCount { get; private set; }
@@ -153,7 +141,8 @@ public sealed class FactObserverBehaviourPlayModeTests
 
         public override async ValueTask OnFactCommitted(
             ObserverChangedFact fact,
-            RulesSnapshot currentSnapshot)
+            RulesSnapshot currentSnapshot
+        )
         {
             DeliveryCount++;
             if (DeliveryCount != 1)

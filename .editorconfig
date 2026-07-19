@@ -1,0 +1,16 @@
+root = true
+
+[*.cs]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+max_line_length = 100
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# CSharpier is the repository's single formatting authority. Roslyn's formatting diagnostic can
+# disagree with CSharpier even when both consume this file.
+dotnet_diagnostic.IDE0055.severity = none

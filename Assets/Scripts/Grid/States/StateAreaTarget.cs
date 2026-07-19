@@ -16,12 +16,20 @@ namespace GridPrivate
         private readonly Vector3Int StartPosition;
         private AreaTargetResult PendingResult;
 
-        public StateAreaTarget(GameObject character, AreaTargetRequest request, CoroutineResult<AreaTargetResult> selection, GridFSM fsm)
-            : this(new AreaTargetSource(character), request, selection, fsm)
-        {
-        }
+        public StateAreaTarget(
+            GameObject character,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> selection,
+            GridFSM fsm
+        )
+            : this(new AreaTargetSource(character), request, selection, fsm) { }
 
-        public StateAreaTarget(AreaTargetSource source, AreaTargetRequest request, CoroutineResult<AreaTargetResult> selection, GridFSM fsm)
+        public StateAreaTarget(
+            AreaTargetSource source,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> selection,
+            GridFSM fsm
+        )
         {
             Source = source ?? new AreaTargetSource();
             Request = request ?? new AreaTargetRequest();
@@ -36,7 +44,10 @@ namespace GridPrivate
             base.Enter(fsm);
             canCancel = true;
 
-            if (Source.SourceObject != null && Source.SourceObject.GetComponent<AIActionController>() != null)
+            if (
+                Source.SourceObject != null
+                && Source.SourceObject.GetComponent<AIActionController>() != null
+            )
             {
                 Debug.LogWarning("AI area targeting is not implemented in this grid state.");
                 CoroutineRunner.Run(ChangeToIdle());
@@ -50,13 +61,15 @@ namespace GridPrivate
                     Shape = Request.Shape,
                     OriginCell = StartPosition,
                     OriginCorner = new Vector2Int(StartPosition.x, StartPosition.z),
-                    Direction = AreaDirection.East
+                    Direction = AreaDirection.East,
                 };
                 Preview(placement);
                 return;
             }
 
-            OnHighlightRange.Invoke(AreaTargeting.CellsInPlacementRange(Tiles, StartPosition, Request));
+            OnHighlightRange.Invoke(
+                AreaTargeting.CellsInPlacementRange(Tiles, StartPosition, Request)
+            );
             OnGridHover.AddListener(HandleGridHover);
             OnHover.AddListener(HandleLegacyHover);
             OnHoverEnd.AddListener(ClearPreview);
@@ -85,7 +98,8 @@ namespace GridPrivate
 
         public override void Rightclick()
         {
-            if (!canCancel) return;
+            if (!canCancel)
+                return;
             UniversalEvents.OnCancel.Invoke();
         }
 
@@ -108,7 +122,7 @@ namespace GridPrivate
             {
                 Cell = cell,
                 WorldPosition = new Vector3(cell.x, cell.y, cell.z),
-                NearestCorner = new Vector2Int(cell.x, cell.z)
+                NearestCorner = new Vector2Int(cell.x, cell.z),
             };
             HandleGridHover(info);
         }

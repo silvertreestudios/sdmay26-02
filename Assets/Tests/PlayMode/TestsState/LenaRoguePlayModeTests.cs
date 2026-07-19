@@ -43,7 +43,11 @@ namespace TestsState
             yield return WaitForLena(value => lena = value);
             GameObject target = FindHostileTarget(lena);
             GridBase grid = UnityEngine.Object.FindFirstObjectByType<GridBase>();
-            FindAdjacentOpenCells(grid.GetTiles(), out Vector3Int lenaCell, out Vector3Int targetCell);
+            FindAdjacentOpenCells(
+                grid.GetTiles(),
+                out Vector3Int lenaCell,
+                out Vector3Int targetCell
+            );
             MoveCombatant(grid.GetTiles(), lena, lenaCell);
             MoveCombatant(grid.GetTiles(), target, targetCell);
             PrepareTarget(target, -10, 100);
@@ -70,7 +74,11 @@ namespace TestsState
             yield return WaitForLena(value => lena = value);
             GameObject target = FindHostileTarget(lena);
             GridBase grid = UnityEngine.Object.FindFirstObjectByType<GridBase>();
-            FindAdjacentOpenCells(grid.GetTiles(), out Vector3Int lenaCell, out Vector3Int targetCell);
+            FindAdjacentOpenCells(
+                grid.GetTiles(),
+                out Vector3Int lenaCell,
+                out Vector3Int targetCell
+            );
             MoveCombatant(grid.GetTiles(), lena, lenaCell);
             MoveCombatant(grid.GetTiles(), target, targetCell);
             PrepareTarget(target, -10, 100);
@@ -102,7 +110,12 @@ namespace TestsState
             GameObject ally = FindFriendlyAlly(lena);
             GridBase grid = UnityEngine.Object.FindFirstObjectByType<GridBase>();
             Tile[,] tiles = grid.GetTiles();
-            FindFlankingLine(tiles, out Vector3Int allyCell, out Vector3Int targetCell, out Vector3Int lenaCell);
+            FindFlankingLine(
+                tiles,
+                out Vector3Int allyCell,
+                out Vector3Int targetCell,
+                out Vector3Int lenaCell
+            );
             MoveCombatant(tiles, ally, allyCell);
             MoveCombatant(tiles, target, targetCell);
             MoveCombatant(tiles, lena, lenaCell);
@@ -112,7 +125,10 @@ namespace TestsState
             StrikeResolutionContext observed = null;
             yield return ExecuteSelectedStrike(lena, targetCell, value => observed = value);
 
-            Assert.IsFalse(target.GetComponent<Conditions>().Contains("Off-Guard"), "Flanking should be contextual to the flankers, not a global target condition.");
+            Assert.IsFalse(
+                target.GetComponent<Conditions>().Contains("Off-Guard"),
+                "Flanking should be contextual to the flankers, not a global target condition."
+            );
             Assert.That(observed.DamageDice.Count, Is.EqualTo(2));
             Assert.That(observed.DamageDice[1].damageType, Is.EqualTo("precision"));
             Assert.Less(target.GetComponent<CreatureComponent>().hp, 100);
@@ -128,7 +144,12 @@ namespace TestsState
             GameObject ally = FindFriendlyAlly(lena);
             GridBase grid = UnityEngine.Object.FindFirstObjectByType<GridBase>();
             Tile[,] tiles = grid.GetTiles();
-            FindSameSideNonFlankingCells(tiles, out Vector3Int allyCell, out Vector3Int targetCell, out Vector3Int lenaCell);
+            FindSameSideNonFlankingCells(
+                tiles,
+                out Vector3Int allyCell,
+                out Vector3Int targetCell,
+                out Vector3Int lenaCell
+            );
             MoveCombatant(tiles, ally, allyCell);
             MoveCombatant(tiles, target, targetCell);
             MoveCombatant(tiles, lena, lenaCell);
@@ -152,7 +173,12 @@ namespace TestsState
             GameObject ally = FindFriendlyAlly(lena);
             GridBase grid = UnityEngine.Object.FindFirstObjectByType<GridBase>();
             Tile[,] tiles = grid.GetTiles();
-            FindFlankingLine(tiles, out Vector3Int allyCell, out Vector3Int targetCell, out Vector3Int lenaCell);
+            FindFlankingLine(
+                tiles,
+                out Vector3Int allyCell,
+                out Vector3Int targetCell,
+                out Vector3Int lenaCell
+            );
             MoveCombatant(tiles, ally, allyCell);
             MoveCombatant(tiles, target, targetCell);
             MoveCombatant(tiles, lena, lenaCell);
@@ -175,7 +201,12 @@ namespace TestsState
             yield return WaitForLena(value => lena = value);
             GameObject target = FindHostileTarget(lena);
             GridBase grid = UnityEngine.Object.FindFirstObjectByType<GridBase>();
-            FindEmptyStraightLine(grid.GetTiles(), 5, out Vector3Int lenaCell, out Vector3Int targetCell);
+            FindEmptyStraightLine(
+                grid.GetTiles(),
+                5,
+                out Vector3Int lenaCell,
+                out Vector3Int targetCell
+            );
             MoveCombatant(grid.GetTiles(), lena, lenaCell);
             MoveCombatant(grid.GetTiles(), target, targetCell);
             PrepareTarget(target, -10, 100);
@@ -231,25 +262,35 @@ namespace TestsState
         private IEnumerator WaitForLena(Action<GameObject> assign)
         {
             GameObject lena = null;
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                foreach (CreatureComponent creature in UnityEngine.Object.FindObjectsByType<CreatureComponent>(FindObjectsSortMode.None))
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
                 {
-                    if (creature.name == "Lena")
+                    foreach (
+                        CreatureComponent creature in UnityEngine.Object.FindObjectsByType<CreatureComponent>(
+                            FindObjectsSortMode.None
+                        )
+                    )
                     {
-                        lena = creature.gameObject;
-                        break;
+                        if (creature.name == "Lena")
+                        {
+                            lena = creature.gameObject;
+                            break;
+                        }
                     }
+
+                    return lena != null
+                        && lena.GetComponent<PlayerActionController>() != null
+                        && lena.GetComponent<CreatureComponent>().Prepared != null
+                        && HasAction(lena.GetComponent<ActionController>(), "Dogslicer")
+                        && HasAction(lena.GetComponent<ActionController>(), "Shortbow");
                 }
+            );
 
-                return lena != null
-                    && lena.GetComponent<PlayerActionController>() != null
-                    && lena.GetComponent<CreatureComponent>().Prepared != null
-                    && HasAction(lena.GetComponent<ActionController>(), "Dogslicer")
-                    && HasAction(lena.GetComponent<ActionController>(), "Shortbow");
-            });
-
-            Assert.IsNotNull(lena, "Expected UnitTestingScene to contain playable Lena rogue fixture.");
+            Assert.IsNotNull(
+                lena,
+                "Expected UnitTestingScene to contain playable Lena rogue fixture."
+            );
             assign(lena);
         }
 
@@ -260,11 +301,14 @@ namespace TestsState
             OnNextTurn.Invoke(actor);
 
             Button actionButton = null;
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                actionButton = root.Q<Button>(buttonName);
-                return actionButton != null;
-            });
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    actionButton = root.Q<Button>(buttonName);
+                    return actionButton != null;
+                }
+            );
 
             Assert.IsNotNull(actionButton, "Expected action button " + buttonName + " for Lena.");
             PushButton(actionButton);
@@ -273,7 +317,11 @@ namespace TestsState
             Assert.IsTrue(grid.Fsm.CurrentState is StateStrike);
         }
 
-        private IEnumerator ExecuteSelectedStrike(GameObject actor, Vector3Int targetCell, Action<StrikeResolutionContext> assignObservedStrike)
+        private IEnumerator ExecuteSelectedStrike(
+            GameObject actor,
+            Vector3Int targetCell,
+            Action<StrikeResolutionContext> assignObservedStrike
+        )
         {
             GridBase grid = UnityEngine.Object.FindFirstObjectByType<GridBase>();
             StrikeResolutionContext observed = null;
@@ -288,11 +336,17 @@ namespace TestsState
             UnityEngine.Random.InitState(7604);
             OnHover.Invoke(new List<Vector3Int> { targetCell });
             grid.Fsm.CurrentState.Leftclick();
-            yield return WaitUntilWithTimeout(timeout, () => observed != null && !actor.GetComponent<ActionController>().IsTakingAction);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => observed != null && !actor.GetComponent<ActionController>().IsTakingAction
+            );
             UnityEngine.Random.state = randomState;
             OnStrikePreparedEvent.RemoveListener(listener);
 
-            Assert.IsNotNull(observed, "Expected Lena's Strike to execute through OnStrikePreparedEvent.");
+            Assert.IsNotNull(
+                observed,
+                "Expected Lena's Strike to execute through OnStrikePreparedEvent."
+            );
             assignObservedStrike(observed);
         }
 
@@ -333,7 +387,11 @@ namespace TestsState
         private static GameObject FindHostileTarget(GameObject actor)
         {
             string actorTeam = actor.GetComponent<Team>().Name;
-            foreach (ActionController controller in UnityEngine.Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None))
+            foreach (
+                ActionController controller in UnityEngine.Object.FindObjectsByType<ActionController>(
+                    FindObjectsSortMode.None
+                )
+            )
             {
                 GameObject candidate = controller.gameObject;
                 if (candidate == actor)
@@ -351,7 +409,11 @@ namespace TestsState
         private static GameObject FindFriendlyAlly(GameObject actor)
         {
             string actorTeam = actor.GetComponent<Team>().Name;
-            foreach (ActionController controller in UnityEngine.Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None))
+            foreach (
+                ActionController controller in UnityEngine.Object.FindObjectsByType<ActionController>(
+                    FindObjectsSortMode.None
+                )
+            )
             {
                 GameObject candidate = controller.gameObject;
                 if (candidate == actor)
@@ -376,9 +438,13 @@ namespace TestsState
             creature.maxHp = 10;
             ally.AddComponent<Conditions>();
             TestActionController controller = ally.AddComponent<TestActionController>();
-            controller.AddAction(new Unarmed(1,
-                new List<Dice> { new Dice(1, 3, "Bludgeoning") },
-                new List<DamageValue> { new DamageValue("Bludgeoning", creature.strMod) }));
+            controller.AddAction(
+                new Unarmed(
+                    1,
+                    new List<Dice> { new Dice(1, 3, "Bludgeoning") },
+                    new List<DamageValue> { new DamageValue("Bludgeoning", creature.strMod) }
+                )
+            );
             return ally;
         }
 
@@ -394,7 +460,11 @@ namespace TestsState
                 target.AddComponent<Conditions>();
         }
 
-        private static void FindAdjacentOpenCells(Tile[,] tiles, out Vector3Int actorCell, out Vector3Int targetCell)
+        private static void FindAdjacentOpenCells(
+            Tile[,] tiles,
+            out Vector3Int actorCell,
+            out Vector3Int targetCell
+        )
         {
             for (int z = 0; z < tiles.GetLength(1); z++)
             {
@@ -402,7 +472,12 @@ namespace TestsState
                 {
                     Tile first = tiles[x, z];
                     Tile second = tiles[x + 1, z];
-                    if (first != null && second != null && first.Occupants.Count == 0 && second.Occupants.Count == 0)
+                    if (
+                        first != null
+                        && second != null
+                        && first.Occupants.Count == 0
+                        && second.Occupants.Count == 0
+                    )
                     {
                         actorCell = new Vector3Int(x, 0, z);
                         targetCell = new Vector3Int(x + 1, 0, z);
@@ -416,7 +491,12 @@ namespace TestsState
             targetCell = Vector3Int.zero;
         }
 
-        private static void FindFlankingLine(Tile[,] tiles, out Vector3Int allyCell, out Vector3Int targetCell, out Vector3Int actorCell)
+        private static void FindFlankingLine(
+            Tile[,] tiles,
+            out Vector3Int allyCell,
+            out Vector3Int targetCell,
+            out Vector3Int actorCell
+        )
         {
             for (int z = 0; z < tiles.GetLength(1); z++)
             {
@@ -425,8 +505,14 @@ namespace TestsState
                     Tile first = tiles[x, z];
                     Tile second = tiles[x + 1, z];
                     Tile third = tiles[x + 2, z];
-                    if (first != null && second != null && third != null
-                        && first.Occupants.Count == 0 && second.Occupants.Count == 0 && third.Occupants.Count == 0)
+                    if (
+                        first != null
+                        && second != null
+                        && third != null
+                        && first.Occupants.Count == 0
+                        && second.Occupants.Count == 0
+                        && third.Occupants.Count == 0
+                    )
                     {
                         allyCell = new Vector3Int(x, 0, z);
                         targetCell = new Vector3Int(x + 1, 0, z);
@@ -436,13 +522,20 @@ namespace TestsState
                 }
             }
 
-            Assert.Fail("Could not find three adjacent open cells for flanking in UnitTestingScene.");
+            Assert.Fail(
+                "Could not find three adjacent open cells for flanking in UnitTestingScene."
+            );
             allyCell = Vector3Int.zero;
             targetCell = Vector3Int.zero;
             actorCell = Vector3Int.zero;
         }
 
-        private static void FindSameSideNonFlankingCells(Tile[,] tiles, out Vector3Int allyCell, out Vector3Int targetCell, out Vector3Int actorCell)
+        private static void FindSameSideNonFlankingCells(
+            Tile[,] tiles,
+            out Vector3Int allyCell,
+            out Vector3Int targetCell,
+            out Vector3Int actorCell
+        )
         {
             for (int z = 0; z < tiles.GetLength(1) - 1; z++)
             {
@@ -451,8 +544,14 @@ namespace TestsState
                     Tile actorTile = tiles[x, z + 1];
                     Tile allyTile = tiles[x + 1, z];
                     Tile targetTile = tiles[x + 1, z + 1];
-                    if (actorTile != null && allyTile != null && targetTile != null
-                        && actorTile.Occupants.Count == 0 && allyTile.Occupants.Count == 0 && targetTile.Occupants.Count == 0)
+                    if (
+                        actorTile != null
+                        && allyTile != null
+                        && targetTile != null
+                        && actorTile.Occupants.Count == 0
+                        && allyTile.Occupants.Count == 0
+                        && targetTile.Occupants.Count == 0
+                    )
                     {
                         actorCell = new Vector3Int(x, 0, z + 1);
                         allyCell = new Vector3Int(x + 1, 0, z);
@@ -468,7 +567,12 @@ namespace TestsState
             actorCell = Vector3Int.zero;
         }
 
-        private static void FindEmptyStraightLine(Tile[,] tiles, int length, out Vector3Int start, out Vector3Int target)
+        private static void FindEmptyStraightLine(
+            Tile[,] tiles,
+            int length,
+            out Vector3Int start,
+            out Vector3Int target
+        )
         {
             for (int z = 0; z < tiles.GetLength(1); z++)
             {
@@ -515,9 +619,7 @@ namespace TestsState
 
         private sealed class TestActionController : ActionController
         {
-            public override void EndTurn()
-            {
-            }
+            public override void EndTurn() { }
         }
     }
 }

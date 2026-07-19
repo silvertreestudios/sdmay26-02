@@ -1,9 +1,9 @@
-using UnityEngine;
 using System;
 using System.Collections.Generic;
 using Game.Creature;
 using Game.Rules;
 using GridPublic;
+using UnityEngine;
 
 /// <summary>
 /// Describes the non-statistical source of an attack, such as its weapon name, group, category, and traits.
@@ -11,7 +11,11 @@ using GridPublic;
 /// </summary>
 public class AttackSourceInfo
 {
-    public static readonly AttackSourceInfo Unspecified = new AttackSourceInfo(string.Empty, string.Empty, string.Empty);
+    public static readonly AttackSourceInfo Unspecified = new AttackSourceInfo(
+        string.Empty,
+        string.Empty,
+        string.Empty
+    );
 
     public string Name { get; }
     public string Group { get; }
@@ -19,7 +23,13 @@ public class AttackSourceInfo
     public IReadOnlyList<string> Traits { get; }
     public EquipmentWeapon EquipmentWeapon { get; }
 
-    public AttackSourceInfo(string name, string group, string category, IEnumerable<string> traits = null, EquipmentWeapon equipmentWeapon = null)
+    public AttackSourceInfo(
+        string name,
+        string group,
+        string category,
+        IEnumerable<string> traits = null,
+        EquipmentWeapon equipmentWeapon = null
+    )
     {
         Name = name ?? string.Empty;
         Group = group ?? string.Empty;
@@ -29,16 +39,26 @@ public class AttackSourceInfo
     }
 
     public AttackSourceInfo(AttackSourceInfo sourceInfo)
-        : this(sourceInfo?.Name, sourceInfo?.Group, sourceInfo?.Category, sourceInfo?.Traits, sourceInfo?.EquipmentWeapon)
-    {
-    }
+        : this(
+            sourceInfo?.Name,
+            sourceInfo?.Group,
+            sourceInfo?.Category,
+            sourceInfo?.Traits,
+            sourceInfo?.EquipmentWeapon
+        ) { }
 
     public static AttackSourceInfo FromWeapon(EquipmentWeapon weapon)
     {
         if (weapon == null)
             return Unspecified;
 
-        return new AttackSourceInfo(weapon.name, weapon.group, weapon.category, weapon.traits, weapon);
+        return new AttackSourceInfo(
+            weapon.name,
+            weapon.group,
+            weapon.category,
+            weapon.traits,
+            weapon
+        );
     }
 }
 
@@ -67,7 +87,8 @@ public class StrikeProfile
     public StrikeProfile(List<Dice> damageDice, List<DamageValue> flatDamages)
     {
         DamageDice = CloneDice(damageDice);
-        FlatDamages = flatDamages == null ? new List<DamageValue>() : new List<DamageValue>(flatDamages);
+        FlatDamages =
+            flatDamages == null ? new List<DamageValue>() : new List<DamageValue>(flatDamages);
     }
 
     public StrikeProfile(StrikeProfile profile)
@@ -104,7 +125,12 @@ public class StrikeProfile
     public override string ToString()
     {
         string traits = string.Join(" ", Traits ?? new List<string>());
-        return "Strike Profile: " + (DamageDice?.Count ?? 0) + " damage rolls, " + (FlatDamages?.Count ?? 0) + " flat damages, Traits: " + traits;
+        return "Strike Profile: "
+            + (DamageDice?.Count ?? 0)
+            + " damage rolls, "
+            + (FlatDamages?.Count ?? 0)
+            + " flat damages, Traits: "
+            + traits;
     }
 
     internal static List<Dice> CloneDice(IEnumerable<Dice> diceList)
@@ -146,7 +172,7 @@ public enum StrikeAdjustmentPhase
     AfterCriticalDoubling = 700,
     BeforeDefenseAdjustments = 800,
     ApplyDefenseAndDamage = 900,
-    AfterDamageApplied = 1000
+    AfterDamageApplied = 1000,
 }
 
 /// <summary>
@@ -215,7 +241,10 @@ public class StrikeResolutionContext
         if (request.Target == null)
             throw new ArgumentException("Strike resolution requires a target.", nameof(request));
         if (request.Profile == null)
-            throw new ArgumentException("Strike resolution requires a Strike profile.", nameof(request));
+            throw new ArgumentException(
+                "Strike resolution requires a Strike profile.",
+                nameof(request)
+            );
 
         StrikeProfile profile = new(request.Profile);
         return new StrikeResolutionContext
@@ -230,13 +259,14 @@ public class StrikeResolutionContext
             DamageDice = StrikeProfile.CloneDice(profile.DamageDice),
             FlatDamages = new List<DamageValue>(profile.FlatDamages ?? new List<DamageValue>()),
             DamageValues = new List<DamageValue>(),
-            TargetingResult = request.TargetingResult
+            TargetingResult = request.TargetingResult,
         };
     }
 
     private void RefreshTraits()
     {
-        List<string> merged = explicitTraits == null ? new List<string>() : new List<string>(explicitTraits);
+        List<string> merged =
+            explicitTraits == null ? new List<string>() : new List<string>(explicitTraits);
         if (sourceInfo?.Traits != null)
         {
             foreach (string trait in sourceInfo.Traits)
@@ -267,7 +297,8 @@ public class StrikeResolutionResult
     public bool CriticalHit => Context?.Degree == DegreeOfSuccess.CriticalSuccess;
     public uint FinalAppliedDamage => Context?.FinalAppliedDamage ?? 0;
     public DamageRollResolution DamageResolution => Context?.DamageResolution;
-    public IReadOnlyList<CombatLogDetail> LogDetails => Context != null ? Context.LogDetails : Array.Empty<CombatLogDetail>();
+    public IReadOnlyList<CombatLogDetail> LogDetails =>
+        Context != null ? Context.LogDetails : Array.Empty<CombatLogDetail>();
 
     public StrikeResolutionResult(StrikeResolutionContext context)
     {
@@ -294,4 +325,5 @@ public interface IStrikeAdjustmentProvider
     IEnumerable<IStrikeAdjustment> GetStrikeAdjustments(StrikeResolutionContext context);
 }
 
-public class OnStrikePreparedEvent : StaticUnityEvent<OnStrikePreparedEvent, StrikeResolutionContext> { }
+public class OnStrikePreparedEvent
+    : StaticUnityEvent<OnStrikePreparedEvent, StrikeResolutionContext> { }

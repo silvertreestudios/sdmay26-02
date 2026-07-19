@@ -16,7 +16,11 @@ namespace GridPrivate
         /// <summary>
         /// Event called upon token exiting this tile. Location and prevented exit.
         /// </summary>
-        public EventCoroutine<(GameObject, Vector3Int, Ref<bool>)> OnExitTile { get; protected set; } = new();
+        public EventCoroutine<(GameObject, Vector3Int, Ref<bool>)> OnExitTile
+        {
+            get;
+            protected set;
+        } = new();
 
         public List<GameObject> Occupants { get; protected set; } = new();
 
@@ -50,10 +54,9 @@ namespace GridPrivate
         public IEnumerator PlaceToken(GameObject token)
         {
             Occupants.Add(token);
-            yield return OnEnterTile.Invoke((
-                token, 
-                Vector3Int.RoundToInt(token.transform.position)
-            ));
+            yield return OnEnterTile.Invoke(
+                (token, Vector3Int.RoundToInt(token.transform.position))
+            );
         }
 
         /// <summary>
@@ -65,12 +68,10 @@ namespace GridPrivate
         public IEnumerator RemoveToken(GameObject token, Ref<bool> prevented)
         {
             // Viva RUST, the most vastly superior programming language with good formatting
-            yield return OnExitTile.Invoke((
-                token, 
-                Vector3Int.RoundToInt(token.transform.position),
-                prevented
-            ));
-            if(!prevented.Value)
+            yield return OnExitTile.Invoke(
+                (token, Vector3Int.RoundToInt(token.transform.position), prevented)
+            );
+            if (!prevented.Value)
                 Occupants.Remove(token);
         }
     }

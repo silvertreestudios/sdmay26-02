@@ -64,17 +64,18 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
         Dictionary<string, List<string>> other1,
         Dictionary<string, List<string>> other2,
         string team1,
-        string team2)
+        string team2
+    )
     {
         // Remove from other dictionaries
         List<string> list = new();
-        if(other1.TryGetValue(team1, out list))
+        if (other1.TryGetValue(team1, out list))
             list.Remove(team2);
         if (other2.TryGetValue(team1, out list))
             list.Remove(team2);
 
         // Add/overwrite in correct dictionary
-        if(!target[team1].Contains(team2))
+        if (!target[team1].Contains(team2))
             target[team1].Add(team2);
     }
 
@@ -164,36 +165,39 @@ public class TeamRules : SingletonMonoBehaviour<TeamRules>
     }
 
     /// <summary>
-    /// Returns list friendly teams 
+    /// Returns list friendly teams
     /// </summary>
     public List<string> FriendlyTo(string team)
     {
         return Friendly[team];
     }
+
     public List<string> FriendlyTo(GameObject g)
     {
         return FriendlyTo(g.GetComponent<Team>().Name);
     }
 
     /// <summary>
-    /// Returns list neutral teams 
+    /// Returns list neutral teams
     /// </summary>
     public List<string> NeutralTo(string team)
     {
         return Neutral[team];
     }
+
     public List<string> NeutralTo(GameObject g)
     {
         return NeutralTo(g.GetComponent<Team>().Name);
     }
 
     /// <summary>
-    /// Returns list hostile teams 
+    /// Returns list hostile teams
     /// </summary>
     public List<string> HostileTo(string team)
     {
         return Hostile[team];
     }
+
     public List<string> HostileTo(GameObject g)
     {
         return FriendlyTo(g.GetComponent<Team>().Name);

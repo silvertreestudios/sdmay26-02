@@ -41,7 +41,7 @@ public class TutorialManager //note that this is not MonoBehaviour!
         //panel: actual tutorial box with text and buttons
         panel = new VisualElement();
         panel.style.position = Position.Absolute;
-        panel.style.backgroundColor = new Color(0.92f, 0.88f, 0.78f); 
+        panel.style.backgroundColor = new Color(0.92f, 0.88f, 0.78f);
         panel.style.paddingLeft = 14;
         panel.style.paddingRight = 14;
         panel.style.paddingTop = 12;
@@ -56,8 +56,8 @@ public class TutorialManager //note that this is not MonoBehaviour!
         panel.style.borderBottomWidth = 2;
         panel.style.borderLeftColor = new Color(0.45f, 0.35f, 0.2f);
         panel.style.borderRightColor = new Color(0.45f, 0.35f, 0.2f);
-        panel.style.borderTopColor = new Color(0.55f, 0.45f, 0.28f); 
-        panel.style.borderBottomColor = new Color(0.35f, 0.25f, 0.15f); 
+        panel.style.borderTopColor = new Color(0.55f, 0.45f, 0.28f);
+        panel.style.borderBottomColor = new Color(0.35f, 0.25f, 0.15f);
         panel.style.maxWidth = 300;
         panel.style.maxHeight = 400; //maxes keep the panel from stretching off screen with long text
 
@@ -138,15 +138,12 @@ public class TutorialManager //note that this is not MonoBehaviour!
             {
                 //right
                 new Vector2(bounds.xMax + padding, bounds.yMin),
-
                 //left
                 new Vector2(bounds.xMin - panelWidth - padding, bounds.yMin),
-
                 //below
                 new Vector2(bounds.xMin, bounds.yMax + padding),
-
                 //above
-                new Vector2(bounds.xMin, bounds.yMin - panelHeight - padding)
+                new Vector2(bounds.xMin, bounds.yMin - panelHeight - padding),
             };
 
             Vector2 chosen = candidates[0]; //fallback in case all candidates are bad
@@ -159,10 +156,10 @@ public class TutorialManager //note that this is not MonoBehaviour!
                 bool overlapsHighlight = panelRect.Overlaps(highlightRect);
 
                 bool insideScreen =
-                    pos.x >= 0 &&
-                    pos.y >= 0 &&
-                    pos.x + panelWidth <= rootBounds.width &&
-                    pos.y + panelHeight <= rootBounds.height;
+                    pos.x >= 0
+                    && pos.y >= 0
+                    && pos.x + panelWidth <= rootBounds.width
+                    && pos.y + panelHeight <= rootBounds.height;
 
                 if (!overlapsHighlight && insideScreen)
                 {

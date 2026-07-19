@@ -15,7 +15,7 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Stop after costs have committed because a rule disrupted the action.
         /// </summary>
-        Interrupted
+        Interrupted,
     }
 
     /// <summary>
@@ -125,10 +125,7 @@ namespace Game.Rules.Runtime
     /// </remarks>
     public sealed class CommitActionCostsOp : IRuleOp<ActionCostsOutcome>
     {
-        internal CommitActionCostsOp(
-            OpId actionOpId,
-            CreatureId actor,
-            ActionProfile profile)
+        internal CommitActionCostsOp(OpId actionOpId, CreatureId actor, ActionProfile profile)
         {
             if (actionOpId.IsEmpty)
                 throw new ArgumentException("An action Op ID is required.", nameof(actionOpId));
@@ -154,5 +151,4 @@ namespace Game.Rules.Runtime
         /// </summary>
         public ActionProfile Profile { get; }
     }
-
 }

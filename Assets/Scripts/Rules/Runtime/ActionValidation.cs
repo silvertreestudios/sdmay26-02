@@ -11,9 +11,7 @@ namespace Game.Rules.Runtime
     /// </remarks>
     public abstract class ActionValidationResult
     {
-        private ActionValidationResult()
-        {
-        }
+        private ActionValidationResult() { }
 
         /// <summary>
         /// Gets the reusable successful validation result.
@@ -34,9 +32,7 @@ namespace Game.Rules.Runtime
         /// </summary>
         public sealed class ValidActionValidationResult : ActionValidationResult
         {
-            internal ValidActionValidationResult()
-            {
-            }
+            internal ValidActionValidationResult() { }
         }
 
         /// <summary>
@@ -47,7 +43,10 @@ namespace Game.Rules.Runtime
             internal InvalidActionValidationResult(string reason)
             {
                 if (string.IsNullOrWhiteSpace(reason))
-                    throw new ArgumentException("An invalid action requires a reason.", nameof(reason));
+                    throw new ArgumentException(
+                        "An invalid action requires a reason.",
+                        nameof(reason)
+                    );
                 Reason = reason;
             }
 
@@ -73,5 +72,4 @@ namespace Game.Rules.Runtime
         /// <returns>A valid result or the first reason the action cannot legally begin.</returns>
         ActionValidationResult Validate(OpFrame<TOp> frame, RulesSnapshot snapshot);
     }
-
 }

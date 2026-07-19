@@ -1,8 +1,8 @@
+using System;
+using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
 using Newtonsoft.Json.Linq;
-using System;
-using System.Linq;
 
 namespace Game.Creature.Rules
 {
@@ -18,7 +18,11 @@ namespace Game.Creature.Rules
         /// <param name="build">The saved choices that select class, subclass, feats, and rule selections.</param>
         /// <param name="catalog">Optional catalog override for tests; production uses the Resources-backed singleton.</param>
         /// <returns>A prepared character that rules can query without reparsing item JSON.</returns>
-        public static PreparedCharacter Prepare(CreatureComponent creature, CharacterBuild build, Pf2eItemCatalog catalog = null)
+        public static PreparedCharacter Prepare(
+            CreatureComponent creature,
+            CharacterBuild build,
+            Pf2eItemCatalog catalog = null
+        )
         {
             catalog ??= Pf2eItemCatalog.Instance;
             PreparedCharacter prepared = new(build);
@@ -65,21 +69,34 @@ namespace Game.Creature.Rules
 
         private static void ApplyImplementedBuildDefaults(CharacterBuild build)
         {
-            if (build == null || !string.Equals(build.ClassName, "Cleric", StringComparison.OrdinalIgnoreCase))
+            if (
+                build == null
+                || !string.Equals(build.ClassName, "Cleric", StringComparison.OrdinalIgnoreCase)
+            )
                 return;
 
-            if (string.IsNullOrWhiteSpace(build.SubclassName) || string.Equals(build.SubclassName, "Cloistered", StringComparison.OrdinalIgnoreCase))
+            if (
+                string.IsNullOrWhiteSpace(build.SubclassName)
+                || string.Equals(
+                    build.SubclassName,
+                    "Cloistered",
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
                 build.SubclassName = "Cloistered Cleric";
             if (string.IsNullOrWhiteSpace(build.ClassFeatName))
                 build.ClassFeatName = "Domain Initiate";
 
-            build.RuleSelections["doctrine"] = "Compendium.pf2e.classfeatures.Item.Cloistered Cleric";
+            build.RuleSelections["doctrine"] =
+                "Compendium.pf2e.classfeatures.Item.Cloistered Cleric";
             build.RuleSelections["divineFont"] = "heal";
             build.RuleSelections["sanctification"] = "none";
         }
 
-
-        private static void PrepareImplementedSpellcasting(CreatureComponent creature, PreparedCharacter prepared)
+        private static void PrepareImplementedSpellcasting(
+            CreatureComponent creature,
+            PreparedCharacter prepared
+        )
         {
             if (!prepared.HasOwnedItem("cleric"))
                 return;
@@ -88,41 +105,104 @@ namespace Game.Creature.Rules
             {
                 Tradition = "divine",
                 Ability = "wis",
-                SpellAttackModifier = SpellcastingRuntime.SpellAttackModifier(creature)
+                SpellAttackModifier = SpellcastingRuntime.SpellAttackModifier(creature),
             };
             spellcasting.AddPool(new SpellSlotPool("rank-1-bless", SpellSlotKind.Prepared, 1, 1));
-            spellcasting.AddPool(new SpellSlotPool("rank-1-infuse-vitality", SpellSlotKind.Prepared, 1, 1));
+            spellcasting.AddPool(
+                new SpellSlotPool("rank-1-infuse-vitality", SpellSlotKind.Prepared, 1, 1)
+            );
             spellcasting.AddPool(new SpellSlotPool("font-heal", SpellSlotKind.Font, 1, 4));
 
-            spellcasting.AddSpell(new PreparedSpell("Shield", 1, true, false, string.Empty, new[] { 1u }));
-            spellcasting.AddSpell(new PreparedSpell("Guidance", 1, true, false, string.Empty, new[] { 1u }));
-            spellcasting.AddSpell(new PreparedSpell("Divine Lance", 1, true, false, string.Empty, new[] { 2u }));
-            spellcasting.AddSpell(new PreparedSpell("Haunting Hymn", 1, true, false, string.Empty, new[] { 2u }));
-            spellcasting.AddSpell(new PreparedSpell("Light", 1, true, false, string.Empty, new[] { 1u }));
-            spellcasting.AddSpell(new PreparedSpell("Bless", 1, false, false, "rank-1-bless", new[] { 2u }));
-            spellcasting.AddSpell(new PreparedSpell("Infuse Vitality", 1, false, false, "rank-1-infuse-vitality", new[] { 1u, 2u, 3u }));
-            spellcasting.AddSpell(new PreparedSpell("Heal", 1, false, true, "font-heal", new[] { 1u, 2u, 3u }));
+            spellcasting.AddSpell(
+                new PreparedSpell("Shield", 1, true, false, string.Empty, new[] { 1u })
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell("Guidance", 1, true, false, string.Empty, new[] { 1u })
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell("Divine Lance", 1, true, false, string.Empty, new[] { 2u })
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell("Haunting Hymn", 1, true, false, string.Empty, new[] { 2u })
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell("Light", 1, true, false, string.Empty, new[] { 1u })
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell("Bless", 1, false, false, "rank-1-bless", new[] { 2u })
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell(
+                    "Infuse Vitality",
+                    1,
+                    false,
+                    false,
+                    "rank-1-infuse-vitality",
+                    new[] { 1u, 2u, 3u }
+                )
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell("Heal", 1, false, true, "font-heal", new[] { 1u, 2u, 3u })
+            );
 
             prepared.Spellcasting = spellcasting;
         }
 
-        private static void ApplyClassBaseMath(CreatureComponent creature, Pf2eItem classItem, PreparedCharacter prepared)
+        private static void ApplyClassBaseMath(
+            CreatureComponent creature,
+            Pf2eItem classItem,
+            PreparedCharacter prepared
+        )
         {
             JObject system = classItem.System;
             if (system == null)
                 return;
 
-            ApplyWeaponBonus(creature, "unarmed", system.SelectToken("attacks.unarmed")?.Value<int>() ?? 0);
-            ApplyWeaponBonus(creature, "simple", system.SelectToken("attacks.simple")?.Value<int>() ?? 0);
-            ApplyWeaponBonus(creature, "martial", system.SelectToken("attacks.martial")?.Value<int>() ?? 0);
-            ApplyWeaponBonus(creature, "advanced", system.SelectToken("attacks.advanced")?.Value<int>() ?? 0);
+            ApplyWeaponBonus(
+                creature,
+                "unarmed",
+                system.SelectToken("attacks.unarmed")?.Value<int>() ?? 0
+            );
+            ApplyWeaponBonus(
+                creature,
+                "simple",
+                system.SelectToken("attacks.simple")?.Value<int>() ?? 0
+            );
+            ApplyWeaponBonus(
+                creature,
+                "martial",
+                system.SelectToken("attacks.martial")?.Value<int>() ?? 0
+            );
+            ApplyWeaponBonus(
+                creature,
+                "advanced",
+                system.SelectToken("attacks.advanced")?.Value<int>() ?? 0
+            );
 
-            ApplyArmorBonus(creature, "unarmored", system.SelectToken("defenses.unarmored")?.Value<int>() ?? 0);
-            ApplyArmorBonus(creature, "light", system.SelectToken("defenses.light")?.Value<int>() ?? 0);
-            ApplyArmorBonus(creature, "medium", system.SelectToken("defenses.medium")?.Value<int>() ?? 0);
-            ApplyArmorBonus(creature, "heavy", system.SelectToken("defenses.heavy")?.Value<int>() ?? 0);
+            ApplyArmorBonus(
+                creature,
+                "unarmored",
+                system.SelectToken("defenses.unarmored")?.Value<int>() ?? 0
+            );
+            ApplyArmorBonus(
+                creature,
+                "light",
+                system.SelectToken("defenses.light")?.Value<int>() ?? 0
+            );
+            ApplyArmorBonus(
+                creature,
+                "medium",
+                system.SelectToken("defenses.medium")?.Value<int>() ?? 0
+            );
+            ApplyArmorBonus(
+                creature,
+                "heavy",
+                system.SelectToken("defenses.heavy")?.Value<int>() ?? 0
+            );
 
-            foreach (JToken skill in system.SelectToken("trainedSkills.value") as JArray ?? new JArray())
+            foreach (
+                JToken skill in system.SelectToken("trainedSkills.value") as JArray ?? new JArray()
+            )
                 UpgradeSkillRank(prepared, skill.Value<string>(), 1);
         }
 
@@ -130,9 +210,15 @@ namespace Game.Creature.Rules
         {
             int index = creature.weaponBonuses.FindIndex(b => b.category == category);
             if (index < 0)
-                creature.weaponBonuses.Add(new WeaponBonus { category = category, bonus = rank * 2 });
+                creature.weaponBonuses.Add(
+                    new WeaponBonus { category = category, bonus = rank * 2 }
+                );
             else
-                creature.weaponBonuses[index] = new WeaponBonus { category = category, bonus = rank * 2 };
+                creature.weaponBonuses[index] = new WeaponBonus
+                {
+                    category = category,
+                    bonus = rank * 2,
+                };
         }
 
         private static void ApplyArmorBonus(CreatureComponent creature, string category, int rank)
@@ -141,10 +227,19 @@ namespace Game.Creature.Rules
             if (index < 0)
                 creature.armorBonuses.Add(new ArmorBonus { category = category, bonus = rank * 2 });
             else
-                creature.armorBonuses[index] = new ArmorBonus { category = category, bonus = rank * 2 };
+                creature.armorBonuses[index] = new ArmorBonus
+                {
+                    category = category,
+                    bonus = rank * 2,
+                };
         }
 
-        private static void GrantClassItems(int level, Pf2eItem classItem, Pf2eItemCatalog catalog, PreparedCharacter prepared)
+        private static void GrantClassItems(
+            int level,
+            Pf2eItem classItem,
+            Pf2eItemCatalog catalog,
+            PreparedCharacter prepared
+        )
         {
             JObject items = classItem.System?["items"] as JObject;
             if (items == null)
@@ -176,7 +271,10 @@ namespace Game.Creature.Rules
             }
         }
 
-        private static void CollectRuleSynthetics(PreparedCharacter prepared, Pf2eItemCatalog catalog)
+        private static void CollectRuleSynthetics(
+            PreparedCharacter prepared,
+            Pf2eItemCatalog catalog
+        )
         {
             prepared.Modifiers.Clear();
             prepared.Adjustments.Clear();
@@ -195,7 +293,12 @@ namespace Game.Creature.Rules
             }
         }
 
-        private static void ProcessRule(JObject rule, Pf2eItem source, PreparedCharacter prepared, Pf2eItemCatalog catalog)
+        private static void ProcessRule(
+            JObject rule,
+            Pf2eItem source,
+            PreparedCharacter prepared,
+            Pf2eItemCatalog catalog
+        )
         {
             string key = rule.Value<string>("key");
             if (string.IsNullOrWhiteSpace(key))
@@ -218,52 +321,63 @@ namespace Game.Creature.Rules
                         ApplyActiveEffectLike(rule, prepared);
                     break;
                 case "FlatModifier":
-                    prepared.Modifiers.Add(new RuleModifier
-                    {
-                        Selector = rule.Value<string>("selector"),
-                        Slug = rule.Value<string>("slug") ?? source.Slug,
-                        Value = ResolveRuleInt(rule["value"], prepared),
-                        Type = rule.Value<string>("type"),
-                        Ability = rule.Value<string>("ability"),
-                        Predicate = rule["predicate"]?.DeepClone()
-                    });
+                    prepared.Modifiers.Add(
+                        new RuleModifier
+                        {
+                            Selector = rule.Value<string>("selector"),
+                            Slug = rule.Value<string>("slug") ?? source.Slug,
+                            Value = ResolveRuleInt(rule["value"], prepared),
+                            Type = rule.Value<string>("type"),
+                            Ability = rule.Value<string>("ability"),
+                            Predicate = rule["predicate"]?.DeepClone(),
+                        }
+                    );
                     break;
                 case "AdjustModifier":
-                    prepared.Adjustments.Add(new RuleAdjustment
-                    {
-                        Selector = rule.Value<string>("selector"),
-                        Slug = rule.Value<string>("slug"),
-                        Mode = rule.Value<string>("mode"),
-                        Value = rule.Value<float?>("value") ?? 0,
-                        Priority = rule.Value<int?>("priority") ?? 0,
-                        Predicate = rule["predicate"]?.DeepClone()
-                    });
+                    prepared.Adjustments.Add(
+                        new RuleAdjustment
+                        {
+                            Selector = rule.Value<string>("selector"),
+                            Slug = rule.Value<string>("slug"),
+                            Mode = rule.Value<string>("mode"),
+                            Value = rule.Value<float?>("value") ?? 0,
+                            Priority = rule.Value<int?>("priority") ?? 0,
+                            Predicate = rule["predicate"]?.DeepClone(),
+                        }
+                    );
                     break;
                 case "DamageDice":
-                    prepared.DamageDice.Add(new RuleDamageDice
-                    {
-                        Selector = rule.Value<string>("selector"),
-                        Category = rule.Value<string>("category"),
-                        DiceNumber = ResolveRuleInt(rule["diceNumber"], prepared),
-                        DieSize = ResolveDieSize(rule["dieSize"], prepared),
-                        Predicate = rule["predicate"]?.DeepClone()
-                    });
+                    prepared.DamageDice.Add(
+                        new RuleDamageDice
+                        {
+                            Selector = rule.Value<string>("selector"),
+                            Category = rule.Value<string>("category"),
+                            DiceNumber = ResolveRuleInt(rule["diceNumber"], prepared),
+                            DieSize = ResolveDieSize(rule["dieSize"], prepared),
+                            Predicate = rule["predicate"]?.DeepClone(),
+                        }
+                    );
                     break;
                 case "ItemAlteration":
-                    prepared.ItemAlterations.Add(new ItemAlterationRule
-                    {
-                        ItemType = rule.Value<string>("itemType"),
-                        Mode = rule.Value<string>("mode"),
-                        Property = rule.Value<string>("property"),
-                        Value = rule.Value<string>("value"),
-                        Predicate = rule["predicate"]?.DeepClone()
-                    });
+                    prepared.ItemAlterations.Add(
+                        new ItemAlterationRule
+                        {
+                            ItemType = rule.Value<string>("itemType"),
+                            Mode = rule.Value<string>("mode"),
+                            Property = rule.Value<string>("property"),
+                            Value = rule.Value<string>("value"),
+                            Predicate = rule["predicate"]?.DeepClone(),
+                        }
+                    );
                     break;
                 case "RollOption":
                     if (!predicateMatches || rule["toggleable"] != null)
                         break;
                     string option = rule.Value<string>("option");
-                    if (!string.IsNullOrWhiteSpace(option) && !option.StartsWith("target:", StringComparison.OrdinalIgnoreCase))
+                    if (
+                        !string.IsNullOrWhiteSpace(option)
+                        && !option.StartsWith("target:", StringComparison.OrdinalIgnoreCase)
+                    )
                         prepared.RollOptions.Add(option);
                     break;
                 case "TempHP":
@@ -276,7 +390,11 @@ namespace Game.Creature.Rules
             }
         }
 
-        private static void ApplyChoiceSet(JObject rule, PreparedCharacter prepared, Pf2eItemCatalog catalog)
+        private static void ApplyChoiceSet(
+            JObject rule,
+            PreparedCharacter prepared,
+            Pf2eItemCatalog catalog
+        )
         {
             string flag = rule.Value<string>("flag");
             if (string.IsNullOrWhiteSpace(flag) || prepared.Build.RuleSelections.ContainsKey(flag))
@@ -287,21 +405,29 @@ namespace Game.Creature.Rules
             if (selected == null)
                 return;
 
-            string pack = selected.Type == "feat" && selected.System?.Value<string>("category") == "class"
-                ? "feats-srd"
-                : "classfeatures";
+            string pack =
+                selected.Type == "feat" && selected.System?.Value<string>("category") == "class"
+                    ? "feats-srd"
+                    : "classfeatures";
             prepared.Build.RuleSelections[flag] = $"Compendium.pf2e.{pack}.Item.{selected.Name}";
         }
 
         private static string GetChoiceSetSelection(string flag, CharacterBuild build)
         {
-            if (string.Equals(flag, "roguesRacket", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(flag, "doctrine", StringComparison.OrdinalIgnoreCase))
+            if (
+                string.Equals(flag, "roguesRacket", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(flag, "doctrine", StringComparison.OrdinalIgnoreCase)
+            )
                 return build.SubclassName;
             return build.ClassFeatName;
         }
 
-        private static void ApplyGrantItem(JObject rule, Pf2eItem source, PreparedCharacter prepared, Pf2eItemCatalog catalog)
+        private static void ApplyGrantItem(
+            JObject rule,
+            Pf2eItem source,
+            PreparedCharacter prepared,
+            Pf2eItemCatalog catalog
+        )
         {
             string uuid = ResolveRuleReference(rule.Value<string>("uuid"), prepared);
             if (string.IsNullOrWhiteSpace(uuid))
@@ -326,17 +452,24 @@ namespace Game.Creature.Rules
                 return uuid;
 
             string flag = uuid.Substring(index + rulesSelections.Length).TrimEnd('}');
-            return prepared.Build.RuleSelections.TryGetValue(flag, out string selection) ? selection : null;
+            return prepared.Build.RuleSelections.TryGetValue(flag, out string selection)
+                ? selection
+                : null;
         }
 
         private static string ResolveActorReference(string uuid, PreparedCharacter prepared)
         {
             const string actorPrefix = "{actor|";
-            if (!uuid.StartsWith(actorPrefix, StringComparison.OrdinalIgnoreCase) || !uuid.EndsWith("}"))
+            if (
+                !uuid.StartsWith(actorPrefix, StringComparison.OrdinalIgnoreCase)
+                || !uuid.EndsWith("}")
+            )
                 return uuid;
 
             string path = uuid.Substring(actorPrefix.Length, uuid.Length - actorPrefix.Length - 1);
-            return prepared.RuleReferences.TryGetValue(path, out string reference) ? reference : null;
+            return prepared.RuleReferences.TryGetValue(path, out string reference)
+                ? reference
+                : null;
         }
 
         private static void ApplyActiveEffectLike(JObject rule, PreparedCharacter prepared)
@@ -345,7 +478,9 @@ namespace Game.Creature.Rules
             if (string.IsNullOrWhiteSpace(path))
                 return;
 
-            string normalizedPath = path.StartsWith("@actor.", StringComparison.OrdinalIgnoreCase) ? path.Substring("@actor.".Length) : path;
+            string normalizedPath = path.StartsWith("@actor.", StringComparison.OrdinalIgnoreCase)
+                ? path.Substring("@actor.".Length)
+                : path;
             JToken valueToken = rule["value"];
             if (valueToken is JObject objectValue)
             {
@@ -354,24 +489,45 @@ namespace Game.Creature.Rules
             }
 
             int value = ResolveRuleInt(valueToken, prepared);
-            if (path.StartsWith("system.skills.", StringComparison.OrdinalIgnoreCase) && path.EndsWith(".rank", StringComparison.OrdinalIgnoreCase))
+            if (
+                path.StartsWith("system.skills.", StringComparison.OrdinalIgnoreCase)
+                && path.EndsWith(".rank", StringComparison.OrdinalIgnoreCase)
+            )
             {
-                string skill = path.Substring("system.skills.".Length, path.Length - "system.skills.".Length - ".rank".Length);
+                string skill = path.Substring(
+                    "system.skills.".Length,
+                    path.Length - "system.skills.".Length - ".rank".Length
+                );
                 UpgradeSkillRank(prepared, skill, value);
                 return;
             }
 
-            if (string.Equals(rule.Value<string>("mode"), "override", StringComparison.OrdinalIgnoreCase))
+            if (
+                string.Equals(
+                    rule.Value<string>("mode"),
+                    "override",
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
                 prepared.RuleValues[normalizedPath] = value;
-            else if (!prepared.RuleValues.TryGetValue(normalizedPath, out int current) || value > current)
+            else if (
+                !prepared.RuleValues.TryGetValue(normalizedPath, out int current)
+                || value > current
+            )
                 prepared.RuleValues[normalizedPath] = value;
         }
 
-        private static void StoreRuleReferences(string path, JObject value, PreparedCharacter prepared)
+        private static void StoreRuleReferences(
+            string path,
+            JObject value,
+            PreparedCharacter prepared
+        )
         {
             foreach (JProperty property in value.Properties())
             {
-                string childPath = string.IsNullOrWhiteSpace(path) ? property.Name : path + "." + property.Name;
+                string childPath = string.IsNullOrWhiteSpace(path)
+                    ? property.Name
+                    : path + "." + property.Name;
                 if (property.Value.Type == JTokenType.String)
                     prepared.RuleReferences[childPath] = property.Value.Value<string>();
                 else if (property.Value is JObject childObject)
@@ -442,15 +598,24 @@ namespace Game.Creature.Rules
             string value = token.Value<string>();
             if (string.IsNullOrWhiteSpace(value))
                 return 0;
-            if (value.StartsWith("d", StringComparison.OrdinalIgnoreCase) && int.TryParse(value.Substring(1), out int sides))
+            if (
+                value.StartsWith("d", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(value.Substring(1), out int sides)
+            )
                 return sides;
             if (int.TryParse(value, out sides))
                 return sides;
 
             const string actorFlagPrefix = "d{actor|";
-            if (value.StartsWith(actorFlagPrefix, StringComparison.OrdinalIgnoreCase) && value.EndsWith("}"))
+            if (
+                value.StartsWith(actorFlagPrefix, StringComparison.OrdinalIgnoreCase)
+                && value.EndsWith("}")
+            )
             {
-                string path = value.Substring(actorFlagPrefix.Length, value.Length - actorFlagPrefix.Length - 1);
+                string path = value.Substring(
+                    actorFlagPrefix.Length,
+                    value.Length - actorFlagPrefix.Length - 1
+                );
                 return prepared.RuleValues.TryGetValue(path, out int fact) ? fact : 0;
             }
 
@@ -459,13 +624,21 @@ namespace Game.Creature.Rules
 
         private static int GetPreparedLevel(PreparedCharacter prepared)
         {
-            string levelOption = prepared.RollOptions.FirstOrDefault(option => option.StartsWith("self:level:", StringComparison.OrdinalIgnoreCase));
-            if (levelOption != null && int.TryParse(levelOption.Substring("self:level:".Length), out int level))
+            string levelOption = prepared.RollOptions.FirstOrDefault(option =>
+                option.StartsWith("self:level:", StringComparison.OrdinalIgnoreCase)
+            );
+            if (
+                levelOption != null
+                && int.TryParse(levelOption.Substring("self:level:".Length), out int level)
+            )
                 return level;
             return 0;
         }
 
-        private static void AddArmorRollOptions(CreatureComponent creature, PreparedCharacter prepared)
+        private static void AddArmorRollOptions(
+            CreatureComponent creature,
+            PreparedCharacter prepared
+        )
         {
             string category = creature.equippedArmor?.category;
             if (!string.IsNullOrWhiteSpace(category))

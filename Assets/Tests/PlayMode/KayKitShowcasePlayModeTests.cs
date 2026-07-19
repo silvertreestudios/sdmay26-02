@@ -12,11 +12,14 @@ public sealed class KayKitShowcasePlayModeTests
     public IEnumerator ShowcaseController_PlaysAndSwitchesImportedClips()
     {
         KayKitAnimationLibrary library = AssetDatabase.LoadAssetAtPath<KayKitAnimationLibrary>(
-            "Assets/KayKit/Catalogs/KayKitAnimationLibrary.asset");
+            "Assets/KayKit/Catalogs/KayKitAnimationLibrary.asset"
+        );
         GameObject adventurerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
-            "Assets/KayKit/Prefabs/RepresentativeAdventurer.prefab");
+            "Assets/KayKit/Prefabs/RepresentativeAdventurer.prefab"
+        );
         GameObject skeletonPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
-            "Assets/KayKit/Prefabs/RepresentativeSkeleton.prefab");
+            "Assets/KayKit/Prefabs/RepresentativeSkeleton.prefab"
+        );
         GameObject adventurer = Object.Instantiate(adventurerPrefab);
         GameObject skeleton = Object.Instantiate(skeletonPrefab);
         GameObject environment = new("Test Environment");
@@ -37,7 +40,8 @@ public sealed class KayKitShowcasePlayModeTests
                 environment,
                 accessory,
                 cameraObject.AddComponent<Camera>(),
-                focusObject.transform);
+                focusObject.transform
+            );
             yield return null;
 
             Assert.That(controller.HasRequiredReferences, Is.True);
@@ -49,8 +53,10 @@ public sealed class KayKitShowcasePlayModeTests
             yield return new WaitForSeconds(0.25f);
 
             Assert.That(controller.IsPlaying, Is.True);
-            Assert.That(controller.SelectedEntry.Id, Is.EqualTo(
-                "animation/movementbasic/walking_a"));
+            Assert.That(
+                controller.SelectedEntry.Id,
+                Is.EqualTo("animation/movementbasic/walking_a")
+            );
             Assert.That(controller.NormalizedTime, Is.GreaterThan(before));
         }
         finally

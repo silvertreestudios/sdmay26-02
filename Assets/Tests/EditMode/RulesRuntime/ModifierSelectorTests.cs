@@ -31,27 +31,49 @@ namespace Game.Rules.Runtime.Tests
                     new Modifier(2, ModifierType.Circumstance, GreaterCover, Statistic.ArmorClass),
                     new Modifier(-1, ModifierType.Circumstance, Opening, Statistic.ArmorClass),
                     new Modifier(-2, ModifierType.Circumstance, OffGuard, Statistic.ArmorClass),
-                    new Modifier(3, ModifierType.Item, RuleSource.FromSlug("armor"), Statistic.ArmorClass),
-                    new Modifier(1, ModifierType.Status, RuleSource.FromSlug("ward"), Statistic.ArmorClass),
-                    Modifier.Untyped(100, RuleSource.FromSlug("wrong-statistic"), Statistic.AttackRoll)
-                });
+                    new Modifier(
+                        3,
+                        ModifierType.Item,
+                        RuleSource.FromSlug("armor"),
+                        Statistic.ArmorClass
+                    ),
+                    new Modifier(
+                        1,
+                        ModifierType.Status,
+                        RuleSource.FromSlug("ward"),
+                        Statistic.ArmorClass
+                    ),
+                    Modifier.Untyped(
+                        100,
+                        RuleSource.FromSlug("wrong-statistic"),
+                        Statistic.AttackRoll
+                    ),
+                }
+            );
 
             Assert.That(collection.Total, Is.EqualTo(6));
-            Assert.That(collection.Applied.Select(modifier => modifier.Source), Is.EqualTo(new[]
-            {
-                Base,
-                GreaterCover,
-                OffGuard,
-                RuleSource.FromSlug("armor"),
-                RuleSource.FromSlug("ward")
-            }));
-            Assert.That(collection.Suppressed.Select(modifier => modifier.Source), Is.EqualTo(new[]
-            {
-                Cover,
-                Opening
-            }));
-            Assert.That(collection.Candidates, Has.Count.EqualTo(8),
-                "Ignored-statistic candidates remain available for a complete collection audit.");
+            Assert.That(
+                collection.Applied.Select(modifier => modifier.Source),
+                Is.EqualTo(
+                    new[]
+                    {
+                        Base,
+                        GreaterCover,
+                        OffGuard,
+                        RuleSource.FromSlug("armor"),
+                        RuleSource.FromSlug("ward"),
+                    }
+                )
+            );
+            Assert.That(
+                collection.Suppressed.Select(modifier => modifier.Source),
+                Is.EqualTo(new[] { Cover, Opening })
+            );
+            Assert.That(
+                collection.Candidates,
+                Has.Count.EqualTo(8),
+                "Ignored-statistic candidates remain available for a complete collection audit."
+            );
         }
 
         [Test]
@@ -60,15 +82,18 @@ namespace Game.Rules.Runtime.Tests
             Modifier first = Modifier.StatusBonus(
                 1,
                 RuleSource.FromSlug("first"),
-                Statistic.AttackRoll);
+                Statistic.AttackRoll
+            );
             Modifier second = Modifier.StatusBonus(
                 1,
                 RuleSource.FromSlug("second"),
-                Statistic.AttackRoll);
+                Statistic.AttackRoll
+            );
 
             ModifierCollection collection = new ModifierCollection(
                 Statistic.AttackRoll,
-                new[] { first, second });
+                new[] { first, second }
+            );
 
             Assert.That(collection.Applied.Single(), Is.EqualTo(first));
             Assert.That(collection.Suppressed.Single(), Is.EqualTo(second));
@@ -78,9 +103,9 @@ namespace Game.Rules.Runtime.Tests
         public void CollectionRejectsUninitializedModifierValues()
         {
             Assert.That(default(Modifier).IsEmpty, Is.True);
-            Assert.Throws<ArgumentException>(() => new ModifierCollection(
-                Statistic.AttackRoll,
-                new[] { default(Modifier) }));
+            Assert.Throws<ArgumentException>(() =>
+                new ModifierCollection(Statistic.AttackRoll, new[] { default(Modifier) })
+            );
         }
 
         [Test]
@@ -98,13 +123,10 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public void StatisticsCopyCallerCollectionsAndSeedByCreatureIdentity()
         {
-            Dictionary<Skill, int> skills = new Dictionary<Skill, int>
-            {
-                [Skill.Acrobatics] = 7
-            };
+            Dictionary<Skill, int> skills = new Dictionary<Skill, int> { [Skill.Acrobatics] = 7 };
             List<Modifier> modifiers = new List<Modifier>
             {
-                Modifier.StatusBonus(1, RuleSource.FromSlug("initial"), Statistic.SkillCheck)
+                Modifier.StatusBonus(1, RuleSource.FromSlug("initial"), Statistic.SkillCheck),
             };
             CreatureStatisticsState statistics = new CreatureStatisticsState(
                 Actor,
@@ -114,25 +136,30 @@ namespace Game.Rules.Runtime.Tests
                 7,
                 5,
                 skills,
-                modifiers);
+                modifiers
+            );
 
             skills[Skill.Acrobatics] = 100;
             modifiers.Clear();
             RulesSnapshot snapshot = new InMemoryRulesStore(
-                new RulesStateSeed().SeedStatistics(statistics)).Snapshot;
+                new RulesStateSeed().SeedStatistics(statistics)
+            ).Snapshot;
 
             Assert.That(statistics.GetSkillModifier(Skill.Acrobatics), Is.EqualTo(7));
             Assert.That(statistics.Modifiers, Has.Count.EqualTo(1));
             Assert.That(snapshot.Statistics[Actor], Is.SameAs(statistics));
-            Assert.Throws<ArgumentException>(() => new CreatureStatisticsState(
-                Actor,
-                8,
-                18,
-                6,
-                7,
-                5,
-                skills,
-                new[] { default(Modifier) }));
+            Assert.Throws<ArgumentException>(() =>
+                new CreatureStatisticsState(
+                    Actor,
+                    8,
+                    18,
+                    6,
+                    7,
+                    5,
+                    skills,
+                    new[] { default(Modifier) }
+                )
+            );
         }
 
         [Test]
@@ -146,7 +173,7 @@ namespace Game.Rules.Runtime.Tests
                 Modifier.StatusBonus(1, status, Statistic.ArmorClass),
                 Modifier.StatusBonus(2, status, Statistic.SkillCheck),
                 new Modifier(1, ModifierType.Circumstance, circumstance, Statistic.ReflexSave),
-                new Modifier(1, ModifierType.Item, item, Statistic.AttackRoll)
+                new Modifier(1, ModifierType.Item, item, Statistic.AttackRoll),
             };
             PlayerId players = new PlayerId("players");
             PlayerId enemies = new PlayerId("enemies");
@@ -154,15 +181,18 @@ namespace Game.Rules.Runtime.Tests
                 .SeedCreature(new CreatureState(Actor, players, Array.Empty<Trait>()))
                 .SeedCreature(new CreatureState(Ally, players, Array.Empty<Trait>()))
                 .SeedCreature(new CreatureState(Enemy, enemies, Array.Empty<Trait>()))
-                .SeedStatistics(new CreatureStatisticsState(
-                    Actor,
-                    7,
-                    18,
-                    6,
-                    8,
-                    5,
-                    new Dictionary<Skill, int> { [Skill.Acrobatics] = 7 },
-                    actorModifiers))
+                .SeedStatistics(
+                    new CreatureStatisticsState(
+                        Actor,
+                        7,
+                        18,
+                        6,
+                        8,
+                        5,
+                        new Dictionary<Skill, int> { [Skill.Acrobatics] = 7 },
+                        actorModifiers
+                    )
+                )
                 .SeedMultipleAttackPenalty(Actor, new MultipleAttackPenaltyState(1))
                 .SeedPosition(Actor, new GridPosition(0, 0, 0))
                 .SeedPosition(Enemy, new GridPosition(2, 4, 2));
@@ -170,19 +200,28 @@ namespace Game.Rules.Runtime.Tests
             RulesSelectors selectors = new RulesSelectors();
 
             Assert.That(selectors.GetArmorClass(snapshot, Actor), Is.EqualTo(19));
-            Assert.That(selectors.GetSaveDifficultyClass(snapshot, Actor, SaveKind.Reflex),
-                Is.EqualTo(19));
+            Assert.That(
+                selectors.GetSaveDifficultyClass(snapshot, Actor, SaveKind.Reflex),
+                Is.EqualTo(19)
+            );
             Assert.That(selectors.GetAttackModifiers(snapshot, Actor).Total, Is.EqualTo(8));
-            Assert.That(selectors.GetSkillCheckModifiers(snapshot, Actor, Skill.Acrobatics).Total,
-                Is.EqualTo(9));
-            Assert.That(selectors.GetCurrentModifiers(snapshot, Actor, Statistic.AttackRoll).Total,
-                Is.EqualTo(1));
+            Assert.That(
+                selectors.GetSkillCheckModifiers(snapshot, Actor, Skill.Acrobatics).Total,
+                Is.EqualTo(9)
+            );
+            Assert.That(
+                selectors.GetCurrentModifiers(snapshot, Actor, Statistic.AttackRoll).Total,
+                Is.EqualTo(1)
+            );
             Assert.That(selectors.GetMultipleAttackPenalty(snapshot, Actor, false), Is.EqualTo(-5));
             Assert.That(selectors.GetMultipleAttackPenalty(snapshot, Actor, true), Is.EqualTo(-4));
             Assert.That(selectors.IsEnemy(snapshot, Actor, Enemy), Is.True);
             Assert.That(selectors.IsEnemy(snapshot, Actor, Ally), Is.False);
-            Assert.That(selectors.Distance(snapshot, Actor, Enemy), Is.EqualTo(new GridDistance(15)),
-                "Current grid rules measure the horizontal X/Z plane and ignore presentation height.");
+            Assert.That(
+                selectors.Distance(snapshot, Actor, Enemy),
+                Is.EqualTo(new GridDistance(15)),
+                "Current grid rules measure the horizontal X/Z plane and ignore presentation height."
+            );
         }
 
         [Test]
@@ -207,15 +246,15 @@ namespace Game.Rules.Runtime.Tests
                 0,
                 0,
                 new Dictionary<Skill, int>(),
-                Array.Empty<Modifier>());
+                Array.Empty<Modifier>()
+            );
             RulesSnapshot snapshot = new InMemoryRulesStore(
-                new RulesStateSeed().SeedStatistics(statistics)).Snapshot;
+                new RulesStateSeed().SeedStatistics(statistics)
+            ).Snapshot;
 
             Assert.Throws<OverflowException>(() =>
-                new RulesSelectors().GetSaveDifficultyClass(
-                    snapshot,
-                    Actor,
-                    SaveKind.Fortitude));
+                new RulesSelectors().GetSaveDifficultyClass(snapshot, Actor, SaveKind.Fortitude)
+            );
         }
 
         [Test]
@@ -224,13 +263,15 @@ namespace Game.Rules.Runtime.Tests
             PlayerId player = new PlayerId("player");
             RulesSnapshot snapshot = new InMemoryRulesStore(
                 new RulesStateSeed().SeedCreature(
-                    new CreatureState(Actor, player, Array.Empty<Trait>()))).Snapshot;
+                    new CreatureState(Actor, player, Array.Empty<Trait>())
+                )
+            ).Snapshot;
             RulesSelectors selectors = new RulesSelectors();
 
             Assert.Throws<KeyNotFoundException>(() =>
-                selectors.GetAttackModifiers(snapshot, Actor));
-            Assert.Throws<KeyNotFoundException>(() =>
-                selectors.Distance(snapshot, Actor, Enemy));
+                selectors.GetAttackModifiers(snapshot, Actor)
+            );
+            Assert.Throws<KeyNotFoundException>(() => selectors.Distance(snapshot, Actor, Enemy));
         }
     }
 }

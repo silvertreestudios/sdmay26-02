@@ -11,18 +11,29 @@ namespace Game.KayKit
         RightHand,
         LeftHand,
         Back,
-        Quiver
+        Quiver,
     }
 
     [Serializable]
     public sealed class EquipmentVisualAttachment
     {
-        [SerializeField] private GameObject accessoryPrefab;
-        [SerializeField] private Material material;
-        [SerializeField] private EquipmentSocket socket;
-        [SerializeField] private Vector3 localPosition;
-        [SerializeField] private Vector3 localEulerAngles;
-        [SerializeField] private Vector3 localScale = Vector3.one;
+        [SerializeField]
+        private GameObject accessoryPrefab;
+
+        [SerializeField]
+        private Material material;
+
+        [SerializeField]
+        private EquipmentSocket socket;
+
+        [SerializeField]
+        private Vector3 localPosition;
+
+        [SerializeField]
+        private Vector3 localEulerAngles;
+
+        [SerializeField]
+        private Vector3 localScale = Vector3.one;
 
         public GameObject AccessoryPrefab => accessoryPrefab;
         public Material Material => material;
@@ -37,7 +48,8 @@ namespace Game.KayKit
             EquipmentSocket socket,
             Vector3 localPosition,
             Vector3 localEulerAngles,
-            Vector3 localScale)
+            Vector3 localScale
+        )
         {
             this.accessoryPrefab = accessoryPrefab;
             this.material = material;
@@ -51,14 +63,29 @@ namespace Game.KayKit
     [Serializable]
     public sealed class EquipmentVisualCatalogEntry
     {
-        [SerializeField] private string id;
-        [SerializeField] private string itemSlug;
-        [SerializeField] private string species;
-        [SerializeField] private string fallbackGroup;
-        [SerializeField] private int fallbackHands = -1;
-        [SerializeField] private int fallbackRange = -1;
-        [SerializeField] private AnimationStyle animationStyle;
-        [SerializeField] private List<EquipmentVisualAttachment> attachments = new();
+        [SerializeField]
+        private string id;
+
+        [SerializeField]
+        private string itemSlug;
+
+        [SerializeField]
+        private string species;
+
+        [SerializeField]
+        private string fallbackGroup;
+
+        [SerializeField]
+        private int fallbackHands = -1;
+
+        [SerializeField]
+        private int fallbackRange = -1;
+
+        [SerializeField]
+        private AnimationStyle animationStyle;
+
+        [SerializeField]
+        private List<EquipmentVisualAttachment> attachments = new();
 
         public string Id => id;
         public string ItemSlug => itemSlug;
@@ -77,7 +104,8 @@ namespace Game.KayKit
             int fallbackHands,
             int fallbackRange,
             AnimationStyle animationStyle,
-            IEnumerable<EquipmentVisualAttachment> attachments)
+            IEnumerable<EquipmentVisualAttachment> attachments
+        )
         {
             this.id = id;
             this.itemSlug = itemSlug;
@@ -86,25 +114,31 @@ namespace Game.KayKit
             this.fallbackHands = fallbackHands;
             this.fallbackRange = fallbackRange;
             this.animationStyle = animationStyle;
-            this.attachments = attachments == null
-                ? new List<EquipmentVisualAttachment>()
-                : new List<EquipmentVisualAttachment>(attachments);
+            this.attachments =
+                attachments == null
+                    ? new List<EquipmentVisualAttachment>()
+                    : new List<EquipmentVisualAttachment>(attachments);
         }
     }
 
-    [CreateAssetMenu(menuName = "KayKit/Equipment Visual Catalog", fileName = "EquipmentVisualCatalog")]
+    [CreateAssetMenu(
+        menuName = "KayKit/Equipment Visual Catalog",
+        fileName = "EquipmentVisualCatalog"
+    )]
     public sealed class EquipmentVisualCatalog : ScriptableObject
     {
         public const string UnarmedSlug = "unarmed";
 
-        [SerializeField] private List<EquipmentVisualCatalogEntry> entries = new();
+        [SerializeField]
+        private List<EquipmentVisualCatalogEntry> entries = new();
 
         public IReadOnlyList<EquipmentVisualCatalogEntry> Entries => entries;
 
         public bool TryResolve(
             EquipmentWeapon weapon,
             string species,
-            out EquipmentVisualCatalogEntry entry)
+            out EquipmentVisualCatalogEntry entry
+        )
         {
             if (weapon == null || string.IsNullOrWhiteSpace(weapon.name))
                 return TryResolveSlug(UnarmedSlug, species, out entry);
@@ -123,7 +157,8 @@ namespace Game.KayKit
         public bool TryResolveSlug(
             string itemSlug,
             string species,
-            out EquipmentVisualCatalogEntry entry)
+            out EquipmentVisualCatalogEntry entry
+        )
         {
             string slug = NormalizeSlug(itemSlug);
             string normalizedSpecies = NormalizeSlug(species);
@@ -143,8 +178,10 @@ namespace Game.KayKit
                     buffer[i] = '-';
             }
 
-            return string.Join("-", new string(buffer)
-                .Split(new[] { '-' }, StringSplitOptions.RemoveEmptyEntries));
+            return string.Join(
+                "-",
+                new string(buffer).Split(new[] { '-' }, StringSplitOptions.RemoveEmptyEntries)
+            );
         }
 
         private EquipmentVisualCatalogEntry FindExact(string slug, string species)
@@ -153,8 +190,10 @@ namespace Game.KayKit
             {
                 if (candidate == null)
                     continue;
-                if (NormalizeSlug(candidate.ItemSlug) == slug &&
-                    NormalizeSlug(candidate.Species) == species)
+                if (
+                    NormalizeSlug(candidate.ItemSlug) == slug
+                    && NormalizeSlug(candidate.Species) == species
+                )
                     return candidate;
             }
 
@@ -166,11 +205,16 @@ namespace Game.KayKit
             string group = NormalizeSlug(weapon.group);
             foreach (EquipmentVisualCatalogEntry candidate in entries)
             {
-                if (candidate == null || !string.IsNullOrWhiteSpace(candidate.ItemSlug) ||
-                    NormalizeSlug(candidate.Species) != species)
+                if (
+                    candidate == null
+                    || !string.IsNullOrWhiteSpace(candidate.ItemSlug)
+                    || NormalizeSlug(candidate.Species) != species
+                )
                     continue;
-                if (!string.IsNullOrWhiteSpace(candidate.FallbackGroup) &&
-                    NormalizeSlug(candidate.FallbackGroup) != group)
+                if (
+                    !string.IsNullOrWhiteSpace(candidate.FallbackGroup)
+                    && NormalizeSlug(candidate.FallbackGroup) != group
+                )
                     continue;
                 if (candidate.FallbackHands >= 0 && candidate.FallbackHands != weapon.hands)
                     continue;
@@ -186,9 +230,10 @@ namespace Game.KayKit
 #if UNITY_EDITOR
         public void ReplaceEntries(IEnumerable<EquipmentVisualCatalogEntry> replacement)
         {
-            entries = replacement == null
-                ? new List<EquipmentVisualCatalogEntry>()
-                : new List<EquipmentVisualCatalogEntry>(replacement);
+            entries =
+                replacement == null
+                    ? new List<EquipmentVisualCatalogEntry>()
+                    : new List<EquipmentVisualCatalogEntry>(replacement);
         }
 #endif
     }

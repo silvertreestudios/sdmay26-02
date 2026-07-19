@@ -49,7 +49,6 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             //reset scene
             //StartCoroutine(ResetSceneRoutine());
         }
-        
     }
 
     private IEnumerator ResetSceneRoutine()

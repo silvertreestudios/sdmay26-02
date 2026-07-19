@@ -20,7 +20,11 @@ namespace GridPublic
         /// <param name="request">targeting constraints for the Strike</param>
         /// <param name="target">selected target result, null if canceled or illegal</param>
         /// <returns></returns>
-        public abstract IEnumerator GetStrikeTarget(GameObject attacker, StrikeTargetRequest request, CoroutineResult<StrikeTargetResult> target);
+        public abstract IEnumerator GetStrikeTarget(
+            GameObject attacker,
+            StrikeTargetRequest request,
+            CoroutineResult<StrikeTargetResult> target
+        );
 
         /// <summary>
         /// The given character selects or confirms an area template placement.
@@ -29,7 +33,11 @@ namespace GridPublic
         /// <param name="request">area targeting constraints</param>
         /// <param name="target">selected area result, null if canceled or illegal</param>
         /// <returns></returns>
-        public virtual IEnumerator GetAreaTarget(GameObject actor, AreaTargetRequest request, CoroutineResult<AreaTargetResult> target)
+        public virtual IEnumerator GetAreaTarget(
+            GameObject actor,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> target
+        )
         {
             return GetAreaTarget(new AreaTargetSource(actor), request, target);
         }
@@ -41,7 +49,11 @@ namespace GridPublic
         /// <param name="request">area targeting constraints</param>
         /// <param name="target">selected area result, null if canceled or illegal</param>
         /// <returns></returns>
-        public abstract IEnumerator GetAreaTarget(AreaTargetSource source, AreaTargetRequest request, CoroutineResult<AreaTargetResult> target);
+        public abstract IEnumerator GetAreaTarget(
+            AreaTargetSource source,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> target
+        );
 
         /// <summary>
         /// Destroys a gameobject from the grid

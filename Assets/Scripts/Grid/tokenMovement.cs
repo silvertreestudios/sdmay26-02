@@ -8,12 +8,16 @@ namespace GridPrivate
         // Jump points for the piece to move between
         [SerializeField]
         protected float StepHeight;
+
         [SerializeField]
         protected float MaxRotation;
+
         [SerializeField]
         protected AnimationCurve PtLerp;
+
         [SerializeField]
         protected AnimationCurve YLerp;
+
         [SerializeField]
         protected float JumpTime;
 
@@ -73,14 +77,14 @@ namespace GridPrivate
                 Quaternion finalRotation = lookRotation;
                 if (UseHop)
                 {
-                    Vector3 tiltEuler = new Vector3(
-                        MaxRotation * YLerp.Evaluate(time),
-                        0,
-                        0
-                    );
+                    Vector3 tiltEuler = new Vector3(MaxRotation * YLerp.Evaluate(time), 0, 0);
                     finalRotation *= Quaternion.Euler(tiltEuler);
                 }
-                Token.rotation = Quaternion.Slerp(Token.rotation, finalRotation, Time.deltaTime * 20f);
+                Token.rotation = Quaternion.Slerp(
+                    Token.rotation,
+                    finalRotation,
+                    Time.deltaTime * 20f
+                );
                 if (time >= 1.0f)
                 {
                     OnStepEnd.Invoke(Token.position);
@@ -93,7 +97,11 @@ namespace GridPrivate
             {
                 CurrentTime += Time.deltaTime;
                 Quaternion lookRotation = Quaternion.LookRotation(Direction);
-                Token.rotation = Quaternion.Slerp(Token.rotation, lookRotation, Time.deltaTime * 20f);
+                Token.rotation = Quaternion.Slerp(
+                    Token.rotation,
+                    lookRotation,
+                    Time.deltaTime * 20f
+                );
                 if (CurrentTime >= 1.0f)
                 {
                     IsRotating = false;

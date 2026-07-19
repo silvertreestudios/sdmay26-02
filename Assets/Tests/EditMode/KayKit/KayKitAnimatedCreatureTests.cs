@@ -21,11 +21,14 @@ public sealed class KayKitAnimatedCreatureTests
     public void SetUp()
     {
         visualCatalog = AssetDatabase.LoadAssetAtPath<CreatureVisualCatalog>(
-            KayKitAnimatedCreatureSetupTool.CreatureVisualCatalogPath);
+            KayKitAnimatedCreatureSetupTool.CreatureVisualCatalogPath
+        );
         equipmentCatalog = AssetDatabase.LoadAssetAtPath<EquipmentVisualCatalog>(
-            KayKitAnimatedCreatureSetupTool.EquipmentVisualCatalogPath);
+            KayKitAnimatedCreatureSetupTool.EquipmentVisualCatalogPath
+        );
         animationLibrary = AssetDatabase.LoadAssetAtPath<KayKitAnimationLibrary>(
-            KayKitSetupTool.AnimationLibraryPath);
+            KayKitSetupTool.AnimationLibraryPath
+        );
         Assert.That(visualCatalog, Is.Not.Null);
         Assert.That(equipmentCatalog, Is.Not.Null);
         Assert.That(animationLibrary, Is.Not.Null);
@@ -43,7 +46,11 @@ public sealed class KayKitAnimatedCreatureTests
     [TestCase("Barbarian", "adventurers/barbarian")]
     public void CreatureVisualCatalog_ContainsApprovedMappings(string key, string expectedVisualId)
     {
-        Assert.That(visualCatalog.TryResolve(key, out CreatureVisualCatalogEntry entry), Is.True, key);
+        Assert.That(
+            visualCatalog.TryResolve(key, out CreatureVisualCatalogEntry entry),
+            Is.True,
+            key
+        );
         Assert.That(entry.VisualId, Is.EqualTo(expectedVisualId));
         Assert.That(entry.VisualPrefab, Is.Not.Null);
     }
@@ -59,20 +66,38 @@ public sealed class KayKitAnimatedCreatureTests
     [Test]
     public void TokenMeshSelection_MappedRefreshDoesNotDuplicateVisualsOrAnimators()
     {
-        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Creatures/Lena.prefab");
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+            "Assets/Prefabs/Creatures/Lena.prefab"
+        );
         GameObject instance = Object.Instantiate(prefab);
         try
         {
             TokenMeshSelection selector = instance.GetComponentInChildren<TokenMeshSelection>(true);
             selector.RefreshVisual();
             Assert.That(selector.UsingAnimatedVisual, Is.True);
-            Assert.That(selector.ActiveVisualInstance.GetComponentsInChildren<Animator>(true), Has.Length.EqualTo(1));
+            Assert.That(
+                selector.ActiveVisualInstance.GetComponentsInChildren<Animator>(true),
+                Has.Length.EqualTo(1)
+            );
             Assert.That(
                 selector.ActiveVisualInstance.transform.localScale,
-                Is.EqualTo(Vector3.one * KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale));
-            Assert.That(selector.transform.GetChild(0).GetComponent<MeshRenderer>().enabled, Is.False);
-            Assert.That(selector.transform.GetChild(1).GetComponent<MeshRenderer>().enabled, Is.False);
-            foreach (Renderer renderer in selector.ActiveVisualInstance.GetComponentsInChildren<Renderer>(true))
+                Is.EqualTo(
+                    Vector3.one * KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale
+                )
+            );
+            Assert.That(
+                selector.transform.GetChild(0).GetComponent<MeshRenderer>().enabled,
+                Is.False
+            );
+            Assert.That(
+                selector.transform.GetChild(1).GetComponent<MeshRenderer>().enabled,
+                Is.False
+            );
+            foreach (
+                Renderer renderer in selector.ActiveVisualInstance.GetComponentsInChildren<Renderer>(
+                    true
+                )
+            )
                 Assert.That(renderer.gameObject.layer, Is.EqualTo(instance.layer), renderer.name);
 
             selector.RefreshVisual();
@@ -80,8 +105,16 @@ public sealed class KayKitAnimatedCreatureTests
             Transform root = instance.transform.Find("VisualRoot");
             Assert.That(root, Is.Not.Null);
             Assert.That(root.childCount, Is.EqualTo(1));
-            Assert.That(selector.ActiveVisualInstance.GetComponentsInChildren<Animator>(true), Has.Length.EqualTo(1));
-            Assert.That(selector.ActiveVisualInstance.GetComponentsInChildren<CreatureEquipmentVisuals>(true), Has.Length.EqualTo(1));
+            Assert.That(
+                selector.ActiveVisualInstance.GetComponentsInChildren<Animator>(true),
+                Has.Length.EqualTo(1)
+            );
+            Assert.That(
+                selector.ActiveVisualInstance.GetComponentsInChildren<CreatureEquipmentVisuals>(
+                    true
+                ),
+                Has.Length.EqualTo(1)
+            );
         }
         finally
         {
@@ -92,7 +125,9 @@ public sealed class KayKitAnimatedCreatureTests
     [Test]
     public void TokenMeshSelection_UnmappedGoblinKeepsLegacyRenderer()
     {
-        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Creatures/goblin-warrior.prefab");
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+            "Assets/Prefabs/Creatures/goblin-warrior.prefab"
+        );
         GameObject instance = Object.Instantiate(prefab);
         try
         {
@@ -100,9 +135,18 @@ public sealed class KayKitAnimatedCreatureTests
             selector.RefreshVisual();
 
             Assert.That(selector.UsingAnimatedVisual, Is.False);
-            Assert.That(selector.transform.GetChild(0).GetComponent<MeshRenderer>().enabled, Is.True);
-            Assert.That(selector.transform.GetChild(1).GetComponent<MeshRenderer>().enabled, Is.True);
-            Assert.That(selector.transform.GetChild(0).GetComponent<MeshFilter>().sharedMesh, Is.Not.Null);
+            Assert.That(
+                selector.transform.GetChild(0).GetComponent<MeshRenderer>().enabled,
+                Is.True
+            );
+            Assert.That(
+                selector.transform.GetChild(1).GetComponent<MeshRenderer>().enabled,
+                Is.True
+            );
+            Assert.That(
+                selector.transform.GetChild(0).GetComponent<MeshFilter>().sharedMesh,
+                Is.Not.Null
+            );
         }
         finally
         {
@@ -113,14 +157,19 @@ public sealed class KayKitAnimatedCreatureTests
     [Test]
     public void CharacterPreview_SwitchesAllApprovedClassesWithoutDuplicates()
     {
-        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/UI/ViewModel.prefab");
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+            "Assets/Prefabs/UI/ViewModel.prefab"
+        );
         GameObject instance = Object.Instantiate(prefab);
         try
         {
             ViewModel viewModel = instance.GetComponentInChildren<ViewModel>(true);
             Assert.That(
                 viewModel.transform.Find("VisualRoot").localScale,
-                Is.EqualTo(Vector3.one * KayKitAnimatedCreatureSetupTool.CharacterPreviewVisualScale));
+                Is.EqualTo(
+                    Vector3.one * KayKitAnimatedCreatureSetupTool.CharacterPreviewVisualScale
+                )
+            );
             foreach (string key in new[] { "Fighter", "Cleric", "Rogue", "Sorcerer", "Barbarian" })
             {
                 viewModel.setMeshName(key);
@@ -128,9 +177,16 @@ public sealed class KayKitAnimatedCreatureTests
                 Assert.That(viewModel.transform.Find("VisualRoot").childCount, Is.EqualTo(1), key);
                 Assert.That(
                     viewModel.ActiveVisualInstance.transform.localScale,
-                    Is.EqualTo(Vector3.one * KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale),
-                    key);
-                Assert.That(viewModel.ActiveVisualInstance.GetComponentsInChildren<Animator>(true), Has.Length.EqualTo(1), key);
+                    Is.EqualTo(
+                        Vector3.one * KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale
+                    ),
+                    key
+                );
+                Assert.That(
+                    viewModel.ActiveVisualInstance.GetComponentsInChildren<Animator>(true),
+                    Has.Length.EqualTo(1),
+                    key
+                );
             }
         }
         finally
@@ -151,8 +207,11 @@ public sealed class KayKitAnimatedCreatureTests
                 continue;
             Assert.That(
                 entry.VisualPrefab.transform.localScale,
-                Is.EqualTo(Vector3.one * KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale),
-                entry.VisualPrefab.name);
+                Is.EqualTo(
+                    Vector3.one * KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale
+                ),
+                entry.VisualPrefab.name
+            );
         }
         Assert.That(checkedPrefabs.Count, Is.EqualTo(8));
     }
@@ -161,11 +220,15 @@ public sealed class KayKitAnimatedCreatureTests
     public void AnimatorController_ActionTransitionAllowsConsecutiveAnimations()
     {
         AnimatorController controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(
-            KayKitAnimatedCreatureSetupTool.AnimatorControllerPath);
+            KayKitAnimatedCreatureSetupTool.AnimatorControllerPath
+        );
         Assert.That(controller, Is.Not.Null);
 
-        AnimatorStateTransition transition = controller.layers[0].stateMachine.anyStateTransitions.Single(
-            candidate => candidate.destinationState != null && candidate.destinationState.name == "Action");
+        AnimatorStateTransition transition = controller
+            .layers[0]
+            .stateMachine.anyStateTransitions.Single(candidate =>
+                candidate.destinationState != null && candidate.destinationState.name == "Action"
+            );
         Assert.That(transition.canTransitionToSelf, Is.True);
     }
 
@@ -197,16 +260,29 @@ public sealed class KayKitAnimatedCreatureTests
         Assert.That(animationLibrary.Entries, Is.Not.Empty);
         foreach (KayKitAnimationEntry entry in animationLibrary.Entries)
         {
-            Assert.That(animationLibrary.TryGet(entry.Id, out KayKitAnimationEntry resolved), Is.True, entry.Id);
+            Assert.That(
+                animationLibrary.TryGet(entry.Id, out KayKitAnimationEntry resolved),
+                Is.True,
+                entry.Id
+            );
             Assert.That(resolved, Is.SameAs(entry));
             Assert.That(entry.Duration, Is.GreaterThan(0), entry.Id);
         }
 
         foreach (string required in CreatureAnimationController.RequiredDefaultClipIds())
             Assert.That(animationLibrary.TryGet(required, out _), Is.True, required);
-        Assert.That(animationLibrary.TryGet("animation/general/idle_a", out KayKitAnimationEntry idle), Is.True);
+        Assert.That(
+            animationLibrary.TryGet("animation/general/idle_a", out KayKitAnimationEntry idle),
+            Is.True
+        );
         Assert.That(idle.Loop, Is.True);
-        Assert.That(animationLibrary.TryGet("animation/combatmelee/melee_1h_attack_chop", out KayKitAnimationEntry attack), Is.True);
+        Assert.That(
+            animationLibrary.TryGet(
+                "animation/combatmelee/melee_1h_attack_chop",
+                out KayKitAnimationEntry attack
+            ),
+            Is.True
+        );
         Assert.That(attack.Loop, Is.False);
     }
 
@@ -216,7 +292,8 @@ public sealed class KayKitAnimatedCreatureTests
         GameObject owner = new("Animation warning test");
         try
         {
-            CreatureAnimationController controller = owner.AddComponent<CreatureAnimationController>();
+            CreatureAnimationController controller =
+                owner.AddComponent<CreatureAnimationController>();
             controller.Configure(null, null, animationLibrary, KayKitRigProfile.Adventurer);
             int warnings = 0;
             void Capture(string message, string stackTrace, LogType type)
@@ -286,10 +363,34 @@ public sealed class KayKitAnimatedCreatureTests
     }
 
     [TestCase("Dogslicer", "sword", 1, 0, "adventurer", "dogslicer", AnimationStyle.OneHandMelee)]
-    [TestCase("Scimitar", "sword", 1, 0, "skeleton", "skeleton-scimitar", AnimationStyle.OneHandMelee)]
-    [TestCase("Mystery Sword", "sword", 1, 0, "adventurer", "fallback-sword", AnimationStyle.OneHandMelee)]
+    [TestCase(
+        "Scimitar",
+        "sword",
+        1,
+        0,
+        "skeleton",
+        "skeleton-scimitar",
+        AnimationStyle.OneHandMelee
+    )]
+    [TestCase(
+        "Mystery Sword",
+        "sword",
+        1,
+        0,
+        "adventurer",
+        "fallback-sword",
+        AnimationStyle.OneHandMelee
+    )]
     [TestCase("Mystery Bow", "bow", 2, 60, "adventurer", "fallback-bow", AnimationStyle.Bow)]
-    [TestCase("Mystery Axe", "axe", 2, 0, "skeleton", "fallback-skeleton-axe", AnimationStyle.TwoHandMelee)]
+    [TestCase(
+        "Mystery Axe",
+        "axe",
+        2,
+        0,
+        "skeleton",
+        "fallback-skeleton-axe",
+        AnimationStyle.TwoHandMelee
+    )]
     public void EquipmentCatalog_ResolvesExactSpeciesAndFallbackMappings(
         string name,
         string group,
@@ -297,11 +398,17 @@ public sealed class KayKitAnimatedCreatureTests
         int range,
         string species,
         string expectedId,
-        AnimationStyle expectedStyle)
+        AnimationStyle expectedStyle
+    )
     {
         Assert.That(
-            equipmentCatalog.TryResolve(Weapon(name, group, hands, range), species, out EquipmentVisualCatalogEntry entry),
-            Is.True);
+            equipmentCatalog.TryResolve(
+                Weapon(name, group, hands, range),
+                species,
+                out EquipmentVisualCatalogEntry entry
+            ),
+            Is.True
+        );
         Assert.That(entry.Id, Is.EqualTo(expectedId));
         Assert.That(entry.AnimationStyle, Is.EqualTo(expectedStyle));
     }
@@ -309,24 +416,62 @@ public sealed class KayKitAnimatedCreatureTests
     [Test]
     public void EquipmentCatalog_ResolvesUnarmedAndProxyMappings()
     {
-        Assert.That(equipmentCatalog.TryResolve(null, "adventurer", out EquipmentVisualCatalogEntry unarmed), Is.True);
+        Assert.That(
+            equipmentCatalog.TryResolve(
+                null,
+                "adventurer",
+                out EquipmentVisualCatalogEntry unarmed
+            ),
+            Is.True
+        );
         Assert.That(unarmed.Id, Is.EqualTo("unarmed"));
         Assert.That(unarmed.Attachments, Is.Empty);
 
-        Assert.That(equipmentCatalog.TryResolve(Weapon("Halberd", "polearm", 2, 0), "adventurer", out EquipmentVisualCatalogEntry halberd), Is.True);
-        Assert.That(AssetDatabase.GetAssetPath(halberd.Attachments.Single().AccessoryPrefab), Does.EndWith("staff.fbx"));
-        Assert.That(equipmentCatalog.TryResolve(Weapon("Sling", "sling", 1, 50), "adventurer", out EquipmentVisualCatalogEntry sling), Is.True);
-        Assert.That(AssetDatabase.GetAssetPath(sling.Attachments.Single().AccessoryPrefab), Does.EndWith("smokebomb.fbx"));
-        Assert.That(equipmentCatalog.TryResolve(Weapon("Shortbow", "bow", 2, 60), "skeleton", out EquipmentVisualCatalogEntry bow), Is.True);
+        Assert.That(
+            equipmentCatalog.TryResolve(
+                Weapon("Halberd", "polearm", 2, 0),
+                "adventurer",
+                out EquipmentVisualCatalogEntry halberd
+            ),
+            Is.True
+        );
+        Assert.That(
+            AssetDatabase.GetAssetPath(halberd.Attachments.Single().AccessoryPrefab),
+            Does.EndWith("staff.fbx")
+        );
+        Assert.That(
+            equipmentCatalog.TryResolve(
+                Weapon("Sling", "sling", 1, 50),
+                "adventurer",
+                out EquipmentVisualCatalogEntry sling
+            ),
+            Is.True
+        );
+        Assert.That(
+            AssetDatabase.GetAssetPath(sling.Attachments.Single().AccessoryPrefab),
+            Does.EndWith("smokebomb.fbx")
+        );
+        Assert.That(
+            equipmentCatalog.TryResolve(
+                Weapon("Shortbow", "bow", 2, 60),
+                "skeleton",
+                out EquipmentVisualCatalogEntry bow
+            ),
+            Is.True
+        );
         Assert.That(bow.Attachments, Has.Count.EqualTo(2));
-        Assert.That(bow.Attachments.Any(attachment => attachment.Socket == EquipmentSocket.Quiver), Is.True);
+        Assert.That(
+            bow.Attachments.Any(attachment => attachment.Socket == EquipmentSocket.Quiver),
+            Is.True
+        );
     }
 
     [Test]
     public void ActiveStrikeWeapon_ReplacesAccessoriesWithoutDuplicates()
     {
         GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
-            KayKitAnimatedCreatureSetupTool.AnimatedPrefabRoot + "/RangerAnimated.prefab");
+            KayKitAnimatedCreatureSetupTool.AnimatedPrefabRoot + "/RangerAnimated.prefab"
+        );
         GameObject instance = Object.Instantiate(prefab);
         try
         {
@@ -387,9 +532,8 @@ public sealed class KayKitAnimatedCreatureTests
     [Test]
     public void GeneratedAnimatedPrefabs_DisableRootMotionAndUseOneAnimator()
     {
-        string[] paths = AssetDatabase.FindAssets(
-                "t:Prefab",
-                new[] { KayKitAnimatedCreatureSetupTool.AnimatedPrefabRoot })
+        string[] paths = AssetDatabase
+            .FindAssets("t:Prefab", new[] { KayKitAnimatedCreatureSetupTool.AnimatedPrefabRoot })
             .Select(AssetDatabase.GUIDToAssetPath)
             .ToArray();
         Assert.That(paths, Has.Length.EqualTo(8));
@@ -406,9 +550,7 @@ public sealed class KayKitAnimatedCreatureTests
     [Test]
     public void GeneratedAnimatedAssets_PassValidator()
     {
-        Assert.That(
-            KayKitAnimatedCreatureSetupTool.ValidateAnimatedAssets(),
-            Is.Empty);
+        Assert.That(KayKitAnimatedCreatureSetupTool.ValidateAnimatedAssets(), Is.Empty);
     }
 
     private static EquipmentWeapon Weapon(string name, string group, int hands, int range)
@@ -419,7 +561,7 @@ public sealed class KayKitAnimatedCreatureTests
             group = group,
             hands = hands,
             range = range,
-            damage = new Dice(1, 6, "slashing")
+            damage = new Dice(1, 6, "slashing"),
         };
     }
 }

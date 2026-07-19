@@ -12,14 +12,16 @@ namespace Game.DungeonGeneration
     {
         /// <summary>Uses Donjon's 3-by-3 box mask, leaving a blocked central third.</summary>
         Box,
+
         /// <summary>Uses Donjon's 3-by-3 cross mask, leaving the four corner thirds blocked.</summary>
         Cross,
+
         /// <summary>
         /// Uses a circular mask centered in the requested cell grid. Square requests match
         /// Donjon's column-radius formula; rectangular requests fit the radius to the limiting
         /// dimension so rotating the request rotates the same outline.
         /// </summary>
-        Round
+        Round,
     }
 
     /// <summary>Controls whether rooms are attempted at packed grid anchors or at scattered random positions.</summary>
@@ -27,8 +29,9 @@ namespace Game.DungeonGeneration
     {
         /// <summary>Attempts one room at each eligible coarse-grid anchor in stable row-major order.</summary>
         Packed,
+
         /// <summary>Attempts the Donjon area-derived number of randomly positioned rooms.</summary>
-        Scattered
+        Scattered,
     }
 
     /// <summary>Controls the probability that recursive corridor tunneling retries its prior direction first.</summary>
@@ -36,10 +39,12 @@ namespace Game.DungeonGeneration
     {
         /// <summary>Applies no preference for continuing in the previous direction.</summary>
         Labyrinth,
+
         /// <summary>Prepends the previous direction on half of recursive direction selections.</summary>
         Bent,
+
         /// <summary>Always prepends the previous direction after the first tunnel step.</summary>
-        Straight
+        Straight,
     }
 
     /// <summary>Identifies a stair's traversal direction.</summary>
@@ -47,8 +52,9 @@ namespace Game.DungeonGeneration
     {
         /// <summary>Traverses toward the previous depth.</summary>
         Up,
+
         /// <summary>Traverses toward the next depth.</summary>
-        Down
+        Down,
     }
 
     /// <summary>Identifies the PF2e threat category recorded by a deterministic encounter plan.</summary>
@@ -56,10 +62,12 @@ namespace Game.DungeonGeneration
     {
         /// <summary>A trivial-threat encounter.</summary>
         Trivial,
+
         /// <summary>A low-threat encounter.</summary>
         Low,
+
         /// <summary>A moderate-threat encounter.</summary>
-        Moderate
+        Moderate,
     }
 
     /// <summary>Represents an integer grid coordinate using KayKit's horizontal X and Z axes.</summary>
@@ -147,12 +155,15 @@ namespace Game.DungeonGeneration
     {
         /// <summary>The request violates a documented input constraint.</summary>
         InvalidRequest,
+
         /// <summary>One deterministic attempt failed a topology invariant.</summary>
         TopologyRejected,
+
         /// <summary>All permitted deterministic attempts were rejected.</summary>
         RetryLimitExhausted,
+
         /// <summary>A JSON document violates its schema or semantic invariants.</summary>
-        InvalidDocument
+        InvalidDocument,
     }
 
     /// <summary>Provides actionable deterministic information about a failed request, topology attempt, or document.</summary>
@@ -167,7 +178,8 @@ namespace Game.DungeonGeneration
             DungeonGenerationDiagnosticCode code,
             string field,
             string message,
-            int? attempt = null)
+            int? attempt = null
+        )
         {
             Code = code;
             Field = field ?? string.Empty;
@@ -196,11 +208,13 @@ namespace Game.DungeonGeneration
         /// <param name="diagnostics">Diagnostics to copy; a null sequence is treated as empty.</param>
         public DungeonGenerationResult(
             DungeonLevelDocument document,
-            IEnumerable<DungeonGenerationDiagnostic> diagnostics)
+            IEnumerable<DungeonGenerationDiagnostic> diagnostics
+        )
         {
             Document = document;
             Diagnostics = Array.AsReadOnly(
-                (diagnostics ?? Array.Empty<DungeonGenerationDiagnostic>()).ToArray());
+                (diagnostics ?? Array.Empty<DungeonGenerationDiagnostic>()).ToArray()
+            );
         }
 
         /// <summary>Gets the complete accepted document, or absence on failure.</summary>
@@ -237,7 +251,8 @@ namespace Game.DungeonGeneration
             string algorithm,
             int runSeed,
             int depth,
-            int topologyAttempt)
+            int topologyAttempt
+        )
         {
             Algorithm = algorithm;
             RunSeed = runSeed;
@@ -328,7 +343,12 @@ namespace Game.DungeonGeneration
         /// <param name="kind">The depth traversal direction.</param>
         /// <param name="cell">The walkable stair endpoint.</param>
         /// <param name="arrivalCell">The adjacent walkable cell used for party arrival.</param>
-        public DungeonStair(string id, DungeonStairKind kind, DungeonCell cell, DungeonCell arrivalCell)
+        public DungeonStair(
+            string id,
+            DungeonStairKind kind,
+            DungeonCell cell,
+            DungeonCell arrivalCell
+        )
         {
             Id = id;
             Kind = kind;
@@ -365,7 +385,8 @@ namespace Game.DungeonGeneration
             DungeonCell cell,
             int rotation = 0,
             string state = null,
-            float yOffset = 0f)
+            float yOffset = 0f
+        )
         {
             Id = id;
             AssetId = assetId;
@@ -413,16 +434,19 @@ namespace Game.DungeonGeneration
             int budget,
             IEnumerable<DungeonCell> spawnCells,
             IEnumerable<string> creatureIds,
-            bool isResolved = false)
+            bool isResolved = false
+        )
         {
             Id = id;
             RoomId = roomId;
             Threat = threat;
             Budget = budget;
             SpawnCells = Array.AsReadOnly(
-                (spawnCells ?? throw new ArgumentNullException(nameof(spawnCells))).ToArray());
+                (spawnCells ?? throw new ArgumentNullException(nameof(spawnCells))).ToArray()
+            );
             CreatureIds = Array.AsReadOnly(
-                (creatureIds ?? throw new ArgumentNullException(nameof(creatureIds))).ToArray());
+                (creatureIds ?? throw new ArgumentNullException(nameof(creatureIds))).ToArray()
+            );
             IsResolved = isResolved;
         }
 
@@ -465,16 +489,27 @@ namespace Game.DungeonGeneration
             IEnumerable<string> openDoorIds,
             IEnumerable<string> resolvedEncounterIds,
             IEnumerable<string> defeatedCreatureIds,
-            IEnumerable<DungeonCreatureRuntimeState> creatures = null)
+            IEnumerable<DungeonCreatureRuntimeState> creatures = null
+        )
         {
             OpenDoorIds = Array.AsReadOnly(
-                (openDoorIds ?? throw new ArgumentNullException(nameof(openDoorIds))).ToArray());
+                (openDoorIds ?? throw new ArgumentNullException(nameof(openDoorIds))).ToArray()
+            );
             ResolvedEncounterIds = Array.AsReadOnly(
-                (resolvedEncounterIds ?? throw new ArgumentNullException(nameof(resolvedEncounterIds))).ToArray());
+                (
+                    resolvedEncounterIds
+                    ?? throw new ArgumentNullException(nameof(resolvedEncounterIds))
+                ).ToArray()
+            );
             DefeatedCreatureIds = Array.AsReadOnly(
-                (defeatedCreatureIds ?? throw new ArgumentNullException(nameof(defeatedCreatureIds))).ToArray());
+                (
+                    defeatedCreatureIds
+                    ?? throw new ArgumentNullException(nameof(defeatedCreatureIds))
+                ).ToArray()
+            );
             Creatures = Array.AsReadOnly(
-                (creatures ?? Array.Empty<DungeonCreatureRuntimeState>()).ToArray());
+                (creatures ?? Array.Empty<DungeonCreatureRuntimeState>()).ToArray()
+            );
         }
 
         /// <summary>Gets stable IDs that exactly mirror doors whose persisted open flag is set.</summary>
@@ -506,7 +541,8 @@ namespace Game.DungeonGeneration
             string encounterId,
             DungeonCell cell,
             int hitPoints,
-            string state)
+            string state
+        )
         {
             InstanceId = instanceId;
             CreatureId = creatureId;

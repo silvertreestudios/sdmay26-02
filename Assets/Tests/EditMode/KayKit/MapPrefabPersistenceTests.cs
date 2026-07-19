@@ -68,7 +68,8 @@ public sealed class MapPrefabPersistenceTests
         Assert.That(serialized.FindProperty("legacyBitmapSpacing").floatValue, Is.EqualTo(2f));
         Assert.That(
             serialized.FindProperty("previousSourceMode").enumValueIndex,
-            Is.EqualTo((int)MapSourceMode.Json));
+            Is.EqualTo((int)MapSourceMode.Json)
+        );
 
         serialized.FindProperty("sourceMode").enumValueIndex = (int)MapSourceMode.Bitmap;
         serialized.ApplyModifiedPropertiesWithoutUndo();
@@ -82,7 +83,8 @@ public sealed class MapPrefabPersistenceTests
         Assert.That(map.Spacing, Is.EqualTo(2f));
         Assert.That(
             serialized.FindProperty("previousSourceMode").enumValueIndex,
-            Is.EqualTo((int)MapSourceMode.Bitmap));
+            Is.EqualTo((int)MapSourceMode.Bitmap)
+        );
     }
 
     [Test]
@@ -112,7 +114,10 @@ public sealed class MapPrefabPersistenceTests
         manualLookalike.transform.position = expectedWorldPosition;
 
         Assert.That(manualLookalike.name, Is.EqualTo("Quad"));
-        Assert.That(manualLookalike.GetComponent<MeshRenderer>().sharedMaterial, Is.SameAs(legacyFloor));
+        Assert.That(
+            manualLookalike.GetComponent<MeshRenderer>().sharedMaterial,
+            Is.SameAs(legacyFloor)
+        );
         Assert.That(manualLookalike.transform.position, Is.EqualTo(expectedWorldPosition));
 
         map.ClearGeneratedContent();
@@ -123,7 +128,10 @@ public sealed class MapPrefabPersistenceTests
         map = FindMap(scene);
         Transform reloadedLookalike = map.transform.Find("Quad");
         Assert.That(reloadedLookalike, Is.Not.Null);
-        Assert.That(reloadedLookalike.GetComponent<MeshRenderer>().sharedMaterial, Is.SameAs(legacyFloor));
+        Assert.That(
+            reloadedLookalike.GetComponent<MeshRenderer>().sharedMaterial,
+            Is.SameAs(legacyFloor)
+        );
         Assert.That(reloadedLookalike.position, Is.EqualTo(expectedWorldPosition));
     }
 
@@ -139,8 +147,8 @@ public sealed class MapPrefabPersistenceTests
         int callbackCountBefore = callbacksBefore?.GetInvocationList().Length ?? 0;
         map.SendMessage("OnValidate");
         map.SendMessage("OnValidate");
-        System.Delegate[] scheduledCallbacks = EditorApplication.delayCall
-            .GetInvocationList()
+        System.Delegate[] scheduledCallbacks = EditorApplication
+            .delayCall.GetInvocationList()
             .Skip(callbackCountBefore)
             .ToArray();
         EditorApplication.delayCall = callbacksBefore;
@@ -149,11 +157,15 @@ public sealed class MapPrefabPersistenceTests
         Undo.RecordObject(map, "Configure test JSON source");
         map.ConfigureJson(
             AssetDatabase.LoadAssetAtPath<TextAsset>(KayKitDungeonExampleTool.JsonPath),
-            AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(KayKitSetupTool.DungeonCatalogPath));
+            AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(KayKitSetupTool.DungeonCatalogPath)
+        );
         EditorUtility.SetDirty(map);
         PrefabUtility.RecordPrefabInstancePropertyModifications(map);
-        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
-            string.Join(System.Environment.NewLine, validation.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(System.Environment.NewLine, validation.Errors)
+        );
         Assert.That(EditorSceneManager.SaveScene(scene), Is.True);
 
         Transform generatedBeforeCallback = map.transform.Find("GeneratedMap");
@@ -168,22 +180,32 @@ public sealed class MapPrefabPersistenceTests
         string serializedAfterCallback = File.ReadAllText(ScenePath);
 
         Assert.That(map.SourceMode, Is.EqualTo(MapSourceMode.Json));
-        Assert.That(generatedAfterCallback, Is.SameAs(generatedBeforeCallback),
-            "The stale bitmap callback regenerated the JSON hierarchy.");
-        Assert.That(callbackDirtiedScene, Is.False,
-            "The stale bitmap callback dirtied the saved JSON scene.");
-        Assert.That(serializedAfterCallback, Is.EqualTo(serializedBeforeCallback),
-            "Saving after the callback introduced serialized scene churn.");
+        Assert.That(
+            generatedAfterCallback,
+            Is.SameAs(generatedBeforeCallback),
+            "The stale bitmap callback regenerated the JSON hierarchy."
+        );
+        Assert.That(
+            callbackDirtiedScene,
+            Is.False,
+            "The stale bitmap callback dirtied the saved JSON scene."
+        );
+        Assert.That(
+            serializedAfterCallback,
+            Is.EqualTo(serializedBeforeCallback),
+            "Saving after the callback introduced serialized scene churn."
+        );
     }
 
     private static void AssertOverride(Map map, string propertyPath)
     {
         PropertyModification[] modifications = PrefabUtility.GetPropertyModifications(map);
         Assert.That(
-            modifications != null && modifications.Any(modification =>
-                modification.propertyPath == propertyPath),
+            modifications != null
+                && modifications.Any(modification => modification.propertyPath == propertyPath),
             Is.True,
-            $"Expected prefab override for {propertyPath}.");
+            $"Expected prefab override for {propertyPath}."
+        );
     }
 
     private static int MigrationVersion(Map map)
@@ -194,7 +216,8 @@ public sealed class MapPrefabPersistenceTests
 
     private static Map FindMap(Scene scene)
     {
-        Map map = scene.GetRootGameObjects()
+        Map map = scene
+            .GetRootGameObjects()
             .SelectMany(root => root.GetComponentsInChildren<Map>(true))
             .Single();
         Assert.That(PrefabUtility.IsPartOfPrefabInstance(map), Is.True);
@@ -233,7 +256,8 @@ public sealed class MapPrefabPersistenceTests
             Map map = root.AddComponent<Map>();
             FieldInfo settingsField = typeof(Map).GetField(
                 "Settings",
-                BindingFlags.Instance | BindingFlags.NonPublic);
+                BindingFlags.Instance | BindingFlags.NonPublic
+            );
             Assert.That(settingsField, Is.Not.Null);
             settingsField.SetValue(map, new TileSettings());
 

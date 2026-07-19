@@ -9,8 +9,6 @@ namespace TestsUI
 {
     public class GameUITests : PlayModeBase
     {
-        
-
         [UnitySetUp]
         public override IEnumerator Setup()
         {
@@ -28,7 +26,10 @@ namespace TestsUI
             List<string> buttonNames = GetActionButtons(player);
             foreach (string name in buttonNames)
             {
-                yield return WaitUntilWithTimeout(timeout, () => (button = root.Q<Button>(name)) != null);
+                yield return WaitUntilWithTimeout(
+                    timeout,
+                    () => (button = root.Q<Button>(name)) != null
+                );
                 Assert.IsNotNull(button, $"Button with name '{name}' not found in UI.");
                 button = null; // Reset button for the next search
             }
@@ -41,12 +42,21 @@ namespace TestsUI
         [UnityTest]
         public IEnumerator FastForwardButtonsPresentTest()
         {
-            string[] buttonNames = { "PauseButton", "Speed2xButton", "Speed3xButton", "SpeedToggleButton" };
+            string[] buttonNames =
+            {
+                "PauseButton",
+                "Speed2xButton",
+                "Speed3xButton",
+                "SpeedToggleButton",
+            };
             foreach (string name in buttonNames)
             {
-                yield return WaitUntilWithTimeout(timeout, () => (button = root.Q<Button>(name)) != null);
+                yield return WaitUntilWithTimeout(
+                    timeout,
+                    () => (button = root.Q<Button>(name)) != null
+                );
                 Assert.IsNotNull(button, $"Button with name '{name}' not found in UI.");
-                button = null; 
+                button = null;
             }
             yield return null;
         }
@@ -61,9 +71,12 @@ namespace TestsUI
             VisualElement element = null;
             foreach (string name in elementNames)
             {
-                yield return WaitUntilWithTimeout(timeout, () => (element = root.Q<VisualElement>(name)) != null);
+                yield return WaitUntilWithTimeout(
+                    timeout,
+                    () => (element = root.Q<VisualElement>(name)) != null
+                );
                 Assert.IsNotNull(element, $"Element with name '{name}' not found in UI.");
-                element = null; 
+                element = null;
             }
             yield return null;
         }
@@ -73,13 +86,19 @@ namespace TestsUI
         {
             VisualElement cardHolder = null;
             Button strideButton = null;
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                cardHolder = root.Q<VisualElement>("CardHolder");
-                strideButton = root.Q<Button>("StrideButton");
-                player = CombatManagerInterface.GetInstance().WhosTurn();
-                return cardHolder != null && cardHolder.childCount > 0 && strideButton != null && player != null;
-            });
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    cardHolder = root.Q<VisualElement>("CardHolder");
+                    strideButton = root.Q<Button>("StrideButton");
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    return cardHolder != null
+                        && cardHolder.childCount > 0
+                        && strideButton != null
+                        && player != null;
+                }
+            );
             Assert.IsNotNull(cardHolder, "CardHolder not found in UI.");
             Assert.IsNotNull(strideButton, "Player turn action buttons were not ready.");
 
@@ -88,47 +107,94 @@ namespace TestsUI
 
             List<GameObject> combatants = CombatManagerInterface.GetInstance().GetCombatants();
             int playerCardIndex = combatants.IndexOf(player);
-            Assert.GreaterOrEqual(playerCardIndex, 0, "Current player was not found in the combatant queue.");
-            Assert.Less(playerCardIndex, cardHolder.childCount, "Current player's card was not found in CardHolder.");
+            Assert.GreaterOrEqual(
+                playerCardIndex,
+                0,
+                "Current player was not found in the combatant queue."
+            );
+            Assert.Less(
+                playerCardIndex,
+                cardHolder.childCount,
+                "Current player's card was not found in CardHolder."
+            );
 
             VisualElement card = cardHolder.ElementAt(playerCardIndex);
             List<VisualElement> medallions = null;
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                medallions = card.Query<VisualElement>(className: "action-medallion").ToList();
-                return medallions.Count == 3;
-            });
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    medallions = card.Query<VisualElement>(className: "action-medallion").ToList();
+                    return medallions.Count == 3;
+                }
+            );
 
-            Assert.AreEqual(3, medallions.Count, "Player card should show exactly three action medallions.");
-            Assert.IsNull(card.Q<Label>("DESC"), "Temporary DESC action point label should be removed.");
+            Assert.AreEqual(
+                3,
+                medallions.Count,
+                "Player card should show exactly three action medallions."
+            );
+            Assert.IsNull(
+                card.Q<Label>("DESC"),
+                "Temporary DESC action point label should be removed."
+            );
             foreach (Label label in card.Query<Label>().ToList())
-                Assert.IsFalse((label.text ?? "").Contains("AP:"), "Player card should not show textual AP.");
+                Assert.IsFalse(
+                    (label.text ?? "").Contains("AP:"),
+                    "Player card should not show textual AP."
+                );
 
-            float containerWidth = card.Q<VisualElement>("ActionPointContainer").resolvedStyle.width;
-            float containerHeight = card.Q<VisualElement>("ActionPointContainer").resolvedStyle.height;
+            float containerWidth = card.Q<VisualElement>(
+                "ActionPointContainer"
+            ).resolvedStyle.width;
+            float containerHeight = card.Q<VisualElement>(
+                "ActionPointContainer"
+            ).resolvedStyle.height;
 
             uint[] actionPointStates = { 3, 2, 1, 0 };
             foreach (uint actionPoints in actionPointStates)
             {
                 foreach (GameObject combatant in combatants)
                 {
-                    ActionController combatantActionController = combatant.GetComponent<ActionController>();
+                    ActionController combatantActionController =
+                        combatant.GetComponent<ActionController>();
                     if (combatantActionController != null)
                         combatantActionController.ActionPoints = actionPoints;
                 }
 
-                yield return WaitUntilWithTimeout(timeout, () =>
-                {
-                    medallions = card.Query<VisualElement>(className: "action-medallion").ToList();
-                    return CountMedallionsWithClass(medallions, "action-medallion--filled") == (int)actionPoints;
-                });
+                yield return WaitUntilWithTimeout(
+                    timeout,
+                    () =>
+                    {
+                        medallions = card.Query<VisualElement>(className: "action-medallion")
+                            .ToList();
+                        return CountMedallionsWithClass(medallions, "action-medallion--filled")
+                            == (int)actionPoints;
+                    }
+                );
 
                 int filledCount = CountMedallionsWithClass(medallions, "action-medallion--filled");
                 int emptyCount = CountMedallionsWithClass(medallions, "action-medallion--empty");
-                Assert.AreEqual((int)actionPoints, filledCount, $"Expected {actionPoints} filled action medallions.");
-                Assert.AreEqual(3 - (int)actionPoints, emptyCount, $"Expected {3 - (int)actionPoints} empty action medallions.");
-                Assert.AreEqual(containerWidth, card.Q<VisualElement>("ActionPointContainer").resolvedStyle.width, "Action medallion container width should not shift as AP changes.");
-                Assert.AreEqual(containerHeight, card.Q<VisualElement>("ActionPointContainer").resolvedStyle.height, "Action medallion container height should not shift as AP changes.");
+                Assert.AreEqual(
+                    (int)actionPoints,
+                    filledCount,
+                    $"Expected {actionPoints} filled action medallions."
+                );
+                Assert.AreEqual(
+                    3 - (int)actionPoints,
+                    emptyCount,
+                    $"Expected {3 - (int)actionPoints} empty action medallions."
+                );
+                Assert.AreEqual(
+                    containerWidth,
+                    card.Q<VisualElement>("ActionPointContainer").resolvedStyle.width,
+                    "Action medallion container width should not shift as AP changes."
+                );
+                Assert.AreEqual(
+                    containerHeight,
+                    card.Q<VisualElement>("ActionPointContainer").resolvedStyle.height,
+                    "Action medallion container height should not shift as AP changes."
+                );
             }
         }
 
@@ -137,35 +203,60 @@ namespace TestsUI
         {
             VisualElement cardHolder = null;
             List<GameObject> combatants = null;
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                cardHolder = root.Q<VisualElement>("CardHolder");
-                combatants = CombatManagerInterface.GetInstance().GetCombatants();
-                if (cardHolder == null || combatants == null || cardHolder.childCount != combatants.Count)
-                    return false;
-                for (int i = 0; i < cardHolder.childCount; i++)
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
                 {
-                    Image image = cardHolder.ElementAt(i).Q<Image>("PortraitImage");
-                    if (image == null || image.image == null)
+                    cardHolder = root.Q<VisualElement>("CardHolder");
+                    combatants = CombatManagerInterface.GetInstance().GetCombatants();
+                    if (
+                        cardHolder == null
+                        || combatants == null
+                        || cardHolder.childCount != combatants.Count
+                    )
                         return false;
+                    for (int i = 0; i < cardHolder.childCount; i++)
+                    {
+                        Image image = cardHolder.ElementAt(i).Q<Image>("PortraitImage");
+                        if (image == null || image.image == null)
+                            return false;
+                    }
+                    return true;
                 }
-                return true;
-            });
+            );
 
             Assert.IsNotNull(cardHolder, "CardHolder not found in UI.");
             Assert.IsNotNull(combatants, "Combatants were not ready.");
-            Assert.AreEqual(combatants.Count, cardHolder.childCount, "Every combatant should have an initiative card.");
+            Assert.AreEqual(
+                combatants.Count,
+                cardHolder.childCount,
+                "Every combatant should have an initiative card."
+            );
 
             for (int i = 0; i < combatants.Count; i++)
             {
                 Image portraitImage = cardHolder.ElementAt(i).Q<Image>("PortraitImage");
                 Portrait portrait = combatants[i].GetComponent<Portrait>();
                 Texture2D snapshot = portrait != null ? portrait.GetPortraitSnapshot() : null;
-                Texture2D displayedPortrait = portraitImage != null ? portraitImage.image as Texture2D : null;
-                Assert.IsNotNull(portraitImage, combatants[i].name + " card is missing its portrait element.");
-                Assert.AreEqual(ScaleMode.ScaleToFit, portraitImage.scaleMode, combatants[i].name + " portrait should preserve its aspect ratio.");
-                Assert.IsNotNull(snapshot, combatants[i].name + " did not capture a portrait texture.");
-                Assert.IsNotNull(displayedPortrait, "Initiative card " + i + " is not displaying a portrait texture.");
+                Texture2D displayedPortrait =
+                    portraitImage != null ? portraitImage.image as Texture2D : null;
+                Assert.IsNotNull(
+                    portraitImage,
+                    combatants[i].name + " card is missing its portrait element."
+                );
+                Assert.AreEqual(
+                    ScaleMode.ScaleToFit,
+                    portraitImage.scaleMode,
+                    combatants[i].name + " portrait should preserve its aspect ratio."
+                );
+                Assert.IsNotNull(
+                    snapshot,
+                    combatants[i].name + " did not capture a portrait texture."
+                );
+                Assert.IsNotNull(
+                    displayedPortrait,
+                    "Initiative card " + i + " is not displaying a portrait texture."
+                );
 
                 bool hasVisiblePixel = false;
                 foreach (Color32 pixel in displayedPortrait.GetPixels32())
@@ -175,7 +266,10 @@ namespace TestsUI
                     hasVisiblePixel = true;
                     break;
                 }
-                Assert.IsTrue(hasVisiblePixel, combatants[i].name + " portrait is fully transparent.");
+                Assert.IsTrue(
+                    hasVisiblePixel,
+                    combatants[i].name + " portrait is fully transparent."
+                );
             }
         }
 
@@ -183,12 +277,15 @@ namespace TestsUI
         public IEnumerator CombatTrackerShowsReducedActionsForSlowedCreature()
         {
             VisualElement cardHolder = null;
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                cardHolder = root.Q<VisualElement>("CardHolder");
-                player = CombatManagerInterface.GetInstance().WhosTurn();
-                return cardHolder != null && cardHolder.childCount > 0 && player != null;
-            });
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    cardHolder = root.Q<VisualElement>("CardHolder");
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    return cardHolder != null && cardHolder.childCount > 0 && player != null;
+                }
+            );
             Assert.IsNotNull(cardHolder, "CardHolder not found in UI.");
             Assert.IsNotNull(player, "Current player was not ready.");
 
@@ -198,12 +295,14 @@ namespace TestsUI
             List<GameObject> combatants = CombatManagerInterface.GetInstance().GetCombatants();
             foreach (GameObject combatant in combatants)
             {
-                ActionController combatantActionController = combatant.GetComponent<ActionController>();
+                ActionController combatantActionController =
+                    combatant.GetComponent<ActionController>();
                 if (combatantActionController != null)
                     combatantActionController.ActionPoints = 0;
             }
 
-            Conditions conditions = player.GetComponent<Conditions>() ?? player.AddComponent<Conditions>();
+            Conditions conditions =
+                player.GetComponent<Conditions>() ?? player.AddComponent<Conditions>();
             Condition slowed = DefinedConditions.TryGet("Slowed 1");
             Assert.IsNotNull(slowed, "Slowed 1 condition definition was not found.");
 
@@ -211,26 +310,51 @@ namespace TestsUI
             actionController.StartTurn();
 
             int matchingCards = 0;
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                matchingCards = CountCardsWithMedallionState(cardHolder, 2, 1);
-                return matchingCards == 1;
-            });
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    matchingCards = CountCardsWithMedallionState(cardHolder, 2, 1);
+                    return matchingCards == 1;
+                }
+            );
 
-            Assert.IsTrue(conditions.Contains("Slowed"), "Combatant should have the Slowed condition.");
-            Assert.AreEqual(2u, actionController.ActionPoints, "Slowed 1 should leave the combatant with two actions at turn start.");
-            Assert.AreEqual(1, matchingCards, "Combat tracker should show exactly one card with two available actions for Slowed 1.");
+            Assert.IsTrue(
+                conditions.Contains("Slowed"),
+                "Combatant should have the Slowed condition."
+            );
+            Assert.AreEqual(
+                2u,
+                actionController.ActionPoints,
+                "Slowed 1 should leave the combatant with two actions at turn start."
+            );
+            Assert.AreEqual(
+                1,
+                matchingCards,
+                "Combat tracker should show exactly one card with two available actions for Slowed 1."
+            );
         }
 
-        private int CountCardsWithMedallionState(VisualElement cardHolder, int expectedFilled, int expectedEmpty)
+        private int CountCardsWithMedallionState(
+            VisualElement cardHolder,
+            int expectedFilled,
+            int expectedEmpty
+        )
         {
             int matchingCards = 0;
             for (int i = 0; i < cardHolder.childCount; i++)
             {
-                List<VisualElement> medallions = cardHolder.ElementAt(i).Query<VisualElement>(className: "action-medallion").ToList();
-                if (medallions.Count == 3
-                    && CountMedallionsWithClass(medallions, "action-medallion--filled") == expectedFilled
-                    && CountMedallionsWithClass(medallions, "action-medallion--empty") == expectedEmpty)
+                List<VisualElement> medallions = cardHolder
+                    .ElementAt(i)
+                    .Query<VisualElement>(className: "action-medallion")
+                    .ToList();
+                if (
+                    medallions.Count == 3
+                    && CountMedallionsWithClass(medallions, "action-medallion--filled")
+                        == expectedFilled
+                    && CountMedallionsWithClass(medallions, "action-medallion--empty")
+                        == expectedEmpty
+                )
                 {
                     matchingCards++;
                 }
@@ -248,7 +372,7 @@ namespace TestsUI
             }
             return count;
         }
-       
+
         [UnityTest]
         public IEnumerator ActionButtonsGreyOutInsteadOfDisappearingWhenUnavailable()
         {
@@ -256,14 +380,20 @@ namespace TestsUI
             Button strikeButton = null;
             Button endTurnButton = null;
 
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                player = CombatManagerInterface.GetInstance().WhosTurn();
-                strideButton = root.Q<Button>("StrideButton");
-                strikeButton = root.Q<Button>("UnarmedStrikeButton");
-                endTurnButton = root.Q<Button>("EndTurnButton");
-                return player != null && strideButton != null && strikeButton != null && endTurnButton != null;
-            });
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    strideButton = root.Q<Button>("StrideButton");
+                    strikeButton = root.Q<Button>("UnarmedStrikeButton");
+                    endTurnButton = root.Q<Button>("EndTurnButton");
+                    return player != null
+                        && strideButton != null
+                        && strikeButton != null
+                        && endTurnButton != null;
+                }
+            );
 
             Assert.IsNotNull(player, "Current player was not ready.");
             Assert.IsNotNull(strideButton, "Stride button was not ready.");
@@ -276,21 +406,56 @@ namespace TestsUI
             actionController.ActionPoints = 0;
             yield return null;
 
-            Assert.AreEqual(DisplayStyle.Flex, strideButton.resolvedStyle.display, "Stride should stay visible when unavailable.");
-            Assert.AreEqual(DisplayStyle.Flex, strikeButton.resolvedStyle.display, "Strike should stay visible when unavailable.");
-            Assert.IsFalse(strideButton.enabledSelf, "Stride should be disabled when AP is too low.");
-            Assert.IsFalse(strikeButton.enabledSelf, "Strike should be disabled when AP is too low.");
-            Assert.IsTrue(strideButton.ClassListContains(HUDController.DisabledHudButtonClass), "Stride should use the HUD disabled style.");
-            Assert.IsTrue(strikeButton.ClassListContains(HUDController.DisabledHudButtonClass), "Strike should use the HUD disabled style.");
-            Assert.IsTrue(endTurnButton.enabledSelf, "End Turn should remain available when no action is running.");
+            Assert.AreEqual(
+                DisplayStyle.Flex,
+                strideButton.resolvedStyle.display,
+                "Stride should stay visible when unavailable."
+            );
+            Assert.AreEqual(
+                DisplayStyle.Flex,
+                strikeButton.resolvedStyle.display,
+                "Strike should stay visible when unavailable."
+            );
+            Assert.IsFalse(
+                strideButton.enabledSelf,
+                "Stride should be disabled when AP is too low."
+            );
+            Assert.IsFalse(
+                strikeButton.enabledSelf,
+                "Strike should be disabled when AP is too low."
+            );
+            Assert.IsTrue(
+                strideButton.ClassListContains(HUDController.DisabledHudButtonClass),
+                "Stride should use the HUD disabled style."
+            );
+            Assert.IsTrue(
+                strikeButton.ClassListContains(HUDController.DisabledHudButtonClass),
+                "Strike should use the HUD disabled style."
+            );
+            Assert.IsTrue(
+                endTurnButton.enabledSelf,
+                "End Turn should remain available when no action is running."
+            );
 
             actionController.ActionPoints = 1;
             yield return null;
 
-            Assert.IsTrue(strideButton.enabledSelf, "Stride should re-enable when enough AP is restored.");
-            Assert.IsTrue(strikeButton.enabledSelf, "Strike should re-enable when enough AP is restored.");
-            Assert.IsFalse(strideButton.ClassListContains(HUDController.DisabledHudButtonClass), "Stride disabled style should be removed when available.");
-            Assert.IsFalse(strikeButton.ClassListContains(HUDController.DisabledHudButtonClass), "Strike disabled style should be removed when available.");
+            Assert.IsTrue(
+                strideButton.enabledSelf,
+                "Stride should re-enable when enough AP is restored."
+            );
+            Assert.IsTrue(
+                strikeButton.enabledSelf,
+                "Strike should re-enable when enough AP is restored."
+            );
+            Assert.IsFalse(
+                strideButton.ClassListContains(HUDController.DisabledHudButtonClass),
+                "Stride disabled style should be removed when available."
+            );
+            Assert.IsFalse(
+                strikeButton.ClassListContains(HUDController.DisabledHudButtonClass),
+                "Strike disabled style should be removed when available."
+            );
         }
 
         /// <summary>
@@ -301,10 +466,16 @@ namespace TestsUI
         {
             // Get GridBase to check FSM states
             GridPrivate.GridBase gridBase = null;
-            yield return WaitUntilWithTimeout(timeout, () => (gridBase = Object.FindFirstObjectByType<GridPrivate.GridBase>()) != null);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => (gridBase = Object.FindFirstObjectByType<GridPrivate.GridBase>()) != null
+            );
             Assert.IsNotNull(gridBase, "GridBase not found in the scene.");
 
-            Assert.IsTrue(gridBase.Fsm.CurrentState is GridPrivate.StateIdle, "FSM should start in StateIdle.");
+            Assert.IsTrue(
+                gridBase.Fsm.CurrentState is GridPrivate.StateIdle,
+                "FSM should start in StateIdle."
+            );
 
             // wait for buttons to be not null
             Button strideButton = null;
@@ -312,32 +483,50 @@ namespace TestsUI
             Button cancelButton = null;
             Button endTurnButton = null;
 
-            yield return WaitUntilWithTimeout(timeout, () => {
-                strideButton = root.Q<Button>("StrideButton");
-                strikeButton = root.Q<Button>("UnarmedStrikeButton");
-                cancelButton = root.Q<Button>("CancelActionButton");
-                endTurnButton = root.Q<Button>("EndTurnButton");
-                return strideButton != null && strikeButton != null && cancelButton != null && endTurnButton != null;
-            });
-    
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    strideButton = root.Q<Button>("StrideButton");
+                    strikeButton = root.Q<Button>("UnarmedStrikeButton");
+                    cancelButton = root.Q<Button>("CancelActionButton");
+                    endTurnButton = root.Q<Button>("EndTurnButton");
+                    return strideButton != null
+                        && strikeButton != null
+                        && cancelButton != null
+                        && endTurnButton != null;
+                }
+            );
 
             // Test Stride Button
             PushButton(strideButton);
             yield return null;
-            Assert.IsTrue(gridBase.Fsm.CurrentState is GridPrivate.StateStride, "FSM should be in StateStride after clicking Stride button.");
+            Assert.IsTrue(
+                gridBase.Fsm.CurrentState is GridPrivate.StateStride,
+                "FSM should be in StateStride after clicking Stride button."
+            );
 
             PushButton(cancelButton);
             yield return null;
-            Assert.IsTrue(gridBase.Fsm.CurrentState is GridPrivate.StateIdle, "FSM should return to StateIdle after clicking Cancel button from Stride.");
+            Assert.IsTrue(
+                gridBase.Fsm.CurrentState is GridPrivate.StateIdle,
+                "FSM should return to StateIdle after clicking Cancel button from Stride."
+            );
 
             // Test Strike Button
             PushButton(strikeButton);
             yield return null;
-            Assert.IsTrue(gridBase.Fsm.CurrentState is GridPrivate.StateStrike, "FSM should be in StateStrike after clicking Strike button.");
+            Assert.IsTrue(
+                gridBase.Fsm.CurrentState is GridPrivate.StateStrike,
+                "FSM should be in StateStrike after clicking Strike button."
+            );
 
             PushButton(cancelButton);
             yield return null;
-            Assert.IsTrue(gridBase.Fsm.CurrentState is GridPrivate.StateIdle, "FSM should return to StateIdle after clicking Cancel button from Strike.");
+            Assert.IsTrue(
+                gridBase.Fsm.CurrentState is GridPrivate.StateIdle,
+                "FSM should return to StateIdle after clicking Cancel button from Strike."
+            );
 
             // Test End Turn Button last
             PushButton(endTurnButton);
@@ -358,14 +547,20 @@ namespace TestsUI
             Button pauseBtn = null;
             Button speedToggle = null;
 
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                speed2x = root.Q<Button>("Speed2xButton");
-                speed3x = root.Q<Button>("Speed3xButton");
-                pauseBtn = root.Q<Button>("PauseButton");
-                speedToggle = root.Q<Button>("SpeedToggleButton");
-                return speed2x != null && speed3x != null && pauseBtn != null && speedToggle != null;
-            });
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    speed2x = root.Q<Button>("Speed2xButton");
+                    speed3x = root.Q<Button>("Speed3xButton");
+                    pauseBtn = root.Q<Button>("PauseButton");
+                    speedToggle = root.Q<Button>("SpeedToggleButton");
+                    return speed2x != null
+                        && speed3x != null
+                        && pauseBtn != null
+                        && speedToggle != null;
+                }
+            );
 
             Assert.IsNotNull(speed2x, "Speed2xButton not found.");
             Assert.IsNotNull(speed3x, "Speed3xButton not found.");
@@ -384,9 +579,8 @@ namespace TestsUI
             PushButton(pauseBtn);
             yield return null;
             Assert.AreEqual(0f, Time.timeScale, "Time scale should be 0 after clicking Pause.");
-            
         }
-        
+
         /// <summary>
         /// Tests the functionality of the combat log by sending a test log message and verifying it appears in the log list, as well as testing the toggle button for visibility
         /// </summary>
@@ -398,29 +592,44 @@ namespace TestsUI
             VisualElement handle = null;
             Button toggleButton = null;
 
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                combatLogComponent = Object.FindFirstObjectByType<CombatLog>();
-                combatLogUI = root.Q<VisualElement>("CombatLog");
-                handle = root.Q<VisualElement>("ResizeHandle");
-                toggleButton = root.Q<Button>("LogToggleButton");
-                
-                return combatLogComponent != null && combatLogUI != null && handle != null && toggleButton != null;
-            });
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    combatLogComponent = Object.FindFirstObjectByType<CombatLog>();
+                    combatLogUI = root.Q<VisualElement>("CombatLog");
+                    handle = root.Q<VisualElement>("ResizeHandle");
+                    toggleButton = root.Q<Button>("LogToggleButton");
 
-            Assert.IsNotNull(combatLogComponent, "CombatLog component was not initialized on a game object.");
+                    return combatLogComponent != null
+                        && combatLogUI != null
+                        && handle != null
+                        && toggleButton != null;
+                }
+            );
+
+            Assert.IsNotNull(
+                combatLogComponent,
+                "CombatLog component was not initialized on a game object."
+            );
             Assert.IsNotNull(combatLogUI, "CombatLog UI element not found.");
             Assert.IsNotNull(handle, "ResizeHandle UI element not found.");
             Assert.IsNotNull(toggleButton, "LogToggleButton UI element not found.");
 
-            // Add a test log and ensure we can select the generic list view element 
+            // Add a test log and ensure we can select the generic list view element
             ListView logList = null;
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                logList = combatLogUI.Q<ListView>("CombatLog") ?? combatLogUI as ListView;
-                return logList != null;
-            });
-            Assert.IsNotNull(logList, "Could not find the ListView associated with the Combat Log.");
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    logList = combatLogUI.Q<ListView>("CombatLog") ?? combatLogUI as ListView;
+                    return logList != null;
+                }
+            );
+            Assert.IsNotNull(
+                logList,
+                "Could not find the ListView associated with the Combat Log."
+            );
 
             CombatLogEntry entry = new CombatLogEntry
             {
@@ -430,7 +639,7 @@ namespace TestsUI
                 Target = "Training Dummy",
                 Action = "Longsword",
                 Roll = new CombatLogRoll { Total = 23, DifficultyClass = 18 },
-                Damage = new CombatLogDamage { Total = 7 }
+                Damage = new CombatLogDamage { Total = 7 },
             };
             entry.Damage.Parts.Add(new CombatLogDamagePart("slashing", 7));
             entry.Details.Add(new CombatLogDetail("D20 Roll", "23 (15 + 8)"));
@@ -438,14 +647,22 @@ namespace TestsUI
             combatLogComponent.LogEntry(entry);
             yield return null;
 
-            Assert.IsTrue(logList.itemsSource != null && logList.itemsSource.Count > 0, "Combat Log list view items source should not be empty after structured logging.");
-            Assert.IsInstanceOf<CombatLogEntry>(logList.itemsSource[logList.itemsSource.Count - 1], "Combat Log list view should be backed by structured entries.");
+            Assert.IsTrue(
+                logList.itemsSource != null && logList.itemsSource.Count > 0,
+                "Combat Log list view items source should not be empty after structured logging."
+            );
+            Assert.IsInstanceOf<CombatLogEntry>(
+                logList.itemsSource[logList.itemsSource.Count - 1],
+                "Combat Log list view should be backed by structured entries."
+            );
 
-            
             PushButton(toggleButton);
             yield return null;
-            
 
-            Assert.IsFalse(HUDController.GetInstance().logVisible, "Combat log should be hidden after toggling visibility.");        }
+            Assert.IsFalse(
+                HUDController.GetInstance().logVisible,
+                "Combat log should be hidden after toggling visibility."
+            );
+        }
     }
 }

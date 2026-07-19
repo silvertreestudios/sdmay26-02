@@ -7,21 +7,23 @@ namespace Game.Rules.Runtime
 {
     public sealed partial class RuleDispatcher
     {
-
         internal ReductionResult<TResult> Reduce<TOp, TResult>(
             OpFrame<TOp> frame,
             IOpReducer<TOp, TResult> reducer,
-            RuleSource source)
+            RuleSource source
+        )
             where TOp : IRuleOp<TResult>
         {
             return store.Reduce(
                 new ReductionContext<TOp>(frame.Op, frame.Id, frame.RootId, source),
-                reducer);
+                reducer
+            );
         }
 
         internal void CaptureCommittedFacts(
             IFrameInvocation invocation,
-            IReadOnlyList<RuleFact> facts)
+            IReadOnlyList<RuleFact> facts
+        )
         {
             if (invocation == null)
                 throw new ArgumentNullException(nameof(invocation));
@@ -31,7 +33,9 @@ namespace Game.Rules.Runtime
             lock (gate)
             {
                 if (activeRoot.IsIdle || activeRoot.RootId != invocation.FrameView.RootId)
-                    throw new InvalidOperationException("Reducer Facts crossed resolution root ownership.");
+                    throw new InvalidOperationException(
+                        "Reducer Facts crossed resolution root ownership."
+                    );
 
                 // Reducer Facts enter the root batch at the store commit point. Middleware may
                 // replace the structural result or commit later children while it unwinds, neither
@@ -40,37 +44,44 @@ namespace Game.Rules.Runtime
                 invocation.CaptureDirectFacts(facts);
                 foreach (RuleFact fact in facts)
                 {
-                    activeRoot.AddFact(
-                        fact,
-                        invocation.FrameView.Id,
-                        invocation.FrameView.RootId);
+                    activeRoot.AddFact(fact, invocation.FrameView.Id, invocation.FrameView.RootId);
                 }
             }
         }
 
         private IReadOnlyList<CommittedFactRecord> SnapshotCommittedFacts(
             RootResolution resolution,
-            OpId rootId)
+            OpId rootId
+        )
         {
             lock (gate)
             {
                 RequireActiveResolution(resolution);
                 if (resolution.RootId != rootId)
                     throw new InvalidOperationException(
-                        "Committed Facts crossed resolution root ownership.");
+                        "Committed Facts crossed resolution root ownership."
+                    );
                 return Array.AsReadOnly(resolution.CommittedFacts.ToArray());
             }
         }
 
         private async ValueTask NotifyFactListeners(
             OpId rootId,
-            IReadOnlyList<CommittedFactRecord> committedFacts)
+            IReadOnlyList<CommittedFactRecord> committedFacts
+        )
         {
-            if (committedFacts.Any(committed =>
-                committed == null || committed.Fact == null ||
-                !committed.Fact.IsStamped || committed.Fact.RootOpId != rootId))
+            if (
+                committedFacts.Any(committed =>
+                    committed == null
+                    || committed.Fact == null
+                    || !committed.Fact.IsStamped
+                    || committed.Fact.RootOpId != rootId
+                )
+            )
             {
-                throw new InvalidOperationException("A completed root contains a Fact from another resolution batch.");
+                throw new InvalidOperationException(
+                    "A completed root contains a Fact from another resolution batch."
+                );
             }
 
             IReadOnlyList<FactListenerDelivery> deliveries =
@@ -81,10 +92,7 @@ namespace Game.Rules.Runtime
                 {
                     if (ruleRegistry.IsActive(store.Snapshot, delivery.Binding))
                     {
-                        await InvokeFactListener(
-                            delivery,
-                            delivery.Facts,
-                            delivery.RootId);
+                        await InvokeFactListener(delivery, delivery.Facts, delivery.RootId);
                     }
                     continue;
                 }
@@ -96,7 +104,8 @@ namespace Game.Rules.Runtime
                     await InvokeFactListener(
                         delivery,
                         Array.AsReadOnly(new[] { fact }),
-                        fact.SourceOpId);
+                        fact.SourceOpId
+                    );
                 }
             }
         }
@@ -104,36 +113,35 @@ namespace Game.Rules.Runtime
         private async ValueTask InvokeFactListener(
             FactListenerDelivery delivery,
             IReadOnlyList<RuleFact> facts,
-            OpId causeId)
+            OpId causeId
+        )
         {
             FactContext context = FactContext.Create(
                 this,
                 delivery.Binding,
                 delivery.RootId,
-                causeId);
+                causeId
+            );
             try
             {
-                await delivery.Registration.Invoke(
-                    delivery.RootId,
-                    facts,
-                    context);
+                await delivery.Registration.Invoke(delivery.RootId, facts, context);
             }
             catch (Exception callbackException)
             {
                 await CallbackFailure.AwaitCleanupPreservingPrimary(
                     callbackException,
-                    context.CompleteInvocation());
+                    context.CompleteInvocation()
+                );
                 throw;
             }
 
-            if (await context.CompleteInvocation() ==
-                CallbackWorkCompletion.UnconsumedDispatch)
+            if (await context.CompleteInvocation() == CallbackWorkCompletion.UnconsumedDispatch)
             {
                 throw new InvalidOperationException(
-                    $"Fact listener for {delivery.Registration.FactType.Name} returned before " +
-                    "awaiting its causally linked dispatch.");
+                    $"Fact listener for {delivery.Registration.FactType.Name} returned before "
+                        + "awaiting its causally linked dispatch."
+                );
             }
         }
-
     }
 }

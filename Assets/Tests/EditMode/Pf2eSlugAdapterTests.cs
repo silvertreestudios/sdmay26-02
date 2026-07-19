@@ -10,7 +10,10 @@ namespace Game.Creature.Rules.Tests
         public void LegacyAdapterMatchesCanonicalRuntimeNormalization(string value, string expected)
         {
             Assert.That(Pf2eSlug.FromName(value), Is.EqualTo(expected));
-            Assert.That(Pf2eSlug.FromName(value), Is.EqualTo(Game.Rules.Runtime.Pf2eSlug.FromName(value)));
+            Assert.That(
+                Pf2eSlug.FromName(value),
+                Is.EqualTo(Game.Rules.Runtime.Pf2eSlug.FromName(value))
+            );
         }
     }
 }

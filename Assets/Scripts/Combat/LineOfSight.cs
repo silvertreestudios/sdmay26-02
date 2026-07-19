@@ -7,7 +7,7 @@ using UnityEngine;
 public class LineOfSight
 {
     ////TODO re-implement with new grid system////
-    
+
     /*
     private readonly IGridMemory grid;
 
@@ -17,9 +17,9 @@ public class LineOfSight
     private const float MIN_RAY_DISTANCE = 0.01f;
 
     // LOS status colors for visual feedback
-    public static readonly Color ClearColor = new Color(0f, 1f, 0f, 0.5f);   
-    public static readonly Color PartialColor = new Color(1f, 1f, 0f, 0.5f); 
-    public static readonly Color BlockedColor = new Color(1f, 0f, 0f, 0.5f);    
+    public static readonly Color ClearColor = new Color(0f, 1f, 0f, 0.5f);
+    public static readonly Color PartialColor = new Color(1f, 1f, 0f, 0.5f);
+    public static readonly Color BlockedColor = new Color(1f, 0f, 0f, 0.5f);
 
     // predefined offsets for the 4 corners of a tile, used to check LOS from multiple points within the tile
     private static readonly Vector2[] TileCornerOffsets = new[]
@@ -114,7 +114,7 @@ public class LineOfSight
         return visibleCorners;
     }
 
-    // check if a single ray from one corner to another is blocked 
+    // check if a single ray from one corner to another is blocked
     // uses both physics raycast for obstacles and grid walkability checks along path
     private bool IsRayBlocked(Vector3Int start, Vector3Int end, Vector2 startOffset, Vector2 endOffset)
     {
@@ -144,7 +144,7 @@ public class LineOfSight
         const float startOffset3D = 0.1f;
         // fire a ray to see if it hits any object
         if (Physics.Raycast(rayStart3D + direction3D * startOffset3D, direction3D, distance3D - startOffset3D))
-            return true; 
+            return true;
 
         // check grid walkability along the ray path
         direction2D.Normalize();
@@ -157,7 +157,7 @@ public class LineOfSight
         {
             // sample points along ray at regular intervals, convert to grid coord and check walkability
             Vector2 samplePos = rayStart2D + direction2D * rayDistance2D * ((float)i / sampleCount);
-            // which tile on the grid this position is at 
+            // which tile on the grid this position is at
             Vector3Int currentCell = new Vector3Int(Mathf.FloorToInt(samplePos.x), start.y, Mathf.FloorToInt(samplePos.y));
 
             if (visitedCells.Add(currentCell) && currentCell != start && currentCell != end)

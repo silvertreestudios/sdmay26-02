@@ -1,10 +1,9 @@
 using System.Collections;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
-using UnityEngine.SceneManagement;
-
 
 namespace TestsUI
 {
@@ -14,7 +13,7 @@ namespace TestsUI
         public override IEnumerator Setup()
         {
             yield return SceneManager.LoadSceneAsync("CharacterCreationScene");
-            
+
             doc = Object.FindFirstObjectByType<UIDocument>();
             Assert.IsNotNull(doc, "UIDocument not found in scene");
             root = doc.rootVisualElement;
@@ -44,16 +43,26 @@ namespace TestsUI
             var script = Object.FindFirstObjectByType<CharacterCreationScript>();
             int steps = script.tutorial.StepCount;
             int clicks = 0;
-            yield return WaitUntilWithTimeout(timeout, () => 
-            {
-                nextButton = root.Q<Button>("NextTutorialButton");
-                PushButton(nextButton);
-                clicks++;
-                return nextButton.parent.parent.resolvedStyle.display == DisplayStyle.None && clicks == steps;
-            });
-            
-            Assert.IsTrue(clicks == steps, $"Expected to click the Next button {steps} times, but clicked it {clicks} times.");
-            Assert.IsTrue(nextButton.parent.parent.resolvedStyle.display == DisplayStyle.None, "Tutorial overlay should not be displayed after completing the tutorial");
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    nextButton = root.Q<Button>("NextTutorialButton");
+                    PushButton(nextButton);
+                    clicks++;
+                    return nextButton.parent.parent.resolvedStyle.display == DisplayStyle.None
+                        && clicks == steps;
+                }
+            );
+
+            Assert.IsTrue(
+                clicks == steps,
+                $"Expected to click the Next button {steps} times, but clicked it {clicks} times."
+            );
+            Assert.IsTrue(
+                nextButton.parent.parent.resolvedStyle.display == DisplayStyle.None,
+                "Tutorial overlay should not be displayed after completing the tutorial"
+            );
         }
 
         /// <summary>
@@ -68,7 +77,10 @@ namespace TestsUI
             PushButton(skipButton);
             yield return null; // Wait a frame for the UI to update
             //check that the tutorial overlay is gone
-            Assert.IsTrue(skipButton.parent.parent.resolvedStyle.display == DisplayStyle.None, "Tutorial overlay should not be displayed after skipping the tutorial");
+            Assert.IsTrue(
+                skipButton.parent.parent.resolvedStyle.display == DisplayStyle.None,
+                "Tutorial overlay should not be displayed after skipping the tutorial"
+            );
         }
 
         /// <summary>
@@ -91,8 +103,15 @@ namespace TestsUI
 
             //check that the scene has changed to level 1, wait for transition to complete
             float timeoutTime = Time.realtimeSinceStartup + 5f;
-            yield return new WaitUntil(() => SceneManager.GetActiveScene().name == "Level1" || Time.realtimeSinceStartup > timeoutTime);
-            Assert.AreEqual("Level1", SceneManager.GetActiveScene().name, "Scene should transition to Level1 after finishing character creation");
+            yield return new WaitUntil(() =>
+                SceneManager.GetActiveScene().name == "Level1"
+                || Time.realtimeSinceStartup > timeoutTime
+            );
+            Assert.AreEqual(
+                "Level1",
+                SceneManager.GetActiveScene().name,
+                "Scene should transition to Level1 after finishing character creation"
+            );
         }
     }
 }

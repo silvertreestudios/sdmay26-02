@@ -14,7 +14,7 @@ namespace Game.DungeonGeneration
         {
             DungeonLayout.Box,
             DungeonLayout.Cross,
-            DungeonLayout.Round
+            DungeonLayout.Round,
         };
 
         private static readonly DungeonCell[] Directions =
@@ -22,13 +22,14 @@ namespace Game.DungeonGeneration
             new(1, 0),
             new(0, 1),
             new(0, -1),
-            new(-1, 0)
+            new(-1, 0),
         };
 
         /// <summary>Returns whether every walkable cell belongs to the component containing <paramref name="start"/>.</summary>
         internal static bool AreAllWalkableCellsReachable(
             IReadOnlyList<string> rows,
-            DungeonCell start)
+            DungeonCell start
+        )
         {
             if (!IsWalkable(rows, start))
                 return false;
@@ -42,9 +43,7 @@ namespace Game.DungeonGeneration
                 DungeonCell current = pending.Dequeue();
                 foreach (DungeonCell direction in Directions)
                 {
-                    DungeonCell next = new(
-                        current.X + direction.X,
-                        current.Z + direction.Z);
+                    DungeonCell next = new(current.X + direction.X, current.Z + direction.Z);
                     if (walkable.Contains(next) && reached.Add(next))
                         pending.Enqueue(next);
                 }
@@ -57,8 +56,7 @@ namespace Game.DungeonGeneration
         internal static bool HasSingleWalkableRegion(IReadOnlyList<string> rows)
         {
             HashSet<DungeonCell> walkable = WalkableCells(rows);
-            return walkable.Count > 0 &&
-                   AreAllWalkableCellsReachable(rows, walkable.First());
+            return walkable.Count > 0 && AreAllWalkableCellsReachable(rows, walkable.First());
         }
 
         /// <summary>
@@ -68,7 +66,8 @@ namespace Game.DungeonGeneration
         internal static bool HasValidRoomBoundaryCrossings(
             IReadOnlyList<string> rows,
             IReadOnlyList<DungeonRoom> rooms,
-            IReadOnlyList<DungeonDoor> doors)
+            IReadOnlyList<DungeonDoor> doors
+        )
         {
             Dictionary<DungeonCell, int> doorRecordsByCell = new();
             foreach (DungeonDoor door in doors)
@@ -88,9 +87,11 @@ namespace Game.DungeonGeneration
                         if (Contains(room, neighbor) || !IsWalkable(rows, neighbor))
                             continue;
 
-                        if (Symbol(rows, neighbor) != 'D' ||
-                            !doorRecordsByCell.TryGetValue(neighbor, out int recordCount) ||
-                            recordCount != 1)
+                        if (
+                            Symbol(rows, neighbor) != 'D'
+                            || !doorRecordsByCell.TryGetValue(neighbor, out int recordCount)
+                            || recordCount != 1
+                        )
                         {
                             return false;
                         }
@@ -108,11 +109,15 @@ namespace Game.DungeonGeneration
         internal static bool HasValidDoors(
             IReadOnlyList<string> rows,
             IReadOnlyList<DungeonRoom> rooms,
-            IReadOnlyList<DungeonDoor> doors)
+            IReadOnlyList<DungeonDoor> doors
+        )
         {
-            if (doors.Select(door => door.Id).Distinct(StringComparer.Ordinal).Count() != doors.Count ||
-                doors.Select(door => door.Cell).Distinct().Count() != doors.Count ||
-                WalkableCells(rows).Count(cell => Symbol(rows, cell) == 'D') != doors.Count)
+            if (
+                doors.Select(door => door.Id).Distinct(StringComparer.Ordinal).Count()
+                    != doors.Count
+                || doors.Select(door => door.Cell).Distinct().Count() != doors.Count
+                || WalkableCells(rows).Count(cell => Symbol(rows, cell) == 'D') != doors.Count
+            )
             {
                 return false;
             }
@@ -126,8 +131,10 @@ namespace Game.DungeonGeneration
                 List<DungeonCell> openNeighbors = OpenNeighbors(rows, door.Cell);
                 if (openNeighbors.Count != 2)
                     return false;
-                if (openNeighbors[0].X != openNeighbors[1].X &&
-                    openNeighbors[0].Z != openNeighbors[1].Z)
+                if (
+                    openNeighbors[0].X != openNeighbors[1].X
+                    && openNeighbors[0].Z != openNeighbors[1].Z
+                )
                 {
                     return false;
                 }
@@ -180,7 +187,8 @@ namespace Game.DungeonGeneration
             int width,
             int height,
             int x,
-            int z)
+            int z
+        )
         {
             if (layout == DungeonLayout.Round)
             {
@@ -198,7 +206,11 @@ namespace Game.DungeonGeneration
                 return maskRow == 1 && maskColumn == 1;
             if (layout == DungeonLayout.Cross)
                 return maskRow != 1 && maskColumn != 1;
-            throw new ArgumentOutOfRangeException(nameof(layout), layout, "Dungeon layout is undefined.");
+            throw new ArgumentOutOfRangeException(
+                nameof(layout),
+                layout,
+                "Dungeon layout is undefined."
+            );
         }
 
         /// <summary>
@@ -210,12 +222,15 @@ namespace Game.DungeonGeneration
             for (int index = 0; index < doors.Count; index++)
             {
                 DungeonDoor door = doors[index];
-                string expectedId = "door-" +
-                    (index + 1).ToString("D4", System.Globalization.CultureInfo.InvariantCulture);
+                string expectedId =
+                    "door-"
+                    + (index + 1).ToString("D4", System.Globalization.CultureInfo.InvariantCulture);
                 bool xIsOdd = (door.Cell.X & 1) == 1;
                 bool zIsOdd = (door.Cell.Z & 1) == 1;
-                if (!string.Equals(door.Id, expectedId, StringComparison.Ordinal) ||
-                    xIsOdd == zIsOdd)
+                if (
+                    !string.Equals(door.Id, expectedId, StringComparison.Ordinal)
+                    || xIsOdd == zIsOdd
+                )
                 {
                     return false;
                 }
@@ -234,7 +249,8 @@ namespace Game.DungeonGeneration
         internal static IReadOnlyList<DungeonCell> BuildSafeCells(
             IReadOnlyList<string> rows,
             IReadOnlyList<DungeonRoom> rooms,
-            IReadOnlyList<DungeonStair> stairs)
+            IReadOnlyList<DungeonStair> stairs
+        )
         {
             List<DungeonCell> safe = new();
             foreach (DungeonStair stair in stairs)
@@ -247,7 +263,8 @@ namespace Game.DungeonGeneration
             {
                 DungeonCell center = new(
                     (room.MinimumX + room.MaximumX) / 2,
-                    (room.MinimumZ + room.MaximumZ) / 2);
+                    (room.MinimumZ + room.MaximumZ) / 2
+                );
                 if (IsWalkable(rows, center) && !safe.Contains(center))
                     safe.Add(center);
             }
@@ -267,18 +284,20 @@ namespace Game.DungeonGeneration
                 HashSet<DungeonCell> downExitCells = new(
                     stairs
                         .Where(stair => stair.Kind == DungeonStairKind.Down)
-                        .SelectMany(stair => new[] { stair.Cell, stair.ArrivalCell }));
+                        .SelectMany(stair => new[] { stair.Cell, stair.ArrivalCell })
+                );
                 bool hasUpStair = stairs.Any(stair => stair.Kind == DungeonStairKind.Up);
-                bool needsNonExitFallback = downExitCells.Count > 0 &&
-                                            !hasUpStair &&
-                                            safe.All(downExitCells.Contains);
+                bool needsNonExitFallback =
+                    downExitCells.Count > 0 && !hasUpStair && safe.All(downExitCells.Contains);
                 for (int z = 0; z < rows.Count && needsNonExitFallback; z++)
                 for (int x = 0; x < rows[0].Length && needsNonExitFallback; x++)
                 {
                     DungeonCell cell = new(x, z);
-                    if (Symbol(rows, cell) == '.' &&
-                        !downExitCells.Contains(cell) &&
-                        !safe.Contains(cell))
+                    if (
+                        Symbol(rows, cell) == '.'
+                        && !downExitCells.Contains(cell)
+                        && !safe.Contains(cell)
+                    )
                     {
                         safe.Add(cell);
                         needsNonExitFallback = false;
@@ -294,8 +313,8 @@ namespace Game.DungeonGeneration
             IReadOnlyList<string> rows,
             IReadOnlyList<DungeonRoom> rooms,
             IReadOnlyList<DungeonStair> stairs,
-            IReadOnlyList<DungeonCell> safeCells) =>
-            safeCells.SequenceEqual(BuildSafeCells(rows, rooms, stairs));
+            IReadOnlyList<DungeonCell> safeCells
+        ) => safeCells.SequenceEqual(BuildSafeCells(rows, rooms, stairs));
 
         /// <summary>
         /// Returns whether room records use the dimensions, coarse-grid alignment, and stable ID
@@ -304,7 +323,8 @@ namespace Game.DungeonGeneration
         internal static bool HasProducibleRoomRecords(
             int mapWidth,
             int mapHeight,
-            IReadOnlyList<DungeonRoom> rooms)
+            IReadOnlyList<DungeonRoom> rooms
+        )
         {
             int maximumRoomSize = Math.Min(mapWidth, mapHeight) - 4;
             for (int index = 0; index < rooms.Count; index++)
@@ -312,14 +332,23 @@ namespace Game.DungeonGeneration
                 DungeonRoom room = rooms[index];
                 long width = (long)room.MaximumX - room.MinimumX + 1;
                 long height = (long)room.MaximumZ - room.MinimumZ + 1;
-                if (room.Id != index + 1 ||
-                    room.MinimumX < 1 || room.MinimumZ < 1 ||
-                    room.MaximumX > mapWidth - 2 || room.MaximumZ > mapHeight - 2 ||
-                    (room.MinimumX & 1) == 0 || (room.MinimumZ & 1) == 0 ||
-                    (room.MaximumX & 1) == 0 || (room.MaximumZ & 1) == 0 ||
-                    width < 3 || height < 3 ||
-                    width > maximumRoomSize || height > maximumRoomSize ||
-                    (width & 1) == 0 || (height & 1) == 0)
+                if (
+                    room.Id != index + 1
+                    || room.MinimumX < 1
+                    || room.MinimumZ < 1
+                    || room.MaximumX > mapWidth - 2
+                    || room.MaximumZ > mapHeight - 2
+                    || (room.MinimumX & 1) == 0
+                    || (room.MinimumZ & 1) == 0
+                    || (room.MaximumX & 1) == 0
+                    || (room.MaximumZ & 1) == 0
+                    || width < 3
+                    || height < 3
+                    || width > maximumRoomSize
+                    || height > maximumRoomSize
+                    || (width & 1) == 0
+                    || (height & 1) == 0
+                )
                 {
                     return false;
                 }
@@ -342,16 +371,17 @@ namespace Game.DungeonGeneration
             for (int index = 0; index < stairs.Count; index++)
             {
                 DungeonStair stair = stairs[index];
-                DungeonStairKind expectedKind = index == 0
-                    ? DungeonStairKind.Down
-                    : DungeonStairKind.Up;
+                DungeonStairKind expectedKind =
+                    index == 0 ? DungeonStairKind.Down : DungeonStairKind.Up;
                 string expectedId = index == 0 ? "stair-down" : "stair-up";
-                if (stair.Kind != expectedKind ||
-                    !string.Equals(stair.Id, expectedId, StringComparison.Ordinal) ||
-                    (stair.Cell.X & 1) == 0 ||
-                    (stair.Cell.Z & 1) == 0 ||
-                    !endpoints.Add(stair.Cell) ||
-                    !arrivals.Add(stair.ArrivalCell))
+                if (
+                    stair.Kind != expectedKind
+                    || !string.Equals(stair.Id, expectedId, StringComparison.Ordinal)
+                    || (stair.Cell.X & 1) == 0
+                    || (stair.Cell.Z & 1) == 0
+                    || !endpoints.Add(stair.Cell)
+                    || !arrivals.Add(stair.ArrivalCell)
+                )
                 {
                     return false;
                 }
@@ -368,19 +398,21 @@ namespace Game.DungeonGeneration
             IReadOnlyList<string> rows,
             IReadOnlyList<DungeonRoom> rooms,
             DungeonCell cell,
-            DungeonCell arrival)
+            DungeonCell arrival
+        )
         {
             bool IsCorridor(DungeonCell candidate) =>
-                InBounds(rows, candidate) &&
-                Symbol(rows, candidate) == '.' &&
-                !rooms.Any(room => Contains(room, candidate));
+                InBounds(rows, candidate)
+                && Symbol(rows, candidate) == '.'
+                && !rooms.Any(room => Contains(room, candidate));
             return MatchesStairEnd(
                 rows[0].Length,
                 rows.Count,
                 cell,
                 arrival,
                 IsCorridor,
-                candidate => IsWalkable(rows, candidate));
+                candidate => IsWalkable(rows, candidate)
+            );
         }
 
         /// <summary>
@@ -392,23 +424,26 @@ namespace Game.DungeonGeneration
             DungeonCell cell,
             DungeonCell arrival,
             Func<DungeonCell, bool> isCorridor,
-            Func<DungeonCell, bool> isWalkable)
+            Func<DungeonCell, bool> isWalkable
+        )
         {
             DungeonCell direction = new(arrival.X - cell.X, arrival.Z - cell.Z);
-            if (Math.Abs(direction.X) + Math.Abs(direction.Z) != 1 ||
-                !InBounds(width, height, cell) ||
-                !InBounds(width, height, arrival))
+            if (
+                Math.Abs(direction.X) + Math.Abs(direction.Z) != 1
+                || !InBounds(width, height, cell)
+                || !InBounds(width, height, arrival)
+            )
             {
                 return false;
             }
 
-            DungeonCell far = new(
-                cell.X + direction.X * 2,
-                cell.Z + direction.Z * 2);
-            if (!InBounds(width, height, far) ||
-                !isCorridor(cell) ||
-                !isCorridor(arrival) ||
-                !isCorridor(far))
+            DungeonCell far = new(cell.X + direction.X * 2, cell.Z + direction.Z * 2);
+            if (
+                !InBounds(width, height, far)
+                || !isCorridor(cell)
+                || !isCorridor(arrival)
+                || !isCorridor(far)
+            )
             {
                 return false;
             }
@@ -442,9 +477,7 @@ namespace Game.DungeonGeneration
             return result;
         }
 
-        private static List<DungeonCell> OpenNeighbors(
-            IReadOnlyList<string> rows,
-            DungeonCell cell)
+        private static List<DungeonCell> OpenNeighbors(IReadOnlyList<string> rows, DungeonCell cell)
         {
             List<DungeonCell> result = new();
             foreach (DungeonCell direction in Directions)
@@ -470,7 +503,9 @@ namespace Game.DungeonGeneration
             rows[rows.Count - 1 - cell.Z][cell.X];
 
         private static bool Contains(DungeonRoom room, DungeonCell cell) =>
-            cell.X >= room.MinimumX && cell.X <= room.MaximumX &&
-            cell.Z >= room.MinimumZ && cell.Z <= room.MaximumZ;
+            cell.X >= room.MinimumX
+            && cell.X <= room.MaximumX
+            && cell.Z >= room.MinimumZ
+            && cell.Z <= room.MaximumZ;
     }
 }

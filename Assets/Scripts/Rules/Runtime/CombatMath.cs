@@ -46,18 +46,14 @@ namespace Game.Rules.Runtime
         /// <summary>Gets base damage doubled on a critical success, otherwise unchanged.</summary>
         public int TotalDamage { get; }
 
-        private DamageRollOutcome(
-            RollResult roll,
-            int flatModifier,
-            DegreeOfSuccess degree)
+        private DamageRollOutcome(RollResult roll, int flatModifier, DegreeOfSuccess degree)
         {
             DiceRoll = roll ?? throw new ArgumentNullException(nameof(roll));
             FlatModifier = flatModifier;
             BaseDamage = checked(roll.Total + flatModifier);
             Degree = degree;
-            TotalDamage = degree == DegreeOfSuccess.CriticalSuccess
-                ? checked(BaseDamage * 2)
-                : BaseDamage;
+            TotalDamage =
+                degree == DegreeOfSuccess.CriticalSuccess ? checked(BaseDamage * 2) : BaseDamage;
         }
 
         /// <summary>
@@ -79,7 +75,8 @@ namespace Game.Rules.Runtime
             DiceExpression dice,
             int flatModifier,
             DegreeOfSuccess degree,
-            IRollService rolls)
+            IRollService rolls
+        )
         {
             if (!Enum.IsDefined(typeof(DegreeOfSuccess), degree))
                 throw new ArgumentOutOfRangeException(nameof(degree));

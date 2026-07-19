@@ -8,8 +8,11 @@ public class TokenMeshSelection : MonoBehaviour
     public TokenMeshes[] TokenOptions = new TokenMeshes[1];
     public BaseMeshes[] BaseOptions = new BaseMeshes[1];
 
-    [SerializeField] private CreatureVisualCatalog visualCatalog;
-    [SerializeField] private Transform visualRoot;
+    [SerializeField]
+    private CreatureVisualCatalog visualCatalog;
+
+    [SerializeField]
+    private Transform visualRoot;
 
     private GameObject tokenObject;
     private GameObject baseObject;
@@ -31,9 +34,7 @@ public class TokenMeshSelection : MonoBehaviour
         UpdateTokenMesh();
     }
 
-    protected virtual void Update()
-    {
-    }
+    protected virtual void Update() { }
 
     protected void UpdateTokenMesh()
     {
@@ -74,7 +75,10 @@ public class TokenMeshSelection : MonoBehaviour
         CacheLegacyObjects();
         ClearAnimatedVisual();
 
-        if (visualCatalog != null && visualCatalog.TryResolve(key, out CreatureVisualCatalogEntry entry))
+        if (
+            visualCatalog != null
+            && visualCatalog.TryResolve(key, out CreatureVisualCatalogEntry entry)
+        )
         {
             Transform parent = ResolveVisualRoot();
             animatedVisualInstance = Instantiate(entry.VisualPrefab, parent, false);
@@ -84,7 +88,8 @@ public class TokenMeshSelection : MonoBehaviour
             animatedVisualInstance.transform.localScale = entry.VisualPrefab.transform.localScale;
             CreaturePresentation.SetLayerRecursively(
                 animatedVisualInstance,
-                creatureComponent != null ? creatureComponent.gameObject.layer : gameObject.layer);
+                creatureComponent != null ? creatureComponent.gameObject.layer : gameObject.layer
+            );
             SetLegacyTokenVisible(false);
             BindPresentation(animatedVisualInstance);
             RefreshPortrait();
@@ -133,8 +138,12 @@ public class TokenMeshSelection : MonoBehaviour
             }
         }
 
-        if (baseMeshFilter != null && BaseOptions != null && BaseOptions.Length > 0 &&
-            BaseOptions[0] != null)
+        if (
+            baseMeshFilter != null
+            && BaseOptions != null
+            && BaseOptions.Length > 0
+            && BaseOptions[0] != null
+        )
             baseMeshFilter.sharedMesh = BaseOptions[0].mesh;
 
         if (!meshFound)
@@ -186,8 +195,11 @@ public class TokenMeshSelection : MonoBehaviour
         if (presentation == null)
             return;
         presentation.Bind(
-            visualInstance != null ? visualInstance.GetComponent<CreatureAnimationController>() : null,
-            visualInstance != null ? visualInstance.GetComponent<CreatureEquipmentVisuals>() : null);
+            visualInstance != null
+                ? visualInstance.GetComponent<CreatureAnimationController>()
+                : null,
+            visualInstance != null ? visualInstance.GetComponent<CreatureEquipmentVisuals>() : null
+        );
     }
 
     private void SetLegacyTokenVisible(bool visible)

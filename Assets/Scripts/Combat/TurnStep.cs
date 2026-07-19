@@ -8,17 +8,19 @@ public class TurnStep
     public UnityAction Event { get; private set; }
     int EventDelay;
 
-    public TurnStep (ActionController player)
+    public TurnStep(ActionController player)
     {
         IsPlayer = true;
         Player = player;
     }
+
     public TurnStep(UnityAction callback)
     {
         Event = callback;
-        IsPlayer= false;
+        IsPlayer = false;
         EventDelay = 0;
     }
+
     public TurnStep(UnityAction callback, int eventDelay)
     {
         Event = callback;
@@ -26,9 +28,9 @@ public class TurnStep
         EventDelay = eventDelay;
     }
 
-    public void Trigger () 
-    { 
-        if(IsPlayer)
+    public void Trigger()
+    {
+        if (IsPlayer)
             Player.StartTurn();
         else if (EventDelay-- <= 0)
         {

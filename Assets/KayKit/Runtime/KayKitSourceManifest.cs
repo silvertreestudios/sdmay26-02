@@ -7,14 +7,29 @@ namespace Game.KayKit
     [Serializable]
     public sealed class KayKitSourceManifestEntry
     {
-        [SerializeField] private string sourceUrl;
-        [SerializeField] private string pack;
-        [SerializeField] private string version;
-        [SerializeField] private string downloadDate;
-        [SerializeField] private string license;
-        [SerializeField] private string relativeSourcePath;
-        [SerializeField] private string stableId;
-        [SerializeField] private UnityEngine.Object asset;
+        [SerializeField]
+        private string sourceUrl;
+
+        [SerializeField]
+        private string pack;
+
+        [SerializeField]
+        private string version;
+
+        [SerializeField]
+        private string downloadDate;
+
+        [SerializeField]
+        private string license;
+
+        [SerializeField]
+        private string relativeSourcePath;
+
+        [SerializeField]
+        private string stableId;
+
+        [SerializeField]
+        private UnityEngine.Object asset;
 
         public string SourceUrl => sourceUrl;
         public string Pack => pack;
@@ -33,7 +48,8 @@ namespace Game.KayKit
             string license,
             string relativeSourcePath,
             string stableId,
-            UnityEngine.Object asset)
+            UnityEngine.Object asset
+        )
         {
             this.sourceUrl = sourceUrl;
             this.pack = pack;
@@ -49,7 +65,8 @@ namespace Game.KayKit
     [CreateAssetMenu(menuName = "KayKit/Source Manifest", fileName = "KayKitSourceManifest")]
     public sealed class KayKitSourceManifest : ScriptableObject
     {
-        [SerializeField] private List<KayKitSourceManifestEntry> entries = new();
+        [SerializeField]
+        private List<KayKitSourceManifestEntry> entries = new();
 
         public IReadOnlyList<KayKitSourceManifestEntry> Entries => entries;
 

@@ -1,15 +1,16 @@
-using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 using Game.Creature;
-using GridPublic;
-using System.Collections;
 using Game.KayKit;
+using GridPublic;
+using UnityEngine;
 
 namespace GridPrivate
 {
     public class StateStride : GridFSMState
     {
         protected GridFSM Fsm;
+
         // target character
         protected GameObject Character;
         protected GridAPIPrivate GridAPI = (GridAPIPrivate)GridPublic.GridAPI.GetInstance();
@@ -27,6 +28,7 @@ namespace GridPrivate
             this.Character = character;
             Fsm = fsm;
         }
+
         //return false if enter was unsuccessfull, true otherwise
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
         {
@@ -56,7 +58,11 @@ namespace GridPrivate
             else
             {
                 //highlight tiles
-                List<Vector3Int> toHighlight = Pathfinder.InRange(Character, StartPosition, MaxMoveDist);
+                List<Vector3Int> toHighlight = Pathfinder.InRange(
+                    Character,
+                    StartPosition,
+                    MaxMoveDist
+                );
                 toHighlight.Remove(Vector3Int.RoundToInt(Character.transform.position));
                 OnHighlightRange.Invoke(toHighlight);
                 OnHover.AddListener(HighlightPath);
@@ -78,7 +84,7 @@ namespace GridPrivate
             OnHoverEnd.RemoveListener(HideHighlightPath);
             OnActionComplete.Invoke();
         }
-        
+
         // highlight the path just by hovering over in range tiles, clear if not hovering over valid tiles
         public override void Leftclick()
         {
@@ -98,14 +104,16 @@ namespace GridPrivate
 
         public override void Rightclick()
         {
-            if (!canCancel) return;
+            if (!canCancel)
+                return;
             UniversalEvents.OnCancel.Invoke();
         }
 
         protected void HighlightPath(List<Vector3Int> hover)
         {
             this.Path = null;
-            if (hover == null) return;
+            if (hover == null)
+                return;
             if (hover.Count == 0)
             {
                 // Previewing an empty path clears it

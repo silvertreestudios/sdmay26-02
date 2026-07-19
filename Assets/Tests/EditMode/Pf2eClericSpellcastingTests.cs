@@ -1,11 +1,11 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using GridPublic;
 using NUnit.Framework;
-using System.Reflection;
-using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 public class Pf2eClericSpellcastingTests
@@ -27,11 +27,17 @@ public class Pf2eClericSpellcastingTests
     {
         Pf2eItemCatalog catalog = Pf2eItemCatalog.Instance;
 
-        Assert.That(catalog.Resolve("Compendium.pf2e.classes.Item.Cleric")?.Slug, Is.EqualTo("cleric"));
+        Assert.That(
+            catalog.Resolve("Compendium.pf2e.classes.Item.Cleric")?.Slug,
+            Is.EqualTo("cleric")
+        );
         Assert.That(catalog.Resolve("Domain Initiate")?.Slug, Is.EqualTo("domain-initiate"));
         Assert.That(catalog.Resolve("Haunting Hymn")?.Slug, Is.EqualTo("haunting-hymn"));
         Assert.That(catalog.Resolve("Infuse Vitality")?.Slug, Is.EqualTo("infuse-vitality"));
-        Assert.That(catalog.Resolve("Cleric Spellcasting")?.Slug, Is.EqualTo("cleric-spellcasting"));
+        Assert.That(
+            catalog.Resolve("Cleric Spellcasting")?.Slug,
+            Is.EqualTo("cleric-spellcasting")
+        );
     }
 
     [Test]
@@ -61,10 +67,20 @@ public class Pf2eClericSpellcastingTests
         CreatureComponent cleric = CreatePreparedCleric();
         SpellcastingState state = cleric.Prepared.Spellcasting;
 
-        CollectionAssert.AreEquivalent(new[]
-        {
-            "shield", "guidance", "divine-lance", "haunting-hymn", "light", "bless", "infuse-vitality", "heal"
-        }, state.PreparedSpells.Select(spell => spell.Slug));
+        CollectionAssert.AreEquivalent(
+            new[]
+            {
+                "shield",
+                "guidance",
+                "divine-lance",
+                "haunting-hymn",
+                "light",
+                "bless",
+                "infuse-vitality",
+                "heal",
+            },
+            state.PreparedSpells.Select(spell => spell.Slug)
+        );
         Assert.That(state.PreparedSpells.Count(spell => spell.IsCantrip), Is.EqualTo(5));
         Assert.That(state.Pools["rank-1-bless"].UsesRemaining, Is.EqualTo(1));
         Assert.That(state.Pools["rank-1-infuse-vitality"].UsesRemaining, Is.EqualTo(1));
@@ -72,7 +88,11 @@ public class Pf2eClericSpellcastingTests
         Assert.That(state.SpellAttackModifier, Is.EqualTo(7));
         Assert.That(state.SpellDc, Is.EqualTo(17));
         foreach (PreparedSpell spell in state.PreparedSpells)
-            Assert.That(SpellRegistry.TryGet(spell.Slug, out _), Is.True, spell.Name + " should have a runtime definition");
+            Assert.That(
+                SpellRegistry.TryGet(spell.Slug, out _),
+                Is.True,
+                spell.Name + " should have a runtime definition"
+            );
     }
 
     [Test]
@@ -104,9 +124,18 @@ public class Pf2eClericSpellcastingTests
         Assert.That(result.Success, Is.True);
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(1));
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(0));
-        Assert.That(ally.GetComponent<SpellEffectController>().HasEffect<GuidanceImmunitySpellEffect>(), Is.True);
+        Assert.That(
+            ally.GetComponent<SpellEffectController>().HasEffect<GuidanceImmunitySpellEffect>(),
+            Is.True
+        );
 
-        CastSpellResult second = SpellcastingRuntime.Cast(cleric.gameObject, cleric.Prepared.Spellcasting.GetSpell("guidance"), 1, new[] { ally.gameObject }, spendActions: false);
+        CastSpellResult second = SpellcastingRuntime.Cast(
+            cleric.gameObject,
+            cleric.Prepared.Spellcasting.GetSpell("guidance"),
+            1,
+            new[] { ally.gameObject },
+            spendActions: false
+        );
         Assert.That(second.Success, Is.False);
     }
 
@@ -121,7 +150,10 @@ public class Pf2eClericSpellcastingTests
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(1));
-        Assert.That(cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining, Is.EqualTo(0));
+        Assert.That(
+            cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining,
+            Is.EqualTo(0)
+        );
     }
 
     [Test]
@@ -134,23 +166,42 @@ public class Pf2eClericSpellcastingTests
 
         Assert.That(result.Success, Is.True);
         CreatureComponent target = CreateCreature("Target");
-        StrikeResolutionContext context = StrikeResolutionContext.FromRequest(new StrikeResolutionRequest
-        {
-            Attacker = ally.gameObject,
-            Target = target.gameObject,
-            Profile = new StrikeProfile(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue>()) { WeaponCategory = "martial" },
-            TargetingResult = new StrikeTargetResult
+        StrikeResolutionContext context = StrikeResolutionContext.FromRequest(
+            new StrikeResolutionRequest
             {
+                Attacker = ally.gameObject,
                 Target = target.gameObject,
-                LineOfEffect = StrikeLineOfEffect.Clear,
-                Cover = StrikeCover.None
+                Profile = new StrikeProfile(
+                    new List<Dice> { new Dice(1, 6, "slashing") },
+                    new List<DamageValue>()
+                )
+                {
+                    WeaponCategory = "martial",
+                },
+                TargetingResult = new StrikeTargetResult
+                {
+                    Target = target.gameObject,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                    Cover = StrikeCover.None,
+                },
             }
-        });
-        foreach (IStrikeAdjustment adjustment in ally.GetComponent<SpellEffectController>().GetStrikeAdjustments(context))
+        );
+        foreach (
+            IStrikeAdjustment adjustment in ally.GetComponent<SpellEffectController>()
+                .GetStrikeAdjustments(context)
+        )
             adjustment.Apply(context);
 
-        Assert.That(context.DamageDice.Any(die => die.damageType == "vitality" && die.numberOfDice == 1 && die.sidesPerDie == 4), Is.True);
-        Assert.That(cleric.Prepared.Spellcasting.Pools["rank-1-infuse-vitality"].UsesRemaining, Is.EqualTo(0));
+        Assert.That(
+            context.DamageDice.Any(die =>
+                die.damageType == "vitality" && die.numberOfDice == 1 && die.sidesPerDie == 4
+            ),
+            Is.True
+        );
+        Assert.That(
+            cleric.Prepared.Spellcasting.Pools["rank-1-infuse-vitality"].UsesRemaining,
+            Is.EqualTo(0)
+        );
     }
 
     [Test]
@@ -196,13 +247,28 @@ public class Pf2eClericSpellcastingTests
         GameObject logObject = new("Test Combat Log");
         created.Add(logObject);
         TestCombatLog log = logObject.AddComponent<TestCombatLog>();
-        FieldInfo field = typeof(SingletonMonoBehaviour<CombatLogInterface>).GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        FieldInfo field = typeof(SingletonMonoBehaviour<CombatLogInterface>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
         field.SetValue(null, log);
     }
-    private CastSpellResult Cast(string slug, CreatureComponent caster, uint actionCost, params GameObject[] targets)
+
+    private CastSpellResult Cast(
+        string slug,
+        CreatureComponent caster,
+        uint actionCost,
+        params GameObject[] targets
+    )
     {
         PreparedSpell spell = caster.Prepared.Spellcasting.GetSpell(slug);
-        return SpellcastingRuntime.Cast(caster.gameObject, spell, actionCost, targets, spendActions: true);
+        return SpellcastingRuntime.Cast(
+            caster.gameObject,
+            spell,
+            actionCost,
+            targets,
+            spendActions: true
+        );
     }
 
     private CreatureComponent CreatePreparedCleric()
@@ -232,21 +298,30 @@ public class Pf2eClericSpellcastingTests
         public readonly List<string> Messages = new();
 
         public override void DevMode() { }
+
         public override void ReleaseMode() { }
+
         public override void AddWhiteList(string tag) { }
+
         public override void AddBlackList(string tag) { }
+
         public override void DevLog(string msg) => Messages.Add(msg);
+
         public override void DevLog(string msg, string tag) => Messages.Add(msg);
+
         public override void DevLog(string msg, List<string> tags) => Messages.Add(msg);
+
         public override void Log(string msg) => Messages.Add(msg);
+
         public override void Log(string msg, string tag) => Messages.Add(msg);
+
         public override void Log(string msg, List<string> tags) => Messages.Add(msg);
+
         public override List<string> GetMessages() => new(Messages);
     }
 
-    private sealed class TestActionController : ActionController    {
-        public override void EndTurn()
-        {
-        }
+    private sealed class TestActionController : ActionController
+    {
+        public override void EndTurn() { }
     }
 }

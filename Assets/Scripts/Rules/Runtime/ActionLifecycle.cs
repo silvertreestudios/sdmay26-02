@@ -40,7 +40,8 @@ namespace Game.Rules.Runtime
             ActionCost cost,
             IEnumerable<RuleCost> additionalCosts,
             IEnumerable<Trait> traits,
-            bool canTriggerReactions = true)
+            bool canTriggerReactions = true
+        )
         {
             if (additionalCosts == null)
                 throw new ArgumentNullException(nameof(additionalCosts));
@@ -49,14 +50,20 @@ namespace Game.Rules.Runtime
 
             RuleCost[] copiedCosts = additionalCosts.ToArray();
             if (copiedCosts.Any(ruleCost => ruleCost == null))
-                throw new ArgumentException("Additional costs cannot contain null.", nameof(additionalCosts));
+                throw new ArgumentException(
+                    "Additional costs cannot contain null.",
+                    nameof(additionalCosts)
+                );
 
             Trait[] copiedTraits = traits
                 .Distinct()
                 .OrderBy(trait => trait.Slug, StringComparer.Ordinal)
                 .ToArray();
             if (copiedTraits.Any(trait => trait.IsEmpty))
-                throw new ArgumentException("Action traits cannot contain an empty trait.", nameof(traits));
+                throw new ArgumentException(
+                    "Action traits cannot contain an empty trait.",
+                    nameof(traits)
+                );
 
             Cost = cost;
             this.additionalCosts = new ReadOnlyCollection<RuleCost>(copiedCosts);
@@ -102,8 +109,8 @@ namespace Game.Rules.Runtime
         public static ActionProfile Create(
             ActionCost cost,
             IEnumerable<Trait> traits,
-            bool canTriggerReactions = true) =>
-            new ActionProfile(cost, Array.Empty<RuleCost>(), traits, canTriggerReactions);
+            bool canTriggerReactions = true
+        ) => new ActionProfile(cost, Array.Empty<RuleCost>(), traits, canTriggerReactions);
 
         /// <summary>
         /// Creates a one-action profile without additional resource costs.
@@ -113,8 +120,8 @@ namespace Game.Rules.Runtime
         /// <returns>An immutable one-action profile.</returns>
         public static ActionProfile OneAction(
             IEnumerable<Trait> traits,
-            bool canTriggerReactions = true) =>
-            Create(ActionCost.One, traits, canTriggerReactions);
+            bool canTriggerReactions = true
+        ) => Create(ActionCost.One, traits, canTriggerReactions);
 
         /// <summary>
         /// Creates a one-action profile with additional resource costs.
@@ -126,16 +133,16 @@ namespace Game.Rules.Runtime
         public static ActionProfile OneAction(
             IEnumerable<Trait> traits,
             IEnumerable<RuleCost> additionalCosts,
-            bool canTriggerReactions = true) =>
-            new ActionProfile(ActionCost.One, additionalCosts, traits, canTriggerReactions);
+            bool canTriggerReactions = true
+        ) => new ActionProfile(ActionCost.One, additionalCosts, traits, canTriggerReactions);
 
         /// <inheritdoc/>
         public bool Equals(ActionProfile other) =>
-            other != null &&
-            Cost == other.Cost &&
-            CanTriggerReactions == other.CanTriggerReactions &&
-            additionalCosts.SequenceEqual(other.additionalCosts) &&
-            traits.SequenceEqual(other.traits);
+            other != null
+            && Cost == other.Cost
+            && CanTriggerReactions == other.CanTriggerReactions
+            && additionalCosts.SequenceEqual(other.additionalCosts)
+            && traits.SequenceEqual(other.traits);
 
         /// <inheritdoc/>
         public override bool Equals(object obj) => obj is ActionProfile other && Equals(other);
@@ -153,14 +160,16 @@ namespace Game.Rules.Runtime
 
         internal string ToDiagnosticString()
         {
-            string actionCost = Cost.Kind == ActionCostKind.Actions
-                ? $"{Cost.Amount} action(s)"
-                : Cost.Kind.ToString();
-            string traitList = traits.Count == 0
-                ? "no traits"
-                : string.Join(",", traits.Select(trait => trait.Slug));
-            return $"{actionCost}; {additionalCosts.Count} additional cost(s); {traitList}; " +
-                $"can-trigger-reactions={CanTriggerReactions.ToString().ToLowerInvariant()}";
+            string actionCost =
+                Cost.Kind == ActionCostKind.Actions
+                    ? $"{Cost.Amount} action(s)"
+                    : Cost.Kind.ToString();
+            string traitList =
+                traits.Count == 0
+                    ? "no traits"
+                    : string.Join(",", traits.Select(trait => trait.Slug));
+            return $"{actionCost}; {additionalCosts.Count} additional cost(s); {traitList}; "
+                + $"can-trigger-reactions={CanTriggerReactions.ToString().ToLowerInvariant()}";
         }
     }
 
@@ -209,7 +218,10 @@ namespace Game.Rules.Runtime
             if (actor.IsEmpty)
                 throw new ArgumentException("An action actor is required.", nameof(actor));
             if (definitionId.IsEmpty)
-                throw new ArgumentException("An action definition ID is required.", nameof(definitionId));
+                throw new ArgumentException(
+                    "An action definition ID is required.",
+                    nameof(definitionId)
+                );
             Actor = actor;
             DefinitionId = definitionId;
         }
@@ -259,7 +271,8 @@ namespace Game.Rules.Runtime
             InvocationPolicy invocationPolicy,
             CreatureId actor,
             ActionDefinitionId definitionId,
-            Type operationType)
+            Type operationType
+        )
         {
             Id = id;
             RootId = rootId;
@@ -327,7 +340,7 @@ namespace Game.Rules.Runtime
         ActionProfile Resolve(
             ActionOpInfo action,
             ActionProfile baseProfile,
-            RulesSnapshot snapshot);
+            RulesSnapshot snapshot
+        );
     }
-
 }

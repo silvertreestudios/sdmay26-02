@@ -1,11 +1,11 @@
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
 using NUnit.Framework;
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -72,27 +72,39 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         clericController = controller;
 
         GameObject visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
-            "Assets/KayKit/Prefabs/Animated/MageStaffAnimated.prefab");
+            "Assets/KayKit/Prefabs/Animated/MageStaffAnimated.prefab"
+        );
         GameObject visual = Object.Instantiate(visualPrefab, clericObject.transform);
-        CreatureAnimationController animationController = visual.GetComponent<CreatureAnimationController>();
+        CreatureAnimationController animationController =
+            visual.GetComponent<CreatureAnimationController>();
         CreaturePresentation presentation = clericObject.AddComponent<CreaturePresentation>();
         presentation.Bind(animationController, visual.GetComponent<CreatureEquipmentVisuals>());
         yield return null;
 
-        PreparedSpell light = cleric.Prepared.Spellcasting.PreparedSpells.First(spell => spell.Slug == "light");
+        PreparedSpell light = cleric.Prepared.Spellcasting.PreparedSpells.First(spell =>
+            spell.Slug == "light"
+        );
         controller.StartTurn();
         ConfirmableSpellDefinition cancelledDefinition = new(shouldCast: false);
         controller.TakeAction(new CastSpellAction(light, 1, cancelledDefinition));
         yield return null;
 
         Assert.That(cancelledDefinition.SelectionStarted, Is.True);
-        Assert.That(animationController.CurrentClipId, Is.Null, "Opening targeting must not start the cast animation.");
+        Assert.That(
+            animationController.CurrentClipId,
+            Is.Null,
+            "Opening targeting must not start the cast animation."
+        );
 
         cancelledDefinition.CompleteSelection();
         yield return null;
         yield return null;
 
-        Assert.That(animationController.CurrentClipId, Is.Null, "Cancelling targeting must not show a cast animation.");
+        Assert.That(
+            animationController.CurrentClipId,
+            Is.Null,
+            "Cancelling targeting must not show a cast animation."
+        );
         Assert.That(controller.IsTakingAction, Is.False);
 
         controller.StartTurn();
@@ -108,7 +120,10 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         while (animationController.CurrentClipId == null && Time.realtimeSinceStartup < deadline)
             yield return null;
 
-        Assert.That(animationController.CurrentClipId, Is.EqualTo("animation/combatranged/ranged_magic_shoot"));
+        Assert.That(
+            animationController.CurrentClipId,
+            Is.EqualTo("animation/combatranged/ranged_magic_shoot")
+        );
         Assert.That(controller.IsTakingAction, Is.False);
     }
 
@@ -128,34 +143,45 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         clericController = controller;
 
         GameObject visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
-            "Assets/KayKit/Prefabs/Animated/MageStaffAnimated.prefab");
+            "Assets/KayKit/Prefabs/Animated/MageStaffAnimated.prefab"
+        );
         GameObject visual = Object.Instantiate(visualPrefab, clericObject.transform);
-        CreatureAnimationController animationController = visual.GetComponent<CreatureAnimationController>();
+        CreatureAnimationController animationController =
+            visual.GetComponent<CreatureAnimationController>();
         CreaturePresentation presentation = clericObject.AddComponent<CreaturePresentation>();
         presentation.Bind(animationController, visual.GetComponent<CreatureEquipmentVisuals>());
         yield return null;
 
-        PreparedSpell light = cleric.Prepared.Spellcasting.PreparedSpells.First(spell => spell.Slug == "light");
+        PreparedSpell light = cleric.Prepared.Spellcasting.PreparedSpells.First(spell =>
+            spell.Slug == "light"
+        );
         controller.StartTurn();
         SpellCastContext context = new(
             clericObject,
             light,
             1,
             spendActions: true,
-            new SelfDefeatingSpellDefinition());
+            new SelfDefeatingSpellDefinition()
+        );
 
         CastSpellResult result = context.Cast(SpellTargetSelection.None);
 
         Assert.That(result.Success, Is.True);
-        Assert.That(animationController.IsDeathPlaying, Is.True,
-            "A successful cast must not replace a death animation started by its own spell effects.");
+        Assert.That(
+            animationController.IsDeathPlaying,
+            Is.True,
+            "A successful cast must not replace a death animation started by its own spell effects."
+        );
 
         float deadline = Time.realtimeSinceStartup + 6.0f;
         while (clericObject.activeSelf && Time.realtimeSinceStartup < deadline)
             yield return null;
 
-        Assert.That(clericObject.activeSelf, Is.False,
-            "The death animation completion callback must still deactivate the defeated caster.");
+        Assert.That(
+            clericObject.activeSelf,
+            Is.False,
+            "The death animation completion callback must still deactivate the defeated caster."
+        );
     }
 
     private sealed class ConfirmableSpellDefinition : ISpellDefinition
@@ -182,10 +208,18 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
             if (shouldCast)
                 context.Cast(SpellTargetSelection.None);
             else
-                SpellcastingRuntime.Fail(new CastSpellResult(), "Spell targeting was cancelled.", context.ActionController);
+                SpellcastingRuntime.Fail(
+                    new CastSpellResult(),
+                    "Spell targeting was cancelled.",
+                    context.ActionController
+                );
         }
 
-        public bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result)
+        public bool Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
         {
             result.Targets.Add(context.Caster);
             return true;
@@ -210,7 +244,11 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
             yield break;
         }
 
-        public bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result)
+        public bool Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
         {
             context.CasterCreature.TakeDamage(1u);
             result.Targets.Add(context.Caster);

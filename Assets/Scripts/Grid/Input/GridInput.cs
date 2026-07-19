@@ -41,7 +41,8 @@ namespace GridPrivate
 
             // Get camera
             var cam = Cam();
-            if (!cam) return;
+            if (!cam)
+                return;
 
             // Build a ray from the mouse to find the hit on the grid plane.
             var ray = cam.ScreenPointToRay(InputCompat.MousePositionScreen());
@@ -53,17 +54,22 @@ namespace GridPrivate
                 // Convert world to integer cell indices.
                 Vector3Int cell = Vector3Int.RoundToInt(hit);
                 if (
-                    cell.x < Tiles.GetLength(0) && cell.x >= 0 &&
-                    cell.z < Tiles.GetLength(1) && cell.z >= 0
-                ) {
+                    cell.x < Tiles.GetLength(0)
+                    && cell.x >= 0
+                    && cell.z < Tiles.GetLength(1)
+                    && cell.z >= 0
+                )
+                {
                     Hover = cell;
                     OnHover.Invoke(new List<Vector3Int> { cell });
-                    OnGridHover.Invoke(new GridPublic.GridHoverInfo
-                    {
-                        Cell = cell,
-                        WorldPosition = hit,
-                        NearestCorner = AreaTargeting.NearestCorner(cell, hit)
-                    });
+                    OnGridHover.Invoke(
+                        new GridPublic.GridHoverInfo
+                        {
+                            Cell = cell,
+                            WorldPosition = hit,
+                            NearestCorner = AreaTargeting.NearestCorner(cell, hit),
+                        }
+                    );
                     return;
                 }
             }

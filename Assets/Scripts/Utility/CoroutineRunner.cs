@@ -13,6 +13,7 @@ public class CoroutineRunner : SingletonMonoBehaviour<CoroutineRunner>
     {
         return GetInstance().StartCoroutine(routine);
     }
+
     public static Coroutine Run<T>(Func<T, IEnumerator> routine, T data)
     {
         return GetInstance().StartCoroutine(routine(data));

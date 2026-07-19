@@ -25,33 +25,52 @@ namespace TestsState
 
             CoroutineResult<AreaTargetResult> result = new();
             List<Vector3Int> preview = null;
-            UnityAction<List<Vector3Int>> previewListener = cells => preview = new List<Vector3Int>(cells);
+            UnityAction<List<Vector3Int>> previewListener = cells =>
+                preview = new List<Vector3Int>(cells);
             OnPreviewArea.AddListener(previewListener);
 
             try
             {
-                grid.StartCoroutine(GridAPI.GetInstance().GetAreaTarget(player, new AreaTargetRequest
-                {
-                    Shape = AreaShape.Line,
-                    SizeFeet = 10
-                }, result));
+                grid.StartCoroutine(
+                    GridAPI
+                        .GetInstance()
+                        .GetAreaTarget(
+                            player,
+                            new AreaTargetRequest { Shape = AreaShape.Line, SizeFeet = 10 },
+                            result
+                        )
+                );
 
-                yield return WaitUntilWithTimeout(timeout, () => grid.Fsm.CurrentState is StateAreaTarget);
-                Assert.IsTrue(grid.Fsm.CurrentState is StateAreaTarget, "GridAPI should enter StateAreaTarget.");
+                yield return WaitUntilWithTimeout(
+                    timeout,
+                    () => grid.Fsm.CurrentState is StateAreaTarget
+                );
+                Assert.IsTrue(
+                    grid.Fsm.CurrentState is StateAreaTarget,
+                    "GridAPI should enter StateAreaTarget."
+                );
 
                 Vector3Int hoverCell = start + new Vector3Int(1, 0, 0);
-                OnGridHover.Invoke(new GridHoverInfo
-                {
-                    Cell = hoverCell,
-                    WorldPosition = new Vector3(hoverCell.x, hoverCell.y, hoverCell.z),
-                    NearestCorner = new Vector2Int(hoverCell.x, hoverCell.z)
-                });
+                OnGridHover.Invoke(
+                    new GridHoverInfo
+                    {
+                        Cell = hoverCell,
+                        WorldPosition = new Vector3(hoverCell.x, hoverCell.y, hoverCell.z),
+                        NearestCorner = new Vector2Int(hoverCell.x, hoverCell.z),
+                    }
+                );
                 yield return null;
 
-                CollectionAssert.AreEqual(new[] { start + new Vector3Int(1, 0, 0), start + new Vector3Int(2, 0, 0) }, preview);
+                CollectionAssert.AreEqual(
+                    new[] { start + new Vector3Int(1, 0, 0), start + new Vector3Int(2, 0, 0) },
+                    preview
+                );
 
                 grid.Fsm.CurrentState.Leftclick();
-                yield return WaitUntilWithTimeout(timeout, () => grid.Fsm.CurrentState is StateIdle);
+                yield return WaitUntilWithTimeout(
+                    timeout,
+                    () => grid.Fsm.CurrentState is StateIdle
+                );
 
                 Assert.IsTrue(grid.Fsm.CurrentState is StateIdle);
                 Assert.IsNotNull(result.Value);
@@ -75,14 +94,25 @@ namespace TestsState
             FindClearHorizontalRun(tiles, 1, out Vector3Int start);
             CoroutineResult<AreaTargetResult> result = new();
 
-            grid.StartCoroutine(GridAPI.GetInstance().GetAreaTarget(new AreaTargetSource(start), new AreaTargetRequest
-            {
-                Shape = AreaShape.Emanation,
-                SizeFeet = 10,
-                IncludeCenter = true
-            }, result));
+            grid.StartCoroutine(
+                GridAPI
+                    .GetInstance()
+                    .GetAreaTarget(
+                        new AreaTargetSource(start),
+                        new AreaTargetRequest
+                        {
+                            Shape = AreaShape.Emanation,
+                            SizeFeet = 10,
+                            IncludeCenter = true,
+                        },
+                        result
+                    )
+            );
 
-            yield return WaitUntilWithTimeout(timeout, () => grid.Fsm.CurrentState is StateAreaTarget);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => grid.Fsm.CurrentState is StateAreaTarget
+            );
             Assert.IsTrue(grid.Fsm.CurrentState is StateAreaTarget);
 
             grid.Fsm.CurrentState.Rightclick();

@@ -30,19 +30,29 @@ namespace Game.KayKit
             new Dictionary<AnimationStyle, string>
             {
                 { AnimationStyle.Unarmed, "animation/combatmelee/melee_unarmed_attack_punch_a" },
-                { AnimationStyle.OneHandMelee, "animation/combatmelee/melee_1h_attack_slice_horizontal" },
+                {
+                    AnimationStyle.OneHandMelee,
+                    "animation/combatmelee/melee_1h_attack_slice_horizontal"
+                },
                 { AnimationStyle.TwoHandMelee, "animation/combatmelee/melee_2h_attack_chop" },
                 { AnimationStyle.Bow, "animation/combatranged/ranged_bow_release" },
                 { AnimationStyle.OneHandRanged, "animation/combatranged/ranged_1h_shoot" },
                 { AnimationStyle.TwoHandRanged, "animation/combatranged/ranged_2h_shoot" },
                 { AnimationStyle.Magic, "animation/combatranged/ranged_magic_shoot" },
-                { AnimationStyle.Tool, "animation/tools/chop" }
+                { AnimationStyle.Tool, "animation/tools/chop" },
             };
 
-        [SerializeField] private Animator animator;
-        [SerializeField] private RuntimeAnimatorController sharedController;
-        [SerializeField] private KayKitAnimationLibrary animationLibrary;
-        [SerializeField] private KayKitRigProfile rigProfile;
+        [SerializeField]
+        private Animator animator;
+
+        [SerializeField]
+        private RuntimeAnimatorController sharedController;
+
+        [SerializeField]
+        private KayKitAnimationLibrary animationLibrary;
+
+        [SerializeField]
+        private KayKitRigProfile rigProfile;
 
         private readonly HashSet<string> warnedUnknownIds = new(StringComparer.OrdinalIgnoreCase);
         private AnimatorOverrideController overrideController;
@@ -68,8 +78,11 @@ namespace Game.KayKit
         private void OnDisable()
         {
             moving = false;
-            if (animator != null && animator.isInitialized &&
-                animator.runtimeAnimatorController != null)
+            if (
+                animator != null
+                && animator.isInitialized
+                && animator.runtimeAnimatorController != null
+            )
                 animator.SetBool(IdleParameter, false);
         }
 
@@ -82,7 +95,8 @@ namespace Game.KayKit
             Animator targetAnimator,
             RuntimeAnimatorController controller,
             KayKitAnimationLibrary library,
-            KayKitRigProfile profile)
+            KayKitRigProfile profile
+        )
         {
             animator = targetAnimator;
             sharedController = controller;
@@ -101,8 +115,11 @@ namespace Game.KayKit
         public void SetMoving(bool isMoving, float speed)
         {
             moving = isMoving;
-            if (animator == null || !animator.isInitialized ||
-                animator.runtimeAnimatorController == null)
+            if (
+                animator == null
+                || !animator.isInitialized
+                || animator.runtimeAnimatorController == null
+            )
                 return;
 
             animator.applyRootMotion = false;
@@ -124,8 +141,7 @@ namespace Game.KayKit
         public void PlayDeath(Action completed)
         {
             string deathClipId = GetDeathClipId();
-            if (!TryGetClip(deathClipId, out KayKitAnimationEntry entry) ||
-                !EnsureInitialized())
+            if (!TryGetClip(deathClipId, out KayKitAnimationEntry entry) || !EnsureInitialized())
             {
                 completed?.Invoke();
                 return;
@@ -200,7 +216,7 @@ namespace Game.KayKit
                 AdventurerDeathId,
                 SkeletonIdleId,
                 SkeletonWalkId,
-                SkeletonDeathId
+                SkeletonDeathId,
             };
             ids.AddRange(AttackClipIds.Values);
             return ids;
@@ -229,8 +245,10 @@ namespace Game.KayKit
 
         private void ApplyLocomotionOverrides()
         {
-            string idleId = rigProfile == KayKitRigProfile.Skeleton ? SkeletonIdleId : AdventurerIdleId;
-            string walkId = rigProfile == KayKitRigProfile.Skeleton ? SkeletonWalkId : AdventurerWalkId;
+            string idleId =
+                rigProfile == KayKitRigProfile.Skeleton ? SkeletonIdleId : AdventurerIdleId;
+            string walkId =
+                rigProfile == KayKitRigProfile.Skeleton ? SkeletonWalkId : AdventurerWalkId;
             if (TryGetClip(idleId, out KayKitAnimationEntry idle))
                 ApplyOverride(IdlePlaceholderClipName, idle.Clip);
             if (TryGetClip(walkId, out KayKitAnimationEntry walk))
@@ -279,7 +297,10 @@ namespace Game.KayKit
             if (!warnedUnknownIds.Add(warningKey))
                 return;
             if (Application.isEditor || Debug.isDebugBuild)
-                Debug.LogWarning($"Unknown KayKit animation clip ID '{warningKey}' on {name}.", this);
+                Debug.LogWarning(
+                    $"Unknown KayKit animation clip ID '{warningKey}' on {name}.",
+                    this
+                );
         }
 
         private void DisposeOverrideController()

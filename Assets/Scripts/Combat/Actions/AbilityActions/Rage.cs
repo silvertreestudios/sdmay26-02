@@ -1,5 +1,5 @@
-using Game.Creature.Rules;
 using System.Collections;
+using Game.Creature.Rules;
 using UnityEngine;
 
 namespace Game.AbilityActions
@@ -16,9 +16,8 @@ namespace Game.AbilityActions
         /// Creates a Rage action with the action point cost supplied by the action system.
         /// </summary>
         /// <param name="cost">The number of action points Rage spends when successfully used.</param>
-        public Rage(uint cost) : base(cost)
-        {
-        }
+        public Rage(uint cost)
+            : base(cost) { }
 
         /// <summary>
         /// Attempts to start Rage for an actor by evaluating the pure rule and applying its generic Unity side effects.
@@ -28,11 +27,13 @@ namespace Game.AbilityActions
         public bool UseRage(GameObject actor)
         {
             Debug.Log(actor + " is attempting to use Rage");
-            RageRuleResult result = RageRule.Apply(new RageRequest
-            {
-                Creature = UnityCreatureRulesAdapter.From(actor),
-                ActionCost = ActionCost
-            });
+            RageRuleResult result = RageRule.Apply(
+                new RageRequest
+                {
+                    Creature = UnityCreatureRulesAdapter.From(actor),
+                    ActionCost = ActionCost,
+                }
+            );
             UnityRuleEffectApplier.Apply(actor, result.Effects);
             if (!result.Applied)
                 Debug.Log(actor + " cannot Rage");
@@ -46,11 +47,13 @@ namespace Game.AbilityActions
         /// <returns>True when the actor satisfies the Rage rule prerequisites.</returns>
         public bool RageAllowed(GameObject actor)
         {
-            return RageRule.CanApply(new RageRequest
-            {
-                Creature = UnityCreatureRulesAdapter.From(actor),
-                ActionCost = ActionCost
-            });
+            return RageRule.CanApply(
+                new RageRequest
+                {
+                    Creature = UnityCreatureRulesAdapter.From(actor),
+                    ActionCost = ActionCost,
+                }
+            );
         }
 
         /// <summary>

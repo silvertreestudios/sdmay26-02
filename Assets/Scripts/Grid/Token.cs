@@ -34,9 +34,10 @@ namespace GridPublic
             if (!GridTargeting.IsInBounds(privateGrid.GetTiles(), position))
             {
                 Debug.LogWarning(
-                    $"Failed to register token '{name}' at grid cell ({position.x}, {position.z}). " +
-                    "The cell is outside the grid bounds.",
-                    this);
+                    $"Failed to register token '{name}' at grid cell ({position.x}, {position.z}). "
+                        + "The cell is outside the grid bounds.",
+                    this
+                );
                 return false;
             }
 
@@ -44,9 +45,10 @@ namespace GridPublic
             if (!registered)
             {
                 Debug.LogWarning(
-                    $"Failed to register token '{name}' at grid cell ({position.x}, {position.z}). " +
-                    "The cell may be blocked or already occupied.",
-                    this);
+                    $"Failed to register token '{name}' at grid cell ({position.x}, {position.z}). "
+                        + "The cell may be blocked or already occupied.",
+                    this
+                );
             }
             return registered;
         }

@@ -27,15 +27,20 @@ public sealed class KayKitDungeonExamplePlayModeTests
         Time.timeScale = 0f;
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
-            new LoadSceneParameters(LoadSceneMode.Single));
+            new LoadSceneParameters(LoadSceneMode.Single)
+        );
         Assert.That(load, Is.Not.Null, $"Could not start loading {ScenePath}.");
         while (!load.isDone)
             yield return null;
 
         float deadline = Time.realtimeSinceStartup + 10f;
-        while ((Object.FindFirstObjectByType<GridBase>() == null ||
-                Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None).Length != 6) &&
-               Time.realtimeSinceStartup < deadline)
+        while (
+            (
+                Object.FindFirstObjectByType<GridBase>() == null
+                || Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None).Length != 6
+            )
+            && Time.realtimeSinceStartup < deadline
+        )
         {
             yield return null;
         }
@@ -68,7 +73,8 @@ public sealed class KayKitDungeonExamplePlayModeTests
         Assert.That(
             EditorBuildSettings.scenes.Any(scene => scene.path == ScenePath),
             Is.False,
-            "The standalone example must not enter the campaign build sequence.");
+            "The standalone example must not enter the campaign build sequence."
+        );
 
         Map map = Object.FindFirstObjectByType<Map>();
         GridBase grid = Object.FindFirstObjectByType<GridBase>();
@@ -86,12 +92,26 @@ public sealed class KayKitDungeonExamplePlayModeTests
         Assert.That(generated.transform.Find("Objects"), Is.Not.Null);
         Assert.That(generated.transform.Find("Objects").childCount, Is.EqualTo(10));
 
-        ActionController[] combatants = Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None);
+        ActionController[] combatants = Object.FindObjectsByType<ActionController>(
+            FindObjectsSortMode.None
+        );
         Assert.That(combatants, Has.Length.EqualTo(6));
-        Assert.That(combatants.Count(controller => TeamName(controller) == "Players"), Is.EqualTo(2));
-        Assert.That(combatants.Count(controller => TeamName(controller) == "Enemies"), Is.EqualTo(4));
-        Assert.That(combatants.Count(controller => controller is PlayerActionController), Is.EqualTo(2));
-        Assert.That(combatants.Count(controller => controller is MindlessController), Is.EqualTo(4));
+        Assert.That(
+            combatants.Count(controller => TeamName(controller) == "Players"),
+            Is.EqualTo(2)
+        );
+        Assert.That(
+            combatants.Count(controller => TeamName(controller) == "Enemies"),
+            Is.EqualTo(4)
+        );
+        Assert.That(
+            combatants.Count(controller => controller is PlayerActionController),
+            Is.EqualTo(2)
+        );
+        Assert.That(
+            combatants.Count(controller => controller is MindlessController),
+            Is.EqualTo(4)
+        );
         CollectionAssert.AreEquivalent(
             new[]
             {
@@ -100,9 +120,10 @@ public sealed class KayKitDungeonExamplePlayModeTests
                 "Zombie Shambler A",
                 "Zombie Shambler B",
                 "Skeleton Guard A",
-                "Skeleton Guard B"
+                "Skeleton Guard B",
             },
-            combatants.Select(controller => controller.name));
+            combatants.Select(controller => controller.name)
+        );
 
         Tile[,] tiles = grid.GetTiles();
         HashSet<Vector3Int> occupiedCells = new();
@@ -111,8 +132,16 @@ public sealed class KayKitDungeonExamplePlayModeTests
             Vector3Int cell = Vector3Int.RoundToInt(combatant.transform.position);
             Assert.That(cell.x, Is.InRange(0, tiles.GetLength(0) - 1), combatant.name);
             Assert.That(cell.z, Is.InRange(0, tiles.GetLength(1) - 1), combatant.name);
-            Assert.That(tiles[cell.x, cell.z], Is.Not.Null, $"{combatant.name} must spawn on a walkable tile.");
-            Assert.That(tiles[cell.x, cell.z].Occupants, Does.Contain(combatant.gameObject), combatant.name);
+            Assert.That(
+                tiles[cell.x, cell.z],
+                Is.Not.Null,
+                $"{combatant.name} must spawn on a walkable tile."
+            );
+            Assert.That(
+                tiles[cell.x, cell.z].Occupants,
+                Does.Contain(combatant.gameObject),
+                combatant.name
+            );
             Assert.That(occupiedCells.Add(cell), Is.True, $"Duplicate combatant spawn at {cell}.");
         }
 
@@ -130,47 +159,77 @@ public sealed class KayKitDungeonExamplePlayModeTests
         Assert.That(gameplayCamera.targetTexture, Is.Null);
         Assert.That(gameplayCamera.orthographic, Is.False);
         Assert.That(gameplayCamera.fieldOfView, Is.EqualTo(30f));
-        Assert.That(gameplayCamera.transform.position.y,
+        Assert.That(
+            gameplayCamera.transform.position.y,
             Is.GreaterThan(cameraManager.minCamearYLimit)
-                .And.LessThan(cameraManager.maxCameraYLimit));
+                .And.LessThan(cameraManager.maxCameraYLimit)
+        );
 
-        Camera[] gameplayCandidates = Object.FindObjectsByType<Camera>(
-                FindObjectsInactive.Include,
-                FindObjectsSortMode.None)
+        Camera[] gameplayCandidates = Object
+            .FindObjectsByType<Camera>(FindObjectsInactive.Include, FindObjectsSortMode.None)
             .Where(candidate =>
-                candidate.enabled &&
-                candidate.gameObject.activeInHierarchy &&
-                candidate.targetTexture == null &&
-                candidate.CompareTag("MainCamera"))
+                candidate.enabled
+                && candidate.gameObject.activeInHierarchy
+                && candidate.targetTexture == null
+                && candidate.CompareTag("MainCamera")
+            )
             .ToArray();
         Assert.That(gameplayCandidates, Is.EqualTo(new[] { gameplayCamera }));
 
         Portrait[] portraits = Object.FindObjectsByType<Portrait>(
             FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
+            FindObjectsSortMode.None
+        );
         Assert.That(portraits, Has.Length.EqualTo(6));
         foreach (Portrait portrait in portraits)
         {
             Camera portraitCamera = portrait.GetComponentInChildren<Camera>(true);
             Assert.That(portraitCamera, Is.Not.Null, portrait.name);
             GameObject sourcePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
-                PortraitPrefabPath(portrait.name));
+                PortraitPrefabPath(portrait.name)
+            );
             Camera sourceCamera = sourcePrefab.GetComponentInChildren<Camera>(true);
             Assert.That(sourceCamera, Is.Not.Null, portrait.name);
             Assert.That(portraitCamera.enabled, Is.False, portrait.name);
             Assert.That(portraitCamera.CompareTag("MainCamera"), Is.False, portrait.name);
-            Assert.That(portraitCamera.orthographic, Is.EqualTo(sourceCamera.orthographic), portrait.name);
-            Assert.That(portraitCamera.fieldOfView, Is.EqualTo(sourceCamera.fieldOfView), portrait.name);
-            Assert.That(portraitCamera.nearClipPlane, Is.EqualTo(sourceCamera.nearClipPlane), portrait.name);
-            Assert.That(portraitCamera.farClipPlane, Is.EqualTo(sourceCamera.farClipPlane), portrait.name);
-            Assert.That(portraitCamera.transform.localPosition,
-                Is.EqualTo(sourceCamera.transform.localPosition), portrait.name);
-            Assert.That(Quaternion.Angle(
-                portraitCamera.transform.localRotation,
-                sourceCamera.transform.localRotation), Is.LessThan(0.001f), portrait.name);
+            Assert.That(
+                portraitCamera.orthographic,
+                Is.EqualTo(sourceCamera.orthographic),
+                portrait.name
+            );
+            Assert.That(
+                portraitCamera.fieldOfView,
+                Is.EqualTo(sourceCamera.fieldOfView),
+                portrait.name
+            );
+            Assert.That(
+                portraitCamera.nearClipPlane,
+                Is.EqualTo(sourceCamera.nearClipPlane),
+                portrait.name
+            );
+            Assert.That(
+                portraitCamera.farClipPlane,
+                Is.EqualTo(sourceCamera.farClipPlane),
+                portrait.name
+            );
+            Assert.That(
+                portraitCamera.transform.localPosition,
+                Is.EqualTo(sourceCamera.transform.localPosition),
+                portrait.name
+            );
+            Assert.That(
+                Quaternion.Angle(
+                    portraitCamera.transform.localRotation,
+                    sourceCamera.transform.localRotation
+                ),
+                Is.LessThan(0.001f),
+                portrait.name
+            );
         }
 
-        ActionController[] encounter = Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None);
+        ActionController[] encounter = Object.FindObjectsByType<ActionController>(
+            FindObjectsSortMode.None
+        );
         Assert.That(encounter, Is.Not.Empty);
 
         cameraManager.StopFollowing();
@@ -185,16 +244,17 @@ public sealed class KayKitDungeonExamplePlayModeTests
                 AssertCombatantPositionsVisible(
                     gameplayCamera,
                     new[] { FindCombatant("Lena").transform.position },
-                    aspect);
+                    aspect
+                );
                 Assert.That(
                     encounter
                         .Where(combatant => TeamName(combatant) == "Enemies")
-                        .Any(combatant => IsPositionVisible(
-                            gameplayCamera,
-                            combatant.transform.position,
-                            aspect)),
+                        .Any(combatant =>
+                            IsPositionVisible(gameplayCamera, combatant.transform.position, aspect)
+                        ),
                     Is.True,
-                    $"Aspect {aspect}: the starting camera must show at least one enemy.");
+                    $"Aspect {aspect}: the starting camera must show at least one enemy."
+                );
             }
         }
         finally
@@ -204,7 +264,8 @@ public sealed class KayKitDungeonExamplePlayModeTests
 
         MethodInfo tryApplyZoom = typeof(CameraManager).GetMethod(
             "TryApplyZoom",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.That(tryApplyZoom, Is.Not.Null);
         Vector3 initialPosition = gameplayCamera.transform.position;
         Assert.That((bool)tryApplyZoom.Invoke(cameraManager, new object[] { 0.5f }), Is.True);
@@ -229,20 +290,38 @@ public sealed class KayKitDungeonExamplePlayModeTests
         Assert.That(grid.GridData[18, 25], Is.EqualTo(TileType.Obstacle));
         Assert.That(tiles[0, 0], Is.Null);
         Assert.That(tiles[25, 49], Is.Not.Null, "An open doorway remains walkable.");
-        Assert.That(tiles[18, 25], Is.Null, "A blocking prop is not a structural wall, but is unwalkable.");
+        Assert.That(
+            tiles[18, 25],
+            Is.Null,
+            "A blocking prop is not a structural wall, but is unwalkable."
+        );
         Assert.That(lineOfSight[0, 0], Is.True);
         Assert.That(lineOfSight[25, 49], Is.False);
         Assert.That(lineOfSight[18, 25], Is.True, "Stacked crates block line of sight.");
-        Assert.That(lineOfSight[19, 25], Is.False, "The chest blocks movement without blocking line of sight.");
+        Assert.That(
+            lineOfSight[19, 25],
+            Is.False,
+            "The chest blocks movement without blocking line of sight."
+        );
 
         Assert.That(
-            StrikeTargeting.CountClearRays(tiles, new Vector3Int(17, 0, 25), new Vector3Int(20, 0, 25)),
+            StrikeTargeting.CountClearRays(
+                tiles,
+                new Vector3Int(17, 0, 25),
+                new Vector3Int(20, 0, 25)
+            ),
             Is.Zero,
-            "The collider-backed stacked crates must block the lane behind them.");
+            "The collider-backed stacked crates must block the lane behind them."
+        );
         Assert.That(
-            StrikeTargeting.CountClearRays(tiles, new Vector3Int(22, 0, 24), new Vector3Int(27, 0, 24)),
+            StrikeTargeting.CountClearRays(
+                tiles,
+                new Vector3Int(22, 0, 24),
+                new Vector3Int(27, 0, 24)
+            ),
             Is.EqualTo(16),
-            "An open central ranged lane remains clear.");
+            "An open central ranged lane remains clear."
+        );
 
         ActionController[] players = CombatantsForTeam("Players");
         ActionController[] enemies = CombatantsForTeam("Enemies");
@@ -253,20 +332,25 @@ public sealed class KayKitDungeonExamplePlayModeTests
                 Vector3Int start = Vector3Int.RoundToInt(player.transform.position);
                 Vector3Int end = Vector3Int.RoundToInt(enemy.transform.position);
                 List<PathNode> path = grid.GetPathfinder().Pathfind(null, start, end);
-                Assert.That(path, Is.Not.Null.And.Not.Empty, $"No path from {player.name} to {enemy.name}.");
+                Assert.That(
+                    path,
+                    Is.Not.Null.And.Not.Empty,
+                    $"No path from {player.name} to {enemy.name}."
+                );
                 Assert.That(path[0].Location, Is.EqualTo(start));
                 Assert.That(path[^1].Location, Is.EqualTo(end));
             }
         }
 
-        List<PathNode> meleeRoute = grid.GetPathfinder().Pathfind(
-            null,
-            new Vector3Int(21, 0, 22),
-            new Vector3Int(28, 0, 27));
+        List<PathNode> meleeRoute = grid.GetPathfinder()
+            .Pathfind(null, new Vector3Int(21, 0, 22), new Vector3Int(28, 0, 27));
         Assert.That(
-            meleeRoute.All(node => GridBase.IsWalkableTile(grid.GridData[node.Location.x, node.Location.z])),
+            meleeRoute.All(node =>
+                GridBase.IsWalkableTile(grid.GridData[node.Location.x, node.Location.z])
+            ),
             Is.True,
-            "The opposing sides must connect across the open room without crossing a wall or obstacle.");
+            "The opposing sides must connect across the open room without crossing a wall or obstacle."
+        );
 
         yield return null;
     }
@@ -282,19 +366,26 @@ public sealed class KayKitDungeonExamplePlayModeTests
 
         FieldInfo rangePoolField = typeof(GridVisuals).GetField(
             "RangePool",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.That(rangePoolField, Is.Not.Null);
         GameObjectPool rangePool = (GameObjectPool)rangePoolField.GetValue(visuals);
         List<GameObject> highlights = rangePool.CurrentlyActiveList();
         Assert.That(highlights, Is.Not.Empty, "Stride must display reachable floor tiles.");
 
         GeneratedMapRoot generated = Object.FindFirstObjectByType<GeneratedMapRoot>();
-        Renderer floor = generated.GetComponentsInChildren<Renderer>(false).First(renderer =>
-            renderer.transform.parent != null &&
-            renderer.transform.parent.name == "Floor_021_022");
+        Renderer floor = generated
+            .GetComponentsInChildren<Renderer>(false)
+            .First(renderer =>
+                renderer.transform.parent != null
+                && renderer.transform.parent.name == "Floor_021_022"
+            );
         float floorTop = floor.bounds.max.y;
-        Assert.That(highlights.All(highlight => highlight.transform.position.y > floorTop), Is.True,
-            "Stride highlights must sit above the visible dungeon floor surface.");
+        Assert.That(
+            highlights.All(highlight => highlight.transform.position.y > floorTop),
+            Is.True,
+            "Stride highlights must sit above the visible dungeon floor surface."
+        );
 
         grid.Fsm.ChangeState(new StateIdle());
     }
@@ -302,30 +393,39 @@ public sealed class KayKitDungeonExamplePlayModeTests
     [UnityTest]
     public IEnumerator EveryEncounterArchetypeCanStartATurnWithExpectedAttacks()
     {
-        string[] representatives =
-        {
-            "Lena",
-            "Torgrim",
-            "Zombie Shambler A",
-            "Skeleton Guard A"
-        };
+        string[] representatives = { "Lena", "Torgrim", "Zombie Shambler A", "Skeleton Guard A" };
 
         foreach (string name in representatives)
         {
             ActionController controller = FindCombatant(name);
             Assert.That(controller.GetMovements(), Is.Not.Empty, $"{name} needs Stride.");
-            Assert.That(controller.GetActions(), Is.Not.Empty, $"{name} needs at least one combat action.");
+            Assert.That(
+                controller.GetActions(),
+                Is.Not.Empty,
+                $"{name} needs at least one combat action."
+            );
             controller.StartTurn();
-            Assert.That(controller.ActionPoints, Is.GreaterThan(0), $"{name} failed to initialize a turn.");
+            Assert.That(
+                controller.ActionPoints,
+                Is.GreaterThan(0),
+                $"{name} failed to initialize a turn."
+            );
         }
 
         ActionController skeleton = FindCombatant("Skeleton Guard A");
         CollectionAssert.IsSubsetOf(
             new[] { "Scimitar", "Shortbow" },
-            skeleton.GetActions().Select(action => action.ActionName).ToArray());
+            skeleton.GetActions().Select(action => action.ActionName).ToArray()
+        );
         CreatureComponent skeletonCreature = skeleton.GetComponent<CreatureComponent>();
-        Assert.That(skeletonCreature.weapons.Any(weapon => weapon.name == "Scimitar" && weapon.range == 0), Is.True);
-        Assert.That(skeletonCreature.weapons.Any(weapon => weapon.name == "Shortbow" && weapon.range > 0), Is.True);
+        Assert.That(
+            skeletonCreature.weapons.Any(weapon => weapon.name == "Scimitar" && weapon.range == 0),
+            Is.True
+        );
+        Assert.That(
+            skeletonCreature.weapons.Any(weapon => weapon.name == "Shortbow" && weapon.range > 0),
+            Is.True
+        );
 
         ActionController zombie = FindCombatant("Zombie Shambler A");
         CreatureComponent zombieCreature = zombie.GetComponent<CreatureComponent>();
@@ -333,7 +433,8 @@ public sealed class KayKitDungeonExamplePlayModeTests
         Assert.That(
             zombie.GetActions().Any(action => action.ActionName == "Unarmed Strike"),
             Is.True,
-            "The unarmed zombie still needs a usable strike.");
+            "The unarmed zombie still needs a usable strike."
+        );
 
         yield return null;
     }
@@ -354,7 +455,12 @@ public sealed class KayKitDungeonExamplePlayModeTests
 
             Assert.That(manager.CheckForEndOfGame(), Is.True);
             Assert.That(playerVictory, Is.True);
-            Assert.That(manager.GetCombatants().All(combatant => combatant.GetComponent<Team>().Name == "Players"), Is.True);
+            Assert.That(
+                manager
+                    .GetCombatants()
+                    .All(combatant => combatant.GetComponent<Team>().Name == "Players"),
+                Is.True
+            );
         }
         finally
         {
@@ -366,7 +472,8 @@ public sealed class KayKitDungeonExamplePlayModeTests
 
     private static ActionController FindCombatant(string name)
     {
-        ActionController result = Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None)
+        ActionController result = Object
+            .FindObjectsByType<ActionController>(FindObjectsSortMode.None)
             .SingleOrDefault(controller => controller.name == name);
         Assert.That(result, Is.Not.Null, $"Missing combatant {name}.");
         return result;
@@ -374,7 +481,8 @@ public sealed class KayKitDungeonExamplePlayModeTests
 
     private static ActionController[] CombatantsForTeam(string teamName)
     {
-        return Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None)
+        return Object
+            .FindObjectsByType<ActionController>(FindObjectsSortMode.None)
             .Where(controller => TeamName(controller) == teamName)
             .ToArray();
     }
@@ -388,25 +496,38 @@ public sealed class KayKitDungeonExamplePlayModeTests
     {
         camera.aspect = aspect;
         Vector3 viewport = camera.WorldToViewportPoint(position);
-        return viewport.z > 0f &&
-               viewport.x >= 0f &&
-               viewport.x <= 1f &&
-               viewport.y >= 0f &&
-               viewport.y <= 1f;
+        return viewport.z > 0f
+            && viewport.x >= 0f
+            && viewport.x <= 1f
+            && viewport.y >= 0f
+            && viewport.y <= 1f;
     }
 
     private static void AssertCombatantPositionsVisible(
         Camera camera,
         IEnumerable<Vector3> positions,
-        float aspect)
+        float aspect
+    )
     {
         camera.aspect = aspect;
         foreach (Vector3 position in positions)
         {
             Vector3 viewport = camera.WorldToViewportPoint(position);
-            Assert.That(viewport.z, Is.GreaterThan(0f), $"Aspect {aspect}: {position} is behind the camera.");
-            Assert.That(viewport.x, Is.InRange(0f, 1f), $"Aspect {aspect}: {position} is horizontally clipped.");
-            Assert.That(viewport.y, Is.InRange(0f, 1f), $"Aspect {aspect}: {position} is vertically clipped.");
+            Assert.That(
+                viewport.z,
+                Is.GreaterThan(0f),
+                $"Aspect {aspect}: {position} is behind the camera."
+            );
+            Assert.That(
+                viewport.x,
+                Is.InRange(0f, 1f),
+                $"Aspect {aspect}: {position} is horizontally clipped."
+            );
+            Assert.That(
+                viewport.y,
+                Is.InRange(0f, 1f),
+                $"Aspect {aspect}: {position} is vertically clipped."
+            );
         }
     }
 
@@ -421,7 +542,9 @@ public sealed class KayKitDungeonExamplePlayModeTests
         if (instanceName.StartsWith("Skeleton Guard", System.StringComparison.Ordinal))
             return "Assets/Prefabs/Creatures/skeleton-guard.prefab";
 
-        throw new AssertionException($"No portrait source prefab is registered for {instanceName}.");
+        throw new AssertionException(
+            $"No portrait source prefab is registered for {instanceName}."
+        );
     }
 }
 
@@ -430,8 +553,10 @@ public sealed class InvalidGridInitializationPlayModeTests
     [Test]
     public void InvalidMapLeavesGridDisabledAndUnregistered()
     {
-        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
-            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
         Assert.That(singletonField, Is.Not.Null);
 
         object previousSingleton = singletonField.GetValue(null);
@@ -451,10 +576,12 @@ public sealed class InvalidGridInitializationPlayModeTests
             map.ConfigureJson(source, catalog);
             LogAssert.Expect(
                 LogType.Error,
-                "Map data is invalid: JSON map unknown: Unknown property is not part of the current schema.");
+                "Map data is invalid: JSON map unknown: Unknown property is not part of the current schema."
+            );
             LogAssert.Expect(
                 LogType.Error,
-                "Grid initialization failed: Map did not provide valid grid and line-of-sight data.");
+                "Grid initialization failed: Map did not provide valid grid and line-of-sight data."
+            );
 
             GridBase grid = gridObject.AddComponent<GridBase>();
             combatantObject = new GameObject("Invalid Grid Combatant");
@@ -490,8 +617,10 @@ public sealed class InvalidGridInitializationPlayModeTests
     [Test]
     public void ValidMapStillRegistersCombatantToken()
     {
-        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
-            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
         Assert.That(singletonField, Is.Not.Null);
 
         object previousSingleton = singletonField.GetValue(null);
@@ -505,7 +634,8 @@ public sealed class InvalidGridInitializationPlayModeTests
             gridObject.SetActive(false);
             source = new TextAsset(PlayModeDungeonJson.Create(new[] { "." }));
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset"
+            );
 
             Map map = gridObject.AddComponent<Map>();
             map.ConfigureJson(source, catalog);
@@ -539,8 +669,10 @@ public sealed class InvalidGridInitializationPlayModeTests
     [Test]
     public void OutOfBoundsToken_LogsWarningWithoutThrowing()
     {
-        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
-            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
         Assert.That(singletonField, Is.Not.Null);
 
         object previousSingleton = singletonField.GetValue(null);
@@ -554,7 +686,8 @@ public sealed class InvalidGridInitializationPlayModeTests
             gridObject.SetActive(false);
             source = new TextAsset(PlayModeDungeonJson.Create(new[] { "." }));
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset"
+            );
             Map map = gridObject.AddComponent<Map>();
             map.ConfigureJson(source, catalog);
             GridBase grid = gridObject.AddComponent<GridBase>();
@@ -566,10 +699,12 @@ public sealed class InvalidGridInitializationPlayModeTests
             tokenObject.AddComponent<Token>();
             LogAssert.Expect(
                 LogType.Warning,
-                "Failed to register token 'Out of Bounds Combatant' at grid cell (1, 0). The cell is outside the grid bounds.");
+                "Failed to register token 'Out of Bounds Combatant' at grid cell (1, 0). The cell is outside the grid bounds."
+            );
             LogAssert.Expect(
                 LogType.Warning,
-                "Failed to register token 'Out of Bounds Combatant' at grid cell (1, 0). The cell is outside the grid bounds.");
+                "Failed to register token 'Out of Bounds Combatant' at grid cell (1, 0). The cell is outside the grid bounds."
+            );
             tokenObject.SetActive(true);
 
             Assert.That(grid.GetTiles()[0, 0].Occupants, Is.Empty);
@@ -590,8 +725,10 @@ public sealed class InvalidGridInitializationPlayModeTests
     [Test]
     public void TokenBeforeGrid_RegistersExactlyOnceWhenGridBecomesReady()
     {
-        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
-            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
         Assert.That(singletonField, Is.Not.Null);
 
         object previousSingleton = singletonField.GetValue(null);
@@ -609,7 +746,8 @@ public sealed class InvalidGridInitializationPlayModeTests
             gridObject.SetActive(false);
             source = new TextAsset(PlayModeDungeonJson.Create(new[] { "." }));
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset"
+            );
             Map map = gridObject.AddComponent<Map>();
             map.ConfigureJson(source, catalog);
             GridBase grid = gridObject.AddComponent<GridBase>();
@@ -641,8 +779,10 @@ public sealed class InvalidGridInitializationPlayModeTests
     [Test]
     public void InvalidGridThenValidGrid_RegistersWaitingTokenWithoutLogCascade()
     {
-        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
-            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
         Assert.That(singletonField, Is.Not.Null);
 
         object previousSingleton = singletonField.GetValue(null);
@@ -661,16 +801,19 @@ public sealed class InvalidGridInitializationPlayModeTests
             invalidGridObject.SetActive(false);
             invalidSource = new TextAsset(PlayModeDungeonJson.InvalidUnknownRoot());
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset"
+            );
             Map invalidMap = invalidGridObject.AddComponent<Map>();
             invalidMap.ConfigureJson(invalidSource, catalog);
             GridBase invalidGrid = invalidGridObject.AddComponent<GridBase>();
             LogAssert.Expect(
                 LogType.Error,
-                "Map data is invalid: JSON map unknown: Unknown property is not part of the current schema.");
+                "Map data is invalid: JSON map unknown: Unknown property is not part of the current schema."
+            );
             LogAssert.Expect(
                 LogType.Error,
-                "Grid initialization failed: Map did not provide valid grid and line-of-sight data.");
+                "Grid initialization failed: Map did not provide valid grid and line-of-sight data."
+            );
             invalidGridObject.SetActive(true);
 
             Assert.That(invalidGrid.enabled, Is.False);
@@ -707,8 +850,10 @@ public sealed class InvalidGridInitializationPlayModeTests
     [UnityTest]
     public IEnumerator DisabledAndDestroyedWaitingTokens_DoNotLeakGridReadyCallbacks()
     {
-        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>)
-            .GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
         Assert.That(singletonField, Is.Not.Null);
 
         object previousSingleton = singletonField.GetValue(null);
@@ -733,7 +878,8 @@ public sealed class InvalidGridInitializationPlayModeTests
             gridObject.SetActive(false);
             source = new TextAsset(PlayModeDungeonJson.Create(new[] { "." }));
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset"
+            );
             Map map = gridObject.AddComponent<Map>();
             map.ConfigureJson(source, catalog);
             GridBase grid = gridObject.AddComponent<GridBase>();
@@ -773,32 +919,38 @@ public sealed class MapGenerationLifecyclePlayModeTests
         try
         {
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset"
+            );
             KayKitDungeonCatalogEntry wall = catalog.Entries.Single(entry =>
-                entry.Id.EndsWith("/wall", System.StringComparison.Ordinal));
-            source = new TextAsset(PlayModeDungeonJson.Create(
-                new[] { "...", "...", "..." },
-                new DungeonObjectPlacement(
-                    "wall-0001",
-                    wall.Id,
-                    new DungeonCell(1, 1))));
+                entry.Id.EndsWith("/wall", System.StringComparison.Ordinal)
+            );
+            source = new TextAsset(
+                PlayModeDungeonJson.Create(
+                    new[] { "...", "...", "..." },
+                    new DungeonObjectPlacement("wall-0001", wall.Id, new DungeonCell(1, 1))
+                )
+            );
             mapObject = new GameObject("Wall Placement Semantics");
             Map map = mapObject.AddComponent<Map>();
             map.ConfigureJson(source, catalog);
 
-            Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
-                string.Join("\n", validation.Errors));
+            Assert.That(
+                map.TryGenerate(out MapSourceValidationResult validation),
+                Is.True,
+                string.Join("\n", validation.Errors)
+            );
             TileType[,] gridData = map.GetMapData();
             bool[,] lineOfSightBlocks = map.GetLineOfSightBlocks();
             tiles = new[,]
             {
                 { new Tile(), new Tile(), new Tile() },
                 { new Tile(), null, new Tile() },
-                { new Tile(), new Tile(), new Tile() }
+                { new Tile(), new Tile(), new Tile() },
             };
             GridLineOfSightData.Register(tiles, lineOfSightBlocks, gridData);
             Transform placedWall = mapObject.transform.Find(
-                "GeneratedMap/Objects/Object_000_dungeon_assets_fbx_unity__wall");
+                "GeneratedMap/Objects/Object_000_dungeon_assets_fbx_unity__wall"
+            );
 
             Assert.That(gridData[1, 1], Is.EqualTo(TileType.Obstacle));
             Assert.That(GridBase.IsWalkableTile(gridData[1, 1]), Is.False);
@@ -806,7 +958,8 @@ public sealed class MapGenerationLifecyclePlayModeTests
             Assert.That(GridTargeting.IsBlocking(tiles, new Vector3Int(1, 0, 1)), Is.True);
             Assert.That(
                 GridTargeting.CountClearRays(tiles, Vector3Int.zero, new Vector3Int(2, 0, 2)),
-                Is.Zero);
+                Is.Zero
+            );
             Assert.That(placedWall, Is.Not.Null);
             Assert.That(placedWall.GetComponent<BoxCollider>(), Is.Not.Null);
             Assert.That(placedWall.GetComponent<MapLineOfSightBlocker>(), Is.Not.Null);
@@ -817,9 +970,12 @@ public sealed class MapGenerationLifecyclePlayModeTests
                 new Vector3(1f, 0f, 1f).normalized,
                 Mathf.Sqrt(8f),
                 ~0,
-                QueryTriggerInteraction.Collide);
-            Assert.That(hits.Any(hit =>
-                hit.collider.GetComponentInParent<MapLineOfSightBlocker>() != null), Is.True);
+                QueryTriggerInteraction.Collide
+            );
+            Assert.That(
+                hits.Any(hit => hit.collider.GetComponentInParent<MapLineOfSightBlocker>() != null),
+                Is.True
+            );
             yield return null;
         }
         finally
@@ -862,12 +1018,16 @@ public sealed class MapGenerationLifecyclePlayModeTests
             manual.transform.SetParent(mapObject.transform, false);
 
             KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset");
+                "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset"
+            );
             source = new TextAsset(PlayModeDungeonJson.Create(new[] { ".." }));
             map.ConfigureJson(source, catalog);
 
-            Assert.That(map.TryGenerate(out MapSourceValidationResult firstResult), Is.True,
-                string.Join("\n", firstResult.Errors));
+            Assert.That(
+                map.TryGenerate(out MapSourceValidationResult firstResult),
+                Is.True,
+                string.Join("\n", firstResult.Errors)
+            );
             Transform firstGenerated = mapObject.transform.Find("GeneratedMap");
             int firstGeneratedId = firstGenerated.GetInstanceID();
             Assert.That(mapObject.transform.childCount, Is.EqualTo(2));
@@ -883,8 +1043,11 @@ public sealed class MapGenerationLifecyclePlayModeTests
             spacedManualLookalike.GetComponent<MeshRenderer>().sharedMaterial = floor;
             spacedManualLookalike.transform.SetParent(mapObject.transform, true);
 
-            Assert.That(map.TryGenerate(out MapSourceValidationResult secondResult), Is.True,
-                string.Join("\n", secondResult.Errors));
+            Assert.That(
+                map.TryGenerate(out MapSourceValidationResult secondResult),
+                Is.True,
+                string.Join("\n", secondResult.Errors)
+            );
             Transform secondGenerated = mapObject.transform.Find("GeneratedMap");
             Assert.That(secondGenerated.GetInstanceID(), Is.Not.EqualTo(firstGeneratedId));
             Assert.That(mapObject.transform.childCount, Is.EqualTo(4));
@@ -918,11 +1081,13 @@ public sealed class MapGenerationLifecyclePlayModeTests
         Map map,
         Texture2D image,
         Material floor,
-        float tileSpacing)
+        float tileSpacing
+    )
     {
         FieldInfo settingsField = typeof(Map).GetField(
             "Settings",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.That(settingsField, Is.Not.Null);
         settingsField.SetValue(map, new TileSettings());
         SerializedObject serialized = new(map);
@@ -943,13 +1108,14 @@ public sealed class MapGenerationLifecyclePlayModeTests
         serialized.FindProperty("legacyBitmapMigrationVersion").intValue = 0;
         serialized.ApplyModifiedPropertiesWithoutUndo();
     }
-
 }
+
 internal static class PlayModeDungeonJson
 {
     internal static string Create(
         IReadOnlyList<string> rows,
-        params DungeonObjectPlacement[] objects)
+        params DungeonObjectPlacement[] objects
+    )
     {
         DungeonCell start = new(0, 0);
         DungeonLevelDocument document = new(
@@ -961,7 +1127,8 @@ internal static class PlayModeDungeonJson
             start,
             new[] { start },
             objects,
-            System.Array.Empty<DungeonEncounterPlan>());
+            System.Array.Empty<DungeonEncounterPlan>()
+        );
         return DungeonLevelJsonSerializer.Serialize(document);
     }
 

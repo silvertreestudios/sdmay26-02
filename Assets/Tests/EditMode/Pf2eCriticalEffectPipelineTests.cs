@@ -15,7 +15,10 @@ namespace TestsCombat
         [Test]
         public void StrikeProfileDefaultsSourceInfoToUnspecified()
         {
-            StrikeProfile profile = new StrikeProfile(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue>());
+            StrikeProfile profile = new StrikeProfile(
+                new List<Dice> { new Dice(1, 6, "slashing") },
+                new List<DamageValue>()
+            );
 
             Assert.AreSame(AttackSourceInfo.Unspecified, profile.SourceInfo);
         }
@@ -33,16 +36,32 @@ namespace TestsCombat
             GameObject attacker = CreateCreature("attacker", 100);
             GameObject target = CreateCreature("target", 100);
 
-            StrikeResolutionResult normal = ResolveForcedStrike(attacker, target, DegreeOfSuccess.Success, new List<string> { "deadly-d10" });
+            StrikeResolutionResult normal = ResolveForcedStrike(
+                attacker,
+                target,
+                DegreeOfSuccess.Success,
+                new List<string> { "deadly-d10" }
+            );
 
             Assert.AreEqual(1u, normal.FinalAppliedDamage);
-            Assert.IsFalse(normal.LogDetails.Any(detail => detail.Value.Contains("deadly-d10 critical damage")));
+            Assert.IsFalse(
+                normal.LogDetails.Any(detail => detail.Value.Contains("deadly-d10 critical damage"))
+            );
 
-            StrikeResolutionResult critical = ResolveForcedStrike(attacker, target, DegreeOfSuccess.CriticalSuccess, new List<string> { "deadly-d10" });
+            StrikeResolutionResult critical = ResolveForcedStrike(
+                attacker,
+                target,
+                DegreeOfSuccess.CriticalSuccess,
+                new List<string> { "deadly-d10" }
+            );
 
             Assert.Greater(critical.FinalAppliedDamage, 2u);
             Assert.LessOrEqual(critical.FinalAppliedDamage, 12u);
-            Assert.IsTrue(critical.LogDetails.Any(detail => detail.Value.Contains("deadly-d10 critical damage")));
+            Assert.IsTrue(
+                critical.LogDetails.Any(detail =>
+                    detail.Value.Contains("deadly-d10 critical damage")
+                )
+            );
 
             UnityEngine.Random.state = randomState;
             UnityEngine.Object.DestroyImmediate(attacker);
@@ -63,19 +82,41 @@ namespace TestsCombat
             GameObject attacker = CreateCreature("attacker", 100);
             GameObject target = CreateCreature("target", 100);
 
-            StrikeResolutionResult normal = ResolveForcedStrike(attacker, target, DegreeOfSuccess.Success, new List<string> { "fatal-d12" }, null, new List<Dice> { new Dice(1, 6, "piercing") });
+            StrikeResolutionResult normal = ResolveForcedStrike(
+                attacker,
+                target,
+                DegreeOfSuccess.Success,
+                new List<string> { "fatal-d12" },
+                null,
+                new List<Dice> { new Dice(1, 6, "piercing") }
+            );
 
             Assert.AreEqual(6, normal.Context.DamageDice[0].sidesPerDie);
             Assert.GreaterOrEqual(normal.FinalAppliedDamage, 1u);
             Assert.LessOrEqual(normal.FinalAppliedDamage, 6u);
 
-            StrikeResolutionResult critical = ResolveForcedStrike(attacker, target, DegreeOfSuccess.CriticalSuccess, new List<string> { "fatal-d12" }, null, new List<Dice> { new Dice(1, 6, "piercing") });
+            StrikeResolutionResult critical = ResolveForcedStrike(
+                attacker,
+                target,
+                DegreeOfSuccess.CriticalSuccess,
+                new List<string> { "fatal-d12" },
+                null,
+                new List<Dice> { new Dice(1, 6, "piercing") }
+            );
 
             Assert.AreEqual(12, critical.Context.DamageDice[0].sidesPerDie);
             Assert.GreaterOrEqual(critical.FinalAppliedDamage, 3u);
             Assert.LessOrEqual(critical.FinalAppliedDamage, 36u);
-            Assert.IsTrue(critical.LogDetails.Any(detail => detail.Value.Contains("fatal-d12 upgrades critical damage dice")));
-            Assert.IsTrue(critical.LogDetails.Any(detail => detail.Value.Contains("fatal-d12 critical damage")));
+            Assert.IsTrue(
+                critical.LogDetails.Any(detail =>
+                    detail.Value.Contains("fatal-d12 upgrades critical damage dice")
+                )
+            );
+            Assert.IsTrue(
+                critical.LogDetails.Any(detail =>
+                    detail.Value.Contains("fatal-d12 critical damage")
+                )
+            );
 
             UnityEngine.Random.state = randomState;
             UnityEngine.Object.DestroyImmediate(attacker);
@@ -90,26 +131,73 @@ namespace TestsCombat
             InstallTestCombatLog(logObject);
             GameObject attacker = CreateCreature("attacker", 100);
             GameObject target = CreateCreature("target", 100);
-            target.GetComponent<CreatureComponent>().resistances = new List<DamageValue> { new DamageValue("piercing", 3) };
+            target.GetComponent<CreatureComponent>().resistances = new List<DamageValue>
+            {
+                new DamageValue("piercing", 3),
+            };
             List<string> events = new();
-            TestStrikeAdjustmentProvider provider = attacker.AddComponent<TestStrikeAdjustmentProvider>();
+            TestStrikeAdjustmentProvider provider =
+                attacker.AddComponent<TestStrikeAdjustmentProvider>();
             provider.Effects.Add(new ForceDegreeStrikeAdjustment(DegreeOfSuccess.CriticalSuccess));
-            provider.Effects.Add(new RecordingStrikeAdjustment(StrikeAdjustmentPhase.BeforeDamageRoll, 0, context =>
-            {
-                events.Add("before-roll");
-                context.FlatDamages.Add(new DamageValue("piercing", 4));
-            }));
-            provider.Effects.Add(new RecordingStrikeAdjustment(StrikeAdjustmentPhase.AfterCriticalDoubling, 50, context =>
-            {
-                events.Add("after-critical:" + context.DamageValues[0].DamageAmount);
-                context.DamageValues = DamageRoller.AddOrMergeDamage(context.DamageValues, new DamageValue("piercing", 2));
-            }));
-            provider.Effects.Add(new RecordingStrikeAdjustment(StrikeAdjustmentPhase.BeforeDefenseAdjustments, 0, context => events.Add("before-defense:" + context.DamageValues[0].DamageAmount)));
-            provider.Effects.Add(new RecordingStrikeAdjustment(StrikeAdjustmentPhase.AfterDamageApplied, 0, context => events.Add("after-damage:" + context.FinalAppliedDamage)));
+            provider.Effects.Add(
+                new RecordingStrikeAdjustment(
+                    StrikeAdjustmentPhase.BeforeDamageRoll,
+                    0,
+                    context =>
+                    {
+                        events.Add("before-roll");
+                        context.FlatDamages.Add(new DamageValue("piercing", 4));
+                    }
+                )
+            );
+            provider.Effects.Add(
+                new RecordingStrikeAdjustment(
+                    StrikeAdjustmentPhase.AfterCriticalDoubling,
+                    50,
+                    context =>
+                    {
+                        events.Add("after-critical:" + context.DamageValues[0].DamageAmount);
+                        context.DamageValues = DamageRoller.AddOrMergeDamage(
+                            context.DamageValues,
+                            new DamageValue("piercing", 2)
+                        );
+                    }
+                )
+            );
+            provider.Effects.Add(
+                new RecordingStrikeAdjustment(
+                    StrikeAdjustmentPhase.BeforeDefenseAdjustments,
+                    0,
+                    context => events.Add("before-defense:" + context.DamageValues[0].DamageAmount)
+                )
+            );
+            provider.Effects.Add(
+                new RecordingStrikeAdjustment(
+                    StrikeAdjustmentPhase.AfterDamageApplied,
+                    0,
+                    context => events.Add("after-damage:" + context.FinalAppliedDamage)
+                )
+            );
 
-            StrikeResolutionResult result = ResolveStrike(attacker, target, null, null, new List<Dice>(), new List<DamageValue> { new DamageValue("piercing", 6) });
+            StrikeResolutionResult result = ResolveStrike(
+                attacker,
+                target,
+                null,
+                null,
+                new List<Dice>(),
+                new List<DamageValue> { new DamageValue("piercing", 6) }
+            );
 
-            CollectionAssert.AreEqual(new[] { "before-roll", "after-critical:20", "before-defense:22", "after-damage:19" }, events);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "before-roll",
+                    "after-critical:20",
+                    "before-defense:22",
+                    "after-damage:19",
+                },
+                events
+            );
             Assert.AreEqual(19u, result.FinalAppliedDamage);
             Assert.AreEqual(81, target.GetComponent<CreatureComponent>().hp);
 
@@ -132,11 +220,16 @@ namespace TestsCombat
                 reload = "0",
                 ammo = "arrows",
                 damage = new Dice(1, 6, "piercing"),
-                traits = new List<string> { "deadly-d10" }
+                traits = new List<string> { "deadly-d10" },
             };
 
             StrikeWeapon action = new StrikeWeapon(1, shortbow, attacker);
-            StrikeResolutionContext context = BuildContext(attacker, target, action.GetStrikeProfile().Traits, action.GetStrikeProfile().SourceInfo);
+            StrikeResolutionContext context = BuildContext(
+                attacker,
+                target,
+                action.GetStrikeProfile().Traits,
+                action.GetStrikeProfile().SourceInfo
+            );
 
             Assert.AreSame(attacker, context.AttackerObject);
             Assert.AreSame(target, context.TargetObject);
@@ -160,18 +253,41 @@ namespace TestsCombat
             InstallTestCombatLog(logObject);
             GameObject attacker = CreateCreature("attacker", 100);
             GameObject target = CreateCreature("target", 100);
-            TestStrikeAdjustmentProvider provider = target.AddComponent<TestStrikeAdjustmentProvider>();
-            provider.Effects.Add(new CriticalSpecializationStrikeAdjustment("bow", context =>
-            {
-                provider.Calls += 1;
-                provider.LastContext = context;
-            }));
-            AttackSourceInfo source = new AttackSourceInfo("Shortbow", "bow", "martial", new List<string> { "deadly-d10" });
+            TestStrikeAdjustmentProvider provider =
+                target.AddComponent<TestStrikeAdjustmentProvider>();
+            provider.Effects.Add(
+                new CriticalSpecializationStrikeAdjustment(
+                    "bow",
+                    context =>
+                    {
+                        provider.Calls += 1;
+                        provider.LastContext = context;
+                    }
+                )
+            );
+            AttackSourceInfo source = new AttackSourceInfo(
+                "Shortbow",
+                "bow",
+                "martial",
+                new List<string> { "deadly-d10" }
+            );
 
-            StrikeResolutionResult normal = ResolveForcedStrike(attacker, target, DegreeOfSuccess.Success, null, source);
+            StrikeResolutionResult normal = ResolveForcedStrike(
+                attacker,
+                target,
+                DegreeOfSuccess.Success,
+                null,
+                source
+            );
             Assert.AreEqual(0, provider.Calls);
 
-            StrikeResolutionResult critical = ResolveForcedStrike(attacker, target, DegreeOfSuccess.CriticalSuccess, null, source);
+            StrikeResolutionResult critical = ResolveForcedStrike(
+                attacker,
+                target,
+                DegreeOfSuccess.CriticalSuccess,
+                null,
+                source
+            );
             Assert.AreEqual(1, provider.Calls);
             Assert.AreSame(critical.Context, provider.LastContext);
             Assert.Greater(critical.FinalAppliedDamage, 0u);
@@ -187,7 +303,10 @@ namespace TestsCombat
         {
             List<DamageValue> original = new() { new DamageValue("piercing", 2) };
 
-            List<DamageValue> merged = DamageRoller.AddOrMergeDamage(original, new DamageValue("piercing", 3));
+            List<DamageValue> merged = DamageRoller.AddOrMergeDamage(
+                original,
+                new DamageValue("piercing", 3)
+            );
 
             Assert.AreEqual(2, original[0].DamageAmount);
             Assert.AreEqual(5, merged[0].DamageAmount);
@@ -215,9 +334,12 @@ namespace TestsCombat
             List<string> traits = null,
             AttackSourceInfo sourceInfo = null,
             List<Dice> damageDice = null,
-            List<DamageValue> flatDamages = null)
+            List<DamageValue> flatDamages = null
+        )
         {
-            TestStrikeAdjustmentProvider provider = attacker.GetComponent<TestStrikeAdjustmentProvider>() ?? attacker.AddComponent<TestStrikeAdjustmentProvider>();
+            TestStrikeAdjustmentProvider provider =
+                attacker.GetComponent<TestStrikeAdjustmentProvider>()
+                ?? attacker.AddComponent<TestStrikeAdjustmentProvider>();
             provider.Effects.Add(new ForceDegreeStrikeAdjustment(degree));
             return ResolveStrike(attacker, target, traits, sourceInfo, damageDice, flatDamages);
         }
@@ -228,21 +350,24 @@ namespace TestsCombat
             List<string> traits = null,
             AttackSourceInfo sourceInfo = null,
             List<Dice> damageDice = null,
-            List<DamageValue> flatDamages = null)
+            List<DamageValue> flatDamages = null
+        )
         {
             StrikeProfile profile = BuildProfile(traits, sourceInfo, damageDice, flatDamages);
-            return StrikeResolutionPipeline.Resolve(new StrikeResolutionRequest
-            {
-                Attacker = attacker,
-                Target = target,
-                Profile = profile,
-                TargetingResult = new StrikeTargetResult
+            return StrikeResolutionPipeline.Resolve(
+                new StrikeResolutionRequest
                 {
+                    Attacker = attacker,
                     Target = target,
-                    LineOfEffect = StrikeLineOfEffect.Clear,
-                    Cover = StrikeCover.None
+                    Profile = profile,
+                    TargetingResult = new StrikeTargetResult
+                    {
+                        Target = target,
+                        LineOfEffect = StrikeLineOfEffect.Clear,
+                        Cover = StrikeCover.None,
+                    },
                 }
-            });
+            );
         }
 
         private static StrikeResolutionContext BuildContext(
@@ -251,37 +376,48 @@ namespace TestsCombat
             List<string> traits = null,
             AttackSourceInfo sourceInfo = null,
             List<Dice> damageDice = null,
-            List<DamageValue> flatDamages = null)
+            List<DamageValue> flatDamages = null
+        )
         {
-            return StrikeResolutionContext.FromRequest(new StrikeResolutionRequest
-            {
-                Attacker = attacker,
-                Target = target,
-                Profile = BuildProfile(traits, sourceInfo, damageDice, flatDamages),
-                TargetingResult = new StrikeTargetResult
+            return StrikeResolutionContext.FromRequest(
+                new StrikeResolutionRequest
                 {
+                    Attacker = attacker,
                     Target = target,
-                    LineOfEffect = StrikeLineOfEffect.Clear,
-                    Cover = StrikeCover.None
+                    Profile = BuildProfile(traits, sourceInfo, damageDice, flatDamages),
+                    TargetingResult = new StrikeTargetResult
+                    {
+                        Target = target,
+                        LineOfEffect = StrikeLineOfEffect.Clear,
+                        Cover = StrikeCover.None,
+                    },
                 }
-            });
+            );
         }
 
-        private static StrikeProfile BuildProfile(List<string> traits, AttackSourceInfo sourceInfo, List<Dice> damageDice, List<DamageValue> flatDamages)
+        private static StrikeProfile BuildProfile(
+            List<string> traits,
+            AttackSourceInfo sourceInfo,
+            List<Dice> damageDice,
+            List<DamageValue> flatDamages
+        )
         {
             List<Dice> dice = damageDice ?? new List<Dice> { new Dice(1, 1, "piercing") };
             List<DamageValue> flats = flatDamages ?? new List<DamageValue>();
             return new StrikeProfile(dice, flats)
             {
                 Traits = traits ?? new List<string>(),
-                SourceInfo = sourceInfo
+                SourceInfo = sourceInfo,
             };
         }
 
         private static TestCombatLog InstallTestCombatLog(GameObject logObject)
         {
             TestCombatLog log = logObject.AddComponent<TestCombatLog>();
-            FieldInfo field = typeof(SingletonMonoBehaviour<CombatLogInterface>).GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+            FieldInfo field = typeof(SingletonMonoBehaviour<CombatLogInterface>).GetField(
+                "Instance",
+                BindingFlags.Static | BindingFlags.NonPublic
+            );
             Assert.IsNotNull(field);
             field.SetValue(null, log);
             return log;
@@ -298,7 +434,9 @@ namespace TestsCombat
             public int Calls;
             public StrikeResolutionContext LastContext;
 
-            public IEnumerable<IStrikeAdjustment> GetStrikeAdjustments(StrikeResolutionContext context)
+            public IEnumerable<IStrikeAdjustment> GetStrikeAdjustments(
+                StrikeResolutionContext context
+            )
             {
                 return Effects;
             }
@@ -317,8 +455,14 @@ namespace TestsCombat
             public override void Apply(StrikeResolutionContext context)
             {
                 context.Degree = degree;
-                context.D20Result = new D20Result { roll = degree == DegreeOfSuccess.CriticalSuccess ? 20 : 10, total = 30, degree = degree };
-                context.IsHit = degree == DegreeOfSuccess.Success || degree == DegreeOfSuccess.CriticalSuccess;
+                context.D20Result = new D20Result
+                {
+                    roll = degree == DegreeOfSuccess.CriticalSuccess ? 20 : 10,
+                    total = 30,
+                    degree = degree,
+                };
+                context.IsHit =
+                    degree == DegreeOfSuccess.Success || degree == DegreeOfSuccess.CriticalSuccess;
             }
         }
 
@@ -326,7 +470,11 @@ namespace TestsCombat
         {
             private readonly Action<StrikeResolutionContext> apply;
 
-            public RecordingStrikeAdjustment(StrikeAdjustmentPhase phase, int order, Action<StrikeResolutionContext> apply)
+            public RecordingStrikeAdjustment(
+                StrikeAdjustmentPhase phase,
+                int order,
+                Action<StrikeResolutionContext> apply
+            )
                 : base(phase, order, "Recording")
             {
                 this.apply = apply;
@@ -343,15 +491,25 @@ namespace TestsCombat
             public readonly List<string> Messages = new();
 
             public override void DevMode() { }
+
             public override void ReleaseMode() { }
+
             public override void AddWhiteList(string tag) { }
+
             public override void AddBlackList(string tag) { }
+
             public override void DevLog(string msg) => Messages.Add(msg);
+
             public override void DevLog(string msg, string tag) => Messages.Add(msg);
+
             public override void DevLog(string msg, List<string> tags) => Messages.Add(msg);
+
             public override void Log(string msg) => Messages.Add(msg);
+
             public override void Log(string msg, string tag) => Messages.Add(msg);
+
             public override void Log(string msg, List<string> tags) => Messages.Add(msg);
+
             public override List<string> GetMessages() => new(Messages);
         }
     }

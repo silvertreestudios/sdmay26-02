@@ -61,7 +61,8 @@ namespace Game.Rules.Runtime
             if (!(fact is TFact typedFact))
             {
                 throw new InvalidOperationException(
-                    $"Observer for {typeof(TFact).Name} received {fact.GetType().Name}.");
+                    $"Observer for {typeof(TFact).Name} received {fact.GetType().Name}."
+                );
             }
 
             return observer.OnFactCommitted(typedFact, currentSnapshot);
@@ -87,9 +88,7 @@ namespace Game.Rules.Runtime
             public override FactObserverFailureState Add(Exception exception) =>
                 new SingleFailureState(exception);
 
-            public override void ThrowIfAny()
-            {
-            }
+            public override void ThrowIfAny() { }
         }
 
         private sealed class SingleFailureState : FactObserverFailureState
@@ -104,8 +103,7 @@ namespace Game.Rules.Runtime
             public override FactObserverFailureState Add(Exception exception) =>
                 new MultipleFailureState(failure, exception);
 
-            public override void ThrowIfAny() =>
-                ExceptionDispatchInfo.Capture(failure).Throw();
+            public override void ThrowIfAny() => ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
         private sealed class MultipleFailureState : FactObserverFailureState
@@ -127,7 +125,8 @@ namespace Game.Rules.Runtime
             {
                 throw new AggregateException(
                     "Multiple Fact observers failed after the reduction committed.",
-                    failures);
+                    failures
+                );
             }
         }
     }
@@ -159,12 +158,16 @@ namespace Game.Rules.Runtime
 
             lock (gate)
             {
-                if (factObservers.Exists(registration =>
-                    registration.FactType == typeof(TFact) &&
-                    ReferenceEquals(registration.Observer, observer)))
+                if (
+                    factObservers.Exists(registration =>
+                        registration.FactType == typeof(TFact)
+                        && ReferenceEquals(registration.Observer, observer)
+                    )
+                )
                 {
                     throw new InvalidOperationException(
-                        $"The observer is already registered for {typeof(TFact).Name}.");
+                        $"The observer is already registered for {typeof(TFact).Name}."
+                    );
                 }
 
                 factObservers.Add(new FactObserverRegistration<TFact>(observer));
@@ -190,8 +193,9 @@ namespace Game.Rules.Runtime
             lock (gate)
             {
                 int index = factObservers.FindIndex(registration =>
-                    registration.FactType == typeof(TFact) &&
-                    ReferenceEquals(registration.Observer, observer));
+                    registration.FactType == typeof(TFact)
+                    && ReferenceEquals(registration.Observer, observer)
+                );
                 if (index < 0)
                     return false;
 
@@ -202,7 +206,8 @@ namespace Game.Rules.Runtime
 
         internal async ValueTask NotifyFactObservers(
             IReadOnlyList<RuleFact> committedFacts,
-            RulesSnapshot currentSnapshot)
+            RulesSnapshot currentSnapshot
+        )
         {
             if (committedFacts == null)
                 throw new ArgumentNullException(nameof(committedFacts));

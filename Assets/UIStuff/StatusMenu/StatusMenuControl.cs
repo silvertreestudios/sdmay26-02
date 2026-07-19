@@ -5,11 +5,20 @@ using UnityEngine.UIElements;
 
 public class StatusMenuControl : MonoBehaviour
 {
-    public enum StatusType { Paused, YouWin, YouLose }
+    public enum StatusType
+    {
+        Paused,
+        YouWin,
+        YouLose,
+    }
 
     public VisualElement ui;
-    [SerializeField] private SettingsMenuControl settingsMenuControl;
-    [SerializeField] private HowToPlayMenuControl howToPlayMenuControl;
+
+    [SerializeField]
+    private SettingsMenuControl settingsMenuControl;
+
+    [SerializeField]
+    private HowToPlayMenuControl howToPlayMenuControl;
     private Label statusLabel;
     private Button newGameButton;
     private Button restartLevelButton;
@@ -47,17 +56,23 @@ public class StatusMenuControl : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (newGameButton != null) newGameButton.clicked -= NewGame;
-        if (restartLevelButton != null) restartLevelButton.clicked -= RestartLevel;
-        if (mainMenuButton != null) mainMenuButton.clicked -= ReturnToMainMenu;
-        if (settingsButton != null) settingsButton.clicked -= OpenSettings;
-        if (howToPlayButton != null) howToPlayButton.clicked -= OpenHowToPlay;
+        if (newGameButton != null)
+            newGameButton.clicked -= NewGame;
+        if (restartLevelButton != null)
+            restartLevelButton.clicked -= RestartLevel;
+        if (mainMenuButton != null)
+            mainMenuButton.clicked -= ReturnToMainMenu;
+        if (settingsButton != null)
+            settingsButton.clicked -= OpenSettings;
+        if (howToPlayButton != null)
+            howToPlayButton.clicked -= OpenHowToPlay;
         OnCombatOutcome.RemoveListener(OnCombatOutcomeHandler);
     }
 
     private void OnCombatOutcomeHandler(bool playerWon)
     {
-        if (playerWon && SceneManager.GetActiveScene().name == "Level3") return;
+        if (playerWon && SceneManager.GetActiveScene().name == "Level3")
+            return;
         StartCoroutine(ShowAfterDelay(playerWon ? StatusType.YouWin : StatusType.YouLose, 1f));
     }
 
@@ -99,12 +114,16 @@ public class StatusMenuControl : MonoBehaviour
         {
             case StatusType.YouWin:
                 statusLabel.text = "You Win";
-                statusLabel.style.color = new UnityEngine.UIElements.StyleColor(UnityEngine.Color.green);
+                statusLabel.style.color = new UnityEngine.UIElements.StyleColor(
+                    UnityEngine.Color.green
+                );
                 newGameButton.text = "Next Level";
                 break;
             case StatusType.YouLose:
                 statusLabel.text = "You Lose";
-                statusLabel.style.color = new UnityEngine.UIElements.StyleColor(UnityEngine.Color.red);
+                statusLabel.style.color = new UnityEngine.UIElements.StyleColor(
+                    UnityEngine.Color.red
+                );
                 newGameButton.text = "New Game";
                 break;
             case StatusType.Paused:
@@ -115,7 +134,8 @@ public class StatusMenuControl : MonoBehaviour
 
         currentStatus = status;
         isPaused = status == StatusType.Paused;
-        if (isPaused) Time.timeScale = 0f;
+        if (isPaused)
+            Time.timeScale = 0f;
         ui.style.display = DisplayStyle.Flex;
     }
 
