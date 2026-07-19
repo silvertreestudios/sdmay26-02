@@ -34,6 +34,7 @@ namespace GridPublic
         private bool TryRegister(GridAPI grid)
         {
             if (registered || detachedFromGrid || !isActiveAndEnabled ||
+                (registeredGrid != null && registeredGrid != grid) ||
                 grid is not GridAPIPrivate privateGrid)
                 return registered;
 
@@ -47,8 +48,12 @@ namespace GridPublic
                 return false;
             }
 
+            bool alreadyOwnedByGrid = registeredGrid == grid;
             registered = privateGrid.AddToken(gameObject);
-            registeredGrid = registered ? grid : null;
+            if (registered)
+                registeredGrid = grid;
+            else if (!alreadyOwnedByGrid)
+                registeredGrid = null;
             if (!registered)
             {
                 Debug.LogWarning(
@@ -75,7 +80,7 @@ namespace GridPublic
             cell = Vector3Int.RoundToInt(transform.position);
             if (detachedFromGrid)
                 return false;
-            if (registered)
+            if (registeredGrid != null)
                 return registeredGrid == grid;
             return isActiveAndEnabled;
         }
@@ -93,17 +98,17 @@ namespace GridPublic
         internal void CommitPreparedGridRebind(GridAPI grid, bool registersImmediately)
         {
             registered = registersImmediately;
-            registeredGrid = registersImmediately ? grid : null;
+            registeredGrid = grid;
         }
 
         /// <summary>
         /// Records a complete removal from the owning grid. Disabled tokens that merely await
-        /// reactivation remain registered; defeated or otherwise removed tokens do not take part
-        /// in later runtime map replacement.
+        /// reactivation remain associated with their grid; defeated or otherwise removed tokens
+        /// do not take part in later runtime map replacement.
         /// </summary>
         internal void DetachFromGrid(GridAPI grid)
         {
-            if (!registered || registeredGrid != grid)
+            if (registeredGrid != grid)
                 return;
 
             registered = false;

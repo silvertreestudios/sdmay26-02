@@ -261,6 +261,76 @@ public sealed class ProceduralDungeonScenePlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator RuntimeRepopulationRetainsInactiveTokenReservationAcrossRebinds()
+    {
+        AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
+            ScenePath,
+            new LoadSceneParameters(LoadSceneMode.Single));
+        while (!load.isDone)
+            yield return null;
+        yield return null;
+
+        Map map = Object.FindFirstObjectByType<Map>();
+        GridBase grid = Object.FindFirstObjectByType<GridBase>();
+        const int replacementSize = 15;
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
+        DungeonCell highCell = parsed.Document.Rooms
+            .SelectMany(room => Enumerable.Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
+                .SelectMany(z => Enumerable.Range(room.MinimumX, room.MaximumX - room.MinimumX + 1)
+                    .Select(x => new DungeonCell(x, z))))
+            .First(cell =>
+                (cell.X >= replacementSize || cell.Z >= replacementSize) &&
+                grid.GetTiles()[cell.X, cell.Z] != null);
+        GameObject tokenObject = new("Inactive Token Reserved Across Rebinds");
+        tokenObject.transform.position = new Vector3(highCell.X, 0f, highCell.Z);
+        tokenObject.AddComponent<Token>();
+        Assert.That(grid.GetTiles()[highCell.X, highCell.Z].Occupants,
+            Contains.Item(tokenObject));
+        tokenObject.SetActive(false);
+
+        Assert.That(map.TryPopulateJson(
+                map.JsonSource.text,
+                map.DungeonCatalog,
+                out MapSourceValidationResult firstValidation),
+            Is.True,
+            string.Join(System.Environment.NewLine, firstValidation.Errors));
+        Tile[,] fullSizeTiles = grid.GetTiles();
+        Assert.That(fullSizeTiles[highCell.X, highCell.Z].Occupants,
+            Has.No.Member(tokenObject));
+
+        DungeonGenerationResult replacement = new DeterministicDungeonGenerator().Generate(
+            new DungeonGenerationRequest
+            {
+                RunSeed = 15603,
+                Width = replacementSize,
+                Height = replacementSize,
+                MinimumRoomCount = 0,
+                StairCount = 0
+            });
+        Assert.That(replacement.IsSuccess, Is.True);
+
+        Assert.That(map.TryPopulateJson(
+                DungeonLevelJsonSerializer.Serialize(replacement.Document),
+                map.DungeonCatalog,
+                out MapSourceValidationResult rejected),
+            Is.False);
+        Assert.That(rejected.Errors, Is.EqualTo(new[]
+        {
+            "Runtime JSON population could not rebind GridBase: " +
+            $"Token '{tokenObject.name}' at cell ({highCell.X}, {highCell.Z}) is outside " +
+            $"replacement bounds {replacementSize}x{replacementSize}."
+        }));
+        Assert.That(grid.GetTiles(), Is.SameAs(fullSizeTiles));
+
+        tokenObject.SetActive(true);
+        Assert.That(fullSizeTiles[highCell.X, highCell.Z].Occupants,
+            Contains.Item(tokenObject));
+
+        Object.Destroy(tokenObject);
+        yield return null;
+    }
+
+    [UnityTest]
     public IEnumerator RuntimeRepopulationIgnoresTokensCompletelyRemovedFromTheGrid()
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
