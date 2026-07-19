@@ -85,6 +85,40 @@ namespace Game.Rules.Unity.Tests
             Assert.That(log.Entries, Is.Empty);
         }
 
+        [Test]
+        public async Task PresentationQueueDefersFactsEnqueuedWhileDraining()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher();
+            List<CommittedRuleFact> committed = new List<CommittedRuleFact>();
+            dispatcher.FactCommitted += committed.Add;
+            await dispatcher.Dispatch(new AdjustRootOp(-1));
+            await dispatcher.Dispatch(new AdjustRootOp(-1));
+            Assert.That(committed, Has.Count.EqualTo(2));
+
+            RulesFactPresentationQueue queue = new RulesFactPresentationQueue();
+            EnqueueingPresenter presenter = new EnqueueingPresenter(queue, committed[1]);
+            RulesFactPresentation presentation = new RulesFactPresentation(
+                new UnityFactPresenterRegistry().Register(presenter),
+                new CombatLogFactProjector(),
+                new RecordingCombatLogSink(),
+                new VisibleEffectInvalidatorRegistry(),
+                new VisibleEffectProjectionSelector(),
+                new RecordingProjectionSink());
+            queue.Enqueue(committed[0]);
+
+            int firstDrain = queue.Drain(presentation);
+
+            Assert.That(firstDrain, Is.EqualTo(1));
+            Assert.That(queue.Count, Is.EqualTo(1));
+            Assert.That(presenter.Values, Is.EqualTo(new[] { 9 }));
+
+            int secondDrain = queue.Drain(presentation);
+
+            Assert.That(secondDrain, Is.EqualTo(1));
+            Assert.That(queue.Count, Is.Zero);
+            Assert.That(presenter.Values, Is.EqualTo(new[] { 9, 8 }));
+        }
+
         private static async Task<CommittedRuleFact> CommitHealthChange(int delta)
         {
             RuleDispatcher dispatcher = CreateDispatcher();
@@ -168,6 +202,32 @@ namespace Game.Rules.Unity.Tests
 
             public void Present(HealthAdjustedFact fact, CommittedRuleFact commit) =>
                 Values.Add(fact.Current);
+        }
+
+        private sealed class EnqueueingPresenter : IUnityFactPresenter<HealthAdjustedFact>
+        {
+            private readonly CommittedRuleFact deferred;
+            private readonly RulesFactPresentationQueue queue;
+            private bool hasEnqueued;
+
+            public EnqueueingPresenter(
+                RulesFactPresentationQueue queue,
+                CommittedRuleFact deferred)
+            {
+                this.queue = queue;
+                this.deferred = deferred;
+            }
+
+            public List<int> Values { get; } = new List<int>();
+
+            public void Present(HealthAdjustedFact fact, CommittedRuleFact commit)
+            {
+                Values.Add(fact.Current);
+                if (hasEnqueued)
+                    return;
+                hasEnqueued = true;
+                queue.Enqueue(deferred);
+            }
         }
 
         private sealed class HealthLogProjector :

@@ -87,7 +87,9 @@ namespace Game.Rules.Unity
     /// <remarks>
     /// Enqueue is safe when a rules runtime completes work away from Unity's main thread. Draining
     /// is performed by <see cref="RulesUnityBridge"/> on Unity's update loop and preserves commit order.
-    /// The queue does not poll snapshots or visible-effect selectors when it is empty.
+    /// Each drain processes only the Facts waiting when that drain began, which bounds work for one
+    /// frame under sustained producer pressure. Facts that arrive during presentation remain queued
+    /// for the next drain. The queue does not poll snapshots or visible-effect selectors when empty.
     /// </remarks>
     public sealed class RulesFactPresentationQueue
     {
@@ -120,7 +122,8 @@ namespace Game.Rules.Unity
         }
 
         /// <summary>
-        /// Drains the currently queued Facts in commit order through one presentation coordinator.
+        /// Drains the Facts queued when the call begins in commit order through one presentation
+        /// coordinator. Facts enqueued while that batch is presented remain queued for the next call.
         /// </summary>
         /// <param name="presentation">The required encounter presentation coordinator.</param>
         /// <returns>The number of queued envelopes consumed, including duplicate Fact IDs.</returns>
@@ -130,20 +133,18 @@ namespace Game.Rules.Unity
             if (presentation == null)
                 throw new ArgumentNullException(nameof(presentation));
 
-            int drained = 0;
-            while (true)
+            int drainLimit;
+            lock (gate)
+                drainLimit = pending.Count;
+
+            for (int drained = 0; drained < drainLimit; drained++)
             {
                 CommittedRuleFact commit;
                 lock (gate)
-                {
-                    if (pending.Count == 0)
-                        break;
                     commit = pending.Dequeue();
-                }
                 presentation.Present(commit);
-                drained++;
             }
-            return drained;
+            return drainLimit;
         }
     }
 
