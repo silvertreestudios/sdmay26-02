@@ -56,10 +56,13 @@ public class MindlessController : AIActionController
         BestTarget = null;
     }
 
-    internal bool CanRebindGrid(GridAPIPrivate grid)
+    internal bool CanBindToGrid(GridAPIPrivate grid)
     {
-        if (GridAPI != null && GridAPI != grid)
-            return true;
+        return GridAPI == null || GridAPI == grid;
+    }
+
+    internal bool CanRebindGrid()
+    {
         return !IsTurn && !IsTakingAction;
     }
 

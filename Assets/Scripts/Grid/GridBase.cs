@@ -173,12 +173,16 @@ namespace GridPrivate
                 tokenRebinds.Add(new PreparedTokenRebind(token, registersImmediately));
             }
 
-            MindlessController[] controllers = FindObjectsByType<MindlessController>(
-                FindObjectsInactive.Include,
-                FindObjectsSortMode.None);
-            foreach (MindlessController controller in controllers)
+            List<MindlessController> controllers = new();
+            foreach (MindlessController controller in FindObjectsByType<MindlessController>(
+                         FindObjectsInactive.Include,
+                         FindObjectsSortMode.None))
             {
-                if (!controller.CanRebindGrid(this))
+                // A controller already owned by another grid is outside this transaction and
+                // must neither block preparation nor receive the commit.
+                if (!controller.CanBindToGrid(this))
+                    continue;
+                if (!controller.CanRebindGrid())
                 {
                     plan = GridRebindPlan.Invalid;
                     failure =
@@ -186,6 +190,7 @@ namespace GridPrivate
                         "and cannot rebind to the replacement grid.";
                     return false;
                 }
+                controllers.Add(controller);
             }
 
             plan = new GridRebindPlan(
