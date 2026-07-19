@@ -68,6 +68,70 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Accumulates observer failures without allocating on the successful delivery path.
+    /// </summary>
+    /// <remarks>
+    /// The first failure preserves its original stack when rethrown. A list is created only when
+    /// a second failure requires an <see cref="AggregateException"/>.
+    /// </remarks>
+    internal abstract class FactObserverFailureState
+    {
+        public static FactObserverFailureState Empty { get; } = new EmptyFailureState();
+
+        public abstract FactObserverFailureState Add(Exception exception);
+        public abstract void ThrowIfAny();
+
+        private sealed class EmptyFailureState : FactObserverFailureState
+        {
+            public override FactObserverFailureState Add(Exception exception) =>
+                new SingleFailureState(exception);
+
+            public override void ThrowIfAny()
+            {
+            }
+        }
+
+        private sealed class SingleFailureState : FactObserverFailureState
+        {
+            private readonly Exception failure;
+
+            public SingleFailureState(Exception failure)
+            {
+                this.failure = failure;
+            }
+
+            public override FactObserverFailureState Add(Exception exception) =>
+                new MultipleFailureState(failure, exception);
+
+            public override void ThrowIfAny() =>
+                ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+
+        private sealed class MultipleFailureState : FactObserverFailureState
+        {
+            private readonly List<Exception> failures;
+
+            public MultipleFailureState(Exception first, Exception second)
+            {
+                failures = new List<Exception> { first, second };
+            }
+
+            public override FactObserverFailureState Add(Exception exception)
+            {
+                failures.Add(exception);
+                return this;
+            }
+
+            public override void ThrowIfAny()
+            {
+                throw new AggregateException(
+                    "Multiple Fact observers failed after the reduction committed.",
+                    failures);
+            }
+        }
+    }
+
     public sealed partial class RuleDispatcher
     {
         private readonly List<FactObserverRegistration> factObservers =
@@ -152,7 +216,7 @@ namespace Game.Rules.Runtime
             if (committedFacts.Count == 0)
                 return;
 
-            List<Exception> failures = new List<Exception>();
+            FactObserverFailureState failures = FactObserverFailureState.Empty;
             foreach (RuleFact fact in committedFacts)
             {
                 foreach (FactObserverRegistration observer in committedObserverPlan)
@@ -166,19 +230,12 @@ namespace Game.Rules.Runtime
                     }
                     catch (Exception exception)
                     {
-                        failures.Add(exception);
+                        failures = failures.Add(exception);
                     }
                 }
             }
 
-            if (failures.Count == 1)
-                ExceptionDispatchInfo.Capture(failures[0]).Throw();
-            if (failures.Count > 1)
-            {
-                throw new AggregateException(
-                    "Multiple Fact observers failed after the reduction committed.",
-                    failures);
-            }
+            failures.ThrowIfAny();
         }
     }
 }

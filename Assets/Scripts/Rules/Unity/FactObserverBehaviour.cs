@@ -35,7 +35,7 @@ namespace Game.Rules.Unity
             if (dispatcher == null)
                 throw new ArgumentNullException(nameof(dispatcher));
 
-            registrationState = registrationState.Unregister(this);
+            registrationState.Unregister(this);
             registrationState = new UnregisteredState(dispatcher);
             if (isActiveAndEnabled)
                 registrationState = registrationState.Register(this);
