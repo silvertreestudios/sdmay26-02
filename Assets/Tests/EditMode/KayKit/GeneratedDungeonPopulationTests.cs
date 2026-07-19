@@ -99,11 +99,16 @@ public sealed class GeneratedDungeonPopulationTests
             .Select(transform => string.Join("|",
                 RelativePath(root, transform),
                 transform.gameObject.activeSelf,
-                transform.position.ToString("F4"),
-                transform.rotation.eulerAngles.ToString("F4"),
-                transform.lossyScale.ToString("F4")))
+                FormatVector3(transform.position),
+                FormatVector3(transform.rotation.eulerAngles),
+                FormatVector3(transform.lossyScale)))
             .OrderBy(value => value, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private static string FormatVector3(Vector3 value)
+    {
+        return FormattableString.Invariant($"({value.x:F4}, {value.y:F4}, {value.z:F4})");
     }
 
     private static string RelativePath(Transform root, Transform current)
