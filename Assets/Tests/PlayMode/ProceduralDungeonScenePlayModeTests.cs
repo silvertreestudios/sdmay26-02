@@ -186,7 +186,14 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Map map = Object.FindFirstObjectByType<Map>();
         GridBase grid = Object.FindFirstObjectByType<GridBase>();
         GeneratedMapRoot priorRoot = Object.FindFirstObjectByType<GeneratedMapRoot>();
+        TileType[,] priorGridData = grid.GridData;
+        bool[,] priorLineOfSightBlocks = grid.GetLineOfSightBlocks();
         Tile[,] priorTiles = grid.GetTiles();
+        IPathfinder priorPathfinder = grid.GetPathfinder();
+        GridFSM priorFsm = grid.Fsm;
+        MapSourceMode priorSourceMode = map.SourceMode;
+        bool priorUsesRuntimeSource = map.UsesRuntimeJsonSource;
+        float priorSpacing = map.Spacing;
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
         DungeonCell highCell = parsed.Document.Rooms
             .SelectMany(room => Enumerable.Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
@@ -215,8 +222,24 @@ public sealed class ProceduralDungeonScenePlayModeTests
 
         Assert.That(validation.Errors, Is.Not.Empty);
         Assert.That(Object.FindFirstObjectByType<GeneratedMapRoot>(), Is.SameAs(priorRoot));
+        Assert.That(map.transform.Find("GeneratedMap"), Is.SameAs(priorRoot.transform));
+        Assert.That(priorRoot.gameObject.activeInHierarchy, Is.True);
+        Assert.That(map.GetMapData(), Is.SameAs(priorGridData));
+        Assert.That(map.GetLineOfSightBlocks(), Is.SameAs(priorLineOfSightBlocks));
+        Assert.That(map.SourceMode, Is.EqualTo(priorSourceMode));
+        Assert.That(map.UsesRuntimeJsonSource, Is.EqualTo(priorUsesRuntimeSource));
+        Assert.That(map.Spacing, Is.EqualTo(priorSpacing));
+        Assert.That(grid.GridData, Is.SameAs(priorGridData));
+        Assert.That(grid.GetLineOfSightBlocks(), Is.SameAs(priorLineOfSightBlocks));
         Assert.That(grid.GetTiles(), Is.SameAs(priorTiles));
+        Assert.That(grid.GetPathfinder(), Is.SameAs(priorPathfinder));
+        Assert.That(grid.Fsm, Is.SameAs(priorFsm));
         Assert.That(priorTiles[highCell.X, highCell.Z].Occupants, Contains.Item(tokenObject));
+
+        yield return null;
+        Assert.That(Object.FindObjectsByType<GeneratedMapRoot>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None), Is.EqualTo(new[] { priorRoot }));
 
         Object.Destroy(tokenObject);
         yield return null;
@@ -341,7 +364,11 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Map map = Object.FindFirstObjectByType<Map>();
         GridBase grid = Object.FindFirstObjectByType<GridBase>();
         GeneratedMapRoot priorRoot = Object.FindFirstObjectByType<GeneratedMapRoot>();
+        TileType[,] priorGridData = grid.GridData;
+        bool[,] priorLineOfSightBlocks = grid.GetLineOfSightBlocks();
         Tile[,] priorTiles = grid.GetTiles();
+        IPathfinder priorPathfinder = grid.GetPathfinder();
+        GridFSM priorFsm = grid.Fsm;
         GameObject controllerObject = new("Pending Inactive AI");
         controllerObject.SetActive(false);
         MindlessController controller = controllerObject.AddComponent<MindlessController>();
@@ -359,7 +386,15 @@ public sealed class ProceduralDungeonScenePlayModeTests
 
         Assert.That(validation.Errors, Is.Not.Empty);
         Assert.That(Object.FindFirstObjectByType<GeneratedMapRoot>(), Is.SameAs(priorRoot));
+        Assert.That(map.transform.Find("GeneratedMap"), Is.SameAs(priorRoot.transform));
+        Assert.That(priorRoot.gameObject.activeInHierarchy, Is.True);
+        Assert.That(map.GetMapData(), Is.SameAs(priorGridData));
+        Assert.That(map.GetLineOfSightBlocks(), Is.SameAs(priorLineOfSightBlocks));
+        Assert.That(grid.GridData, Is.SameAs(priorGridData));
+        Assert.That(grid.GetLineOfSightBlocks(), Is.SameAs(priorLineOfSightBlocks));
         Assert.That(grid.GetTiles(), Is.SameAs(priorTiles));
+        Assert.That(grid.GetPathfinder(), Is.SameAs(priorPathfinder));
+        Assert.That(grid.Fsm, Is.SameAs(priorFsm));
 
         Object.Destroy(controllerObject);
         yield return null;
@@ -391,6 +426,12 @@ public sealed class ProceduralDungeonScenePlayModeTests
             Is.False);
 
         Assert.That(validation.Errors, Is.Not.Empty);
+        Assert.That(priorRootObject.transform.parent, Is.SameAs(duplicateObject.transform));
+        Assert.That(priorRootObject.activeSelf, Is.True);
+
+        yield return null;
+        Assert.That(duplicateObject == null, Is.False,
+            "A rejected runtime population must not queue the duplicate map for destruction.");
         Assert.That(priorRootObject.transform.parent, Is.SameAs(duplicateObject.transform));
         Assert.That(priorRootObject.activeSelf, Is.True);
 

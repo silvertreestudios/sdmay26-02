@@ -49,6 +49,20 @@ public class Map : MonoBehaviour
     [NonSerialized] private bool delayedBitmapGenerationQueued;
 #endif
 
+    private sealed class GeneratedContentClearPlan
+    {
+        public IReadOnlyList<GameObject> OwnedContent { get; }
+        public bool CompletesLegacyBitmapMigration { get; }
+
+        public GeneratedContentClearPlan(
+            IEnumerable<GameObject> ownedContent,
+            bool completesLegacyBitmapMigration)
+        {
+            OwnedContent = ownedContent.ToArray();
+            CompletesLegacyBitmapMigration = completesLegacyBitmapMigration;
+        }
+    }
+
     protected TileType[,] GridData { get; set; }
     protected bool[,] LineOfSightBlocks { get; set; }
 
@@ -153,7 +167,8 @@ public class Map : MonoBehaviour
     /// <param name="validation">Validation details and projected map data.</param>
     /// <returns>
     /// <see langword="true"/> when new owned content is populated; otherwise
-    /// <see langword="false"/> and the prior valid generated hierarchy remains untouched.
+    /// <see langword="false"/> and the prior valid generated hierarchy, map data, and live
+    /// grid binding remain untouched.
     /// </returns>
     public bool TryPopulateJson(
         string serializedJson,
@@ -163,21 +178,52 @@ public class Map : MonoBehaviour
         validation = ValidateJson(serializedJson, catalog, JsonTileSpacing);
         if (!validation.IsValid)
             return false;
-        GridBase grid = GetComponent<GridBase>();
-        if (grid != null &&
-            !grid.CanRebindMapData(
-                validation.JsonMap.GridData,
-                validation.JsonMap.LineOfSightBlocks))
+
+        if (!TryPrepareGeneratedContentClear(
+                out GeneratedContentClearPlan clearPlan,
+                out string clearFailure))
         {
+            validation = new MapSourceValidationResult(new[] { clearFailure });
+            return false;
+        }
+
+        GameObject generatedMap = new("GeneratedMap");
+        generatedMap.SetActive(false);
+        generatedMap.AddComponent<GeneratedMapRoot>();
+        generatedMap.transform.SetParent(transform, true);
+        try
+        {
+            Transform structure = CreateContainer("Structure", generatedMap.transform);
+            Transform objects = CreateContainer("Objects", generatedMap.transform);
+            GenerateJson(
+                validation.JsonMap,
+                catalog,
+                JsonTileSpacing,
+                structure,
+                objects);
+        }
+        catch (Exception exception)
+        {
+            DestroyOwned(generatedMap);
             validation = new MapSourceValidationResult(new[]
             {
-                "Runtime JSON population cannot safely replace the active grid state."
+                $"Runtime JSON population could not stage generated content " +
+                $"({exception.GetType().Name}: {exception.Message})."
             });
             return false;
         }
-        if (!TryClearGeneratedContent(out string clearFailure))
+
+        GridBase grid = GetComponent<GridBase>();
+        if (grid != null &&
+            !grid.TryRebindMapData(
+                validation.JsonMap.GridData,
+                validation.JsonMap.LineOfSightBlocks))
         {
-            validation = new MapSourceValidationResult(new[] { clearFailure });
+            DestroyOwned(generatedMap);
+            validation = new MapSourceValidationResult(new[]
+            {
+                "Runtime JSON population produced grid data that could not be rebound to GridBase."
+            });
             return false;
         }
 
@@ -192,20 +238,8 @@ public class Map : MonoBehaviour
         GridData = validation.JsonMap.GridData;
         LineOfSightBlocks = validation.JsonMap.LineOfSightBlocks;
 
-        GameObject generatedMap = new("GeneratedMap");
-        generatedMap.AddComponent<GeneratedMapRoot>();
-        generatedMap.transform.SetParent(transform, true);
-        Transform structure = CreateContainer("Structure", generatedMap.transform);
-        Transform objects = CreateContainer("Objects", generatedMap.transform);
-        GenerateJson(validation.JsonMap, catalog, structure, objects);
-        if (grid != null && !grid.TryRebindMapData(GridData, LineOfSightBlocks))
-        {
-            validation = new MapSourceValidationResult(new[]
-            {
-                "Runtime JSON population produced grid data that could not be rebound to GridBase."
-            });
-            return false;
-        }
+        CommitGeneratedContentClear(clearPlan);
+        generatedMap.SetActive(true);
         return true;
     }
 
@@ -242,7 +276,7 @@ public class Map : MonoBehaviour
         {
             GridData = validation.JsonMap.GridData;
             LineOfSightBlocks = validation.JsonMap.LineOfSightBlocks;
-            GenerateJson(validation.JsonMap, dungeonCatalog, structure, objects);
+            GenerateJson(validation.JsonMap, dungeonCatalog, spacing, structure, objects);
         }
         else
         {
@@ -275,7 +309,23 @@ public class Map : MonoBehaviour
 
     private bool TryClearGeneratedContent(out string failure)
     {
-        failure = null;
+        if (!TryPrepareGeneratedContentClear(
+                out GeneratedContentClearPlan clearPlan,
+                out failure))
+        {
+            return false;
+        }
+
+        CommitGeneratedContentClear(clearPlan);
+        InvalidateCache();
+        return true;
+    }
+
+    private bool TryPrepareGeneratedContentClear(
+        out GeneratedContentClearPlan clearPlan,
+        out string failure)
+    {
+        failure = string.Empty;
         HashSet<GameObject> owned = new();
         Transform[] children = DirectChildrenSnapshot();
         bool hasGeneratedMapRoot = false;
@@ -293,20 +343,29 @@ public class Map : MonoBehaviour
             if (!hasGeneratedMapRoot)
             {
                 if (!TryFindLegacyBitmapGeneratedContent(children, out GameObject[] legacy, out failure))
+                {
+                    clearPlan = new GeneratedContentClearPlan(Array.Empty<GameObject>(), false);
                     return false;
+                }
 
                 foreach (GameObject legacyObject in legacy)
                     owned.Add(legacyObject);
             }
-
-            CompleteLegacyBitmapMigration();
         }
 
-        foreach (GameObject target in owned)
-            DestroyOwned(target);
-
-        InvalidateCache();
+        clearPlan = new GeneratedContentClearPlan(
+            owned,
+            legacyBitmapMigrationVersion < CurrentLegacyBitmapMigrationVersion);
         return true;
+    }
+
+    private void CommitGeneratedContentClear(GeneratedContentClearPlan clearPlan)
+    {
+        if (clearPlan.CompletesLegacyBitmapMigration)
+            CompleteLegacyBitmapMigration();
+
+        foreach (GameObject target in clearPlan.OwnedContent)
+            DestroyOwned(target);
     }
 
     public void ClearLegacyBitmapGeneratedContent()
@@ -628,6 +687,7 @@ public class Map : MonoBehaviour
     private void GenerateJson(
         KayKitDungeonMapData map,
         KayKitDungeonCatalog catalog,
+        float tileSpacing,
         Transform structure,
         Transform objectContainer)
     {
@@ -636,7 +696,7 @@ public class Map : MonoBehaviour
             for (int x = 0; x < map.Width; x++)
             {
                 TileType tile = map.GridData[x, z];
-                Vector3 position = new(x * spacing, 0f, z * spacing);
+                Vector3 position = new(x * tileSpacing, 0f, z * tileSpacing);
                 if (tile == TileType.Ground || tile == TileType.Door ||
                     tile == TileType.ClosedDoor || tile == TileType.Obstacle)
                 {
@@ -662,8 +722,8 @@ public class Map : MonoBehaviour
             }
         }
 
-        GenerateDoors(map, catalog, structure);
-        GenerateStairs(map, catalog, structure);
+        GenerateDoors(map, catalog, tileSpacing, structure);
+        GenerateStairs(map, catalog, tileSpacing, structure);
 
         for (int index = 0; index < map.Objects.Count; index++)
         {
@@ -673,23 +733,32 @@ public class Map : MonoBehaviour
             float centerX = placement.X + (placement.Footprint.x - 1) * 0.5f;
             float centerZ = placement.Z + (placement.Footprint.y - 1) * 0.5f;
             instance.transform.SetPositionAndRotation(
-                new Vector3(centerX * spacing, placement.YOffset, centerZ * spacing),
+                new Vector3(centerX * tileSpacing, placement.YOffset, centerZ * tileSpacing),
                 Quaternion.Euler(0f, placement.Rotation, 0f));
-            ApplyDefaultMaterial(instance);
+            ApplyDefaultMaterial(instance, catalog.DefaultMaterial);
 
             if (placement.CatalogEntry.BlocksLineOfSight)
-                AddLineOfSightCollider(instance, placement.CatalogEntry.Footprint);
+            {
+                AddLineOfSightCollider(
+                    instance,
+                    placement.CatalogEntry.Footprint,
+                    tileSpacing);
+            }
         }
     }
 
     private void GenerateDoors(
         KayKitDungeonMapData map,
         KayKitDungeonCatalog catalog,
+        float tileSpacing,
         Transform structure)
     {
         foreach (DungeonDoor door in map.LevelDocument.Doors)
         {
-            Vector3 position = new(door.Cell.X * spacing, 0f, door.Cell.Z * spacing);
+            Vector3 position = new(
+                door.Cell.X * tileSpacing,
+                0f,
+                door.Cell.Z * tileSpacing);
             GameObject root = new("Door_" + StableName(door.Id));
             root.transform.SetParent(structure, true);
             root.transform.SetPositionAndRotation(
@@ -711,6 +780,7 @@ public class Map : MonoBehaviour
     private void GenerateStairs(
         KayKitDungeonMapData map,
         KayKitDungeonCatalog catalog,
+        float tileSpacing,
         Transform structure)
     {
         foreach (DungeonStair stair in map.LevelDocument.Stairs)
@@ -718,7 +788,10 @@ public class Map : MonoBehaviour
             GameObject root = new("Stair_" + stair.Kind + "_" + StableName(stair.Id));
             root.transform.SetParent(structure, true);
             root.transform.SetPositionAndRotation(
-                new Vector3(stair.Cell.X * spacing, 0f, stair.Cell.Z * spacing),
+                new Vector3(
+                    stair.Cell.X * tileSpacing,
+                    0f,
+                    stair.Cell.Z * tileSpacing),
                 Quaternion.Euler(0f, StairRotation(stair.Cell, stair.ArrivalCell), 0f));
             GameObject visual = InstantiatePrefab(catalog.StairPrefab, root.transform);
             visual.name = "Visual";
@@ -779,9 +852,9 @@ public class Map : MonoBehaviour
         return true;
     }
 
-    private void ApplyDefaultMaterial(GameObject instance)
+    private static void ApplyDefaultMaterial(GameObject instance, Material defaultMaterial)
     {
-        if (dungeonCatalog.DefaultMaterial == null)
+        if (defaultMaterial == null)
             return;
 
         foreach (Renderer renderer in instance.GetComponentsInChildren<Renderer>(true))
@@ -790,22 +863,25 @@ public class Map : MonoBehaviour
             for (int index = 0; index < materials.Length; index++)
             {
                 if (materials[index] == null || materials[index].name == "Default-Material")
-                    materials[index] = dungeonCatalog.DefaultMaterial;
+                    materials[index] = defaultMaterial;
             }
             renderer.sharedMaterials = materials;
         }
     }
 
-    private void AddLineOfSightCollider(GameObject instance, Vector2Int footprint)
+    private static void AddLineOfSightCollider(
+        GameObject instance,
+        Vector2Int footprint,
+        float tileSpacing)
     {
         BoxCollider collider = instance.GetComponent<BoxCollider>();
         if (collider == null)
             collider = instance.AddComponent<BoxCollider>();
         collider.center = new Vector3(0f, 0.75f, 0f);
         collider.size = new Vector3(
-            Mathf.Max(0.8f, footprint.x * spacing * 0.9f),
+            Mathf.Max(0.8f, footprint.x * tileSpacing * 0.9f),
             1.5f,
-            Mathf.Max(0.8f, footprint.y * spacing * 0.9f));
+            Mathf.Max(0.8f, footprint.y * tileSpacing * 0.9f));
         collider.isTrigger = false;
         if (instance.GetComponent<MapLineOfSightBlocker>() == null)
             instance.AddComponent<MapLineOfSightBlocker>();

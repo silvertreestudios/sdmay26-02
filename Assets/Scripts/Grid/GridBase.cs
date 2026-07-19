@@ -11,6 +11,48 @@ namespace GridPrivate
     [RequireComponent(typeof(GridInput))]
     public class GridBase : GridAPI, GridAPIPrivate
     {
+        private readonly struct PreparedTokenRebind
+        {
+            public Token Token { get; }
+            public bool RegistersImmediately { get; }
+
+            public PreparedTokenRebind(Token token, bool registersImmediately)
+            {
+                Token = token;
+                RegistersImmediately = registersImmediately;
+            }
+        }
+
+        private sealed class GridRebindPlan
+        {
+            public static GridRebindPlan Invalid { get; } = new(
+                new TileType[0, 0],
+                new bool[0, 0],
+                new Tile[0, 0],
+                new PreparedTokenRebind[0],
+                new MindlessController[0]);
+
+            public TileType[,] GridData { get; }
+            public bool[,] LineOfSightBlocks { get; }
+            public Tile[,] Tiles { get; }
+            public IReadOnlyList<PreparedTokenRebind> TokenRebinds { get; }
+            public IReadOnlyList<MindlessController> Controllers { get; }
+
+            public GridRebindPlan(
+                TileType[,] gridData,
+                bool[,] lineOfSightBlocks,
+                Tile[,] tiles,
+                IEnumerable<PreparedTokenRebind> tokenRebinds,
+                IEnumerable<MindlessController> controllers)
+            {
+                GridData = gridData;
+                LineOfSightBlocks = lineOfSightBlocks;
+                Tiles = tiles;
+                TokenRebinds = new List<PreparedTokenRebind>(tokenRebinds);
+                Controllers = new List<MindlessController>(controllers);
+            }
+        }
+
         public TileType[,] GridData {get; set;}
         public bool[,] LineOfSightBlocks { get; private set; }
         protected Tile[,] Tiles;
@@ -27,6 +69,12 @@ namespace GridPrivate
 
         protected override void Awake()
         {
+            if (GridAPI.TryGetInstance(out GridAPI activeGrid) && activeGrid != this)
+            {
+                base.Awake();
+                return;
+            }
+
             Map map = GetComponent<Map>();
             TileType[,] gridData = map.GetMapData();
             bool[,] lineOfSightBlocks = gridData == null ? null : map.GetLineOfSightBlocks();
@@ -41,25 +89,34 @@ namespace GridPrivate
             }
         }
 
-        /// <summary>
-        /// Checks whether runtime map replacement can bind the supplied arrays without
-        /// interrupting an uncancelable action or displacing another grid singleton.
-        /// </summary>
-        internal bool CanRebindMapData(TileType[,] gridData, bool[,] lineOfSightBlocks)
+        private bool TryPrepareGridRebind(
+            TileType[,] gridData,
+            bool[,] lineOfSightBlocks,
+            out GridRebindPlan plan)
         {
             if (gridData == null || lineOfSightBlocks == null ||
                 gridData.GetLength(0) != lineOfSightBlocks.GetLength(0) ||
                 gridData.GetLength(1) != lineOfSightBlocks.GetLength(1))
             {
+                plan = GridRebindPlan.Invalid;
                 return false;
             }
 
             if (!Fsm.CanResetForGridRebind ||
                 (GridAPI.TryGetInstance(out GridAPI activeGrid) && activeGrid != this))
             {
+                plan = GridRebindPlan.Invalid;
                 return false;
             }
 
+            Tile[,] replacementTiles = new Tile[gridData.GetLength(0), gridData.GetLength(1)];
+            for (int x = 0; x < gridData.GetLength(0); x++)
+            {
+                for (int z = 0; z < gridData.GetLength(1); z++)
+                    replacementTiles[x, z] = IsWalkableTile(gridData[x, z]) ? new Tile() : null;
+            }
+
+            List<PreparedTokenRebind> tokenRebinds = new();
             HashSet<Vector2Int> occupiedCells = new();
             foreach (Token token in FindObjectsByType<Token>(
                          FindObjectsInactive.Include,
@@ -72,51 +129,62 @@ namespace GridPrivate
                     !IsWalkableTile(gridData[cell.x, cell.z]) ||
                     !occupiedCells.Add(new Vector2Int(cell.x, cell.z)))
                 {
+                    plan = GridRebindPlan.Invalid;
+                    return false;
+                }
+
+                bool registersImmediately = token.isActiveAndEnabled;
+                if (registersImmediately)
+                    replacementTiles[cell.x, cell.z].Occupants.Add(token.gameObject);
+                tokenRebinds.Add(new PreparedTokenRebind(token, registersImmediately));
+            }
+
+            MindlessController[] controllers = FindObjectsByType<MindlessController>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None);
+            foreach (MindlessController controller in controllers)
+            {
+                if (!controller.CanRebindGrid(this))
+                {
+                    plan = GridRebindPlan.Invalid;
                     return false;
                 }
             }
 
-            foreach (MindlessController controller in FindObjectsByType<MindlessController>(
-                         FindObjectsInactive.Include,
-                         FindObjectsSortMode.None))
-            {
-                if (!controller.CanRebindGrid(this))
-                    return false;
-            }
+            plan = new GridRebindPlan(
+                gridData,
+                lineOfSightBlocks,
+                replacementTiles,
+                tokenRebinds,
+                controllers);
             return true;
         }
 
         /// <summary>
-        /// Replaces every live grid consumer after validating that the operation can complete.
-        /// Duplicate grids retain the singleton base class's destruction behavior.
+        /// Replaces every live grid consumer after validating and preparing every operation
+        /// that could otherwise fail after the live arrays are swapped.
         /// </summary>
+        /// <param name="gridData">The replacement movement topology.</param>
+        /// <param name="lineOfSightBlocks">The matching replacement visibility topology.</param>
+        /// <returns>
+        /// <see langword="false"/> before any live grid state changes when preparation is unsafe;
+        /// otherwise <see langword="true"/> after the non-failing commit completes.
+        /// </returns>
         internal bool TryRebindMapData(TileType[,] gridData, bool[,] lineOfSightBlocks)
         {
             bool hasActiveGrid = GridAPI.TryGetInstance(out GridAPI activeGrid);
             if (hasActiveGrid && activeGrid != this)
-            {
-                base.Awake();
                 return false;
-            }
-            if (!CanRebindMapData(gridData, lineOfSightBlocks) ||
+            if (!TryPrepareGridRebind(gridData, lineOfSightBlocks, out GridRebindPlan plan) ||
                 !Fsm.TryResetForGridRebind())
                 return false;
             if (!hasActiveGrid)
                 base.Awake();
-            if (!GridAPI.TryGetInstance(out activeGrid) || activeGrid != this)
-                return false;
-
-            Tile[,] replacementTiles = new Tile[gridData.GetLength(0), gridData.GetLength(1)];
-            for (int x = 0; x < gridData.GetLength(0); x++)
-            {
-                for (int z = 0; z < gridData.GetLength(1); z++)
-                    replacementTiles[x, z] = IsWalkableTile(gridData[x, z]) ? new Tile() : null;
-            }
 
             GridLineOfSightData.Unregister(Tiles);
-            GridData = gridData;
-            LineOfSightBlocks = lineOfSightBlocks;
-            Tiles = replacementTiles;
+            GridData = plan.GridData;
+            LineOfSightBlocks = plan.LineOfSightBlocks;
+            Tiles = plan.Tiles;
             Pathfinder = new Dijkstra(Tiles);
             GridLineOfSightData.Register(Tiles, LineOfSightBlocks, GridData);
 
@@ -129,19 +197,14 @@ namespace GridPrivate
             enabled = true;
             GetComponent<GridVisuals>()?.RebindTiles(Tiles);
 
-            foreach (Token token in FindObjectsByType<Token>(
-                         FindObjectsInactive.Include,
-                         FindObjectsSortMode.None))
+            foreach (PreparedTokenRebind tokenRebind in plan.TokenRebinds)
             {
-                if (!token.RebindToGrid(this))
-                    return false;
+                tokenRebind.Token.CommitPreparedGridRebind(
+                    this,
+                    tokenRebind.RegistersImmediately);
             }
-            foreach (MindlessController controller in FindObjectsByType<MindlessController>(
-                         FindObjectsInactive.Include,
-                         FindObjectsSortMode.None))
-            {
+            foreach (MindlessController controller in plan.Controllers)
                 controller.RebindGrid(this);
-            }
             GetComponent<AuraGridVisuals>()?.Refresh();
             return true;
         }

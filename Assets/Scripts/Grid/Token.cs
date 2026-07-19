@@ -80,16 +80,20 @@ namespace GridPublic
             return isActiveAndEnabled;
         }
 
-        internal bool RebindToGrid(GridAPI grid)
+        /// <summary>
+        /// Commits the registration outcome already validated by <see cref="GridBase"/> and,
+        /// for active tokens, placed in its replacement tile array. This step deliberately
+        /// cannot fail after the live grid swaps.
+        /// </summary>
+        /// <param name="grid">The prepared replacement grid.</param>
+        /// <param name="registersImmediately">
+        /// Whether the token is active and was placed in the prepared tile array. Disabled
+        /// tokens remain unregistered until their next <see cref="OnEnable"/> callback.
+        /// </param>
+        internal void CommitPreparedGridRebind(GridAPI grid, bool registersImmediately)
         {
-            if (registered && registeredGrid != grid)
-                return true;
-            if (detachedFromGrid)
-                return true;
-
-            registered = false;
-            registeredGrid = null;
-            return !isActiveAndEnabled || TryRegister(grid);
+            registered = registersImmediately;
+            registeredGrid = registersImmediately ? grid : null;
         }
 
         /// <summary>
