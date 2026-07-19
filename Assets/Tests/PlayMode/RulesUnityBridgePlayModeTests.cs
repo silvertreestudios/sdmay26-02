@@ -148,12 +148,7 @@ public sealed class RulesUnityBridgePlayModeTests
     {
         while (!task.IsCompleted)
             yield return null;
-        if (task.IsFaulted)
-        {
-            if (task.Exception is Exception failure)
-                throw failure;
-            throw new InvalidOperationException("The rules task failed without an exception.");
-        }
+        task.GetAwaiter().GetResult();
     }
 
     private static RuleDispatcher CreateDispatcher()
