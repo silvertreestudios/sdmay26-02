@@ -209,15 +209,13 @@ namespace Game.Rules.Runtime
             ReductionResult<TResult> reduced = dispatcher.Reduce(
                 frame,
                 reducer,
-                source,
-                out FactObserverRegistration[] committedObserverPlan);
+                source);
             dispatcher.CaptureCommittedFacts(invocation, reduced.Facts);
             if (reduced.Facts.Count > 0)
             {
                 await dispatcher.NotifyFactObservers(
                     reduced.Facts,
-                    reduced.Snapshot,
-                    committedObserverPlan);
+                    reduced.Snapshot);
             }
             OpResult<TResult> result = reduced.IsAccepted
                 ? OpResult<TResult>.Resolved(reduced.Value)

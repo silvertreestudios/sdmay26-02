@@ -510,7 +510,7 @@ public interface IFactObserver<TFact>
 }
 ```
 
-Registration changes and observer selection are ordered atomically at the reduction commit boundary. The dispatcher retains that frozen observer plan in deterministic registration order, then delivers the reduction's Facts in commit order. Registration changes during a callback affect later reductions, not remaining Facts in that frozen delivery plan. Every frozen matching delivery runs even when another observer fails. State is already durable; one failure propagates unchanged and multiple failures produce a deterministic aggregate without rollback.
+Immediately before observer delivery, the dispatcher snapshots its current dynamic registrations in deterministic registration order, then delivers the reduction's Facts in commit order. Registration changes during a callback affect later reductions, not remaining Facts in that notification plan. Every selected matching delivery runs even when another observer fails. State is already durable; one failure propagates unchanged and multiple failures produce a deterministic aggregate without rollback.
 
 Observers use only `currentSnapshot` for identity lookup and derived current state. Any before-and-after values needed by presentation belong in the typed Fact transition payload. There is no previous-snapshot envelope.
 
@@ -937,9 +937,9 @@ Unity-facing code has four jobs:
 
 For example, when a player clicks the Strike button, Unity gathers a `StrikeSelection` and dispatches `StrikeActionOp`. The nested Strike rules may later dispatch `ApplyDamageOp`, but UI, AI, and other external callers cannot submit that nested-only mutation directly. Rules code reads positions from `RulesSnapshot`; it does not read a `Transform` or call `Creature.TakeDamage`.
 
-Animations may lag behind committed state, or an awaited observer may intentionally pace a multi-reduction workflow. In both cases presentation observes a transition that is already true. It cannot reject, alter, or roll back that commit; failure is reported only after every frozen matching observer has been attempted.
+Animations may lag behind committed state, or an awaited observer may intentionally pace a multi-reduction workflow. In both cases presentation observes a transition that is already true. It cannot reject, alter, or roll back that commit; failure is reported only after every matching observer selected for that notification has been attempted.
 
-The main Unity assembly provides a configurable generic `MonoBehaviour` helper implementing `IFactObserver<TFact>`. A concrete component receives its `RuleDispatcher` explicitly from the composition root, registers while configured and enabled, and unregisters when disabled or destroyed. It uses no static event or singleton lookup. Unregistration prevents selection by later reductions but does not cancel an observation already frozen in an in-flight reduction.
+The main Unity assembly provides a configurable generic `MonoBehaviour` helper implementing `IFactObserver<TFact>`. A concrete component receives its `RuleDispatcher` explicitly from the composition root, registers while configured and enabled, and unregisters when disabled or destroyed. It uses no static event or singleton lookup. Unregistration prevents selection by later notification passes but does not cancel an observation already selected for an in-progress notification.
 
 Each concrete observer handles one typed transition. For example, a `TokenMovedFact` supplies its old and new squares for animation while `currentSnapshot` supplies the token's authoritative current position and any derived current aura or UI state. This keeps transition history in Facts, current-state lookup in the snapshot, and Unity concerns outside the rules authority.
 

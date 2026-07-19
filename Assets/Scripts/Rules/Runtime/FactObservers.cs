@@ -138,7 +138,7 @@ namespace Game.Rules.Runtime
             new List<FactObserverRegistration>();
 
         /// <summary>
-        /// Registers a typed observer for reductions committed after this call.
+        /// Registers a typed observer for later committed-Fact notification passes.
         /// </summary>
         /// <typeparam name="TFact">The Fact type to observe, including derived Fact types.</typeparam>
         /// <param name="observer">The observer appended to deterministic registration order.</param>
@@ -147,10 +147,9 @@ namespace Game.Rules.Runtime
         /// The same observer is already registered for <typeparamref name="TFact"/>.
         /// </exception>
         /// <remarks>
-        /// Registration and observer selection are ordered atomically at the reduction commit
-        /// boundary. Each committed reduction then retains that immutable delivery plan while it
-        /// invokes callbacks. Registration changes made during a callback therefore apply to later
-        /// reductions only.
+        /// Immediately before invoking observers, the dispatcher snapshots its current
+        /// registrations for the entire notification pass. Registration changes made during a
+        /// callback therefore apply to later reductions only.
         /// </remarks>
         public void RegisterFactObserver<TFact>(IFactObserver<TFact> observer)
             where TFact : RuleFact
@@ -173,15 +172,14 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Removes one typed observer from reductions committed after this call.
+        /// Removes one typed observer from later committed-Fact notification passes.
         /// </summary>
         /// <typeparam name="TFact">The Fact type used when the observer was registered.</typeparam>
         /// <param name="observer">The observer to remove.</param>
         /// <returns><see langword="true"/> when a matching registration was removed.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
         /// <remarks>
-        /// Removal and observer selection are ordered atomically at the reduction commit boundary.
-        /// Removal does not cancel callbacks already frozen for an in-flight reduction.
+        /// Removal does not cancel callbacks already selected for an in-progress notification.
         /// </remarks>
         public bool UnregisterFactObserver<TFact>(IFactObserver<TFact> observer)
             where TFact : RuleFact
@@ -204,22 +202,27 @@ namespace Game.Rules.Runtime
 
         internal async ValueTask NotifyFactObservers(
             IReadOnlyList<RuleFact> committedFacts,
-            RulesSnapshot currentSnapshot,
-            IReadOnlyList<FactObserverRegistration> committedObserverPlan)
+            RulesSnapshot currentSnapshot)
         {
             if (committedFacts == null)
                 throw new ArgumentNullException(nameof(committedFacts));
             if (currentSnapshot == null)
                 throw new ArgumentNullException(nameof(currentSnapshot));
-            if (committedObserverPlan == null)
-                throw new ArgumentNullException(nameof(committedObserverPlan));
             if (committedFacts.Count == 0)
                 return;
+
+            FactObserverRegistration[] observerPlan;
+            lock (gate)
+            {
+                // Observer callbacks may change the live registry. A per-notification copy keeps
+                // iteration stable without making reducers or the state commit aware of observers.
+                observerPlan = factObservers.ToArray();
+            }
 
             FactObserverFailureState failures = FactObserverFailureState.Empty;
             foreach (RuleFact fact in committedFacts)
             {
-                foreach (FactObserverRegistration observer in committedObserverPlan)
+                foreach (FactObserverRegistration observer in observerPlan)
                 {
                     if (!observer.Matches(fact))
                         continue;

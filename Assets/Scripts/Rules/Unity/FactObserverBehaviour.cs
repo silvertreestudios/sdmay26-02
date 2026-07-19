@@ -13,8 +13,8 @@ namespace Game.Rules.Unity
     /// <remarks>
     /// A concrete, non-generic component derives from this helper and is configured explicitly by
     /// its composition root. Configuration does not use a singleton or static event. Disabling or
-    /// destroying the component prevents later reductions from selecting it but does not cancel a
-    /// callback already frozen for an in-flight reduction.
+    /// destroying the component prevents later notification passes from selecting it but does not
+    /// cancel a callback already selected for an in-progress notification.
     /// </remarks>
     public abstract class FactObserverBehaviour<TFact> : MonoBehaviour, IFactObserver<TFact>
         where TFact : RuleFact
@@ -62,7 +62,7 @@ namespace Game.Rules.Unity
         /// <remarks>
         /// Derived components that override this Unity lifecycle message must call
         /// <c>base.OnDisable()</c> exactly once. Unregistration does not cancel a callback already
-        /// selected by a committed reduction.
+        /// selected for an in-progress notification.
         /// </remarks>
         protected virtual void OnDisable()
         {
