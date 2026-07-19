@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Game.DungeonGeneration;
 using Game.KayKit.Editor;
 using NUnit.Framework;
@@ -12,6 +13,35 @@ public sealed class DungeonLevelPngExporterTests
     private const int CellSize = 12;
 
     [Test]
+    public void Fixture_MatchesRequestedPackedLargePreset()
+    {
+        DungeonGenerationResult expected = new DeterministicDungeonGenerator().Generate(
+            new DungeonGenerationRequest
+            {
+                RunSeed = 156,
+                Width = 31,
+                Height = 31,
+                Layout = DungeonLayout.Box,
+                RoomLayout = DungeonRoomLayout.Packed,
+                CorridorLayout = DungeonCorridorLayout.Straight,
+                MinimumRoomSize = 9,
+                MaximumRoomSize = 11,
+                MinimumRoomCount = 3,
+                StairCount = 2,
+                DeadEndRemovalPercent = 100
+            });
+
+        Assert.That(expected.IsSuccess, Is.True,
+            string.Join(Environment.NewLine, expected.Diagnostics));
+        Assert.That(FixtureJson(), Is.EqualTo(
+            DungeonLevelJsonSerializer.Serialize(expected.Document)));
+        Assert.That(expected.Document.Rooms, Has.Count.GreaterThanOrEqualTo(3));
+        Assert.That(expected.Document.Rooms.All(room =>
+            room.MaximumX - room.MinimumX + 1 is 9 or 11 &&
+            room.MaximumZ - room.MinimumZ + 1 is 9 or 11), Is.True);
+    }
+
+    [Test]
     public void RenderPng_PreservesDimensionsAndHighestZAtTop()
     {
         DungeonLevelDocument document = FixtureDocument();
@@ -21,17 +51,11 @@ public sealed class DungeonLevelPngExporterTests
             Assert.That(texture.width, Is.EqualTo(document.Width * CellSize));
             Assert.That(texture.height, Is.EqualTo(document.Height * CellSize));
 
-            Color32 highZWall = CellCenter(texture, 8, 37);
-            Color32 lowZCorridor = CellCenter(texture, 8, 1);
-            Assert.That(highZWall, Is.Not.EqualTo(lowZCorridor));
+            DungeonCell asymmetricWall = FindAsymmetricWall(document);
             Assert.That(
-                highZWall,
+                CellCenter(texture, asymmetricWall.X, asymmetricWall.Z),
                 Is.EqualTo(CellCenter(texture, 0, 0)),
-                "The highest-Z-first source row must appear at the top of the PNG.");
-            Assert.That(
-                lowZCorridor,
-                Is.EqualTo(CellCenter(texture, 1, 37)),
-                "The lowest serialized row must appear at the bottom of the PNG.");
+                "The source row for a map cell must be rendered at that cell's Z coordinate, not its vertical mirror.");
         }
         finally
         {
@@ -42,20 +66,24 @@ public sealed class DungeonLevelPngExporterTests
     [Test]
     public void RenderPng_UsesDistinctColorsForBaseSemanticsAndOverlays()
     {
-        Texture2D texture = Decode(DungeonLevelPngExporter.RenderPng(FixtureJson(), CellSize));
+        DungeonLevelDocument document = FixtureDocument();
+        Texture2D texture = Decode(DungeonLevelPngExporter.RenderPng(document, CellSize));
         try
         {
+            HashSet<DungeonCell> roomCells = RoomCells(document);
             Color32[] semanticColors =
             {
-                CellCenter(texture, 13, 25), // Masked void.
-                CellCenter(texture, 0, 0),   // Wall.
-                CellCenter(texture, 34, 30), // Room floor.
-                CellCenter(texture, 1, 37),  // Corridor floor.
-                CellCenter(texture, 30, 27), // Door.
-                CellCenter(texture, 11, 25), // Up stair.
-                CellCenter(texture, 3, 3),   // Down stair.
-                Pixel(texture, 11, 24, 1, 1), // Start frame.
-                CellCenter(texture, 33, 33)  // Object anchor diamond.
+                CellCenter(texture, FindPlainCell(document, ' ', roomCells, false)),
+                CellCenter(texture, FindPlainCell(document, '#', roomCells, false)),
+                CellCenter(texture, FindPlainCell(document, '.', roomCells, true)),
+                CellCenter(texture, FindPlainCell(document, '.', roomCells, false)),
+                CellCenter(texture, document.Doors[0].Cell),
+                CellCenter(texture, document.Stairs.Single(stair =>
+                    stair.Kind == DungeonStairKind.Up).Cell),
+                CellCenter(texture, document.Stairs.Single(stair =>
+                    stair.Kind == DungeonStairKind.Down).Cell),
+                Pixel(texture, document.StartCell.X, document.StartCell.Z, 1, 1),
+                CellCenter(texture, document.Objects[0].Cell)
             };
 
             Assert.That(
@@ -90,7 +118,20 @@ public sealed class DungeonLevelPngExporterTests
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             DungeonLevelPngExporter.RenderPng(FixtureJson(), 6));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            DungeonLevelPngExporter.RenderPng(FixtureJson(), 128));
+            DungeonLevelPngExporter.RenderPng(FixtureJson(), 129));
+
+        DungeonGenerationResult large = new DeterministicDungeonGenerator().Generate(
+            new DungeonGenerationRequest
+            {
+                RunSeed = 167,
+                Width = 101,
+                Height = 101,
+                MinimumRoomCount = 0,
+                StairCount = 0
+            });
+        Assert.That(large.IsSuccess, Is.True);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            DungeonLevelPngExporter.RenderPng(large.Document, 128));
     }
 
     [Test]
@@ -165,6 +206,63 @@ public sealed class DungeonLevelPngExporterTests
 
         return texture;
     }
+
+    private static DungeonCell FindAsymmetricWall(DungeonLevelDocument document)
+    {
+        for (int z = 0; z < document.Height; z++)
+        for (int x = 0; x < document.Width; x++)
+        {
+            char expected = document.Rows[document.Height - 1 - z][x];
+            char verticallyMirrored = document.Rows[z][x];
+            if (expected == '#' && verticallyMirrored != '#')
+                return new DungeonCell(x, z);
+        }
+
+        throw new AssertionException(
+            "The fixture must contain a wall whose vertical mirror has a different semantic.");
+    }
+
+    private static HashSet<DungeonCell> RoomCells(DungeonLevelDocument document)
+    {
+        HashSet<DungeonCell> cells = new();
+        foreach (DungeonRoom room in document.Rooms)
+        {
+            for (int z = room.MinimumZ; z <= room.MaximumZ; z++)
+            for (int x = room.MinimumX; x <= room.MaximumX; x++)
+                cells.Add(new DungeonCell(x, z));
+        }
+
+        return cells;
+    }
+
+    private static DungeonCell FindPlainCell(
+        DungeonLevelDocument document,
+        char symbol,
+        HashSet<DungeonCell> roomCells,
+        bool requireRoom)
+    {
+        HashSet<DungeonCell> overlays = new(document.Stairs.Select(stair => stair.Cell));
+        overlays.UnionWith(document.Objects.Select(item => item.Cell));
+        overlays.Add(document.StartCell);
+
+        for (int z = 0; z < document.Height; z++)
+        for (int x = 0; x < document.Width; x++)
+        {
+            DungeonCell cell = new(x, z);
+            if (document.Rows[document.Height - 1 - z][x] == symbol &&
+                roomCells.Contains(cell) == requireRoom &&
+                !overlays.Contains(cell))
+            {
+                return cell;
+            }
+        }
+
+        throw new AssertionException(
+            $"The fixture must contain an unoverlaid '{symbol}' cell with room={requireRoom}.");
+    }
+
+    private static Color32 CellCenter(Texture2D texture, DungeonCell cell) =>
+        CellCenter(texture, cell.X, cell.Z);
 
     private static Color32 CellCenter(Texture2D texture, int x, int z) =>
         Pixel(texture, x, z, CellSize / 2, CellSize / 2);

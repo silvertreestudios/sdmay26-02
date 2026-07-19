@@ -194,12 +194,15 @@ public sealed class ProceduralDungeonScenePlayModeTests
         MapSourceMode priorSourceMode = map.SourceMode;
         bool priorUsesRuntimeSource = map.UsesRuntimeJsonSource;
         float priorSpacing = map.Spacing;
+        const int replacementSize = 15;
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
         DungeonCell highCell = parsed.Document.Rooms
             .SelectMany(room => Enumerable.Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
                 .SelectMany(z => Enumerable.Range(room.MinimumX, room.MaximumX - room.MinimumX + 1)
                     .Select(x => new DungeonCell(x, z))))
-            .First(cell => cell.X >= 31 && priorTiles[cell.X, cell.Z] != null);
+            .First(cell =>
+                (cell.X >= replacementSize || cell.Z >= replacementSize) &&
+                priorTiles[cell.X, cell.Z] != null);
         GameObject tokenObject = new("Token Outside Replacement Bounds");
         tokenObject.transform.position = new Vector3(highCell.X, 0f, highCell.Z);
         tokenObject.AddComponent<Token>();
@@ -208,9 +211,10 @@ public sealed class ProceduralDungeonScenePlayModeTests
             new DungeonGenerationRequest
             {
                 RunSeed = 15601,
-                Width = 31,
-                Height = 31,
-                MinimumRoomCount = 3
+                Width = replacementSize,
+                Height = replacementSize,
+                MinimumRoomCount = 0,
+                StairCount = 0
             });
         Assert.That(replacement.IsSuccess, Is.True);
 
@@ -258,12 +262,15 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Map map = Object.FindFirstObjectByType<Map>();
         GridBase grid = Object.FindFirstObjectByType<GridBase>();
         Tile[,] priorTiles = grid.GetTiles();
+        const int replacementSize = 15;
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
         DungeonCell highCell = parsed.Document.Rooms
             .SelectMany(room => Enumerable.Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
                 .SelectMany(z => Enumerable.Range(room.MinimumX, room.MaximumX - room.MinimumX + 1)
                     .Select(x => new DungeonCell(x, z))))
-            .First(cell => cell.X >= 31 && priorTiles[cell.X, cell.Z] != null);
+            .First(cell =>
+                (cell.X >= replacementSize || cell.Z >= replacementSize) &&
+                priorTiles[cell.X, cell.Z] != null);
         GameObject tokenObject = new("Removed Token Outside Replacement Bounds");
         tokenObject.transform.position = new Vector3(highCell.X, 0f, highCell.Z);
         tokenObject.AddComponent<Token>();
@@ -275,9 +282,10 @@ public sealed class ProceduralDungeonScenePlayModeTests
             new DungeonGenerationRequest
             {
                 RunSeed = 15602,
-                Width = 31,
-                Height = 31,
-                MinimumRoomCount = 3
+                Width = replacementSize,
+                Height = replacementSize,
+                MinimumRoomCount = 0,
+                StairCount = 0
             });
         Assert.That(replacement.IsSuccess, Is.True);
 
@@ -287,8 +295,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
                 out MapSourceValidationResult validation),
             Is.True,
             string.Join(System.Environment.NewLine, validation.Errors));
-        Assert.That(grid.GridData.GetLength(0), Is.EqualTo(31));
-        Assert.That(grid.GridData.GetLength(1), Is.EqualTo(31));
+        Assert.That(grid.GridData.GetLength(0), Is.EqualTo(replacementSize));
+        Assert.That(grid.GridData.GetLength(1), Is.EqualTo(replacementSize));
 
         Object.Destroy(tokenObject);
         yield return null;

@@ -23,7 +23,9 @@ namespace Game.KayKit.Editor
 
         private const string SourceScenePath = "Assets/Scenes/UnitTestingScene.unity";
         private const int FixtureSeed = 156;
-        private const int FixtureSize = 39;
+        private const int FixtureSize = 31;
+        private const int FixtureMinimumRoomSize = 9;
+        private const int FixtureMaximumRoomSize = 11;
 
         /// <summary>Regenerates the fixture and scene after offering to save dirty open scenes.</summary>
         [MenuItem("Tools/KayKit/Regenerate Procedural Dungeon Scene")]
@@ -51,8 +53,14 @@ namespace Game.KayKit.Editor
                     RunSeed = FixtureSeed,
                     Width = FixtureSize,
                     Height = FixtureSize,
+                    Layout = DungeonLayout.Box,
+                    RoomLayout = DungeonRoomLayout.Packed,
+                    CorridorLayout = DungeonCorridorLayout.Straight,
+                    MinimumRoomSize = FixtureMinimumRoomSize,
+                    MaximumRoomSize = FixtureMaximumRoomSize,
                     MinimumRoomCount = 3,
-                    StairCount = 2
+                    StairCount = 2,
+                    DeadEndRemovalPercent = 100
                 });
             if (!generation.IsSuccess)
             {
