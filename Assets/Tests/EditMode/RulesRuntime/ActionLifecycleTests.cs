@@ -718,7 +718,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class CountingActionCostListener :
-            IFactListener<ActionCostSpentFact>
+            IRuleFactListener<ActionCostSpentFact>
         {
             public int Calls { get; private set; }
 

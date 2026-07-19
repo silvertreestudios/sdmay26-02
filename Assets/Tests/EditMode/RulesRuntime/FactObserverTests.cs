@@ -448,7 +448,7 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
-        private sealed class CapturingFactListener : IFactListener<ChangedFact>
+        private sealed class CapturingFactListener : IRuleFactListener<ChangedFact>
         {
             public List<ChangedFact> Facts { get; } = new List<ChangedFact>();
 

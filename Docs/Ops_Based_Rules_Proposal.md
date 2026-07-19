@@ -517,7 +517,7 @@ Observers use only `currentSnapshot` for identity lookup and derived current sta
 Rules selected through active bindings continue to use the root-scoped listener contract:
 
 ```csharp
-public interface IFactListener<TFact>
+public interface IRuleFactListener<TFact>
     where TFact : RuleFact
 {
     ValueTask OnFactCommitted(
@@ -537,7 +537,7 @@ Listener eligibility is frozen from the source operation frame's start snapshot.
 Some rules need to consider all matching Facts from one committed root together. The registry also supports a batch form:
 
 ```csharp
-public interface IFactBatchListener<TFact>
+public interface IRuleFactBatchListener<TFact>
     where TFact : RuleFact
 {
     ValueTask OnFactsCommitted(

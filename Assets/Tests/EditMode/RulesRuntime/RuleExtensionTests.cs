@@ -1821,7 +1821,7 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
-        private sealed class SnapshotFactListener : IFactListener<CounterChangedFact>
+        private sealed class SnapshotFactListener : IRuleFactListener<CounterChangedFact>
         {
             public List<int> ObservedValues { get; } = new List<int>();
 
@@ -1838,7 +1838,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class CounterFactRecordingListener :
-            IFactListener<CounterChangedFact>
+            IRuleFactListener<CounterChangedFact>
         {
             public List<int> ObservedValues { get; } = new List<int>();
 
@@ -1883,7 +1883,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class IgnoringFailingDispatchListener :
-            IFactListener<CounterChangedFact>
+            IRuleFactListener<CounterChangedFact>
         {
             public ValueTask OnFactCommitted(
                 CounterChangedFact fact,
@@ -1895,7 +1895,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class YieldingIgnoringFailingDispatchListener :
-            IFactListener<CounterChangedFact>
+            IRuleFactListener<CounterChangedFact>
         {
             private readonly TaskCompletionSource<bool> continuation =
                 new TaskCompletionSource<bool>();
@@ -1912,7 +1912,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class ThrowingIgnoringValueDispatchListener :
-            IFactListener<CounterChangedFact>
+            IRuleFactListener<CounterChangedFact>
         {
             public ValueTask OnFactCommitted(
                 CounterChangedFact fact,
@@ -1923,7 +1923,7 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
-        private sealed class DispatchingFactListener : IFactListener<CounterChangedFact>
+        private sealed class DispatchingFactListener : IRuleFactListener<CounterChangedFact>
         {
             public ActiveRuleBinding Binding { get; private set; }
             public RuleSource Source { get; private set; }
@@ -1942,7 +1942,7 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
-        private sealed class ThrowingFactListener : IFactListener<CounterChangedFact>
+        private sealed class ThrowingFactListener : IRuleFactListener<CounterChangedFact>
         {
             public int Calls { get; private set; }
 
@@ -1956,7 +1956,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class CapturingFactContextListener :
-            IFactListener<CounterChangedFact>
+            IRuleFactListener<CounterChangedFact>
         {
             public FactContext Context { get; private set; }
             public RulesSnapshot SnapshotDuringCallback { get; private set; }
@@ -1973,7 +1973,7 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
-        private sealed class BatchRecordingListener : IFactBatchListener<CounterChangedFact>
+        private sealed class BatchRecordingListener : IRuleFactBatchListener<CounterChangedFact>
         {
             public List<CommittedFactBatch<CounterChangedFact>> Batches { get; } =
                 new List<CommittedFactBatch<CounterChangedFact>>();
@@ -1988,7 +1988,7 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
-        private sealed class LoggingFactListener : IFactListener<CounterChangedFact>
+        private sealed class LoggingFactListener : IRuleFactListener<CounterChangedFact>
         {
             private readonly List<string> calls;
 
@@ -2003,7 +2003,7 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
-        private sealed class RemovingFactListener : IFactListener<CounterChangedFact>
+        private sealed class RemovingFactListener : IRuleFactListener<CounterChangedFact>
         {
             private readonly BindingId removedBinding;
             private readonly List<string> calls;

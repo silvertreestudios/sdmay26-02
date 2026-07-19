@@ -89,7 +89,7 @@ namespace Game.Rules.Runtime
     /// cannot observe that frame's Facts, while a binding disabled, removed, or changed before
     /// delivery is skipped.
     /// </remarks>
-    public interface IFactListener<TFact>
+    public interface IRuleFactListener<TFact>
         where TFact : RuleFact
     {
         /// <summary>
@@ -113,7 +113,7 @@ namespace Game.Rules.Runtime
     /// A batch contains only the root's matching Facts whose source frames began while the
     /// binding was eligible. The binding must also remain active when delivery begins.
     /// </remarks>
-    public interface IFactBatchListener<TFact>
+    public interface IRuleFactBatchListener<TFact>
         where TFact : RuleFact
     {
         /// <summary>
