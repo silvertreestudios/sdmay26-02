@@ -692,6 +692,7 @@ public class Map : MonoBehaviour
         Transform structure,
         Transform objectContainer)
     {
+        TileType[,] wallVisualTopology = CreateWallVisualTopology(map.GridData);
         for (int z = 0; z < map.Height; z++)
         {
             for (int x = 0; x < map.Width; x++)
@@ -708,18 +709,17 @@ public class Map : MonoBehaviour
                         catalog.FloorPrefab.transform.rotation);
                 }
 
-                GameObject structuralPrefab = tile == TileType.Wall
-                    ? catalog.WallPrefab
-                    : null;
-                if (structuralPrefab == null)
+                if (wallVisualTopology[x, z] != TileType.Wall)
                     continue;
 
-                GameObject structural = InstantiatePrefab(structuralPrefab, structure);
+                GameObject structural = InstantiatePrefab(catalog.WallPrefab, structure);
                 structural.name = $"{tile}_{x:D3}_{z:D3}";
-                structural.transform.SetPositionAndRotation(position, structuralPrefab.transform.rotation);
+                structural.transform.SetPositionAndRotation(
+                    position,
+                    catalog.WallPrefab.transform.rotation);
                 structural.GetComponent<IOnGridGeneration>()?.OnGeneration(
                     new Vector3Int(x, 0, z),
-                    map.GridData);
+                    wallVisualTopology);
             }
         }
 
@@ -746,6 +746,64 @@ public class Map : MonoBehaviour
                     tileSpacing);
             }
         }
+    }
+
+    private static TileType[,] CreateWallVisualTopology(TileType[,] gameplayGrid)
+    {
+        // The complete wall field is authoritative for movement and line of sight, but
+        // only its one-tile shell belongs in the scene. Diagonal neighbors keep that
+        // shell connected around room and corridor corners.
+        int width = gameplayGrid.GetLength(0);
+        int height = gameplayGrid.GetLength(1);
+        TileType[,] visualGrid = new TileType[width, height];
+        for (int z = 0; z < height; z++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                TileType tile = gameplayGrid[x, z];
+                visualGrid[x, z] = tile == TileType.Wall &&
+                    !BordersFloorBearingCell(gameplayGrid, x, z)
+                        ? TileType.Empty
+                        : tile;
+            }
+        }
+
+        return visualGrid;
+    }
+
+    private static bool BordersFloorBearingCell(TileType[,] grid, int x, int z)
+    {
+        int width = grid.GetLength(0);
+        int height = grid.GetLength(1);
+        for (int zOffset = -1; zOffset <= 1; zOffset++)
+        {
+            for (int xOffset = -1; xOffset <= 1; xOffset++)
+            {
+                if (xOffset == 0 && zOffset == 0)
+                    continue;
+
+                int neighborX = x + xOffset;
+                int neighborZ = z + zOffset;
+                if (neighborX < 0 || neighborZ < 0 ||
+                    neighborX >= width || neighborZ >= height)
+                {
+                    continue;
+                }
+
+                if (IsFloorBearing(grid[neighborX, neighborZ]))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsFloorBearing(TileType tile)
+    {
+        return tile == TileType.Ground ||
+               tile == TileType.Door ||
+               tile == TileType.ClosedDoor ||
+               tile == TileType.Obstacle;
     }
 
     private void GenerateDoors(

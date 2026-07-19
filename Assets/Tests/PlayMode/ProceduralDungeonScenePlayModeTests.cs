@@ -37,12 +37,24 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Assert.That(generated, Is.Not.Null);
         Assert.That(map.JsonSource.name, Is.EqualTo("GeneratedDungeonFixture"));
         Assert.That(grid.IsInitialized, Is.True);
+        Transform structure = generated.transform.Find("Structure");
+        Assert.That(structure, Is.Not.Null);
 
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
         Assert.That(parsed.IsSuccess, Is.True);
         DungeonLevelDocument document = parsed.Document;
         Assert.That(grid.GridData.GetLength(0), Is.EqualTo(document.Width));
         Assert.That(grid.GridData.GetLength(1), Is.EqualTo(document.Height));
+        Assert.That(CountGeneratedWalls(structure),
+            Is.EqualTo(CountExposedWalls(grid.GridData)),
+            "The checked-in scene must contain only the wall shell around walkable cells.");
+        Assert.That(TryFindInteriorWall(grid.GridData, out Vector2Int interiorWall), Is.True,
+            "The fixture must retain at least one solid interior cell for regression coverage.");
+        Assert.That(grid.GridData[interiorWall.x, interiorWall.y], Is.EqualTo(TileType.Wall));
+        Assert.That(
+            structure.Find($"Wall_{interiorWall.x:D3}_{interiorWall.y:D3}"),
+            Is.Null,
+            "Solid interior cells remain blocked data but must not create scene geometry.");
 
         DungeonDoorController[] doors = Object.FindObjectsByType<DungeonDoorController>(
             FindObjectsInactive.Include,
@@ -76,7 +88,6 @@ public sealed class ProceduralDungeonScenePlayModeTests
         (DungeonCell firstSide, DungeonCell secondSide) = OppositeWalkableSides(document, record.Cell);
         Vector3Int start = new(firstSide.X, 0, firstSide.Z);
         Vector3Int end = new(secondSide.X, 0, secondSide.Z);
-        Transform structure = generated.transform.Find("Structure");
         Transform floor = structure.Find($"Floor_{record.Cell.X:D3}_{record.Cell.Z:D3}");
         Assert.That(floor, Is.Not.Null);
 
@@ -472,6 +483,82 @@ public sealed class ProceduralDungeonScenePlayModeTests
             return false;
         char value = document.Rows[document.Height - 1 - cell.Z][cell.X];
         return value == '.' || value == 'D';
+    }
+
+    private static int CountGeneratedWalls(Transform structure)
+    {
+        int count = 0;
+        for (int index = 0; index < structure.childCount; index++)
+        {
+            if (structure.GetChild(index).name.StartsWith("Wall_"))
+                count++;
+        }
+
+        return count;
+    }
+
+    private static int CountExposedWalls(TileType[,] grid)
+    {
+        int count = 0;
+        for (int z = 0; z < grid.GetLength(1); z++)
+        {
+            for (int x = 0; x < grid.GetLength(0); x++)
+            {
+                if (grid[x, z] == TileType.Wall && BordersFloorBearingCell(grid, x, z))
+                    count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static bool TryFindInteriorWall(TileType[,] grid, out Vector2Int cell)
+    {
+        for (int z = 0; z < grid.GetLength(1); z++)
+        {
+            for (int x = 0; x < grid.GetLength(0); x++)
+            {
+                if (grid[x, z] != TileType.Wall || BordersFloorBearingCell(grid, x, z))
+                    continue;
+
+                cell = new Vector2Int(x, z);
+                return true;
+            }
+        }
+
+        cell = default;
+        return false;
+    }
+
+    private static bool BordersFloorBearingCell(TileType[,] grid, int x, int z)
+    {
+        for (int zOffset = -1; zOffset <= 1; zOffset++)
+        {
+            for (int xOffset = -1; xOffset <= 1; xOffset++)
+            {
+                if (xOffset == 0 && zOffset == 0)
+                    continue;
+
+                int neighborX = x + xOffset;
+                int neighborZ = z + zOffset;
+                if (neighborX < 0 || neighborZ < 0 ||
+                    neighborX >= grid.GetLength(0) || neighborZ >= grid.GetLength(1))
+                {
+                    continue;
+                }
+
+                TileType neighbor = grid[neighborX, neighborZ];
+                if (neighbor == TileType.Ground ||
+                    neighbor == TileType.Door ||
+                    neighbor == TileType.ClosedDoor ||
+                    neighbor == TileType.Obstacle)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static int Manhattan(DungeonCell left, DungeonCell right)

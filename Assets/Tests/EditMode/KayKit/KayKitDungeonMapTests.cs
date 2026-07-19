@@ -602,6 +602,35 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
+    public void JsonGeneration_RendersOnlyTheWallShellAroundWalkableCells()
+    {
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        TextAsset source = Track(new TextAsset(CurrentMapJson(JObject.Parse(
+            "{\"rows\":[\"#####\",\"#...#\",\"#####\",\"#####\",\"#####\"]}"))));
+        GameObject mapObject = Track(new GameObject("Wall Shell JSON Map"));
+        Map map = mapObject.AddComponent<Map>();
+        map.ConfigureJson(source, catalog);
+
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
+            string.Join(Environment.NewLine, validation.Errors));
+        Transform structure = mapObject.transform.Find("GeneratedMap/Structure");
+        Transform exposedWall = structure.Find("Wall_002_002");
+
+        Assert.That(map.GetMapData()[2, 0], Is.EqualTo(TileType.Wall),
+            "Interior solid cells must remain blocked in the gameplay topology.");
+        Assert.That(structure.Find("Wall_002_000"), Is.Null,
+            "Interior solid cells must not create dense wall geometry.");
+        Assert.That(exposedWall, Is.Not.Null,
+            "The wall shell next to walkable dungeon space must remain visible.");
+        Assert.That(structure.Find("Wall_000_004"), Is.Not.Null,
+            "Diagonal shell cells must preserve connected room corners.");
+        Assert.That(exposedWall.GetComponent<Wall>().SelectedVariant,
+            Is.EqualTo(WallVariant.Straight),
+            "Wall variants must resolve against the filtered visual topology.");
+    }
+
+    [Test]
     public void JsonSourceSwitchAndExplicitClear_RemoveLegacyBitmapOutputOnly()
     {
         GameObject mapObject = Track(new GameObject("Legacy Bitmap Migration"));
