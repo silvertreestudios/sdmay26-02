@@ -454,7 +454,7 @@ public sealed class InvalidGridInitializationPlayModeTests
                 "Map data is invalid: JSON map unknown: Unknown property is not part of the current schema.");
             LogAssert.Expect(
                 LogType.Error,
-                "Grid initialization failed: Map did not provide valid grid and line-of-sight data.");
+                "Grid initialization failed: Replacement grid data is missing.");
 
             GridBase grid = gridObject.AddComponent<GridBase>();
             combatantObject = new GameObject("Invalid Grid Combatant");
@@ -670,7 +670,7 @@ public sealed class InvalidGridInitializationPlayModeTests
                 "Map data is invalid: JSON map unknown: Unknown property is not part of the current schema.");
             LogAssert.Expect(
                 LogType.Error,
-                "Grid initialization failed: Map did not provide valid grid and line-of-sight data.");
+                "Grid initialization failed: Replacement grid data is missing.");
             invalidGridObject.SetActive(true);
 
             Assert.That(invalidGrid.enabled, Is.False);
