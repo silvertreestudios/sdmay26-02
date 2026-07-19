@@ -11,10 +11,11 @@ namespace Game.Rules.Runtime
     /// </summary>
     /// <remarks>
     /// Root resolutions are serialized: a second external root waits until the active root and its
-    /// post-commit listeners finish.
+    /// post-commit callbacks finish.
     /// Handlers may dispatch nested children through <see cref="OpHandlerContext"/>, but each active frame
-    /// may own only one child at a time and must await it. Committed-Fact listeners finish before
-    /// the caller regains root ownership; listener-dispatched work runs as serialized causal roots.
+    /// may own only one child at a time and must await it. Dynamic Fact observers finish after each
+    /// reduction commit, before its parent handler continues. Binding-scoped Fact listeners finish
+    /// after the root; listener-dispatched work runs as serialized causal roots.
     /// Trace and diagnostic history accumulate for the lifetime of the dispatcher.
     /// </remarks>
     public sealed partial class RuleDispatcher
@@ -86,14 +87,15 @@ namespace Game.Rules.Runtime
         /// calls this public root API reentrantly, or a handler violates nested-dispatch ownership.
         /// </exception>
         /// <remarks>
-        /// Resolver, middleware, and post-commit listener exceptions propagate to the caller. State
-        /// already committed by a reducer is not rolled back. If resolution fails after a commit,
-        /// listeners receive the durable Facts before the resolution exception is rethrown. If that
-        /// notification also fails, an <see cref="AggregateException"/> reports the resolution
-        /// exception first and the notification exception second. The dispatcher then releases root
-        /// ownership so a later independent root may be dispatched. When a callback and its unconsumed
-        /// work both fail, their aggregate likewise retains the callback exception first. Other
-        /// external roots remain queued until this entire resolution releases ownership.
+        /// Resolver, middleware, observer, and post-commit listener exceptions propagate to the
+        /// caller. State already committed by a reducer is not rolled back. If resolution fails
+        /// after a commit, listeners receive the durable Facts before the resolution exception is
+        /// rethrown. If that notification also fails, an <see cref="AggregateException"/> reports
+        /// the resolution exception first and the notification exception second. The dispatcher
+        /// then releases root ownership so a later independent root may be dispatched. When a
+        /// callback and its unconsumed work both fail, their aggregate likewise retains the callback
+        /// exception first. Other external roots remain queued until this entire resolution releases
+        /// ownership.
         /// </remarks>
         public async ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
         {
