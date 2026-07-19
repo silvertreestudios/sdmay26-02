@@ -290,7 +290,7 @@ public sealed class KayKitDungeonMapTests
             Is.EqualTo(KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale));
         Assert.That(KayKitDungeonSetupTool.WallVisualScale, Is.EqualTo(0.25f));
 
-        HashSet<string> wallWrappers = new(StringComparer.Ordinal)
+        HashSet<string> reducedScaleWrappers = new(StringComparer.Ordinal)
         {
             "DungeonWallStraight",
             "DungeonWallCorner",
@@ -299,7 +299,9 @@ public sealed class KayKitDungeonMapTests
             "DungeonWallEndcap",
             "DungeonWallPillar",
             "DungeonDoorwayOpen",
-            "DungeonDoorClosed"
+            "DungeonDoorClosed",
+            "DungeonStair",
+            "BannerRed"
         };
 
         GameObject[] wrappers = AssetDatabase.FindAssets(
@@ -312,7 +314,7 @@ public sealed class KayKitDungeonMapTests
         Assert.That(wrappers, Is.Not.Empty);
         foreach (GameObject wrapper in wrappers)
         {
-            float expectedScale = wallWrappers.Contains(wrapper.name)
+            float expectedScale = reducedScaleWrappers.Contains(wrapper.name)
                 ? KayKitDungeonSetupTool.WallVisualScale
                 : KayKitDungeonSetupTool.DungeonVisualScale;
             Assert.That(
@@ -320,6 +322,52 @@ public sealed class KayKitDungeonMapTests
                 Is.EqualTo(Vector3.one * expectedScale),
                 wrapper.name);
         }
+    }
+
+    [Test]
+    public void GeneratedStairPrefab_KeepsRootStableAndCorrectsNestedModel()
+    {
+        GameObject stair = AssetDatabase.LoadAssetAtPath<GameObject>(
+            KayKitDungeonSetupTool.StairPrefabPath);
+        Transform model = stair.transform.Find("Model");
+
+        Assert.That(stair.transform.localPosition, Is.EqualTo(Vector3.zero));
+        Assert.That(stair.transform.localScale, Is.EqualTo(Vector3.one));
+        Assert.That(model, Is.Not.Null);
+        Assert.That(model.localPosition, Is.EqualTo(new Vector3(0f, 0f, -0.85f)));
+        Assert.That(
+            model.localScale,
+            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.StairVisualScale));
+    }
+
+    [Test]
+    public void MountedDecorationPrefabs_OffsetRootsWithoutDisturbingTheirChildren()
+    {
+        GameObject banner = AssetDatabase.LoadAssetAtPath<GameObject>(
+            KayKitDungeonSetupTool.DungeonPrefabRoot + "/BannerRed.prefab");
+        GameObject torch = AssetDatabase.LoadAssetAtPath<GameObject>(
+            KayKitDungeonSetupTool.DungeonPrefabRoot + "/TorchMounted.prefab");
+        DungeonPlacementOffset bannerOffset = banner.GetComponent<DungeonPlacementOffset>();
+        DungeonPlacementOffset torchOffset = torch.GetComponent<DungeonPlacementOffset>();
+        Transform bannerModel = banner.transform.Find("Model");
+        Transform torchModel = torch.transform.Find("Model");
+        Transform torchLight = torch.transform.Find("TorchLight");
+
+        Assert.That(banner.transform.localScale, Is.EqualTo(Vector3.one));
+        Assert.That(bannerOffset, Is.Not.Null);
+        Assert.That(bannerOffset.LocalOffset, Is.EqualTo(new Vector3(0f, -0.25f, -1f)));
+        Assert.That(bannerModel.localPosition, Is.EqualTo(Vector3.zero));
+        Assert.That(
+            bannerModel.localScale,
+            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.BannerVisualScale));
+
+        Assert.That(torch.transform.localScale, Is.EqualTo(Vector3.one));
+        Assert.That(torchOffset, Is.Not.Null);
+        Assert.That(torchOffset.LocalOffset, Is.EqualTo(new Vector3(0f, 0.35f, -0.925f)));
+        Assert.That(torchModel.localPosition, Is.EqualTo(Vector3.zero));
+        Assert.That(torchModel.localScale,
+            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.DungeonVisualScale));
+        Assert.That(torchLight.localPosition, Is.EqualTo(new Vector3(0f, 1.5f, 0.2f)));
     }
 
     [Test]
@@ -567,7 +615,7 @@ public sealed class KayKitDungeonMapTests
         AssertWorldScale(generated, Vector3.one);
         AssertWorldPosition(wall, new Vector3(2f, 0f, 0f));
         AssertWorldPosition(floor, new Vector3(2f, 0f, 0f));
-        AssertWorldRotation(wall, Quaternion.Euler(0f, 180f, 0f));
+        AssertWorldRotation(wall, Quaternion.identity);
         AssertWorldRotation(floor, Quaternion.Euler(90f, 0f, 0f));
         AssertWorldScale(floor, Vector3.one);
         string[] first = Snapshot(generated);
@@ -584,7 +632,7 @@ public sealed class KayKitDungeonMapTests
             new Vector3(2f, 0f, 0f));
         AssertWorldRotation(
             generated.Find("Structure/Structure_001_000_Wall_Brick"),
-            Quaternion.Euler(0f, 180f, 0f));
+            Quaternion.identity);
         AssertWorldScale(generated.Find("Structure/Floor_001_000"), Vector3.one);
         Assert.That(manual, Is.Not.Null);
 
@@ -635,7 +683,7 @@ public sealed class KayKitDungeonMapTests
         AssertWorldPosition(floor, new Vector3(1f, 0f, 1f));
         AssertWorldScale(floor, catalog.FloorPrefab.transform.lossyScale);
         AssertWorldPosition(wall, new Vector3(2f, 0f, 1f));
-        AssertWorldRotation(wall, Quaternion.Euler(0f, 180f, 0f));
+        AssertWorldRotation(wall, Quaternion.identity);
         AssertWorldPosition(doorway, new Vector3(1f, 0f, 1f));
         AssertWorldRotation(doorway, Quaternion.identity);
         AssertWorldPosition(
@@ -644,6 +692,39 @@ public sealed class KayKitDungeonMapTests
         AssertWorldRotation(placedObject, Quaternion.Euler(0f, 90f, 0f));
         AssertWorldScale(placedObject, entry.PlacementPrefab.transform.lossyScale);
         Assert.That(map.GetMapData()[2, 1], Is.EqualTo(TileType.Wall));
+    }
+
+    [TestCase(0)]
+    [TestCase(90)]
+    [TestCase(180)]
+    [TestCase(270)]
+    public void JsonGeneration_RotatesMountedDecorationRootOffset(int rotation)
+    {
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        KayKitDungeonCatalogEntry torch = catalog.Entries.Single(entry =>
+            entry.Id.EndsWith("/torch_mounted", StringComparison.Ordinal));
+        TextAsset source = Track(new TextAsset(CurrentMapJson(JObject.Parse(
+            $"{{\"rows\":[\"...\",\"...\",\"...\"],\"objects\":[{{\"assetId\":\"{torch.Id}\",\"x\":1,\"z\":1,\"rotation\":{rotation},\"yOffset\":0.2}}]}}"))));
+        GameObject mapObject = Track(new GameObject("Mounted Decoration Map"));
+        Map map = mapObject.AddComponent<Map>();
+        map.ConfigureJson(source, catalog);
+
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
+            string.Join(Environment.NewLine, validation.Errors));
+        Transform instance = mapObject.transform.Find(
+            "GeneratedMap/Objects/Object_000_dungeon_assets_fbx_unity__torch_mounted");
+        DungeonPlacementOffset offset = instance.GetComponent<DungeonPlacementOffset>();
+        Quaternion expectedRotation = Quaternion.Euler(0f, rotation, 0f);
+        Vector3 expectedPosition =
+            new Vector3(1f, 0.2f, 1f) + expectedRotation * offset.LocalOffset;
+
+        AssertWorldPosition(instance, expectedPosition);
+        AssertWorldRotation(instance, expectedRotation);
+        Assert.That(instance.Find("Model").localPosition, Is.EqualTo(Vector3.zero));
+        Assert.That(
+            instance.Find("TorchLight").localPosition,
+            Is.EqualTo(new Vector3(0f, 1.5f, 0.2f)));
     }
 
     [Test]
@@ -666,13 +747,47 @@ public sealed class KayKitDungeonMapTests
             "Interior solid cells must remain blocked in the gameplay topology.");
         Assert.That(structure.Find("Wall_002_000"), Is.Null,
             "Interior solid cells must not create dense wall geometry.");
+        Assert.That(structure.Find("Floor_002_000"), Is.Null,
+            "Interior solid cells must not create hidden floor geometry.");
         Assert.That(exposedWall, Is.Not.Null,
             "The wall shell next to walkable dungeon space must remain visible.");
+        Assert.That(structure.Find("Floor_002_002"), Is.Not.Null,
+            "Visible wall shell cells must cover the floor beneath them.");
         Assert.That(structure.Find("Wall_000_004"), Is.Not.Null,
             "Diagonal shell cells must preserve connected room corners.");
+        Assert.That(structure.Find("Floor_000_004"), Is.Not.Null,
+            "Diagonal shell corners must also cover the floor beneath them.");
         Assert.That(exposedWall.GetComponent<Wall>().SelectedVariant,
             Is.EqualTo(WallVariant.Straight),
             "Wall variants must resolve against the filtered visual topology.");
+    }
+
+    [Test]
+    public void JsonGeneration_ProjectsMaskedBoundaryAsWallWithoutChangingGameplay()
+    {
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath);
+        TextAsset source = Track(new TextAsset(CurrentMapJson(JObject.Parse(
+            "{\"rows\":[\"#####\",\"#... \",\"#####\"]}"))));
+        GameObject mapObject = Track(new GameObject("Masked Boundary JSON Map"));
+        Map map = mapObject.AddComponent<Map>();
+        map.ConfigureJson(source, catalog);
+
+        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
+            string.Join(Environment.NewLine, validation.Errors));
+        Transform structure = mapObject.transform.Find("GeneratedMap/Structure");
+        Transform boundaryWall = structure.Find("Wall_004_001");
+
+        Assert.That(map.GetMapData()[4, 1], Is.EqualTo(TileType.Empty),
+            "The layout-mask cell must remain outside the playable topology.");
+        Assert.That(map.GetLineOfSightBlocks()[4, 1], Is.True,
+            "The layout-mask cell must continue blocking line of sight.");
+        Assert.That(boundaryWall, Is.Not.Null,
+            "A walkable room edge must receive visual wall geometry against the mask.");
+        Assert.That(structure.Find("Floor_004_001"), Is.Not.Null,
+            "The projected wall must retain the floor tile beneath its geometry.");
+        Assert.That(boundaryWall.GetComponent<Wall>().SelectedVariant,
+            Is.EqualTo(WallVariant.Straight));
     }
 
     [Test]
@@ -1048,8 +1163,45 @@ public sealed class KayKitDungeonMapTests
         Assert.That(Snapshot(generated), Is.EqualTo(before));
     }
 
+    [TestCase("NW", WallVariant.Corner, 270)]
+    [TestCase("NE", WallVariant.Corner, 0)]
+    [TestCase("SW", WallVariant.Corner, 180)]
+    [TestCase("SE", WallVariant.Corner, 90)]
+    [TestCase("SEW", WallVariant.TIntersection, 180)]
+    [TestCase("NEW", WallVariant.TIntersection, 0)]
+    [TestCase("NSW", WallVariant.TIntersection, 270)]
+    [TestCase("NSE", WallVariant.TIntersection, 90)]
+    public void WallResolver_AppliesNegativeNinetyYawToCornersAndTIntersections(
+        string neighbors,
+        WallVariant expectedVariant,
+        int expectedRotation)
+    {
+        WallResolution resolution = WallStructuralResolver.Resolve(
+            new Vector3Int(1, 0, 1),
+            WallGrid(neighbors));
+
+        Assert.That(resolution.Variant, Is.EqualTo(expectedVariant));
+        Assert.That(resolution.Rotation, Is.EqualTo(expectedRotation));
+    }
+
+    [TestCase("E", 0)]
+    [TestCase("W", 0)]
+    [TestCase("N", 90)]
+    [TestCase("S", 90)]
+    public void WallResolver_RendersOneNeighborAsAFullStraightSegment(
+        string neighbors,
+        int expectedRotation)
+    {
+        WallResolution resolution = WallStructuralResolver.Resolve(
+            new Vector3Int(1, 0, 1),
+            WallGrid(neighbors));
+
+        Assert.That(resolution.Variant, Is.EqualTo(WallVariant.Straight));
+        Assert.That(resolution.Rotation, Is.EqualTo(expectedRotation));
+    }
+
     [Test]
-    public void Obstacle_IsNotWalkableAndDoesNotConnectStructuralWalls()
+    public void Obstacle_IsNotWalkableAndDoorStillConnectsStructuralWalls()
     {
         Assert.That(GridBase.IsWalkableTile(TileType.Ground), Is.True);
         Assert.That(GridBase.IsWalkableTile(TileType.Door), Is.True);
@@ -1065,7 +1217,8 @@ public sealed class KayKitDungeonMapTests
 
         grid[1, 0] = TileType.Door;
         WallResolution connected = WallStructuralResolver.Resolve(Vector3Int.zero, grid);
-        Assert.That(connected.Variant, Is.EqualTo(WallVariant.Endcap));
+        Assert.That(connected.Variant, Is.EqualTo(WallVariant.Straight));
+        Assert.That(connected.Rotation, Is.Zero);
     }
 
     [Test]
@@ -1418,6 +1571,21 @@ public sealed class KayKitDungeonMapTests
 
         public int X { get; }
         public int Z { get; }
+    }
+
+    private static TileType[,] WallGrid(string neighbors)
+    {
+        TileType[,] grid = new TileType[3, 3];
+        grid[1, 1] = TileType.Wall;
+        if (neighbors.Contains('N'))
+            grid[1, 2] = TileType.Wall;
+        if (neighbors.Contains('S'))
+            grid[1, 0] = TileType.Wall;
+        if (neighbors.Contains('E'))
+            grid[2, 1] = TileType.Wall;
+        if (neighbors.Contains('W'))
+            grid[0, 1] = TileType.Wall;
+        return grid;
     }
 
     private KayKitDungeonCatalog Catalog(params KayKitDungeonCatalogEntry[] entries)

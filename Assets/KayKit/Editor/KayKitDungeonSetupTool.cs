@@ -12,10 +12,14 @@ namespace Game.KayKit.Editor
 {
     public static class KayKitDungeonSetupTool
     {
-        /// <summary>The uniform scale used by one-cell floor tiles, props, and stairs.</summary>
+        /// <summary>The default uniform scale used by one-cell floor tiles and props.</summary>
         public const float DungeonVisualScale = 0.50f;
         /// <summary>The uniform scale that fits structural wall modules to one grid unit.</summary>
         public const float WallVisualScale = 0.25f;
+        /// <summary>The uniform scale used by generated stair visuals.</summary>
+        public const float StairVisualScale = 0.25f;
+        /// <summary>The uniform scale used by the generated wall-banner visual.</summary>
+        public const float BannerVisualScale = 0.25f;
         public const string DungeonPrefabRoot = KayKitSetupTool.PrefabRoot + "/Dungeon";
         public const string FloorPrefabPath = DungeonPrefabRoot + "/DungeonFloorSmall.prefab";
         public const string WallStraightPrefabPath = DungeonPrefabRoot + "/DungeonWallStraight.prefab";
@@ -43,7 +47,35 @@ namespace Game.KayKit.Editor
                 "wall_doorway",
                 WallVisualScale);
         private static readonly WrapperDescriptor StairWrapper =
-            new("DungeonStair", "__generated_stair__", false, false, "stairs");
+            new(
+                "DungeonStair",
+                "__generated_stair__",
+                false,
+                false,
+                "stairs",
+                StairVisualScale,
+                -0.85f,
+                Vector3.zero);
+        private static readonly WrapperDescriptor BannerWrapper =
+            new(
+                "BannerRed",
+                "banner_red",
+                false,
+                false,
+                "banner_red",
+                BannerVisualScale,
+                0f,
+                new Vector3(0f, -0.25f, -1f));
+        private static readonly WrapperDescriptor TorchWrapper =
+            new(
+                "TorchMounted",
+                "torch_mounted",
+                false,
+                false,
+                "torch_mounted",
+                DungeonVisualScale,
+                0f,
+                new Vector3(0f, 0.35f, -0.925f));
 
         private static readonly WrapperDescriptor[] Wrappers =
         {
@@ -70,8 +102,8 @@ namespace Game.KayKit.Editor
             new("TableLong", "table_long", false, false),
             new("ShelfLarge", "shelf_large", false, false),
             new("RubbleHalf", "rubble_half", false, false),
-            new("BannerRed", "banner_red", false, false),
-            new("TorchMounted", "torch_mounted", false, false)
+            BannerWrapper,
+            TorchWrapper
         };
 
         private static readonly Dictionary<string, string> WrapperPathByModel =
@@ -89,15 +121,19 @@ namespace Game.KayKit.Editor
         }
 
         /// <summary>
-        /// Regenerates only the wrappers introduced for procedural floor population.
+        /// Regenerates the blocking-door, stair, and wall-decoration wrappers used by generated floors.
         /// </summary>
         /// <param name="material">The existing generated dungeon material.</param>
-        /// <remarks>Existing authored-map wrappers are intentionally left untouched.</remarks>
+        /// <remarks>
+        /// Other authored-map prop wrappers are intentionally left untouched.
+        /// </remarks>
         public static void RegenerateGeneratedFloorPrefabs(Material material)
         {
             EnsureFolder(DungeonPrefabRoot);
             CreateWrapper(ClosedDoorWrapper, material);
             CreateWrapper(StairWrapper, material);
+            CreateWrapper(BannerWrapper, material);
+            CreateWrapper(TorchWrapper, material);
         }
 
         /// <summary>Regenerates the uniformly scaled wall and doorway wrapper prefabs.</summary>
@@ -106,7 +142,7 @@ namespace Game.KayKit.Editor
         {
             EnsureFolder(DungeonPrefabRoot);
             foreach (WrapperDescriptor descriptor in Wrappers.Where(
-                         descriptor => descriptor.VisualScale == WallVisualScale))
+                         descriptor => descriptor.WallCollider || descriptor.OpenDoorway))
             {
                 CreateWrapper(descriptor, material);
             }
@@ -186,6 +222,12 @@ namespace Game.KayKit.Editor
                 GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(model);
                 instance.name = "Model";
                 instance.transform.SetParent(root.transform, false);
+                if (!Mathf.Approximately(descriptor.ModelLocalZ, 0f))
+                {
+                    Vector3 sourcePosition = instance.transform.localPosition;
+                    sourcePosition.z = descriptor.ModelLocalZ;
+                    instance.transform.localPosition = sourcePosition;
+                }
                 instance.transform.localScale = Vector3.one * descriptor.VisualScale;
                 foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
                 {
@@ -219,6 +261,13 @@ namespace Game.KayKit.Editor
                     light.range = 4f;
                     light.intensity = 1.2f;
                     light.color = new Color(1f, 0.55f, 0.2f);
+                }
+
+                if (descriptor.PlacementOffset != Vector3.zero)
+                {
+                    DungeonPlacementOffset placementOffset =
+                        root.AddComponent<DungeonPlacementOffset>();
+                    placementOffset.Configure(descriptor.PlacementOffset);
                 }
 
                 PrefabUtility.SaveAsPrefabAsset(
@@ -359,6 +408,8 @@ namespace Game.KayKit.Editor
             public bool WallCollider { get; }
             public bool OpenDoorway { get; }
             public float VisualScale { get; }
+            public float ModelLocalZ { get; }
+            public Vector3 PlacementOffset { get; }
 
             public WrapperDescriptor(
                 string prefabName,
@@ -367,6 +418,27 @@ namespace Game.KayKit.Editor
                 bool openDoorway,
                 string sourceModelName = null,
                 float visualScale = DungeonVisualScale)
+                : this(
+                    prefabName,
+                    modelName,
+                    wallCollider,
+                    openDoorway,
+                    sourceModelName,
+                    visualScale,
+                    0f,
+                    Vector3.zero)
+            {
+            }
+
+            public WrapperDescriptor(
+                string prefabName,
+                string modelName,
+                bool wallCollider,
+                bool openDoorway,
+                string sourceModelName,
+                float visualScale,
+                float modelLocalZ,
+                Vector3 placementOffset)
             {
                 PrefabName = prefabName;
                 ModelName = modelName;
@@ -374,6 +446,8 @@ namespace Game.KayKit.Editor
                 WallCollider = wallCollider;
                 OpenDoorway = openDoorway;
                 VisualScale = visualScale;
+                ModelLocalZ = modelLocalZ;
+                PlacementOffset = placementOffset;
             }
         }
     }

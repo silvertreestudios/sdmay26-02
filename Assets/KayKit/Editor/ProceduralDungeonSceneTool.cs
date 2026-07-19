@@ -24,8 +24,8 @@ namespace Game.KayKit.Editor
         private const string SourceScenePath = "Assets/Scenes/UnitTestingScene.unity";
         private const int FixtureSeed = 156;
         private const int FixtureSize = 31;
-        private const int FixtureMinimumRoomSize = 9;
-        private const int FixtureMaximumRoomSize = 11;
+        private const int FixtureMinimumRoomSize = 5;
+        private const int FixtureMaximumRoomSize = 13;
 
         /// <summary>Regenerates the fixture and scene after offering to save dirty open scenes.</summary>
         [MenuItem("Tools/KayKit/Regenerate Procedural Dungeon Scene")]

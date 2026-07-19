@@ -47,7 +47,15 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Assert.That(grid.GridData.GetLength(1), Is.EqualTo(document.Height));
         Assert.That(CountGeneratedWalls(structure),
             Is.EqualTo(CountExposedWalls(grid.GridData)),
-            "The checked-in scene must contain only the wall shell around walkable cells.");
+            "The scene must contain the wall shell and masked boundary around walkable cells.");
+        Assert.That(CountGeneratedFloors(structure),
+            Is.EqualTo(CountFloorBearingCells(grid.GridData) + CountExposedWalls(grid.GridData)),
+            "Every visible wall shell cell must have a floor tile underneath it.");
+        Assert.That(
+            structure.GetComponentsInChildren<Wall>(true)
+                .All(wall => wall.SelectedVariant != WallVariant.Endcap),
+            Is.True,
+            "A wall with one structural neighbor must use a full straight segment, not a pillar-like endcap.");
         Assert.That(TryFindInteriorWall(grid.GridData, out Vector2Int interiorWall), Is.True,
             "The fixture must retain at least one solid interior cell for regression coverage.");
         Assert.That(grid.GridData[interiorWall.x, interiorWall.y], Is.EqualTo(TileType.Wall));
@@ -55,6 +63,37 @@ public sealed class ProceduralDungeonScenePlayModeTests
             structure.Find($"Wall_{interiorWall.x:D3}_{interiorWall.y:D3}"),
             Is.Null,
             "Solid interior cells remain blocked data but must not create scene geometry.");
+        Assert.That(
+            structure.Find($"Floor_{interiorWall.x:D3}_{interiorWall.y:D3}"),
+            Is.Null,
+            "Solid interior cells must not create hidden floor geometry.");
+
+        DungeonRoom[] roomsAtMaskedBoundary = document.Rooms
+            .Where(room => MaskedBoundaryCells(room, grid.GridData).Count > 0)
+            .ToArray();
+        Assert.That(roomsAtMaskedBoundary, Has.Length.EqualTo(2),
+            "The fixture must retain both rooms bordering the center mask for regression coverage.");
+        foreach (DungeonRoom room in roomsAtMaskedBoundary)
+        {
+            IReadOnlyList<DungeonCell> boundary = MaskedBoundaryCells(room, grid.GridData);
+            Assert.That(boundary, Is.Not.Empty);
+            foreach (DungeonCell cell in boundary)
+            {
+                Assert.That(grid.GridData[cell.X, cell.Z], Is.EqualTo(TileType.Empty));
+                Assert.That(structure.Find($"Wall_{cell.X:D3}_{cell.Z:D3}"), Is.Not.Null,
+                    $"Room {room.Id} must have a wall against masked cell ({cell.X},{cell.Z}).");
+                Assert.That(structure.Find($"Floor_{cell.X:D3}_{cell.Z:D3}"), Is.Not.Null,
+                    $"Room {room.Id}'s masked boundary wall must have a floor beneath it.");
+            }
+        }
+
+        int centerX = (document.Width - 1) / 2;
+        int centerZ = (document.Height - 1) / 2;
+        Assert.That(grid.GridData[centerX, centerZ], Is.EqualTo(TileType.Empty));
+        Assert.That(structure.Find($"Wall_{centerX:D3}_{centerZ:D3}"), Is.Null,
+            "The interior of the center mask must remain visually empty.");
+        Assert.That(structure.Find($"Floor_{centerX:D3}_{centerZ:D3}"), Is.Null,
+            "The interior of the center mask must not receive floor geometry.");
 
         Transform firstStraightWall = structure.Find("Wall_011_000");
         Transform secondStraightWall = structure.Find("Wall_012_000");
@@ -87,6 +126,17 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Assert.That(stairs.All(stair =>
             grid.GetTiles()[stair.Cell.X, stair.Cell.Z] != null), Is.True,
             "Semantic stair endpoints must remain walkable on their generated floor.");
+        foreach (DungeonStairMarker stair in stairs)
+        {
+            Transform visual = stair.transform.Find("Visual");
+            Transform model = visual.Find("Model");
+            Assert.That(visual.localPosition, Is.EqualTo(Vector3.zero));
+            Assert.That(
+                Mathf.DeltaAngle(visual.localEulerAngles.y, 180f),
+                Is.EqualTo(0f).Within(0.001f));
+            Assert.That(model.localPosition, Is.EqualTo(new Vector3(0f, 0f, -0.85f)));
+            Assert.That(model.localScale, Is.EqualTo(Vector3.one * 0.25f));
+        }
 
         Transform objects = generated.transform.Find("Objects");
         Assert.That(objects, Is.Not.Null);
@@ -98,6 +148,46 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Assert.That(document.Objects.All(placement =>
             grid.GetTiles()[placement.Cell.X, placement.Cell.Z] != null), Is.True,
             "Wall decorations must retain their adjacent walkable floor cells.");
+        KayKitDungeonMapParseResult projected = KayKitDungeonMapParser.Parse(
+            map.JsonSource.text,
+            map.DungeonCatalog);
+        Assert.That(projected.IsValid, Is.True, string.Join("\n", projected.Errors));
+        for (int index = 0; index < projected.Map.Objects.Count; index++)
+        {
+            KayKitDungeonObjectPlacement placement = projected.Map.Objects[index];
+            string namePrefix = $"Object_{index:D3}_";
+            Transform instance = objects.Cast<Transform>().Single(candidate =>
+                candidate.name.StartsWith(namePrefix, System.StringComparison.Ordinal));
+            DungeonPlacementOffset placementOffset =
+                instance.GetComponent<DungeonPlacementOffset>();
+            Quaternion rotation = Quaternion.Euler(0f, placement.Rotation, 0f);
+            Vector3 expectedPosition =
+                new Vector3(placement.X, placement.YOffset, placement.Z) +
+                rotation * placementOffset.LocalOffset;
+            AssertVector3(instance.position, expectedPosition, instance.name + " root position");
+            Assert.That(Quaternion.Angle(instance.rotation, rotation), Is.LessThan(0.001f));
+            Assert.That(instance.localScale, Is.EqualTo(Vector3.one));
+
+            Transform model = instance.Find("Model");
+            Assert.That(model.localPosition, Is.EqualTo(Vector3.zero));
+            if (placement.AssetId.EndsWith("/torch_mounted"))
+            {
+                Assert.That(
+                    placementOffset.LocalOffset,
+                    Is.EqualTo(new Vector3(0f, 0.35f, -0.925f)));
+                Assert.That(model.localScale, Is.EqualTo(Vector3.one * 0.5f));
+                Assert.That(
+                    instance.Find("TorchLight").localPosition,
+                    Is.EqualTo(new Vector3(0f, 1.5f, 0.2f)));
+            }
+            else
+            {
+                Assert.That(
+                    placementOffset.LocalOffset,
+                    Is.EqualTo(new Vector3(0f, -0.25f, -1f)));
+                Assert.That(model.localScale, Is.EqualTo(Vector3.one * 0.25f));
+            }
+        }
 
         DungeonDoorController door = doors.OrderBy(candidate => candidate.StableId).First();
         DungeonDoor record = document.Doors.Single(candidate => candidate.Id == door.StableId);
@@ -583,6 +673,39 @@ public sealed class ProceduralDungeonScenePlayModeTests
         return count;
     }
 
+    private static int CountGeneratedFloors(Transform structure)
+    {
+        int count = 0;
+        for (int index = 0; index < structure.childCount; index++)
+        {
+            if (structure.GetChild(index).name.StartsWith("Floor_"))
+                count++;
+        }
+
+        return count;
+    }
+
+    private static int CountFloorBearingCells(TileType[,] grid)
+    {
+        int count = 0;
+        for (int z = 0; z < grid.GetLength(1); z++)
+        {
+            for (int x = 0; x < grid.GetLength(0); x++)
+            {
+                TileType tile = grid[x, z];
+                if (tile == TileType.Ground ||
+                    tile == TileType.Door ||
+                    tile == TileType.ClosedDoor ||
+                    tile == TileType.Obstacle)
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+
     private static int CountExposedWalls(TileType[,] grid)
     {
         int count = 0;
@@ -590,7 +713,9 @@ public sealed class ProceduralDungeonScenePlayModeTests
         {
             for (int x = 0; x < grid.GetLength(0); x++)
             {
-                if (grid[x, z] == TileType.Wall && BordersFloorBearingCell(grid, x, z))
+                TileType tile = grid[x, z];
+                if ((tile == TileType.Wall || tile == TileType.Empty) &&
+                    BordersFloorBearingCell(grid, x, z))
                     count++;
             }
         }
@@ -647,9 +772,47 @@ public sealed class ProceduralDungeonScenePlayModeTests
         return false;
     }
 
+    private static IReadOnlyList<DungeonCell> MaskedBoundaryCells(
+        DungeonRoom room,
+        TileType[,] grid)
+    {
+        HashSet<DungeonCell> cells = new();
+        for (int z = room.MinimumZ; z <= room.MaximumZ; z++)
+        {
+            AddIfMasked(room.MinimumX - 1, z);
+            AddIfMasked(room.MaximumX + 1, z);
+        }
+        for (int x = room.MinimumX; x <= room.MaximumX; x++)
+        {
+            AddIfMasked(x, room.MinimumZ - 1);
+            AddIfMasked(x, room.MaximumZ + 1);
+        }
+
+        return cells.ToArray();
+
+        void AddIfMasked(int x, int z)
+        {
+            if (x < 0 || z < 0 ||
+                x >= grid.GetLength(0) || z >= grid.GetLength(1) ||
+                grid[x, z] != TileType.Empty)
+            {
+                return;
+            }
+
+            cells.Add(new DungeonCell(x, z));
+        }
+    }
+
     private static int Manhattan(DungeonCell left, DungeonCell right)
     {
         return System.Math.Abs(left.X - right.X) + System.Math.Abs(left.Z - right.Z);
+    }
+
+    private static void AssertVector3(Vector3 actual, Vector3 expected, string context)
+    {
+        Assert.That(actual.x, Is.EqualTo(expected.x).Within(0.001f), context + " x");
+        Assert.That(actual.y, Is.EqualTo(expected.y).Within(0.001f), context + " y");
+        Assert.That(actual.z, Is.EqualTo(expected.z).Within(0.001f), context + " z");
     }
 
     private sealed class RebindAuraActionController : ActionController

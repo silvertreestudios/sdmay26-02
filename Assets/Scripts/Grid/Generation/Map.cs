@@ -33,6 +33,7 @@ public class Map : MonoBehaviour
 {
     public const float JsonTileSpacing = 1f;
     private const int CurrentLegacyBitmapMigrationVersion = 1;
+    private const float StairVisualYaw = 180f;
 
     [SerializeField] protected Texture2D ImageMap;
     [SerializeField] protected float spacing = 1f;
@@ -699,8 +700,10 @@ public class Map : MonoBehaviour
             {
                 TileType tile = map.GridData[x, z];
                 Vector3 position = new(x * tileSpacing, 0f, z * tileSpacing);
+                bool hasVisibleWall = wallVisualTopology[x, z] == TileType.Wall;
                 if (tile == TileType.Ground || tile == TileType.Door ||
-                    tile == TileType.ClosedDoor || tile == TileType.Obstacle)
+                    tile == TileType.ClosedDoor || tile == TileType.Obstacle ||
+                    hasVisibleWall)
                 {
                     GameObject floor = InstantiatePrefab(catalog.FloorPrefab, structure);
                     floor.name = $"Floor_{x:D3}_{z:D3}";
@@ -709,11 +712,11 @@ public class Map : MonoBehaviour
                         catalog.FloorPrefab.transform.rotation);
                 }
 
-                if (wallVisualTopology[x, z] != TileType.Wall)
+                if (!hasVisibleWall)
                     continue;
 
                 GameObject structural = InstantiatePrefab(catalog.WallPrefab, structure);
-                structural.name = $"{tile}_{x:D3}_{z:D3}";
+                structural.name = $"Wall_{x:D3}_{z:D3}";
                 structural.transform.SetPositionAndRotation(
                     position,
                     catalog.WallPrefab.transform.rotation);
@@ -733,9 +736,20 @@ public class Map : MonoBehaviour
             instance.name = $"Object_{index:D3}_{StableName(placement.AssetId)}";
             float centerX = placement.X + (placement.Footprint.x - 1) * 0.5f;
             float centerZ = placement.Z + (placement.Footprint.y - 1) * 0.5f;
+            Quaternion rotation = Quaternion.Euler(0f, placement.Rotation, 0f);
+            Vector3 position = new(
+                centerX * tileSpacing,
+                placement.YOffset,
+                centerZ * tileSpacing);
+            if (instance.TryGetComponent(out DungeonPlacementOffset placementOffset))
+            {
+                // The catalog cell remains the logical anchor. Rotating the visual offset lets
+                // one prefab-space correction attach mounted content to any cardinal wall.
+                position += rotation * placementOffset.LocalOffset;
+            }
             instance.transform.SetPositionAndRotation(
-                new Vector3(centerX * tileSpacing, placement.YOffset, centerZ * tileSpacing),
-                Quaternion.Euler(0f, placement.Rotation, 0f));
+                position,
+                rotation);
             ApplyDefaultMaterial(instance, catalog.DefaultMaterial);
 
             if (placement.CatalogEntry.BlocksLineOfSight)
@@ -750,9 +764,10 @@ public class Map : MonoBehaviour
 
     private static TileType[,] CreateWallVisualTopology(TileType[,] gameplayGrid)
     {
-        // The complete wall field is authoritative for movement and line of sight, but
-        // only its one-tile shell belongs in the scene. Diagonal neighbors keep that
-        // shell connected around room and corridor corners.
+        // The complete wall and mask fields remain authoritative for movement and line of
+        // sight. Scene geometry keeps only the wall shell around walkable space, and projects
+        // the adjacent mask layer as a wall so rooms cannot appear open to a masked void.
+        // Diagonal neighbors keep both shells connected around room and corridor corners.
         int width = gameplayGrid.GetLength(0);
         int height = gameplayGrid.GetLength(1);
         TileType[,] visualGrid = new TileType[width, height];
@@ -761,10 +776,13 @@ public class Map : MonoBehaviour
             for (int x = 0; x < width; x++)
             {
                 TileType tile = gameplayGrid[x, z];
-                visualGrid[x, z] = tile == TileType.Wall &&
-                    !BordersFloorBearingCell(gameplayGrid, x, z)
-                        ? TileType.Empty
-                        : tile;
+                bool bordersFloor = BordersFloorBearingCell(gameplayGrid, x, z);
+                visualGrid[x, z] = tile switch
+                {
+                    TileType.Wall when !bordersFloor => TileType.Empty,
+                    TileType.Empty when bordersFloor => TileType.Wall,
+                    _ => tile
+                };
             }
         }
 
@@ -854,7 +872,9 @@ public class Map : MonoBehaviour
                 Quaternion.Euler(0f, StairRotation(stair.Cell, stair.ArrivalCell), 0f));
             GameObject visual = InstantiatePrefab(catalog.StairPrefab, root.transform);
             visual.name = "Visual";
-            visual.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+            visual.transform.SetLocalPositionAndRotation(
+                Vector3.zero,
+                Quaternion.Euler(0f, StairVisualYaw, 0f));
             DungeonStairMarker marker = root.AddComponent<DungeonStairMarker>();
             marker.Configure(stair.Id, stair.Kind, stair.Cell, stair.ArrivalCell);
         }

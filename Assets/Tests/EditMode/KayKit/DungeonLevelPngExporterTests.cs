@@ -13,7 +13,7 @@ public sealed class DungeonLevelPngExporterTests
     private const int CellSize = 12;
 
     [Test]
-    public void Fixture_MatchesRequestedPackedLargePreset()
+    public void Fixture_MatchesRequestedPackedVariedPreset()
     {
         DungeonGenerationResult expected = new DeterministicDungeonGenerator().Generate(
             new DungeonGenerationRequest
@@ -24,8 +24,8 @@ public sealed class DungeonLevelPngExporterTests
                 Layout = DungeonLayout.Box,
                 RoomLayout = DungeonRoomLayout.Packed,
                 CorridorLayout = DungeonCorridorLayout.Straight,
-                MinimumRoomSize = 9,
-                MaximumRoomSize = 11,
+                MinimumRoomSize = 5,
+                MaximumRoomSize = 13,
                 MinimumRoomCount = 3,
                 StairCount = 2,
                 DeadEndRemovalPercent = 100
@@ -37,8 +37,22 @@ public sealed class DungeonLevelPngExporterTests
             DungeonLevelJsonSerializer.Serialize(expected.Document)));
         Assert.That(expected.Document.Rooms, Has.Count.GreaterThanOrEqualTo(3));
         Assert.That(expected.Document.Rooms.All(room =>
-            room.MaximumX - room.MinimumX + 1 is 9 or 11 &&
-            room.MaximumZ - room.MinimumZ + 1 is 9 or 11), Is.True);
+        {
+            int width = room.MaximumX - room.MinimumX + 1;
+            int height = room.MaximumZ - room.MinimumZ + 1;
+            return width is >= 5 and <= 13 && width % 2 == 1 &&
+                   height is >= 5 and <= 13 && height % 2 == 1;
+        }), Is.True);
+        Assert.That(expected.Document.Rooms
+                .Select(room =>
+                {
+                    int width = room.MaximumX - room.MinimumX + 1;
+                    int height = room.MaximumZ - room.MinimumZ + 1;
+                    return (Minimum: Math.Min(width, height),
+                            Maximum: Math.Max(width, height));
+                })
+                .Distinct()
+                .Count(), Is.GreaterThan(1));
     }
 
     [Test]

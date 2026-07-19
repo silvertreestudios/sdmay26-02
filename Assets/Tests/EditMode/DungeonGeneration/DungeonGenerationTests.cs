@@ -49,7 +49,7 @@ public sealed class DungeonGenerationTests
         using (SHA256 sha256 = SHA256.Create())
             hash = BitConverter.ToString(sha256.ComputeHash(Encoding.UTF8.GetBytes(first))).Replace("-", string.Empty).ToLowerInvariant();
         TestContext.WriteLine("golden sha256=" + hash);
-        Assert.That(hash, Is.EqualTo("d8724a2f1f1829f1dcdc6cf1fb7567edba2502b2af4b207054eb626502e92613"));
+        Assert.That(hash, Is.EqualTo("d3ebd003af1f20cde1d933eebdf15f3def300e87d8adc61bb3e88a8b0f5b3f6d"));
     }
 
     [Test]
@@ -1617,9 +1617,9 @@ public sealed class DungeonGenerationTests
         };
         string[] expected =
         {
-            "e00eb59aa2e8eae70b61ff441f1ab04c4162b92cef8fb8ecf3d66db5147393ba",
-            "272cb35667d923aa513ea1b9ba0c36d698d4a56f761bb1c784d4332b2f28e923",
-            "8009c3fa541ac1d73adbcbabd9eaa68cee3650a4dfcf7aee9f31efe994c2d8c4"
+            "dc6bed290a1ecbb06f57e2b333c3e663ae69964a001501b955a36c6f3f5b0f63",
+            "2aa6e46900f3d79f63dadca45978d6fb87f49747354e8e923e7410cccf76422b",
+            "68722b681612be2a6820018b09e71dcab164681a9e19aeb6f5013d37dc628506"
         };
         List<string> actual = new();
         foreach (var item in cases)
