@@ -14,12 +14,9 @@ namespace Game.Rules.Runtime
             RuleSource source)
             where TOp : IRuleOp<TResult>
         {
-            lock (gate)
-            {
-                return store.Reduce(
-                    new ReductionContext<TOp>(frame.Op, frame.Id, frame.RootId, source),
-                    reducer);
-            }
+            return store.Reduce(
+                new ReductionContext<TOp>(frame.Op, frame.Id, frame.RootId, source),
+                reducer);
         }
 
         internal void CaptureCommittedFacts(
