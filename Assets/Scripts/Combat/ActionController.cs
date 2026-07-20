@@ -141,7 +141,7 @@ public abstract class ActionController : MonoBehaviour
     public uint GetInitiative()
     {
         int initiativeBonus = this.gameObject.GetComponent<CreatureComponent>().GetInitiative();
-        uint roll = (uint)UnityEngine.Random.Range(1, 20);
+        uint roll = (uint)UnityEngine.Random.Range(1, 21);
         Debug.Log(
             this.gameObject.name
                 + " rolled initiative: "
