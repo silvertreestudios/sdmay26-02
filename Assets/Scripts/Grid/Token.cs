@@ -4,9 +4,15 @@ using UnityEngine;
 
 namespace GridPublic
 {
+    /// <summary>
+    /// Tracks a scene object that occupies one grid cell and keeps its registration coherent
+    /// when runtime map data is replaced.
+    /// </summary>
     public class Token : MonoBehaviour
     {
         private bool registered;
+        private GridAPI registeredGrid;
+        private bool detachedFromGrid;
 
         private void Awake()
         {
@@ -27,7 +33,13 @@ namespace GridPublic
 
         private bool TryRegister(GridAPI grid)
         {
-            if (registered || !isActiveAndEnabled || grid is not GridAPIPrivate privateGrid)
+            if (
+                registered
+                || detachedFromGrid
+                || !isActiveAndEnabled
+                || (registeredGrid != null && registeredGrid != grid)
+                || grid is not GridAPIPrivate privateGrid
+            )
                 return registered;
 
             Vector3Int position = Vector3Int.RoundToInt(transform.position);
@@ -41,7 +53,12 @@ namespace GridPublic
                 return false;
             }
 
+            bool alreadyOwnedByGrid = registeredGrid == grid;
             registered = privateGrid.AddToken(gameObject);
+            if (registered)
+                registeredGrid = grid;
+            else if (!alreadyOwnedByGrid)
+                registeredGrid = null;
             if (!registered)
             {
                 Debug.LogWarning(
@@ -53,9 +70,56 @@ namespace GridPublic
             return registered;
         }
 
+        /// <summary>
+        /// Explicitly makes a previously removed token eligible for the supplied grid and
+        /// attempts to place it at its current world-space cell.
+        /// </summary>
+        /// <param name="grid">The grid that should own the token.</param>
         public void TryRegisterWithGrid(GridAPI grid)
         {
+            detachedFromGrid = false;
             TryRegister(grid);
+        }
+
+        internal bool TryGetRebindCell(GridAPI grid, out Vector3Int cell)
+        {
+            cell = Vector3Int.RoundToInt(transform.position);
+            if (detachedFromGrid)
+                return false;
+            if (registeredGrid != null)
+                return registeredGrid == grid;
+            return isActiveAndEnabled;
+        }
+
+        /// <summary>
+        /// Commits the registration outcome already validated by <see cref="GridBase"/> and,
+        /// for active tokens, placed in its replacement tile array. This step deliberately
+        /// cannot fail after the live grid swaps.
+        /// </summary>
+        /// <param name="grid">The prepared replacement grid.</param>
+        /// <param name="registersImmediately">
+        /// Whether the token is active and was placed in the prepared tile array. Disabled
+        /// tokens remain unregistered until their next <see cref="OnEnable"/> callback.
+        /// </param>
+        internal void CommitPreparedGridRebind(GridAPI grid, bool registersImmediately)
+        {
+            registered = registersImmediately;
+            registeredGrid = grid;
+        }
+
+        /// <summary>
+        /// Records a complete removal from the owning grid. Disabled tokens that merely await
+        /// reactivation remain associated with their grid; defeated or otherwise removed tokens
+        /// do not take part in later runtime map replacement.
+        /// </summary>
+        internal void DetachFromGrid(GridAPI grid)
+        {
+            if (registeredGrid != grid)
+                return;
+
+            registered = false;
+            registeredGrid = null;
+            detachedFromGrid = true;
         }
     }
 }

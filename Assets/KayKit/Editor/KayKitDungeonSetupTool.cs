@@ -12,7 +12,17 @@ namespace Game.KayKit.Editor
 {
     public static class KayKitDungeonSetupTool
     {
+        /// <summary>The default uniform scale used by one-cell floor tiles and props.</summary>
         public const float DungeonVisualScale = 0.50f;
+
+        /// <summary>The uniform scale that fits structural wall modules to one grid unit.</summary>
+        public const float WallVisualScale = 0.25f;
+
+        /// <summary>The uniform scale used by generated stair visuals.</summary>
+        public const float StairVisualScale = 0.25f;
+
+        /// <summary>The uniform scale used by the generated wall-banner visual.</summary>
+        public const float BannerVisualScale = 0.25f;
         public const string DungeonPrefabRoot = KayKitSetupTool.PrefabRoot + "/Dungeon";
         public const string FloorPrefabPath = DungeonPrefabRoot + "/DungeonFloorSmall.prefab";
         public const string WallStraightPrefabPath =
@@ -26,18 +36,80 @@ namespace Game.KayKit.Editor
         public const string WallResolverPrefabPath =
             DungeonPrefabRoot + "/DungeonWallResolver.prefab";
         public const string DoorwayPrefabPath = DungeonPrefabRoot + "/DungeonDoorwayOpen.prefab";
+
+        /// <summary>The generated project-owned prefab used for a blocking closed door.</summary>
+        public const string ClosedDoorPrefabPath = DungeonPrefabRoot + "/DungeonDoorClosed.prefab";
+
+        /// <summary>The generated project-owned prefab used to mark a semantic stair endpoint.</summary>
+        public const string StairPrefabPath = DungeonPrefabRoot + "/DungeonStair.prefab";
         public const string OpenDoorwayModelName = "wall_doorway_sides";
+
+        private const float WallVisualHeight = 4f * WallVisualScale;
+
+        private static readonly WrapperDescriptor ClosedDoorWrapper = new(
+            "DungeonDoorClosed",
+            "__generated_closed_door__",
+            true,
+            false,
+            "wall_doorway",
+            WallVisualScale
+        );
+        private static readonly WrapperDescriptor StairWrapper = new(
+            "DungeonStair",
+            "__generated_stair__",
+            false,
+            false,
+            "stairs",
+            StairVisualScale,
+            -0.85f,
+            Vector3.zero
+        );
+        private static readonly WrapperDescriptor BannerWrapper = new(
+            "BannerRed",
+            "banner_red",
+            false,
+            false,
+            "banner_red",
+            BannerVisualScale,
+            0f,
+            new Vector3(0f, -0.25f, -1f)
+        );
+        private static readonly WrapperDescriptor TorchWrapper = new(
+            "TorchMounted",
+            "torch_mounted",
+            false,
+            false,
+            "torch_mounted",
+            DungeonVisualScale,
+            0f,
+            new Vector3(0f, 0.35f, -0.925f)
+        );
 
         private static readonly WrapperDescriptor[] Wrappers =
         {
             new("DungeonFloorSmall", "floor_tile_small", false, false),
-            new("DungeonWallStraight", "wall", true, false),
-            new("DungeonWallCorner", "wall_corner", true, false),
-            new("DungeonWallTIntersection", "wall_Tsplit", true, false),
-            new("DungeonWallCrossing", "wall_crossing", true, false),
-            new("DungeonWallEndcap", "wall_endcap", true, false),
-            new("DungeonWallPillar", "wall_pillar", true, false),
-            new("DungeonDoorwayOpen", "wall_doorway", false, true, OpenDoorwayModelName),
+            new("DungeonWallStraight", "wall", true, false, visualScale: WallVisualScale),
+            new("DungeonWallCorner", "wall_corner", true, false, visualScale: WallVisualScale),
+            new(
+                "DungeonWallTIntersection",
+                "wall_Tsplit",
+                true,
+                false,
+                visualScale: WallVisualScale
+            ),
+            new("DungeonWallCrossing", "wall_crossing", true, false, visualScale: WallVisualScale),
+            new("DungeonWallEndcap", "wall_endcap", true, false, visualScale: WallVisualScale),
+            new("DungeonWallPillar", "wall_pillar", true, false, visualScale: WallVisualScale),
+            new(
+                "DungeonDoorwayOpen",
+                "wall_doorway",
+                false,
+                true,
+                OpenDoorwayModelName,
+                WallVisualScale
+            ),
+            ClosedDoorWrapper,
+            StairWrapper,
             new("BarrelSmall", "barrel_small", false, false),
             new("Column", "column", false, false),
             new("CratesStacked", "crates_stacked", false, false),
@@ -45,8 +117,8 @@ namespace Game.KayKit.Editor
             new("TableLong", "table_long", false, false),
             new("ShelfLarge", "shelf_large", false, false),
             new("RubbleHalf", "rubble_half", false, false),
-            new("BannerRed", "banner_red", false, false),
-            new("TorchMounted", "torch_mounted", false, false),
+            BannerWrapper,
+            TorchWrapper,
         };
 
         private static readonly Dictionary<string, string> WrapperPathByModel =
@@ -61,6 +133,38 @@ namespace Game.KayKit.Editor
             EnsureFolder(DungeonPrefabRoot);
             foreach (WrapperDescriptor descriptor in Wrappers)
                 CreateWrapper(descriptor, material);
+            CreateWallResolver();
+        }
+
+        /// <summary>
+        /// Regenerates the blocking-door, stair, and wall-decoration wrappers used by generated floors.
+        /// </summary>
+        /// <param name="material">The existing generated dungeon material.</param>
+        /// <remarks>
+        /// Other authored-map prop wrappers are intentionally left untouched.
+        /// </remarks>
+        public static void RegenerateGeneratedFloorPrefabs(Material material)
+        {
+            EnsureFolder(DungeonPrefabRoot);
+            CreateWrapper(ClosedDoorWrapper, material);
+            CreateWrapper(StairWrapper, material);
+            CreateWrapper(BannerWrapper, material);
+            CreateWrapper(TorchWrapper, material);
+        }
+
+        /// <summary>Regenerates the uniformly scaled wall and doorway wrapper prefabs.</summary>
+        /// <param name="material">The existing generated dungeon material.</param>
+        public static void RegenerateWallPrefabs(Material material)
+        {
+            EnsureFolder(DungeonPrefabRoot);
+            foreach (
+                WrapperDescriptor descriptor in Wrappers.Where(descriptor =>
+                    descriptor.WallCollider || descriptor.OpenDoorway
+                )
+            )
+            {
+                CreateWrapper(descriptor, material);
+            }
             CreateWallResolver();
         }
 
@@ -122,6 +226,20 @@ namespace Game.KayKit.Editor
             return AssetDatabase.LoadAssetAtPath<GameObject>(DoorwayPrefabPath);
         }
 
+        /// <summary>Loads the generated blocking closed-door wrapper.</summary>
+        /// <returns>The wrapper at <see cref="ClosedDoorPrefabPath"/>, or Unity's missing-object value.</returns>
+        public static GameObject LoadClosedDoorPrefab()
+        {
+            return AssetDatabase.LoadAssetAtPath<GameObject>(ClosedDoorPrefabPath);
+        }
+
+        /// <summary>Loads the generated nonblocking stair wrapper.</summary>
+        /// <returns>The wrapper at <see cref="StairPrefabPath"/>, or Unity's missing-object value.</returns>
+        public static GameObject LoadStairPrefab()
+        {
+            return AssetDatabase.LoadAssetAtPath<GameObject>(StairPrefabPath);
+        }
+
         private static void CreateWrapper(WrapperDescriptor descriptor, Material material)
         {
             GameObject model = LoadDungeonModel(descriptor.SourceModelName);
@@ -131,7 +249,13 @@ namespace Game.KayKit.Editor
                 GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(model);
                 instance.name = "Model";
                 instance.transform.SetParent(root.transform, false);
-                instance.transform.localScale = Vector3.one * DungeonVisualScale;
+                if (!Mathf.Approximately(descriptor.ModelLocalZ, 0f))
+                {
+                    Vector3 sourcePosition = instance.transform.localPosition;
+                    sourcePosition.z = descriptor.ModelLocalZ;
+                    instance.transform.localPosition = sourcePosition;
+                }
+                instance.transform.localScale = Vector3.one * descriptor.VisualScale;
                 foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
                 {
                     renderer.sharedMaterials = Enumerable
@@ -142,8 +266,8 @@ namespace Game.KayKit.Editor
                 if (descriptor.WallCollider)
                 {
                     BoxCollider collider = root.AddComponent<BoxCollider>();
-                    collider.center = new Vector3(0f, 1f, 0f);
-                    collider.size = new Vector3(0.9f, 2f, 0.25f);
+                    collider.center = new Vector3(0f, WallVisualHeight * 0.5f, 0f);
+                    collider.size = new Vector3(0.9f, WallVisualHeight, 0.25f);
                     root.AddComponent<MapLineOfSightBlocker>();
                 }
 
@@ -170,6 +294,13 @@ namespace Game.KayKit.Editor
                     light.range = 4f;
                     light.intensity = 1.2f;
                     light.color = new Color(1f, 0.55f, 0.2f);
+                }
+
+                if (descriptor.PlacementOffset != Vector3.zero)
+                {
+                    DungeonPlacementOffset placementOffset =
+                        root.AddComponent<DungeonPlacementOffset>();
+                    placementOffset.Configure(descriptor.PlacementOffset);
                 }
 
                 PrefabUtility.SaveAsPrefabAsset(
@@ -289,9 +420,9 @@ namespace Game.KayKit.Editor
         {
             GameObject post = new(name);
             post.transform.SetParent(parent, false);
-            post.transform.localPosition = new Vector3(x, 1f, 0f);
+            post.transform.localPosition = new Vector3(x, WallVisualHeight * 0.5f, 0f);
             BoxCollider collider = post.AddComponent<BoxCollider>();
-            collider.size = new Vector3(0.14f, 2f, 0.28f);
+            collider.size = new Vector3(0.14f, WallVisualHeight, 0.28f);
         }
 
         private static bool IsOneOf(string value, params string[] candidates)
@@ -318,13 +449,38 @@ namespace Game.KayKit.Editor
             public string SourceModelName { get; }
             public bool WallCollider { get; }
             public bool OpenDoorway { get; }
+            public float VisualScale { get; }
+            public float ModelLocalZ { get; }
+            public Vector3 PlacementOffset { get; }
 
             public WrapperDescriptor(
                 string prefabName,
                 string modelName,
                 bool wallCollider,
                 bool openDoorway,
-                string sourceModelName = null
+                string sourceModelName = null,
+                float visualScale = DungeonVisualScale
+            )
+                : this(
+                    prefabName,
+                    modelName,
+                    wallCollider,
+                    openDoorway,
+                    sourceModelName,
+                    visualScale,
+                    0f,
+                    Vector3.zero
+                ) { }
+
+            public WrapperDescriptor(
+                string prefabName,
+                string modelName,
+                bool wallCollider,
+                bool openDoorway,
+                string sourceModelName,
+                float visualScale,
+                float modelLocalZ,
+                Vector3 placementOffset
             )
             {
                 PrefabName = prefabName;
@@ -332,6 +488,9 @@ namespace Game.KayKit.Editor
                 SourceModelName = sourceModelName ?? modelName;
                 WallCollider = wallCollider;
                 OpenDoorway = openDoorway;
+                VisualScale = visualScale;
+                ModelLocalZ = modelLocalZ;
+                PlacementOffset = placementOffset;
             }
         }
     }

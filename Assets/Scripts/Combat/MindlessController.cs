@@ -37,13 +37,33 @@ public class MindlessController : AIActionController
     {
         if (GridAPI == null)
         {
-            GridAPI = (GridAPIPrivate)GridPublic.GridAPI.GetInstance();
-            Tiles = GridAPI.GetTiles();
-            Pathfinder = GridAPI.GetPathfinder();
+            RebindGrid((GridAPIPrivate)GridPublic.GridAPI.GetInstance());
         }
 
         base.StartTurn();
         StartCoroutine(ExecuteTurnSequence());
+    }
+
+    internal void RebindGrid(GridAPIPrivate grid)
+    {
+        if (GridAPI != null && GridAPI != grid)
+            return;
+
+        GridAPI = grid;
+        Tiles = grid.GetTiles();
+        Pathfinder = grid.GetPathfinder();
+        BestPath = null;
+        BestTarget = null;
+    }
+
+    internal bool CanBindToGrid(GridAPIPrivate grid)
+    {
+        return GridAPI == null || GridAPI == grid;
+    }
+
+    internal bool CanRebindGrid()
+    {
+        return !IsTurn && !IsTakingAction;
     }
 
     private IEnumerator ExecuteTurnSequence()

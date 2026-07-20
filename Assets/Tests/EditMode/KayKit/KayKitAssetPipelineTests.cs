@@ -274,6 +274,14 @@ public sealed class KayKitAssetPipelineTests
         KayKitSetupTool.RegenerateProjectAssets();
         Hash128[] after = paths.Select(AssetDatabase.GetAssetDependencyHash).ToArray();
 
+        KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            KayKitSetupTool.DungeonCatalogPath
+        );
+        KayKitDungeonCatalogEntry crates = catalog.Entries.Single(entry =>
+            entry.Id.EndsWith("/crates_stacked", StringComparison.Ordinal)
+        );
+
         Assert.That(after, Is.EqualTo(before));
+        Assert.That(crates.BlocksLineOfSight, Is.True);
     }
 }

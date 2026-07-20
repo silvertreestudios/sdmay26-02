@@ -364,6 +364,13 @@ namespace Game.DungeonGeneration
                     return false;
                 }
 
+                PruneRedundantDoors();
+                if (!IsConnected())
+                {
+                    rejection = "Door cleanup disconnected walkable topology.";
+                    return false;
+                }
+
                 if (!EmplaceStairs())
                 {
                     rejection =
@@ -433,12 +440,31 @@ namespace Game.DungeonGeneration
                 }
 
                 DungeonCell start = SelectStartCell(stairs, safe);
+                HashSet<DungeonCell> reservedDecorationCells = new() { start };
+                foreach (DungeonStair stair in stairs)
+                {
+                    reservedDecorationCells.Add(stair.Cell);
+                    reservedDecorationCells.Add(stair.ArrivalCell);
+                }
                 DungeonGenerationMetadata metadata = new(
                     AlgorithmId,
                     request.RunSeed,
                     request.Depth,
                     attempt
                 );
+                IReadOnlyList<DungeonObjectPlacement> decorations =
+                    DungeonDecorationPlanner.CreatePlacements(
+                        rows,
+                        rooms,
+                        reservedDecorationCells,
+                        new SystemDungeonRandom(
+                            DungeonSeedSequence.ForSubstream(
+                                request.RunSeed,
+                                request.Depth,
+                                DungeonSeedSubstream.Decoration
+                            )
+                        )
+                    );
                 document = new DungeonLevelDocument(
                     metadata,
                     rows,
@@ -447,7 +473,7 @@ namespace Game.DungeonGeneration
                     stairs,
                     start,
                     safe,
-                    Array.Empty<DungeonObjectPlacement>(),
+                    decorations,
                     Array.Empty<DungeonEncounterPlan>()
                 );
                 return true;
@@ -680,6 +706,37 @@ namespace Game.DungeonGeneration
                     )
                         return room.Id;
                 return 0;
+            }
+
+            private void PruneRedundantDoors()
+            {
+                IReadOnlyList<DungeonCell> retained = DungeonDoorPostProcessor.SelectRequiredDoors(
+                    BuildRows(),
+                    rooms,
+                    doors,
+                    DungeonDoorPostProcessor.MinimumLoopPathLengthCells
+                );
+                HashSet<DungeonCell> retainedCells = new(retained);
+                DungeonCell[] orderedCells = doors
+                    .Where(door => retainedCells.Contains(door.Cell))
+                    .Select(door => door.Cell)
+                    .ToArray();
+                foreach (DungeonDoor door in doors)
+                {
+                    if (!retainedCells.Contains(door.Cell))
+                        cells[door.Cell.X, door.Cell.Z] = CellKind.Empty;
+                }
+
+                doors.Clear();
+                for (int index = 0; index < orderedCells.Length; index++)
+                {
+                    doors.Add(
+                        new DungeonDoor(
+                            "door-" + (index + 1).ToString("D4", CultureInfo.InvariantCulture),
+                            orderedCells[index]
+                        )
+                    );
+                }
             }
 
             private bool AdjacentToRoom(DungeonCell cell, DungeonRoom room) =>

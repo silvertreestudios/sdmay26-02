@@ -90,6 +90,12 @@ namespace Game.KayKit
         [SerializeField]
         private GameObject doorwayPrefab;
 
+        [SerializeField]
+        private GameObject closedDoorPrefab;
+
+        [SerializeField]
+        private GameObject stairPrefab;
+
         private Dictionary<string, KayKitDungeonCatalogEntry> entriesById;
         private HashSet<string> duplicateIds;
 
@@ -98,6 +104,12 @@ namespace Game.KayKit
         public GameObject FloorPrefab => floorPrefab;
         public GameObject WallPrefab => wallPrefab;
         public GameObject DoorwayPrefab => doorwayPrefab;
+
+        /// <summary>Gets the project-owned blocking wrapper used by closed generated doors.</summary>
+        public GameObject ClosedDoorPrefab => closedDoorPrefab;
+
+        /// <summary>Gets the project-owned nonblocking wrapper used by semantic generated stairs.</summary>
+        public GameObject StairPrefab => stairPrefab;
         public IReadOnlyList<string> DuplicateIds
         {
             get
@@ -147,17 +159,31 @@ namespace Game.KayKit
             InvalidateLookup();
         }
 
+        /// <summary>Replaces the project-owned materials and wrappers used to populate map structure.</summary>
+        /// <param name="material">The default material applied to raw catalog models.</param>
+        /// <param name="floor">The floor wrapper instantiated beneath every walkable or occupied cell.</param>
+        /// <param name="wall">The neighbor-aware wall resolver wrapper.</param>
+        /// <param name="doorway">The nonblocking open-doorway wrapper.</param>
+        /// <param name="closedDoor">The blocking closed-door wrapper.</param>
+        /// <param name="stair">The nonblocking stair wrapper.</param>
+        /// <remarks>
+        /// Editor tooling owns this configuration so serialized scenes and runtime population share one catalog.
+        /// </remarks>
         public void ConfigureStructure(
             Material material,
             GameObject floor,
             GameObject wall,
-            GameObject doorway
+            GameObject doorway,
+            GameObject closedDoor,
+            GameObject stair
         )
         {
             defaultMaterial = material;
             floorPrefab = floor;
             wallPrefab = wall;
             doorwayPrefab = doorway;
+            closedDoorPrefab = closedDoor;
+            stairPrefab = stair;
         }
 #endif
 

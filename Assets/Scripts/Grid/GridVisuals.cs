@@ -75,6 +75,16 @@ namespace GridPrivate
             OnPreviewAreaEnd.AddListener(() => RangePool.Clear());
         }
 
+        internal void RebindTiles(Tile[,] tiles)
+        {
+            Tiles = tiles;
+            Hover = null;
+            HoverPool?.Clear();
+            RangePool?.Clear();
+            if (LineRenderer != null)
+                LineRenderer.positionCount = 0;
+        }
+
         protected void Show(List<Vector3Int> locations, GameObjectPool pool, float offset)
         {
             foreach (Vector3Int location in locations)

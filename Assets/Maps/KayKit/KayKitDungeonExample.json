@@ -62,7 +62,7 @@
     {
       "id": "entry-door",
       "cell": { "x": 25, "z": 49 },
-      "isOpen": false
+      "isOpen": true
     }
   ],
   "stairs": [],
@@ -82,5 +82,11 @@
     { "id": "object-0009", "assetId": "dungeon/assets/fbx(unity)/banner_red", "cell": { "x": 25, "z": 35 }, "rotation": 90, "yOffset": 0.25 },
     { "id": "object-0010", "assetId": "dungeon/assets/fbx(unity)/torch_mounted", "cell": { "x": 25, "z": 1 }, "rotation": 0, "yOffset": 0.2 }
   ],
-  "encounterPlans": []
+  "encounterPlans": [],
+  "runtimeState": {
+    "openDoorIds": ["entry-door"],
+    "resolvedEncounterIds": [],
+    "defeatedCreatureIds": [],
+    "creatures": []
+  }
 }

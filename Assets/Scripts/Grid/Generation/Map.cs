@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.DungeonGeneration;
 using Game.KayKit;
 using GridPrivate;
 using UnityEngine;
@@ -35,6 +36,7 @@ public class Map : MonoBehaviour
 {
     public const float JsonTileSpacing = 1f;
     private const int CurrentLegacyBitmapMigrationVersion = 1;
+    private const float StairVisualYaw = 180f;
 
     [SerializeField]
     protected Texture2D ImageMap;
@@ -63,10 +65,31 @@ public class Map : MonoBehaviour
     [SerializeField, HideInInspector]
     private int legacyBitmapMigrationVersion;
 
+    [NonSerialized]
+    private string runtimeJsonSource = string.Empty;
+
+    [NonSerialized]
+    private bool usesRuntimeJsonSource;
+
 #if UNITY_EDITOR
     [NonSerialized]
     private bool delayedBitmapGenerationQueued;
 #endif
+
+    private sealed class GeneratedContentClearPlan
+    {
+        public IReadOnlyList<GameObject> OwnedContent { get; }
+        public bool CompletesLegacyBitmapMigration { get; }
+
+        public GeneratedContentClearPlan(
+            IEnumerable<GameObject> ownedContent,
+            bool completesLegacyBitmapMigration
+        )
+        {
+            OwnedContent = ownedContent.ToArray();
+            CompletesLegacyBitmapMigration = completesLegacyBitmapMigration;
+        }
+    }
 
     protected TileType[,] GridData { get; set; }
     protected bool[,] LineOfSightBlocks { get; set; }
@@ -75,6 +98,9 @@ public class Map : MonoBehaviour
     public TextAsset JsonSource => jsonSource;
     public KayKitDungeonCatalog DungeonCatalog => dungeonCatalog;
     public float Spacing => spacing;
+
+    /// <summary>Gets whether this map was most recently populated from a runtime JSON string.</summary>
+    public bool UsesRuntimeJsonSource => usesRuntimeJsonSource;
 
     private void Reset()
     {
@@ -152,6 +178,8 @@ public class Map : MonoBehaviour
             legacyBitmapSpacing = spacing;
         sourceMode = MapSourceMode.Json;
         previousSourceMode = sourceMode;
+        usesRuntimeJsonSource = false;
+        runtimeJsonSource = string.Empty;
         jsonSource = source;
         dungeonCatalog = catalog;
         spacing = tileSpacing;
@@ -161,6 +189,94 @@ public class Map : MonoBehaviour
     public MapSourceValidationResult ValidateSource()
     {
         return sourceMode == MapSourceMode.Json ? ValidateJson() : ValidateBitmap();
+    }
+
+    /// <summary>
+    /// Validates and replaces owned geometry from serialized runtime JSON.
+    /// </summary>
+    /// <param name="serializedJson">The complete current-schema dungeon document.</param>
+    /// <param name="catalog">The required project-owned KayKit catalog.</param>
+    /// <param name="validation">Validation details and projected map data.</param>
+    /// <returns>
+    /// <see langword="true"/> when new owned content is populated; otherwise
+    /// <see langword="false"/> and the prior valid generated hierarchy, map data, and live
+    /// grid binding remain untouched.
+    /// </returns>
+    public bool TryPopulateJson(
+        string serializedJson,
+        KayKitDungeonCatalog catalog,
+        out MapSourceValidationResult validation
+    )
+    {
+        validation = ValidateJson(serializedJson, catalog, JsonTileSpacing);
+        if (!validation.IsValid)
+            return false;
+
+        if (
+            !TryPrepareGeneratedContentClear(
+                out GeneratedContentClearPlan clearPlan,
+                out string clearFailure
+            )
+        )
+        {
+            validation = new MapSourceValidationResult(new[] { clearFailure });
+            return false;
+        }
+
+        GameObject generatedMap = new("GeneratedMap");
+        generatedMap.SetActive(false);
+        generatedMap.AddComponent<GeneratedMapRoot>();
+        generatedMap.transform.SetParent(transform, true);
+        try
+        {
+            Transform structure = CreateContainer("Structure", generatedMap.transform);
+            Transform objects = CreateContainer("Objects", generatedMap.transform);
+            GenerateJson(validation.JsonMap, catalog, JsonTileSpacing, structure, objects);
+        }
+        catch (Exception exception)
+        {
+            DestroyOwned(generatedMap);
+            validation = new MapSourceValidationResult(
+                new[]
+                {
+                    $"Runtime JSON population could not stage generated content "
+                        + $"({exception.GetType().Name}: {exception.Message}).",
+                }
+            );
+            return false;
+        }
+
+        GridBase grid = GetComponent<GridBase>();
+        if (
+            grid != null
+            && !grid.TryRebindMapData(
+                validation.JsonMap.GridData,
+                validation.JsonMap.LineOfSightBlocks,
+                out string rebindFailure
+            )
+        )
+        {
+            DestroyOwned(generatedMap);
+            validation = new MapSourceValidationResult(
+                new[] { $"Runtime JSON population could not rebind GridBase: {rebindFailure}" }
+            );
+            return false;
+        }
+
+        if (sourceMode == MapSourceMode.Bitmap)
+            legacyBitmapSpacing = spacing;
+        sourceMode = MapSourceMode.Json;
+        previousSourceMode = sourceMode;
+        spacing = JsonTileSpacing;
+        dungeonCatalog = catalog;
+        runtimeJsonSource = serializedJson;
+        usesRuntimeJsonSource = true;
+        GridData = validation.JsonMap.GridData;
+        LineOfSightBlocks = validation.JsonMap.LineOfSightBlocks;
+
+        CommitGeneratedContentClear(clearPlan);
+        generatedMap.SetActive(true);
+        return true;
     }
 
     [ContextMenu("Generate")]
@@ -196,7 +312,7 @@ public class Map : MonoBehaviour
         {
             GridData = validation.JsonMap.GridData;
             LineOfSightBlocks = validation.JsonMap.LineOfSightBlocks;
-            GenerateJson(validation.JsonMap, structure, objects);
+            GenerateJson(validation.JsonMap, dungeonCatalog, spacing, structure, objects);
         }
         else
         {
@@ -229,7 +345,22 @@ public class Map : MonoBehaviour
 
     private bool TryClearGeneratedContent(out string failure)
     {
-        failure = null;
+        if (!TryPrepareGeneratedContentClear(out GeneratedContentClearPlan clearPlan, out failure))
+        {
+            return false;
+        }
+
+        CommitGeneratedContentClear(clearPlan);
+        InvalidateCache();
+        return true;
+    }
+
+    private bool TryPrepareGeneratedContentClear(
+        out GeneratedContentClearPlan clearPlan,
+        out string failure
+    )
+    {
+        failure = string.Empty;
         HashSet<GameObject> owned = new();
         Transform[] children = DirectChildrenSnapshot();
         bool hasGeneratedMapRoot = false;
@@ -253,20 +384,30 @@ public class Map : MonoBehaviour
                         out failure
                     )
                 )
+                {
+                    clearPlan = new GeneratedContentClearPlan(Array.Empty<GameObject>(), false);
                     return false;
+                }
 
                 foreach (GameObject legacyObject in legacy)
                     owned.Add(legacyObject);
             }
-
-            CompleteLegacyBitmapMigration();
         }
 
-        foreach (GameObject target in owned)
-            DestroyOwned(target);
-
-        InvalidateCache();
+        clearPlan = new GeneratedContentClearPlan(
+            owned,
+            legacyBitmapMigrationVersion < CurrentLegacyBitmapMigrationVersion
+        );
         return true;
+    }
+
+    private void CommitGeneratedContentClear(GeneratedContentClearPlan clearPlan)
+    {
+        if (clearPlan.CompletesLegacyBitmapMigration)
+            CompleteLegacyBitmapMigration();
+
+        foreach (GameObject target in clearPlan.OwnedContent)
+            DestroyOwned(target);
     }
 
     public void ClearLegacyBitmapGeneratedContent()
@@ -474,47 +615,63 @@ public class Map : MonoBehaviour
 
     private MapSourceValidationResult ValidateJson()
     {
-        if (jsonSource == null)
-            return new MapSourceValidationResult(
-                new[] { "JSON mode requires a TextAsset source." }
-            );
+        if (usesRuntimeJsonSource)
+            return ValidateJson(runtimeJsonSource, dungeonCatalog, spacing);
+        return jsonSource == null
+            ? new MapSourceValidationResult(new[] { "JSON mode requires a TextAsset source." })
+            : ValidateJson(jsonSource.text, dungeonCatalog, spacing);
+    }
 
-        KayKitDungeonMapParseResult parsed = KayKitDungeonMapParser.Parse(
-            jsonSource.text,
-            dungeonCatalog
-        );
+    private MapSourceValidationResult ValidateJson(
+        string serializedJson,
+        KayKitDungeonCatalog catalog,
+        float tileSpacing
+    )
+    {
+        KayKitDungeonMapParseResult parsed = KayKitDungeonMapParser.Parse(serializedJson, catalog);
         List<string> errors = new(parsed.Errors);
-        if (spacing != JsonTileSpacing)
+        if (tileSpacing != JsonTileSpacing)
         {
             errors.Add(
-                $"JSON mode requires tile spacing {JsonTileSpacing}; found {spacing}. "
+                $"JSON mode requires tile spacing {JsonTileSpacing}; found {tileSpacing}. "
                     + "Bitmap mode continues to support custom spacing."
             );
         }
         if (parsed.Map != null)
         {
             if (
-                ContainsAny(parsed.Map.GridData, TileType.Ground, TileType.Door, TileType.Obstacle)
-                && dungeonCatalog.FloorPrefab == null
+                ContainsAny(
+                    parsed.Map.GridData,
+                    TileType.Ground,
+                    TileType.Door,
+                    TileType.ClosedDoor,
+                    TileType.Obstacle
+                )
+                && catalog.FloorPrefab == null
             )
             {
                 errors.Add(
                     "KayKitDungeonCatalog is missing its project-owned floor wrapper prefab."
                 );
             }
-            if (
-                ContainsAny(parsed.Map.GridData, TileType.Wall)
-                && dungeonCatalog.WallPrefab == null
-            )
+            if (ContainsAny(parsed.Map.GridData, TileType.Wall) && catalog.WallPrefab == null)
                 errors.Add(
                     "KayKitDungeonCatalog is missing its project-owned wall resolver prefab."
                 );
-            if (
-                ContainsAny(parsed.Map.GridData, TileType.Door)
-                && dungeonCatalog.DoorwayPrefab == null
-            )
+            if (parsed.Map.LevelDocument.Doors.Count > 0)
+            {
+                if (catalog.DoorwayPrefab == null)
+                    errors.Add(
+                        "KayKitDungeonCatalog is missing its project-owned open doorway prefab."
+                    );
+                if (catalog.ClosedDoorPrefab == null)
+                    errors.Add(
+                        "KayKitDungeonCatalog is missing its project-owned closed-door wrapper prefab."
+                    );
+            }
+            if (parsed.Map.LevelDocument.Stairs.Count > 0 && catalog.StairPrefab == null)
                 errors.Add(
-                    "KayKitDungeonCatalog is missing its project-owned open doorway prefab."
+                    "KayKitDungeonCatalog is missing its project-owned stair wrapper prefab."
                 );
 
             foreach (KayKitDungeonObjectPlacement placement in parsed.Map.Objects)
@@ -599,44 +756,53 @@ public class Map : MonoBehaviour
 
     private void GenerateJson(
         KayKitDungeonMapData map,
+        KayKitDungeonCatalog catalog,
+        float tileSpacing,
         Transform structure,
         Transform objectContainer
     )
     {
+        TileType[,] wallVisualTopology = CreateWallVisualTopology(map.GridData);
         for (int z = 0; z < map.Height; z++)
         {
             for (int x = 0; x < map.Width; x++)
             {
                 TileType tile = map.GridData[x, z];
-                Vector3 position = new(x * spacing, 0f, z * spacing);
-                if (tile == TileType.Ground || tile == TileType.Door || tile == TileType.Obstacle)
+                Vector3 position = new(x * tileSpacing, 0f, z * tileSpacing);
+                bool hasVisibleWall = wallVisualTopology[x, z] == TileType.Wall;
+                if (
+                    tile == TileType.Ground
+                    || tile == TileType.Door
+                    || tile == TileType.ClosedDoor
+                    || tile == TileType.Obstacle
+                    || hasVisibleWall
+                )
                 {
-                    GameObject floor = InstantiatePrefab(dungeonCatalog.FloorPrefab, structure);
+                    GameObject floor = InstantiatePrefab(catalog.FloorPrefab, structure);
                     floor.name = $"Floor_{x:D3}_{z:D3}";
                     floor.transform.SetPositionAndRotation(
                         position,
-                        dungeonCatalog.FloorPrefab.transform.rotation
+                        catalog.FloorPrefab.transform.rotation
                     );
                 }
 
-                GameObject structuralPrefab =
-                    tile == TileType.Wall ? dungeonCatalog.WallPrefab
-                    : tile == TileType.Door ? dungeonCatalog.DoorwayPrefab
-                    : null;
-                if (structuralPrefab == null)
+                if (!hasVisibleWall)
                     continue;
 
-                GameObject structural = InstantiatePrefab(structuralPrefab, structure);
-                structural.name = $"{tile}_{x:D3}_{z:D3}";
+                GameObject structural = InstantiatePrefab(catalog.WallPrefab, structure);
+                structural.name = $"Wall_{x:D3}_{z:D3}";
                 structural.transform.SetPositionAndRotation(
                     position,
-                    structuralPrefab.transform.rotation
+                    catalog.WallPrefab.transform.rotation
                 );
                 structural
                     .GetComponent<IOnGridGeneration>()
-                    ?.OnGeneration(new Vector3Int(x, 0, z), map.GridData);
+                    ?.OnGeneration(new Vector3Int(x, 0, z), wallVisualTopology);
             }
         }
+
+        GenerateDoors(map, catalog, tileSpacing, structure);
+        GenerateStairs(map, catalog, tileSpacing, structure);
 
         for (int index = 0; index < map.Objects.Count; index++)
         {
@@ -648,20 +814,199 @@ public class Map : MonoBehaviour
             instance.name = $"Object_{index:D3}_{StableName(placement.AssetId)}";
             float centerX = placement.X + (placement.Footprint.x - 1) * 0.5f;
             float centerZ = placement.Z + (placement.Footprint.y - 1) * 0.5f;
-            instance.transform.SetPositionAndRotation(
-                new Vector3(centerX * spacing, placement.YOffset, centerZ * spacing),
-                Quaternion.Euler(0f, placement.Rotation, 0f)
-            );
-            ApplyDefaultMaterial(instance);
+            Quaternion rotation = Quaternion.Euler(0f, placement.Rotation, 0f);
+            Vector3 position = new(centerX * tileSpacing, placement.YOffset, centerZ * tileSpacing);
+            if (instance.TryGetComponent(out DungeonPlacementOffset placementOffset))
+            {
+                // The catalog cell remains the logical anchor. Rotating the visual offset lets
+                // one prefab-space correction attach mounted content to any cardinal wall.
+                position += rotation * placementOffset.LocalOffset;
+            }
+            instance.transform.SetPositionAndRotation(position, rotation);
+            ApplyDefaultMaterial(instance, catalog.DefaultMaterial);
 
             if (placement.CatalogEntry.BlocksLineOfSight)
-                AddLineOfSightCollider(instance, placement.CatalogEntry.Footprint);
+            {
+                AddLineOfSightCollider(instance, placement.CatalogEntry.Footprint, tileSpacing);
+            }
         }
     }
 
-    private void ApplyDefaultMaterial(GameObject instance)
+    private static TileType[,] CreateWallVisualTopology(TileType[,] gameplayGrid)
     {
-        if (dungeonCatalog.DefaultMaterial == null)
+        // The complete wall and mask fields remain authoritative for movement and line of
+        // sight. Scene geometry keeps only the wall shell around walkable space, and projects
+        // the adjacent mask layer as a wall so rooms cannot appear open to a masked void.
+        // Diagonal neighbors keep both shells connected around room and corridor corners.
+        int width = gameplayGrid.GetLength(0);
+        int height = gameplayGrid.GetLength(1);
+        TileType[,] visualGrid = new TileType[width, height];
+        for (int z = 0; z < height; z++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                TileType tile = gameplayGrid[x, z];
+                bool bordersFloor = BordersFloorBearingCell(gameplayGrid, x, z);
+                visualGrid[x, z] = tile switch
+                {
+                    TileType.Wall when !bordersFloor => TileType.Empty,
+                    TileType.Empty when bordersFloor => TileType.Wall,
+                    _ => tile,
+                };
+            }
+        }
+
+        return visualGrid;
+    }
+
+    private static bool BordersFloorBearingCell(TileType[,] grid, int x, int z)
+    {
+        int width = grid.GetLength(0);
+        int height = grid.GetLength(1);
+        for (int zOffset = -1; zOffset <= 1; zOffset++)
+        {
+            for (int xOffset = -1; xOffset <= 1; xOffset++)
+            {
+                if (xOffset == 0 && zOffset == 0)
+                    continue;
+
+                int neighborX = x + xOffset;
+                int neighborZ = z + zOffset;
+                if (neighborX < 0 || neighborZ < 0 || neighborX >= width || neighborZ >= height)
+                {
+                    continue;
+                }
+
+                if (IsFloorBearing(grid[neighborX, neighborZ]))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsFloorBearing(TileType tile)
+    {
+        return tile == TileType.Ground
+            || tile == TileType.Door
+            || tile == TileType.ClosedDoor
+            || tile == TileType.Obstacle;
+    }
+
+    private void GenerateDoors(
+        KayKitDungeonMapData map,
+        KayKitDungeonCatalog catalog,
+        float tileSpacing,
+        Transform structure
+    )
+    {
+        foreach (DungeonDoor door in map.LevelDocument.Doors)
+        {
+            Vector3 position = new(door.Cell.X * tileSpacing, 0f, door.Cell.Z * tileSpacing);
+            GameObject root = new("Door_" + StableName(door.Id));
+            root.transform.SetParent(structure, true);
+            root.transform.SetPositionAndRotation(
+                position,
+                Quaternion.Euler(0f, DoorRotation(map.GridData, door.Cell), 0f)
+            );
+
+            GameObject closed = InstantiatePrefab(catalog.ClosedDoorPrefab, root.transform);
+            closed.name = "ClosedVisual";
+            closed.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+            GameObject open = InstantiatePrefab(catalog.DoorwayPrefab, root.transform);
+            open.name = "OpenVisual";
+            open.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+
+            DungeonDoorController controller = root.AddComponent<DungeonDoorController>();
+            controller.Configure(door.Id, door.Cell, door.IsOpen, this, closed, open);
+        }
+    }
+
+    private void GenerateStairs(
+        KayKitDungeonMapData map,
+        KayKitDungeonCatalog catalog,
+        float tileSpacing,
+        Transform structure
+    )
+    {
+        foreach (DungeonStair stair in map.LevelDocument.Stairs)
+        {
+            GameObject root = new("Stair_" + stair.Kind + "_" + StableName(stair.Id));
+            root.transform.SetParent(structure, true);
+            root.transform.SetPositionAndRotation(
+                new Vector3(stair.Cell.X * tileSpacing, 0f, stair.Cell.Z * tileSpacing),
+                Quaternion.Euler(0f, StairRotation(stair.Cell, stair.ArrivalCell), 0f)
+            );
+            GameObject visual = InstantiatePrefab(catalog.StairPrefab, root.transform);
+            visual.name = "Visual";
+            visual.transform.SetLocalPositionAndRotation(
+                Vector3.zero,
+                Quaternion.Euler(0f, StairVisualYaw, 0f)
+            );
+            DungeonStairMarker marker = root.AddComponent<DungeonStairMarker>();
+            marker.Configure(stair.Id, stair.Kind, stair.Cell, stair.ArrivalCell);
+        }
+    }
+
+    private static int DoorRotation(TileType[,] grid, DungeonCell cell)
+    {
+        bool northSouth =
+            WallStructuralResolver.IsStructure(grid, cell.X, cell.Z + 1)
+            || WallStructuralResolver.IsStructure(grid, cell.X, cell.Z - 1);
+        bool eastWest =
+            WallStructuralResolver.IsStructure(grid, cell.X + 1, cell.Z)
+            || WallStructuralResolver.IsStructure(grid, cell.X - 1, cell.Z);
+        return northSouth && !eastWest ? 90 : 0;
+    }
+
+    private static int StairRotation(DungeonCell cell, DungeonCell arrival)
+    {
+        int offsetX = arrival.X - cell.X;
+        int offsetZ = arrival.Z - cell.Z;
+        if (offsetZ < 0)
+            return 0;
+        if (offsetX < 0)
+            return 90;
+        if (offsetZ > 0)
+            return 180;
+        return 270;
+    }
+
+    /// <summary>
+    /// Updates one generated door's semantic grid state without rebuilding owned geometry.
+    /// </summary>
+    /// <param name="cell">The generated door cell.</param>
+    /// <param name="isOpen">Whether the cell should become passable and transparent.</param>
+    /// <returns><see langword="true"/> when the state is valid and applied.</returns>
+    public bool TrySetDoorState(DungeonCell cell, bool isOpen)
+    {
+        EnsureData();
+        GridBase grid = GetComponent<GridBase>();
+        if (grid != null && grid.IsInitialized)
+            return grid.TrySetDoorState(cell, isOpen);
+        if (
+            GridData == null
+            || LineOfSightBlocks == null
+            || cell.X < 0
+            || cell.Z < 0
+            || cell.X >= GridData.GetLength(0)
+            || cell.Z >= GridData.GetLength(1)
+        )
+        {
+            return false;
+        }
+
+        TileType current = GridData[cell.X, cell.Z];
+        if (current != TileType.Door && current != TileType.ClosedDoor)
+            return false;
+        GridData[cell.X, cell.Z] = isOpen ? TileType.Door : TileType.ClosedDoor;
+        LineOfSightBlocks[cell.X, cell.Z] = !isOpen;
+        return true;
+    }
+
+    private static void ApplyDefaultMaterial(GameObject instance, Material defaultMaterial)
+    {
+        if (defaultMaterial == null)
             return;
 
         foreach (Renderer renderer in instance.GetComponentsInChildren<Renderer>(true))
@@ -670,22 +1015,26 @@ public class Map : MonoBehaviour
             for (int index = 0; index < materials.Length; index++)
             {
                 if (materials[index] == null || materials[index].name == "Default-Material")
-                    materials[index] = dungeonCatalog.DefaultMaterial;
+                    materials[index] = defaultMaterial;
             }
             renderer.sharedMaterials = materials;
         }
     }
 
-    private void AddLineOfSightCollider(GameObject instance, Vector2Int footprint)
+    private static void AddLineOfSightCollider(
+        GameObject instance,
+        Vector2Int footprint,
+        float tileSpacing
+    )
     {
         BoxCollider collider = instance.GetComponent<BoxCollider>();
         if (collider == null)
             collider = instance.AddComponent<BoxCollider>();
         collider.center = new Vector3(0f, 0.75f, 0f);
         collider.size = new Vector3(
-            Mathf.Max(0.8f, footprint.x * spacing * 0.9f),
+            Mathf.Max(0.8f, footprint.x * tileSpacing * 0.9f),
             1.5f,
-            Mathf.Max(0.8f, footprint.y * spacing * 0.9f)
+            Mathf.Max(0.8f, footprint.y * tileSpacing * 0.9f)
         );
         collider.isTrigger = false;
         if (instance.GetComponent<MapLineOfSightBlocker>() == null)
@@ -729,6 +1078,9 @@ public class Map : MonoBehaviour
 
     private static void DestroyOwned(GameObject target)
     {
+        // Runtime destruction is deferred until the end of the frame. Deactivate first so
+        // physics, rendering, and object queries cannot observe two live generations.
+        target.SetActive(false);
 #if UNITY_EDITOR
         if (!Application.isPlaying)
         {

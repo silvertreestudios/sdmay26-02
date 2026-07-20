@@ -28,6 +28,16 @@ namespace Game.KayKit.Editor
                 { "arrow_bow", "ranger_texture" },
             };
 
+        private static readonly HashSet<string> DungeonLineOfSightOverrides = new(
+            StringComparer.OrdinalIgnoreCase
+        )
+        {
+            "barrel_small",
+            "column",
+            "crates_stacked",
+            "shelf_large",
+        };
+
         private static readonly PackDescriptor[] Packs =
         {
             new(
@@ -99,6 +109,46 @@ namespace Game.KayKit.Editor
                 Debug.LogError($"KayKit setup failed: {exception.Message}");
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Regenerates procedural-floor and wall wrappers plus structural catalog references while preserving entries.
+        /// </summary>
+        [MenuItem("Tools/KayKit/Regenerate Dungeon Assets")]
+        public static void RegenerateDungeonAssets()
+        {
+            Material material = AssetDatabase.LoadAssetAtPath<Material>(
+                MaterialRoot + "/KayKitDungeon_dungeon_texture.mat"
+            );
+            if (material == null)
+            {
+                throw new InvalidOperationException(
+                    "The generated KayKit dungeon material is missing. Run Regenerate Project Assets first."
+                );
+            }
+
+            EnsureProjectFolders();
+            KayKitDungeonSetupTool.RegenerateGeneratedFloorPrefabs(material);
+            KayKitDungeonSetupTool.RegenerateWallPrefabs(material);
+            KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+                DungeonCatalogPath
+            );
+            if (catalog == null)
+                throw new InvalidOperationException(
+                    "The generated KayKit dungeon catalog is missing."
+                );
+            catalog.ReplaceEntries(catalog.Entries.Select(ApplyAuditedDungeonSemantics));
+
+            catalog.ConfigureStructure(
+                material,
+                KayKitDungeonSetupTool.LoadFloorPrefab(),
+                KayKitDungeonSetupTool.LoadWallResolverPrefab(),
+                KayKitDungeonSetupTool.LoadDoorwayPrefab(),
+                KayKitDungeonSetupTool.LoadClosedDoorPrefab(),
+                KayKitDungeonSetupTool.LoadStairPrefab()
+            );
+            EditorUtility.SetDirty(catalog);
+            AssetDatabase.SaveAssets();
         }
 
         [MenuItem("Tools/KayKit/Validate Setup")]
@@ -307,7 +357,11 @@ namespace Game.KayKit.Editor
                     throw new InvalidOperationException(
                         $"Dungeon model could not be loaded: {path}"
                     );
-                entries.Add(KayKitDungeonSetupTool.CreateCatalogEntry(id, model));
+                entries.Add(
+                    ApplyAuditedDungeonSemantics(
+                        KayKitDungeonSetupTool.CreateCatalogEntry(id, model)
+                    )
+                );
             }
 
             KayKitDungeonCatalog catalog = GetOrCreate<KayKitDungeonCatalog>(DungeonCatalogPath);
@@ -318,9 +372,32 @@ namespace Game.KayKit.Editor
                 ),
                 KayKitDungeonSetupTool.LoadFloorPrefab(),
                 KayKitDungeonSetupTool.LoadWallResolverPrefab(),
-                KayKitDungeonSetupTool.LoadDoorwayPrefab()
+                KayKitDungeonSetupTool.LoadDoorwayPrefab(),
+                KayKitDungeonSetupTool.LoadClosedDoorPrefab(),
+                KayKitDungeonSetupTool.LoadStairPrefab()
             );
             EditorUtility.SetDirty(catalog);
+        }
+
+        private static KayKitDungeonCatalogEntry ApplyAuditedDungeonSemantics(
+            KayKitDungeonCatalogEntry entry
+        )
+        {
+            // These tall props were visually audited as full line-of-sight blockers. The generic
+            // entry factory remains geometry-driven; full catalog regeneration reapplies the audit.
+            if (!DungeonLineOfSightOverrides.Contains(entry.Model.name))
+                return entry;
+
+            return new KayKitDungeonCatalogEntry(
+                entry.Id,
+                entry.Model,
+                entry.WrapperPrefab,
+                entry.Footprint,
+                entry.DefaultRotation,
+                entry.DefaultYOffset,
+                entry.BlocksMovement,
+                true
+            );
         }
 
         private static void GenerateAnimationLibrary()

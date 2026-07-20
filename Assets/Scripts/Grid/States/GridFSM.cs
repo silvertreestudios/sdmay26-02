@@ -36,6 +36,25 @@ namespace GridPrivate
             return base.ChangeState(newState);
         }
 
+        /// <summary>
+        /// Gets whether runtime map replacement can proceed without interrupting an action.
+        /// </summary>
+        internal bool CanResetForGridRebind => !IsInTransition && CurrentState is StateIdle;
+
+        /// <summary>
+        /// Returns this subscribed FSM to its reusable idle state without creating another
+        /// static-event subscription.
+        /// </summary>
+        internal bool TryResetForGridRebind()
+        {
+            if (!CanResetForGridRebind)
+                return false;
+
+            QueuedState = null;
+            PreviousState = null;
+            return true;
+        }
+
         // Update is called once per frame
         public void InputUpdate()
         {

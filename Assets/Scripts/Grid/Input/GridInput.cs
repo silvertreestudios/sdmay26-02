@@ -27,6 +27,12 @@ namespace GridPrivate
             Tiles = grid.GetTiles();
         }
 
+        internal void RebindTiles(Tile[,] tiles)
+        {
+            Tiles = tiles;
+            Hover = null;
+        }
+
         void Update()
         {
             if (HUDController.IsPointerOverHUD)

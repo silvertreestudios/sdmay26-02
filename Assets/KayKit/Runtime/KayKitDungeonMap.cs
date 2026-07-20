@@ -114,7 +114,14 @@ namespace Game.KayKit
             TileType[,] grid = new TileType[width, document.Height];
             bool[,] lineOfSightBlocks = new bool[width, document.Height];
             List<string> errors = new();
-            ParseRows(document.Rows, width, grid, lineOfSightBlocks, errors);
+            ParseRows(
+                document.Rows,
+                document.Doors.ToDictionary(door => door.Cell),
+                width,
+                grid,
+                lineOfSightBlocks,
+                errors
+            );
 
             List<KayKitDungeonObjectPlacement> placements = new();
             ParseObjects(document.Objects, catalog, grid, lineOfSightBlocks, placements, errors);
@@ -140,6 +147,7 @@ namespace Game.KayKit
 
         private static void ParseRows(
             IReadOnlyList<string> rows,
+            IReadOnlyDictionary<DungeonCell, DungeonDoor> doors,
             int width,
             TileType[,] grid,
             bool[,] lineOfSightBlocks,
@@ -162,7 +170,9 @@ namespace Game.KayKit
                             lineOfSightBlocks[x, z] = true;
                             break;
                         case 'D':
-                            grid[x, z] = TileType.Door;
+                            DungeonDoor door = doors[new DungeonCell(x, z)];
+                            grid[x, z] = door.IsOpen ? TileType.Door : TileType.ClosedDoor;
+                            lineOfSightBlocks[x, z] = !door.IsOpen;
                             break;
                         case ' ':
                             grid[x, z] = TileType.Empty;

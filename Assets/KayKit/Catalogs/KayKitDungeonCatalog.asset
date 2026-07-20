@@ -1705,3 +1705,5 @@ MonoBehaviour:
   floorPrefab: {fileID: 6395341306473141131, guid: f14363e737650ee42a7f8b6966d8b184, type: 3}
   wallPrefab: {fileID: 8553414247151822572, guid: b3b576095776972409cbefd9eb035499, type: 3}
   doorwayPrefab: {fileID: 1742584549298960230, guid: 641c65f6a675c3142b00a9b453c0f9f0, type: 3}
+  closedDoorPrefab: {fileID: 4336355381284210252, guid: 4cd64c05c2c255f4b8297cb55f9bc484, type: 3}
+  stairPrefab: {fileID: 8200012132705853259, guid: 90b7c2cfb82aa9747bcf56078f3dfe69, type: 3}

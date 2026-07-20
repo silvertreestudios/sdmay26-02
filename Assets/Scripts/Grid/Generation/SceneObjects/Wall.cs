@@ -51,7 +51,10 @@ namespace GridPrivate
                     : !south ? 90
                     : !east ? 0
                     : 180;
-                return new WallResolution(WallVariant.TIntersection, rotation);
+                return new WallResolution(
+                    WallVariant.TIntersection,
+                    CounterClockwiseQuarterTurn(rotation)
+                );
             }
 
             if (count == 2)
@@ -66,20 +69,21 @@ namespace GridPrivate
                     : north && east ? 90
                     : south && west ? 270
                     : 180;
-                return new WallResolution(WallVariant.Corner, rotation);
+                return new WallResolution(
+                    WallVariant.Corner,
+                    CounterClockwiseQuarterTurn(rotation)
+                );
             }
 
             if (count == 1)
-            {
-                int rotation =
-                    east ? 0
-                    : west ? 180
-                    : north ? 270
-                    : 90;
-                return new WallResolution(WallVariant.Endcap, rotation);
-            }
+                return new WallResolution(WallVariant.Straight, east || west ? 0 : 90);
 
             return new WallResolution(WallVariant.Pillar, 0);
+        }
+
+        private static int CounterClockwiseQuarterTurn(int rotation)
+        {
+            return (rotation + 270) % 360;
         }
 
         public static bool IsStructure(TileType[,] gridData, int x, int z)
@@ -96,7 +100,7 @@ namespace GridPrivate
             }
 
             TileType tile = gridData[x, z];
-            return tile == TileType.Wall || tile == TileType.Door;
+            return tile == TileType.Wall || tile == TileType.Door || tile == TileType.ClosedDoor;
         }
     }
 

@@ -580,7 +580,7 @@ public sealed class InvalidGridInitializationPlayModeTests
             );
             LogAssert.Expect(
                 LogType.Error,
-                "Grid initialization failed: Map did not provide valid grid and line-of-sight data."
+                "Grid initialization failed: Replacement grid data is missing."
             );
 
             GridBase grid = gridObject.AddComponent<GridBase>();
@@ -812,7 +812,7 @@ public sealed class InvalidGridInitializationPlayModeTests
             );
             LogAssert.Expect(
                 LogType.Error,
-                "Grid initialization failed: Map did not provide valid grid and line-of-sight data."
+                "Grid initialization failed: Replacement grid data is missing."
             );
             invalidGridObject.SetActive(true);
 

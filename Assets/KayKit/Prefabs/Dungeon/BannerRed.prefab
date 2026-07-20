@@ -9,6 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 6156334378010208263}
+  - component: {fileID: 759813547397718244}
   m_Layer: 0
   m_Name: BannerRed
   m_TagString: Untagged
@@ -32,6 +33,19 @@ Transform:
   - {fileID: 2075215619065858134}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &759813547397718244
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6463284077573105021}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e3ec95e2b9aaf454e8f214b7d610d9c4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: MainGameAssembly::Game.KayKit.DungeonPlacementOffset
+  localOffset: {x: 0, y: -0.25, z: -1}
 --- !u!1001 &1965290040900595645
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -42,15 +56,15 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: c187a078db788304397b708cad7f820f, type: 3}
       propertyPath: m_LocalScale.x
-      value: 0.5
+      value: 0.25
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: c187a078db788304397b708cad7f820f, type: 3}
       propertyPath: m_LocalScale.y
-      value: 0.5
+      value: 0.25
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: c187a078db788304397b708cad7f820f, type: 3}
       propertyPath: m_LocalScale.z
-      value: 0.5
+      value: 0.25
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: c187a078db788304397b708cad7f820f, type: 3}
       propertyPath: m_LocalPosition.x
