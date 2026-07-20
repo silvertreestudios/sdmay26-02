@@ -1173,7 +1173,7 @@ namespace Game.Creature
         private UnityHealthRulesBridge EnsureHealthRules()
         {
             if (healthRules == null)
-                UnityHealthRulesBridge.Create(new[] { this });
+                healthRules = UnityHealthRulesBridge.Create(new[] { this });
             return healthRules;
         }
 
