@@ -952,31 +952,35 @@ public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExpl
         int cardCount = Mathf.Min(cardHolder.childCount, Players.Count);
         for (int i = 0; i < cardCount; i++)
         {
-            try
-            {
-                VisualElement card = cardHolder.ElementAt(i);
-                CreatureComponent creature = Players[i].GetComponent<CreatureComponent>();
-                VisualElement health = card.Q<VisualElement>("HealthBarGreen");
-                VisualElement temporaryHealth = card.Q<VisualElement>("HealthBarBlue");
-                VisualElement emptyHealth = card.Q<VisualElement>("HealthBarEmpty");
-                Label label = card.Q<Label>("HealthBarLabel");
-                int temporaryHitPoints = creature.tempHp;
-                int emptyHitPoints = Mathf.Max(0, creature.maxHp - creature.hp);
+            GameObject player = Players[i];
+            if (player == null)
+                continue;
 
-                health.style.flexGrow = creature.hp;
-                temporaryHealth.style.flexGrow = temporaryHitPoints;
-                emptyHealth.style.flexGrow = emptyHitPoints;
-                label.text =
-                    (creature.hp + temporaryHitPoints)
-                    + "/"
-                    + (creature.maxHp + temporaryHitPoints);
-            }
-            catch (System.Exception exception)
+            VisualElement card = cardHolder.ElementAt(i);
+            CreatureComponent creature = player.GetComponent<CreatureComponent>();
+            VisualElement health = card.Q<VisualElement>("HealthBarGreen");
+            VisualElement temporaryHealth = card.Q<VisualElement>("HealthBarBlue");
+            VisualElement emptyHealth = card.Q<VisualElement>("HealthBarEmpty");
+            Label label = card.Q<Label>("HealthBarLabel");
+            if (
+                creature == null
+                || health == null
+                || temporaryHealth == null
+                || emptyHealth == null
+                || label == null
+            )
             {
-                Debug.LogError(
-                    $"Error updating player card health: {exception.Message}\n{exception.StackTrace}"
-                );
+                continue;
             }
+
+            int temporaryHitPoints = creature.tempHp;
+            int emptyHitPoints = Mathf.Max(0, creature.maxHp - creature.hp);
+
+            health.style.flexGrow = creature.hp;
+            temporaryHealth.style.flexGrow = temporaryHitPoints;
+            emptyHealth.style.flexGrow = emptyHitPoints;
+            label.text =
+                (creature.hp + temporaryHitPoints) + "/" + (creature.maxHp + temporaryHitPoints);
         }
     }
 

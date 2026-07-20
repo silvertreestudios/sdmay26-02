@@ -251,6 +251,20 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         );
     }
 
+    /// <summary>Verifies missing party-room observations fail at the director boundary.</summary>
+    [Test]
+    public void EvaluatePartyRegions_NullRoomIdsThrowsArgumentNullException()
+    {
+        director.EnterRoom(1);
+
+        ArgumentNullException exception = Assert.Throws<ArgumentNullException>(() =>
+            director.EvaluatePartyRegions(1, null)
+        );
+
+        Assert.That(exception.ParamName, Is.EqualTo("livingPcRoomIds"));
+        Assert.That(manager.IsCombatActive, Is.True);
+    }
+
     /// <summary>Verifies a targetable suspended enemy can die during another resumed fight.</summary>
     [Test]
     public void SuspendedMaterializedEnemyDefeatPersistsWithoutInterruptingActiveGroup()

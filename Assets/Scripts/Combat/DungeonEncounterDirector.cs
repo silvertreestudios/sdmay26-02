@@ -199,17 +199,22 @@ namespace Game.Combat.Encounters
         /// <param name="livingPcCount">The positive total number of living PCs.</param>
         /// <param name="livingPcRoomIds">Room IDs occupied by those PCs; omit PCs outside rooms.</param>
         /// <returns>The lifecycle suspension decision.</returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="livingPcRoomIds"/> is null.
+        /// </exception>
         public DungeonEncounterSuspensionResult EvaluatePartyRegions(
             int livingPcCount,
             IEnumerable<int> livingPcRoomIds
         )
         {
             ThrowIfDisposed();
+            if (livingPcRoomIds == null)
+                throw new ArgumentNullException(nameof(livingPcRoomIds));
             if (!combatManager.IsCombatActive)
                 throw new InvalidOperationException(
                     "Party regions can only be evaluated while dungeon combat is active."
                 );
-            IEnumerable<int> effectiveOccupiedRooms = livingPcRoomIds?.Concat(
+            IEnumerable<int> effectiveOccupiedRooms = livingPcRoomIds.Concat(
                 GetActiveEncounterRoomIdsRequiringCombat()
             );
             DungeonEncounterSuspensionResult result = lifecycle.SuspendIfPartyOutsideActiveRegions(
