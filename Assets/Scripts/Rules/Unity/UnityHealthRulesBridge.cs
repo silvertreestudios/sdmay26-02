@@ -64,9 +64,14 @@ namespace Game.Rules.Unity
             if (encounterCreatures == null)
                 throw new ArgumentNullException(nameof(encounterCreatures));
             CreatureComponent[] copied = encounterCreatures.ToArray();
-            if (copied.Length == 0 || copied.Any(creature => creature == null))
+            if (copied.Length == 0)
                 throw new ArgumentException(
-                    "An encounter health bridge requires at least one live creature.",
+                    "An encounter health bridge requires at least one creature.",
+                    nameof(encounterCreatures)
+                );
+            if (copied.Any(creature => creature == null))
+                throw new ArgumentException(
+                    "An encounter health bridge cannot contain a null creature.",
                     nameof(encounterCreatures)
                 );
             if (copied.Distinct().Count() != copied.Length)

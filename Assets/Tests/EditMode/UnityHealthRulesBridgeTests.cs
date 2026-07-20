@@ -11,6 +11,26 @@ using Object = UnityEngine.Object;
 public sealed class UnityHealthRulesBridgeTests
 {
     [Test]
+    public void BridgeRejectsEmptyEncounterWithSpecificError()
+    {
+        ArgumentException error = Assert.Throws<ArgumentException>(() =>
+            UnityHealthRulesBridge.Create(Array.Empty<CreatureComponent>())
+        );
+
+        StringAssert.Contains("requires at least one creature", error.Message);
+    }
+
+    [Test]
+    public void BridgeRejectsNullEncounterCreatureWithSpecificError()
+    {
+        ArgumentException error = Assert.Throws<ArgumentException>(() =>
+            UnityHealthRulesBridge.Create(new CreatureComponent[] { null })
+        );
+
+        StringAssert.Contains("cannot contain a null creature", error.Message);
+    }
+
+    [Test]
     public void CreatureHealthCommandsRejectMissingEncounterBridge()
     {
         GameObject creatureObject = new GameObject("creature");
