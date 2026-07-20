@@ -216,6 +216,9 @@ public abstract class ActionController : MonoBehaviour
     /// <summary>Adds one heterogeneous rules-definition entry to this combatant's action bar.</summary>
     /// <param name="entry">The fully configured definition entry.</param>
     /// <exception cref="ArgumentNullException"><paramref name="entry"/> is null.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="entry"/> does not provide a non-empty stable key.
+    /// </exception>
     /// <exception cref="InvalidOperationException">
     /// Another definition entry already uses the same stable key.
     /// </exception>
@@ -223,6 +226,11 @@ public abstract class ActionController : MonoBehaviour
     {
         if (entry == null)
             throw new ArgumentNullException(nameof(entry));
+        if (entry.Key.IsEmpty)
+            throw new ArgumentException(
+                "A definition action requires a stable key.",
+                nameof(entry)
+            );
         foreach (IDefinitionActionBarEntry registeredEntry in definitionActionEntries)
         {
             if (registeredEntry.Key == entry.Key)

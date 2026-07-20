@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
@@ -771,6 +772,59 @@ namespace TestsUI
             yield return null;
 
             Assert.That(root.Q<Button>("CombatendeddefinitionButton"), Is.Null);
+        }
+
+        /// <summary>
+        /// Verifies repeated HUD enable cycles retain exactly one hover callback pair per element,
+        /// so one pointer transition produces one matching change in hover ownership state.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator HudHoverCallbacksRemainSingleAcrossRepeatedReenable()
+        {
+            Button initialAction = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    initialAction = root.Q<Button>("UnarmedStrikeButton");
+                    return player != null && initialAction != null;
+                }
+            );
+
+            HUDController hud = UnityEngine.Object.FindFirstObjectByType<HUDController>();
+            VisualElement panelElement = root.Q<VisualElement>("Panel");
+            Assert.That(hud, Is.Not.Null);
+            Assert.That(panelElement, Is.Not.Null);
+
+            hud.enabled = false;
+            hud.enabled = true;
+            hud.enabled = false;
+            hud.enabled = true;
+
+            FieldInfo hoverCountField = typeof(HUDController).GetField(
+                "_hudHoverCount",
+                BindingFlags.Instance | BindingFlags.NonPublic
+            );
+            Assert.That(hoverCountField, Is.Not.Null);
+
+            using (MouseEnterEvent enterEvent = MouseEnterEvent.GetPooled())
+            {
+                enterEvent.target = panelElement;
+                panelElement.SendEvent(enterEvent);
+            }
+
+            Assert.That(hoverCountField.GetValue(hud), Is.EqualTo(1));
+            Assert.That(HUDController.IsPointerOverHUD, Is.True);
+
+            using (MouseLeaveEvent leaveEvent = MouseLeaveEvent.GetPooled())
+            {
+                leaveEvent.target = panelElement;
+                panelElement.SendEvent(leaveEvent);
+            }
+
+            Assert.That(hoverCountField.GetValue(hud), Is.Zero);
+            Assert.That(HUDController.IsPointerOverHUD, Is.False);
         }
 
         private int CountButtonsNamed(string buttonName) =>

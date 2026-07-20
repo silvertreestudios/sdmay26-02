@@ -95,6 +95,35 @@ namespace Game.Rules.Unity.Tests
             );
         }
 
+        /// <summary>
+        /// Verifies controller registration rejects an uninitialized definition key before the
+        /// invalid entry can become part of its action-bar state.
+        /// </summary>
+        [Test]
+        public void ControllerRejectsDefinitionWithoutStableKey()
+        {
+            GameObject actor = new GameObject("definition-registration-actor");
+            try
+            {
+                TestActionController controller = actor.AddComponent<TestActionController>();
+                StubDefinitionEntry invalidEntry = new StubDefinitionEntry(
+                    default,
+                    "Missing stable key"
+                );
+
+                ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+                    controller.AddDefinitionAction(invalidEntry)
+                );
+
+                Assert.That(exception.ParamName, Is.EqualTo("entry"));
+                Assert.That(controller.GetActionBarEntries(), Is.Empty);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(actor);
+            }
+        }
+
         private sealed class StubDefinitionEntry : IDefinitionActionBarEntry
         {
             public StubDefinitionEntry(ActionBarEntryKey key, string displayName)

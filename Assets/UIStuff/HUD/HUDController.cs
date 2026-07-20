@@ -112,17 +112,39 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private void RegisterHUDHover(VisualElement el)
     {
-        el.RegisterCallback<MouseEnterEvent>(_ =>
-        {
-            _hudHoverCount++;
-            IsPointerOverHUD = true;
-        });
-        el.RegisterCallback<MouseLeaveEvent>(_ =>
-        {
-            _hudHoverCount = Mathf.Max(0, --_hudHoverCount);
-            IsPointerOverHUD = _hudHoverCount > 0;
-        });
+        if (el == null)
+            return;
+
+        el.UnregisterCallback<MouseEnterEvent>(OnHudMouseEnter);
+        el.UnregisterCallback<MouseLeaveEvent>(OnHudMouseLeave);
+        el.RegisterCallback<MouseEnterEvent>(OnHudMouseEnter);
+        el.RegisterCallback<MouseLeaveEvent>(OnHudMouseLeave);
     }
+
+    private void UnregisterHUDHover(VisualElement el)
+    {
+        if (el == null)
+            return;
+
+        el.UnregisterCallback<MouseEnterEvent>(OnHudMouseEnter);
+        el.UnregisterCallback<MouseLeaveEvent>(OnHudMouseLeave);
+    }
+
+    private void OnHudMouseEnter(MouseEnterEvent _)
+    {
+        _hudHoverCount++;
+        IsPointerOverHUD = true;
+    }
+
+    private void OnHudMouseLeave(MouseLeaveEvent _)
+    {
+        _hudHoverCount = Mathf.Max(0, --_hudHoverCount);
+        IsPointerOverHUD = _hudHoverCount > 0;
+    }
+
+    private void OnCombatLogMouseEnter(MouseEnterEvent _) => IsPointerOverLog = true;
+
+    private void OnCombatLogMouseLeave(MouseLeaveEvent _) => IsPointerOverLog = false;
 
     private void OnEnable()
     {
@@ -152,8 +174,10 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
         //####Combat Log Toggle####
         combatLogElement = ui.Q<VisualElement>("CombatLog");
-        combatLogElement.RegisterCallback<MouseEnterEvent>(_ => IsPointerOverLog = true);
-        combatLogElement.RegisterCallback<MouseLeaveEvent>(_ => IsPointerOverLog = false);
+        combatLogElement.UnregisterCallback<MouseEnterEvent>(OnCombatLogMouseEnter);
+        combatLogElement.UnregisterCallback<MouseLeaveEvent>(OnCombatLogMouseLeave);
+        combatLogElement.RegisterCallback<MouseEnterEvent>(OnCombatLogMouseEnter);
+        combatLogElement.RegisterCallback<MouseLeaveEvent>(OnCombatLogMouseLeave);
         combatLogWrapper = ui.Q<VisualElement>("CombatLogWrapper");
         logToggleButton = ui.Q<Button>("LogToggleButton");
         if (logToggleButton != null)
@@ -182,6 +206,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
         float savedHeight = PlayerPrefs.GetFloat(LogHeightKey, LogHeightDefault);
         combatLogElement.style.height = Mathf.Clamp(savedHeight, LogMinHeight, LogMaxHeight);
+        combatLogElement.UnregisterCallback<GeometryChangedEvent>(ClampLogHeightToScreen);
         combatLogElement.RegisterCallback<GeometryChangedEvent>(ClampLogHeightToScreen);
 
         logVisible = true;
@@ -248,6 +273,16 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             resizeHandle.UnregisterCallback<PointerMoveEvent>(OnResizeMove);
             resizeHandle.UnregisterCallback<PointerUpEvent>(OnResizeEnd);
         }
+        if (combatLogElement != null)
+        {
+            combatLogElement.UnregisterCallback<MouseEnterEvent>(OnCombatLogMouseEnter);
+            combatLogElement.UnregisterCallback<MouseLeaveEvent>(OnCombatLogMouseLeave);
+            combatLogElement.UnregisterCallback<GeometryChangedEvent>(ClampLogHeightToScreen);
+        }
+        UnregisterHUDHover(panel);
+        UnregisterHUDHover(combatLogWrapper);
+        UnregisterHUDHover(cardHolder);
+        UnregisterHUDHover(speedButtonsBox);
         IsPointerOverLog = false;
         _hudHoverCount = 0;
         IsPointerOverHUD = false;
