@@ -218,6 +218,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private void OnDisable()
     {
+        if (slideCoroutine != null)
+        {
+            StopCoroutine(slideCoroutine);
+            slideCoroutine = null;
+        }
         RetirePendingDefinitionExecution();
         actionBarTurnGeneration++;
         currentTurnAC = null;
@@ -982,7 +987,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     public void CancelAction()
     {
-        Debug.Log("here I am");
         if (activeDefinitionExecution is ActiveDefinitionExecutionSession definitionExecution)
         {
             if (definitionExecution.Control.TryCancel())
