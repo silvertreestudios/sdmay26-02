@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Game.Creature;
+using Game.Rules.Runtime;
 using UnityEngine;
 
 namespace Game.Creature.Rules
@@ -38,13 +39,18 @@ namespace Game.Creature.Rules
                             actionController.IsTakingAction = false;
                         break;
                     case RuleEffectType.GainSourceTempHp:
-                        creature?.GainSourceTempHp(effect.Source, effect.Amount);
+                        creature?.GrantSourceTemporaryHitPoints(
+                            RuleSource.FromSlug(effect.Source),
+                            effect.Amount
+                        );
                         break;
                     case RuleEffectType.RemoveSourceTempHp:
-                        creature?.RemoveSourceTempHp(effect.Source);
+                        creature?.RemoveSourceTemporaryHitPoints(
+                            RuleSource.FromSlug(effect.Source)
+                        );
                         break;
                     case RuleEffectType.AddTempHpImmunity:
-                        creature?.AddTempHpImmunity(effect.Source);
+                        creature?.AddTemporaryHitPointImmunity(RuleSource.FromSlug(effect.Source));
                         break;
                 }
             }

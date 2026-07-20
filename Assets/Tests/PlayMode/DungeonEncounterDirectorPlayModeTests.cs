@@ -5,6 +5,7 @@ using System.Linq;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
+using Game.Rules.Runtime;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
@@ -181,7 +182,7 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         CreatureComponent survivorCreature = survivor.GetComponent<CreatureComponent>();
         DirectorTestActionController survivorController =
             survivor.GetComponent<DirectorTestActionController>();
-        survivorCreature.hp = 4;
+        survivorCreature.ApplyFinalDamage(6, RuleSource.FromSlug("test-survivor-damage"));
         survivor.transform.position = new Vector3(4f, 0f, 3f);
         survivorController.ActionPoints = 2;
         survivorController.Reacted = true;
@@ -332,8 +333,7 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         GameObject owner = Track(new GameObject(name));
         CreatureComponent creature = owner.AddComponent<CreatureComponent>();
         creature.name = name;
-        creature.hp = 10;
-        creature.maxHp = 10;
+        creature.InitializeHealthBeforeEncounter(10, 10);
         creature.initiative = initiative;
         owner.AddComponent<Conditions>();
         Team team = owner.AddComponent<Team>();
@@ -416,8 +416,7 @@ public sealed class DungeonEncounterDirectorPlayModeTests
             instance.transform.SetPositionAndRotation(worldPosition, worldRotation);
             CreatureComponent creature = instance.AddComponent<CreatureComponent>();
             creature.name = definition.ContentId;
-            creature.hp = 10;
-            creature.maxHp = 10;
+            creature.InitializeHealthBeforeEncounter(10, 10);
             creature.initiative = CreateCount * 10;
             instance.AddComponent<Conditions>();
             Team team = instance.AddComponent<Team>();

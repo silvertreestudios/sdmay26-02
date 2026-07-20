@@ -199,7 +199,9 @@ namespace TestsCombat
                 events
             );
             Assert.AreEqual(19u, result.FinalAppliedDamage);
-            Assert.AreEqual(81, target.GetComponent<CreatureComponent>().hp);
+            CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
+            Assert.AreEqual(81, targetCreature.hp);
+            Assert.AreEqual(81, targetCreature.Health.Current);
 
             UnityEngine.Object.DestroyImmediate(attacker);
             UnityEngine.Object.DestroyImmediate(target);
@@ -318,8 +320,8 @@ namespace TestsCombat
             GameObject creature = new GameObject(name);
             CreatureComponent component = creature.AddComponent<CreatureComponent>();
             creature.AddComponent<TestActionController>();
-            component.hp = hp;
-            component.maxHp = hp;
+            component.InitializeHealthBeforeEncounter(hp, hp);
+            Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { component });
             component.ac = 10;
             component.attackBonus = 10;
             component.weaknesses = new List<DamageValue>();

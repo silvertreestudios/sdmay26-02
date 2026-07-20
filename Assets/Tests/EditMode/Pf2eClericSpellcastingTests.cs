@@ -208,15 +208,14 @@ public class Pf2eClericSpellcastingTests
     public void HealUsesFontPoolAndCanHealLivingTargets()
     {
         CreatureComponent cleric = CreatePreparedCleric();
-        CreatureComponent ally = CreateCreature("Ally");
-        ally.hp = 3;
-        ally.maxHp = 20;
+        CreatureComponent ally = CreateCreature("Ally", 3, 20);
         UnityEngine.Random.InitState(12);
 
         CastSpellResult result = Cast("heal", cleric, 2, ally.gameObject);
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.hp, Is.GreaterThan(3));
+        Assert.That(ally.Health.Current, Is.EqualTo(ally.hp));
         Assert.That(cleric.Prepared.Spellcasting.Pools["font-heal"].UsesRemaining, Is.EqualTo(3));
     }
 
@@ -227,11 +226,9 @@ public class Pf2eClericSpellcastingTests
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
         controller.ActionPoints = 3;
         controller.IsTakingAction = true;
-        CreatureComponent target = CreateCreature("Target");
+        CreatureComponent target = CreateCreature("Target", 100, 100);
         target.transform.position = new Vector3(6, 0, 0);
         target.ac = 12;
-        target.hp = 100;
-        target.maxHp = 100;
         UnityEngine.Random.InitState(3);
         InstallTestCombatLog();
 
@@ -282,14 +279,18 @@ public class Pf2eClericSpellcastingTests
         return creature;
     }
 
-    private CreatureComponent CreateCreature(string name)
+    private CreatureComponent CreateCreature(
+        string name,
+        int currentHitPoints = 10,
+        int maximumHitPoints = 10
+    )
     {
         GameObject go = new(name);
         created.Add(go);
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
-        creature.hp = 10;
-        creature.maxHp = 10;
+        creature.InitializeHealthBeforeEncounter(currentHitPoints, maximumHitPoints);
+        Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
         return creature;
     }
 

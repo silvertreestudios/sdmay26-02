@@ -3,7 +3,8 @@ using System;
 namespace Game.Rules.Runtime
 {
     /// <summary>
-    /// Immutable committed state. Live Unity components remain authoritative until a later migration seeds a slice.
+    /// Immutable committed rules state. Each seeded slice is authoritative for its domain;
+    /// in particular, seeded health replaces Unity component fields as the live health authority.
     /// </summary>
     public sealed class RulesState
     {

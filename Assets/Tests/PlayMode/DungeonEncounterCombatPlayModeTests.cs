@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using Game.Creature;
+using Game.Rules.Runtime;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.Events;
@@ -79,9 +80,24 @@ public sealed class DungeonEncounterCombatPlayModeTests
         );
         manager.StartDungeonCombat(new[] { current.Controller, later.Controller });
         Assert.That(manager.WhosTurn(), Is.SameAs(current.GameObject));
+        current.Creature.ApplyFinalDamage(2, RuleSource.FromSlug("test-current-damage"));
 
         manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
 
+        Assert.That(
+            current.Creature.hp,
+            Is.EqualTo(8),
+            "Rebuilding health ownership for reinforcements must preserve current combatant state."
+        );
+        reinforcement.Creature.ApplyFinalDamage(
+            1,
+            RuleSource.FromSlug("test-reinforcement-damage")
+        );
+        Assert.That(
+            reinforcement.Creature.hp,
+            Is.EqualTo(9),
+            "A reinforcement must join the authoritative encounter health bridge."
+        );
         Assert.That(
             manager.GetCombatants(),
             Is.EquivalentTo(
@@ -111,7 +127,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Vector3 preservedPosition = new(4f, 0f, 7f);
         ConditionSource preservedSource = new();
         player.GameObject.transform.position = preservedPosition;
-        player.Creature.hp = 7;
+        player.Creature.InitializeHealthBeforeEncounter(7, 10);
         player.Conditions.Add("Off-Guard", preservedSource);
 
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
@@ -267,8 +283,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
         creature.name = name;
         creature.initiative = initiative;
-        creature.hp = 10;
-        creature.maxHp = 10;
+        creature.InitializeHealthBeforeEncounter(10, 10);
         Conditions conditions = gameObject.AddComponent<Conditions>();
         TestActionController controller = gameObject.AddComponent<TestActionController>();
         Team team = gameObject.AddComponent<Team>();

@@ -217,7 +217,12 @@ namespace Game.Rules.Runtime
         )
         {
             OpFrame<TOp> frame = GetFrame(invocation);
-            ReductionResult<TResult> reduced = dispatcher.Reduce(frame, reducer, source);
+            RuleSource factSource = frame.Op is IRuleSourcedOp sourced ? sourced.Source : source;
+            if (factSource.IsEmpty)
+                throw new InvalidOperationException(
+                    $"Reducer operation {typeof(TOp).Name} supplied an empty rule source."
+                );
+            ReductionResult<TResult> reduced = dispatcher.Reduce(frame, reducer, factSource);
             dispatcher.CaptureCommittedFacts(invocation, reduced.Facts);
             if (reduced.Facts.Count > 0)
             {

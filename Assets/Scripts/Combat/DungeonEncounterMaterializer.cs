@@ -572,7 +572,11 @@ namespace Game.Combat.Encounters
                             throw new InvalidOperationException(
                                 $"Restored encounter creature '{instance.name}' has no CreatureComponent."
                             );
-                        creature.hp = restored.HitPoints;
+                        creature.InitializeHealthBeforeEncounter(
+                            restored.HitPoints,
+                            creature.maxHp,
+                            creature.tempHp
+                        );
                         persistentState = restored.State ?? string.Empty;
                     }
                     member.Configure(

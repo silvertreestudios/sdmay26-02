@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Game.Creature;
+using Game.Rules.Runtime;
 using UnityEngine;
 
 namespace Game.Creature.Rules
@@ -45,7 +46,10 @@ namespace Game.Creature.Rules
                 target.resistances
             );
             DamageRoller.FinalizeDamageResolution(resolution);
-            target.TakeDamage((uint)Mathf.Max(0, resolution.TotalDamage));
+            target.ApplyFinalDamage(
+                Mathf.Max(0, resolution.TotalDamage),
+                RuleSource.FromSlug(RuleSlug)
+            );
 
             CreatureAuraEffectResult result = new()
             {

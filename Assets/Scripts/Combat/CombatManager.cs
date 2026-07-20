@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
@@ -19,6 +20,7 @@ public class CombatManager : CombatManagerInterface
     private readonly HashSet<ActionController> actedThisRound = new();
     private bool combatActive;
     private bool dungeonDirectedCombat;
+    private UnityHealthRulesBridge healthRules;
 
     // Events
     // See CombatEvents.cs for a list of events triggered by this class
@@ -164,6 +166,7 @@ public class CombatManager : CombatManagerInterface
             InsertReinforcement(reinforcement, waitsForNextRound);
         }
 
+        RebuildHealthRulesBridge();
         Pf2eRulesEngine.ApplyCombatStartRules(additions);
         LogInitiative(
             "Reinforcements",
@@ -226,11 +229,19 @@ public class CombatManager : CombatManagerInterface
         foreach (ActionController controller in activeCombatants)
             controller.ResetEncounterTurnState();
 
+        RebuildHealthRulesBridge();
         RollInitiative(activeCombatants);
         Pf2eRulesEngine.ApplyCombatStartRules(activeCombatants);
         CombatActivityChanged.Invoke(true);
         OnCombatStart.Invoke();
         NextTurn();
+    }
+
+    private void RebuildHealthRulesBridge()
+    {
+        healthRules = UnityHealthRulesBridge.Create(
+            activeCombatants.Select(controller => controller.GetComponent<CreatureComponent>())
+        );
     }
 
     /// <summary>

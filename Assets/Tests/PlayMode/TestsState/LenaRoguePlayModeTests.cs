@@ -63,7 +63,7 @@ namespace TestsState
             Assert.That(observed.FlatDamages[0].DamageAmount, Is.EqualTo(creature.dexMod));
             Assert.That(lena.GetComponent<ActionController>().ActionPoints, Is.EqualTo(2u));
             Assert.That(lena.GetComponent<ActionController>().StrikePenalty, Is.EqualTo(1u));
-            Assert.Less(target.GetComponent<CreatureComponent>().hp, 100);
+            Assert.Less(target.GetComponent<CreatureComponent>().tempHp, 100);
         }
 
         [UnityTest]
@@ -88,7 +88,12 @@ namespace TestsState
             yield return ExecuteSelectedStrike(lena, targetCell, value => normalStrike = value);
             Assert.That(normalStrike.DamageDice.Count, Is.EqualTo(1));
 
-            target.GetComponent<CreatureComponent>().hp = 100;
+            target
+                .GetComponent<CreatureComponent>()
+                .GrantSourceTemporaryHitPoints(
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                    100
+                );
             target.GetComponent<Conditions>().Add("Off-Guard", new ConditionSource());
             yield return ForceTurnAndClickAction(lena, "DogslicerButton");
             StrikeResolutionContext offGuardStrike = null;
@@ -131,7 +136,7 @@ namespace TestsState
             );
             Assert.That(observed.DamageDice.Count, Is.EqualTo(2));
             Assert.That(observed.DamageDice[1].damageType, Is.EqualTo("precision"));
-            Assert.Less(target.GetComponent<CreatureComponent>().hp, 100);
+            Assert.Less(target.GetComponent<CreatureComponent>().tempHp, 100);
         }
 
         [UnityTest]
@@ -226,7 +231,7 @@ namespace TestsState
             Assert.That(observed.DamageDice[1].damageType, Is.EqualTo("precision"));
             Assert.That(creature.GetAmmoQuantity("arrows"), Is.EqualTo(startingAmmo - 1));
             Assert.That(lena.GetComponent<ActionController>().ActionPoints, Is.EqualTo(2u));
-            Assert.Less(target.GetComponent<CreatureComponent>().hp, 100);
+            Assert.Less(target.GetComponent<CreatureComponent>().tempHp, 100);
         }
 
         [UnityTest]
@@ -256,7 +261,7 @@ namespace TestsState
             Assert.That(controller.ActionPoints, Is.EqualTo(3u));
             Assert.That(controller.StrikePenalty, Is.EqualTo(0u));
             Assert.That(creature.GetAmmoQuantity("arrows"), Is.EqualTo(startingAmmo));
-            Assert.That(target.GetComponent<CreatureComponent>().hp, Is.EqualTo(100));
+            Assert.That(target.GetComponent<CreatureComponent>().tempHp, Is.EqualTo(100));
         }
 
         private IEnumerator WaitForLena(Action<GameObject> assign)
@@ -434,8 +439,7 @@ namespace TestsState
             team.Name = actor.GetComponent<Team>().Name;
             CreatureComponent creature = ally.AddComponent<CreatureComponent>();
             creature.strMod = 1;
-            creature.hp = 10;
-            creature.maxHp = 10;
+            creature.InitializeHealthBeforeEncounter(10, 10);
             ally.AddComponent<Conditions>();
             TestActionController controller = ally.AddComponent<TestActionController>();
             controller.AddAction(
@@ -454,8 +458,10 @@ namespace TestsState
             creature.equippedArmor = null;
             creature.armorBonuses = new List<ArmorBonus>();
             creature.ac = ac;
-            creature.maxHp = hp;
-            creature.hp = hp;
+            creature.GrantSourceTemporaryHitPoints(
+                Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                hp
+            );
             if (target.GetComponent<Conditions>() == null)
                 target.AddComponent<Conditions>();
         }

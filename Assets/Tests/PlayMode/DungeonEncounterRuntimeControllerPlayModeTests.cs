@@ -314,8 +314,7 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         GameObject owner = Track(new GameObject("Player"));
         CreatureComponent creature = owner.AddComponent<CreatureComponent>();
         creature.name = "Player";
-        creature.hp = 10;
-        creature.maxHp = 10;
+        creature.InitializeHealthBeforeEncounter(10, 10);
         creature.initiative = 100;
         owner.AddComponent<Conditions>();
         Team team = owner.AddComponent<Team>();

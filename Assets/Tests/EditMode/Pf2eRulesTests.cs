@@ -81,6 +81,21 @@ public class Pf2eRulesTests
     }
 
     [Test]
+    public void ValerosImportsCompleteCurrentAndMaximumHealth()
+    {
+        GameObject valeros = CreatureJsonConverter.CreateFromFile(
+            "DataFiles/iconics/valeros-level-1"
+        );
+        created.Add(valeros);
+
+        CreatureComponent creature = valeros.GetComponent<CreatureComponent>();
+
+        Assert.That(creature.hp, Is.EqualTo(20));
+        Assert.That(creature.maxHp, Is.EqualTo(20));
+        Assert.That(creature.tempHp, Is.Zero);
+    }
+
+    [Test]
     public void ZombiePassiveSlowAppliesAtCombatStart()
     {
         GameObject zombie = CreatureJsonConverter.CreateFromFile(
@@ -264,11 +279,14 @@ public class Pf2eRulesTests
         Assert.That(rage.UseRage(creature.gameObject), Is.True);
 
         Assert.That(creature.tempHp, Is.EqualTo(2));
+        Assert.That(creature.Health.Temporary, Is.EqualTo(2));
+        Assert.That(creature.Health.TemporarySource.Slug, Is.EqualTo("rage"));
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
         Assert.That(actionController.IsTakingAction, Is.False);
 
         rage.EndRage(creature.gameObject);
         Assert.That(creature.tempHp, Is.EqualTo(0));
+        Assert.That(creature.Health.Temporary, Is.Zero);
         Assert.That(creature.HasTempHpImmunity("rage"), Is.True);
 
         Assert.That(rage.UseRage(creature.gameObject), Is.True);
@@ -454,6 +472,7 @@ public class Pf2eRulesTests
         created.Add(go);
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
+        Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
         creature.level = 1;
         creature.conMod = 1;
         creature.Build = new CharacterBuild
@@ -493,8 +512,7 @@ public class Pf2eRulesTests
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
         creature.ac = 15;
-        creature.hp = 10;
-        creature.maxHp = 10;
+        creature.InitializeHealthBeforeEncounter(10, 10);
         return creature;
     }
 

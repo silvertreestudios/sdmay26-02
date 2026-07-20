@@ -6,6 +6,7 @@ using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules;
 using UnityEngine;
+using RuleSource = Game.Rules.Runtime.RuleSource;
 
 /// <summary>
 /// Resolves Strikes through deterministic phases. The invoking action owns target selection, resource checks, action cost, and MAP increment.
@@ -479,7 +480,13 @@ internal sealed class ApplyDefenseAndDamageAdjustment : StrikeAdjustmentBase
         DamageRoller.FinalizeDamageResolution(context.DamageResolution);
         context.DamageValues = context.DamageResolution.DamageValues;
         context.FinalAppliedDamage = (uint)Mathf.Max(0, context.DamageResolution.TotalDamage);
-        context.TargetCreature.TakeDamage(context.FinalAppliedDamage);
+        string sourceSlug = string.IsNullOrWhiteSpace(context.Profile.ItemSlug)
+            ? "strike"
+            : context.Profile.ItemSlug;
+        context.TargetCreature.ApplyFinalDamage(
+            (int)context.FinalAppliedDamage,
+            RuleSource.FromSlug(sourceSlug)
+        );
     }
 }
 

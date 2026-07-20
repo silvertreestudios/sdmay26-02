@@ -7,6 +7,7 @@ using Game.KayKit;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
+using RuleSource = Game.Rules.Runtime.RuleSource;
 
 namespace Game.Combat.Spells
 {
@@ -224,7 +225,8 @@ namespace Game.Combat.Spells
             GameObject target,
             Dice dice,
             CastSpellResult result,
-            bool applyDeafenedOnCriticalFailure
+            bool applyDeafenedOnCriticalFailure,
+            RuleSource source
         )
         {
             DamageRollResolution damage = DamageRoller.StartDamageResolution(
@@ -237,7 +239,8 @@ namespace Game.Combat.Spells
                 target,
                 new DamageValue(dice.damageType, damage.TotalDamage),
                 result,
-                applyDeafenedOnCriticalFailure
+                applyDeafenedOnCriticalFailure,
+                source
             );
         }
 
@@ -246,7 +249,8 @@ namespace Game.Combat.Spells
             GameObject target,
             DamageValue damage,
             CastSpellResult result,
-            bool applyDeafenedOnCriticalFailure
+            bool applyDeafenedOnCriticalFailure,
+            RuleSource source
         )
         {
             CreatureComponent casterCreature = caster.GetComponent<CreatureComponent>();
@@ -257,7 +261,7 @@ namespace Game.Combat.Spells
             result.Rolls.Add(save);
             int amount = BasicSaveDamage(damage.DamageAmount, save.degree);
             if (amount > 0)
-                targetCreature.TakeDamage((uint)amount);
+                targetCreature.ApplyFinalDamage(amount, source);
             if (applyDeafenedOnCriticalFailure && save.degree == DegreeOfSuccess.CriticalFail)
                 (target.GetComponent<Conditions>() ?? target.AddComponent<Conditions>()).Add(
                     "Deafened",

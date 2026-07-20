@@ -100,7 +100,9 @@ namespace TestsCombat
                 );
 
             Assert.AreEqual(1, woundedResults.Count);
-            Assert.AreEqual(4, wounded.GetComponent<CreatureComponent>().hp);
+            CreatureComponent woundedCreature = wounded.GetComponent<CreatureComponent>();
+            Assert.AreEqual(4, woundedCreature.hp);
+            Assert.AreEqual(4, woundedCreature.Health.Current);
             Assert.AreEqual(0, healthyResults.Count);
             Assert.AreEqual(10, healthy.GetComponent<CreatureComponent>().hp);
             Assert.AreEqual(0, outsideResults.Count);
@@ -233,8 +235,8 @@ namespace TestsCombat
             obj.transform.position = new Vector3(x, 0, z);
             CreatureComponent creature = obj.AddComponent<CreatureComponent>();
             creature.name = name;
-            creature.hp = hp;
-            creature.maxHp = maxHp;
+            creature.InitializeHealthBeforeEncounter(hp, maxHp);
+            Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
             creature.traits = traits == null ? new List<string>() : new List<string>(traits);
             creature.weaknesses = new List<DamageValue>();
             creature.resistances = new List<DamageValue>();

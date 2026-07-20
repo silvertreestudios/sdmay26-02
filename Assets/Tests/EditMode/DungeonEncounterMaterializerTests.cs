@@ -471,8 +471,7 @@ public sealed class DungeonEncounterMaterializerTests
             instance.transform.SetParent(parent, true);
             instance.transform.SetPositionAndRotation(worldPosition, worldRotation);
             CreatureComponent creature = instance.AddComponent<CreatureComponent>();
-            creature.maxHp = 10;
-            creature.hp = 10;
+            creature.InitializeHealthBeforeEncounter(10, 10);
             instance.AddComponent<TestActionController>();
             return instance;
         }

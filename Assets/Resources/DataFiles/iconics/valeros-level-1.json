@@ -5,6 +5,7 @@
     "abilities": null,
     "attributes": {
       "hp": {
+        "max": 20,
         "temp": 0,
         "value": 20
       }
