@@ -67,6 +67,31 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
     }
 
+    /// <summary>Verifies removing the active controller clears its stale turn-owner reference.</summary>
+    [Test]
+    public void Remove_CurrentTurnOwnerClearsReferenceWithoutReentrantAdvance()
+    {
+        CombatantFixture current = CreateCombatant("Current", "Players", 100);
+        CombatantFixture next = CreateCombatant("Next", "Enemies", 50);
+        CombatantFixture ally = CreateCombatant("Ally", "Players", 0);
+        manager.StartDungeonCombat(new[] { current.Controller, next.Controller, ally.Controller });
+        Assert.That(manager.WhosTurn(), Is.SameAs(current.GameObject));
+
+        manager.Remove(current.Controller);
+
+        Assert.That(manager.WhosTurn(), Is.Null);
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EquivalentTo(new[] { next.GameObject, ally.GameObject })
+        );
+        Assert.That(next.Controller.StartTurnCount, Is.Zero);
+
+        manager.NextTurn();
+
+        Assert.That(manager.WhosTurn(), Is.SameAs(next.GameObject));
+        Assert.That(next.Controller.StartTurnCount, Is.EqualTo(1));
+    }
+
     /// <summary>Verifies a reinforcement before the current initiative waits for the next round.</summary>
     [Test]
     public void AddDungeonReinforcements_HigherInitiativeWaitsUntilNextRound()

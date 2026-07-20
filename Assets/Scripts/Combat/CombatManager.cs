@@ -59,6 +59,8 @@ public class CombatManager : CombatManagerInterface
         activeCombatants.Remove(combatant);
         initiatives.Remove(combatant);
         actedThisRound.Remove(combatant);
+        if (TurnTaker == combatant)
+            TurnTaker = null;
         for (int i = TurnQueue.Count - 1; i >= 0; i--)
         {
             if (TurnQueue[i].Player == combatant)
