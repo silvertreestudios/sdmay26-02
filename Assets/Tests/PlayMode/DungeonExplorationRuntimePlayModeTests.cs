@@ -147,8 +147,8 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(step.Value, Is.True);
         AssertPartyCells(
             fixture,
-            new DungeonCell(4, 1),
             new DungeonCell(3, 1),
+            new DungeonCell(2, 1),
             new DungeonCell(2, 2),
             new DungeonCell(1, 1)
         );
@@ -367,6 +367,38 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(fixture.Party[0].Controller.ActionPoints, Is.EqualTo(actionPoints));
         Assert.That(opened, Is.EqualTo(new[] { zDoor.Id, aDoor.Id }));
         Assert.That(fixture.Runtime.CaptureOpenDoorIds(), Is.EqualTo(new[] { aDoor.Id, zDoor.Id }));
+        yield break;
+    }
+
+    /// <summary>
+    /// Verifies a living follower may open an adjacent exploration door when the selected leader
+    /// is not adjacent, without granting the follower movement authority or spending actions.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator ExplorationDoorOpeningAllowsAdjacentFollower()
+    {
+        DoorSpec followerDoor = new("door-follower", new DungeonCell(4, 3));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 1), new Vector3Int(4, 0, 2) },
+            doors: new[] { followerDoor },
+            configurePartyBeforeInitialization: party =>
+            {
+                party[0].SeedTurnState(false, 2, true, 2);
+                party[1].SeedTurnState(false, 1, true, 1);
+            }
+        );
+        uint leaderActions = fixture.Party[0].Controller.ActionPoints;
+        uint followerActions = fixture.Party[1].Controller.ActionPoints;
+
+        Assert.That(fixture.Party[0].Controller.IsInDungeonExploration, Is.True);
+        Assert.That(fixture.Party[1].Controller.IsInDungeonExploration, Is.False);
+        Assert.That(fixture.Runtime.TryOpenDoor(followerDoor.Cell), Is.True);
+
+        AssertDoorOpen(fixture, followerDoor.Cell);
+        Assert.That(fixture.Party[0].Controller.ActionPoints, Is.EqualTo(leaderActions));
+        Assert.That(fixture.Party[1].Controller.ActionPoints, Is.EqualTo(followerActions));
+        Assert.That(fixture.Party[0].Controller.IsInDungeonExploration, Is.True);
+        Assert.That(fixture.Party[1].Controller.IsInDungeonExploration, Is.False);
         yield break;
     }
 

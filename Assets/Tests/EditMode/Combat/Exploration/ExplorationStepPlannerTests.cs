@@ -62,9 +62,12 @@ namespace Game.Tests.Combat.Exploration
             AssertEveryMoveIsCardinal(north);
         }
 
-        /// <summary>Verifies changing to any leader never teleports disconnected followers.</summary>
+        /// <summary>
+        /// Verifies changing to a later roster member rebuilds a leader-relative trail without
+        /// teleporting and keeps that trail connected over subsequent steps.
+        /// </summary>
         [Test]
-        public void SelectLeader_DisconnectedStableFollowerTailHoldsWithoutTeleporting()
+        public void SelectLeader_LaterRosterLeaderBuildsConnectedFollowerTrailAcrossSteps()
         {
             ExplorationPartyState party = Party(
                     "a",
@@ -74,16 +77,30 @@ namespace Game.Tests.Combat.Exploration
                 )
                 .SelectLeader(Id("c"));
 
-            AcceptedExplorationStepPlan plan = Accepted(
+            AcceptedExplorationStepPlan first = Accepted(
                 ExplorationStepPlanner.Plan(
                     new ExplorationStepRequest(party, Cell(-1, 1), OpenCells())
                 )
             );
+            AcceptedExplorationStepPlan second = Accepted(
+                ExplorationStepPlanner.Plan(
+                    new ExplorationStepRequest(first.ResultingParty, Cell(-1, 2), OpenCells())
+                )
+            );
 
-            Assert.That(plan.ResultingParty.SelectedLeaderId, Is.EqualTo(Id("c")));
-            Assert.That(plan.Moves.Select(move => move.MemberId.Value), Is.EqualTo(new[] { "c" }));
-            Assert.That(Cells(plan.ResultingParty), Is.EqualTo(new[] { 1, 0, 0, 0, -1, 1 }));
-            AssertEveryMoveIsCardinal(plan);
+            Assert.That(first.ResultingParty.SelectedLeaderId, Is.EqualTo(Id("c")));
+            Assert.That(
+                first.Moves.Select(move => move.MemberId.Value),
+                Is.EqualTo(new[] { "c", "b", "a" })
+            );
+            Assert.That(Cells(first.ResultingParty), Is.EqualTo(new[] { 0, 0, -1, 0, -1, 1 }));
+            Assert.That(
+                second.Moves.Select(move => move.MemberId.Value),
+                Is.EqualTo(new[] { "c", "b", "a" })
+            );
+            Assert.That(Cells(second.ResultingParty), Is.EqualTo(new[] { -1, 0, -1, 1, -1, 2 }));
+            AssertEveryMoveIsCardinal(first);
+            AssertEveryMoveIsCardinal(second);
         }
 
         /// <summary>Verifies a reserved follower target holds that follower and the remaining tail.</summary>

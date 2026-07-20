@@ -118,8 +118,8 @@ namespace Game.Combat.Exploration
         }
 
         /// <summary>
-        /// Gets moved members in execution order: leader first, then the contiguous movable
-        /// follower prefix in stable roster order.
+        /// Gets moved members in execution order: leader first, then each follower selected by
+        /// stable roster order from the members adjacent to its predecessor's prior cell.
         /// </summary>
         public IReadOnlyList<ExplorationMemberMove> Moves => moves;
 
@@ -140,8 +140,8 @@ namespace Game.Combat.Exploration
     }
 
     /// <summary>
-    /// Plans one cardinal leader move followed by a deterministic, stable-roster chain into each
-    /// predecessor's prior cell.
+    /// Plans one cardinal leader move followed by a deterministic chain into each predecessor's
+    /// prior cell. Stable roster order breaks ties when multiple followers could extend the chain.
     /// </summary>
     public static class ExplorationStepPlanner
     {
@@ -185,31 +185,30 @@ namespace Game.Combat.Exploration
             resultingMembers[leaderIndex] = new ExplorationPartyMember(leader.Id, destination);
 
             DungeonCell predecessorPriorCell = leader.Cell;
-            bool followerTailHolds = false;
-            for (int index = 0; index < resultingMembers.Length; index++)
+            List<ExplorationPartyMember> followers = party
+                .Members.Where(member => member.Id != leader.Id)
+                .ToList();
+            while (followers.Count > 0)
             {
-                ExplorationPartyMember follower = party.Members[index];
-                if (follower.Id == leader.Id)
-                    continue;
-                if (followerTailHolds)
-                    continue;
-                if (
-                    !AreCardinalNeighbors(follower.Cell, predecessorPriorCell)
-                    || !request.Availability.CanOccupy(predecessorPriorCell)
-                )
+                int followerIndex = followers.FindIndex(follower =>
+                    AreCardinalNeighbors(follower.Cell, predecessorPriorCell)
+                );
+                if (followerIndex < 0 || !request.Availability.CanOccupy(predecessorPriorCell))
                 {
-                    followerTailHolds = true;
-                    continue;
+                    break;
                 }
 
+                ExplorationPartyMember follower = followers[followerIndex];
                 moves.Add(
                     new ExplorationMemberMove(follower.Id, follower.Cell, predecessorPriorCell)
                 );
-                resultingMembers[index] = new ExplorationPartyMember(
+                int rosterIndex = IndexOf(resultingMembers, follower.Id);
+                resultingMembers[rosterIndex] = new ExplorationPartyMember(
                     follower.Id,
                     predecessorPriorCell
                 );
                 predecessorPriorCell = follower.Cell;
+                followers.RemoveAt(followerIndex);
             }
 
             return new AcceptedExplorationStepPlan(

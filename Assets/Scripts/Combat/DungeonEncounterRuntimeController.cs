@@ -215,8 +215,8 @@ namespace Game.Combat.Encounters
         /// when there is no door, the actor is ineligible, or the interaction cannot be applied.
         /// </returns>
         /// <remarks>
-        /// Opening is free for the selected exploration leader and costs the current living PC
-        /// exactly one action in combat. Generated doors are open-only in V1.
+        /// Opening is free for any adjacent living party member during exploration and costs the
+        /// current living PC exactly one action in combat. Generated doors are open-only in V1.
         /// </remarks>
         public bool TryOpenDoor(DungeonCell doorCell)
         {
@@ -230,9 +230,16 @@ namespace Game.Combat.Encounters
             DungeonDoorInteractionMode mode = combatManager.IsCombatActive
                 ? DungeonDoorInteractionMode.Combat
                 : DungeonDoorInteractionMode.Exploration;
+            bool partyActionInProgress = party.Any(member =>
+                member != null && member.IsTakingAction
+            );
             ActionController actor =
                 mode == DungeonDoorInteractionMode.Exploration
-                    ? selectedLeader
+                    ? partyActionInProgress
+                        ? null
+                        : party.FirstOrDefault(member =>
+                            CanObserve(member) && IsCardinallyAdjacent(member, door.Cell)
+                        )
                     : combatManager.WhosTurn()?.GetComponent<ActionController>();
             bool actorIsPartyMember = actor != null && party.Contains(actor);
             bool actorIsAlive = actorIsPartyMember && CanObserve(actor);
@@ -665,6 +672,14 @@ namespace Game.Combat.Encounters
                 }
             }
             return 0;
+        }
+
+        private static bool IsCardinallyAdjacent(ActionController controller, DungeonCell target)
+        {
+            Vector3Int position = Vector3Int.RoundToInt(controller.transform.position);
+            long xDistance = Math.Abs((long)position.x - target.X);
+            long zDistance = Math.Abs((long)position.z - target.Z);
+            return xDistance + zDistance == 1;
         }
 
         private static bool CanObserve(ActionController controller)

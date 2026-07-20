@@ -13,6 +13,12 @@ public class Stride : MultiFrameEntityAction
     public Stride(uint cost)
         : base(cost) { }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Exploration authority is captured before yielding to the grid coroutine. If a committed
+    /// step activates combat, the Stride that began in exploration remains free while later
+    /// combat Strides use normal action costs.
+    /// </remarks>
     protected override IEnumerator MFInvoke(GameObject target)
     {
         bool canceled = false;

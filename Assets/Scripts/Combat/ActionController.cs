@@ -115,10 +115,14 @@ public abstract class ActionController : MonoBehaviour
         return available;
     }
 
-    /// <summary>
-    /// Performs a given action for this controller
-    /// </summary>
-    /// <param name="action"></param>
+    /// <summary>Starts an action when this controller has authority in its current mode.</summary>
+    /// <param name="action">The movement or combat action to authorize and invoke.</param>
+    /// <remarks>
+    /// Concurrent actions are rejected. During dungeon exploration, only registered movement
+    /// actions are allowed and action points are ignored; outside exploration, the controller must
+    /// own the combat turn and afford the action cost. The invoked action remains responsible for
+    /// clearing <see cref="IsTakingAction"/> when its synchronous or coroutine work completes.
+    /// </remarks>
     public void TakeAction(EntityAction action)
     {
         if (action == null)
