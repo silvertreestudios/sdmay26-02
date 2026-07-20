@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Combat.Encounters;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -898,27 +899,42 @@ namespace Game.Creature
             set => _description = value;
         }
 
+        private bool runtimeActionsInitialized;
+
         void Awake() { }
 
         void Start()
         {
-            // Initialization code here
+            InitializeRuntimeActions();
+        }
+
+        /// <summary>
+        /// Prepares derived character state and adds default strikes and spells exactly once.
+        /// </summary>
+        /// <remarks>
+        /// Runtime encounter materialization calls this before initiative can select a newly
+        /// instantiated creature. Unity's later <c>Start</c> callback is therefore idempotent.
+        /// </remarks>
+        public void InitializeRuntimeActions()
+        {
+            if (runtimeActionsInitialized)
+                return;
+
             if (Prepared == null && Build != null)
                 Prepared = Pf2eCharacterPreparer.Prepare(this, Build);
 
-            // Add initial strike actions
-            if (this.gameObject.GetComponent<ActionController>() != null)
-            {
-                Unarmed.AddUnarmedStrike(this.gameObject);
-                StrikeWeapon.WeaponStrikeAdderAutomatic(this.gameObject);
-                CastSpellAction.AddSpellActions(this.gameObject);
-            }
-            else
+            if (gameObject.GetComponent<ActionController>() == null)
             {
                 Debug.LogWarning(
                     $"No ActionController found on {name}, cannot add default strikes"
                 );
+                return;
             }
+
+            runtimeActionsInitialized = true;
+            Unarmed.AddUnarmedStrike(gameObject);
+            StrikeWeapon.WeaponStrikeAdderAutomatic(gameObject);
+            CastSpellAction.AddSpellActions(gameObject);
         }
 
         void Update()
@@ -1058,6 +1074,11 @@ namespace Game.Creature
             var ac = gameObject.GetComponent<ActionController>();
             if (ac != null && CombatManagerInterface.GetInstance() != null)
                 CombatManagerInterface.GetInstance().Remove(ac);
+
+            DungeonEncounterMember encounterMember =
+                gameObject.GetComponent<DungeonEncounterMember>();
+            if (encounterMember != null && encounterMember.IsConfigured)
+                encounterMember.ReportDefeated();
 
             GridAPI.GetInstance().DestroyToken(this.gameObject);
             DisableGameplayInteraction(ac);

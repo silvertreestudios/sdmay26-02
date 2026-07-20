@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
 
@@ -7,6 +8,31 @@ using System.Runtime.CompilerServices;
 
 namespace Game.DungeonGeneration
 {
+    /// <summary>Creates canonical stable identities for planned dungeon creature instances.</summary>
+    public static class DungeonCreatureInstanceIdentity
+    {
+        /// <summary>Creates the stable ID for one zero-based creature position in a plan.</summary>
+        /// <param name="encounterId">The stable non-empty encounter ID.</param>
+        /// <param name="creatureIndex">The zero-based creature index in plan order.</param>
+        /// <returns>An ID stable across serialization, materialization, and restoration.</returns>
+        /// <exception cref="ArgumentException"><paramref name="encounterId"/> is blank.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="creatureIndex"/> is negative.</exception>
+        public static string Create(string encounterId, int creatureIndex)
+        {
+            if (string.IsNullOrWhiteSpace(encounterId))
+                throw new ArgumentException(
+                    "A creature instance requires an encounter ID.",
+                    nameof(encounterId)
+                );
+            if (creatureIndex < 0)
+                throw new ArgumentOutOfRangeException(nameof(creatureIndex));
+
+            return encounterId
+                + "/creature-"
+                + creatureIndex.ToString("D4", CultureInfo.InvariantCulture);
+        }
+    }
+
     /// <summary>Controls the playable outline applied before rooms and corridors are carved.</summary>
     public enum DungeonLayout
     {
@@ -529,7 +555,10 @@ namespace Game.DungeonGeneration
     public sealed class DungeonCreatureRuntimeState
     {
         /// <summary>Creates a creature runtime-state record.</summary>
-        /// <param name="instanceId">The stable spawned-instance identifier.</param>
+        /// <param name="instanceId">
+        /// The canonical plan-derived identifier produced by
+        /// <see cref="DungeonCreatureInstanceIdentity.Create"/>.
+        /// </param>
         /// <param name="creatureId">The immutable creature content identifier, which must be present in the referenced plan.</param>
         /// <param name="encounterId">The stable unresolved encounter plan that created the instance.</param>
         /// <param name="cell">The current walkable cell, which must not be occupied by another live instance.</param>

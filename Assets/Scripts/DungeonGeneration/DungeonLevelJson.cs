@@ -1236,17 +1236,58 @@ namespace Game.DungeonGeneration
                         encounterById.Add(plan.Id, plan);
                 }
 
+                Dictionary<
+                    string,
+                    (DungeonEncounterPlan Plan, string CreatureId)
+                > expectedCreatureByInstanceId = new(StringComparer.Ordinal);
+                foreach (DungeonEncounterPlan plan in encounters)
+                {
+                    if (string.IsNullOrWhiteSpace(plan.Id))
+                        continue;
+                    for (int index = 0; index < plan.CreatureIds.Count; index++)
+                    {
+                        expectedCreatureByInstanceId.TryAdd(
+                            DungeonCreatureInstanceIdentity.Create(plan.Id, index),
+                            (plan, plan.CreatureIds[index])
+                        );
+                    }
+                }
+                if (defeatedInstanceIds.Any(id => !expectedCreatureByInstanceId.ContainsKey(id)))
+                {
+                    errors.Add(
+                        D(
+                            "runtimeState.defeatedCreatureIds",
+                            "Defeated creature IDs must use canonical plan-derived instance IDs."
+                        )
+                    );
+                }
+                if (runtime.Creatures.Any(creature => creature.HitPoints <= 0))
+                {
+                    errors.Add(
+                        D("runtimeState.creatures", "Live creature hit points must be positive.")
+                    );
+                }
+
                 bool invalidLiveCreature = false;
                 foreach (DungeonCreatureRuntimeState creature in runtime.Creatures)
                 {
                     if (
-                        !encounterById.TryGetValue(
-                            creature.EncounterId,
-                            out DungeonEncounterPlan plan
+                        !expectedCreatureByInstanceId.TryGetValue(
+                            creature.InstanceId,
+                            out (DungeonEncounterPlan Plan, string CreatureId) expected
                         )
-                        || plan.IsResolved
+                        || !string.Equals(
+                            creature.EncounterId,
+                            expected.Plan.Id,
+                            StringComparison.Ordinal
+                        )
+                        || !string.Equals(
+                            creature.CreatureId,
+                            expected.CreatureId,
+                            StringComparison.Ordinal
+                        )
+                        || expected.Plan.IsResolved
                         || !Walkable(creature.Cell)
-                        || !plan.CreatureIds.Contains(creature.CreatureId, StringComparer.Ordinal)
                     )
                     {
                         invalidLiveCreature = true;
@@ -1281,9 +1322,56 @@ namespace Game.DungeonGeneration
                     errors.Add(
                         D(
                             "runtimeState.creatures",
-                            "Each live creature must occupy a walkable cell, reference an unresolved encounter, and match one available creature entry in that plan."
+                            "Each live creature must use its canonical plan-derived instance ID, occupy a walkable cell, reference an unresolved encounter, and match one available creature entry in that plan."
                         )
                     );
+                }
+
+                foreach (DungeonEncounterPlan plan in encounterById.Values)
+                {
+                    string[] expectedIds = Enumerable
+                        .Range(0, plan.CreatureIds.Count)
+                        .Select(index => DungeonCreatureInstanceIdentity.Create(plan.Id, index))
+                        .ToArray();
+                    int liveCount = expectedIds.Count(liveInstanceIds.Contains);
+                    int defeatedCount = expectedIds.Count(defeatedInstanceIds.Contains);
+                    int accountedCount = expectedIds.Count(instanceId =>
+                        liveInstanceIds.Contains(instanceId)
+                        || defeatedInstanceIds.Contains(instanceId)
+                    );
+                    if (plan.IsResolved)
+                    {
+                        if (liveCount > 0 || defeatedCount != expectedIds.Length)
+                        {
+                            errors.Add(
+                                D(
+                                    "runtimeState",
+                                    $"Resolved encounter '{plan.Id}' must persist every planned creature as defeated and contain no live creatures."
+                                )
+                            );
+                        }
+                        continue;
+                    }
+
+                    bool wasMaterialized = liveCount > 0 || defeatedCount > 0;
+                    if (wasMaterialized && accountedCount != expectedIds.Length)
+                    {
+                        errors.Add(
+                            D(
+                                "runtimeState",
+                                $"Materialized encounter '{plan.Id}' must account for every planned creature as live or defeated."
+                            )
+                        );
+                    }
+                    if (expectedIds.Length > 0 && defeatedCount == expectedIds.Length)
+                    {
+                        errors.Add(
+                            D(
+                                "runtimeState.resolvedEncounterIds",
+                                $"Encounter '{plan.Id}' has no survivors and must be marked resolved."
+                            )
+                        );
+                    }
                 }
             }
         }

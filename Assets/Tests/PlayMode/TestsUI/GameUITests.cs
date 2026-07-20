@@ -1,5 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
+using Game.Creature;
+using Game.Rules.Runtime;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -196,6 +198,77 @@ namespace TestsUI
                     "Action medallion container height should not shift as AP changes."
                 );
             }
+        }
+
+        [UnityTest]
+        public IEnumerator ExplorationPlayerCardsRefreshHealth()
+        {
+            List<GameObject> combatants = CombatManagerInterface.GetInstance().GetCombatants();
+            player = combatants.Find(combatant =>
+                combatant.GetComponent<PlayerActionController>() != null
+            );
+            Assert.IsNotNull(player, "Expected a player combatant in UnitTestingScene.");
+
+            ActionController controller = player.GetComponent<ActionController>();
+            CreatureComponent creature = player.GetComponent<CreatureComponent>();
+            VisualElement existingCardHolder = root.Q<VisualElement>("CardHolder");
+            VisualElement previousCard =
+                existingCardHolder != null && existingCardHolder.childCount > 0
+                    ? existingCardHolder.ElementAt(0)
+                    : null;
+            HUDController.GetInstance().ShowExploration(new[] { controller }, controller);
+
+            VisualElement cardHolder = null;
+            Label healthLabel = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    cardHolder = root.Q<VisualElement>("CardHolder");
+                    if (cardHolder == null || cardHolder.childCount != 1)
+                        return false;
+
+                    VisualElement currentCard = cardHolder.ElementAt(0);
+                    if (currentCard == previousCard)
+                        return false;
+                    healthLabel = currentCard.Q<Label>("HealthBarLabel");
+                    return healthLabel != null;
+                }
+            );
+            Assert.IsNotNull(healthLabel, "Exploration player card health label was not created.");
+
+            int startingDisplayedHitPoints = creature.hp + creature.tempHp;
+            Assert.Greater(
+                startingDisplayedHitPoints,
+                1,
+                "The UI fixture player must survive test damage."
+            );
+            creature.ApplyFinalDamage(1, RuleSource.FromSlug("test-exploration-ui-damage"));
+            string expectedHealth =
+                $"{creature.hp + creature.tempHp}/{creature.maxHp + creature.tempHp}";
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    if (cardHolder.childCount != 1)
+                        return false;
+
+                    healthLabel = cardHolder.ElementAt(0).Q<Label>("HealthBarLabel");
+                    return healthLabel != null && healthLabel.text == expectedHealth;
+                }
+            );
+
+            Assert.AreEqual(
+                startingDisplayedHitPoints - 1,
+                creature.hp + creature.tempHp,
+                "The authoritative health state should retain the committed exploration damage."
+            );
+
+            Assert.AreEqual(
+                expectedHealth,
+                healthLabel.text,
+                "Exploration cards should refresh after the creature's health changes."
+            );
         }
 
         [UnityTest]

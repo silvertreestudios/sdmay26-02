@@ -5,6 +5,7 @@ using System.Linq;
 using Game.DungeonGeneration;
 using Game.KayKit.Editor;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -37,9 +38,19 @@ public sealed class DungeonLevelPngExporterTests
             Is.True,
             string.Join(Environment.NewLine, expected.Diagnostics)
         );
+        TextAsset encounterManifest = AssetDatabase.LoadAssetAtPath<TextAsset>(
+            DungeonEncounterRuntimeCatalogTool.EncounterManifestPath
+        );
+        Assert.That(encounterManifest, Is.Not.Null);
+        DungeonLevelDocument expectedDocument = new DungeonEncounterPlanner().Plan(
+            expected.Document,
+            1,
+            4,
+            DungeonEncounterCatalogJson.Parse(encounterManifest.text)
+        );
         Assert.That(
             FixtureJson(),
-            Is.EqualTo(DungeonLevelJsonSerializer.Serialize(expected.Document))
+            Is.EqualTo(DungeonLevelJsonSerializer.Serialize(expectedDocument))
         );
         Assert.That(expected.Document.Rooms, Has.Count.GreaterThanOrEqualTo(3));
         Assert.That(

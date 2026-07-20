@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4fa0af0e02143b390f36f5df4ed5651, type: 3}
+  m_Name: DungeonEncounterCreatureCatalog
+  m_EditorClassIdentifier: MainGameAssembly::Game.Combat.Encounters.DungeonEncounterCreatureCatalog
+  entries:
+  - contentId: goblin-warrior
+    resourcePath: DataFiles/pathfinder-monster-core/goblin-warrior
+    prefab: {fileID: 2886620269212729914, guid: 84eee7980e67f44209e21ad87fa68ee2, type: 3}
+  - contentId: kobold-warrior
+    resourcePath: DataFiles/pathfinder-monster-core/kobold-warrior
+    prefab: {fileID: 8560756850187711930, guid: 44bb6b3bfc74a4824983d149f6fe6efe, type: 3}
+  - contentId: skeleton-guard
+    resourcePath: DataFiles/pathfinder-monster-core/skeleton-guard
+    prefab: {fileID: 5488967783477118630, guid: d254d8770ec254793b2fdfb49acdd3f5, type: 3}
+  - contentId: zombie-shambler
+    resourcePath: DataFiles/pathfinder-monster-core/zombie-shambler
+    prefab: {fileID: 7005988303118988967, guid: abf4e038f2c6b4d728f95441f2ea8a27, type: 3}

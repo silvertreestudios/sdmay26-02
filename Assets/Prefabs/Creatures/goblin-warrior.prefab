@@ -273,7 +273,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 940972254ff60d643bb504656bf28e82, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Team
-  <Name>k__BackingField: NoTeam
+  <Name>k__BackingField: Enemies
 --- !u!114 &3138839757628200053
 MonoBehaviour:
   m_ObjectHideFlags: 0

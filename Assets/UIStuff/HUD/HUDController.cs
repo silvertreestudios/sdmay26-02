@@ -1,5 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
+using Game.Combat.Encounters;
 using Game.Creature;
 using Game.Strikes;
 using UnityEngine;
@@ -8,7 +10,7 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using UniversalEvents;
 
-public class HUDController : SingletonMonoBehaviour<HUDController>
+public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExplorationPresentation
 {
     public VisualElement ui;
     public Button endTurnButton;
@@ -30,6 +32,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private VisualElement speedButtonsBox;
     private bool speedBarVisible = true;
     private ActionController currentTurnAC;
+    private bool isDungeonExploration;
     private Dictionary<Button, uint> buttonCostMap = new();
     private Button selectedActionButton;
     private Color selectedButtonBaseColor;
@@ -229,7 +232,9 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     public static void Setup()
     {
         Players = CombatManagerInterface.GetInstance().GetCombatants();
-
+        HUDController hud = GetInstance();
+        hud.needToUpdateCards = true;
+        hud.isDungeonExploration = false;
         IsActive = true;
     }
 
@@ -237,7 +242,9 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     {
         if (!IsActive)
             return;
-        List<GameObject> currentCombatants = CombatManagerInterface.GetInstance().GetCombatants();
+        List<GameObject> currentCombatants = isDungeonExploration
+            ? Players
+            : CombatManagerInterface.GetInstance().GetCombatants();
         if (Players == null)
         {
             Players = currentCombatants;
@@ -245,7 +252,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
         else if (HaveCombatantsChanged(currentCombatants))
         {
-            Players.RemoveAll(p => !currentCombatants.Contains(p));
+            Players = new List<GameObject>(currentCombatants);
             needToUpdateCards = true;
         }
 
@@ -291,7 +298,9 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
         // Highlight the current player's card
 
-        updatePlayerQueueCards();
+        UpdatePlayerCardHealth();
+        if (!isDungeonExploration)
+            updatePlayerQueueCards();
     }
 
     // Card Logic attempt by Ryan
@@ -348,6 +357,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 .RegisterCallback<ClickEvent>(evt =>
                 {
                     CameraManager.GetInstance().PanToTarget(captured);
+                    if (isDungeonExploration)
+                        SelectExplorationController(captured.GetComponent<ActionController>());
                 });
             UpdateActionPointMedallions(cardInstance, Players[i].GetComponent<ActionController>());
         }
@@ -416,7 +427,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 log += "[" + a.ActionName + "] ";
             Debug.Log(log);
             BuildActionButtons(turnTaker, actions);
-            BuildMovementButtons(turnTaker, ac.GetMovements());
+            BuildMovementButtons(turnTaker, ac.GetMovements(), true);
         }
 
         // Slide back in for player turns only
@@ -612,6 +623,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     {
         selectedActionButton = null;
         buttonCostMap.Clear();
+        if (buttonGrid == null)
+            return;
         buttonGrid.Query<VisualElement>(className: "btn-row").ForEach(r => r.RemoveFromHierarchy());
     }
 
@@ -643,30 +656,33 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         return btn;
     }
 
-    private void AddGeneralButtons()
+    private void AddGeneralButtons(bool includeEndTurn)
     {
         endTurnButton.style.width = new StyleLength(new Length(50, LengthUnit.Percent));
         cancelActionButton.style.width = new StyleLength(new Length(50, LengthUnit.Percent));
 
         var rows = buttonGrid.Query<VisualElement>(className: "btn-row").ToList();
         VisualElement row = null;
-        if (rows.Count > 0 && rows[rows.Count - 1].childCount < 2)
-            row = rows[rows.Count - 1];
-
-        if (row == null)
+        if (includeEndTurn)
         {
-            row = new VisualElement();
-            row.AddToClassList("btn-row");
-            row.style.flexDirection = FlexDirection.Row;
-            row.style.alignSelf = Align.Stretch;
-            buttonGrid.Add(row);
-        }
+            if (rows.Count > 0 && rows[rows.Count - 1].childCount < 2)
+                row = rows[rows.Count - 1];
 
-        row.Add(endTurnButton);
+            if (row == null)
+            {
+                row = new VisualElement();
+                row.AddToClassList("btn-row");
+                row.style.flexDirection = FlexDirection.Row;
+                row.style.alignSelf = Align.Stretch;
+                buttonGrid.Add(row);
+            }
+
+            row.Add(endTurnButton);
+        }
 
         // Cancel goes in next slot
         rows = buttonGrid.Query<VisualElement>(className: "btn-row").ToList();
-        row = rows[rows.Count - 1].childCount < 2 ? rows[rows.Count - 1] : null;
+        row = rows.Count > 0 && rows[rows.Count - 1].childCount < 2 ? rows[rows.Count - 1] : null;
         if (row == null)
         {
             row = new VisualElement();
@@ -730,7 +746,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
     }
 
-    private void BuildMovementButtons(GameObject turnTaker, List<EntityAction> movements)
+    private void BuildMovementButtons(
+        GameObject turnTaker,
+        List<EntityAction> movements,
+        bool includeEndTurn
+    )
     {
         foreach (EntityAction movement in movements)
         {
@@ -744,12 +764,83 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 turnTaker.GetComponent<ActionController>().TakeAction(captured);
             };
         }
-        AddGeneralButtons();
+        AddGeneralButtons(includeEndTurn);
+    }
+
+    /// <inheritdoc/>
+    public void ShowExploration(IReadOnlyList<ActionController> party, ActionController selected)
+    {
+        if (party == null)
+            throw new System.ArgumentNullException(nameof(party));
+        if (selected == null)
+            throw new System.ArgumentNullException(nameof(selected));
+        if (!party.Contains(selected))
+            throw new System.ArgumentException(
+                "The selected exploration controller must belong to the party.",
+                nameof(selected)
+            );
+
+        EnableUi();
+        isDungeonExploration = true;
+        IsActive = true;
+        Players = party.Select(controller => controller.gameObject).ToList();
+        needToUpdateCards = true;
+        currentTurnAC = selected;
+        if (slideCoroutine != null)
+            StopCoroutine(slideCoroutine);
+        slideCoroutine = StartCoroutine(ExplorationTransitionRoutine(selected));
+    }
+
+    /// <inheritdoc/>
+    public void HideExploration()
+    {
+        isDungeonExploration = false;
+        IsActive = false;
+        needToUpdateCards = true;
+        currentTurnAC = null;
+        canCancelAction = true;
+        if (slideCoroutine != null)
+        {
+            StopCoroutine(slideCoroutine);
+            slideCoroutine = null;
+        }
+        SetSelectedButton(null);
+        ClearAllRows();
+        UpdateHudButtonStates();
+    }
+
+    private IEnumerator ExplorationTransitionRoutine(ActionController selected)
+    {
+        yield return StartCoroutine(Slide(false));
+        ClearAllRows();
+        BuildMovementButtons(selected.gameObject, selected.GetMovements(), false);
+        yield return StartCoroutine(Slide(true));
+        slideCoroutine = null;
+    }
+
+    private void SelectExplorationController(ActionController selected)
+    {
+        if (
+            !isDungeonExploration
+            || selected == null
+            || selected == currentTurnAC
+            || currentTurnAC != null && currentTurnAC.IsTakingAction
+        )
+        {
+            return;
+        }
+
+        currentTurnAC = selected;
+        if (slideCoroutine != null)
+            StopCoroutine(slideCoroutine);
+        slideCoroutine = StartCoroutine(ExplorationTransitionRoutine(selected));
     }
 
     public void EndTurn()
     {
         GameObject g = CombatManager.GetInstance().WhosTurn();
+        if (g == null)
+            return;
         PlayerActionController pac = g.GetComponent<PlayerActionController>();
         if (pac == null)
             return;
@@ -777,7 +868,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             UpdateHudButtonStates();
         }
         GameObject g = CombatManager.GetInstance().WhosTurn();
-        combatLog.Log("- " + g.name + " canceled their action.");
+        if (g != null)
+            combatLog.Log("- " + g.name + " canceled their action.");
     }
 
     public void focusOnPlayer(int playerIndex)
@@ -820,23 +912,13 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             return;
         }
 
-        for (int i = 0; i < cardHolder.childCount; i++)
+        int cardCount = Mathf.Min(cardHolder.childCount, Players.Count);
+        for (int i = 0; i < cardCount; i++)
         {
             try
             {
                 var card = cardHolder.ElementAt(i);
                 CreatureComponent p = Players[i].GetComponent<CreatureComponent>();
-                var hbGreen = card.Q<VisualElement>("HealthBarGreen");
-                var hbBlue = card.Q<VisualElement>("HealthBarBlue");
-                var hbEmpty = card.Q<VisualElement>("HealthBarEmpty");
-                var hbLabel = card.Q<Label>("HealthBarLabel");
-                int tempHp = p.tempHp;
-                int emptyAmount = Mathf.Max(0, p.maxHp - p.hp);
-                hbGreen.style.flexGrow = p.hp;
-                hbBlue.style.flexGrow = tempHp;
-                hbEmpty.style.flexGrow = emptyAmount;
-                hbLabel.text = (p.hp + tempHp) + "/" + (p.maxHp + tempHp);
-
                 VisualElement cardVE = card.Q<VisualElement>("Card");
                 if (p == currentTurn)
                 {
@@ -860,6 +942,46 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             }
         }
         // Debug.Log("Finished updating player queue cards");
+    }
+
+    private void UpdatePlayerCardHealth()
+    {
+        if (cardHolder == null || Players == null)
+            return;
+
+        int cardCount = Mathf.Min(cardHolder.childCount, Players.Count);
+        for (int i = 0; i < cardCount; i++)
+        {
+            GameObject player = Players[i];
+            if (player == null)
+                continue;
+
+            VisualElement card = cardHolder.ElementAt(i);
+            CreatureComponent creature = player.GetComponent<CreatureComponent>();
+            VisualElement health = card.Q<VisualElement>("HealthBarGreen");
+            VisualElement temporaryHealth = card.Q<VisualElement>("HealthBarBlue");
+            VisualElement emptyHealth = card.Q<VisualElement>("HealthBarEmpty");
+            Label label = card.Q<Label>("HealthBarLabel");
+            if (
+                creature == null
+                || health == null
+                || temporaryHealth == null
+                || emptyHealth == null
+                || label == null
+            )
+            {
+                continue;
+            }
+
+            int temporaryHitPoints = creature.tempHp;
+            int emptyHitPoints = Mathf.Max(0, creature.maxHp - creature.hp);
+
+            health.style.flexGrow = creature.hp;
+            temporaryHealth.style.flexGrow = temporaryHitPoints;
+            emptyHealth.style.flexGrow = emptyHitPoints;
+            label.text =
+                (creature.hp + temporaryHitPoints) + "/" + (creature.maxHp + temporaryHitPoints);
+        }
     }
 
     private void UpdateActionPointMedallions(VisualElement card, ActionController actionController)
