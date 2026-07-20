@@ -80,32 +80,22 @@ namespace Game.KayKit
         }
 
         /// <summary>
-        /// Opens or closes the door while updating visuals, movement, pathfinding, and line of sight atomically.
+        /// Opens this door idempotently while atomically updating visuals, movement, pathfinding,
+        /// and line of sight. V1 doors expose no runtime close operation.
         /// </summary>
-        /// <param name="isOpen">The desired door state.</param>
-        /// <returns>
-        /// <see langword="true"/> when the state is applied or already current; otherwise
-        /// <see langword="false"/>, such as when a creature occupies a door being closed.
-        /// </returns>
-        public bool TrySetOpen(bool isOpen)
+        /// <returns><see langword="true"/> when the doorway is open after the call.</returns>
+        public bool TryOpen()
         {
-            if (isOpen == IsOpen)
+            if (IsOpen)
                 return true;
-            if (!map.TrySetDoorState(Cell, isOpen))
+            if (!map.TrySetDoorState(Cell, true))
                 return false;
 
-            this.isOpen = isOpen;
+            isOpen = true;
             ApplyVisualState();
             if (Application.isPlaying)
                 Physics.SyncTransforms();
             return true;
-        }
-
-        /// <summary>Opens this door idempotently.</summary>
-        /// <returns><see langword="true"/> when the doorway is open after the call.</returns>
-        public bool TryOpen()
-        {
-            return TrySetOpen(true);
         }
 
         private void ApplyVisualState()

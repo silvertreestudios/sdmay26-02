@@ -17,6 +17,9 @@ public abstract class ActionController : MonoBehaviour
     /// <summary>Gets whether this controller currently has movement-only exploration authority.</summary>
     public bool IsInDungeonExploration { get; private set; }
 
+    /// <summary>Gets whether combat initiative currently grants this controller turn authority.</summary>
+    public bool HasTurnAuthority => IsTurn;
+
     [field: SerializeField]
     public uint ActionPoints { get; set; }
     public bool Reacted { get; set; }
@@ -68,16 +71,13 @@ public abstract class ActionController : MonoBehaviour
     /// </param>
     /// <remarks>
     /// Encounter composition disables this mode before initiative grants normal turn authority.
+    /// This flag is deliberately independent of combat turn state and action counters; entering or
+    /// leaving exploration must not manufacture actions, advance turns, or erase combat state.
     /// Non-movement actions remain unavailable while exploration is enabled.
     /// </remarks>
     public void SetDungeonExploration(bool enabled)
     {
         IsInDungeonExploration = enabled;
-        IsTurn = enabled;
-        IsTakingAction = false;
-        ActionPoints = enabled ? 3u : 0u;
-        Reacted = false;
-        StrikePenalty = 0;
     }
 
     public abstract void EndTurn();
@@ -115,10 +115,14 @@ public abstract class ActionController : MonoBehaviour
         return available;
     }
 
-    /// <summary>
-    /// Performs a given action for this controller
-    /// </summary>
-    /// <param name="action"></param>
+    /// <summary>Starts an action when this controller has authority in its current mode.</summary>
+    /// <param name="action">The movement or combat action to authorize and invoke.</param>
+    /// <remarks>
+    /// Concurrent actions are rejected. During dungeon exploration, only registered movement
+    /// actions are allowed and action points are ignored; outside exploration, the controller must
+    /// own the combat turn and afford the action cost. The invoked action remains responsible for
+    /// clearing <see cref="IsTakingAction"/> when its synchronous or coroutine work completes.
+    /// </remarks>
     public void TakeAction(EntityAction action)
     {
         if (action == null)
@@ -127,13 +131,19 @@ public abstract class ActionController : MonoBehaviour
             return;
         }
         //Debug.Log("Attempting to take action: " + action);
-        uint cost = action.ActionCost;
-        if (
-            !IsTurn
-            || cost > ActionPoints
-            || IsInDungeonExploration && !GetMovements().Contains(action)
-        )
+        if (IsTakingAction)
             return;
+
+        if (IsInDungeonExploration)
+        {
+            if (!GetMovements().Contains(action))
+                return;
+        }
+        else if (!IsTurn || action.ActionCost > ActionPoints)
+        {
+            return;
+        }
+
         IsTakingAction = true;
         action.Invoke(this.gameObject);
     }

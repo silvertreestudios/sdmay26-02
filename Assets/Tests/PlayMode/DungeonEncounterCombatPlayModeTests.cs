@@ -307,6 +307,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
         TestEntityAction attack = new("Strike", 1, () => attackCalls++);
         player.Controller.AddTestMovement(movement);
         player.Controller.AddAction(attack);
+        player.Controller.ActionPoints = 2;
+        player.Controller.Reacted = true;
+        player.Controller.StrikePenalty = 1;
         player.Controller.SetDungeonExploration(true);
 
         player.Controller.TakeAction(movement);
@@ -315,7 +318,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         Assert.That(movementCalls, Is.EqualTo(2));
         Assert.That(attackCalls, Is.Zero);
-        Assert.That(player.Controller.ActionPoints, Is.EqualTo(3));
+        Assert.That(player.Controller.ActionPoints, Is.EqualTo(2));
+        Assert.That(player.Controller.Reacted, Is.True);
+        Assert.That(player.Controller.StrikePenalty, Is.EqualTo(1));
+        Assert.That(player.Controller.HasTurnAuthority, Is.False);
 
         player.Controller.SetDungeonExploration(false);
         player.Controller.TakeAction(movement);
@@ -420,7 +426,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
     private sealed class TestActionController : ActionController
     {
-        public bool HasTurnAuthority => IsTurn;
         public int StartTurnCount { get; private set; }
 
         public void AddTestMovement(EntityAction movement) => Movements.Add(movement);

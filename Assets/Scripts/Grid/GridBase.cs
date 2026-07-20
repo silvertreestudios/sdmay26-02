@@ -60,6 +60,8 @@ namespace GridPrivate
         public bool[,] LineOfSightBlocks { get; private set; }
         protected Tile[,] Tiles;
         IPathfinder Pathfinder;
+        private IExplorationStrideCoordinator explorationStrideCoordinator =
+            NoExplorationStrideCoordinator.Instance;
         public GridFSM Fsm { get; private set; } = new GridFSM();
 
         /// <summary>Gets whether grid tiles and pathfinding have been initialized from map data.</summary>
@@ -68,6 +70,18 @@ namespace GridPrivate
         public IPathfinder GetPathfinder()
         {
             return Pathfinder;
+        }
+
+        internal void BindExplorationStrideCoordinator(IExplorationStrideCoordinator coordinator)
+        {
+            explorationStrideCoordinator =
+                coordinator ?? throw new System.ArgumentNullException(nameof(coordinator));
+        }
+
+        internal void UnbindExplorationStrideCoordinator(IExplorationStrideCoordinator coordinator)
+        {
+            if (ReferenceEquals(explorationStrideCoordinator, coordinator))
+                explorationStrideCoordinator = NoExplorationStrideCoordinator.Instance;
         }
 
         protected override void Awake()
@@ -330,7 +344,7 @@ namespace GridPrivate
         /// </summary>
         public override IEnumerator Stride(GameObject character)
         {
-            if (Fsm.ChangeState(new StateStride(character, Fsm)))
+            if (Fsm.ChangeState(new StateStride(character, Fsm, explorationStrideCoordinator)))
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 

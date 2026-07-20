@@ -13,6 +13,12 @@ public class Stride : MultiFrameEntityAction
     public Stride(uint cost)
         : base(cost) { }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Exploration authority is captured before yielding to the grid coroutine. If a committed
+    /// step activates combat, the Stride that began in exploration remains free while later
+    /// combat Strides use normal action costs.
+    /// </remarks>
     protected override IEnumerator MFInvoke(GameObject target)
     {
         bool canceled = false;
@@ -26,13 +32,14 @@ public class Stride : MultiFrameEntityAction
         OnActionCancel.AddListener(cancel);
 
         ActionController ac = target.GetComponent<ActionController>();
+        bool startedInExploration = ac != null && ac.IsInDungeonExploration;
 
         CombatLog.GetInstance().Log("- " + target.name + " used Stride");
         yield return GridAPI.GetInstance().Stride(target);
 
         if (!canceled)
         {
-            if (ac)
+            if (ac && !startedInExploration)
                 PayCost(ac);
         }
         if (ac)
