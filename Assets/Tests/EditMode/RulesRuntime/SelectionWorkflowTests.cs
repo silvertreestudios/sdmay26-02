@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 
@@ -230,6 +231,56 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(adapter.Requests, Has.Count.EqualTo(1));
             Assert.That(adapter.Remaining, Is.EqualTo(1));
+        }
+
+        /// <summary>
+        /// Verifies cancellation discards a late adapter result and never begins a dependent step.
+        /// </summary>
+        [Test]
+        public async Task CancellationTokenDiscardsLateResultAndSkipsDependentSelection()
+        {
+            SelectionRequestId firstId = new SelectionRequestId("pending-cancel-first");
+            TaskCompletionSource<SelectionOutcome<CreatureSelection>> pending =
+                new TaskCompletionSource<SelectionOutcome<CreatureSelection>>();
+            ScriptedSelectionAdapter adapter = new ScriptedSelectionAdapter(
+                pending.Task,
+                SelectionOutcome<ConfirmationSelection>.Completed(new ConfirmationSelection(true))
+            );
+            SelectionWorkflow<OrderedSelection<CreatureSelection, ConfirmationSelection>> workflow =
+                SelectionWorkflow
+                    .From(new CreatureSelectionRequest(firstId, new[] { Target }))
+                    .Then(_ =>
+                        SelectionWorkflow.From(
+                            new ConfirmationSelectionRequest(
+                                new SelectionRequestId("never-confirm-after-token-cancel")
+                            )
+                        )
+                    );
+            using (CancellationTokenSource cancellation = new CancellationTokenSource())
+            {
+                Task<
+                    SelectionOutcome<OrderedSelection<CreatureSelection, ConfirmationSelection>>
+                > execution = workflow.Run(adapter, cancellation.Token).AsTask();
+
+                cancellation.Cancel();
+                pending.SetResult(
+                    SelectionOutcome<CreatureSelection>.Completed(new CreatureSelection(Target))
+                );
+                SelectionOutcome<
+                    OrderedSelection<CreatureSelection, ConfirmationSelection>
+                > outcome = await execution;
+
+                Assert.That(
+                    outcome,
+                    Is.TypeOf<
+                        CancelledSelectionOutcome<
+                            OrderedSelection<CreatureSelection, ConfirmationSelection>
+                        >
+                    >()
+                );
+                Assert.That(adapter.Requests, Is.EqualTo(new[] { firstId }));
+                Assert.That(adapter.Remaining, Is.EqualTo(1));
+            }
         }
 
         /// <summary>Verifies an explicit no is completed data rather than workflow cancellation.</summary>

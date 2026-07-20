@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Game.Rules.Runtime;
 
@@ -103,8 +104,84 @@ namespace Game.Rules.Unity
         /// <summary>
         /// Runs typed selection and, only when it completes, creates and dispatches one root operation.
         /// </summary>
+        /// <param name="execution">
+        /// The per-invocation control that owns selection cancellation and the dispatch boundary.
+        /// </param>
         /// <returns>The structural result of preview, selection, or dispatch.</returns>
-        ValueTask<ActionBarExecutionOutcome> Execute();
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="execution"/> is <see langword="null"/>.
+        /// </exception>
+        ValueTask<ActionBarExecutionOutcome> Execute(ActionBarExecutionControl execution);
+    }
+
+    /// <summary>
+    /// Coordinates cancellation of one definition-backed action without treating an operation that
+    /// has begun dispatch as cancellable presentation work.
+    /// </summary>
+    /// <remarks>
+    /// Selection cancellation and dispatch start race through one atomic state transition. If
+    /// cancellation wins, the selection workflow discards late adapter results and no operation is
+    /// created. If dispatch wins, cancellation is refused because rules handlers and fact observers
+    /// may already be committing authoritative state.
+    /// </remarks>
+    public sealed class ActionBarExecutionControl : IDisposable
+    {
+        private const int SelectingPhase = 0;
+        private const int CancellationRequestedPhase = 1;
+        private const int DispatchingPhase = 2;
+        private const int InactivePhase = 3;
+
+        private readonly CancellationTokenSource cancellationSource = new CancellationTokenSource();
+        private int phase;
+
+        /// <summary>
+        /// Initializes a cancellable selection-phase execution. The caller must dispose the control
+        /// after the corresponding <see cref="IDefinitionActionBarEntry.Execute"/> call returns.
+        /// </summary>
+        public ActionBarExecutionControl()
+            : this(SelectingPhase) { }
+
+        private ActionBarExecutionControl(int initialPhase) => phase = initialPhase;
+
+        internal static ActionBarExecutionControl Inactive { get; } =
+            new ActionBarExecutionControl(InactivePhase);
+
+        internal bool IsInFlight => Volatile.Read(ref phase) != InactivePhase;
+
+        /// <summary>
+        /// Gets whether cancellation can still win before authoritative dispatch starts.
+        /// </summary>
+        public bool CanCancel => Volatile.Read(ref phase) == SelectingPhase;
+
+        internal CancellationToken CancellationToken => cancellationSource.Token;
+
+        /// <summary>
+        /// Requests cancellation only while the execution is still selecting.
+        /// </summary>
+        /// <returns>
+        /// <see langword="true"/> when this request won the selection-to-dispatch race; otherwise,
+        /// <see langword="false"/> because cancellation was already requested or dispatch started.
+        /// </returns>
+        public bool TryCancel()
+        {
+            if (
+                Interlocked.CompareExchange(ref phase, CancellationRequestedPhase, SelectingPhase)
+                != SelectingPhase
+            )
+            {
+                return false;
+            }
+
+            cancellationSource.Cancel();
+            return true;
+        }
+
+        internal bool TryBeginDispatch() =>
+            Interlocked.CompareExchange(ref phase, DispatchingPhase, SelectingPhase)
+            == SelectingPhase;
+
+        /// <inheritdoc/>
+        public void Dispose() => cancellationSource.Dispose();
     }
 
     /// <summary>

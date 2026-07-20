@@ -103,9 +103,9 @@ namespace Game.Rules.Runtime
             InvalidSelectionOutcome<TSelection> invalid = SelectionOutcome<TSelection>.Invalid(
                 reason
             );
-            return new SelectionWorkflow<TSelection>(_ => new ValueTask<
-                SelectionOutcome<TSelection>
-            >(invalid));
+            return new SelectionWorkflow<TSelection>(
+                (_, _) => new ValueTask<SelectionOutcome<TSelection>>(invalid)
+            );
         }
 
         private static SelectionWorkflow<TSelection> Create<TRequest, TSelection>(
@@ -118,22 +118,24 @@ namespace Game.Rules.Runtime
             if (request == null)
                 throw new ArgumentNullException(nameof(request));
 
-            return new SelectionWorkflow<TSelection>(async adapter =>
-            {
-                SelectionOutcome<TSelection> outcome = await select(adapter);
-                if (outcome == null)
-                    throw new InvalidOperationException(
-                        $"Selection adapter returned no outcome for request '{request.Id}'."
-                    );
-                if (
-                    outcome is CompletedSelectionOutcome<TSelection> completed
-                    && !accepts(completed.Selection)
-                )
-                    return SelectionOutcome<TSelection>.Invalid(
-                        $"Selection adapter returned a value outside request '{request.Id}'."
-                    );
-                return outcome;
-            });
+            return new SelectionWorkflow<TSelection>(
+                async (adapter, _) =>
+                {
+                    SelectionOutcome<TSelection> outcome = await select(adapter);
+                    if (outcome == null)
+                        throw new InvalidOperationException(
+                            $"Selection adapter returned no outcome for request '{request.Id}'."
+                        );
+                    if (
+                        outcome is CompletedSelectionOutcome<TSelection> completed
+                        && !accepts(completed.Selection)
+                    )
+                        return SelectionOutcome<TSelection>.Invalid(
+                            $"Selection adapter returned a value outside request '{request.Id}'."
+                        );
+                    return outcome;
+                }
+            );
         }
     }
 }

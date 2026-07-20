@@ -109,8 +109,9 @@ namespace Game.Rules.Unity.Tests
 
             public ActionAvailability GetAvailability() => ActionAvailability.Available;
 
-            public ValueTask<ActionBarExecutionOutcome> Execute() =>
-                throw new NotSupportedException("Catalog tests do not execute entries.");
+            public ValueTask<ActionBarExecutionOutcome> Execute(
+                ActionBarExecutionControl execution
+            ) => throw new NotSupportedException("Catalog tests do not execute entries.");
         }
 
         private sealed class TestLegacyAction : EntityAction

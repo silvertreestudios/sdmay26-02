@@ -71,6 +71,8 @@ namespace Game.Rules.Runtime.Tests
 
             object outcome = outcomes.Dequeue();
             requests.Add(id);
+            if (outcome is Task<SelectionOutcome<TSelection>> pending)
+                return new ValueTask<SelectionOutcome<TSelection>>(pending);
             if (!(outcome is SelectionOutcome<TSelection> typed))
                 throw new InvalidOperationException(
                     $"Scripted outcome does not produce {typeof(TSelection).Name}."

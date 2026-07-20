@@ -40,7 +40,7 @@ namespace Game.Rules.Unity.Tests
             DefinitionActionBarEntry<TestSelection, TestActionOp, TestActionResult> entry =
                 CreateEntry(definition, dispatcher, new AiSelectionAdapter(planner));
 
-            ActionBarExecutionOutcome outcome = await entry.Execute();
+            ActionBarExecutionOutcome outcome = await ExecuteEntry(entry);
 
             Assert.That(outcome, Is.TypeOf<DispatchedActionBarExecutionOutcome>());
             Assert.That(
@@ -76,7 +76,7 @@ namespace Game.Rules.Unity.Tests
                     )
                 );
 
-            ActionBarExecutionOutcome outcome = await entry.Execute();
+            ActionBarExecutionOutcome outcome = await ExecuteEntry(entry);
 
             Assert.That(outcome, Is.TypeOf<CancelledActionBarExecutionOutcome>());
             Assert.That(definition.CreateOpCalls, Is.Zero);
@@ -108,7 +108,7 @@ namespace Game.Rules.Unity.Tests
                     )
                 );
 
-            ActionBarExecutionOutcome outcome = await entry.Execute();
+            ActionBarExecutionOutcome outcome = await ExecuteEntry(entry);
 
             Assert.That(outcome, Is.TypeOf<InvalidActionBarExecutionOutcome>());
             InvalidActionBarExecutionOutcome invalid = (InvalidActionBarExecutionOutcome)outcome;
@@ -138,7 +138,7 @@ namespace Game.Rules.Unity.Tests
                 );
 
             Assert.That(entry.GetAvailability(), Is.TypeOf<AvailableActionAvailability>());
-            ActionBarExecutionOutcome outcome = await entry.Execute();
+            ActionBarExecutionOutcome outcome = await ExecuteEntry(entry);
 
             Assert.That(outcome, Is.TypeOf<InvalidActionBarExecutionOutcome>());
             InvalidActionBarExecutionOutcome invalid = (InvalidActionBarExecutionOutcome)outcome;
@@ -208,7 +208,7 @@ namespace Game.Rules.Unity.Tests
             DefinitionActionBarEntry<TestSelection, TestActionOp, TestActionResult> entry =
                 CreateEntry(definition, dispatcher, new AiSelectionAdapter(planner));
 
-            ActionBarExecutionOutcome outcome = await entry.Execute();
+            ActionBarExecutionOutcome outcome = await ExecuteEntry(entry);
 
             Assert.That(outcome, Is.TypeOf<UnavailableActionBarExecutionOutcome>());
             Assert.That(
@@ -217,6 +217,57 @@ namespace Game.Rules.Unity.Tests
             );
             Assert.That(planner.ConfirmationCalls, Is.Zero);
             Assert.That(definition.CreateOpCalls, Is.Zero);
+        }
+
+        /// <summary>
+        /// Verifies cancellation cannot cross the boundary after authoritative dispatch starts.
+        /// </summary>
+        [Test]
+        public async Task CancellationIsRefusedAfterDispatchStarts()
+        {
+            InMemoryRulesStore store = CreateStore();
+            BlockingHandler handler = new BlockingHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<TestActionOp, TestActionResult>(handler)
+                .UseActionLifecycle(new FixedActionCatalog())
+                .Build();
+            RecordingDefinition definition = new RecordingDefinition();
+            DefinitionActionBarEntry<TestSelection, TestActionOp, TestActionResult> entry =
+                CreateEntry(
+                    definition,
+                    dispatcher,
+                    new AiSelectionAdapter(
+                        new TestAiPlanner(() =>
+                            SelectionOutcome<ConfirmationSelection>.Completed(
+                                new ConfirmationSelection(true)
+                            )
+                        )
+                    )
+                );
+            using (ActionBarExecutionControl executionControl = new ActionBarExecutionControl())
+            {
+                Task<ActionBarExecutionOutcome> execution = entry
+                    .Execute(executionControl)
+                    .AsTask();
+
+                Assert.That(handler.Calls, Is.EqualTo(1));
+                Assert.That(executionControl.CanCancel, Is.False);
+                Assert.That(executionControl.TryCancel(), Is.False);
+                handler.Complete();
+                ActionBarExecutionOutcome outcome = await execution;
+
+                Assert.That(outcome, Is.TypeOf<DispatchedActionBarExecutionOutcome>());
+                Assert.That(definition.CreateOpCalls, Is.EqualTo(1));
+                Assert.That(store.Snapshot.Version, Is.EqualTo(1));
+            }
+        }
+
+        private static async Task<ActionBarExecutionOutcome> ExecuteEntry(
+            DefinitionActionBarEntry<TestSelection, TestActionOp, TestActionResult> entry
+        )
+        {
+            using (ActionBarExecutionControl execution = new ActionBarExecutionControl())
+                return await entry.Execute(execution);
         }
 
         private static DefinitionActionBarEntry<
@@ -348,6 +399,25 @@ namespace Game.Rules.Unity.Tests
                 Operations.Add(frame.Op);
                 return new ValueTask<TestActionResult>(new TestActionResult());
             }
+        }
+
+        private sealed class BlockingHandler : IOpHandler<TestActionOp, TestActionResult>
+        {
+            private readonly TaskCompletionSource<TestActionResult> completion =
+                new TaskCompletionSource<TestActionResult>();
+
+            public int Calls { get; private set; }
+
+            public ValueTask<TestActionResult> Handle(
+                OpFrame<TestActionOp> frame,
+                OpHandlerContext context
+            )
+            {
+                Calls++;
+                return new ValueTask<TestActionResult>(completion.Task);
+            }
+
+            public void Complete() => completion.SetResult(new TestActionResult());
         }
 
         private sealed class CompetingActionHandler

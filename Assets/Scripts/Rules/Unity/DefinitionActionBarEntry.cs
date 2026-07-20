@@ -75,8 +75,12 @@ namespace Game.Rules.Unity
             );
 
         /// <inheritdoc/>
-        public async ValueTask<ActionBarExecutionOutcome> Execute()
+        public async ValueTask<ActionBarExecutionOutcome> Execute(
+            ActionBarExecutionControl execution
+        )
         {
+            if (execution == null)
+                throw new ArgumentNullException(nameof(execution));
             RulesSnapshot previewSnapshot = dispatcher.Snapshot;
             ActionAvailability availability =
                 definition.GetAvailability(previewSnapshot, actor)
@@ -96,7 +100,7 @@ namespace Game.Rules.Unity
                     "An action definition returned no selection workflow."
                 );
             SelectionOutcome<TSelection> selection =
-                await workflow.Run(selectionAdapter)
+                await workflow.Run(selectionAdapter, execution.CancellationToken)
                 ?? throw new InvalidOperationException("A selection workflow returned no outcome.");
 
             if (selection is CancelledSelectionOutcome<TSelection>)
@@ -113,6 +117,8 @@ namespace Game.Rules.Unity
                 throw new InvalidOperationException(
                     "A selection workflow returned an unknown outcome case."
                 );
+            if (!execution.TryBeginDispatch())
+                return new CancelledActionBarExecutionOutcome();
 
             TOp operation =
                 definition.CreateOp(actor, completed.Selection)

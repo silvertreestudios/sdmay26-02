@@ -137,6 +137,168 @@ namespace TestsUI
             );
         }
 
+        /// <summary>
+        /// Verifies rows from the preceding turn lose authority before their slide-out animation finishes.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator StaleTurnDefinitionButtonCannotDispatch()
+        {
+            Button initialAction = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    initialAction = root.Q<Button>("UnarmedStrikeButton");
+                    return player != null && initialAction != null;
+                }
+            );
+
+            ActionController controller = player.GetComponent<ActionController>();
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed().SeedActionEconomy(Actor, new ActionEconomyState(1, true))
+            );
+            RecordingHandler handler = new RecordingHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<TestActionOp, TestActionResult>(handler)
+                .UseActionLifecycle(new FixedActionCatalog())
+                .Build();
+            TestDefinition definition = new TestDefinition();
+            controller.AddDefinitionAction(
+                CreateEntry(
+                    new ActionBarEntryKey("test/stale-turn-definition"),
+                    "Stale definition",
+                    definition,
+                    dispatcher,
+                    new AiSelectionAdapter(new ConfirmationPlanner())
+                )
+            );
+            OnNextTurn.Invoke(player);
+
+            Button staleButton = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    staleButton = root.Q<Button>("StaledefinitionButton");
+                    return staleButton != null && staleButton.enabledSelf;
+                }
+            );
+            Assert.That(staleButton, Is.Not.Null);
+
+            OnNextTurn.Invoke(player);
+
+            Assert.That(
+                staleButton.enabledSelf,
+                Is.False,
+                "The preceding turn's row must be disabled synchronously, before it slides out."
+            );
+            staleButton.SetEnabled(true);
+            PushButton(staleButton);
+            yield return null;
+
+            Assert.That(handler.Operations, Is.Empty);
+            Assert.That(definition.CreateOpCalls, Is.Zero);
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(controller.IsTakingAction, Is.False);
+        }
+
+        /// <summary>
+        /// Verifies cancelling pending selection does not release the controller until the
+        /// selection source returns, and that its late completed value cannot dispatch.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator CancelKeepsControllerLockedUntilDefinitionExecutionReturns()
+        {
+            Button initialAction = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    initialAction = root.Q<Button>("UnarmedStrikeButton");
+                    return player != null && initialAction != null;
+                }
+            );
+
+            ActionController controller = player.GetComponent<ActionController>();
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed().SeedActionEconomy(Actor, new ActionEconomyState(1, true))
+            );
+            RecordingHandler handler = new RecordingHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<TestActionOp, TestActionResult>(handler)
+                .UseActionLifecycle(new FixedActionCatalog())
+                .Build();
+            TestDefinition definition = new TestDefinition();
+            BlockingConfirmationAdapter adapter = new BlockingConfirmationAdapter();
+            controller.AddDefinitionAction(
+                CreateEntry(
+                    new ActionBarEntryKey("test/delayed-definition"),
+                    "Delayed definition",
+                    definition,
+                    dispatcher,
+                    adapter
+                )
+            );
+            OnNextTurn.Invoke(player);
+
+            Button definitionButton = null;
+            Button cancelButton = null;
+            Button endTurnButton = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    definitionButton = root.Q<Button>("DelayeddefinitionButton");
+                    cancelButton = root.Q<Button>("CancelActionButton");
+                    endTurnButton = root.Q<Button>("EndTurnButton");
+                    return definitionButton != null
+                        && cancelButton != null
+                        && endTurnButton != null
+                        && definitionButton.enabledSelf;
+                }
+            );
+
+            PushButton(definitionButton);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                    adapter.SelectionRequested
+                    && controller.IsTakingAction
+                    && cancelButton.enabledSelf
+            );
+            Assert.That(controller.IsTakingAction, Is.True);
+            Assert.That(cancelButton.enabledSelf, Is.True);
+
+            PushButton(cancelButton);
+            yield return null;
+
+            Assert.That(
+                controller.IsTakingAction,
+                Is.True,
+                "Cancellation may signal pending selection, but only Execute completion releases the action lock."
+            );
+            Assert.That(definitionButton.enabledSelf, Is.False);
+            Assert.That(endTurnButton.enabledSelf, Is.False);
+            Assert.That(cancelButton.enabledSelf, Is.False);
+            Assert.That(handler.Operations, Is.Empty);
+            Assert.That(definition.CreateOpCalls, Is.Zero);
+
+            adapter.CompleteWithLateSelection();
+            yield return WaitUntilWithTimeout(timeout, () => !controller.IsTakingAction);
+            yield return null;
+
+            Assert.That(controller.IsTakingAction, Is.False);
+            Assert.That(handler.Operations, Is.Empty);
+            Assert.That(definition.CreateOpCalls, Is.Zero);
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(definitionButton.enabledSelf, Is.True);
+            Assert.That(endTurnButton.enabledSelf, Is.True);
+        }
+
         private int CountButtonsNamed(string buttonName) =>
             root.Query<Button>().ToList().Count(button => button.name == buttonName);
 
@@ -276,6 +438,71 @@ namespace TestsUI
             public SelectionOutcome<SpellSlotSelection> SelectSpellSlot(
                 SpellSlotSelectionRequest request
             ) => SelectionOutcome<SpellSlotSelection>.Invalid("unused");
+        }
+
+        private sealed class BlockingConfirmationAdapter : ISelectionAdapter
+        {
+            private readonly TaskCompletionSource<
+                SelectionOutcome<ConfirmationSelection>
+            > completion = new TaskCompletionSource<SelectionOutcome<ConfirmationSelection>>();
+
+            public bool SelectionRequested { get; private set; }
+
+            public ValueTask<SelectionOutcome<ConfirmationSelection>> Confirm(
+                ConfirmationSelectionRequest request
+            )
+            {
+                SelectionRequested = true;
+                return new ValueTask<SelectionOutcome<ConfirmationSelection>>(completion.Task);
+            }
+
+            public void CompleteWithLateSelection() =>
+                completion.SetResult(
+                    SelectionOutcome<ConfirmationSelection>.Completed(
+                        new ConfirmationSelection(true)
+                    )
+                );
+
+            public ValueTask<SelectionOutcome<CreatureSelection>> SelectCreature(
+                CreatureSelectionRequest request
+            ) => Unused<CreatureSelection>();
+
+            public ValueTask<SelectionOutcome<MultipleCreatureSelection>> SelectCreatures(
+                MultipleCreatureSelectionRequest request
+            ) => Unused<MultipleCreatureSelection>();
+
+            public ValueTask<SelectionOutcome<ItemSelection>> SelectItem(
+                ItemSelectionRequest request
+            ) => Unused<ItemSelection>();
+
+            public ValueTask<SelectionOutcome<WeaponSelection>> SelectWeapon(
+                WeaponSelectionRequest request
+            ) => Unused<WeaponSelection>();
+
+            public ValueTask<SelectionOutcome<PathSelection>> SelectPath(
+                PathSelectionRequest request
+            ) => Unused<PathSelection>();
+
+            public ValueTask<SelectionOutcome<GridCellSelection>> SelectGridCell(
+                GridCellSelectionRequest request
+            ) => Unused<GridCellSelection>();
+
+            public ValueTask<SelectionOutcome<AreaSelection>> SelectArea(
+                AreaSelectionRequest request
+            ) => Unused<AreaSelection>();
+
+            public ValueTask<SelectionOutcome<SpellVariantSelection>> SelectSpellVariant(
+                SpellVariantSelectionRequest request
+            ) => Unused<SpellVariantSelection>();
+
+            public ValueTask<SelectionOutcome<SpellSlotSelection>> SelectSpellSlot(
+                SpellSlotSelectionRequest request
+            ) => Unused<SpellSlotSelection>();
+
+            private static ValueTask<SelectionOutcome<TSelection>> Unused<TSelection>() =>
+                new ValueTask<SelectionOutcome<TSelection>>(
+                    SelectionOutcome<TSelection>.Invalid("unused")
+                );
         }
     }
 }

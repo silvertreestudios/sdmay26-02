@@ -306,11 +306,15 @@ namespace TestsState
                 () =>
                 {
                     actionButton = root.Q<Button>(buttonName);
-                    return actionButton != null;
+                    return actionButton != null && actionButton.enabledSelf;
                 }
             );
 
             Assert.IsNotNull(actionButton, "Expected action button " + buttonName + " for Lena.");
+            Assert.IsTrue(
+                actionButton.enabledSelf,
+                "Expected the incoming turn's enabled action button " + buttonName + " for Lena."
+            );
             PushButton(actionButton);
             GridBase grid = UnityEngine.Object.FindFirstObjectByType<GridBase>();
             yield return WaitUntilWithTimeout(timeout, () => grid.Fsm.CurrentState is StateStrike);
