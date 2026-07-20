@@ -209,7 +209,7 @@ public class Pf2eClericSpellcastingTests
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally");
-        ally.InitializeHealth(3, 20);
+        ally.InitializeHealthBeforeEncounter(3, 20);
         UnityEngine.Random.InitState(12);
 
         CastSpellResult result = Cast("heal", cleric, 2, ally.gameObject);
@@ -230,7 +230,7 @@ public class Pf2eClericSpellcastingTests
         CreatureComponent target = CreateCreature("Target");
         target.transform.position = new Vector3(6, 0, 0);
         target.ac = 12;
-        target.InitializeHealth(100, 100);
+        target.InitializeHealthBeforeEncounter(100, 100);
         UnityEngine.Random.InitState(3);
         InstallTestCombatLog();
 
@@ -287,7 +287,7 @@ public class Pf2eClericSpellcastingTests
         created.Add(go);
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
-        creature.InitializeHealth(10, 10);
+        creature.InitializeHealthBeforeEncounter(10, 10);
         Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
         return creature;
     }

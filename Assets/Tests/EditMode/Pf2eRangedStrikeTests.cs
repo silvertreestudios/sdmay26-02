@@ -250,7 +250,7 @@ namespace TestsCombat
             CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
             attackerCreature.attackBonus = 7;
             targetCreature.ac = 100;
-            targetCreature.InitializeHealth(100, targetCreature.maxHp);
+            targetCreature.InitializeHealthBeforeEncounter(100, targetCreature.maxHp);
 
             StrikeProfile profile = new StrikeProfile(
                 new List<Dice> { new Dice(1, 6, "piercing") },
@@ -453,7 +453,7 @@ namespace TestsCombat
             GameObject creature = new GameObject(name);
             CreatureComponent component = creature.AddComponent<CreatureComponent>();
             creature.AddComponent<TestActionController>();
-            component.InitializeHealth(hp, hp);
+            component.InitializeHealthBeforeEncounter(hp, hp);
             Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { component });
             component.ac = 10;
             component.attackBonus = 10;

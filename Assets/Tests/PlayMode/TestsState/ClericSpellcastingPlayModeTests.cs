@@ -133,7 +133,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         clericObject = new GameObject("Self-Defeating Animated Caster");
         CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
         cleric.level = 1;
-        cleric.InitializeHealth(1, 1);
+        cleric.InitializeHealthBeforeEncounter(1, 1);
         Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { cleric });
         cleric.wisMod = 4;
         cleric.Build = new CharacterBuild { ClassName = "Cleric" };

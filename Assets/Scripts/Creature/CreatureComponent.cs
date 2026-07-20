@@ -1018,16 +1018,17 @@ namespace Game.Creature
         }
 
         /// <summary>
-        /// Initializes imported, fixture, or authoring health before runtime ownership begins.
+        /// Supplies imported, fixture, or authoring health before encounter ownership begins.
         /// </summary>
         /// <remarks>
-        /// Gameplay code must use dispatcher-backed health methods. Once a bridge owns this
-        /// component, initialization is rejected so Unity cannot overwrite authoritative state.
+        /// <see cref="CreatureJsonConverter"/> calls this while importing creature data, and test
+        /// builders use it before explicitly composing a bridge. Once a bridge owns this component,
+        /// health is derived from RulesState and this method rejects later initialization.
         /// </remarks>
         /// <param name="current">Initial current Hit Points.</param>
         /// <param name="maximum">Initial maximum Hit Points.</param>
         /// <param name="temporary">Imported temporary Hit Points with no recoverable source.</param>
-        public void InitializeHealth(int current, int maximum, int temporary = 0)
+        public void InitializeHealthBeforeEncounter(int current, int maximum, int temporary = 0)
         {
             if (healthRules != null)
                 throw new InvalidOperationException(

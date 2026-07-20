@@ -356,7 +356,7 @@ namespace TestsState
             cleanup.Add(obj);
             CreatureComponent creature = obj.AddComponent<CreatureComponent>();
             creature.name = name;
-            creature.InitializeHealth(hp, maxHp);
+            creature.InitializeHealthBeforeEncounter(hp, maxHp);
             creature.traits = new List<string>();
             creature.weaknesses = new List<DamageValue>();
             creature.resistances = new List<DamageValue>();

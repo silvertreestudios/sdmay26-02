@@ -512,7 +512,7 @@ public class Pf2eRulesTests
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
         creature.ac = 15;
-        creature.InitializeHealth(10, 10);
+        creature.InitializeHealthBeforeEncounter(10, 10);
         return creature;
     }
 

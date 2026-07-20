@@ -17,7 +17,7 @@ public sealed class UnityHealthRulesBridgeTests
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
-            creature.InitializeHealth(10, 10);
+            creature.InitializeHealthBeforeEncounter(10, 10);
 
             InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
                 creature.ApplyFinalDamage(1, RuleSource.FromSlug("test-damage"))
@@ -41,8 +41,8 @@ public sealed class UnityHealthRulesBridgeTests
         {
             CreatureComponent first = firstObject.AddComponent<CreatureComponent>();
             CreatureComponent second = secondObject.AddComponent<CreatureComponent>();
-            first.InitializeHealth(10, 12);
-            second.InitializeHealth(7, 7);
+            first.InitializeHealthBeforeEncounter(10, 12);
+            second.InitializeHealthBeforeEncounter(7, 7);
             UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { first, second });
 
             CreatureId firstId = bridge.GetCreatureId(first);
@@ -88,7 +88,7 @@ public sealed class UnityHealthRulesBridgeTests
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
-            creature.InitializeHealth(10, 10);
+            creature.InitializeHealthBeforeEncounter(10, 10);
             UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
             CreatureId id = bridge.GetCreatureId(creature);
             RuleSource rage = RuleSource.FromSlug("rage");
@@ -120,7 +120,7 @@ public sealed class UnityHealthRulesBridgeTests
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
-            creature.InitializeHealth(10, 10);
+            creature.InitializeHealthBeforeEncounter(10, 10);
             UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
             InvalidOperationException expected = new InvalidOperationException(
                 "completed observer failure"
@@ -152,7 +152,7 @@ public sealed class UnityHealthRulesBridgeTests
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
-            creature.InitializeHealth(10, 10);
+            creature.InitializeHealthBeforeEncounter(10, 10);
             UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
             GetDispatcher(bridge).RegisterFactObserver<HealthFact>(observer);
 

@@ -439,7 +439,7 @@ namespace TestsState
             team.Name = actor.GetComponent<Team>().Name;
             CreatureComponent creature = ally.AddComponent<CreatureComponent>();
             creature.strMod = 1;
-            creature.InitializeHealth(10, 10);
+            creature.InitializeHealthBeforeEncounter(10, 10);
             ally.AddComponent<Conditions>();
             TestActionController controller = ally.AddComponent<TestActionController>();
             controller.AddAction(

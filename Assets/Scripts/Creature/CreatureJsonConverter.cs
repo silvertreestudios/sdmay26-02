@@ -275,7 +275,7 @@ namespace Game.Creature
             int maximumHp = dto.system.attributes?.hp?.max ?? target.maxHp;
             int currentHp = dto.system.attributes?.hp?.value ?? target.hp;
             int temporaryHp = dto.system.attributes?.hp?.temp ?? target.tempHp;
-            target.InitializeHealth(currentHp, maximumHp, temporaryHp);
+            target.InitializeHealthBeforeEncounter(currentHp, maximumHp, temporaryHp);
 
             if (dto.system.attributes?.ac > 0)
                 target.ac = dto.system.attributes.ac;

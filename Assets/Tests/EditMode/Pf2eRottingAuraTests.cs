@@ -235,7 +235,7 @@ namespace TestsCombat
             obj.transform.position = new Vector3(x, 0, z);
             CreatureComponent creature = obj.AddComponent<CreatureComponent>();
             creature.name = name;
-            creature.InitializeHealth(hp, maxHp);
+            creature.InitializeHealthBeforeEncounter(hp, maxHp);
             Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
             creature.traits = traits == null ? new List<string>() : new List<string>(traits);
             creature.weaknesses = new List<DamageValue>();
