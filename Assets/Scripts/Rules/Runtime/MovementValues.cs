@@ -427,13 +427,22 @@ namespace Game.Rules.Runtime
         /// <summary>The full preflight path exceeds the available movement distance.</summary>
         InsufficientMovement,
 
-        /// <summary>The movement timing operation was interrupted before this step.</summary>
+        /// <summary>
+        /// The movement timing operation requested interruption at this departure. An authorized
+        /// occupied crossing can first settle through its reserved exit.
+        /// </summary>
         TriggerInterrupted,
 
-        /// <summary>The movement timing operation became invalid before this step.</summary>
+        /// <summary>
+        /// The movement timing operation became invalid at this departure. An authorized occupied
+        /// crossing can first settle through its reserved exit.
+        /// </summary>
         TriggerInvalid,
 
-        /// <summary>The movement timing operation was cancelled before this step.</summary>
+        /// <summary>
+        /// The movement timing operation was cancelled at this departure. An authorized occupied
+        /// crossing can first settle through its reserved exit.
+        /// </summary>
         TriggerCancelled,
 
         /// <summary>The permission did not match its engine-issued scope.</summary>
@@ -593,7 +602,10 @@ namespace Game.Rules.Runtime
         /// <summary>The step may proceed to its authoritative commit.</summary>
         Continue,
 
-        /// <summary>The path stops before the associated step commits.</summary>
+        /// <summary>
+        /// The path requests a stop at this departure. If the mover already entered a reserved
+        /// occupied cell, the stop settles after the atomic exit step commits.
+        /// </summary>
         Interrupted,
     }
 

@@ -178,7 +178,7 @@ namespace Game.Rules.Runtime
             }
             if (!MovementCostRules.IsContiguous(op.From, op.To))
                 return Failure(MovementFailureKind.NonContiguous, op);
-            if (BlocksDiagonalCorner(state, op.Mover, op.From, op.To))
+            if (BlocksDiagonalCorner(op.From, op.To))
                 return Failure(MovementFailureKind.CornerBlocked, op);
             if (topology.IsBlocked(op.To))
             {
@@ -252,12 +252,7 @@ namespace Game.Rules.Runtime
             && state.Positions.TryGet(op.Allowance.Occupant, out GridPosition occupantPosition)
             && occupantPosition == op.To;
 
-        private bool BlocksDiagonalCorner(
-            RulesStateDraft state,
-            CreatureId mover,
-            GridPosition from,
-            GridPosition to
-        )
+        private bool BlocksDiagonalCorner(GridPosition from, GridPosition to)
         {
             int dx = to.X - from.X;
             int dz = to.Z - from.Z;
@@ -265,17 +260,8 @@ namespace Game.Rules.Runtime
                 return false;
             GridPosition sideX = new GridPosition(from.X + dx, from.Y, from.Z);
             GridPosition sideZ = new GridPosition(from.X, from.Y, from.Z + dz);
-            return IsUnavailable(state.Positions, mover, sideX)
-                && IsUnavailable(state.Positions, mover, sideZ);
+            return topology.IsBlocked(sideX) || topology.IsBlocked(sideZ);
         }
-
-        private bool IsUnavailable(
-            StateSliceDraft<CreatureId, GridPosition> positions,
-            CreatureId mover,
-            GridPosition position
-        ) =>
-            topology.IsBlocked(position)
-            || TryFindBlockingOccupant(positions, mover, position, out CreatureId _);
 
         private static MovementFailure Failure(MovementFailureKind kind, CommitMovementStepOp op) =>
             new MovementFailure(kind, op.TriggerId.StepNumber, op.To);

@@ -165,6 +165,50 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(store.Snapshot.MovementBudgets[Mover].Remaining.Feet, Is.EqualTo(15));
         }
 
+        [TestCase(DepartureStopResult.ResolvedInterruption, MovementFailureKind.TriggerInterrupted)]
+        [TestCase(DepartureStopResult.Interrupted, MovementFailureKind.TriggerInterrupted)]
+        [TestCase(DepartureStopResult.Cancelled, MovementFailureKind.TriggerCancelled)]
+        [TestCase(DepartureStopResult.Invalid, MovementFailureKind.TriggerInvalid)]
+        public async Task StopWhileLeavingReservedCellSettlesAtExitAndConsumesPermission(
+            DepartureStopResult stopResult,
+            MovementFailureKind expectedFailure
+        )
+        {
+            PermissionActionHandler handler = new PermissionActionHandler(
+                PermissionScenario.StopThenReuse
+            );
+            InMemoryRulesStore store = CreateStore(seedMiddleware: true);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                store,
+                handler,
+                new CrossingStopMiddleware(stopResult)
+            );
+
+            OpResult<bool> result = await dispatcher.Dispatch(new PermissionActionOp());
+
+            Assert.That(RequireResolved(result).Value, Is.True);
+            Assert.That(handler.FirstMove.Status, Is.EqualTo(MovePathStatus.Stopped));
+            Assert.That(handler.FirstMove.Failure.Kind, Is.EqualTo(expectedFailure));
+            Assert.That(handler.FirstMove.Failure.StepNumber, Is.EqualTo(2));
+            Assert.That(handler.FirstMove.FinalPosition, Is.EqualTo(SecondIntermediate));
+            Assert.That(handler.FirstMove.CommittedSteps, Is.EqualTo(2));
+            Assert.That(handler.FirstMove.DistanceSpent.Feet, Is.EqualTo(15));
+            Assert.That(
+                handler.SecondMove.Failure.PermissionFailure,
+                Is.EqualTo(MovementPermissionFailureKind.Reused)
+            );
+            Assert.That(
+                result.Facts.OfType<TokenMovedFact>().Select(fact => fact.Cost.Feet),
+                Is.EqualTo(new[] { 10, 5 })
+            );
+            Assert.That(result.Facts.OfType<OccupiedSpaceTraversedFact>().Count(), Is.EqualTo(1));
+            Assert.That(result.Facts.OfType<TokenRelocatedFact>().Count(), Is.EqualTo(1));
+            Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(Origin));
+            Assert.That(store.Snapshot.Positions[Occupant], Is.EqualTo(Occupied));
+            Assert.That(store.Snapshot.MovementBudgets[Mover].Remaining.Feet, Is.EqualTo(15));
+            Assert.That(store.Snapshot.Version, Is.EqualTo(4));
+        }
+
         [TestCase(PermissionScenario.PathMismatch, MovementPermissionFailureKind.PathMismatch)]
         [TestCase(
             PermissionScenario.PurposeMismatch,
@@ -323,7 +367,7 @@ namespace Game.Rules.Runtime.Tests
         private static RuleDispatcher CreateDispatcher(
             InMemoryRulesStore store,
             PermissionActionHandler handler,
-            OccupantDepartureMiddleware middleware
+            IOpMiddleware<MovementLeavingSquareOp, MovementTriggerOutcome> middleware
         ) => CreateDispatcher(store, handler, new OccupantDepartureRegistration(middleware));
 
         private static RuleDispatcher CreateDispatcher(
@@ -388,6 +432,23 @@ namespace Game.Rules.Runtime.Tests
             InvalidReservation,
             ObserverFailureThenReuse,
             OccupantRelocatesBeforeTraversal,
+            StopThenReuse,
+        }
+
+        /// <summary>Names the injected result returned at the reserved cell's departure.</summary>
+        public enum DepartureStopResult
+        {
+            /// <summary>Returns a resolved trigger decision that requests interruption.</summary>
+            ResolvedInterruption,
+
+            /// <summary>Returns a structurally interrupted operation.</summary>
+            Interrupted,
+
+            /// <summary>Returns a structurally cancelled operation.</summary>
+            Cancelled,
+
+            /// <summary>Returns a structurally invalid operation.</summary>
+            Invalid,
         }
 
         private sealed class PermissionActionHandler : IOpHandler<PermissionActionOp, bool>
@@ -493,6 +554,29 @@ namespace Game.Rules.Runtime.Tests
                 )
                 {
                     return true;
+                }
+
+                if (scenario == PermissionScenario.StopThenReuse)
+                {
+                    FirstMove = await Move(
+                        frame,
+                        context,
+                        started.Budget.Id,
+                        CrossingPath,
+                        IssuedPermission,
+                        Purpose
+                    );
+                    await Relocate(frame, context, Mover, FirstMove.FinalPosition, Origin);
+                    SecondMove = await Move(
+                        frame,
+                        context,
+                        started.Budget.Id,
+                        CrossingPath,
+                        IssuedPermission,
+                        Purpose
+                    );
+                    return SecondMove.Failure.PermissionFailure
+                        == MovementPermissionFailureKind.Reused;
                 }
 
                 if (scenario == PermissionScenario.ObserverFailureThenReuse)
@@ -688,14 +772,53 @@ namespace Game.Rules.Runtime.Tests
         {
             public static OccupantDepartureRegistration None => default;
 
-            public OccupantDepartureRegistration(OccupantDepartureMiddleware middleware)
+            public OccupantDepartureRegistration(
+                IOpMiddleware<MovementLeavingSquareOp, MovementTriggerOutcome> middleware
+            )
             {
                 Middleware = middleware;
                 IsConfigured = true;
             }
 
             public bool IsConfigured { get; }
-            public OccupantDepartureMiddleware Middleware { get; }
+            public IOpMiddleware<
+                MovementLeavingSquareOp,
+                MovementTriggerOutcome
+            > Middleware { get; }
+        }
+
+        private sealed class CrossingStopMiddleware
+            : IOpMiddleware<MovementLeavingSquareOp, MovementTriggerOutcome>
+        {
+            private readonly DepartureStopResult result;
+
+            public CrossingStopMiddleware(DepartureStopResult result) => this.result = result;
+
+            public async ValueTask<OpResult<MovementTriggerOutcome>> Invoke(
+                OpFrame<MovementLeavingSquareOp> frame,
+                OpMiddlewareContext context,
+                OpNext<MovementTriggerOutcome> next
+            )
+            {
+                if (frame.Op.TriggerId.StepNumber != 2)
+                    return await next();
+
+                switch (result)
+                {
+                    case DepartureStopResult.ResolvedInterruption:
+                        return OpResult<MovementTriggerOutcome>.Resolved(
+                            MovementTriggerOutcome.Interrupted
+                        );
+                    case DepartureStopResult.Interrupted:
+                        return OpResult<MovementTriggerOutcome>.Interrupted();
+                    case DepartureStopResult.Cancelled:
+                        return OpResult<MovementTriggerOutcome>.Cancelled();
+                    default:
+                        return OpResult<MovementTriggerOutcome>.Invalid(
+                            "injected reserved-exit invalidity"
+                        );
+                }
+            }
         }
 
         private sealed class OccupantDepartureMiddleware

@@ -253,6 +253,89 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void PurePreflightUsesOnlyTopologyAndEitherBlockedSideForDiagonalCorners()
+        {
+            GridPosition origin = new GridPosition(1, 0, 1);
+            GridPosition destination = new GridPosition(2, 0, 2);
+            GridPosition sideX = new GridPosition(2, 0, 1);
+            GridPosition sideZ = new GridPosition(1, 0, 2);
+            MovementBudgetId budgetId = new MovementBudgetId(new OpId(10));
+
+            MovementPathValidation blocked = new MovementPathValidator(
+                CreateTopology(new GridCell(sideX, true, TerrainCost.Normal))
+            ).Validate(
+                CreateStore(origin, budgetId, 20).Snapshot,
+                Mover,
+                budgetId,
+                new MovementPath(origin, new[] { destination }),
+                OccupiedTraversalAllowance.None
+            );
+            MovementPathValidation occupiedSide = new MovementPathValidator(
+                CreateTopology()
+            ).Validate(
+                CreateStore(origin, budgetId, 20, Occupant, sideZ).Snapshot,
+                Mover,
+                budgetId,
+                new MovementPath(origin, new[] { destination }),
+                OccupiedTraversalAllowance.None
+            );
+
+            Assert.That(blocked.IsValid, Is.False);
+            Assert.That(blocked.Failure.Kind, Is.EqualTo(MovementFailureKind.CornerBlocked));
+            Assert.That(occupiedSide.IsValid, Is.True);
+            Assert.That(occupiedSide.Steps.Single().To, Is.EqualTo(destination));
+        }
+
+        [Test]
+        public void ReducerRevalidationUsesOnlyTopologyAndEitherBlockedSideForDiagonalCorners()
+        {
+            GridPosition origin = new GridPosition(1, 0, 1);
+            GridPosition destination = new GridPosition(2, 0, 2);
+            GridPosition sideX = new GridPosition(2, 0, 1);
+            GridPosition sideZ = new GridPosition(1, 0, 2);
+            MovementBudgetId budgetId = new MovementBudgetId(new OpId(10));
+            CommitMovementStepOp commit = CreateCommitOp(origin, destination, budgetId, 1);
+            InMemoryRulesStore blockedStore = CreateStore(origin, budgetId, 20);
+
+            ReductionResult<MovementStepCommitOutcome> blocked = blockedStore.Reduce(
+                new ReductionContext<CommitMovementStepOp>(
+                    commit,
+                    new OpId(30),
+                    new OpId(10),
+                    RuleSource.FromSlug("movement")
+                ),
+                new CommitMovementStepReducer(
+                    CreateTopology(new GridCell(sideX, true, TerrainCost.Normal))
+                )
+            );
+            InMemoryRulesStore occupiedSideStore = CreateStore(
+                origin,
+                budgetId,
+                20,
+                Occupant,
+                sideZ
+            );
+            ReductionResult<MovementStepCommitOutcome> occupiedSide = occupiedSideStore.Reduce(
+                new ReductionContext<CommitMovementStepOp>(
+                    commit,
+                    new OpId(31),
+                    new OpId(10),
+                    RuleSource.FromSlug("movement")
+                ),
+                new CommitMovementStepReducer(CreateTopology())
+            );
+
+            Assert.That(blocked.Value.DidMove, Is.False);
+            Assert.That(blocked.Value.Failure.Kind, Is.EqualTo(MovementFailureKind.CornerBlocked));
+            Assert.That(blocked.DidCommit, Is.False);
+            Assert.That(blockedStore.Snapshot.Version, Is.Zero);
+            Assert.That(occupiedSide.Value.DidMove, Is.True);
+            Assert.That(occupiedSide.DidCommit, Is.True);
+            Assert.That(occupiedSideStore.Snapshot.Positions[Mover], Is.EqualTo(destination));
+            Assert.That(occupiedSideStore.Snapshot.Positions[Occupant], Is.EqualTo(sideZ));
+        }
+
+        [Test]
         public async Task SuccessfulStepsCommitPositionAndBudgetAtomicallyAndPaceObservers()
         {
             GridPosition origin = new GridPosition(0, 0, 0);

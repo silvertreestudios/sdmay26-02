@@ -275,6 +275,7 @@ namespace Game.Rules.Runtime
 
             int committedSteps = 0;
             int distanceSpent = 0;
+            MovementFailure deferredStop = default;
             foreach (MovementStepPlan step in validation.Steps)
             {
                 MovementTriggerId triggerId = new MovementTriggerId(frame.Id, committedSteps + 1);
@@ -290,7 +291,15 @@ namespace Game.Rules.Runtime
                 );
                 MovementFailure triggerFailure = GetTriggerFailure(trigger, step.To, triggerId);
                 if (triggerFailure.Kind != MovementFailureKind.None)
-                    return Stopped(context, op, committedSteps, distanceSpent, triggerFailure);
+                {
+                    if (!OccupiesReservedCell(context.Snapshot, op))
+                        return Stopped(context, op, committedSteps, distanceSpent, triggerFailure);
+
+                    // Entry into a reserved occupied square commits atomically, so it cannot be
+                    // rolled back without breaking the durable prefix. Settle a requested stop
+                    // through the already-reserved exit step, then stop at that legal square.
+                    deferredStop = triggerFailure;
+                }
 
                 CommitMovementStepOp commitOp = new CommitMovementStepOp(
                     op.ActionOpId,
@@ -330,6 +339,8 @@ namespace Game.Rules.Runtime
                 distanceSpent += committed.Cost.Distance.Feet;
                 if (ContainsTraversalFact(commit))
                     authority.Consume(op.Permission);
+                if (deferredStop.Kind != MovementFailureKind.None)
+                    return Stopped(context, op, committedSteps, distanceSpent, deferredStop);
             }
 
             return new MovePathOutcome(
@@ -389,6 +400,13 @@ namespace Game.Rules.Runtime
             }
             return false;
         }
+
+        private static bool OccupiesReservedCell(RulesSnapshot snapshot, MovePathOp op) =>
+            !op.Permission.IsNone
+            && snapshot.Positions.TryGet(op.Mover, out GridPosition moverPosition)
+            && moverPosition == op.Permission.ReservedPosition
+            && snapshot.Positions.TryGet(op.Permission.Occupant, out GridPosition occupantPosition)
+            && occupantPosition == op.Permission.ReservedPosition;
 
         private static bool TraversalCommitted(
             RulesSnapshot before,

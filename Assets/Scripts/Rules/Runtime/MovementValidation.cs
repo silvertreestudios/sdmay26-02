@@ -65,8 +65,6 @@ namespace Game.Rules.Runtime
                 GridPosition to = path.Steps[index];
                 bool isDestination = stepNumber == path.Steps.Count;
                 MovementFailure topologyFailure = ValidateTopologyStep(
-                    snapshot,
-                    mover,
                     from,
                     to,
                     stepNumber,
@@ -204,8 +202,6 @@ namespace Game.Rules.Runtime
         }
 
         private MovementFailure ValidateTopologyStep(
-            RulesSnapshot snapshot,
-            CreatureId mover,
             GridPosition from,
             GridPosition to,
             int stepNumber,
@@ -226,7 +222,7 @@ namespace Game.Rules.Runtime
             {
                 return new MovementFailure(MovementFailureKind.NonContiguous, stepNumber, to);
             }
-            if (BlocksDiagonalCorner(snapshot, mover, from, to))
+            if (BlocksDiagonalCorner(from, to))
             {
                 return new MovementFailure(MovementFailureKind.CornerBlocked, stepNumber, to);
             }
@@ -243,12 +239,7 @@ namespace Game.Rules.Runtime
             return default;
         }
 
-        private bool BlocksDiagonalCorner(
-            RulesSnapshot snapshot,
-            CreatureId mover,
-            GridPosition from,
-            GridPosition to
-        )
+        private bool BlocksDiagonalCorner(GridPosition from, GridPosition to)
         {
             int dx = to.X - from.X;
             int dz = to.Z - from.Z;
@@ -257,16 +248,8 @@ namespace Game.Rules.Runtime
 
             GridPosition sideX = new GridPosition(from.X + dx, from.Y, from.Z);
             GridPosition sideZ = new GridPosition(from.X, from.Y, from.Z + dz);
-            return IsUnavailable(snapshot, mover, sideX) && IsUnavailable(snapshot, mover, sideZ);
+            return topology.IsBlocked(sideX) || topology.IsBlocked(sideZ);
         }
-
-        private bool IsUnavailable(
-            RulesSnapshot snapshot,
-            CreatureId mover,
-            GridPosition position
-        ) =>
-            topology.IsBlocked(position)
-            || TryFindBlockingOccupant(snapshot, mover, position, out CreatureId _);
 
         internal static bool TryFindBlockingOccupant(
             RulesSnapshot snapshot,
