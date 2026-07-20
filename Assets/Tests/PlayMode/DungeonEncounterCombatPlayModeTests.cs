@@ -1,8 +1,11 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
+using Game.Combat.Encounters;
 using Game.Creature;
 using Game.Rules.Runtime;
+using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.Events;
@@ -90,6 +93,42 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         Assert.That(manager.WhosTurn(), Is.SameAs(next.GameObject));
         Assert.That(next.Controller.StartTurnCount, Is.EqualTo(1));
+    }
+
+    /// <summary>Verifies malformed encounter identity cannot interrupt committed defeat cleanup.</summary>
+    [Test]
+    public void LethalDamage_UnconfiguredEncounterMemberStillCompletesDefeatPresentation()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        Assert.That(singletonField, Is.Not.Null);
+        object previousGrid = singletonField.GetValue(null);
+        try
+        {
+            singletonField.SetValue(null, null);
+            TestGridAPI grid = Create("Test GridAPI").AddComponent<TestGridAPI>();
+            CombatantFixture player = CreateCombatant("Player", "Players", 100);
+            CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+            DungeonEncounterMember member = enemy.GameObject.AddComponent<DungeonEncounterMember>();
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+
+            Assert.DoesNotThrow(() =>
+                enemy.Creature.ApplyFinalDamage(10, RuleSource.FromSlug("test-lethal-damage"))
+            );
+
+            Assert.That(member.IsConfigured, Is.False);
+            Assert.That(member.DefeatWasReported, Is.False);
+            Assert.That(grid.DestroyedTokens, Contains.Item(enemy.GameObject));
+            Assert.That(enemy.Controller.enabled, Is.False);
+            Assert.That(enemy.GameObject.activeSelf, Is.False);
+            Assert.That(manager.GetCombatants(), Has.No.Member(enemy.GameObject));
+        }
+        finally
+        {
+            singletonField.SetValue(null, previousGrid);
+        }
     }
 
     /// <summary>Verifies a reinforcement before the current initiative waits for the next round.</summary>
@@ -451,5 +490,39 @@ public sealed class DungeonEncounterCombatPlayModeTests
         public override void Log(string msg, List<string> tags) => messages.Add(msg);
 
         public override List<string> GetMessages() => new(messages);
+    }
+
+    private sealed class TestGridAPI : GridAPI
+    {
+        public List<GameObject> DestroyedTokens { get; } = new();
+
+        public override IEnumerator Stride(GameObject character)
+        {
+            yield break;
+        }
+
+        public override IEnumerator GetStrikeTarget(
+            GameObject attacker,
+            StrikeTargetRequest request,
+            CoroutineResult<StrikeTargetResult> target
+        )
+        {
+            yield break;
+        }
+
+        public override IEnumerator GetAreaTarget(
+            AreaTargetSource source,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> target
+        )
+        {
+            yield break;
+        }
+
+        public override bool DestroyToken(GameObject token)
+        {
+            DestroyedTokens.Add(token);
+            return true;
+        }
     }
 }

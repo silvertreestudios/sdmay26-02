@@ -76,6 +76,10 @@ namespace Game.Combat.Encounters
         /// <summary>
         /// Validates every entry and builds the exact ordinal lookup used by materialization.
         /// </summary>
+        /// <remarks>
+        /// Successful validation is cached until Unity invokes <c>OnValidate</c> or editor tooling
+        /// replaces the authored entries.
+        /// </remarks>
         /// <exception cref="InvalidOperationException">
         /// An entry is missing, duplicated, has blank metadata, references missing JSON, references
         /// no prefab, lacks a root <see cref="ActionController"/>, <see cref="Token"/>, or
@@ -83,6 +87,9 @@ namespace Game.Combat.Encounters
         /// </exception>
         public void ValidateOrThrow()
         {
+            if (entriesByContentId != null)
+                return;
+
             Dictionary<string, DungeonEncounterCreatureCatalogEntry> validated = new(
                 StringComparer.Ordinal
             );

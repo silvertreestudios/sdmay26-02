@@ -1075,7 +1075,10 @@ namespace Game.Creature
             if (ac != null && CombatManagerInterface.GetInstance() != null)
                 CombatManagerInterface.GetInstance().Remove(ac);
 
-            gameObject.GetComponent<DungeonEncounterMember>()?.ReportDefeated();
+            DungeonEncounterMember encounterMember =
+                gameObject.GetComponent<DungeonEncounterMember>();
+            if (encounterMember != null && encounterMember.IsConfigured)
+                encounterMember.ReportDefeated();
 
             GridAPI.GetInstance().DestroyToken(this.gameObject);
             DisableGameplayInteraction(ac);

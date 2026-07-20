@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
@@ -107,6 +108,42 @@ public sealed class DungeonEncounterMaterializerTests
         Assert.That(
             Assert.Throws<InvalidOperationException>(catalog.ValidateOrThrow).Message,
             Does.Contain("requires a Team")
+        );
+    }
+
+    /// <summary>Verifies successful catalog validation is cached and authoring changes invalidate it.</summary>
+    [Test]
+    public void CatalogCachesSuccessfulValidationUntilEntriesAreReplaced()
+    {
+        GameObject prefab = CreaturePrefab("Catalog prefab");
+        DungeonEncounterCreatureCatalog catalog = Catalog(Entry("goblin-warrior", prefab));
+        FieldInfo lookupField = typeof(DungeonEncounterCreatureCatalog).GetField(
+            "entriesByContentId",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(lookupField, Is.Not.Null);
+
+        catalog.ValidateOrThrow();
+        object firstLookup = lookupField.GetValue(catalog);
+
+        catalog.ValidateOrThrow();
+
+        Assert.That(lookupField.GetValue(catalog), Is.SameAs(firstLookup));
+
+        catalog.ReplaceEntries(
+            new[]
+            {
+                new DungeonEncounterCreatureCatalogEntry(
+                    "missing-json",
+                    "DataFiles/does-not-exist",
+                    prefab
+                ),
+            }
+        );
+        Assert.That(lookupField.GetValue(catalog), Is.Null);
+        Assert.That(
+            Assert.Throws<InvalidOperationException>(catalog.ValidateOrThrow).Message,
+            Does.Contain("cannot load creature JSON")
         );
     }
 
