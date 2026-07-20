@@ -250,7 +250,6 @@ namespace TestsCombat
             CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
             attackerCreature.attackBonus = 7;
             targetCreature.ac = 100;
-            targetCreature.InitializeHealthBeforeEncounter(100, targetCreature.maxHp);
 
             StrikeProfile profile = new StrikeProfile(
                 new List<Dice> { new Dice(1, 6, "piercing") },

@@ -7,6 +7,39 @@ namespace Game.Rules.Runtime.Tests
 {
     public sealed class HealthReducerTests
     {
+        [Test]
+        public void HealthStateHashIncludesTemporaryHitPointImmunities()
+        {
+            HealthState withoutImmunity = new HealthState(10, 10);
+            HealthState withImmunity = new HealthState(
+                10,
+                10,
+                0,
+                default,
+                new[] { RuleSource.FromSlug("rage") }
+            );
+            HealthState matching = new HealthState(
+                10,
+                10,
+                0,
+                default,
+                new[] { RuleSource.FromSlug("rage") }
+            );
+
+            Assert.That(withImmunity, Is.EqualTo(matching));
+            Assert.That(withImmunity.GetHashCode(), Is.EqualTo(matching.GetHashCode()));
+            int distinctHashes = new[]
+            {
+                withoutImmunity,
+                withImmunity,
+                new HealthState(10, 10, 0, default, new[] { RuleSource.FromSlug("bless") }),
+            }
+                .Select(value => value.GetHashCode())
+                .Distinct()
+                .Count();
+            Assert.That(distinctHashes, Is.GreaterThan(1));
+        }
+
         private static readonly CreatureId Creature = new CreatureId("health-target");
         private static readonly RuleSource Strike = RuleSource.FromSlug("strike");
         private static readonly RuleSource Rage = RuleSource.FromSlug("rage");

@@ -4,6 +4,9 @@ namespace Game.Rules.Runtime
 {
     internal static class HealthOperationValidation
     {
+        // Every stable-ID string constructor rejects blank input. These guards still protect the
+        // operation boundary because C# can create default value-type IDs without invoking those
+        // constructors (for example, default(CreatureId)).
         public static CreatureId RequireCreature(CreatureId value)
         {
             if (value.IsEmpty)
@@ -36,7 +39,14 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Requests commitment of already-final damage through the health reducer.</summary>
+    /// <summary>
+    /// Starts the externally dispatchable damage workflow for an already-final amount.
+    /// </summary>
+    /// <remarks>
+    /// Handlers and middleware receive this public request before its handler dispatches the
+    /// nested-only <see cref="CommitDamageOp"/>. Keeping the state-writing reducer behind that
+    /// nested operation prevents callers from bypassing workflow authorization and provenance.
+    /// </remarks>
     public sealed class ApplyDamageOp : IRuleOp<DamageOutcome>
     {
         public CreatureId Target { get; }
@@ -63,7 +73,15 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Nested-only reducer operation for one final damage commit.</summary>
+    /// <summary>
+    /// Performs the sole authoritative health-state mutation for an accepted
+    /// <see cref="ApplyDamageOp"/>.
+    /// </summary>
+    /// <remarks>
+    /// Only <c>ApplyDamageHandler</c> dispatches this operation as a child frame. It is registered
+    /// as a reducer, not a root handler, so external callers use <see cref="ApplyDamageOp"/> while
+    /// this type preserves atomic state and Fact commitment at the trusted nested boundary.
+    /// </remarks>
     public sealed class CommitDamageOp : IRuleOp<DamageOutcome>, IRuleSourcedOp
     {
         public CreatureId Target { get; }

@@ -140,8 +140,21 @@ namespace Game.Rules.Runtime
 
         public override bool Equals(object obj) => obj is HealthState other && Equals(other);
 
-        public override int GetHashCode() =>
-            HashCode.Combine(Current, Maximum, Temporary, TemporarySource);
+        public override int GetHashCode()
+        {
+            HashCode hash = new HashCode();
+            hash.Add(Current);
+            hash.Add(Maximum);
+            hash.Add(Temporary);
+            hash.Add(TemporarySource);
+            foreach (
+                RuleSource immunity in temporaryHitPointImmunities ?? Array.Empty<RuleSource>()
+            )
+            {
+                hash.Add(immunity);
+            }
+            return hash.ToHashCode();
+        }
 
         /// <summary>
         /// Checks whether a source is blocked from granting temporary Hit Points.
