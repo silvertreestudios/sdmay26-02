@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
 using Game.Rules;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using Game.Strikes;
 using GridPublic;
 using UnityEngine;
@@ -89,6 +92,9 @@ namespace Game.Creature
 
         // Combat stats
         // [Header("Combat")]
+        // Unity serializes these values into existing prefabs. They seed the authoritative
+        // encounter state and then receive Fact-driven projections for Inspector visibility;
+        // gameplay reads Health and writes only through dispatcher-backed operations.
         [SerializeField]
         private int _hp;
 
@@ -97,6 +103,8 @@ namespace Game.Creature
 
         [SerializeField]
         private int _tempHp;
+        private UnityHealthRulesBridge healthRules;
+        private CreatureId healthCreatureId;
 
         [SerializeField]
         private int _ac;
@@ -258,21 +266,23 @@ namespace Game.Creature
             set => _speed = value;
         }
 
-        public int hp
-        {
-            get => _hp;
-            set => _hp = value;
-        }
-        public int maxHp
-        {
-            get => _maxHp;
-            set => _maxHp = value;
-        }
-        public int tempHp
-        {
-            get => _tempHp;
-            set => _tempHp = value;
-        }
+        /// <summary>
+        /// Gets the complete health snapshot, reading <see cref="RulesState"/> after runtime
+        /// ownership begins and serialized initialization fields before that boundary.
+        /// </summary>
+        public HealthState Health =>
+            healthRules == null
+                ? new HealthState(_hp, _maxHp, _tempHp)
+                : healthRules.GetHealth(healthCreatureId);
+
+        /// <summary>Gets authoritative current Hit Points.</summary>
+        public int hp => Health.Current;
+
+        /// <summary>Gets authoritative maximum Hit Points.</summary>
+        public int maxHp => Health.Maximum;
+
+        /// <summary>Gets authoritative temporary Hit Points.</summary>
+        public int tempHp => Health.Temporary;
         public int ac
         {
             get => _ac;
@@ -888,13 +898,6 @@ namespace Game.Creature
             set => _description = value;
         }
 
-        private readonly Dictionary<string, int> _sourceTempHp = new Dictionary<string, int>(
-            StringComparer.OrdinalIgnoreCase
-        );
-        private readonly HashSet<string> _tempHpImmunities = new HashSet<string>(
-            StringComparer.OrdinalIgnoreCase
-        );
-
         void Awake() { }
 
         void Start()
@@ -1014,55 +1017,39 @@ namespace Game.Creature
             }
         }
 
-        // Method for applying damage to a creature
-        // accounts for certain steps of damaging calculation that are best managed by the defender
-        public void TakeDamage(List<DamageValue> damageValues, D20Result attackRoll)
+        /// <summary>
+        /// Supplies imported, fixture, or authoring health before encounter ownership begins.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="CreatureJsonConverter"/> calls this while importing creature data, and test
+        /// builders use it before explicitly composing a bridge. Once a bridge owns this component,
+        /// health is derived from RulesState and this method rejects later initialization.
+        /// </remarks>
+        /// <param name="current">Initial current Hit Points.</param>
+        /// <param name="maximum">Initial maximum Hit Points.</param>
+        /// <param name="temporary">Imported temporary Hit Points with no recoverable source.</param>
+        public void InitializeHealthBeforeEncounter(int current, int maximum, int temporary = 0)
         {
-            // Applies crit damage if needed
-            DamageRoller.EvaluateCriticalDamage(attackRoll.degree, damageValues);
-            // Applies weaknesses and resistances
-            DamageRoller.ApplyWeaknessAndResistance(damageValues, _weaknesses, _resistances);
-            int damage = DamageRoller.SumDamage(damageValues);
-
-            // consume temp HP first
-            int remaining = damage;
-            if (_tempHp > 0)
-            {
-                int used = Mathf.Min(_tempHp, remaining);
-                _tempHp -= used;
-                ConsumeSourceTempHp(used);
-                remaining -= used;
-            }
-            // apply HP loss
-            _hp -= remaining;
-            _hp = Mathf.Max(0, _hp);
-            if (_hp == 0)
-                Defeat();
-            else if (damage > 0)
-                GetComponent<CreaturePresentation>()?.PlayHit();
+            if (healthRules != null)
+                throw new InvalidOperationException(
+                    "Health cannot be initialized after RulesState takes ownership."
+                );
+            HealthState validated = new HealthState(current, maximum, temporary);
+            _hp = validated.Current;
+            _maxHp = validated.Maximum;
+            _tempHp = validated.Temporary;
         }
 
-        public void TakeDamage(uint amount)
-        {
-            // consume temp HP first
-            int tempBeforeDamage = _tempHp;
-            _tempHp -= (int)amount;
-            ConsumeSourceTempHp(Mathf.Min(tempBeforeDamage, (int)amount));
-            if (_tempHp < 0)
-            {
-                _hp += _tempHp;
-                _tempHp = 0;
-                _hp = Mathf.Max(0, _hp);
-            }
-            if (_hp == 0)
-                Defeat();
-            else if (amount > 0)
-                GetComponent<CreaturePresentation>()?.PlayHit();
-        }
+        /// <summary>Commits already-final damage through the authoritative health dispatcher.</summary>
+        /// <param name="amount">Damage remaining after all upstream damage calculations.</param>
+        /// <param name="source">The existing rules source responsible for the damage.</param>
+        /// <returns>The exact temporary- and current-HP amounts committed.</returns>
+        public DamageOutcome ApplyFinalDamage(int amount, RuleSource source) =>
+            RequireHealthRules().ApplyFinalDamage(healthCreatureId, amount, source);
 
         //helper function to signal to CombatManager when a player is defeated, so they can be removed from the turn queue and combat
         //this function also clears the character's position from the grid memory and deactivates their game object
-        private void Defeat()
+        internal void PresentCommittedDefeat()
         {
             if (defeated)
                 return;
@@ -1097,81 +1084,48 @@ namespace Game.Creature
                 targetCollider.enabled = false;
         }
 
-        public void Heal(int healAmount)
-        {
-            _hp += healAmount;
-            _hp = Mathf.Clamp(_hp, 0, _maxHp);
-        }
-
-        public void GainTempHp(int tempHpAmount, bool overrideExisting)
-        {
-            // TODO replace with UI prompt for player decision about which
-            if (_tempHp > 0)
-            {
-                // UI prompt here
-            }
-            if (tempHpAmount > _tempHp || overrideExisting)
-            {
-                _tempHp += tempHpAmount;
-            }
-        }
-
-        public void GainTempHp(int tempHpAmount)
-        {
-            GainTempHp(tempHpAmount, false);
-        }
+        /// <summary>
+        /// Commits healing through the authoritative health dispatcher.
+        /// </summary>
+        /// <param name="healAmount">The non-negative healing requested.</param>
+        /// <param name="source">The existing rules source responsible for the healing.</param>
+        /// <returns>The amount committed after maximum-HP clamping.</returns>
+        public HealingOutcome Heal(int healAmount, RuleSource source) =>
+            RequireHealthRules().ApplyHealing(healthCreatureId, healAmount, source);
 
         /// <summary>
-        /// Grants temporary Hit Points tracked by a stable source so rule cleanup can remove only its own grant.
+        /// Grants non-stacking temporary Hit Points owned by one rule source.
         /// </summary>
-        /// <param name="source">The source key associated with the temporary Hit Points.</param>
-        /// <param name="tempHpAmount">The amount of temporary Hit Points to grant.</param>
-        public void GainSourceTempHp(string source, int tempHpAmount)
-        {
-            if (string.IsNullOrWhiteSpace(source) || tempHpAmount <= 0)
-                return;
+        /// <param name="source">The rule source that owns the resulting pool.</param>
+        /// <param name="amount">The non-negative pool offered by the source.</param>
+        /// <returns>Whether the offer replaced the current pool or was blocked.</returns>
+        public TemporaryHitPointsGrantOutcome GrantSourceTemporaryHitPoints(
+            RuleSource source,
+            int amount
+        ) => RequireHealthRules().GrantTemporaryHitPoints(healthCreatureId, amount, source);
 
-            RemoveSourceTempHp(source);
-            _sourceTempHp[source] = tempHpAmount;
-            if (tempHpAmount > _tempHp)
-                _tempHp = tempHpAmount;
-        }
-
-        /// <summary>
-        /// Removes temporary Hit Points previously granted by a specific source.
-        /// </summary>
-        /// <param name="source">The source key to remove.</param>
-        public void RemoveSourceTempHp(string source)
-        {
-            if (
-                string.IsNullOrWhiteSpace(source)
-                || !_sourceTempHp.TryGetValue(source, out int amount)
-            )
-                return;
-
-            _sourceTempHp.Remove(source);
-            _tempHp = Mathf.Max(0, _tempHp - amount);
-        }
+        /// <summary>Removes temporary Hit Points still owned by one rule source.</summary>
+        /// <param name="source">The source whose remaining pool may be removed.</param>
+        /// <returns>The amount removed, or zero when another source owns the pool.</returns>
+        public TemporaryHitPointsRemovalOutcome RemoveSourceTemporaryHitPoints(RuleSource source) =>
+            RequireHealthRules().RemoveTemporaryHitPoints(healthCreatureId, source);
 
         /// <summary>
         /// Records that a source cannot grant temporary Hit Points again until game flow resets the immunity set.
         /// </summary>
-        /// <param name="source">The source key to mark immune.</param>
-        public void AddTempHpImmunity(string source)
-        {
-            if (!string.IsNullOrWhiteSpace(source))
-                _tempHpImmunities.Add(source);
-        }
+        /// <param name="source">The source to block from later grants.</param>
+        /// <returns>Whether a new immunity was committed.</returns>
+        public TemporaryHitPointImmunityOutcome AddTemporaryHitPointImmunity(RuleSource source) =>
+            RequireHealthRules().AddTemporaryHitPointImmunity(healthCreatureId, source);
 
         /// <summary>
         /// Checks whether a source is currently blocked from granting temporary Hit Points.
         /// </summary>
         /// <param name="source">The source key to check.</param>
         /// <returns>True when the source has temporary Hit Point immunity.</returns>
-        public bool HasTempHpImmunity(string source)
-        {
-            return !string.IsNullOrWhiteSpace(source) && _tempHpImmunities.Contains(source);
-        }
+        public bool HasTempHpImmunity(string source) =>
+            !string.IsNullOrWhiteSpace(source)
+            && Health.HasTemporaryHitPointImmunity(RuleSource.FromSlug(source));
 
         /// <summary>
         /// Returns a snapshot of temporary Hit Point immunity sources for Unity-free rule evaluation.
@@ -1179,24 +1133,51 @@ namespace Game.Creature
         /// <returns>The active source keys with temporary Hit Point immunity.</returns>
         public IReadOnlyCollection<string> GetTempHpImmunitySources()
         {
-            return new List<string>(_tempHpImmunities);
+            return Health.TemporaryHitPointImmunities.Select(source => source.Slug).ToArray();
         }
 
-        private void ConsumeSourceTempHp(int amount)
+        internal HealthState GetHealthInitializationState()
         {
-            if (amount <= 0 || _sourceTempHp.Count == 0)
-                return;
+            if (healthRules != null)
+                return healthRules.GetHealth(healthCreatureId);
+            return new HealthState(_hp, _maxHp, _tempHp);
+        }
 
-            foreach (string source in new List<string>(_sourceTempHp.Keys))
+        internal void AttachHealthRules(UnityHealthRulesBridge bridge, CreatureId creatureId)
+        {
+            if (bridge == null)
+                throw new ArgumentNullException(nameof(bridge));
+            if (creatureId.IsEmpty)
+                throw new ArgumentException(
+                    "A health creature ID is required.",
+                    nameof(creatureId)
+                );
+            healthRules = bridge;
+            healthCreatureId = creatureId;
+            ProjectCommittedHealth(bridge.GetHealth(creatureId));
+        }
+
+        internal void ProjectCommittedHealth(HealthState health)
+        {
+            _hp = health.Current;
+            _maxHp = health.Maximum;
+            _tempHp = health.Temporary;
+        }
+
+        internal void PresentCommittedHit()
+        {
+            GetComponent<CreaturePresentation>()?.PlayHit();
+        }
+
+        private UnityHealthRulesBridge RequireHealthRules()
+        {
+            if (healthRules == null)
             {
-                int consumed = Mathf.Min(amount, _sourceTempHp[source]);
-                _sourceTempHp[source] -= consumed;
-                amount -= consumed;
-                if (_sourceTempHp[source] <= 0)
-                    _sourceTempHp.Remove(source);
-                if (amount <= 0)
-                    return;
+                throw new InvalidOperationException(
+                    "Health commands require an encounter health bridge. CombatManager.StartCombat or an explicit test composition must initialize it first."
+                );
             }
+            return healthRules;
         }
 
         public int GetInitiative()

@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using Game.Creature;
+using Game.Rules.Unity;
 using Game.Strikes;
 using GridPrivate;
 using NUnit.Framework;
@@ -57,6 +58,13 @@ namespace TestsState
             controller.StopAllCoroutines();
             EntityAction selected = controller.MindlessDecision();
             Assert.IsInstanceOf<StrikeWeapon>(selected);
+            UnityHealthRulesBridge.Create(
+                new[]
+                {
+                    enemy.GetComponent<CreatureComponent>(),
+                    controller.BestTarget.GetComponent<CreatureComponent>(),
+                }
+            );
             CreatureComponent selectedTargetCreature = PrepareDurableTarget(controller.BestTarget);
 
             UnityEngine.Random.State randomState = UnityEngine.Random.state;
@@ -73,7 +81,7 @@ namespace TestsState
             Assert.AreEqual(2u, controller.ActionPoints);
             Assert.AreEqual(1u, controller.StrikePenalty);
             Assert.AreEqual(0, enemy.GetComponent<CreatureComponent>().GetAmmoQuantity("arrows"));
-            Assert.Less(selectedTargetCreature.hp, 100);
+            Assert.Less(selectedTargetCreature.tempHp, 100);
         }
 
         [UnityTest]
@@ -128,7 +136,7 @@ namespace TestsState
             Assert.AreEqual(2u, controller.ActionPoints);
             Assert.AreEqual(1u, controller.StrikePenalty);
             Assert.AreEqual(0, player.GetComponent<CreatureComponent>().GetAmmoQuantity("arrows"));
-            Assert.Less(targetCreature.hp, 100);
+            Assert.Less(targetCreature.tempHp, 100);
         }
 
         [UnityTest]
@@ -179,7 +187,7 @@ namespace TestsState
             Assert.AreEqual(3u, controller.ActionPoints);
             Assert.AreEqual(0u, controller.StrikePenalty);
             Assert.AreEqual(1, player.GetComponent<CreatureComponent>().GetAmmoQuantity("arrows"));
-            Assert.AreEqual(100, targetCreature.hp);
+            Assert.AreEqual(100, targetCreature.tempHp);
         }
 
         [UnityTest]
@@ -304,8 +312,10 @@ namespace TestsState
         {
             Assert.IsNotNull(target);
             CreatureComponent creature = target.GetComponent<CreatureComponent>();
-            creature.maxHp = 100;
-            creature.hp = 100;
+            creature.GrantSourceTemporaryHitPoints(
+                Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                100
+            );
             creature.ac = 1;
             return creature;
         }
