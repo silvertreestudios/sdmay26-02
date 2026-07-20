@@ -299,6 +299,275 @@ namespace TestsUI
             Assert.That(endTurnButton.enabledSelf, Is.True);
         }
 
+        /// <summary>
+        /// Verifies a turn change retires even an already-cancel-requested selection immediately,
+        /// and that its eventual adapter result cannot affect the incoming turn or rules state.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator TurnChangeRetiresPendingSelectionAndRejectsLateResult()
+        {
+            Button initialAction = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    initialAction = root.Q<Button>("UnarmedStrikeButton");
+                    return player != null && initialAction != null;
+                }
+            );
+
+            ActionController controller = player.GetComponent<ActionController>();
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed().SeedActionEconomy(Actor, new ActionEconomyState(1, true))
+            );
+            RecordingHandler handler = new RecordingHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<TestActionOp, TestActionResult>(handler)
+                .UseActionLifecycle(new FixedActionCatalog())
+                .Build();
+            TestDefinition definition = new TestDefinition();
+            BlockingConfirmationAdapter adapter = new BlockingConfirmationAdapter();
+            controller.AddDefinitionAction(
+                CreateEntry(
+                    new ActionBarEntryKey("test/revoked-definition"),
+                    "Revoked definition",
+                    definition,
+                    dispatcher,
+                    adapter
+                )
+            );
+            OnNextTurn.Invoke(player);
+
+            Button outgoingButton = null;
+            Button cancelButton = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    outgoingButton = root.Q<Button>("RevokeddefinitionButton");
+                    cancelButton = root.Q<Button>("CancelActionButton");
+                    return outgoingButton != null
+                        && cancelButton != null
+                        && outgoingButton.enabledSelf;
+                }
+            );
+
+            PushButton(outgoingButton);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                    adapter.SelectionRequested
+                    && controller.IsTakingAction
+                    && cancelButton.enabledSelf
+            );
+            PushButton(cancelButton);
+            yield return null;
+            Assert.That(
+                controller.IsTakingAction,
+                Is.True,
+                "A user cancel request alone keeps authority locked until selection returns."
+            );
+
+            OnNextTurn.Invoke(player);
+
+            Assert.That(
+                controller.IsTakingAction,
+                Is.False,
+                "Turn revocation must release a pending selection owner synchronously."
+            );
+            Assert.That(outgoingButton.enabledSelf, Is.False);
+
+            Button incomingButton = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    Button candidate = root.Q<Button>("RevokeddefinitionButton");
+                    if (
+                        candidate == null
+                        || ReferenceEquals(candidate, outgoingButton)
+                        || !candidate.enabledSelf
+                    )
+                    {
+                        return false;
+                    }
+
+                    incomingButton = candidate;
+                    return true;
+                }
+            );
+            Assert.That(incomingButton, Is.Not.Null);
+            Assert.That(incomingButton.enabledSelf, Is.True);
+
+            adapter.CompleteWithLateSelection();
+            yield return null;
+            yield return null;
+
+            Assert.That(handler.Operations, Is.Empty);
+            Assert.That(definition.CreateOpCalls, Is.Zero);
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(controller.IsTakingAction, Is.False);
+            Assert.That(
+                incomingButton.enabledSelf,
+                Is.True,
+                "The retired execution's finally block must not clobber the incoming turn."
+            );
+        }
+
+        /// <summary>
+        /// Verifies disabling the HUD retires presentation-owned selection while allowing its
+        /// unfinished adapter task to unwind safely without dispatching a late result.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator HudDisableRetiresPendingSelectionAndRejectsLateResult()
+        {
+            Button initialAction = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    initialAction = root.Q<Button>("UnarmedStrikeButton");
+                    return player != null && initialAction != null;
+                }
+            );
+
+            ActionController controller = player.GetComponent<ActionController>();
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed().SeedActionEconomy(Actor, new ActionEconomyState(1, true))
+            );
+            RecordingHandler handler = new RecordingHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<TestActionOp, TestActionResult>(handler)
+                .UseActionLifecycle(new FixedActionCatalog())
+                .Build();
+            TestDefinition definition = new TestDefinition();
+            BlockingConfirmationAdapter adapter = new BlockingConfirmationAdapter();
+            controller.AddDefinitionAction(
+                CreateEntry(
+                    new ActionBarEntryKey("test/disabled-hud-definition"),
+                    "Disabled HUD definition",
+                    definition,
+                    dispatcher,
+                    adapter
+                )
+            );
+            OnNextTurn.Invoke(player);
+
+            Button definitionButton = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    definitionButton = root.Q<Button>("DisabledHUDdefinitionButton");
+                    return definitionButton != null && definitionButton.enabledSelf;
+                }
+            );
+            PushButton(definitionButton);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => adapter.SelectionRequested && controller.IsTakingAction
+            );
+
+            HUDController hud = UnityEngine.Object.FindFirstObjectByType<HUDController>();
+            Assert.That(hud, Is.Not.Null);
+            hud.enabled = false;
+
+            Assert.That(
+                controller.IsTakingAction,
+                Is.False,
+                "A disabled presentation owner must release pending selection authority immediately."
+            );
+            adapter.CompleteWithLateSelection();
+            yield return null;
+            yield return null;
+
+            Assert.That(handler.Operations, Is.Empty);
+            Assert.That(definition.CreateOpCalls, Is.Zero);
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(controller.IsTakingAction, Is.False);
+        }
+
+        /// <summary>
+        /// Verifies HUD disable cannot retire authoritative dispatch, but invalidates presentation
+        /// ownership so completion releases only the dispatch owner and does not revisit disabled UI.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator HudDisableDuringDispatchKeepsOwnerLockedUntilDispatchReturns()
+        {
+            Button initialAction = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    initialAction = root.Q<Button>("UnarmedStrikeButton");
+                    return player != null && initialAction != null;
+                }
+            );
+
+            ActionController controller = player.GetComponent<ActionController>();
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed().SeedActionEconomy(Actor, new ActionEconomyState(1, true))
+            );
+            BlockingDispatchHandler handler = new BlockingDispatchHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<TestActionOp, TestActionResult>(handler)
+                .UseActionLifecycle(new FixedActionCatalog())
+                .Build();
+            TestDefinition definition = new TestDefinition();
+            controller.AddDefinitionAction(
+                CreateEntry(
+                    new ActionBarEntryKey("test/dispatching-disabled-hud"),
+                    "Dispatching disabled HUD",
+                    definition,
+                    dispatcher,
+                    new AiSelectionAdapter(new ConfirmationPlanner())
+                )
+            );
+            OnNextTurn.Invoke(player);
+
+            Button definitionButton = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    definitionButton = root.Q<Button>("DispatchingdisabledHUDButton");
+                    return definitionButton != null && definitionButton.enabledSelf;
+                }
+            );
+            PushButton(definitionButton);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => handler.Calls == 1 && controller.IsTakingAction
+            );
+
+            HUDController hud = UnityEngine.Object.FindFirstObjectByType<HUDController>();
+            Assert.That(hud, Is.Not.Null);
+            hud.enabled = false;
+
+            Assert.That(
+                controller.IsTakingAction,
+                Is.True,
+                "Authoritative dispatch must retain its owner lock when presentation is disabled."
+            );
+            Assert.That(handler.Operations, Has.Count.EqualTo(1));
+
+            handler.Complete();
+            yield return WaitUntilWithTimeout(timeout, () => !controller.IsTakingAction);
+            yield return null;
+
+            Assert.That(controller.IsTakingAction, Is.False);
+            Assert.That(handler.Operations, Has.Count.EqualTo(1));
+            Assert.That(definition.CreateOpCalls, Is.EqualTo(1));
+            Assert.That(store.Snapshot.Version, Is.EqualTo(1));
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.Zero);
+            Assert.That(hud.enabled, Is.False);
+        }
+
         private int CountButtonsNamed(string buttonName) =>
             root.Query<Button>().ToList().Count(button => button.name == buttonName);
 
@@ -390,6 +659,28 @@ namespace TestsUI
                 Operations.Add(frame.Op);
                 return new ValueTask<TestActionResult>(new TestActionResult());
             }
+        }
+
+        private sealed class BlockingDispatchHandler : IOpHandler<TestActionOp, TestActionResult>
+        {
+            private readonly TaskCompletionSource<TestActionResult> completion =
+                new TaskCompletionSource<TestActionResult>();
+
+            public int Calls { get; private set; }
+
+            public List<TestActionOp> Operations { get; } = new List<TestActionOp>();
+
+            public ValueTask<TestActionResult> Handle(
+                OpFrame<TestActionOp> frame,
+                OpHandlerContext context
+            )
+            {
+                Calls++;
+                Operations.Add(frame.Op);
+                return new ValueTask<TestActionResult>(completion.Task);
+            }
+
+            public void Complete() => completion.SetResult(new TestActionResult());
         }
 
         private sealed class FixedActionCatalog : IActionCatalog

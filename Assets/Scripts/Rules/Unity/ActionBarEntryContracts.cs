@@ -129,7 +129,7 @@ namespace Game.Rules.Unity
         private const int SelectingPhase = 0;
         private const int CancellationRequestedPhase = 1;
         private const int DispatchingPhase = 2;
-        private const int InactivePhase = 3;
+        private const int RetiredPhase = 3;
 
         private readonly CancellationTokenSource cancellationSource = new CancellationTokenSource();
         private int phase;
@@ -142,11 +142,6 @@ namespace Game.Rules.Unity
             : this(SelectingPhase) { }
 
         private ActionBarExecutionControl(int initialPhase) => phase = initialPhase;
-
-        internal static ActionBarExecutionControl Inactive { get; } =
-            new ActionBarExecutionControl(InactivePhase);
-
-        internal bool IsInFlight => Volatile.Read(ref phase) != InactivePhase;
 
         /// <summary>
         /// Gets whether cancellation can still win before authoritative dispatch starts.
@@ -174,6 +169,37 @@ namespace Game.Rules.Unity
 
             cancellationSource.Cancel();
             return true;
+        }
+
+        /// <summary>
+        /// Atomically retires an execution that is selecting or already has cancellation requested.
+        /// A successful retirement guarantees the workflow token is cancelled before returning.
+        /// Retirement is refused after dispatch wins because authoritative rules work may be in progress.
+        /// </summary>
+        /// <returns>
+        /// <see langword="true"/> when pending selection was retired; otherwise, <see langword="false"/>.
+        /// </returns>
+        internal bool TryRetireSelection()
+        {
+            while (true)
+            {
+                int observedPhase = Volatile.Read(ref phase);
+                if (observedPhase != SelectingPhase && observedPhase != CancellationRequestedPhase)
+                {
+                    return false;
+                }
+
+                if (
+                    Interlocked.CompareExchange(ref phase, RetiredPhase, observedPhase)
+                    != observedPhase
+                )
+                {
+                    continue;
+                }
+
+                cancellationSource.Cancel();
+                return true;
+            }
         }
 
         internal bool TryBeginDispatch() =>

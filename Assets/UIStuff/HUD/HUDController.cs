@@ -39,8 +39,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private Dictionary<Button, uint> buttonCostMap = new();
     private readonly Dictionary<Button, DefinitionActionButtonBinding> definitionButtonEntries =
         new();
-    private ActionBarExecutionControl activeDefinitionExecution =
-        ActionBarExecutionControl.Inactive;
+    private DefinitionExecutionSession activeDefinitionExecution =
+        DefinitionExecutionSession.Inactive;
     private int actionBarTurnGeneration;
 
     private Button selectedActionButton;
@@ -207,6 +207,10 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private void OnDisable()
     {
+        RetirePendingDefinitionExecution();
+        actionBarTurnGeneration++;
+        currentTurnAC = null;
+        SetSelectedButton(null);
         //Debug.Log("OnDisable called");
         OnNextTurn.RemoveListener(OnTurnChanged);
         if (toggleAutoCameraAction != null)
@@ -277,14 +281,16 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
         if (currentTurnAC != null)
         {
-            bool definitionCanCancel =
-                activeDefinitionExecution.IsInFlight && activeDefinitionExecution.CanCancel;
+            bool definitionCanCancel = CanCancelActiveDefinitionExecution();
             cancelActionButton.style.display =
                 (
                     currentTurnAC.IsTakingAction
                     && (
                         definitionCanCancel
-                        || (!activeDefinitionExecution.IsInFlight && canCancelAction)
+                        || (
+                            !(activeDefinitionExecution is ActiveDefinitionExecutionSession)
+                            && canCancelAction
+                        )
                     )
                 )
                     ? DisplayStyle.Flex
@@ -409,10 +415,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     private void OnTurnChanged(GameObject turnTaker)
     {
-        ActionController ac = turnTaker.GetComponent<ActionController>();
-        if (ac == null)
-            return;
-
+        RetirePendingDefinitionExecution();
         int turnGeneration = ++actionBarTurnGeneration;
         if (slideCoroutine != null)
             StopCoroutine(slideCoroutine);
@@ -420,6 +423,21 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         // Rows remain visible while sliding out, so remove their turn authority synchronously.
         currentTurnAC = null;
         UpdateHudButtonStates();
+        if (turnTaker == null)
+        {
+            if (buttonGrid != null)
+                ClearAllRows();
+            return;
+        }
+
+        ActionController ac = turnTaker.GetComponent<ActionController>();
+        if (ac == null)
+        {
+            if (buttonGrid != null)
+                ClearAllRows();
+            return;
+        }
+
         slideCoroutine = StartCoroutine(TurnTransitionRoutine(turnTaker, ac, turnGeneration));
     }
 
@@ -757,15 +775,17 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
         if (cancelActionButton != null)
         {
-            bool definitionCanCancel =
-                activeDefinitionExecution.IsInFlight && activeDefinitionExecution.CanCancel;
+            bool definitionCanCancel = CanCancelActiveDefinitionExecution();
             SetHudButtonEnabled(
                 cancelActionButton,
                 currentTurnAC != null
                     && currentTurnAC.IsTakingAction
                     && (
                         definitionCanCancel
-                        || (!activeDefinitionExecution.IsInFlight && canCancelAction)
+                        || (
+                            !(activeDefinitionExecution is ActiveDefinitionExecutionSession)
+                            && canCancelAction
+                        )
                     )
             );
         }
@@ -831,7 +851,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         UniversalEvents.OnCancel.Invoke();
         SetSelectedButton(btn, ActionButtonColor);
         ActionBarExecutionControl execution = new ActionBarExecutionControl();
-        activeDefinitionExecution = execution;
+        ActiveDefinitionExecutionSession executionSession = new ActiveDefinitionExecutionSession(
+            executingController,
+            execution
+        );
+        activeDefinitionExecution = executionSession;
         executingController.IsTakingAction = true;
         UpdateHudButtonStates();
 
@@ -846,15 +870,17 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
         finally
         {
-            executingController.IsTakingAction = false;
-            if (ReferenceEquals(activeDefinitionExecution, execution))
-                activeDefinitionExecution = ActionBarExecutionControl.Inactive;
-            execution.Dispose();
-            if (binding.BelongsTo(currentTurnAC, actionBarTurnGeneration))
+            if (ReferenceEquals(activeDefinitionExecution, executionSession))
             {
-                SetSelectedButton(null);
-                UpdateHudButtonStates();
+                executingController.IsTakingAction = false;
+                activeDefinitionExecution = DefinitionExecutionSession.Inactive;
+                if (binding.BelongsTo(currentTurnAC, actionBarTurnGeneration))
+                {
+                    SetSelectedButton(null);
+                    UpdateHudButtonStates();
+                }
             }
+            execution.Dispose();
         }
     }
 
@@ -924,9 +950,9 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     public void CancelAction()
     {
         Debug.Log("here I am");
-        if (activeDefinitionExecution.IsInFlight)
+        if (activeDefinitionExecution is ActiveDefinitionExecutionSession definitionExecution)
         {
-            if (activeDefinitionExecution.TryCancel())
+            if (definitionExecution.Control.TryCancel())
             {
                 UniversalEvents.OnCancel.Invoke();
                 GameObject cancellingTurnTaker = CombatManager.GetInstance().WhosTurn();
@@ -962,8 +988,53 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
 
     public bool isActionRunning()
     {
-        return activeDefinitionExecution.IsInFlight
+        return activeDefinitionExecution is ActiveDefinitionExecutionSession
             || (currentTurnAC != null && currentTurnAC.IsTakingAction);
+    }
+
+    private bool CanCancelActiveDefinitionExecution() =>
+        activeDefinitionExecution is ActiveDefinitionExecutionSession execution
+        && execution.Control.CanCancel;
+
+    private bool RetirePendingDefinitionExecution()
+    {
+        if (
+            !(activeDefinitionExecution is ActiveDefinitionExecutionSession execution)
+            || !execution.Control.TryRetireSelection()
+        )
+        {
+            return false;
+        }
+
+        activeDefinitionExecution = DefinitionExecutionSession.Inactive;
+        execution.Owner.IsTakingAction = false;
+        canCancelAction = true;
+        SetSelectedButton(null);
+        UniversalEvents.OnCancel.Invoke();
+        return true;
+    }
+
+    private abstract class DefinitionExecutionSession
+    {
+        public static DefinitionExecutionSession Inactive { get; } =
+            new InactiveDefinitionExecutionSession();
+
+        private sealed class InactiveDefinitionExecutionSession : DefinitionExecutionSession { }
+    }
+
+    private sealed class ActiveDefinitionExecutionSession : DefinitionExecutionSession
+    {
+        public ActiveDefinitionExecutionSession(
+            ActionController owner,
+            ActionBarExecutionControl control
+        )
+        {
+            Owner = owner;
+            Control = control;
+        }
+
+        public ActionController Owner { get; }
+        public ActionBarExecutionControl Control { get; }
     }
 
     private sealed class DefinitionActionButtonBinding
