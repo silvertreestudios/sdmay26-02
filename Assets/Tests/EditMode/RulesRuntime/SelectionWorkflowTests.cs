@@ -233,6 +233,50 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
+        /// <summary>
+        /// Verifies a resolver can observe the workflow token through ordinary task cancellation
+        /// without leaking an exception or beginning a dependent step.
+        /// </summary>
+        [Test]
+        public async Task ResolverCancellationBecomesStructuralAndSkipsDependentSelection()
+        {
+            TestActionSelectionRequest<int> firstRequest = new TestActionSelectionRequest<int>(
+                "pending-first",
+                value => value == 1
+            );
+            TestActionSelectionRequest<bool> secondRequest = new TestActionSelectionRequest<bool>(
+                "never-run",
+                _ => true
+            );
+            TaskCompletionSource<SelectionOutcome<int>> pending =
+                new TaskCompletionSource<SelectionOutcome<int>>();
+            ScriptedSelectionResolver resolver = new ScriptedSelectionResolver(
+                pending.Task,
+                SelectionOutcome<bool>.Completed(true)
+            );
+            SelectionWorkflow<OrderedSelection<int, bool>> workflow = SelectionWorkflow
+                .From(firstRequest)
+                .Then(_ => SelectionWorkflow.From(secondRequest));
+
+            using (CancellationTokenSource cancellation = new CancellationTokenSource())
+            {
+                Task<SelectionOutcome<OrderedSelection<int, bool>>> execution = workflow
+                    .Run(resolver, cancellation.Token)
+                    .AsTask();
+
+                cancellation.Cancel();
+                pending.SetCanceled();
+                SelectionOutcome<OrderedSelection<int, bool>> outcome = await execution;
+
+                Assert.That(
+                    outcome,
+                    Is.TypeOf<CancelledSelectionOutcome<OrderedSelection<int, bool>>>()
+                );
+                Assert.That(resolver.Requests, Is.EqualTo(new object[] { firstRequest }));
+                Assert.That(resolver.Remaining, Is.EqualTo(1));
+            }
+        }
+
         /// <summary>Verifies a token cancelled before execution invokes no resolver.</summary>
         [Test]
         public async Task PreCancelledWorkflowDoesNotInvokeResolver()

@@ -41,7 +41,8 @@ namespace Game.Rules.Runtime
         /// <param name="cancellationToken">
         /// A token that structurally cancels the workflow between asynchronous selection boundaries.
         /// A resolver should observe this token so abandoned presentation can end promptly. The
-        /// workflow also discards a late completed result after cancellation as a final safeguard.
+        /// workflow converts token-triggered cancellation exceptions and late completed results
+        /// into the structural cancelled outcome as final safeguards.
         /// </param>
         /// <returns>The completed, cancelled, or invalid workflow outcome.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="resolver"/> is <see langword="null"/>.</exception>
@@ -55,7 +56,15 @@ namespace Game.Rules.Runtime
             if (cancellationToken.IsCancellationRequested)
                 return SelectionOutcome<TSelection>.Cancelled;
 
-            SelectionOutcome<TSelection> outcome = await execute(resolver, cancellationToken);
+            SelectionOutcome<TSelection> outcome;
+            try
+            {
+                outcome = await execute(resolver, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return SelectionOutcome<TSelection>.Cancelled;
+            }
             if (outcome == null)
                 throw new InvalidOperationException("A selection workflow returned no outcome.");
             if (cancellationToken.IsCancellationRequested)
