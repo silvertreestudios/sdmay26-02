@@ -245,7 +245,7 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         );
     }
 
-    /// <summary>Verifies final-action costs are paid before exploration action points are restored.</summary>
+    /// <summary>Verifies exploration resumes after a final combat action without restoring AP.</summary>
     [UnityTest]
     public IEnumerator FinalDefeatDuringActionDefersExplorationUntilActionCompletes()
     {
@@ -304,9 +304,10 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         Assert.That(player.IsInDungeonExploration, Is.True);
         Assert.That(
             player.ActionPoints,
-            Is.EqualTo(3u),
-            "Exploration should restore movement authority after the action pays its cost."
+            Is.Zero,
+            "Exploration authority must not manufacture combat action points."
         );
+        Assert.That(player.HasTurnAuthority, Is.False);
     }
 
     private RuntimeTestActionController CreatePlayer(CombatManager manager)
@@ -453,7 +454,8 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         /// <inheritdoc/>
         public void ShowExploration(
             IReadOnlyList<ActionController> party,
-            ActionController selected
+            ActionController selected,
+            Func<ActionController, bool> trySelectLeader
         ) => ShowCount++;
 
         /// <inheritdoc/>

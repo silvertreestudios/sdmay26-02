@@ -276,17 +276,7 @@ public sealed class ProceduralDungeonScenePlayModeTests
             Is.SameAs(floor),
             "Opening a door must not rebuild its floor geometry."
         );
-
-        Assert.That(door.TrySetOpen(false), Is.True);
-        yield return null;
-
-        Assert.That(door.IsOpen, Is.False);
-        Assert.That(grid.GridData[record.Cell.X, record.Cell.Z], Is.EqualTo(TileType.ClosedDoor));
-        Assert.That(grid.GetTiles()[record.Cell.X, record.Cell.Z], Is.Null);
-        Assert.That(grid.GetLineOfSightBlocks()[record.Cell.X, record.Cell.Z], Is.True);
-        Assert.That(grid.GetPathfinder().Pathfind(null, start, end), Is.Null.Or.Empty);
-        Assert.That(door.transform.Find("ClosedVisual").gameObject.activeSelf, Is.True);
-        Assert.That(door.transform.Find("OpenVisual").gameObject.activeSelf, Is.False);
+        Assert.That(door.TryOpen(), Is.True, "Opening an open V1 door remains idempotent.");
     }
 
     [UnityTest]

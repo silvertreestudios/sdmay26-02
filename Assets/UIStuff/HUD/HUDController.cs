@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -33,6 +34,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExpl
     private bool speedBarVisible = true;
     private ActionController currentTurnAC;
     private bool isDungeonExploration;
+    private Func<ActionController, bool> trySelectExplorationLeader = _ => false;
     private Dictionary<Button, uint> buttonCostMap = new();
     private Button selectedActionButton;
     private Color selectedButtonBaseColor;
@@ -703,7 +705,9 @@ public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExpl
             btn.style.display = DisplayStyle.Flex;
             SetHudButtonEnabled(
                 btn,
-                currentTurnAC != null && !actionRunning && cost <= currentTurnAC.ActionPoints
+                currentTurnAC != null
+                    && !actionRunning
+                    && (isDungeonExploration || cost <= currentTurnAC.ActionPoints)
             );
         }
 
@@ -768,7 +772,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExpl
     }
 
     /// <inheritdoc/>
-    public void ShowExploration(IReadOnlyList<ActionController> party, ActionController selected)
+    public void ShowExploration(
+        IReadOnlyList<ActionController> party,
+        ActionController selected,
+        Func<ActionController, bool> trySelectLeader
+    )
     {
         if (party == null)
             throw new System.ArgumentNullException(nameof(party));
@@ -779,6 +787,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExpl
                 "The selected exploration controller must belong to the party.",
                 nameof(selected)
             );
+        if (trySelectLeader == null)
+            throw new System.ArgumentNullException(nameof(trySelectLeader));
 
         EnableUi();
         isDungeonExploration = true;
@@ -786,6 +796,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExpl
         Players = party.Select(controller => controller.gameObject).ToList();
         needToUpdateCards = true;
         currentTurnAC = selected;
+        trySelectExplorationLeader = trySelectLeader;
         if (slideCoroutine != null)
             StopCoroutine(slideCoroutine);
         slideCoroutine = StartCoroutine(ExplorationTransitionRoutine(selected));
@@ -798,6 +809,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExpl
         IsActive = false;
         needToUpdateCards = true;
         currentTurnAC = null;
+        trySelectExplorationLeader = _ => false;
         canCancelAction = true;
         if (slideCoroutine != null)
         {
@@ -829,6 +841,9 @@ public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExpl
         {
             return;
         }
+
+        if (!trySelectExplorationLeader(selected))
+            return;
 
         currentTurnAC = selected;
         if (slideCoroutine != null)

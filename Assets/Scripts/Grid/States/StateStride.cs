@@ -21,12 +21,23 @@ namespace GridPrivate
         protected List<PathNode> Path;
         protected ITokenMovement Movement;
         protected float MaxMoveDist;
+        private readonly IExplorationStrideCoordinator explorationStrideCoordinator;
 
         // compact constructor
         public StateStride(GameObject character, GridFSM fsm)
+            : this(character, fsm, NoExplorationStrideCoordinator.Instance) { }
+
+        internal StateStride(
+            GameObject character,
+            GridFSM fsm,
+            IExplorationStrideCoordinator explorationStrideCoordinator
+        )
         {
             this.Character = character;
             Fsm = fsm;
+            this.explorationStrideCoordinator =
+                explorationStrideCoordinator
+                ?? throw new System.ArgumentNullException(nameof(explorationStrideCoordinator));
         }
 
         //return false if enter was unsuccessfull, true otherwise
@@ -161,6 +172,21 @@ namespace GridPrivate
                 PathNode step;
                 while (i < Path.Count && (step = path[i++]) != null && step.Dist <= MaxMoveDist)
                 {
+                    if (explorationStrideCoordinator.Handles(Character))
+                    {
+                        Ref<bool> continuePath = new(true);
+                        yield return explorationStrideCoordinator.ExecuteStep(
+                            Character,
+                            step.Location,
+                            Tiles,
+                            movement,
+                            continuePath
+                        );
+                        if (!continuePath.Value)
+                            break;
+                        continue;
+                    }
+
                     // Remove from tile
                     CurrentPosition = Vector3Int.RoundToInt(Character.transform.position);
                     Tile tile = Tiles[CurrentPosition.x, CurrentPosition.z];

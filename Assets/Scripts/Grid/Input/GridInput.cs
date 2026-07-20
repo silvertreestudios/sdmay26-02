@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -6,6 +7,9 @@ namespace GridPrivate
     [RequireComponent(typeof(GridAPIPrivate))]
     public class GridInput : MonoBehaviour
     {
+        /// <summary>Raised when the player left-clicks a valid grid cell outside the HUD.</summary>
+        public event Action<Vector3Int> CellClicked = delegate { };
+
         protected Tile[,] Tiles;
 
         protected Vector3Int? Hover;
@@ -76,6 +80,8 @@ namespace GridPrivate
                             NearestCorner = AreaTargeting.NearestCorner(cell, hit),
                         }
                     );
+                    if (InputCompat.LeftClickDown())
+                        CellClicked(cell);
                     return;
                 }
             }

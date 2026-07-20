@@ -216,7 +216,9 @@ namespace TestsUI
                 existingCardHolder != null && existingCardHolder.childCount > 0
                     ? existingCardHolder.ElementAt(0)
                     : null;
-            HUDController.GetInstance().ShowExploration(new[] { controller }, controller);
+            HUDController
+                .GetInstance()
+                .ShowExploration(new[] { controller }, controller, candidate => candidate != null);
 
             VisualElement cardHolder = null;
             Label healthLabel = null;

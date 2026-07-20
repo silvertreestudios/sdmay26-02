@@ -60,7 +60,7 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
         ActionController[] sceneControllers = Object
             .FindObjectsByType<ActionController>(
                 FindObjectsInactive.Exclude,
-                FindObjectsSortMode.None
+                FindObjectsSortMode.InstanceID
             )
             .ToArray();
         bool hasEncounterPlans = validation.JsonMap.LevelDocument.EncounterPlans.Count > 0;

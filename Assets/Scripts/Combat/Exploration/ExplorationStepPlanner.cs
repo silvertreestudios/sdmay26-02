@@ -1,0 +1,244 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using Game.DungeonGeneration;
+
+namespace Game.Combat.Exploration
+{
+    /// <summary>
+    /// Reports structural walkability and external reservations without treating current party
+    /// occupancy as blocked; the planner owns party-occupancy validation.
+    /// </summary>
+    public interface IExplorationCellAvailability
+    {
+        /// <summary>Checks whether a party member may occupy a structurally valid, unreserved cell.</summary>
+        /// <param name="cell">The candidate destination.</param>
+        /// <returns><see langword="true"/> when terrain and external reservations permit entry.</returns>
+        bool CanOccupy(DungeonCell cell);
+    }
+
+    /// <summary>Supplies every value required to plan one deterministic leader step.</summary>
+    public sealed class ExplorationStepRequest
+    {
+        /// <summary>Creates an immutable one-step request.</summary>
+        /// <param name="party">The required current living party state.</param>
+        /// <param name="leaderDestination">The selected leader's proposed destination.</param>
+        /// <param name="availability">The required terrain and reservation policy.</param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="party"/> or <paramref name="availability"/> is null.
+        /// </exception>
+        public ExplorationStepRequest(
+            ExplorationPartyState party,
+            DungeonCell leaderDestination,
+            IExplorationCellAvailability availability
+        )
+        {
+            Party = party ?? throw new ArgumentNullException(nameof(party));
+            Availability = availability ?? throw new ArgumentNullException(nameof(availability));
+            LeaderDestination = leaderDestination;
+        }
+
+        /// <summary>Gets the current living party state.</summary>
+        public ExplorationPartyState Party { get; }
+
+        /// <summary>Gets the selected leader's proposed destination.</summary>
+        public DungeonCell LeaderDestination { get; }
+
+        /// <summary>Gets the structural walkability and reservation policy.</summary>
+        public IExplorationCellAvailability Availability { get; }
+    }
+
+    /// <summary>Identifies why a proposed leader step cannot begin.</summary>
+    public enum ExplorationStepRejectionReason
+    {
+        /// <summary>The leader destination is not exactly one cardinal cell away.</summary>
+        LeaderStepIsNotCardinal,
+
+        /// <summary>The leader destination is currently occupied by another party member.</summary>
+        LeaderDestinationOccupied,
+
+        /// <summary>The terrain or an external reservation prevents leader entry.</summary>
+        LeaderDestinationUnavailable,
+    }
+
+    /// <summary>Describes one cardinal member move in deterministic execution order.</summary>
+    public readonly struct ExplorationMemberMove
+    {
+        internal ExplorationMemberMove(
+            ExplorationMemberId memberId,
+            DungeonCell from,
+            DungeonCell to
+        )
+        {
+            MemberId = memberId;
+            From = from;
+            To = to;
+        }
+
+        /// <summary>Gets the moving member's stable identity.</summary>
+        public ExplorationMemberId MemberId { get; }
+
+        /// <summary>Gets the member's cell before this party step.</summary>
+        public DungeonCell From { get; }
+
+        /// <summary>Gets the member's cardinally adjacent destination.</summary>
+        public DungeonCell To { get; }
+    }
+
+    /// <summary>Represents either an accepted immutable step plan or an explicit rejection.</summary>
+    public abstract class ExplorationStepOutcome
+    {
+        private protected ExplorationStepOutcome() { }
+    }
+
+    /// <summary>
+    /// Contains a non-empty ordered move list and the complete non-overlapping party state after
+    /// those moves execute.
+    /// </summary>
+    public sealed class AcceptedExplorationStepPlan : ExplorationStepOutcome
+    {
+        private readonly ReadOnlyCollection<ExplorationMemberMove> moves;
+
+        internal AcceptedExplorationStepPlan(
+            IEnumerable<ExplorationMemberMove> moves,
+            ExplorationPartyState resultingParty
+        )
+        {
+            ExplorationMemberMove[] copiedMoves = moves.ToArray();
+            if (copiedMoves.Length == 0)
+                throw new ArgumentException(
+                    "An accepted step must move its leader.",
+                    nameof(moves)
+                );
+
+            this.moves = Array.AsReadOnly(copiedMoves);
+            ResultingParty =
+                resultingParty ?? throw new ArgumentNullException(nameof(resultingParty));
+        }
+
+        /// <summary>
+        /// Gets moved members in execution order: leader first, then the contiguous movable
+        /// follower prefix in stable roster order.
+        /// </summary>
+        public IReadOnlyList<ExplorationMemberMove> Moves => moves;
+
+        /// <summary>Gets every member's immutable state after the planned moves.</summary>
+        public ExplorationPartyState ResultingParty { get; }
+    }
+
+    /// <summary>Reports an explicit reason why the selected leader cannot take the proposed step.</summary>
+    public sealed class RejectedExplorationStepPlan : ExplorationStepOutcome
+    {
+        internal RejectedExplorationStepPlan(ExplorationStepRejectionReason reason)
+        {
+            Reason = reason;
+        }
+
+        /// <summary>Gets the structural reason the leader step was rejected.</summary>
+        public ExplorationStepRejectionReason Reason { get; }
+    }
+
+    /// <summary>
+    /// Plans one cardinal leader move followed by a deterministic, stable-roster chain into each
+    /// predecessor's prior cell.
+    /// </summary>
+    public static class ExplorationStepPlanner
+    {
+        /// <summary>Plans one leader/follower party step without mutating the supplied state.</summary>
+        /// <param name="request">The complete non-null planning request.</param>
+        /// <returns>
+        /// An accepted plan when the leader can move, even if a follower tail must hold; otherwise
+        /// an explicit rejection that contains no partial movement.
+        /// </returns>
+        /// <exception cref="ArgumentNullException"><paramref name="request"/> is null.</exception>
+        public static ExplorationStepOutcome Plan(ExplorationStepRequest request)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+
+            ExplorationPartyState party = request.Party;
+            ExplorationPartyMember leader = party.SelectedLeader;
+            DungeonCell destination = request.LeaderDestination;
+            if (!AreCardinalNeighbors(leader.Cell, destination))
+            {
+                return new RejectedExplorationStepPlan(
+                    ExplorationStepRejectionReason.LeaderStepIsNotCardinal
+                );
+            }
+            if (party.Members.Any(member => member.Id != leader.Id && member.Cell == destination))
+            {
+                return new RejectedExplorationStepPlan(
+                    ExplorationStepRejectionReason.LeaderDestinationOccupied
+                );
+            }
+            if (!request.Availability.CanOccupy(destination))
+            {
+                return new RejectedExplorationStepPlan(
+                    ExplorationStepRejectionReason.LeaderDestinationUnavailable
+                );
+            }
+
+            ExplorationPartyMember[] resultingMembers = party.Members.ToArray();
+            List<ExplorationMemberMove> moves = new() { new(leader.Id, leader.Cell, destination) };
+            int leaderIndex = IndexOf(resultingMembers, leader.Id);
+            resultingMembers[leaderIndex] = new ExplorationPartyMember(leader.Id, destination);
+
+            DungeonCell predecessorPriorCell = leader.Cell;
+            bool followerTailHolds = false;
+            for (int index = 0; index < resultingMembers.Length; index++)
+            {
+                ExplorationPartyMember follower = party.Members[index];
+                if (follower.Id == leader.Id)
+                    continue;
+                if (followerTailHolds)
+                    continue;
+                if (
+                    !AreCardinalNeighbors(follower.Cell, predecessorPriorCell)
+                    || !request.Availability.CanOccupy(predecessorPriorCell)
+                )
+                {
+                    followerTailHolds = true;
+                    continue;
+                }
+
+                moves.Add(
+                    new ExplorationMemberMove(follower.Id, follower.Cell, predecessorPriorCell)
+                );
+                resultingMembers[index] = new ExplorationPartyMember(
+                    follower.Id,
+                    predecessorPriorCell
+                );
+                predecessorPriorCell = follower.Cell;
+            }
+
+            return new AcceptedExplorationStepPlan(
+                moves,
+                new ExplorationPartyState(resultingMembers, party.SelectedLeaderId)
+            );
+        }
+
+        private static int IndexOf(
+            IReadOnlyList<ExplorationPartyMember> members,
+            ExplorationMemberId memberId
+        )
+        {
+            for (int index = 0; index < members.Count; index++)
+            {
+                if (members[index].Id == memberId)
+                    return index;
+            }
+
+            throw new InvalidOperationException(
+                "The selected exploration leader disappeared from the party state."
+            );
+        }
+
+        private static bool AreCardinalNeighbors(DungeonCell first, DungeonCell second)
+        {
+            long xDistance = Math.Abs((long)first.X - second.X);
+            long zDistance = Math.Abs((long)first.Z - second.Z);
+            return xDistance + zDistance == 1;
+        }
+    }
+}

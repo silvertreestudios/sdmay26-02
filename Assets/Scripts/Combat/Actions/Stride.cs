@@ -26,13 +26,14 @@ public class Stride : MultiFrameEntityAction
         OnActionCancel.AddListener(cancel);
 
         ActionController ac = target.GetComponent<ActionController>();
+        bool startedInExploration = ac != null && ac.IsInDungeonExploration;
 
         CombatLog.GetInstance().Log("- " + target.name + " used Stride");
         yield return GridAPI.GetInstance().Stride(target);
 
         if (!canceled)
         {
-            if (ac)
+            if (ac && !startedInExploration)
                 PayCost(ac);
         }
         if (ac)
