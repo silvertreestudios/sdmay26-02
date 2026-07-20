@@ -14,7 +14,8 @@ namespace Game.KayKit
     [DisallowMultipleComponent]
     public sealed class DungeonPlacementOffset : MonoBehaviour
     {
-        [SerializeField] private Vector3 localOffset;
+        [SerializeField]
+        private Vector3 localOffset;
 
         /// <summary>Gets the root-position correction expressed in the prefab's local axes.</summary>
         public Vector3 LocalOffset => localOffset;

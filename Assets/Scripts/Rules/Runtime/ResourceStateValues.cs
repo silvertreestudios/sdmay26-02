@@ -14,11 +14,7 @@ namespace Game.Rules.Runtime
         /// <param name="owner">The creature authorized to spend the pool.</param>
         /// <param name="remaining">The currently available uses.</param>
         /// <param name="maximum">The maximum uses represented by this pool.</param>
-        public SpellSlotState(
-            SpellSlotPoolId id,
-            CreatureId owner,
-            int remaining,
-            int maximum)
+        public SpellSlotState(SpellSlotPoolId id, CreatureId owner, int remaining, int maximum)
         {
             if (id.IsEmpty)
                 throw new ArgumentException("A spell-slot pool ID is required.", nameof(id));
@@ -56,8 +52,10 @@ namespace Game.Rules.Runtime
 
         /// <inheritdoc/>
         public bool Equals(SpellSlotState other) =>
-            Id == other.Id && Owner == other.Owner &&
-            Remaining == other.Remaining && Maximum == other.Maximum;
+            Id == other.Id
+            && Owner == other.Owner
+            && Remaining == other.Remaining
+            && Maximum == other.Maximum;
 
         /// <inheritdoc/>
         public override bool Equals(object obj) => obj is SpellSlotState other && Equals(other);
@@ -68,12 +66,14 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Compares two spell-slot states by value.
         /// </summary>
-        public static bool operator ==(SpellSlotState left, SpellSlotState right) => left.Equals(right);
+        public static bool operator ==(SpellSlotState left, SpellSlotState right) =>
+            left.Equals(right);
 
         /// <summary>
         /// Compares two spell-slot states by value.
         /// </summary>
-        public static bool operator !=(SpellSlotState left, SpellSlotState right) => !left.Equals(right);
+        public static bool operator !=(SpellSlotState left, SpellSlotState right) =>
+            !left.Equals(right);
     }
 
     /// <summary>
@@ -119,12 +119,14 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Compares two Focus Point states by value.
         /// </summary>
-        public static bool operator ==(FocusPointState left, FocusPointState right) => left.Equals(right);
+        public static bool operator ==(FocusPointState left, FocusPointState right) =>
+            left.Equals(right);
 
         /// <summary>
         /// Compares two Focus Point states by value.
         /// </summary>
-        public static bool operator !=(FocusPointState left, FocusPointState right) => !left.Equals(right);
+        public static bool operator !=(FocusPointState left, FocusPointState right) =>
+            !left.Equals(right);
     }
 
     /// <summary>
@@ -179,11 +181,13 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Compares two ammunition states by value.
         /// </summary>
-        public static bool operator ==(AmmunitionState left, AmmunitionState right) => left.Equals(right);
+        public static bool operator ==(AmmunitionState left, AmmunitionState right) =>
+            left.Equals(right);
 
         /// <summary>
         /// Compares two ammunition states by value.
         /// </summary>
-        public static bool operator !=(AmmunitionState left, AmmunitionState right) => !left.Equals(right);
+        public static bool operator !=(AmmunitionState left, AmmunitionState right) =>
+            !left.Equals(right);
     }
 }

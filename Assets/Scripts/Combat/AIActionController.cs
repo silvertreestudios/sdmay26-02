@@ -1,10 +1,10 @@
-using UnityEngine;
+using System;
 using System.Collections.Generic;
 using Game.Creature;
-using NUnit.Framework;
-using System;
 using Game.Strikes;
 using GridPrivate;
+using NUnit.Framework;
+using UnityEngine;
 
 //TODO abstract AIActionConroller and make a subclass for mindless
 public abstract class AIActionController : ActionController
@@ -12,6 +12,7 @@ public abstract class AIActionController : ActionController
     public GameObject BestTarget { get; protected set; }
     public List<PathNode> BestPath { get; protected set; }
     public Vector3Int SelectedTile { get; protected set; }
+
     protected void Awake()
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);
@@ -26,7 +27,6 @@ public abstract class AIActionController : ActionController
     public override void StartTurn()
     {
         base.StartTurn();
-
     }
 
     // Changed from private to public so actions can call it
@@ -37,7 +37,7 @@ public abstract class AIActionController : ActionController
         {
             IsTurn = false;
             Debug.Log("Turn End: " + this.gameObject.name);
-            CombatLog.GetInstance().Log("- " + this.gameObject.name +" ended their turn.");
+            CombatLog.GetInstance().Log("- " + this.gameObject.name + " ended their turn.");
             // Clean up turn state
             // I.E. UI, etc
             CombatManagerInterface.GetInstance().NextTurn();
@@ -86,7 +86,7 @@ public abstract class AIActionController : ActionController
     {
         EntityAction bestStrike = null;
         float bestDamage = 0;
-        foreach(EntityAction action in Actions)
+        foreach (EntityAction action in Actions)
         {
             float damage = 0;
             if (action is Unarmed)
@@ -109,5 +109,4 @@ public abstract class AIActionController : ActionController
         }
         return bestStrike;
     }
-
 }

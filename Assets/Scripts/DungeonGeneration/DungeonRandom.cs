@@ -7,12 +7,15 @@ namespace Game.DungeonGeneration
     {
         /// <summary>Controls rooms, doors, corridors, stairs, and topology retries.</summary>
         Topology = 0,
+
         /// <summary>Controls cosmetic and prop placement without changing topology.</summary>
         Decoration = 1,
+
         /// <summary>Controls encounter planning without changing topology or decoration.</summary>
         Encounter = 2,
+
         /// <summary>Controls deterministic retry derivation after rejected topology.</summary>
-        Retry = 3
+        Retry = 3,
     }
 
     /// <summary>Supplies seeded random values without depending on Unity's global random state.</summary>

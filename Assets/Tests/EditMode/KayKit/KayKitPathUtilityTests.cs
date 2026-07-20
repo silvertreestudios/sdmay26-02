@@ -11,7 +11,8 @@ public sealed class KayKitPathUtilityTests
 
         Assert.That(
             KayKitPathUtility.GetDungeonId(path),
-            Is.EqualTo("dungeon/models/fbx/environment/floor_a"));
+            Is.EqualTo("dungeon/models/fbx/environment/floor_a")
+        );
     }
 
     [TestCase("Idle_A", KayKitClipSemantics.Loop)]
@@ -35,8 +36,10 @@ public sealed class KayKitPathUtilityTests
     {
         Assert.That(
             KayKitPathUtility.IsVendorAsset(
-                "Assets/ThirdParty/KayKit/DungeonRemastered_1.1/Models/Floor.fbx"),
-            Is.True);
+                "Assets/ThirdParty/KayKit/DungeonRemastered_1.1/Models/Floor.fbx"
+            ),
+            Is.True
+        );
         Assert.That(KayKitPathUtility.IsVendorAsset("Assets/Models/Tree.fbx"), Is.False);
         Assert.That(KayKitPathUtility.IsVendorAsset("Assets/Textures/Portrait.png"), Is.False);
     }

@@ -17,7 +17,8 @@ public sealed class KayKitShowcaseTests
         Scene scene = EditorSceneManager.OpenScene(ShowcaseScenePath, OpenSceneMode.Additive);
         try
         {
-            Transform[] sceneTransforms = scene.GetRootGameObjects()
+            Transform[] sceneTransforms = scene
+                .GetRootGameObjects()
                 .SelectMany(root => root.GetComponentsInChildren<Transform>(true))
                 .ToArray();
             KayKitShowcaseController controller = sceneTransforms
@@ -43,11 +44,12 @@ public sealed class KayKitShowcaseTests
                 "Assets/KayKit/Prefabs/RepresentativeAccessory.prefab",
                 "Assets/KayKit/Prefabs/RepresentativeDungeonPiece.prefab",
                 "Assets/KayKit/Prefabs/RepresentativeDungeonWall.prefab",
-                "Assets/KayKit/Prefabs/RepresentativeDungeonProp.prefab"
+                "Assets/KayKit/Prefabs/RepresentativeDungeonProp.prefab",
             };
             string[] scenePrefabPaths = sceneTransforms
-                .Select(transform => PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(
-                    transform.gameObject))
+                .Select(transform =>
+                    PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(transform.gameObject)
+                )
                 .Where(path => !string.IsNullOrEmpty(path))
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
@@ -57,8 +59,10 @@ public sealed class KayKitShowcaseTests
 
             Assert.That(
                 sceneTransforms.Sum(transform =>
-                    GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(transform.gameObject)),
-                Is.Zero);
+                    GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(transform.gameObject)
+                ),
+                Is.Zero
+            );
         }
         finally
         {

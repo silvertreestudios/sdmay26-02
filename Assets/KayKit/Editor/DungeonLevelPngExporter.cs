@@ -54,20 +54,18 @@ namespace Game.KayKit.Editor
         private static readonly Color32 ObjectAnchorColor = new(239, 71, 145, 255);
 
         /// <summary>Gets the absolute fixture JSON path used when batch input is not overridden.</summary>
-        public static string DefaultInputPath => Path.GetFullPath(
-            Path.Combine(ProjectRootPath, ProceduralDungeonSceneTool.FixturePath));
+        public static string DefaultInputPath =>
+            Path.GetFullPath(Path.Combine(ProjectRootPath, ProceduralDungeonSceneTool.FixturePath));
 
         /// <summary>
         /// Gets the absolute default PNG path under the checkout-root <c>.agent-temp</c> directory.
         /// The diagnostic is deliberately kept outside <c>Assets</c> so Unity never imports it.
         /// </summary>
-        public static string DefaultOutputPath => Path.Combine(
-            ProjectRootPath,
-            ".agent-temp",
-            DefaultFileName);
+        public static string DefaultOutputPath =>
+            Path.Combine(ProjectRootPath, ".agent-temp", DefaultFileName);
 
-        private static string ProjectRootPath => Path.GetFullPath(
-            Path.Combine(Application.dataPath, ".."));
+        private static string ProjectRootPath =>
+            Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
 
         /// <summary>Exports the checked-in procedural fixture through the Unity Tools menu.</summary>
         [MenuItem("Tools/KayKit/Export Procedural Dungeon 2D Diagnostic")]
@@ -89,7 +87,8 @@ namespace Game.KayKit.Editor
             string outputPath = Environment.GetEnvironmentVariable(BatchOutputEnvironmentVariable);
             string writtenPath = WriteFile(
                 string.IsNullOrWhiteSpace(inputPath) ? DefaultInputPath : inputPath,
-                string.IsNullOrWhiteSpace(outputPath) ? DefaultOutputPath : outputPath);
+                string.IsNullOrWhiteSpace(outputPath) ? DefaultOutputPath : outputPath
+            );
             Debug.Log(DescribeExport(writtenPath));
         }
 
@@ -108,13 +107,15 @@ namespace Game.KayKit.Editor
         /// <exception cref="InvalidDataException">The document violates the serialized dungeon contract.</exception>
         public static byte[] RenderPng(
             DungeonLevelDocument document,
-            int cellSize = DefaultCellSize)
+            int cellSize = DefaultCellSize
+        )
         {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
             DungeonLevelParseResult validation = DungeonLevelJsonParser.Parse(
-                DungeonLevelJsonSerializer.Serialize(document));
+                DungeonLevelJsonSerializer.Serialize(document)
+            );
             if (!validation.IsSuccess)
                 throw InvalidDocument(validation.Diagnostics);
 
@@ -129,9 +130,7 @@ namespace Game.KayKit.Editor
         /// <exception cref="ArgumentOutOfRangeException">
         /// <paramref name="cellSize"/> cannot preserve the diagnostic overlays or is excessively large.
         /// </exception>
-        public static byte[] RenderPng(
-            string serializedJson,
-            int cellSize = DefaultCellSize)
+        public static byte[] RenderPng(string serializedJson, int cellSize = DefaultCellSize)
         {
             DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(serializedJson);
             if (!parsed.IsSuccess)
@@ -155,12 +154,15 @@ namespace Game.KayKit.Editor
         public static string WritePng(
             string serializedJson,
             string outputPath,
-            int cellSize = DefaultCellSize)
+            int cellSize = DefaultCellSize
+        )
         {
             string absoluteOutputPath = ValidateOutputPath(outputPath);
             byte[] png = RenderPng(serializedJson, cellSize);
-            Directory.CreateDirectory(Path.GetDirectoryName(absoluteOutputPath) ??
-                                      throw new InvalidOperationException("Output path has no parent directory."));
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(absoluteOutputPath)
+                    ?? throw new InvalidOperationException("Output path has no parent directory.")
+            );
             File.WriteAllBytes(absoluteOutputPath, png);
             return absoluteOutputPath;
         }
@@ -176,7 +178,8 @@ namespace Game.KayKit.Editor
         public static string WriteFile(
             string inputPath,
             string outputPath,
-            int cellSize = DefaultCellSize)
+            int cellSize = DefaultCellSize
+        )
         {
             if (string.IsNullOrWhiteSpace(inputPath))
                 throw new ArgumentException("Input path must not be empty.", nameof(inputPath));
@@ -186,15 +189,14 @@ namespace Game.KayKit.Editor
             {
                 throw new FileNotFoundException(
                     "Dungeon JSON input file was not found.",
-                    absoluteInputPath);
+                    absoluteInputPath
+                );
             }
 
             return WritePng(File.ReadAllText(absoluteInputPath), outputPath, cellSize);
         }
 
-        private static byte[] RenderValidatedDocument(
-            DungeonLevelDocument document,
-            int cellSize)
+        private static byte[] RenderValidatedDocument(DungeonLevelDocument document, int cellSize)
         {
             ValidateCellSize(cellSize);
             int pixelWidth;
@@ -211,27 +213,29 @@ namespace Game.KayKit.Editor
                 throw new ArgumentOutOfRangeException(
                     nameof(cellSize),
                     cellSize,
-                    "Document dimensions and cell size exceed supported image dimensions.");
+                    "Document dimensions and cell size exceed supported image dimensions."
+                );
             }
-            if (pixelWidth > MaximumImageDimension ||
-                pixelHeight > MaximumImageDimension ||
-                pixelCount > MaximumPixelCount)
+            if (
+                pixelWidth > MaximumImageDimension
+                || pixelHeight > MaximumImageDimension
+                || pixelCount > MaximumPixelCount
+            )
             {
                 throw new ArgumentOutOfRangeException(
                     nameof(cellSize),
                     cellSize,
-                    $"Diagnostic images may not exceed {MaximumImageDimension} pixels per side " +
-                    $"or {MaximumPixelCount} total pixels.");
+                    $"Diagnostic images may not exceed {MaximumImageDimension} pixels per side "
+                        + $"or {MaximumPixelCount} total pixels."
+                );
             }
 
-            Color32[] pixels = Enumerable.Repeat(
-                    GridColor,
-                    pixelCount)
-                .ToArray();
+            Color32[] pixels = Enumerable.Repeat(GridColor, pixelCount).ToArray();
             HashSet<DungeonCell> roomCells = BuildRoomCells(document.Rooms);
             Dictionary<DungeonCell, DungeonStairKind> stairs = document.Stairs.ToDictionary(
                 stair => stair.Cell,
-                stair => stair.Kind);
+                stair => stair.Kind
+            );
             HashSet<DungeonCell> objectAnchors = new(document.Objects.Select(item => item.Cell));
 
             for (int rowIndex = 0; rowIndex < document.Height; rowIndex++)
@@ -250,7 +254,8 @@ namespace Game.KayKit.Editor
                         pixelY + 1,
                         cellSize - 2,
                         cellSize - 2,
-                        baseColor);
+                        baseColor
+                    );
 
                     if (stairs.TryGetValue(cell, out DungeonStairKind stairKind))
                     {
@@ -262,14 +267,22 @@ namespace Game.KayKit.Editor
                             pixelY + stairInset,
                             cellSize - stairInset * 2,
                             cellSize - stairInset * 2,
-                            stairKind == DungeonStairKind.Up ? UpStairColor : DownStairColor);
+                            stairKind == DungeonStairKind.Up ? UpStairColor : DownStairColor
+                        );
                     }
 
                     if (cell == document.StartCell)
                         DrawFrame(pixels, pixelWidth, pixelX, pixelY, cellSize, StartColor);
 
                     if (objectAnchors.Contains(cell))
-                        DrawDiamond(pixels, pixelWidth, pixelX, pixelY, cellSize, ObjectAnchorColor);
+                        DrawDiamond(
+                            pixels,
+                            pixelWidth,
+                            pixelX,
+                            pixelY,
+                            cellSize,
+                            ObjectAnchorColor
+                        );
                 }
             }
 
@@ -277,7 +290,7 @@ namespace Game.KayKit.Editor
             {
                 name = "Dungeon 2D Diagnostic",
                 filterMode = FilterMode.Point,
-                wrapMode = TextureWrapMode.Clamp
+                wrapMode = TextureWrapMode.Clamp,
             };
             try
             {
@@ -307,7 +320,8 @@ namespace Game.KayKit.Editor
         private static Color32 BaseColor(
             char symbol,
             DungeonCell cell,
-            HashSet<DungeonCell> roomCells)
+            HashSet<DungeonCell> roomCells
+        )
         {
             return symbol switch
             {
@@ -316,7 +330,7 @@ namespace Game.KayKit.Editor
                 'D' => DoorColor,
                 '.' when roomCells.Contains(cell) => RoomFloorColor,
                 '.' => CorridorFloorColor,
-                _ => throw new InvalidDataException($"Unsupported dungeon symbol '{symbol}'.")
+                _ => throw new InvalidDataException($"Unsupported dungeon symbol '{symbol}'."),
             };
         }
 
@@ -327,7 +341,8 @@ namespace Game.KayKit.Editor
             int y,
             int width,
             int height,
-            Color32 color)
+            Color32 color
+        )
         {
             for (int localY = 0; localY < height; localY++)
             for (int localX = 0; localX < width; localX++)
@@ -340,7 +355,8 @@ namespace Game.KayKit.Editor
             int pixelX,
             int pixelY,
             int cellSize,
-            Color32 color)
+            Color32 color
+        )
         {
             int minimum = 1;
             int maximum = cellSize - 2;
@@ -359,7 +375,8 @@ namespace Game.KayKit.Editor
             int pixelX,
             int pixelY,
             int cellSize,
-            Color32 color)
+            Color32 color
+        )
         {
             int center = cellSize / 2;
             int radius = Math.Max(1, cellSize / 4);
@@ -368,8 +385,8 @@ namespace Game.KayKit.Editor
             {
                 if (Math.Abs(xOffset) + Math.Abs(yOffset) <= radius)
                 {
-                    pixels[(pixelY + center + yOffset) * pixelWidth +
-                           pixelX + center + xOffset] = color;
+                    pixels[(pixelY + center + yOffset) * pixelWidth + pixelX + center + xOffset] =
+                        color;
                 }
             }
         }
@@ -381,7 +398,8 @@ namespace Game.KayKit.Editor
                 throw new ArgumentOutOfRangeException(
                     nameof(cellSize),
                     cellSize,
-                    $"Cell size must be from {MinimumCellSize} through {MaximumCellSize} pixels.");
+                    $"Cell size must be from {MinimumCellSize} through {MaximumCellSize} pixels."
+                );
             }
         }
 
@@ -394,33 +412,38 @@ namespace Game.KayKit.Editor
             string assetsRoot = Path.GetFullPath(Application.dataPath)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             string assetsPrefix = assetsRoot + Path.DirectorySeparatorChar;
-            if (string.Equals(absolutePath, assetsRoot, StringComparison.OrdinalIgnoreCase) ||
-                absolutePath.StartsWith(assetsPrefix, StringComparison.OrdinalIgnoreCase))
+            if (
+                string.Equals(absolutePath, assetsRoot, StringComparison.OrdinalIgnoreCase)
+                || absolutePath.StartsWith(assetsPrefix, StringComparison.OrdinalIgnoreCase)
+            )
             {
                 throw new ArgumentException(
                     "Dungeon diagnostic PNGs must be written outside the Unity Assets directory.",
-                    nameof(outputPath));
+                    nameof(outputPath)
+                );
             }
 
             return absolutePath;
         }
 
         private static InvalidDataException InvalidDocument(
-            IReadOnlyList<DungeonGenerationDiagnostic> diagnostics)
+            IReadOnlyList<DungeonGenerationDiagnostic> diagnostics
+        )
         {
             string details = string.Join(
                 Environment.NewLine,
-                diagnostics.Select(diagnostic =>
-                    $"{diagnostic.Field}: {diagnostic.Message}"));
+                diagnostics.Select(diagnostic => $"{diagnostic.Field}: {diagnostic.Message}")
+            );
             return new InvalidDataException(
-                "Dungeon JSON did not satisfy the validated document contract." +
-                Environment.NewLine +
-                details);
+                "Dungeon JSON did not satisfy the validated document contract."
+                    + Environment.NewLine
+                    + details
+            );
         }
 
         private static string DescribeExport(string outputPath) =>
-            $"Wrote dungeon 2D diagnostic to {outputPath}. " +
-            "Palette: void charcoal, wall slate, room blue, corridor gray, door gold, " +
-            "up stair green, down stair violet, start cyan frame, object magenta diamond.";
+            $"Wrote dungeon 2D diagnostic to {outputPath}. "
+            + "Palette: void charcoal, wall slate, room blue, corridor gray, door gold, "
+            + "up stair green, down stair violet, start cyan frame, object magenta diamond.";
     }
 }

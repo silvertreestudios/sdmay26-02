@@ -17,7 +17,7 @@ public sealed class DungeonDoorPostProcessorTests
             ".#...##",
             ".D...##",
             "#######",
-            "#######"
+            "#######",
         };
         DungeonRoom room = new(1, 2, 2, 4, 4);
         DungeonDoor[] doors = Doors(new DungeonCell(1, 2), new DungeonCell(1, 4));
@@ -26,7 +26,8 @@ public sealed class DungeonDoorPostProcessorTests
             rows,
             new[] { room },
             doors,
-            DungeonDoorPostProcessor.MinimumLoopPathLengthCells);
+            DungeonDoorPostProcessor.MinimumLoopPathLengthCells
+        );
 
         Assert.That(retained, Is.EqualTo(new[] { new DungeonCell(1, 2) }));
     }
@@ -42,7 +43,7 @@ public sealed class DungeonDoorPostProcessorTests
             ".####...##",
             "....D...##",
             "##########",
-            "##########"
+            "##########",
         };
         DungeonRoom room = new(1, 5, 2, 7, 4);
         DungeonDoor[] doors = Doors(new DungeonCell(4, 2), new DungeonCell(4, 4));
@@ -51,7 +52,8 @@ public sealed class DungeonDoorPostProcessorTests
             rows,
             new[] { room },
             doors,
-            DungeonDoorPostProcessor.MinimumLoopPathLengthCells);
+            DungeonDoorPostProcessor.MinimumLoopPathLengthCells
+        );
 
         Assert.That(retained, Is.EqualTo(doors.Select(door => door.Cell)));
     }
@@ -67,7 +69,7 @@ public sealed class DungeonDoorPostProcessorTests
             "##...##",
             ".D...##",
             "#######",
-            "#######"
+            "#######",
         };
         DungeonRoom room = new(1, 2, 2, 4, 4);
         DungeonDoor[] doors = Doors(new DungeonCell(1, 2), new DungeonCell(1, 4));
@@ -76,7 +78,8 @@ public sealed class DungeonDoorPostProcessorTests
             rows,
             new[] { room },
             doors,
-            DungeonDoorPostProcessor.MinimumLoopPathLengthCells);
+            DungeonDoorPostProcessor.MinimumLoopPathLengthCells
+        );
 
         Assert.That(retained, Is.EqualTo(doors.Select(door => door.Cell)));
     }
@@ -97,19 +100,24 @@ public sealed class DungeonDoorPostProcessorTests
                 MaximumRoomSize = 13,
                 MinimumRoomCount = 3,
                 StairCount = 2,
-                DeadEndRemovalPercent = 100
-            });
+                DeadEndRemovalPercent = 100,
+            }
+        );
 
         Assert.That(result.IsSuccess, Is.True, Diagnostics(result));
         IReadOnlyList<DungeonCell> retained = DungeonDoorPostProcessor.SelectRequiredDoors(
             result.Document.Rows,
             result.Document.Rooms,
             result.Document.Doors,
-            DungeonDoorPostProcessor.MinimumLoopPathLengthCells);
+            DungeonDoorPostProcessor.MinimumLoopPathLengthCells
+        );
         Assert.That(retained, Is.EqualTo(result.Document.Doors.Select(door => door.Cell)));
-        Assert.That(result.Document.Doors.Select(door => door.Id), Is.EqualTo(
-            Enumerable.Range(1, result.Document.Doors.Count)
-                .Select(index => $"door-{index:D4}")));
+        Assert.That(
+            result.Document.Doors.Select(door => door.Id),
+            Is.EqualTo(
+                Enumerable.Range(1, result.Document.Doors.Count).Select(index => $"door-{index:D4}")
+            )
+        );
     }
 
     private static DungeonDoor[] Doors(params DungeonCell[] cells)
@@ -123,6 +131,7 @@ public sealed class DungeonDoorPostProcessorTests
     {
         return string.Join(
             Environment.NewLine,
-            result.Diagnostics.Select(diagnostic => diagnostic.Message));
+            result.Diagnostics.Select(diagnostic => diagnostic.Message)
+        );
     }
 }

@@ -1,19 +1,17 @@
-using UnityEngine;
-using System.Collections.Generic;
 using System.Collections;
-
-using UnityEngineInternal;
-using GridPublic;
+using System.Collections.Generic;
 using GridPrivate;
+using GridPublic;
+using UnityEngine;
+using UnityEngineInternal;
 
 public class Stride : MultiFrameEntityAction
 {
     // Done by Ryan Meyer 04/07/2026
     public override string ActionName => "Stride";
-    public Stride(uint cost) : base(cost)
-    {
-        
-    }
+
+    public Stride(uint cost)
+        : base(cost) { }
 
     protected override IEnumerator MFInvoke(GameObject target)
     {
@@ -31,7 +29,7 @@ public class Stride : MultiFrameEntityAction
 
         CombatLog.GetInstance().Log("- " + target.name + " used Stride");
         yield return GridAPI.GetInstance().Stride(target);
-        
+
         if (!canceled)
         {
             if (ac)

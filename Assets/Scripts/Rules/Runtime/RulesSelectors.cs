@@ -25,7 +25,8 @@ namespace Game.Rules.Runtime
         ModifierCollection GetSkillCheckModifiers(
             RulesSnapshot snapshot,
             CreatureId creature,
-            Skill skill);
+            Skill skill
+        );
 
         /// <summary>
         /// Resolves the creature's selected base save value and current saving-throw modifiers.
@@ -33,7 +34,8 @@ namespace Game.Rules.Runtime
         ModifierCollection GetSavingThrowModifiers(
             RulesSnapshot snapshot,
             CreatureId creature,
-            SaveKind save);
+            SaveKind save
+        );
 
         /// <summary>
         /// Gets current snapshot-owned candidates for one statistic without adding its base value.
@@ -41,7 +43,8 @@ namespace Game.Rules.Runtime
         ModifierCollection GetCurrentModifiers(
             RulesSnapshot snapshot,
             CreatureId creature,
-            Statistic statistic);
+            Statistic statistic
+        );
 
         /// <summary>
         /// Resolves Armor Class from the seeded base value and current Armor Class modifiers.
@@ -54,18 +57,12 @@ namespace Game.Rules.Runtime
         /// <exception cref="OverflowException">
         /// The resolved modifier total is outside the range that can produce an integer DC.
         /// </exception>
-        int GetSaveDifficultyClass(
-            RulesSnapshot snapshot,
-            CreatureId creature,
-            SaveKind save);
+        int GetSaveDifficultyClass(RulesSnapshot snapshot, CreatureId creature, SaveKind save);
 
         /// <summary>
         /// Gets the signed normal or agile penalty for a creature's next attack.
         /// </summary>
-        int GetMultipleAttackPenalty(
-            RulesSnapshot snapshot,
-            CreatureId creature,
-            bool isAgile);
+        int GetMultipleAttackPenalty(RulesSnapshot snapshot, CreatureId creature, bool isAgile);
 
         /// <summary>
         /// Determines whether two creatures belong to different seeded players or teams.
@@ -83,52 +80,45 @@ namespace Game.Rules.Runtime
     /// </summary>
     public sealed class RulesSelectors : IRulesSelectors
     {
-        private static readonly RuleSource BaseStatisticsSource =
-            RuleSource.FromSlug("base-statistics");
+        private static readonly RuleSource BaseStatisticsSource = RuleSource.FromSlug(
+            "base-statistics"
+        );
 
         /// <inheritdoc/>
-        public ModifierCollection GetAttackModifiers(
-            RulesSnapshot snapshot,
-            CreatureId creature)
+        public ModifierCollection GetAttackModifiers(RulesSnapshot snapshot, CreatureId creature)
         {
             CreatureStatisticsState statistics = RequireStatistics(snapshot, creature);
-            return WithBase(
-                statistics,
-                Statistic.AttackRoll,
-                statistics.AttackModifier);
+            return WithBase(statistics, Statistic.AttackRoll, statistics.AttackModifier);
         }
 
         /// <inheritdoc/>
         public ModifierCollection GetSkillCheckModifiers(
             RulesSnapshot snapshot,
             CreatureId creature,
-            Skill skill)
+            Skill skill
+        )
         {
             CreatureStatisticsState statistics = RequireStatistics(snapshot, creature);
-            return WithBase(
-                statistics,
-                Statistic.SkillCheck,
-                statistics.GetSkillModifier(skill));
+            return WithBase(statistics, Statistic.SkillCheck, statistics.GetSkillModifier(skill));
         }
 
         /// <inheritdoc/>
         public ModifierCollection GetSavingThrowModifiers(
             RulesSnapshot snapshot,
             CreatureId creature,
-            SaveKind save)
+            SaveKind save
+        )
         {
             CreatureStatisticsState statistics = RequireStatistics(snapshot, creature);
-            return WithBase(
-                statistics,
-                StatisticFor(save),
-                statistics.GetSaveModifier(save));
+            return WithBase(statistics, StatisticFor(save), statistics.GetSaveModifier(save));
         }
 
         /// <inheritdoc/>
         public ModifierCollection GetCurrentModifiers(
             RulesSnapshot snapshot,
             CreatureId creature,
-            Statistic statistic)
+            Statistic statistic
+        )
         {
             CreatureStatisticsState statistics = RequireStatistics(snapshot, creature);
             return new ModifierCollection(statistic, statistics.Modifiers);
@@ -145,23 +135,28 @@ namespace Game.Rules.Runtime
         public int GetSaveDifficultyClass(
             RulesSnapshot snapshot,
             CreatureId creature,
-            SaveKind save) =>
-            checked(10 + GetSavingThrowModifiers(snapshot, creature, save).Total);
+            SaveKind save
+        ) => checked(10 + GetSavingThrowModifiers(snapshot, creature, save).Total);
 
         /// <inheritdoc/>
         public int GetMultipleAttackPenalty(
             RulesSnapshot snapshot,
             CreatureId creature,
-            bool isAgile)
+            bool isAgile
+        )
         {
             RequireSnapshot(snapshot);
             RequireCreatureId(creature, nameof(creature));
-            if (!snapshot.MultipleAttackPenalty.TryGet(
-                creature,
-                out MultipleAttackPenaltyState state))
+            if (
+                !snapshot.MultipleAttackPenalty.TryGet(
+                    creature,
+                    out MultipleAttackPenaltyState state
+                )
+            )
             {
                 throw new KeyNotFoundException(
-                    $"Creature {creature} has no seeded multiple attack penalty state.");
+                    $"Creature {creature} has no seeded multiple attack penalty state."
+                );
             }
             return MultipleAttackPenaltyResolver.Resolve(state.AttackCount, isAgile);
         }
@@ -176,10 +171,7 @@ namespace Game.Rules.Runtime
         }
 
         /// <inheritdoc/>
-        public GridDistance Distance(
-            RulesSnapshot snapshot,
-            CreatureId left,
-            CreatureId right)
+        public GridDistance Distance(RulesSnapshot snapshot, CreatureId left, CreatureId right)
         {
             RequireSnapshot(snapshot);
             GridPosition leftPosition = RequirePosition(snapshot, left);
@@ -195,11 +187,14 @@ namespace Game.Rules.Runtime
         private static ModifierCollection WithBase(
             CreatureStatisticsState statistics,
             Statistic statistic,
-            int baseValue) =>
+            int baseValue
+        ) =>
             new ModifierCollection(
                 statistic,
-                new[] { Modifier.Untyped(baseValue, BaseStatisticsSource, statistic) }
-                    .Concat(statistics.Modifiers));
+                new[] { Modifier.Untyped(baseValue, BaseStatisticsSource, statistic) }.Concat(
+                    statistics.Modifiers
+                )
+            );
 
         private static Statistic StatisticFor(SaveKind save)
         {
@@ -218,31 +213,31 @@ namespace Game.Rules.Runtime
 
         private static CreatureStatisticsState RequireStatistics(
             RulesSnapshot snapshot,
-            CreatureId creature)
+            CreatureId creature
+        )
         {
             RequireSnapshot(snapshot);
             RequireCreatureId(creature, nameof(creature));
             if (!snapshot.Statistics.TryGet(creature, out CreatureStatisticsState statistics))
             {
                 throw new KeyNotFoundException(
-                    $"Creature {creature} has no seeded statistics state.");
+                    $"Creature {creature} has no seeded statistics state."
+                );
             }
             return statistics;
         }
 
-        private static CreatureState RequireCreature(
-            RulesSnapshot snapshot,
-            CreatureId creature)
+        private static CreatureState RequireCreature(RulesSnapshot snapshot, CreatureId creature)
         {
             RequireCreatureId(creature, nameof(creature));
             if (!snapshot.Creatures.TryGet(creature, out CreatureState state))
-                throw new KeyNotFoundException($"Creature {creature} is not in the rules snapshot.");
+                throw new KeyNotFoundException(
+                    $"Creature {creature} is not in the rules snapshot."
+                );
             return state;
         }
 
-        private static GridPosition RequirePosition(
-            RulesSnapshot snapshot,
-            CreatureId creature)
+        private static GridPosition RequirePosition(RulesSnapshot snapshot, CreatureId creature)
         {
             RequireCreatureId(creature, nameof(creature));
             if (!snapshot.Positions.TryGet(creature, out GridPosition position))

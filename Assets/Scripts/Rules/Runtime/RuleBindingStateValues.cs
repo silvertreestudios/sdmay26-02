@@ -13,14 +13,21 @@ namespace Game.Rules.Runtime
             ActiveEffectId id,
             RuleDefinitionId definitionId,
             CreatureId sourceCreature,
-            RuleSource source)
+            RuleSource source
+        )
         {
             if (id.IsEmpty)
                 throw new ArgumentException("An active effect ID is required.", nameof(id));
             if (definitionId.IsEmpty)
-                throw new ArgumentException("A rule definition ID is required.", nameof(definitionId));
+                throw new ArgumentException(
+                    "A rule definition ID is required.",
+                    nameof(definitionId)
+                );
             if (sourceCreature.IsEmpty)
-                throw new ArgumentException("A source creature ID is required.", nameof(sourceCreature));
+                throw new ArgumentException(
+                    "A source creature ID is required.",
+                    nameof(sourceCreature)
+                );
             if (source.IsEmpty)
                 throw new ArgumentException("A rule source is required.", nameof(source));
             Id = id;
@@ -30,10 +37,16 @@ namespace Game.Rules.Runtime
         }
 
         public bool Equals(ActiveEffectState other) =>
-            other != null && Id == other.Id && DefinitionId == other.DefinitionId &&
-            SourceCreature == other.SourceCreature && Source == other.Source;
+            other != null
+            && Id == other.Id
+            && DefinitionId == other.DefinitionId
+            && SourceCreature == other.SourceCreature
+            && Source == other.Source;
+
         public override bool Equals(object obj) => obj is ActiveEffectState other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(Id, DefinitionId, SourceCreature, Source);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Id, DefinitionId, SourceCreature, Source);
     }
 
     /// <summary>
@@ -101,18 +114,25 @@ namespace Game.Rules.Runtime
             ActiveEffectId? effectId,
             RuleSource source,
             long creationOrder,
-            bool isEnabled = true)
+            bool isEnabled = true
+        )
         {
             if (creationOrder < 0)
                 throw new ArgumentOutOfRangeException(nameof(creationOrder));
             if (id.IsEmpty)
                 throw new ArgumentException("A binding ID is required.", nameof(id));
             if (definitionId.IsEmpty)
-                throw new ArgumentException("A rule definition ID is required.", nameof(definitionId));
+                throw new ArgumentException(
+                    "A rule definition ID is required.",
+                    nameof(definitionId)
+                );
             if (owner.IsEmpty)
                 throw new ArgumentException("An owner creature ID is required.", nameof(owner));
             if (effectId.HasValue && effectId.Value.IsEmpty)
-                throw new ArgumentException("An effect ID cannot be empty when supplied.", nameof(effectId));
+                throw new ArgumentException(
+                    "An effect ID cannot be empty when supplied.",
+                    nameof(effectId)
+                );
             if (source.IsEmpty)
                 throw new ArgumentException("A rule source is required.", nameof(source));
             Id = id;
@@ -126,9 +146,14 @@ namespace Game.Rules.Runtime
 
         /// <inheritdoc/>
         public bool Equals(ActiveRuleBinding other) =>
-            other != null && Id == other.Id && DefinitionId == other.DefinitionId &&
-            Owner == other.Owner && EffectId == other.EffectId && Source == other.Source &&
-            CreationOrder == other.CreationOrder && IsEnabled == other.IsEnabled;
+            other != null
+            && Id == other.Id
+            && DefinitionId == other.DefinitionId
+            && Owner == other.Owner
+            && EffectId == other.EffectId
+            && Source == other.Source
+            && CreationOrder == other.CreationOrder
+            && IsEnabled == other.IsEnabled;
 
         /// <inheritdoc/>
         public override bool Equals(object obj) => obj is ActiveRuleBinding other && Equals(other);
@@ -154,9 +179,15 @@ namespace Game.Rules.Runtime
         }
 
         public bool Equals(FrequencyState other) => Round == other.Round && Uses == other.Uses;
+
         public override bool Equals(object obj) => obj is FrequencyState other && Equals(other);
+
         public override int GetHashCode() => HashCode.Combine(Round, Uses);
-        public static bool operator ==(FrequencyState left, FrequencyState right) => left.Equals(right);
-        public static bool operator !=(FrequencyState left, FrequencyState right) => !left.Equals(right);
+
+        public static bool operator ==(FrequencyState left, FrequencyState right) =>
+            left.Equals(right);
+
+        public static bool operator !=(FrequencyState left, FrequencyState right) =>
+            !left.Equals(right);
     }
 }

@@ -39,7 +39,8 @@ namespace Game.Rules.Runtime
         /// </exception>
         internal static async ValueTask AwaitCleanupPreservingPrimary<TResult>(
             Exception callbackException,
-            ValueTask<TResult> cleanup)
+            ValueTask<TResult> cleanup
+        )
         {
             try
             {
@@ -50,7 +51,8 @@ namespace Game.Rules.Runtime
                 throw new AggregateException(
                     "Callback execution and cleanup of its unconsumed work both failed.",
                     callbackException,
-                    cleanupException);
+                    cleanupException
+                );
             }
         }
     }
@@ -61,7 +63,7 @@ namespace Game.Rules.Runtime
     internal enum CallbackWorkKind
     {
         Dispatch,
-        MiddlewareContinuation
+        MiddlewareContinuation,
     }
 
     /// <summary>
@@ -71,7 +73,7 @@ namespace Game.Rules.Runtime
     {
         NoUnconsumedWork,
         UnconsumedDispatch,
-        UnconsumedMiddlewareContinuation
+        UnconsumedMiddlewareContinuation,
     }
 
     /// <summary>
@@ -91,24 +93,18 @@ namespace Game.Rules.Runtime
         private bool continuationWasInvoked;
         private WorkState state = IdleWorkState.Instance;
 
-        private abstract class WorkState
-        {
-        }
+        private abstract class WorkState { }
 
         private sealed class IdleWorkState : WorkState
         {
             internal static readonly IdleWorkState Instance = new IdleWorkState();
 
-            private IdleWorkState()
-            {
-            }
+            private IdleWorkState() { }
         }
 
         private sealed class RunningWorkState : WorkState
         {
-            internal RunningWorkState(
-                CallbackWorkKind kind,
-                IOwnedValueTaskSource work)
+            internal RunningWorkState(CallbackWorkKind kind, IOwnedValueTaskSource work)
             {
                 Kind = kind;
                 Work = work ?? throw new ArgumentNullException(nameof(work));
@@ -122,24 +118,17 @@ namespace Game.Rules.Runtime
         {
             internal static readonly CompletedWorkState Instance = new CompletedWorkState();
 
-            private CompletedWorkState()
-            {
-            }
+            private CompletedWorkState() { }
         }
 
         internal ValueTask<TResult> StartDispatch<TResult>(
             Func<ValueTask<TResult>> operation,
             string inactiveMessage,
             string dispatchOverlapMessage,
-            string continuationOverlapMessage) =>
-            Start(
-                operation,
-                inactiveMessage,
-                dispatchOverlapMessage,
-                continuationOverlapMessage);
+            string continuationOverlapMessage
+        ) => Start(operation, inactiveMessage, dispatchOverlapMessage, continuationOverlapMessage);
 
-        internal ValueTask<TResult> StartContinuation<TResult>(
-            Func<ValueTask<TResult>> operation)
+        internal ValueTask<TResult> StartContinuation<TResult>(Func<ValueTask<TResult>> operation)
         {
             OwnedValueTaskSource<TResult> invocation;
             lock (gate)
@@ -147,18 +136,21 @@ namespace Game.Rules.Runtime
                 if (state is CompletedWorkState)
                 {
                     throw new InvalidOperationException(
-                        "Middleware cannot continue after its callback returns.");
+                        "Middleware cannot continue after its callback returns."
+                    );
                 }
                 if (continuationWasInvoked)
                 {
                     throw new InvalidOperationException(
-                        "Middleware may invoke its continuation at most once.");
+                        "Middleware may invoke its continuation at most once."
+                    );
                 }
                 if (state is RunningWorkState)
                 {
                     throw new InvalidOperationException(
-                        "Middleware cannot invoke its continuation while a child dispatch is active. " +
-                        "Await the active child before continuing.");
+                        "Middleware cannot invoke its continuation while a child dispatch is active. "
+                            + "Await the active child before continuing."
+                    );
                 }
 
                 continuationWasInvoked = true;
@@ -179,7 +171,8 @@ namespace Game.Rules.Runtime
         }
 
         internal async ValueTask<CallbackWorkCompletion> CompleteInvocation(
-            string duplicateCompletionMessage)
+            string duplicateCompletionMessage
+        )
         {
             RunningWorkState pending;
             lock (gate)
@@ -210,7 +203,8 @@ namespace Game.Rules.Runtime
             Func<ValueTask<TResult>> operation,
             string inactiveMessage,
             string dispatchOverlapMessage,
-            string continuationOverlapMessage)
+            string continuationOverlapMessage
+        )
         {
             OwnedValueTaskSource<TResult> owned;
             lock (gate)
@@ -222,7 +216,8 @@ namespace Game.Rules.Runtime
                     throw new InvalidOperationException(
                         running.Kind == CallbackWorkKind.MiddlewareContinuation
                             ? continuationOverlapMessage
-                            : dispatchOverlapMessage);
+                            : dispatchOverlapMessage
+                    );
                 }
 
                 owned = Own(CallbackWorkKind.Dispatch, operation);
@@ -234,10 +229,13 @@ namespace Game.Rules.Runtime
 
         private OwnedValueTaskSource<TResult> Own<TResult>(
             CallbackWorkKind kind,
-            Func<ValueTask<TResult>> operation)
+            Func<ValueTask<TResult>> operation
+        )
         {
-            OwnedValueTaskSource<TResult> owned =
-                new OwnedValueTaskSource<TResult>(operation, Release);
+            OwnedValueTaskSource<TResult> owned = new OwnedValueTaskSource<TResult>(
+                operation,
+                Release
+            );
             state = new RunningWorkState(kind, owned);
             return owned;
         }
@@ -246,8 +244,7 @@ namespace Game.Rules.Runtime
         {
             lock (gate)
             {
-                if (state is RunningWorkState running &&
-                    ReferenceEquals(running.Work, work))
+                if (state is RunningWorkState running && ReferenceEquals(running.Work, work))
                 {
                     state = IdleWorkState.Instance;
                 }
@@ -265,14 +262,15 @@ namespace Game.Rules.Runtime
     /// completed before the callback returned. The separate completion task lets callback shutdown
     /// wait for ignored work and propagate its failure without treating completion as consumption.
     /// </remarks>
-    internal sealed class OwnedValueTaskSource<TResult> :
-        IOwnedValueTaskSource,
-        IValueTaskSource<TResult>
+    internal sealed class OwnedValueTaskSource<TResult>
+        : IOwnedValueTaskSource,
+            IValueTaskSource<TResult>
     {
         private readonly Func<ValueTask<TResult>> operation;
         private readonly Action<IOwnedValueTaskSource> release;
-        private readonly TaskCompletionSource<bool> completion =
-            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> completion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
         private ManualResetValueTaskSourceCore<TResult> source;
         private ExceptionDispatchInfo failure;
         private int consumptionStarted;
@@ -280,7 +278,8 @@ namespace Game.Rules.Runtime
 
         public OwnedValueTaskSource(
             Func<ValueTask<TResult>> operation,
-            Action<IOwnedValueTaskSource> release)
+            Action<IOwnedValueTaskSource> release
+        )
         {
             this.operation = operation ?? throw new ArgumentNullException(nameof(operation));
             this.release = release ?? throw new ArgumentNullException(nameof(release));
@@ -289,13 +288,14 @@ namespace Game.Rules.Runtime
 
         public Task Completion => completion.Task;
 
-        public ValueTask<TResult> AsValueTask() =>
-            new ValueTask<TResult>(this, source.Version);
+        public ValueTask<TResult> AsValueTask() => new ValueTask<TResult>(this, source.Version);
 
         public void Start()
         {
             if (Interlocked.Exchange(ref wasStarted, 1) != 0)
-                throw new InvalidOperationException("Owned asynchronous work cannot start more than once.");
+                throw new InvalidOperationException(
+                    "Owned asynchronous work cannot start more than once."
+                );
 
             _ = Run();
         }
@@ -306,7 +306,8 @@ namespace Game.Rules.Runtime
         {
             if (Interlocked.Exchange(ref consumptionStarted, 1) != 0)
                 throw new InvalidOperationException(
-                    "An owned asynchronous result may be consumed only once.");
+                    "An owned asynchronous result may be consumed only once."
+                );
 
             try
             {
@@ -320,15 +321,14 @@ namespace Game.Rules.Runtime
             }
         }
 
-        public ValueTaskSourceStatus GetStatus(short token) =>
-            source.GetStatus(token);
+        public ValueTaskSourceStatus GetStatus(short token) => source.GetStatus(token);
 
         public void OnCompleted(
             Action<object> continuation,
             object state,
             short token,
-            ValueTaskSourceOnCompletedFlags flags) =>
-            source.OnCompleted(continuation, state, token, flags);
+            ValueTaskSourceOnCompletedFlags flags
+        ) => source.OnCompleted(continuation, state, token, flags);
 
         private async Task Run()
         {

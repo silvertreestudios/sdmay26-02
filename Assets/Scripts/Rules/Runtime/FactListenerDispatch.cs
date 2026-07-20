@@ -19,7 +19,8 @@ namespace Game.Rules.Runtime
 
         public BoundFactListenerRegistration(
             ActiveRuleBinding binding,
-            FactListenerRegistration registration)
+            FactListenerRegistration registration
+        )
         {
             Binding = binding ?? throw new ArgumentNullException(nameof(binding));
             Registration = registration ?? throw new ArgumentNullException(nameof(registration));
@@ -27,18 +28,15 @@ namespace Game.Rules.Runtime
 
         public static int Compare(
             BoundFactListenerRegistration left,
-            BoundFactListenerRegistration right) =>
-            Compare(
-                left.Binding,
-                left.Registration,
-                right.Binding,
-                right.Registration);
+            BoundFactListenerRegistration right
+        ) => Compare(left.Binding, left.Registration, right.Binding, right.Registration);
 
         internal static int Compare(
             ActiveRuleBinding leftBinding,
             FactListenerRegistration leftRegistration,
             ActiveRuleBinding rightBinding,
-            FactListenerRegistration rightRegistration)
+            FactListenerRegistration rightRegistration
+        )
         {
             int phase = leftRegistration.Phase.CompareTo(rightRegistration.Phase);
             if (phase != 0)
@@ -49,11 +47,13 @@ namespace Game.Rules.Runtime
             int id = string.Compare(
                 leftBinding.Id.Value,
                 rightBinding.Id.Value,
-                StringComparison.Ordinal);
+                StringComparison.Ordinal
+            );
             if (id != 0)
                 return id;
             int registration = leftRegistration.RegistrationOrder.CompareTo(
-                rightRegistration.RegistrationOrder);
+                rightRegistration.RegistrationOrder
+            );
             if (registration != 0)
                 return registration;
 
@@ -63,13 +63,15 @@ namespace Game.Rules.Runtime
             int definition = string.Compare(
                 leftBinding.DefinitionId.Value,
                 rightBinding.DefinitionId.Value,
-                StringComparison.Ordinal);
+                StringComparison.Ordinal
+            );
             if (definition != 0)
                 return definition;
             int owner = string.Compare(
                 leftBinding.Owner.Value,
                 rightBinding.Owner.Value,
-                StringComparison.Ordinal);
+                StringComparison.Ordinal
+            );
             if (owner != 0)
                 return owner;
             string leftEffect = leftBinding.EffectId.HasValue
@@ -84,7 +86,8 @@ namespace Game.Rules.Runtime
             int source = string.Compare(
                 leftBinding.Source.Slug,
                 rightBinding.Source.Slug,
-                StringComparison.Ordinal);
+                StringComparison.Ordinal
+            );
             if (source != 0)
                 return source;
             return leftBinding.IsEnabled.CompareTo(rightBinding.IsEnabled);
@@ -101,11 +104,12 @@ namespace Game.Rules.Runtime
 
         public CommittedFactRecord(
             RuleFact fact,
-            IReadOnlyList<BoundFactListenerRegistration> eligibleListeners)
+            IReadOnlyList<BoundFactListenerRegistration> eligibleListeners
+        )
         {
             Fact = fact ?? throw new ArgumentNullException(nameof(fact));
-            EligibleListeners = eligibleListeners ??
-                throw new ArgumentNullException(nameof(eligibleListeners));
+            EligibleListeners =
+                eligibleListeners ?? throw new ArgumentNullException(nameof(eligibleListeners));
         }
     }
 
@@ -120,15 +124,17 @@ namespace Game.Rules.Runtime
 
         public FactListenerDeliveryKey(
             ActiveRuleBinding binding,
-            FactListenerRegistration registration)
+            FactListenerRegistration registration
+        )
         {
             Binding = binding ?? throw new ArgumentNullException(nameof(binding));
             Registration = registration ?? throw new ArgumentNullException(nameof(registration));
         }
 
         public bool Equals(FactListenerDeliveryKey other) =>
-            other != null && Binding.Equals(other.Binding) &&
-            ReferenceEquals(Registration, other.Registration);
+            other != null
+            && Binding.Equals(other.Binding)
+            && ReferenceEquals(Registration, other.Registration);
 
         public override bool Equals(object obj) =>
             obj is FactListenerDeliveryKey other && Equals(other);
@@ -147,7 +153,8 @@ namespace Game.Rules.Runtime
             ActiveRuleBinding binding,
             FactListenerRegistration registration,
             OpId rootId,
-            IReadOnlyList<RuleFact> facts)
+            IReadOnlyList<RuleFact> facts
+        )
         {
             Binding = binding;
             Registration = registration;
@@ -155,23 +162,25 @@ namespace Game.Rules.Runtime
             Facts = facts;
         }
 
-        public static int Compare(FactListenerDelivery left, FactListenerDelivery right)
-            => BoundFactListenerRegistration.Compare(
+        public static int Compare(FactListenerDelivery left, FactListenerDelivery right) =>
+            BoundFactListenerRegistration.Compare(
                 left.Binding,
                 left.Registration,
                 right.Binding,
-                right.Registration);
+                right.Registration
+            );
     }
 
     internal sealed class TypedFactListenerRegistration<TFact> : FactListenerRegistration
         where TFact : RuleFact
     {
-        private readonly IFactListener<TFact> listener;
+        private readonly IRuleFactListener<TFact> listener;
 
         public TypedFactListenerRegistration(
             RuleLifecyclePhase phase,
             long registrationOrder,
-            IFactListener<TFact> listener)
+            IRuleFactListener<TFact> listener
+        )
             : base(typeof(TFact), phase, false, registrationOrder) => this.listener = listener;
 
         internal override bool Matches(RuleFact fact) => fact is TFact;
@@ -179,10 +188,13 @@ namespace Game.Rules.Runtime
         internal override ValueTask Invoke(
             OpId rootId,
             IReadOnlyList<RuleFact> facts,
-            FactContext context)
+            FactContext context
+        )
         {
             if (facts.Count != 1 || !(facts[0] is TFact typed))
-                throw new InvalidOperationException("A single-Fact listener received an impossible delivery.");
+                throw new InvalidOperationException(
+                    "A single-Fact listener received an impossible delivery."
+                );
             return listener.OnFactCommitted(typed, context);
         }
     }
@@ -190,12 +202,13 @@ namespace Game.Rules.Runtime
     internal sealed class TypedFactBatchListenerRegistration<TFact> : FactListenerRegistration
         where TFact : RuleFact
     {
-        private readonly IFactBatchListener<TFact> listener;
+        private readonly IRuleFactBatchListener<TFact> listener;
 
         public TypedFactBatchListenerRegistration(
             RuleLifecyclePhase phase,
             long registrationOrder,
-            IFactBatchListener<TFact> listener)
+            IRuleFactBatchListener<TFact> listener
+        )
             : base(typeof(TFact), phase, true, registrationOrder) => this.listener = listener;
 
         internal override bool Matches(RuleFact fact) => fact is TFact;
@@ -203,12 +216,14 @@ namespace Game.Rules.Runtime
         internal override ValueTask Invoke(
             OpId rootId,
             IReadOnlyList<RuleFact> facts,
-            FactContext context)
+            FactContext context
+        )
         {
             TFact[] typed = facts.Cast<TFact>().ToArray();
             return listener.OnFactsCommitted(
                 new CommittedFactBatch<TFact>(rootId, Array.AsReadOnly(typed)),
-                context);
+                context
+            );
         }
     }
 }

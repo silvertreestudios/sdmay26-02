@@ -25,7 +25,7 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
             return;
 
         List<ConditionSource> sources;
-        if(!AppliedConditions.TryGetValue(condition, out sources))
+        if (!AppliedConditions.TryGetValue(condition, out sources))
             AppliedConditions.Add(condition, new List<ConditionSource>() { source });
         else
             sources.Add(source);
@@ -70,10 +70,10 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     public void Remove(string condition, ConditionSource source)
     {
         List<ConditionSource> sources;
-        if(AppliedConditions.TryGetValue(condition, out sources))
+        if (AppliedConditions.TryGetValue(condition, out sources))
         {
             sources.Remove(source);
-            if(sources.Count < 1)
+            if (sources.Count < 1)
                 AppliedConditions.Remove(condition);
         }
     }
@@ -85,7 +85,12 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     /// <param name="oldSource">The source to remove from the old condition.</param>
     /// <param name="newCondition">The condition name to add.</param>
     /// <param name="newSource">The source applying the new condition.</param>
-    public void Change(string oldCondition, ConditionSource oldSource, string newCondition, ConditionSource newSource)
+    public void Change(
+        string oldCondition,
+        ConditionSource oldSource,
+        string newCondition,
+        ConditionSource newSource
+    )
     {
         Remove(oldCondition, oldSource);
         Add(newCondition, newSource);
@@ -111,8 +116,30 @@ public static class ConditionModifierRules
     private static readonly Dictionary<string, Pf2eModifier[]> ModifiersByCondition = new()
     {
         // Off-Guard/Flat-Footed: circumstance penalty to AC. Source: https://2e.aonprd.com/Conditions.aspx?ID=58
-        { NormalizeConditionKey("off-guard"), new[] { new Pf2eModifier(-2, Pf2eModifierType.Circumstance, "Off-Guard", Pf2eStatistic.ArmorClass) } },
-        { NormalizeConditionKey("flat-footed"), new[] { new Pf2eModifier(-2, Pf2eModifierType.Circumstance, "Off-Guard", Pf2eStatistic.ArmorClass) } }
+        {
+            NormalizeConditionKey("off-guard"),
+            new[]
+            {
+                new Pf2eModifier(
+                    -2,
+                    Pf2eModifierType.Circumstance,
+                    "Off-Guard",
+                    Pf2eStatistic.ArmorClass
+                ),
+            }
+        },
+        {
+            NormalizeConditionKey("flat-footed"),
+            new[]
+            {
+                new Pf2eModifier(
+                    -2,
+                    Pf2eModifierType.Circumstance,
+                    "Off-Guard",
+                    Pf2eStatistic.ArmorClass
+                ),
+            }
+        },
     };
 
     /// <summary>
@@ -121,7 +148,10 @@ public static class ConditionModifierRules
     /// <param name="activeConditions">Condition names currently applied to a creature.</param>
     /// <param name="statistic">The statistic currently being resolved.</param>
     /// <returns>Condition modifiers that apply to the requested statistic.</returns>
-    public static IEnumerable<Pf2eModifier> GetModifiers(IEnumerable<string> activeConditions, Pf2eStatistic statistic)
+    public static IEnumerable<Pf2eModifier> GetModifiers(
+        IEnumerable<string> activeConditions,
+        Pf2eStatistic statistic
+    )
     {
         if (activeConditions == null)
             yield break;
@@ -129,12 +159,20 @@ public static class ConditionModifierRules
         HashSet<string> emittedSources = new();
         foreach (string activeCondition in activeConditions)
         {
-            if (!ModifiersByCondition.TryGetValue(NormalizeConditionKey(activeCondition), out Pf2eModifier[] modifiers))
+            if (
+                !ModifiersByCondition.TryGetValue(
+                    NormalizeConditionKey(activeCondition),
+                    out Pf2eModifier[] modifiers
+                )
+            )
                 continue;
 
             foreach (Pf2eModifier modifier in modifiers)
             {
-                if (modifier.TargetStatistic != statistic || !emittedSources.Add(modifier.Source + modifier.TargetStatistic))
+                if (
+                    modifier.TargetStatistic != statistic
+                    || !emittedSources.Add(modifier.Source + modifier.TargetStatistic)
+                )
                     continue;
 
                 yield return modifier;
@@ -144,6 +182,8 @@ public static class ConditionModifierRules
 
     private static string NormalizeConditionKey(string value)
     {
-        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToLowerInvariant().Replace(" ", string.Empty).Replace("-", string.Empty);
+        return string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : value.Trim().ToLowerInvariant().Replace(" ", string.Empty).Replace("-", string.Empty);
     }
 }

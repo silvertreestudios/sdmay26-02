@@ -11,8 +11,11 @@ public class CombatLog : CombatLogInterface
         public string Message;
         public CombatLogEntry Entry;
 
-        public CombatLogMessage(string message) : this(CombatLogEntry.FromMessage(message), new HashSet<string>()) { }
-        public CombatLogMessage(string message, HashSet<string> tags) : this(CombatLogEntry.FromMessage(message, tags), tags) { }
+        public CombatLogMessage(string message)
+            : this(CombatLogEntry.FromMessage(message), new HashSet<string>()) { }
+
+        public CombatLogMessage(string message, HashSet<string> tags)
+            : this(CombatLogEntry.FromMessage(message, tags), tags) { }
 
         public CombatLogMessage(CombatLogEntry entry, HashSet<string> tags)
         {
@@ -43,7 +46,11 @@ public class CombatLog : CombatLogInterface
         LogList = logList.Q<ListView>("CombatLog");
 
         VisualElement resizeHandle = logHolder.Q<VisualElement>("ResizeHandle");
-        if (resizeHandle != null) { logHolder.Remove(resizeHandle); logHolder.Add(resizeHandle); }
+        if (resizeHandle != null)
+        {
+            logHolder.Remove(resizeHandle);
+            logHolder.Add(resizeHandle);
+        }
 
         CurrentEntries = new List<CombatLogEntry>();
 
@@ -101,7 +108,10 @@ public class CombatLog : CombatLogInterface
 
     public override void DevLog(string msg, string tag)
     {
-        CombatLogMessage message = new CombatLogMessage(msg, new HashSet<string> { "dev", tag.ToLower() });
+        CombatLogMessage message = new CombatLogMessage(
+            msg,
+            new HashSet<string> { "dev", tag.ToLower() }
+        );
         Messages.Add(message);
         if (Filter(message))
             UpdateLogList(message.Entry);
@@ -282,15 +292,20 @@ public class CombatLog : CombatLogInterface
 
         Label roll = root.Q<Label>("RollChip");
         roll.text = entry.Roll?.Summary ?? CombatLogEntryFormatter.FormatOutcome(entry.Outcome);
-        roll.style.display = string.IsNullOrWhiteSpace(roll.text) ? DisplayStyle.None : DisplayStyle.Flex;
+        roll.style.display = string.IsNullOrWhiteSpace(roll.text)
+            ? DisplayStyle.None
+            : DisplayStyle.Flex;
 
         Label damage = root.Q<Label>("DamageChip");
         damage.text = entry.Damage?.Summary ?? string.Empty;
-        damage.style.display = string.IsNullOrWhiteSpace(damage.text) ? DisplayStyle.None : DisplayStyle.Flex;
+        damage.style.display = string.IsNullOrWhiteSpace(damage.text)
+            ? DisplayStyle.None
+            : DisplayStyle.Flex;
 
         VisualElement details = root.Q<VisualElement>("Details");
         details.Clear();
-        details.style.display = entry.Expanded && entry.Details.Count > 0 ? DisplayStyle.Flex : DisplayStyle.None;
+        details.style.display =
+            entry.Expanded && entry.Details.Count > 0 ? DisplayStyle.Flex : DisplayStyle.None;
         foreach (CombatLogDetail detail in entry.Details)
         {
             Label detailLabel = new Label(detail.Label + ": " + detail.Value);
@@ -302,9 +317,18 @@ public class CombatLog : CombatLogInterface
     private static void SetOutcomeClass(VisualElement root, CombatLogOutcome outcome)
     {
         root.EnableInClassList("combat-log-entry--hit", outcome == CombatLogOutcome.Success);
-        root.EnableInClassList("combat-log-entry--crit", outcome == CombatLogOutcome.CriticalSuccess);
-        root.EnableInClassList("combat-log-entry--miss", outcome == CombatLogOutcome.Failure || outcome == CombatLogOutcome.CriticalFailure);
+        root.EnableInClassList(
+            "combat-log-entry--crit",
+            outcome == CombatLogOutcome.CriticalSuccess
+        );
+        root.EnableInClassList(
+            "combat-log-entry--miss",
+            outcome == CombatLogOutcome.Failure || outcome == CombatLogOutcome.CriticalFailure
+        );
         root.EnableInClassList("combat-log-entry--damage", outcome == CombatLogOutcome.Damage);
-        root.EnableInClassList("combat-log-entry--system", outcome == CombatLogOutcome.System || outcome == CombatLogOutcome.None);
+        root.EnableInClassList(
+            "combat-log-entry--system",
+            outcome == CombatLogOutcome.System || outcome == CombatLogOutcome.None
+        );
     }
 }

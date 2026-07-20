@@ -26,7 +26,8 @@ public sealed class GeneratedDungeonPopulationTests
     public void RuntimeJson_RepopulationProducesStableOwnedHierarchyAndSemantics()
     {
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
+            KayKitSetupTool.DungeonCatalogPath
+        );
         Assert.That(catalog, Is.Not.Null);
         DungeonGenerationResult generated = new DeterministicDungeonGenerator().Generate(
             new DungeonGenerationRequest
@@ -34,20 +35,27 @@ public sealed class GeneratedDungeonPopulationTests
                 RunSeed = 156,
                 Width = 39,
                 Height = 39,
-                MinimumRoomCount = 3
-            });
+                MinimumRoomCount = 3,
+            }
+        );
         Assert.That(generated.IsSuccess, Is.True, Diagnostics(generated));
         string json = DungeonLevelJsonSerializer.Serialize(generated.Document);
         GameObject mapObject = Track(new GameObject("Runtime JSON Map"));
         Map map = mapObject.AddComponent<Map>();
 
-        Assert.That(map.TryPopulateJson(json, catalog, out MapSourceValidationResult first), Is.True,
-            string.Join(Environment.NewLine, first.Errors));
+        Assert.That(
+            map.TryPopulateJson(json, catalog, out MapSourceValidationResult first),
+            Is.True,
+            string.Join(Environment.NewLine, first.Errors)
+        );
         string[] firstSnapshot = Snapshot(mapObject.transform.Find("GeneratedMap"));
         AssertGeneratedSemantics(mapObject, generated.Document);
 
-        Assert.That(map.TryPopulateJson(json, catalog, out MapSourceValidationResult second), Is.True,
-            string.Join(Environment.NewLine, second.Errors));
+        Assert.That(
+            map.TryPopulateJson(json, catalog, out MapSourceValidationResult second),
+            Is.True,
+            string.Join(Environment.NewLine, second.Errors)
+        );
 
         Assert.That(map.UsesRuntimeJsonSource, Is.True);
         Assert.That(Snapshot(mapObject.transform.Find("GeneratedMap")), Is.EqualTo(firstSnapshot));
@@ -58,9 +66,16 @@ public sealed class GeneratedDungeonPopulationTests
     public void InvalidRuntimeJson_PreservesPriorOwnedHierarchy()
     {
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
+            KayKitSetupTool.DungeonCatalogPath
+        );
         DungeonGenerationResult generated = new DeterministicDungeonGenerator().Generate(
-            new DungeonGenerationRequest { RunSeed = 156, Width = 39, Height = 39 });
+            new DungeonGenerationRequest
+            {
+                RunSeed = 156,
+                Width = 39,
+                Height = 39,
+            }
+        );
         string json = DungeonLevelJsonSerializer.Serialize(generated.Document);
         GameObject mapObject = Track(new GameObject("Runtime JSON Map"));
         Map map = mapObject.AddComponent<Map>();
@@ -68,22 +83,34 @@ public sealed class GeneratedDungeonPopulationTests
         Transform owned = mapObject.transform.Find("GeneratedMap");
         string[] before = Snapshot(owned);
 
-        Assert.That(map.TryPopulateJson("not json", catalog, out MapSourceValidationResult invalid), Is.False);
+        Assert.That(
+            map.TryPopulateJson("not json", catalog, out MapSourceValidationResult invalid),
+            Is.False
+        );
 
         Assert.That(invalid.Errors, Is.Not.Empty);
         Assert.That(mapObject.transform.Find("GeneratedMap"), Is.SameAs(owned));
         Assert.That(Snapshot(owned), Is.EqualTo(before));
     }
 
-    private static void AssertGeneratedSemantics(GameObject mapObject, DungeonLevelDocument document)
+    private static void AssertGeneratedSemantics(
+        GameObject mapObject,
+        DungeonLevelDocument document
+    )
     {
-        DungeonDoorController[] doors = mapObject.GetComponentsInChildren<DungeonDoorController>(true);
+        DungeonDoorController[] doors = mapObject.GetComponentsInChildren<DungeonDoorController>(
+            true
+        );
         DungeonStairMarker[] stairs = mapObject.GetComponentsInChildren<DungeonStairMarker>(true);
-        Assert.That(doors.Select(door => door.StableId),
-            Is.EquivalentTo(document.Doors.Select(door => door.Id)));
+        Assert.That(
+            doors.Select(door => door.StableId),
+            Is.EquivalentTo(document.Doors.Select(door => door.Id))
+        );
         Assert.That(doors.All(door => !door.IsOpen), Is.True);
-        Assert.That(stairs.Select(stair => stair.StableId),
-            Is.EquivalentTo(document.Stairs.Select(stair => stair.Id)));
+        Assert.That(
+            stairs.Select(stair => stair.StableId),
+            Is.EquivalentTo(document.Stairs.Select(stair => stair.Id))
+        );
         foreach (DungeonStair expected in document.Stairs)
         {
             DungeonStairMarker actual = stairs.Single(stair => stair.StableId == expected.Id);
@@ -96,12 +123,16 @@ public sealed class GeneratedDungeonPopulationTests
     private static string[] Snapshot(Transform root)
     {
         return root.GetComponentsInChildren<Transform>(true)
-            .Select(transform => string.Join("|",
-                RelativePath(root, transform),
-                transform.gameObject.activeSelf,
-                FormatVector3(transform.position),
-                FormatVector3(transform.rotation.eulerAngles),
-                FormatVector3(transform.lossyScale)))
+            .Select(transform =>
+                string.Join(
+                    "|",
+                    RelativePath(root, transform),
+                    transform.gameObject.activeSelf,
+                    FormatVector3(transform.position),
+                    FormatVector3(transform.rotation.eulerAngles),
+                    FormatVector3(transform.lossyScale)
+                )
+            )
             .OrderBy(value => value, StringComparer.Ordinal)
             .ToArray();
     }
@@ -126,10 +157,14 @@ public sealed class GeneratedDungeonPopulationTests
 
     private static string Diagnostics(DungeonGenerationResult result)
     {
-        return string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message));
+        return string.Join(
+            Environment.NewLine,
+            result.Diagnostics.Select(diagnostic => diagnostic.Message)
+        );
     }
 
-    private T Track<T>(T target) where T : Object
+    private T Track<T>(T target)
+        where T : Object
     {
         cleanup.Add(target);
         return target;

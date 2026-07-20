@@ -1,8 +1,8 @@
 using System.Collections;
-using Game.DungeonGeneration;
-using UnityEngine;
-using GridPublic;
 using System.Collections.Generic;
+using Game.DungeonGeneration;
+using GridPublic;
+using UnityEngine;
 using UnityEngine.TextCore.Text;
 
 namespace GridPrivate
@@ -25,12 +25,14 @@ namespace GridPrivate
 
         private sealed class GridRebindPlan
         {
-            public static GridRebindPlan Invalid { get; } = new(
-                new TileType[0, 0],
-                new bool[0, 0],
-                new Tile[0, 0],
-                new PreparedTokenRebind[0],
-                new MindlessController[0]);
+            public static GridRebindPlan Invalid { get; } =
+                new(
+                    new TileType[0, 0],
+                    new bool[0, 0],
+                    new Tile[0, 0],
+                    new PreparedTokenRebind[0],
+                    new MindlessController[0]
+                );
 
             public TileType[,] GridData { get; }
             public bool[,] LineOfSightBlocks { get; }
@@ -43,7 +45,8 @@ namespace GridPrivate
                 bool[,] lineOfSightBlocks,
                 Tile[,] tiles,
                 IEnumerable<PreparedTokenRebind> tokenRebinds,
-                IEnumerable<MindlessController> controllers)
+                IEnumerable<MindlessController> controllers
+            )
             {
                 GridData = gridData;
                 LineOfSightBlocks = lineOfSightBlocks;
@@ -53,7 +56,7 @@ namespace GridPrivate
             }
         }
 
-        public TileType[,] GridData {get; set;}
+        public TileType[,] GridData { get; set; }
         public bool[,] LineOfSightBlocks { get; private set; }
         protected Tile[,] Tiles;
         IPathfinder Pathfinder;
@@ -93,7 +96,8 @@ namespace GridPrivate
             TileType[,] gridData,
             bool[,] lineOfSightBlocks,
             out GridRebindPlan plan,
-            out string failure)
+            out string failure
+        )
         {
             failure = string.Empty;
             if (gridData == null)
@@ -108,14 +112,16 @@ namespace GridPrivate
                 failure = "Replacement line-of-sight data is missing.";
                 return false;
             }
-            if (gridData.GetLength(0) != lineOfSightBlocks.GetLength(0) ||
-                gridData.GetLength(1) != lineOfSightBlocks.GetLength(1))
+            if (
+                gridData.GetLength(0) != lineOfSightBlocks.GetLength(0)
+                || gridData.GetLength(1) != lineOfSightBlocks.GetLength(1)
+            )
             {
                 plan = GridRebindPlan.Invalid;
                 failure =
-                    $"Replacement grid dimensions {gridData.GetLength(0)}x{gridData.GetLength(1)} " +
-                    $"do not match line-of-sight dimensions " +
-                    $"{lineOfSightBlocks.GetLength(0)}x{lineOfSightBlocks.GetLength(1)}.";
+                    $"Replacement grid dimensions {gridData.GetLength(0)}x{gridData.GetLength(1)} "
+                    + $"do not match line-of-sight dimensions "
+                    + $"{lineOfSightBlocks.GetLength(0)}x{lineOfSightBlocks.GetLength(1)}.";
                 return false;
             }
 
@@ -135,35 +141,42 @@ namespace GridPrivate
 
             List<PreparedTokenRebind> tokenRebinds = new();
             HashSet<Vector2Int> occupiedCells = new();
-            foreach (Token token in FindObjectsByType<Token>(
-                         FindObjectsInactive.Include,
-                         FindObjectsSortMode.None))
+            foreach (
+                Token token in FindObjectsByType<Token>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None
+                )
+            )
             {
                 if (!token.TryGetRebindCell(this, out Vector3Int cell))
                     continue;
-                if (cell.x < 0 || cell.z < 0 ||
-                    cell.x >= gridData.GetLength(0) || cell.z >= gridData.GetLength(1))
+                if (
+                    cell.x < 0
+                    || cell.z < 0
+                    || cell.x >= gridData.GetLength(0)
+                    || cell.z >= gridData.GetLength(1)
+                )
                 {
                     plan = GridRebindPlan.Invalid;
                     failure =
-                        $"Token '{token.name}' at cell ({cell.x}, {cell.z}) is outside " +
-                        $"replacement bounds {gridData.GetLength(0)}x{gridData.GetLength(1)}.";
+                        $"Token '{token.name}' at cell ({cell.x}, {cell.z}) is outside "
+                        + $"replacement bounds {gridData.GetLength(0)}x{gridData.GetLength(1)}.";
                     return false;
                 }
                 if (!IsWalkableTile(gridData[cell.x, cell.z]))
                 {
                     plan = GridRebindPlan.Invalid;
                     failure =
-                        $"Token '{token.name}' cannot occupy non-walkable replacement cell " +
-                        $"({cell.x}, {cell.z}).";
+                        $"Token '{token.name}' cannot occupy non-walkable replacement cell "
+                        + $"({cell.x}, {cell.z}).";
                     return false;
                 }
                 if (!occupiedCells.Add(new Vector2Int(cell.x, cell.z)))
                 {
                     plan = GridRebindPlan.Invalid;
                     failure =
-                        $"Token '{token.name}' cannot occupy replacement cell " +
-                        $"({cell.x}, {cell.z}) because another token already reserves it.";
+                        $"Token '{token.name}' cannot occupy replacement cell "
+                        + $"({cell.x}, {cell.z}) because another token already reserves it.";
                     return false;
                 }
 
@@ -174,9 +187,12 @@ namespace GridPrivate
             }
 
             List<MindlessController> controllers = new();
-            foreach (MindlessController controller in FindObjectsByType<MindlessController>(
-                         FindObjectsInactive.Include,
-                         FindObjectsSortMode.None))
+            foreach (
+                MindlessController controller in FindObjectsByType<MindlessController>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None
+                )
+            )
             {
                 // A controller already owned by another grid is outside this transaction and
                 // must neither block preparation nor receive the commit.
@@ -186,8 +202,8 @@ namespace GridPrivate
                 {
                     plan = GridRebindPlan.Invalid;
                     failure =
-                        $"AI controller '{controller.name}' has pending turn or action work " +
-                        "and cannot rebind to the replacement grid.";
+                        $"AI controller '{controller.name}' has pending turn or action work "
+                        + "and cannot rebind to the replacement grid.";
                     return false;
                 }
                 controllers.Add(controller);
@@ -198,7 +214,8 @@ namespace GridPrivate
                 lineOfSightBlocks,
                 replacementTiles,
                 tokenRebinds,
-                controllers);
+                controllers
+            );
             return true;
         }
 
@@ -218,7 +235,8 @@ namespace GridPrivate
         internal bool TryRebindMapData(
             TileType[,] gridData,
             bool[,] lineOfSightBlocks,
-            out string failure)
+            out string failure
+        )
         {
             failure = string.Empty;
             bool hasActiveGrid = GridAPI.TryGetInstance(out GridAPI activeGrid);
@@ -227,11 +245,14 @@ namespace GridPrivate
                 failure = "A different grid is already active and owns the live grid binding.";
                 return false;
             }
-            if (!TryPrepareGridRebind(
+            if (
+                !TryPrepareGridRebind(
                     gridData,
                     lineOfSightBlocks,
                     out GridRebindPlan plan,
-                    out failure))
+                    out failure
+                )
+            )
             {
                 return false;
             }
@@ -261,9 +282,7 @@ namespace GridPrivate
 
             foreach (PreparedTokenRebind tokenRebind in plan.TokenRebinds)
             {
-                tokenRebind.Token.CommitPreparedGridRebind(
-                    this,
-                    tokenRebind.RegistersImmediately);
+                tokenRebind.Token.CommitPreparedGridRebind(this, tokenRebind.RegistersImmediately);
             }
             foreach (MindlessController controller in plan.Controllers)
                 controller.RebindGrid(this);
@@ -285,7 +304,7 @@ namespace GridPrivate
         {
             Vector3Int position = Vector3Int.RoundToInt(token.transform.position);
             Tile tile = Tiles[position.x, position.z];
-            if(tile == null || tile.Occupants.Count > 0)
+            if (tile == null || tile.Occupants.Count > 0)
                 return false;
             tile.Occupants.Add(token);
             return true;
@@ -315,14 +334,21 @@ namespace GridPrivate
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 
-        public override IEnumerator GetStrikeTarget(GameObject attacker, StrikeTargetRequest request, CoroutineResult<StrikeTargetResult> target)
+        public override IEnumerator GetStrikeTarget(
+            GameObject attacker,
+            StrikeTargetRequest request,
+            CoroutineResult<StrikeTargetResult> target
+        )
         {
             if (Fsm.ChangeState(new StateStrike(attacker, request, target, Fsm)))
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
         }
 
-
-        public override IEnumerator GetAreaTarget(AreaTargetSource source, AreaTargetRequest request, CoroutineResult<AreaTargetResult> target)
+        public override IEnumerator GetAreaTarget(
+            AreaTargetSource source,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> target
+        )
         {
             if (Fsm.ChangeState(new StateAreaTarget(source, request, target, Fsm)))
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
@@ -344,9 +370,14 @@ namespace GridPrivate
         /// </returns>
         public bool TrySetDoorState(DungeonCell cell, bool isOpen)
         {
-            if (GridData == null || LineOfSightBlocks == null ||
-                cell.X < 0 || cell.Z < 0 ||
-                cell.X >= GridData.GetLength(0) || cell.Z >= GridData.GetLength(1))
+            if (
+                GridData == null
+                || LineOfSightBlocks == null
+                || cell.X < 0
+                || cell.Z < 0
+                || cell.X >= GridData.GetLength(0)
+                || cell.Z >= GridData.GetLength(1)
+            )
             {
                 return false;
             }

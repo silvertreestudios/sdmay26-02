@@ -25,7 +25,8 @@ namespace Game.Rules.Runtime.Tests
             List<string> supplied = new List<string> { "accept", "decline" };
             ChoiceRequest<string> request = new ChoiceRequest<string>(
                 new ChoiceRequestId("reaction-answer"),
-                supplied);
+                supplied
+            );
 
             supplied[0] = "changed";
             supplied.Add("later");
@@ -38,13 +39,17 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(default(ChoiceRequestId).Value, Is.Empty);
             Assert.That(default(PromptAdapterFailure).Reason, Is.Empty);
             Assert.Throws<ArgumentException>(() =>
-                new ChoiceRequest<string>(default, new[] { "accept" }));
+                new ChoiceRequest<string>(default, new[] { "accept" })
+            );
             Assert.Throws<ArgumentException>(() =>
-                new ChoiceRequest<string>(new ChoiceRequestId("empty"), Array.Empty<string>()));
+                new ChoiceRequest<string>(new ChoiceRequestId("empty"), Array.Empty<string>())
+            );
             Assert.Throws<ArgumentException>(() =>
                 new ChoiceRequest<string>(
                     new ChoiceRequestId("duplicate"),
-                    new[] { "accept", "accept" }));
+                    new[] { "accept", "accept" }
+                )
+            );
         }
 
         /// <summary>
@@ -55,24 +60,30 @@ namespace Game.Rules.Runtime.Tests
         {
             PromptAdapterFailure timeout = new PromptAdapterFailure(
                 PromptAdapterFailureKind.TimedOut,
-                "The decision window elapsed.");
+                "The decision window elapsed."
+            );
             PromptAdapterFailure disconnect = new PromptAdapterFailure(
                 PromptAdapterFailureKind.Disconnected,
-                "The controller disconnected.");
+                "The controller disconnected."
+            );
             ScriptedPromptAdapter<bool> adapter = new ScriptedPromptAdapter<bool>(
                 OpResult<ChoiceResult<bool>>.Resolved(ChoiceResult<bool>.Selected(true)),
                 OpResult<ChoiceResult<bool>>.Resolved(ChoiceResult<bool>.Selected(false)),
                 OpResult<ChoiceResult<bool>>.Resolved(
-                    ChoiceResult<bool>.Unavailable("No decision adapter is active.")),
+                    ChoiceResult<bool>.Unavailable("No decision adapter is active.")
+                ),
                 OpResult<ChoiceResult<bool>>.Resolved(ChoiceResult<bool>.Failed(timeout)),
                 OpResult<ChoiceResult<bool>>.Resolved(ChoiceResult<bool>.Failed(disconnect)),
-                OpResult<ChoiceResult<bool>>.Cancelled());
+                OpResult<ChoiceResult<bool>>.Cancelled()
+            );
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
-                    CreateStore(10),
-                    new SequentialOpIdProvider(20))
+                CreateStore(10),
+                new SequentialOpIdProvider(20)
+            )
                 .UsePromptAdapter(adapter)
                 .RegisterHandler<PromptSequenceOp, IReadOnlyList<OpResult<ChoiceResult<bool>>>>(
-                    new PromptSequenceHandler())
+                    new PromptSequenceHandler()
+                )
                 .Build();
 
             OpResult<IReadOnlyList<OpResult<ChoiceResult<bool>>>> result =
@@ -80,17 +91,23 @@ namespace Game.Rules.Runtime.Tests
 
             IReadOnlyList<OpResult<ChoiceResult<bool>>> outcomes = RequireResolved(result).Value;
             Assert.That(RequireSelected(outcomes[0]).Choice, Is.True);
-            Assert.That(RequireSelected(outcomes[1]).Choice, Is.False,
-                "Declining a reaction is a normal selected choice, not cancellation.");
+            Assert.That(
+                RequireSelected(outcomes[1]).Choice,
+                Is.False,
+                "Declining a reaction is a normal selected choice, not cancellation."
+            );
             Assert.That(
                 RequireChoice<UnavailableChoiceResult<bool>>(outcomes[2]).Reason,
-                Is.EqualTo("No decision adapter is active."));
+                Is.EqualTo("No decision adapter is active.")
+            );
             Assert.That(
                 RequireChoice<FailedChoiceResult<bool>>(outcomes[3]).Failure,
-                Is.EqualTo(timeout));
+                Is.EqualTo(timeout)
+            );
             Assert.That(
                 RequireChoice<FailedChoiceResult<bool>>(outcomes[4]).Failure,
-                Is.EqualTo(disconnect));
+                Is.EqualTo(disconnect)
+            );
             Assert.That(outcomes[5], Is.TypeOf<CancelledOpResult<ChoiceResult<bool>>>());
             Assert.That(adapter.Remaining, Is.Zero);
             Assert.That(result.Facts, Is.Empty);
@@ -99,8 +116,9 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(root.RootId, Is.EqualTo(root.Id));
             for (long id = 21; id <= 26; id++)
             {
-                OpFrame<PromptChoiceOp<bool>> prompt =
-                    dispatcher.Trace.Get<PromptChoiceOp<bool>>(new OpId(id));
+                OpFrame<PromptChoiceOp<bool>> prompt = dispatcher.Trace.Get<PromptChoiceOp<bool>>(
+                    new OpId(id)
+                );
                 Assert.That(prompt.RootId, Is.EqualTo(root.Id));
                 Assert.That(prompt.ParentId, Is.EqualTo(root.Id));
                 Assert.That(prompt.CauseId, Is.EqualTo(root.Id));
@@ -116,17 +134,28 @@ namespace Game.Rules.Runtime.Tests
         {
             InvalidOperationException undeclared = ResolveAdapterContractViolation(
                 OpResult<ChoiceResult<bool>>.Resolved(ChoiceResult<bool>.Selected(false)),
-                new ChoiceRequest<bool>(new ChoiceRequestId("only-true"), new[] { true }));
+                new ChoiceRequest<bool>(new ChoiceRequestId("only-true"), new[] { true })
+            );
             InvalidOperationException invalid = ResolveAdapterContractViolation(
-                OpResult<ChoiceResult<bool>>.Invalid("Adapters cannot invalidate prompt operations."),
-                YesNoRequest());
+                OpResult<ChoiceResult<bool>>.Invalid(
+                    "Adapters cannot invalidate prompt operations."
+                ),
+                YesNoRequest()
+            );
             InvalidOperationException interrupted = ResolveAdapterContractViolation(
                 OpResult<ChoiceResult<bool>>.Interrupted(),
-                YesNoRequest());
+                YesNoRequest()
+            );
 
             Assert.That(undeclared.Message, Does.Contain("not declared"));
-            Assert.That(invalid.Message, Does.Contain("resolved choice outcome or explicit cancellation"));
-            Assert.That(interrupted.Message, Does.Contain("resolved choice outcome or explicit cancellation"));
+            Assert.That(
+                invalid.Message,
+                Does.Contain("resolved choice outcome or explicit cancellation")
+            );
+            Assert.That(
+                interrupted.Message,
+                Does.Contain("resolved choice outcome or explicit cancellation")
+            );
         }
 
         /// <summary>
@@ -136,30 +165,44 @@ namespace Game.Rules.Runtime.Tests
         public void PromptOperationsAreNestedOnlyAndHaveOneAdapterPerChoiceType()
         {
             ScriptedPromptAdapter<bool> first = new ScriptedPromptAdapter<bool>(
-                OpResult<ChoiceResult<bool>>.Resolved(ChoiceResult<bool>.Selected(true)));
-            RuleDispatcherBuilder builder = new RuleDispatcherBuilder(CreateStore(10))
-                .UsePromptAdapter(first);
-            Assert.Throws<ArgumentException>(() => new ScriptedPromptAdapter<bool>(
-                OpResult<ChoiceResult<bool>>.Invalid("Invalid is not a prompt outcome.")));
+                OpResult<ChoiceResult<bool>>.Resolved(ChoiceResult<bool>.Selected(true))
+            );
+            RuleDispatcherBuilder builder = new RuleDispatcherBuilder(
+                CreateStore(10)
+            ).UsePromptAdapter(first);
+            Assert.Throws<ArgumentException>(() =>
+                new ScriptedPromptAdapter<bool>(
+                    OpResult<ChoiceResult<bool>>.Invalid("Invalid is not a prompt outcome.")
+                )
+            );
             Assert.Throws<InvalidOperationException>(() =>
-                new RuleDispatcherBuilder(CreateStore(10))
-                    .RegisterHandler<PromptChoiceOp<bool>, ChoiceResult<bool>>(
-                        new BypassingPromptHandler()));
+                new RuleDispatcherBuilder(CreateStore(10)).RegisterHandler<
+                    PromptChoiceOp<bool>,
+                    ChoiceResult<bool>
+                >(new BypassingPromptHandler())
+            );
             Assert.Throws<InvalidOperationException>(() =>
-                new RuleDispatcherBuilder(CreateStore(10))
-                    .RegisterReducer<PromptChoiceOp<bool>, ChoiceResult<bool>>(
-                        new BypassingPromptReducer(),
-                        Source));
-            Assert.Throws<InvalidOperationException>(() => builder.UsePromptAdapter(
-                new ScriptedPromptAdapter<bool>()));
+                new RuleDispatcherBuilder(CreateStore(10)).RegisterReducer<
+                    PromptChoiceOp<bool>,
+                    ChoiceResult<bool>
+                >(new BypassingPromptReducer(), Source)
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                builder.UsePromptAdapter(new ScriptedPromptAdapter<bool>())
+            );
 
             RuleDispatcher dispatcher = builder.Build();
-            InvalidOperationException external = Assert.ThrowsAsync<InvalidOperationException>(async () =>
-                await dispatcher.Dispatch(new PromptChoiceOp<bool>(Player, YesNoRequest())));
+            InvalidOperationException external = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(new PromptChoiceOp<bool>(Player, YesNoRequest()))
+            );
 
             Assert.That(external.Message, Does.Contain("nested-only"));
-            Assert.That(first.Remaining, Is.EqualTo(1),
-                "Rejecting an external prompt must not invoke its adapter.");
+            Assert.That(
+                first.Remaining,
+                Is.EqualTo(1),
+                "Rejecting an external prompt must not invoke its adapter."
+            );
         }
 
         /// <summary>
@@ -171,7 +214,8 @@ namespace Game.Rules.Runtime.Tests
             InMemoryRulesStore store = CreateStore(10);
             ScriptedPromptAdapter<bool> adapter = new ScriptedPromptAdapter<bool>(
                 OpResult<ChoiceResult<bool>>.Resolved(ChoiceResult<bool>.Selected(false)),
-                OpResult<ChoiceResult<bool>>.Resolved(ChoiceResult<bool>.Selected(true)));
+                OpResult<ChoiceResult<bool>>.Resolved(ChoiceResult<bool>.Selected(true))
+            );
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
                 .UsePromptAdapter(adapter)
                 .RegisterHandler<PromptThenIncrementOp, int>(new PromptThenIncrementHandler())
@@ -182,11 +226,17 @@ namespace Game.Rules.Runtime.Tests
             OpResult<int> accepted = await dispatcher.Dispatch(new PromptThenIncrementOp());
 
             Assert.That(RequireResolved(declined).Value, Is.EqualTo(10));
-            Assert.That(declined.Facts, Is.Empty,
-                "Resolving the decline must not commit the parent's optional cost.");
+            Assert.That(
+                declined.Facts,
+                Is.Empty,
+                "Resolving the decline must not commit the parent's optional cost."
+            );
             Assert.That(RequireResolved(accepted).Value, Is.EqualTo(11));
-            Assert.That(accepted.Facts, Has.Count.EqualTo(1),
-                "The parent spends its cost only through the later reducer dispatch.");
+            Assert.That(
+                accepted.Facts,
+                Has.Count.EqualTo(1),
+                "The parent spends its cost only through the later reducer dispatch."
+            );
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(11));
             Assert.That(adapter.Remaining, Is.Zero);
         }
@@ -208,19 +258,26 @@ namespace Game.Rules.Runtime.Tests
                 .RegisterReducer<IncrementHealthOp, int>(new IncrementHealthReducer(), Source)
                 .Build();
 
-            Task<OpResult<int>> promptingRoot = dispatcher.Dispatch(
-                new PromptThenIncrementOp()).AsTask();
+            Task<OpResult<int>> promptingRoot = dispatcher
+                .Dispatch(new PromptThenIncrementOp())
+                .AsTask();
             await adapter.Started;
-            Task<OpResult<int>> unrelatedRoot = dispatcher.Dispatch(
-                new IndependentIncrementOp()).AsTask();
+            Task<OpResult<int>> unrelatedRoot = dispatcher
+                .Dispatch(new IndependentIncrementOp())
+                .AsTask();
             await Task.Yield();
 
             Assert.That(promptingRoot.IsCompleted, Is.False);
             Assert.That(unrelatedRoot.IsCompleted, Is.False);
-            Assert.That(ids.Calls, Is.EqualTo(2),
-                "A queued root must not allocate an ID or create a frame.");
-            Assert.That(dispatcher.Trace.OrderedFrames.Select(frame => frame.Id),
-                Is.EqualTo(new[] { new OpId(100), new OpId(101) }));
+            Assert.That(
+                ids.Calls,
+                Is.EqualTo(2),
+                "A queued root must not allocate an ID or create a frame."
+            );
+            Assert.That(
+                dispatcher.Trace.OrderedFrames.Select(frame => frame.Id),
+                Is.EqualTo(new[] { new OpId(100), new OpId(101) })
+            );
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(10));
 
             adapter.Select(true);
@@ -231,20 +288,26 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(RequireResolved(unrelatedResult).Value, Is.EqualTo(12));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(12));
             Assert.That(ids.Calls, Is.EqualTo(5));
-            Assert.That(dispatcher.Trace.OrderedFrames.Select(frame => frame.Id),
-                Is.EqualTo(new[]
-                {
-                    new OpId(100),
-                    new OpId(101),
-                    new OpId(102),
-                    new OpId(103),
-                    new OpId(104)
-                }));
+            Assert.That(
+                dispatcher.Trace.OrderedFrames.Select(frame => frame.Id),
+                Is.EqualTo(
+                    new[]
+                    {
+                        new OpId(100),
+                        new OpId(101),
+                        new OpId(102),
+                        new OpId(103),
+                        new OpId(104),
+                    }
+                )
+            );
 
-            OpFrame<PromptChoiceOp<bool>> prompt =
-                dispatcher.Trace.Get<PromptChoiceOp<bool>>(new OpId(101));
-            OpFrame<IncrementHealthOp> sameRootWork =
-                dispatcher.Trace.Get<IncrementHealthOp>(new OpId(102));
+            OpFrame<PromptChoiceOp<bool>> prompt = dispatcher.Trace.Get<PromptChoiceOp<bool>>(
+                new OpId(101)
+            );
+            OpFrame<IncrementHealthOp> sameRootWork = dispatcher.Trace.Get<IncrementHealthOp>(
+                new OpId(102)
+            );
             OpFrame<IndependentIncrementOp> unrelated =
                 dispatcher.Trace.Get<IndependentIncrementOp>(new OpId(103));
             Assert.That(prompt.RootId, Is.EqualTo(new OpId(100)));
@@ -260,22 +323,25 @@ namespace Game.Rules.Runtime.Tests
 
         private static InvalidOperationException ResolveAdapterContractViolation(
             OpResult<ChoiceResult<bool>> adapterResult,
-            ChoiceRequest<bool> request)
+            ChoiceRequest<bool> request
+        )
         {
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore(10))
                 .UsePromptAdapter(new FixedPromptAdapter(adapterResult))
                 .RegisterHandler<SinglePromptOp, OpStatus>(new SinglePromptHandler())
                 .Build();
             return Assert.ThrowsAsync<InvalidOperationException>(async () =>
-                await dispatcher.Dispatch(new SinglePromptOp(request)));
+                await dispatcher.Dispatch(new SinglePromptOp(request))
+            );
         }
 
         private static ChoiceRequest<bool> YesNoRequest() =>
             new ChoiceRequest<bool>(new ChoiceRequestId("yes-or-no"), new[] { true, false });
 
         private static InMemoryRulesStore CreateStore(int health) =>
-            new InMemoryRulesStore(new RulesStateSeed()
-                .SeedHealth(Creature, new HealthState(health, 100)));
+            new InMemoryRulesStore(
+                new RulesStateSeed().SeedHealth(Creature, new HealthState(health, 100))
+            );
 
         private static ResolvedOpResult<TResult> RequireResolved<TResult>(OpResult<TResult> result)
         {
@@ -284,11 +350,12 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private static SelectedChoiceResult<TChoice> RequireSelected<TChoice>(
-            OpResult<ChoiceResult<TChoice>> result) =>
-            RequireChoice<SelectedChoiceResult<TChoice>, TChoice>(result);
+            OpResult<ChoiceResult<TChoice>> result
+        ) => RequireChoice<SelectedChoiceResult<TChoice>, TChoice>(result);
 
         private static TOutcome RequireChoice<TOutcome, TChoice>(
-            OpResult<ChoiceResult<TChoice>> result)
+            OpResult<ChoiceResult<TChoice>> result
+        )
             where TOutcome : ChoiceResult<TChoice>
         {
             ResolvedOpResult<ChoiceResult<TChoice>> resolved = RequireResolved(result);
@@ -296,32 +363,32 @@ namespace Game.Rules.Runtime.Tests
             return (TOutcome)resolved.Value;
         }
 
-        private static TOutcome RequireChoice<TOutcome>(
-            OpResult<ChoiceResult<bool>> result)
-            where TOutcome : ChoiceResult<bool> =>
-            RequireChoice<TOutcome, bool>(result);
+        private static TOutcome RequireChoice<TOutcome>(OpResult<ChoiceResult<bool>> result)
+            where TOutcome : ChoiceResult<bool> => RequireChoice<TOutcome, bool>(result);
 
-        private sealed class PromptSequenceOp :
-            IRuleOp<IReadOnlyList<OpResult<ChoiceResult<bool>>>>
+        private sealed class PromptSequenceOp : IRuleOp<IReadOnlyList<OpResult<ChoiceResult<bool>>>>
         {
             public int Count { get; }
 
             public PromptSequenceOp(int count) => Count = count;
         }
 
-        private sealed class PromptSequenceHandler :
-            IOpHandler<PromptSequenceOp, IReadOnlyList<OpResult<ChoiceResult<bool>>>>
+        private sealed class PromptSequenceHandler
+            : IOpHandler<PromptSequenceOp, IReadOnlyList<OpResult<ChoiceResult<bool>>>>
         {
             public async ValueTask<IReadOnlyList<OpResult<ChoiceResult<bool>>>> Handle(
                 OpFrame<PromptSequenceOp> frame,
-                OpHandlerContext context)
+                OpHandlerContext context
+            )
             {
-                List<OpResult<ChoiceResult<bool>>> results =
-                    new List<OpResult<ChoiceResult<bool>>>(frame.Op.Count);
+                List<OpResult<ChoiceResult<bool>>> results = new List<OpResult<ChoiceResult<bool>>>(
+                    frame.Op.Count
+                );
                 for (int index = 0; index < frame.Op.Count; index++)
                 {
-                    results.Add(await context.Dispatch(
-                        new PromptChoiceOp<bool>(Player, YesNoRequest())));
+                    results.Add(
+                        await context.Dispatch(new PromptChoiceOp<bool>(Player, YesNoRequest()))
+                    );
                 }
                 return Array.AsReadOnly(results.ToArray());
             }
@@ -338,26 +405,28 @@ namespace Game.Rules.Runtime.Tests
         {
             public async ValueTask<OpStatus> Handle(
                 OpFrame<SinglePromptOp> frame,
-                OpHandlerContext context)
+                OpHandlerContext context
+            )
             {
                 OpResult<ChoiceResult<bool>> prompt = await context.Dispatch(
-                    new PromptChoiceOp<bool>(Player, frame.Op.Request));
+                    new PromptChoiceOp<bool>(Player, frame.Op.Request)
+                );
                 return prompt.Status;
             }
         }
 
-        private sealed class PromptThenIncrementOp : IRuleOp<int>
-        {
-        }
+        private sealed class PromptThenIncrementOp : IRuleOp<int> { }
 
         private sealed class PromptThenIncrementHandler : IOpHandler<PromptThenIncrementOp, int>
         {
             public async ValueTask<int> Handle(
                 OpFrame<PromptThenIncrementOp> frame,
-                OpHandlerContext context)
+                OpHandlerContext context
+            )
             {
                 OpResult<ChoiceResult<bool>> prompt = await context.Dispatch(
-                    new PromptChoiceOp<bool>(Player, YesNoRequest()));
+                    new PromptChoiceOp<bool>(Player, YesNoRequest())
+                );
                 SelectedChoiceResult<bool> selected = RequireSelected(prompt);
                 if (!selected.Choice)
                     return context.Snapshot.Health[Creature].Current;
@@ -367,15 +436,14 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
-        private sealed class IndependentIncrementOp : IRuleOp<int>
-        {
-        }
+        private sealed class IndependentIncrementOp : IRuleOp<int> { }
 
         private sealed class IndependentIncrementHandler : IOpHandler<IndependentIncrementOp, int>
         {
             public async ValueTask<int> Handle(
                 OpFrame<IndependentIncrementOp> frame,
-                OpHandlerContext context)
+                OpHandlerContext context
+            )
             {
                 OpResult<int> changed = await context.Dispatch(new IncrementHealthOp(1));
                 return RequireResolved(changed).Value;
@@ -394,7 +462,8 @@ namespace Game.Rules.Runtime.Tests
             public ReductionResult<int> Reduce(
                 ReductionContext<IncrementHealthOp> context,
                 RulesStateDraft state,
-                FactSink facts)
+                FactSink facts
+            )
             {
                 if (!state.Health.TryGet(Creature, out HealthState previous))
                     throw new InvalidOperationException("Missing prompt-test health seed.");
@@ -419,10 +488,12 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class SuspendedPromptAdapter : IPromptAdapter<bool>
         {
-            private readonly TaskCompletionSource<bool> started =
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            private readonly TaskCompletionSource<bool> selection =
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource<bool> started = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+            private readonly TaskCompletionSource<bool> selection = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
 
             public Task Started => started.Task;
 
@@ -430,12 +501,12 @@ namespace Game.Rules.Runtime.Tests
 
             public async ValueTask<OpResult<ChoiceResult<bool>>> Prompt(
                 PromptChoiceOp<bool> prompt,
-                RulesSnapshot snapshot)
+                RulesSnapshot snapshot
+            )
             {
                 started.TrySetResult(true);
                 bool choice = await selection.Task;
-                return OpResult<ChoiceResult<bool>>.Resolved(
-                    ChoiceResult<bool>.Selected(choice));
+                return OpResult<ChoiceResult<bool>>.Resolved(ChoiceResult<bool>.Selected(choice));
             }
         }
 
@@ -443,13 +514,12 @@ namespace Game.Rules.Runtime.Tests
         {
             private readonly OpResult<ChoiceResult<bool>> result;
 
-            public FixedPromptAdapter(OpResult<ChoiceResult<bool>> result) =>
-                this.result = result;
+            public FixedPromptAdapter(OpResult<ChoiceResult<bool>> result) => this.result = result;
 
             public ValueTask<OpResult<ChoiceResult<bool>>> Prompt(
                 PromptChoiceOp<bool> prompt,
-                RulesSnapshot snapshot) =>
-                new ValueTask<OpResult<ChoiceResult<bool>>>(result);
+                RulesSnapshot snapshot
+            ) => new ValueTask<OpResult<ChoiceResult<bool>>>(result);
         }
 
         private sealed class ScriptedPromptAdapter<TChoice> : IPromptAdapter<TChoice>
@@ -468,13 +538,15 @@ namespace Game.Rules.Runtime.Tests
                     {
                         throw new ArgumentException(
                             "A prompt script cannot contain missing results.",
-                            nameof(results));
+                            nameof(results)
+                        );
                     }
                     if (result.Facts.Count != 0)
                     {
                         throw new ArgumentException(
                             "A prompt script cannot contain committed Facts.",
-                            nameof(results));
+                            nameof(results)
+                        );
                     }
                     if (result is ResolvedOpResult<ChoiceResult<TChoice>> resolved)
                     {
@@ -482,7 +554,8 @@ namespace Game.Rules.Runtime.Tests
                         {
                             throw new ArgumentException(
                                 "A resolved prompt script result requires a choice outcome.",
-                                nameof(results));
+                                nameof(results)
+                            );
                         }
                         continue;
                     }
@@ -490,7 +563,8 @@ namespace Game.Rules.Runtime.Tests
                         continue;
                     throw new ArgumentException(
                         "A prompt script may contain only resolved choice outcomes or cancellation.",
-                        nameof(results));
+                        nameof(results)
+                    );
                 }
                 this.results = (OpResult<ChoiceResult<TChoice>>[])results.Clone();
             }
@@ -506,7 +580,8 @@ namespace Game.Rules.Runtime.Tests
 
             ValueTask<OpResult<ChoiceResult<TChoice>>> IPromptAdapter<TChoice>.Prompt(
                 PromptChoiceOp<TChoice> prompt,
-                RulesSnapshot snapshot)
+                RulesSnapshot snapshot
+            )
             {
                 if (prompt == null)
                     throw new ArgumentNullException(nameof(prompt));
@@ -518,31 +593,31 @@ namespace Game.Rules.Runtime.Tests
                     if (nextIndex >= results.Length)
                     {
                         throw new InvalidOperationException(
-                            "The scripted prompt adapter has no result remaining.");
+                            "The scripted prompt adapter has no result remaining."
+                        );
                     }
-                    return new ValueTask<OpResult<ChoiceResult<TChoice>>>(
-                        results[nextIndex++]);
+                    return new ValueTask<OpResult<ChoiceResult<TChoice>>>(results[nextIndex++]);
                 }
             }
         }
 
-        private sealed class BypassingPromptHandler :
-            IOpHandler<PromptChoiceOp<bool>, ChoiceResult<bool>>
+        private sealed class BypassingPromptHandler
+            : IOpHandler<PromptChoiceOp<bool>, ChoiceResult<bool>>
         {
             public ValueTask<ChoiceResult<bool>> Handle(
                 OpFrame<PromptChoiceOp<bool>> frame,
-                OpHandlerContext context) =>
-                new ValueTask<ChoiceResult<bool>>(ChoiceResult<bool>.Selected(true));
+                OpHandlerContext context
+            ) => new ValueTask<ChoiceResult<bool>>(ChoiceResult<bool>.Selected(true));
         }
 
-        private sealed class BypassingPromptReducer :
-            IOpReducer<PromptChoiceOp<bool>, ChoiceResult<bool>>
+        private sealed class BypassingPromptReducer
+            : IOpReducer<PromptChoiceOp<bool>, ChoiceResult<bool>>
         {
             public ReductionResult<ChoiceResult<bool>> Reduce(
                 ReductionContext<PromptChoiceOp<bool>> context,
                 RulesStateDraft state,
-                FactSink facts) =>
-                ReductionResult<ChoiceResult<bool>>.Accept(ChoiceResult<bool>.Selected(true));
+                FactSink facts
+            ) => ReductionResult<ChoiceResult<bool>>.Accept(ChoiceResult<bool>.Selected(true));
         }
 
         private sealed class CountingOpIdProvider : IOpIdProvider

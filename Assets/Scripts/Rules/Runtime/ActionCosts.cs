@@ -25,7 +25,7 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// The invocation is explicitly a free action and spends no action points.
         /// </summary>
-        FreeAction
+        FreeAction,
     }
 
     /// <summary>
@@ -67,14 +67,12 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Gets a reaction cost.
         /// </summary>
-        public static ActionCost Reaction { get; } =
-            new ActionCost(ActionCostKind.Reaction, 1);
+        public static ActionCost Reaction { get; } = new ActionCost(ActionCostKind.Reaction, 1);
 
         /// <summary>
         /// Gets a free-action cost.
         /// </summary>
-        public static ActionCost FreeAction { get; } =
-            new ActionCost(ActionCostKind.FreeAction, 1);
+        public static ActionCost FreeAction { get; } = new ActionCost(ActionCostKind.FreeAction, 1);
 
         /// <summary>
         /// Gets the semantic kind of action cost.
@@ -112,13 +110,13 @@ namespace Game.Rules.Runtime
                 default:
                     throw new ArgumentOutOfRangeException(
                         nameof(actionCount),
-                        "An action cost must spend between one and three actions.");
+                        "An action cost must spend between one and three actions."
+                    );
             }
         }
 
         /// <inheritdoc/>
-        public bool Equals(ActionCost other) =>
-            Kind == other.Kind && Amount == other.Amount;
+        public bool Equals(ActionCost other) => Kind == other.Kind && Amount == other.Amount;
 
         /// <inheritdoc/>
         public override bool Equals(object obj) => obj is ActionCost other && Equals(other);
@@ -146,9 +144,7 @@ namespace Game.Rules.Runtime
     /// </remarks>
     public abstract class RuleCost : IEquatable<RuleCost>
     {
-        private protected RuleCost()
-        {
-        }
+        private protected RuleCost() { }
 
         /// <summary>
         /// Creates a cost that spends uses from one spell-slot pool.
@@ -309,5 +305,4 @@ namespace Game.Rules.Runtime
         /// <inheritdoc/>
         public override int GetHashCode() => Binding.GetHashCode();
     }
-
 }

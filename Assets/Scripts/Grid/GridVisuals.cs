@@ -8,19 +8,21 @@ namespace GridPrivate
     {
         [Header("Hover")]
         [SerializeField]
-        protected GameObject HoverPrefab;    // Prefab
-        protected GameObjectPool HoverPool;  // Prefab acquisition/storage
+        protected GameObject HoverPrefab; // Prefab
+        protected GameObjectPool HoverPool; // Prefab acquisition/storage
 
         [Header("Range")]
         [SerializeField]
-        protected GameObject RangePrefab;    // Prefab
-        protected GameObjectPool RangePool;  // Prefab acquisition/storage
+        protected GameObject RangePrefab; // Prefab
+        protected GameObjectPool RangePool; // Prefab acquisition/storage
 
         [Header("Lines")]
         [SerializeField]
         protected Material LineMaterial;
+
         [SerializeField]
         protected float LineWidth;
+
         [SerializeField]
         protected Color LineColor;
         protected LineRenderer LineRenderer;
@@ -28,7 +30,10 @@ namespace GridPrivate
         // Tiles
         protected Tile[,] Tiles;
         protected delegate bool TileFilter(Tile tile);
-        TileFilter Filter = delegate (Tile tile) {return true;};
+        TileFilter Filter = delegate(Tile tile)
+        {
+            return true;
+        };
 
         protected Vector3Int? Hover;
 
@@ -44,23 +49,29 @@ namespace GridPrivate
             GridAPIPrivate grid = GetComponent<GridAPIPrivate>();
             Tiles = grid.GetTiles();
 
-            OnHover.AddListener((List<Vector3Int> locations) => ClearAndShowFiltered(locations, HoverPool, HoverOffset));
+            OnHover.AddListener(
+                (List<Vector3Int> locations) =>
+                    ClearAndShowFiltered(locations, HoverPool, HoverOffset)
+            );
             OnHoverEnd.AddListener(() => HoverPool.Clear());
-            OnHighlightRange.AddListener((List<Vector3Int> locations) => ClearAndShow(locations, RangePool, RangeOffset));
+            OnHighlightRange.AddListener(
+                (List<Vector3Int> locations) => ClearAndShow(locations, RangePool, RangeOffset)
+            );
             OnHighlightRangeEnd.AddListener(() => RangePool.Clear());
             OnActionCancel.AddListener(() => RangePool.Clear());
 
             LineRenderer = this.gameObject.AddComponent<LineRenderer>();
-            LineRenderer.material = (LineMaterial != null)?
-                LineMaterial:
-                new Material(Shader.Find("Unlit/Color"));
+            LineRenderer.material =
+                (LineMaterial != null) ? LineMaterial : new Material(Shader.Find("Unlit/Color"));
             LineRenderer.startWidth = LineRenderer.endWidth = LineWidth;
             LineRenderer.material.color = LineColor;
             LineRenderer.positionCount = 0;
             LineRenderer.useWorldSpace = true;
 
             OnPreviewPath.AddListener(ShowPath);
-            OnPreviewArea.AddListener((List<Vector3Int> locations) => ClearAndShow(locations, RangePool, RangeOffset));
+            OnPreviewArea.AddListener(
+                (List<Vector3Int> locations) => ClearAndShow(locations, RangePool, RangeOffset)
+            );
             OnPreviewAreaEnd.AddListener(() => RangePool.Clear());
         }
 
@@ -93,7 +104,11 @@ namespace GridPrivate
             }
         }
 
-        protected void ClearAndShowFiltered(List<Vector3Int> locations, GameObjectPool pool, float offset)
+        protected void ClearAndShowFiltered(
+            List<Vector3Int> locations,
+            GameObjectPool pool,
+            float offset
+        )
         {
             pool.Clear();
             foreach (Vector3Int location in locations)
@@ -101,7 +116,11 @@ namespace GridPrivate
                 if (Filter(Tiles[location.x, location.z]))
                 {
                     GameObject go = pool.GetObject();
-                    go.transform.position = new Vector3(location.x, location.y + offset, location.z);
+                    go.transform.position = new Vector3(
+                        location.x,
+                        location.y + offset,
+                        location.z
+                    );
                 }
             }
         }

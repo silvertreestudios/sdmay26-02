@@ -1,8 +1,8 @@
-using UnityEngine;
-using UnityEngine.UIElements;
 using System.Collections.Generic;
-using UnityEngine.SceneManagement;
 using System.Reflection;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UIElements;
 
 [System.Serializable]
 public class Ancestry
@@ -23,7 +23,7 @@ public class Ancestry
 
 [System.Serializable]
 public class AncestryDatabase
- {
+{
     public List<Ancestry> ancestries;
 }
 
@@ -106,6 +106,7 @@ public class PlayerCharacter
     public string classFeat;
     public string subclass;
     public string[] specialAbilities;
+
     //hard coded for barbarian test
     public string weapon = "Great Axe";
     public string armor = "Scalemail";
@@ -121,14 +122,16 @@ public class AttributeContributions
     public int backgroundFreeChoice;
     public int className;
     public int freeChoice;
-    public int attributeTotal => ancestry + ancestryFreeChoice + background + backgroundFreeChoice + className + freeChoice;
+    public int attributeTotal =>
+        ancestry + ancestryFreeChoice + background + backgroundFreeChoice + className + freeChoice;
 }
-    
+
 //Inherits from class `MonoBehaviour`. This makes it attachable to a game object as a component.
 public class CharacterCreationScript : MonoBehaviour
 {
-    [SerializeField] private ViewModel characterClassModel; //this is the spinning model in the middle (refer to ViewModel.cs)
-    public TutorialManager tutorial{ get; private set; } 
+    [SerializeField]
+    private ViewModel characterClassModel; //this is the spinning model in the middle (refer to ViewModel.cs)
+    public TutorialManager tutorial { get; private set; }
     RadioButtonGroup ancestryRadioButtonGroup;
     RadioButtonGroup heritageRadioButtonGroup;
     RadioButtonGroup ancestryFeatsRadioButtonGroup;
@@ -205,6 +208,7 @@ public class CharacterCreationScript : MonoBehaviour
     List<string> attributeKeysForToggles; //the index of the List<Toggle> matches the index of List<string> attributeKey
     HashSet<string> selectedAttributes; //HashSet was recommended...
     int maxSelections = 4;
+
     //int selectedCount = 0;
     int classHP;
     int ancestryHP;
@@ -215,13 +219,13 @@ public class CharacterCreationScript : MonoBehaviour
     TextAsset jsonFile2;
     AncestryDatabase db;
     ClassDatabase db2;
+
     //for json end
     PlayerCharacter currentCharacter;
     string jsonFile3;
 
     private void OnEnable()
     {
-
         UIDocument menu = GetComponent<UIDocument>();
         VisualElement root = menu.rootVisualElement;
 
@@ -230,8 +234,12 @@ public class CharacterCreationScript : MonoBehaviour
         ancestryFeatsRadioButtonGroup = root.Q<RadioButtonGroup>("AncestryFeatsRadioButtonGroup");
         ancestryFreeBoostRadioButtonGroup = root.Q<RadioButtonGroup>("FreeBoostRadioButtonGroup");
         backgroundRadioButtonGroup = root.Q<RadioButtonGroup>("BackgroundRadioButtonGroup");
-        backgroundBoostChoiceRadioButtonGroup = root.Q<RadioButtonGroup>("BackgroundBoostChoiceRadioButtonGroup");
-        backgroundFreeBoostRadioButtonGroup = root.Q<RadioButtonGroup>("BackgroundFreeBoostRadioGroup");
+        backgroundBoostChoiceRadioButtonGroup = root.Q<RadioButtonGroup>(
+            "BackgroundBoostChoiceRadioButtonGroup"
+        );
+        backgroundFreeBoostRadioButtonGroup = root.Q<RadioButtonGroup>(
+            "BackgroundFreeBoostRadioGroup"
+        );
         backgroundDescriptionLabel = root.Q<Label>("BackgroundDescriptionLabel");
         backgroundSkillLabel = root.Q<Label>("BackgroundSkillLabel");
         backgroundSkillFeatLabel = root.Q<Label>("BackgroundSkillFeatLabel");
@@ -277,7 +285,7 @@ public class CharacterCreationScript : MonoBehaviour
         constitutionAttributeField = root.Q<IntegerField>("ConstitutionAttribute");
         intelligenceAttributeField = root.Q<IntegerField>("IntelligenceAttribute");
         wisdomAttributeField = root.Q<IntegerField>("WisdomAttribute");
-        charismaAttributeField = root.Q<IntegerField>("CharismaAttribute"); 
+        charismaAttributeField = root.Q<IntegerField>("CharismaAttribute");
         nameField = root.Q<TextField>("NameField");
         sizeField = root.Q<Label>("Size");
         subclassField = root.Q<TextField>("Subclass");
@@ -313,9 +321,39 @@ public class CharacterCreationScript : MonoBehaviour
         //small enough that I'm keeping as a dictionary for now
         backgroundDescriptionByBackground = new Dictionary<string, List<string>>()
         {
-            {"Acolyte", new List<string> {"You spent your early days in a religious monastery or cloister. You may have traveled out into the world to spread the message of your religion or because you cast away the teachings of your faith, but deep down you'll always carry within you the lessons you learned.", "Intelligence", "Wisdom", "Religion", "Student of the Canon"}},
-            {"Bandit", new List<string> {"Your past includes no small amount of rural banditry, robbing travelers on the road and scraping by. Whether your robbery was sanctioned by a local noble or you did so of your own accord, you eventually got caught up in the adventuring life. Now, adventure is your stock and trade, and years of camping and skirmishing have only helped.", "Dexterity", "Charisma", "Intimidation", "Group Coercion"}},
-            {"Cook", new List<string> {"You grew up in the kitchens of a tavern or other dining establishment and excelled there, becoming an exceptional cook. Baking, cooking, a little brewing on the side—you've spent lots of time out of sight. It's about time you went out into the world to catch some sights for yourself", "Constitution", "Intelligence", "Survival", "Seasoned"}}
+            {
+                "Acolyte",
+                new List<string>
+                {
+                    "You spent your early days in a religious monastery or cloister. You may have traveled out into the world to spread the message of your religion or because you cast away the teachings of your faith, but deep down you'll always carry within you the lessons you learned.",
+                    "Intelligence",
+                    "Wisdom",
+                    "Religion",
+                    "Student of the Canon",
+                }
+            },
+            {
+                "Bandit",
+                new List<string>
+                {
+                    "Your past includes no small amount of rural banditry, robbing travelers on the road and scraping by. Whether your robbery was sanctioned by a local noble or you did so of your own accord, you eventually got caught up in the adventuring life. Now, adventure is your stock and trade, and years of camping and skirmishing have only helped.",
+                    "Dexterity",
+                    "Charisma",
+                    "Intimidation",
+                    "Group Coercion",
+                }
+            },
+            {
+                "Cook",
+                new List<string>
+                {
+                    "You grew up in the kitchens of a tavern or other dining establishment and excelled there, becoming an exceptional cook. Baking, cooking, a little brewing on the side—you've spent lots of time out of sight. It's about time you went out into the world to catch some sights for yourself",
+                    "Constitution",
+                    "Intelligence",
+                    "Survival",
+                    "Seasoned",
+                }
+            },
         };
 
         //initialize "attributes" dictionary with all 6 attributes, each with an AttributeContributions object
@@ -335,16 +373,43 @@ public class CharacterCreationScript : MonoBehaviour
 
         //TESTING. Would be cleaner as a separate function...
         tutorial = new TutorialManager(root);
-        tutorial.AddStep(root, "Welcome to character creation! Click 'Next' for a short tutorial or 'Skip' to get straight to building your hero.");
-        tutorial.AddStep(ancestryTabHeader, "Start by choosing your ancestry, which grants innate traits.");
-        tutorial.AddStep(ancestryTab, "Your ancestry determines available heritages and ancestry feats. Don't forget to select a free attribute boost, too.");
-        tutorial.AddStep(backgroundTabHeader, "Next, choose your background, which reflects your character's past and grants additional training.");
-        tutorial.AddStep(classTabHeader, "Now select your class, which defines your core abilities and combat role. You'll also choose a subclass and class feats.");
-        tutorial.AddStep(finalBoostsTabHeader, "Assign your remaining attribute boosts. You may choose four total, so plan carefully.");
+        tutorial.AddStep(
+            root,
+            "Welcome to character creation! Click 'Next' for a short tutorial or 'Skip' to get straight to building your hero."
+        );
+        tutorial.AddStep(
+            ancestryTabHeader,
+            "Start by choosing your ancestry, which grants innate traits."
+        );
+        tutorial.AddStep(
+            ancestryTab,
+            "Your ancestry determines available heritages and ancestry feats. Don't forget to select a free attribute boost, too."
+        );
+        tutorial.AddStep(
+            backgroundTabHeader,
+            "Next, choose your background, which reflects your character's past and grants additional training."
+        );
+        tutorial.AddStep(
+            classTabHeader,
+            "Now select your class, which defines your core abilities and combat role. You'll also choose a subclass and class feats."
+        );
+        tutorial.AddStep(
+            finalBoostsTabHeader,
+            "Assign your remaining attribute boosts. You may choose four total, so plan carefully."
+        );
         tutorial.AddStep(nameField, "Give your character a name to complete their identity.");
-        tutorial.AddStep(leftInfoPanel, "Review your character details here. Hover over options for more information.");
-        tutorial.AddStep(finishCharacterCreation, "When you're ready, finalize your character and begin your adventure!");
-        tutorial.AddStep(defaultBarbarian, "Short on time? Use a preset barbarian build to jump straight into the game.");
+        tutorial.AddStep(
+            leftInfoPanel,
+            "Review your character details here. Hover over options for more information."
+        );
+        tutorial.AddStep(
+            finishCharacterCreation,
+            "When you're ready, finalize your character and begin your adventure!"
+        );
+        tutorial.AddStep(
+            defaultBarbarian,
+            "Short on time? Use a preset barbarian build to jump straight into the game."
+        );
         tutorial.StartTutorial();
 
         nameField.RegisterValueChangedCallback(OnNameChanged);
@@ -358,13 +423,33 @@ public class CharacterCreationScript : MonoBehaviour
         classFeatsRadioButtonGroup.RegisterValueChangedCallback(OnClassFeatChanged);
         subclassRadioButtonGroup.RegisterValueChangedCallback(OnSubclassChanged);
         heritageRadioButtonGroup.RegisterValueChangedCallback(OnHeritageChanged);
-        backgroundBoostChoiceRadioButtonGroup.RegisterValueChangedCallback(OnBackgroundBoostChanged);
-        backgroundFreeBoostRadioButtonGroup.RegisterValueChangedCallback(OnBackgroundFreeBoostChanged);
+        backgroundBoostChoiceRadioButtonGroup.RegisterValueChangedCallback(
+            OnBackgroundBoostChanged
+        );
+        backgroundFreeBoostRadioButtonGroup.RegisterValueChangedCallback(
+            OnBackgroundFreeBoostChanged
+        );
 
         //no special grouping for toggles, so I'm handling them as list manually
         selectedAttributes = new();
-        toggles = new List<Toggle> { strengthToggle, dexterityToggle, constitutionToggle, intelligenceToggle, wisdomToggle, charismaToggle };
-        attributeKeysForToggles = new List<string> {"Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"};
+        toggles = new List<Toggle>
+        {
+            strengthToggle,
+            dexterityToggle,
+            constitutionToggle,
+            intelligenceToggle,
+            wisdomToggle,
+            charismaToggle,
+        };
+        attributeKeysForToggles = new List<string>
+        {
+            "Strength",
+            "Dexterity",
+            "Constitution",
+            "Intelligence",
+            "Wisdom",
+            "Charisma",
+        };
         foreach (var toggle in toggles)
         {
             toggle.RegisterValueChangedCallback(evt =>
@@ -378,24 +463,135 @@ public class CharacterCreationScript : MonoBehaviour
     void Update()
     {
         //update tooltip text for hpField in case classHP or ancestryHP has changed
-        HoverOverElement(hpField, "Health \nHP from class: " + classHP + "\nHP from ancestry: " + ancestryHP);
-        HoverOverElement(strengthAttributeField, "Breakdown:\nAncestry: " + attributes["Strength"].ancestry + "\nAncestry Free Choice: " + attributes["Strength"].ancestryFreeChoice + "\nBackground: " + attributes["Strength"].background + "\nBackground Free Choice: " + attributes["Strength"].backgroundFreeChoice + "\nClass: " + attributes["Strength"].className + "\nFree Choice: " + attributes["Strength"].freeChoice);
-        HoverOverElement(dexterityAttributeField, "Breakdown:\nAncestry: " + attributes["Dexterity"].ancestry + "\nAncestry Free Choice: " + attributes["Dexterity"].ancestryFreeChoice + "\nBackground: " + attributes["Dexterity"].background + "\nBackground Free Choice: " + attributes["Dexterity"].backgroundFreeChoice + "\nClass: " + attributes["Dexterity"].className + "\nFree Choice: " + attributes["Dexterity"].freeChoice);
-        HoverOverElement(constitutionAttributeField, "Breakdown:\nAncestry: " + attributes["Constitution"].ancestry + "\nAncestry Free Choice: " + attributes["Constitution"].ancestryFreeChoice + "\nBackground: " + attributes["Constitution"].background + "\nBackground Free Choice: " + attributes["Constitution"].backgroundFreeChoice + "\nClass: " + attributes["Constitution"].className + "\nFree Choice: " + attributes["Constitution"].freeChoice);
-        HoverOverElement(intelligenceAttributeField, "Breakdown:\nAncestry: " + attributes["Intelligence"].ancestry + "\nAncestry Free Choice: " + attributes["Intelligence"].ancestryFreeChoice + "\nBackground: " + attributes["Intelligence"].background + "\nBackground Free Choice: " + attributes["Intelligence"].backgroundFreeChoice + "\nClass: " + attributes["Intelligence"].className + "\nFree Choice: " + attributes["Intelligence"].freeChoice);
-        HoverOverElement(wisdomAttributeField, "Breakdown:\nAncestry: " + attributes["Wisdom"].ancestry + "\nAncestry Free Choice: " + attributes["Wisdom"].ancestryFreeChoice + "\nBackground: " + attributes["Wisdom"].background + "\nBackground Free Choice: " + attributes["Wisdom"].backgroundFreeChoice + "\nClass: " + attributes["Wisdom"].className + "\nFree Choice: " + attributes["Wisdom"].freeChoice);
-        HoverOverElement(charismaAttributeField, "Breakdown:\nAncestry: " + attributes["Charisma"].ancestry + "\nAncestry Free Choice: " + attributes["Charisma"].ancestryFreeChoice + "\nBackground: " + attributes["Charisma"].background + "\nBackground Free Choice: " + attributes["Charisma"].backgroundFreeChoice + "\nClass: " + attributes["Charisma"].className + "\nFree Choice: " + attributes["Charisma"].freeChoice);
+        HoverOverElement(
+            hpField,
+            "Health \nHP from class: " + classHP + "\nHP from ancestry: " + ancestryHP
+        );
+        HoverOverElement(
+            strengthAttributeField,
+            "Breakdown:\nAncestry: "
+                + attributes["Strength"].ancestry
+                + "\nAncestry Free Choice: "
+                + attributes["Strength"].ancestryFreeChoice
+                + "\nBackground: "
+                + attributes["Strength"].background
+                + "\nBackground Free Choice: "
+                + attributes["Strength"].backgroundFreeChoice
+                + "\nClass: "
+                + attributes["Strength"].className
+                + "\nFree Choice: "
+                + attributes["Strength"].freeChoice
+        );
+        HoverOverElement(
+            dexterityAttributeField,
+            "Breakdown:\nAncestry: "
+                + attributes["Dexterity"].ancestry
+                + "\nAncestry Free Choice: "
+                + attributes["Dexterity"].ancestryFreeChoice
+                + "\nBackground: "
+                + attributes["Dexterity"].background
+                + "\nBackground Free Choice: "
+                + attributes["Dexterity"].backgroundFreeChoice
+                + "\nClass: "
+                + attributes["Dexterity"].className
+                + "\nFree Choice: "
+                + attributes["Dexterity"].freeChoice
+        );
+        HoverOverElement(
+            constitutionAttributeField,
+            "Breakdown:\nAncestry: "
+                + attributes["Constitution"].ancestry
+                + "\nAncestry Free Choice: "
+                + attributes["Constitution"].ancestryFreeChoice
+                + "\nBackground: "
+                + attributes["Constitution"].background
+                + "\nBackground Free Choice: "
+                + attributes["Constitution"].backgroundFreeChoice
+                + "\nClass: "
+                + attributes["Constitution"].className
+                + "\nFree Choice: "
+                + attributes["Constitution"].freeChoice
+        );
+        HoverOverElement(
+            intelligenceAttributeField,
+            "Breakdown:\nAncestry: "
+                + attributes["Intelligence"].ancestry
+                + "\nAncestry Free Choice: "
+                + attributes["Intelligence"].ancestryFreeChoice
+                + "\nBackground: "
+                + attributes["Intelligence"].background
+                + "\nBackground Free Choice: "
+                + attributes["Intelligence"].backgroundFreeChoice
+                + "\nClass: "
+                + attributes["Intelligence"].className
+                + "\nFree Choice: "
+                + attributes["Intelligence"].freeChoice
+        );
+        HoverOverElement(
+            wisdomAttributeField,
+            "Breakdown:\nAncestry: "
+                + attributes["Wisdom"].ancestry
+                + "\nAncestry Free Choice: "
+                + attributes["Wisdom"].ancestryFreeChoice
+                + "\nBackground: "
+                + attributes["Wisdom"].background
+                + "\nBackground Free Choice: "
+                + attributes["Wisdom"].backgroundFreeChoice
+                + "\nClass: "
+                + attributes["Wisdom"].className
+                + "\nFree Choice: "
+                + attributes["Wisdom"].freeChoice
+        );
+        HoverOverElement(
+            charismaAttributeField,
+            "Breakdown:\nAncestry: "
+                + attributes["Charisma"].ancestry
+                + "\nAncestry Free Choice: "
+                + attributes["Charisma"].ancestryFreeChoice
+                + "\nBackground: "
+                + attributes["Charisma"].background
+                + "\nBackground Free Choice: "
+                + attributes["Charisma"].backgroundFreeChoice
+                + "\nClass: "
+                + attributes["Charisma"].className
+                + "\nFree Choice: "
+                + attributes["Charisma"].freeChoice
+        );
 
         HoverOverElement(sizeField, "Size is determined by ancestry. May be Small or Medium.");
-        HoverOverElement(speedField, "Speed is determined by ancestry. It is how far you can move in one action.");
-        HoverOverElement(perceptionField, "Perception is a measure of how aware your character is of their surroundings. It is determined by class.");
-        HoverOverElement(fortitudeField, "Fortitude is a measure of your character's physical toughness and resilience. It is determined by class.");
-        HoverOverElement(reflexField, "Reflex is a measure of your character's agility and quickness. It is determined by class.");
-        HoverOverElement(willField, "Will is a measure of your character's mental fortitude and determination. It is determined by class.");
-        HoverOverElement(attackDropdownMenu, "Proficiency with various weapon types. Determined by class.");
-        HoverOverElement(defenseDropdownMenu, "Proficiency with different armor types and unarmored defense. Determined by class.");
+        HoverOverElement(
+            speedField,
+            "Speed is determined by ancestry. It is how far you can move in one action."
+        );
+        HoverOverElement(
+            perceptionField,
+            "Perception is a measure of how aware your character is of their surroundings. It is determined by class."
+        );
+        HoverOverElement(
+            fortitudeField,
+            "Fortitude is a measure of your character's physical toughness and resilience. It is determined by class."
+        );
+        HoverOverElement(
+            reflexField,
+            "Reflex is a measure of your character's agility and quickness. It is determined by class."
+        );
+        HoverOverElement(
+            willField,
+            "Will is a measure of your character's mental fortitude and determination. It is determined by class."
+        );
+        HoverOverElement(
+            attackDropdownMenu,
+            "Proficiency with various weapon types. Determined by class."
+        );
+        HoverOverElement(
+            defenseDropdownMenu,
+            "Proficiency with different armor types and unarmored defense. Determined by class."
+        );
 
-        HoverOverElement(notificationElement, "You are missing required fields. Click this message to dismiss.");
+        HoverOverElement(
+            notificationElement,
+            "You are missing required fields. Click this message to dismiss."
+        );
     }
 
     void PrintJson()
@@ -458,7 +654,7 @@ public class CharacterCreationScript : MonoBehaviour
             specialAbilities = new string[] { "dark vision", "clan dagger" },
 
             weapon = "Great Axe",
-            armor = "Scalemail"
+            armor = "Scalemail",
         };
     }
 
@@ -533,37 +729,37 @@ public class CharacterCreationScript : MonoBehaviour
         ready = HasNullFields(currentCharacter);
 
         //check attributes. There's gotta be a way to make this cleaner. What if multiple are over 5? I think it does just once at a time
-        if(currentCharacter.dexterity >= 5)
+        if (currentCharacter.dexterity >= 5)
         {
             notificationElement.style.display = DisplayStyle.Flex;
             notificationElement.text = "Dexterity cannot be more than 4";
             notificationElement.clicked += Disappear;
         }
-        if(currentCharacter.charisma >= 5)
+        if (currentCharacter.charisma >= 5)
         {
             notificationElement.style.display = DisplayStyle.Flex;
             notificationElement.text = "Charisma cannot be more than 4";
             notificationElement.clicked += Disappear;
         }
-        if(currentCharacter.strength >= 5)
+        if (currentCharacter.strength >= 5)
         {
             notificationElement.style.display = DisplayStyle.Flex;
             notificationElement.text = "Strength cannot be more than 4";
             notificationElement.clicked += Disappear;
         }
-        if(currentCharacter.wisdom >= 5)
+        if (currentCharacter.wisdom >= 5)
         {
             notificationElement.style.display = DisplayStyle.Flex;
             notificationElement.text = "Wisdom cannot be more than 4";
             notificationElement.clicked += Disappear;
         }
-        if(currentCharacter.intelligence >= 5)
+        if (currentCharacter.intelligence >= 5)
         {
             notificationElement.style.display = DisplayStyle.Flex;
             notificationElement.text = "Intelligence cannot be more than 4";
             notificationElement.clicked += Disappear;
         }
-        if(currentCharacter.constitution >= 5)
+        if (currentCharacter.constitution >= 5)
         {
             notificationElement.style.display = DisplayStyle.Flex;
             notificationElement.text = "Constitution cannot be more than 4";
@@ -578,9 +774,11 @@ public class CharacterCreationScript : MonoBehaviour
     }
 
     //this could probably be better...
-    void Disappear() {
+    void Disappear()
+    {
         notificationElement.style.display = DisplayStyle.None;
     }
+
     //helper function for checking for null/unassigned variables for currentCharacter
     public bool HasNullFields(PlayerCharacter character)
     {
@@ -644,7 +842,8 @@ public class CharacterCreationScript : MonoBehaviour
     void OnHeritageChanged(ChangeEvent<int> evt)
     {
         //guards against -1, which is when no button is selected
-        if (evt.newValue < 0) {
+        if (evt.newValue < 0)
+        {
             return;
         }
 
@@ -655,9 +854,11 @@ public class CharacterCreationScript : MonoBehaviour
 
     void OnAncestryFreeBoostChanged(ChangeEvent<int> evt)
     {
-        string selectedAncestryBoost = (ancestryFreeBoostRadioButtonGroup[evt.newValue] as RadioButton).label; //evt.newValue is the index of the selected button
-        
-        //handle attributes 
+        string selectedAncestryBoost = (
+            ancestryFreeBoostRadioButtonGroup[evt.newValue] as RadioButton
+        ).label; //evt.newValue is the index of the selected button
+
+        //handle attributes
         ClearAncestryFreeChoiceContributions();
         ApplyAncestryFreeChoiceBoosts(selectedAncestryBoost); //pass in boost string
         RefreshAttributeFields();
@@ -666,7 +867,6 @@ public class CharacterCreationScript : MonoBehaviour
     //works with json
     void PopulateHeritageButtons(string ancestry)
     {
-
         heritageRadioButtonGroup.Clear(); //clear out past buttons
 
         //find a match between the passed-in ancestry and the db.ancestries list, then print out the heritage list of that ancestry
@@ -674,31 +874,24 @@ public class CharacterCreationScript : MonoBehaviour
         Ancestry selectedAncestry = db.ancestries.Find(a => a.id == ancestry);
         foreach (string heritage in selectedAncestry.heritage)
         {
-            var rb = new RadioButton
-            {
-                text = heritage
-            };
+            var rb = new RadioButton { text = heritage };
 
             rb.AddToClassList("pill-radio"); //add custom class for styling
             heritageRadioButtonGroup.Add(rb);
         }
 
         heritageRadioButtonGroup.value = 0; // optional: auto-select first
-
     }
 
     //works with json
     void PopulateAncestryFeatButtons(string ancestry)
-    {        
+    {
         ancestryFeatsRadioButtonGroup.Clear(); //clear out past buttons
 
         Ancestry selectedAncestry = db.ancestries.Find(a => a.id == ancestry);
         foreach (string ancestryFeat in selectedAncestry.ancestryFeat)
         {
-            var rb = new RadioButton
-            {
-                text = ancestryFeat
-            };
+            var rb = new RadioButton { text = ancestryFeat };
             rb.AddToClassList("pill-radio"); //add custom class for styling
             ancestryFeatsRadioButtonGroup.Add(rb);
         }
@@ -710,11 +903,14 @@ public class CharacterCreationScript : MonoBehaviour
     void OnAncestryFeatChanged(ChangeEvent<int> evt)
     {
         //guards against -1, which is when no button is selected
-        if (evt.newValue < 0) {
+        if (evt.newValue < 0)
+        {
             return;
         }
 
-        string selectedAncestryFeat = (ancestryFeatsRadioButtonGroup[evt.newValue] as RadioButton).text; //for some reason .label doesn't work here but .text does
+        string selectedAncestryFeat = (
+            ancestryFeatsRadioButtonGroup[evt.newValue] as RadioButton
+        ).text; //for some reason .label doesn't work here but .text does
         ancestryFeatField.value = selectedAncestryFeat;
         currentCharacter.ancestryFeat = selectedAncestryFeat;
     }
@@ -725,8 +921,14 @@ public class CharacterCreationScript : MonoBehaviour
         Ancestry selectedAncestry = db.ancestries.Find(a => a.id == ancestry);
         ancestryDescriptionLabel.text = "Description: " + selectedAncestry.description;
 
-        ancestryBoostsFlawsLabel.text = "Attribute Boosts: " + string.Join(", ", selectedAncestry.attributeBoost) + "\n" + "Attribute Flaw: " + selectedAncestry.attributeFlaw;
-        ancestrySpecialAbilitiesLabel.text = "Special Abilities: " + string.Join(", ", selectedAncestry.specialAbilities);
+        ancestryBoostsFlawsLabel.text =
+            "Attribute Boosts: "
+            + string.Join(", ", selectedAncestry.attributeBoost)
+            + "\n"
+            + "Attribute Flaw: "
+            + selectedAncestry.attributeFlaw;
+        ancestrySpecialAbilitiesLabel.text =
+            "Special Abilities: " + string.Join(", ", selectedAncestry.specialAbilities);
         currentCharacter.specialAbilities = selectedAncestry.specialAbilities;
     }
 
@@ -751,39 +953,38 @@ public class CharacterCreationScript : MonoBehaviour
         if (!backgroundDescriptionByBackground.TryGetValue(background, out var backgroundBoost))
             return;
 
-        backgroundDescriptionLabel.text = "Description: " + backgroundDescriptionByBackground[background][0];
+        backgroundDescriptionLabel.text =
+            "Description: " + backgroundDescriptionByBackground[background][0];
         backgroundSkillLabel.text = "Skill: " + backgroundDescriptionByBackground[background][3];
-        backgroundSkillFeatLabel.text = "Skill Feat: " + backgroundDescriptionByBackground[background][4];
+        backgroundSkillFeatLabel.text =
+            "Skill Feat: " + backgroundDescriptionByBackground[background][4];
 
         //make a new button where the text is the 1st boost
         var rb = new RadioButton
         {
-            text = backgroundDescriptionByBackground[background][1] //set description text
+            text = backgroundDescriptionByBackground[background][1], //set description text
         };
         //make a new button where the text is the 2nd boost
-        var rb2 = new RadioButton
-        {
-            text = backgroundDescriptionByBackground[background][2]
-        };
+        var rb2 = new RadioButton { text = backgroundDescriptionByBackground[background][2] };
 
         rb.AddToClassList("pill-radio"); //add custom class for styling
         backgroundBoostChoiceRadioButtonGroup.Add(rb);
         rb2.AddToClassList("pill-radio"); //add custom class for styling
         backgroundBoostChoiceRadioButtonGroup.Add(rb2);
-
     }
 
     //when there's a change in the RadioGroup, grab that text
     void OnBackgroundBoostChanged(ChangeEvent<int> evt)
     {
-
         //guard against "no selection", similar to heritage case
         if (evt.newValue < 0)
             return;
 
-        string selectedBackgroundBoost = (backgroundBoostChoiceRadioButtonGroup[evt.newValue] as RadioButton).text;
-        
-        //handle attributes 
+        string selectedBackgroundBoost = (
+            backgroundBoostChoiceRadioButtonGroup[evt.newValue] as RadioButton
+        ).text;
+
+        //handle attributes
         ClearBackgroundContributions();
         ApplyBackgroundBoosts(selectedBackgroundBoost); //pass in boost string
         RefreshAttributeFields();
@@ -791,9 +992,11 @@ public class CharacterCreationScript : MonoBehaviour
 
     void OnBackgroundFreeBoostChanged(ChangeEvent<int> evt)
     {
-        string selectedBackgroundBoost = (backgroundFreeBoostRadioButtonGroup[evt.newValue] as RadioButton).label; //evt.newValue is the index of the selected button
-        
-        //handle attributes 
+        string selectedBackgroundBoost = (
+            backgroundFreeBoostRadioButtonGroup[evt.newValue] as RadioButton
+        ).label; //evt.newValue is the index of the selected button
+
+        //handle attributes
         ClearBackgroundFreeChoiceContributions();
         ApplyBackgroundFreeChoiceBoosts(selectedBackgroundBoost); //pass in boost string
         RefreshAttributeFields();
@@ -817,17 +1020,27 @@ public class CharacterCreationScript : MonoBehaviour
 
         currentCharacter.hp = int.Parse(hpField.text);
 
-        simpleWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.simpleWeapons;
-        martialWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.martialWeapons;
-        advancedWeaponsField.value = db2.classes.Find(a => a.id == selectedClass).attacks.advancedWeapons;
-        unarmedAttackField.value = db2.classes.Find(a => a.id == selectedClass).attacks.unarmedAttacks;
+        simpleWeaponsField.value = db2
+            .classes.Find(a => a.id == selectedClass)
+            .attacks.simpleWeapons;
+        martialWeaponsField.value = db2
+            .classes.Find(a => a.id == selectedClass)
+            .attacks.martialWeapons;
+        advancedWeaponsField.value = db2
+            .classes.Find(a => a.id == selectedClass)
+            .attacks.advancedWeapons;
+        unarmedAttackField.value = db2
+            .classes.Find(a => a.id == selectedClass)
+            .attacks.unarmedAttacks;
 
         currentCharacter.simpleWeapons = simpleWeaponsField.value;
         currentCharacter.martialWeapons = martialWeaponsField.value;
         currentCharacter.advancedWeapons = advancedWeaponsField.value;
         currentCharacter.unarmedAttack = unarmedAttackField.value;
 
-        unarmoredDefenseField.value = db2.classes.Find(a => a.id == selectedClass).defenses.unarmored;
+        unarmoredDefenseField.value = db2
+            .classes.Find(a => a.id == selectedClass)
+            .defenses.unarmored;
         lightArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.lightArmor;
         mediumArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.mediumArmor;
         allArmorField.value = db2.classes.Find(a => a.id == selectedClass).defenses.allArmor;
@@ -850,12 +1063,12 @@ public class CharacterCreationScript : MonoBehaviour
         ClassInfo selectedClassObj = db2.classes.Find(a => a.id == selectedClass); //make a Class object
         string boost = selectedClassObj.attributeBoost; //get that classes's boost (classes only have one)
         ClearClassContributions();
-        ApplyClassBoosts(boost); //pass in 
+        ApplyClassBoosts(boost); //pass in
         RefreshAttributeFields();
 
         currentCharacter.className = selectedClass;
     }
- 
+
     void PopulateClassFeatButtons(string className)
     {
         classFeatsRadioButtonGroup.Clear(); //clear out past buttons
@@ -863,10 +1076,7 @@ public class CharacterCreationScript : MonoBehaviour
         ClassInfo selectedClass = db2.classes.Find(a => a.id == className);
         foreach (string classFeat in selectedClass.classFeat)
         {
-            var rb = new RadioButton
-            {
-                text = classFeat
-            };
+            var rb = new RadioButton { text = classFeat };
             rb.AddToClassList("pill-radio"); //add custom class for styling
             classFeatsRadioButtonGroup.Add(rb);
         }
@@ -878,7 +1088,8 @@ public class CharacterCreationScript : MonoBehaviour
     void OnClassFeatChanged(ChangeEvent<int> evt)
     {
         //guards against -1, which is when no button is selected
-        if (evt.newValue < 0) {
+        if (evt.newValue < 0)
+        {
             return;
         }
 
@@ -894,10 +1105,7 @@ public class CharacterCreationScript : MonoBehaviour
         ClassInfo selectedClass = db2.classes.Find(a => a.id == className);
         foreach (string subclass in selectedClass.subclass)
         {
-            var rb = new RadioButton
-            {
-                text = subclass
-            };
+            var rb = new RadioButton { text = subclass };
             rb.AddToClassList("pill-radio");
             subclassRadioButtonGroup.Add(rb);
         }
@@ -909,7 +1117,8 @@ public class CharacterCreationScript : MonoBehaviour
     void OnSubclassChanged(ChangeEvent<int> evt)
     {
         //guards against -1, which is when no button is selected
-        if (evt.newValue < 0) {
+        if (evt.newValue < 0)
+        {
             return;
         }
 
@@ -923,7 +1132,8 @@ public class CharacterCreationScript : MonoBehaviour
         ClassInfo selectedClass = db2.classes.Find(a => a.id == className);
         classDescriptionLabel.text = "Description: " + selectedClass.description;
 
-        classBoostsLabel.text = "Attribute Boosts: " + string.Join(", ", selectedClass.attributeBoost);
+        classBoostsLabel.text =
+            "Attribute Boosts: " + string.Join(", ", selectedClass.attributeBoost);
         classSkillsLabel.text = "Class Skills: " + string.Join(", ", selectedClass.skills);
     }
 
@@ -977,6 +1187,7 @@ public class CharacterCreationScript : MonoBehaviour
             entry.ancestry = 0;
         }
     }
+
     void ApplyAncestryBoosts(List<string> boosts) //pass in what boosts from ancestry to update
     {
         foreach (string boost in boosts)
@@ -984,10 +1195,12 @@ public class CharacterCreationScript : MonoBehaviour
             attributes[boost].ancestry++;
         }
     }
+
     void ApplyAncestryFlaw(string flaw) //pass in what flaw from ancestry to update
     {
         attributes[flaw].ancestry--;
     }
+
     void ClearAncestryFreeChoiceContributions() //ancestry free choice is reset
     {
         foreach (var entry in attributes.Values)
@@ -995,10 +1208,12 @@ public class CharacterCreationScript : MonoBehaviour
             entry.ancestryFreeChoice = 0;
         }
     }
+
     void ApplyAncestryFreeChoiceBoosts(string boost) //pass in what boost from ancestry to update
     {
         attributes[boost].ancestryFreeChoice++;
     }
+
     void ClearBackgroundContributions() //just background is reset
     {
         foreach (var entry in attributes.Values)
@@ -1006,10 +1221,12 @@ public class CharacterCreationScript : MonoBehaviour
             entry.background = 0;
         }
     }
+
     void ApplyBackgroundBoosts(string boost) //pass in what boosts from background to update
     {
         attributes[boost].background++;
     }
+
     void ClearBackgroundFreeChoiceContributions() //background free choice is reset
     {
         foreach (var entry in attributes.Values)
@@ -1017,6 +1234,7 @@ public class CharacterCreationScript : MonoBehaviour
             entry.backgroundFreeChoice = 0;
         }
     }
+
     void ApplyBackgroundFreeChoiceBoosts(string boost) //pass in what boost from background to update
     {
         attributes[boost].backgroundFreeChoice++;
@@ -1029,18 +1247,20 @@ public class CharacterCreationScript : MonoBehaviour
             entry.className = 0;
         }
     }
+
     void ApplyClassBoosts(string boost) //pass in what boost from class to update; only ever one for classes
     {
         attributes[boost].className++;
     }
+
     void RefreshAttributeFields() //lastly, update the display fields
     {
-        strengthAttributeField.value     = attributes["Strength"].attributeTotal;
-        dexterityAttributeField.value    = attributes["Dexterity"].attributeTotal;
+        strengthAttributeField.value = attributes["Strength"].attributeTotal;
+        dexterityAttributeField.value = attributes["Dexterity"].attributeTotal;
         constitutionAttributeField.value = attributes["Constitution"].attributeTotal;
         intelligenceAttributeField.value = attributes["Intelligence"].attributeTotal;
-        wisdomAttributeField.value       = attributes["Wisdom"].attributeTotal;
-        charismaAttributeField.value     = attributes["Charisma"].attributeTotal;
+        wisdomAttributeField.value = attributes["Wisdom"].attributeTotal;
+        charismaAttributeField.value = attributes["Charisma"].attributeTotal;
 
         currentCharacter.strength = strengthAttributeField.value;
         currentCharacter.dexterity = dexterityAttributeField.value;
@@ -1070,7 +1290,6 @@ public class CharacterCreationScript : MonoBehaviour
 
     void HoverOverElement(VisualElement element, string tooltipText)
     {
-
         //on hover
         element.RegisterCallback<MouseEnterEvent>(evt =>
         {

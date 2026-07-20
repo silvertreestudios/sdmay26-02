@@ -18,7 +18,8 @@ namespace Game.Rules.Runtime
         internal RuleDefinition(
             RuleDefinitionId id,
             IReadOnlyList<MiddlewareRegistration> middleware,
-            IReadOnlyList<FactListenerRegistration> factListeners)
+            IReadOnlyList<FactListenerRegistration> factListeners
+        )
         {
             Id = id;
             Middleware = middleware;
@@ -78,7 +79,8 @@ namespace Game.Rules.Runtime
         /// </exception>
         public RuleDefinitionBuilder Middleware<TOp, TResult>(
             RuleLifecyclePhase phase,
-            IOpMiddleware<TOp, TResult> value)
+            IOpMiddleware<TOp, TResult> value
+        )
             where TOp : IRuleOp<TResult>
         {
             if (value == null)
@@ -87,11 +89,13 @@ namespace Game.Rules.Runtime
             if (middleware.Any(item => item.OperationType == typeof(TOp) && item.Phase == phase))
             {
                 throw new InvalidOperationException(
-                    $"Definition {Id.Value} already registers {typeof(TOp).Name} middleware in {phase}.");
+                    $"Definition {Id.Value} already registers {typeof(TOp).Name} middleware in {phase}."
+                );
             }
 
-            middleware.Add(new TypedMiddlewareRegistration<TOp, TResult>(
-                phase, registrationOrder++, value));
+            middleware.Add(
+                new TypedMiddlewareRegistration<TOp, TResult>(phase, registrationOrder++, value)
+            );
             return this;
         }
 
@@ -108,12 +112,17 @@ namespace Game.Rules.Runtime
         /// </exception>
         public RuleDefinitionBuilder FactListener<TFact>(
             RuleLifecyclePhase phase,
-            IFactListener<TFact> value)
+            IRuleFactListener<TFact> value
+        )
             where TFact : RuleFact
         {
             AddFactListener(
-                typeof(TFact), phase, false, value,
-                order => new TypedFactListenerRegistration<TFact>(phase, order, value));
+                typeof(TFact),
+                phase,
+                false,
+                value,
+                order => new TypedFactListenerRegistration<TFact>(phase, order, value)
+            );
             return this;
         }
 
@@ -130,12 +139,17 @@ namespace Game.Rules.Runtime
         /// </exception>
         public RuleDefinitionBuilder FactBatchListener<TFact>(
             RuleLifecyclePhase phase,
-            IFactBatchListener<TFact> value)
+            IRuleFactBatchListener<TFact> value
+        )
             where TFact : RuleFact
         {
             AddFactListener(
-                typeof(TFact), phase, true, value,
-                order => new TypedFactBatchListenerRegistration<TFact>(phase, order, value));
+                typeof(TFact),
+                phase,
+                true,
+                value,
+                order => new TypedFactBatchListenerRegistration<TFact>(phase, order, value)
+            );
             return this;
         }
 
@@ -146,7 +160,8 @@ namespace Game.Rules.Runtime
             return new RuleDefinition(
                 Id,
                 Array.AsReadOnly(middlewareCopy),
-                Array.AsReadOnly(listenerCopy));
+                Array.AsReadOnly(listenerCopy)
+            );
         }
 
         private void AddFactListener(
@@ -154,16 +169,21 @@ namespace Game.Rules.Runtime
             RuleLifecyclePhase phase,
             bool isBatch,
             object value,
-            Func<long, FactListenerRegistration> create)
+            Func<long, FactListenerRegistration> create
+        )
         {
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
             RequirePhase(phase);
-            if (factListeners.Any(item =>
-                item.FactType == factType && item.Phase == phase && item.IsBatch == isBatch))
+            if (
+                factListeners.Any(item =>
+                    item.FactType == factType && item.Phase == phase && item.IsBatch == isBatch
+                )
+            )
             {
                 throw new InvalidOperationException(
-                    $"Definition {Id.Value} already registers this {factType.Name} listener in {phase}.");
+                    $"Definition {Id.Value} already registers this {factType.Name} listener in {phase}."
+                );
             }
             factListeners.Add(create(registrationOrder++));
         }
@@ -175,7 +195,8 @@ namespace Game.Rules.Runtime
                 throw new ArgumentOutOfRangeException(
                     nameof(phase),
                     phase,
-                    "Rule extensions must use a defined semantic lifecycle phase.");
+                    "Rule extensions must use a defined semantic lifecycle phase."
+                );
             }
         }
     }

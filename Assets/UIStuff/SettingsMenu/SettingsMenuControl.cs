@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
-using UnityEngine.UIElements;
 using UnityEngine.Audio;
+using UnityEngine.UIElements;
 
 public class SettingsMenuControl : MonoBehaviour
 {
@@ -48,7 +48,7 @@ public class SettingsMenuControl : MonoBehaviour
         {
             masterVolumeSlider.value = PlayerPrefs.GetFloat(MasterVolumeKey, 0.5f);
             SetVolume("MasterVolume", masterVolumeSlider.value);
-            masterVolumeSlider.RegisterValueChangedCallback(evt => 
+            masterVolumeSlider.RegisterValueChangedCallback(evt =>
             {
                 PlayerPrefs.SetFloat(MasterVolumeKey, evt.newValue);
                 SetVolume("MasterVolume", evt.newValue);
@@ -60,7 +60,7 @@ public class SettingsMenuControl : MonoBehaviour
         {
             musicVolumeSlider.value = PlayerPrefs.GetFloat(MusicVolumeKey, 0.5f);
             SetVolume("MusicVolume", musicVolumeSlider.value);
-            musicVolumeSlider.RegisterValueChangedCallback(evt => 
+            musicVolumeSlider.RegisterValueChangedCallback(evt =>
             {
                 PlayerPrefs.SetFloat(MusicVolumeKey, evt.newValue);
                 SetVolume("MusicVolume", evt.newValue);
@@ -72,7 +72,7 @@ public class SettingsMenuControl : MonoBehaviour
         {
             sfxVolumeSlider.value = PlayerPrefs.GetFloat(SFXVolumeKey, 0.5f);
             SetVolume("SFXVolume", sfxVolumeSlider.value);
-            sfxVolumeSlider.RegisterValueChangedCallback(evt => 
+            sfxVolumeSlider.RegisterValueChangedCallback(evt =>
             {
                 PlayerPrefs.SetFloat(SFXVolumeKey, evt.newValue);
                 SetVolume("SFXVolume", evt.newValue);
@@ -105,8 +105,10 @@ public class SettingsMenuControl : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (backButton != null) backButton.clicked -= Close;
-        if (logOpacitySlider != null) logOpacitySlider.UnregisterValueChangedCallback(OnOpacitySliderChanged);
+        if (backButton != null)
+            backButton.clicked -= Close;
+        if (logOpacitySlider != null)
+            logOpacitySlider.UnregisterValueChangedCallback(OnOpacitySliderChanged);
     }
 
     private void OnOpacitySliderChanged(ChangeEvent<float> evt)
@@ -115,7 +117,7 @@ public class SettingsMenuControl : MonoBehaviour
         OnLogOpacityChanged?.Invoke(evt.newValue);
     }
 
-public bool IsOpen => ui.style.display == DisplayStyle.Flex;
+    public bool IsOpen => ui.style.display == DisplayStyle.Flex;
 
     public void Open(Action onClose = null)
     {

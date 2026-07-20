@@ -65,7 +65,9 @@ namespace Game.Rules.Runtime
         internal void Stamp(FactId id, OpId sourceOpId, OpId rootOpId, RuleSource source)
         {
             if (IsStamped)
-                throw new InvalidOperationException("A Rule Fact cannot be stamped more than once.");
+                throw new InvalidOperationException(
+                    "A Rule Fact cannot be stamped more than once."
+                );
 
             Id = id;
             SourceOpId = sourceOpId;
@@ -82,9 +84,7 @@ namespace Game.Rules.Runtime
     {
         private readonly List<RuleFact> stagedFacts = new List<RuleFact>();
 
-        internal FactSink()
-        {
-        }
+        internal FactSink() { }
 
         internal int Count => stagedFacts.Count;
 
@@ -93,9 +93,13 @@ namespace Game.Rules.Runtime
             if (fact == null)
                 throw new ArgumentNullException(nameof(fact));
             if (fact.IsStamped)
-                throw new InvalidOperationException("Feature code cannot stage a pre-stamped Fact.");
+                throw new InvalidOperationException(
+                    "Feature code cannot stage a pre-stamped Fact."
+                );
             if (stagedFacts.Exists(staged => ReferenceEquals(staged, fact)))
-                throw new InvalidOperationException("The same Rule Fact instance cannot be staged more than once.");
+                throw new InvalidOperationException(
+                    "The same Rule Fact instance cannot be staged more than once."
+                );
 
             stagedFacts.Add(fact);
         }
@@ -108,7 +112,9 @@ namespace Game.Rules.Runtime
 
     public sealed class ReductionResult<TResult>
     {
-        private static readonly IReadOnlyList<RuleFact> NoFacts = Array.AsReadOnly(Array.Empty<RuleFact>());
+        private static readonly IReadOnlyList<RuleFact> NoFacts = Array.AsReadOnly(
+            Array.Empty<RuleFact>()
+        );
         private readonly RulesSnapshot snapshot;
 
         public bool IsAccepted { get; }
@@ -118,8 +124,11 @@ namespace Game.Rules.Runtime
         public string RejectionReason { get; }
         public IReadOnlyList<RuleFact> Facts { get; }
 
-        public RulesSnapshot Snapshot => snapshot ?? throw new InvalidOperationException(
-            "Only a result returned by IRulesStore has a committed snapshot.");
+        public RulesSnapshot Snapshot =>
+            snapshot
+            ?? throw new InvalidOperationException(
+                "Only a result returned by IRulesStore has a committed snapshot."
+            );
 
         private ReductionResult(
             bool isAccepted,
@@ -127,7 +136,8 @@ namespace Game.Rules.Runtime
             string rejectionReason,
             bool didCommit,
             RulesSnapshot snapshot,
-            IReadOnlyList<RuleFact> facts)
+            IReadOnlyList<RuleFact> facts
+        )
         {
             IsAccepted = isAccepted;
             Value = value;
@@ -145,14 +155,18 @@ namespace Game.Rules.Runtime
         public static ReductionResult<TResult> Reject(string reason)
         {
             if (string.IsNullOrWhiteSpace(reason))
-                throw new ArgumentException("A rejected reduction requires a reason.", nameof(reason));
+                throw new ArgumentException(
+                    "A rejected reduction requires a reason.",
+                    nameof(reason)
+                );
             return new ReductionResult<TResult>(false, default, reason, false, null, NoFacts);
         }
 
         internal ReductionResult<TResult> Complete(
             RulesSnapshot completedSnapshot,
             IReadOnlyList<RuleFact> facts,
-            bool didCommit)
+            bool didCommit
+        )
         {
             return new ReductionResult<TResult>(
                 IsAccepted,
@@ -160,7 +174,8 @@ namespace Game.Rules.Runtime
                 RejectionReason,
                 didCommit,
                 completedSnapshot,
-                facts);
+                facts
+            );
         }
     }
 
@@ -186,7 +201,8 @@ namespace Game.Rules.Runtime
         ReductionResult<TResult> Reduce(
             ReductionContext<TOp> context,
             RulesStateDraft state,
-            FactSink facts);
+            FactSink facts
+        );
     }
 
     /// <summary>
@@ -211,7 +227,8 @@ namespace Game.Rules.Runtime
         /// </returns>
         ReductionResult<TResult> Reduce<TOp, TResult>(
             ReductionContext<TOp> context,
-            IOpReducer<TOp, TResult> reducer)
+            IOpReducer<TOp, TResult> reducer
+        )
             where TOp : IRuleOp<TResult>;
     }
 
@@ -223,9 +240,7 @@ namespace Game.Rules.Runtime
         private bool isReducing;
 
         public InMemoryRulesStore()
-            : this(new RulesStateSeed())
-        {
-        }
+            : this(new RulesStateSeed()) { }
 
         public InMemoryRulesStore(RulesStateSeed seed)
         {
@@ -244,7 +259,8 @@ namespace Game.Rules.Runtime
         /// <inheritdoc/>
         public ReductionResult<TResult> Reduce<TOp, TResult>(
             ReductionContext<TOp> context,
-            IOpReducer<TOp, TResult> reducer)
+            IOpReducer<TOp, TResult> reducer
+        )
             where TOp : IRuleOp<TResult>
         {
             if (context == null)
@@ -255,7 +271,9 @@ namespace Game.Rules.Runtime
             lock (gate)
             {
                 if (isReducing)
-                    throw new InvalidOperationException("A rules store cannot begin a nested reduction while another reduction is in progress.");
+                    throw new InvalidOperationException(
+                        "A rules store cannot begin a nested reduction while another reduction is in progress."
+                    );
 
                 isReducing = true;
                 try
@@ -268,13 +286,23 @@ namespace Game.Rules.Runtime
                         throw new InvalidOperationException("A reducer returned null.");
 
                     if (decision.IsRejected)
-                        return decision.Complete(startingState.Snapshot, Array.AsReadOnly(Array.Empty<RuleFact>()), false);
+                        return decision.Complete(
+                            startingState.Snapshot,
+                            Array.AsReadOnly(Array.Empty<RuleFact>()),
+                            false
+                        );
 
                     if (!draft.IsDirty && factSink.Count == 0)
-                        return decision.Complete(startingState.Snapshot, Array.AsReadOnly(Array.Empty<RuleFact>()), false);
+                        return decision.Complete(
+                            startingState.Snapshot,
+                            Array.AsReadOnly(Array.Empty<RuleFact>()),
+                            false
+                        );
 
                     if (draft.IsDirty && factSink.Count == 0)
-                        throw new InvalidOperationException("A committed state change requires at least one domain Fact.");
+                        throw new InvalidOperationException(
+                            "A committed state change requires at least one domain Fact."
+                        );
 
                     RuleFact[] committedFacts = factSink.GetStagedFacts();
                     long pendingFactId = nextFactId;
@@ -284,17 +312,21 @@ namespace Game.Rules.Runtime
                             new FactId(pendingFactId++),
                             context.SourceOpId,
                             context.RootOpId,
-                            context.Source);
+                            context.Source
+                        );
                     }
 
-                    RulesState committedState = new RulesState(draft.Build(startingState.Version + 1));
+                    RulesState committedState = new RulesState(
+                        draft.Build(startingState.Version + 1)
+                    );
                     state = committedState;
                     nextFactId = pendingFactId;
 
                     return decision.Complete(
                         committedState.Snapshot,
                         Array.AsReadOnly(committedFacts),
-                        true);
+                        true
+                    );
                 }
                 finally
                 {

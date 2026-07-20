@@ -9,12 +9,15 @@ namespace Game.Rules.Runtime
     {
         /// <summary>The total fails the difficulty class by at least 10.</summary>
         CriticalFailure,
+
         /// <summary>The total is below the difficulty class.</summary>
         Failure,
+
         /// <summary>The total meets or exceeds the difficulty class.</summary>
         Success,
+
         /// <summary>The total exceeds the difficulty class by at least 10.</summary>
-        CriticalSuccess
+        CriticalSuccess,
     }
 
     /// <summary>
@@ -33,10 +36,7 @@ namespace Game.Rules.Runtime
         /// <paramref name="naturalRoll"/> is outside 1 through 20 or
         /// <paramref name="difficultyClass"/> is not positive.
         /// </exception>
-        public static DegreeOfSuccess Resolve(
-            int naturalRoll,
-            int total,
-            int difficultyClass)
+        public static DegreeOfSuccess Resolve(int naturalRoll, int total, int difficultyClass)
         {
             if (naturalRoll < 1 || naturalRoll > 20)
                 throw new ArgumentOutOfRangeException(nameof(naturalRoll));
@@ -84,7 +84,10 @@ namespace Game.Rules.Runtime
         private CheckSource(OpId operationId)
         {
             if (operationId.IsEmpty)
-                throw new ArgumentException("A check source requires an operation ID.", nameof(operationId));
+                throw new ArgumentException(
+                    "A check source requires an operation ID.",
+                    nameof(operationId)
+                );
             OperationId = operationId;
         }
 
@@ -149,14 +152,18 @@ namespace Game.Rules.Runtime
             CheckSource source,
             RollResult roll,
             ModifierCollection modifiers,
-            int difficultyClass)
+            int difficultyClass
+        )
         {
             Actor = actor;
             Source = source;
             Roll = roll ?? throw new ArgumentNullException(nameof(roll));
             Modifiers = modifiers ?? throw new ArgumentNullException(nameof(modifiers));
             if (roll.Dice != DiceExpressions.D20)
-                throw new ArgumentException("A check outcome requires exactly one d20.", nameof(roll));
+                throw new ArgumentException(
+                    "A check outcome requires exactly one d20.",
+                    nameof(roll)
+                );
             DifficultyClass = difficultyClass;
             Total = checked(roll.Total + modifiers.Total);
             Degree = DegreeOfSuccessResolver.Resolve(roll.Values[0], Total, difficultyClass);
@@ -193,11 +200,7 @@ namespace Game.Rules.Runtime
         /// <exception cref="ArgumentOutOfRangeException">
         /// <paramref name="difficultyClass"/> is not positive.
         /// </exception>
-        public SkillCheckOp(
-            CreatureId actor,
-            Skill skill,
-            int difficultyClass,
-            CheckSource source)
+        public SkillCheckOp(CreatureId actor, Skill skill, int difficultyClass, CheckSource source)
         {
             if (actor.IsEmpty)
                 throw new ArgumentException("A skill check requires an actor.", nameof(actor));
@@ -206,7 +209,10 @@ namespace Game.Rules.Runtime
             if (difficultyClass <= 0)
                 throw new ArgumentOutOfRangeException(nameof(difficultyClass));
             if (source.IsEmpty)
-                throw new ArgumentException("A skill check requires trusted source provenance.", nameof(source));
+                throw new ArgumentException(
+                    "A skill check requires trusted source provenance.",
+                    nameof(source)
+                );
 
             Actor = actor;
             Skill = skill;
@@ -243,7 +249,8 @@ namespace Game.Rules.Runtime
             CreatureId actor,
             SaveKind save,
             int difficultyClass,
-            CheckSource source)
+            CheckSource source
+        )
         {
             if (actor.IsEmpty)
                 throw new ArgumentException("A saving throw requires an actor.", nameof(actor));
@@ -252,7 +259,10 @@ namespace Game.Rules.Runtime
             if (difficultyClass <= 0)
                 throw new ArgumentOutOfRangeException(nameof(difficultyClass));
             if (source.IsEmpty)
-                throw new ArgumentException("A saving throw requires trusted source provenance.", nameof(source));
+                throw new ArgumentException(
+                    "A saving throw requires trusted source provenance.",
+                    nameof(source)
+                );
 
             Actor = actor;
             Save = save;
@@ -260,5 +270,4 @@ namespace Game.Rules.Runtime
             Source = source;
         }
     }
-
 }

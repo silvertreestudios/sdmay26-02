@@ -5,7 +5,8 @@ public class SignBubbleController : MonoBehaviour
 {
     public static SignBubbleController Instance { get; private set; }
 
-    [SerializeField] UIDocument Document;
+    [SerializeField]
+    UIDocument Document;
 
     VisualElement _root;
     Label _text;
@@ -37,14 +38,23 @@ public class SignBubbleController : MonoBehaviour
 
     void Update()
     {
-        if (!_open) return;
+        if (!_open)
+            return;
 
         transform.rotation = Camera.main.transform.rotation;
 
         _timer -= Time.deltaTime;
-        if (_timer <= 0f) { Hide(); return; }
+        if (_timer <= 0f)
+        {
+            Hide();
+            return;
+        }
 
-        if (_skipFrame) { _skipFrame = false; return; }
+        if (_skipFrame)
+        {
+            _skipFrame = false;
+            return;
+        }
         if (InputCompat.LeftClickDown())
             Hide();
     }

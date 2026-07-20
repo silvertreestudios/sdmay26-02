@@ -23,9 +23,7 @@ public sealed class CombatLogDamagePart
     public string DamageType { get; set; } = string.Empty;
     public int Amount { get; set; }
 
-    public CombatLogDamagePart()
-    {
-    }
+    public CombatLogDamagePart() { }
 
     public CombatLogDamagePart(string damageType, int amount)
     {
@@ -33,4 +31,3 @@ public sealed class CombatLogDamagePart
         Amount = amount;
     }
 }
-

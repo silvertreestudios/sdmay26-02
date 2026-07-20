@@ -37,8 +37,13 @@ namespace Game.Creature.Rules
             int rolled = Math.Max(0, context.DiceRoller.Roll(diceCount, 6));
             DamageRollResolution resolution = DamageRoller.StartDamageResolution(
                 new List<Dice>(),
-                new List<DamageValue> { new DamageValue("void", rolled) });
-            DamageRoller.ApplyWeaknessAndResistance(resolution, target.weaknesses, target.resistances);
+                new List<DamageValue> { new DamageValue("void", rolled) }
+            );
+            DamageRoller.ApplyWeaknessAndResistance(
+                resolution,
+                target.weaknesses,
+                target.resistances
+            );
             DamageRoller.FinalizeDamageResolution(resolution);
             target.TakeDamage((uint)Mathf.Max(0, resolution.TotalDamage));
 
@@ -50,7 +55,7 @@ namespace Game.Creature.Rules
                 RuleSlug = RuleSlug,
                 RolledDamage = rolled,
                 AppliedDamage = resolution.TotalDamage,
-                DamageResolution = resolution
+                DamageResolution = resolution,
             };
             LogAuraDamage(result);
             return new[] { result };
@@ -59,7 +64,9 @@ namespace Game.Creature.Rules
         private static bool HasTrait(CreatureComponent creature, string trait)
         {
             return creature?.traits != null
-                && creature.traits.Any(value => string.Equals(value, trait, StringComparison.OrdinalIgnoreCase));
+                && creature.traits.Any(value =>
+                    string.Equals(value, trait, StringComparison.OrdinalIgnoreCase)
+                );
         }
 
         private static void LogAuraDamage(CreatureAuraEffectResult result)
@@ -78,8 +85,12 @@ namespace Game.Creature.Rules
                 Actor = result.Source != null ? result.Source.name : string.Empty,
                 Target = result.Target != null ? result.Target.name : string.Empty,
                 Action = result.Aura?.name ?? "Rotting Aura",
-                Message = (result.Target != null ? result.Target.name : "Target") + " takes " + result.AppliedDamage + " void damage from Rotting Aura.",
-                Damage = result.DamageResolution?.Damage
+                Message =
+                    (result.Target != null ? result.Target.name : "Target")
+                    + " takes "
+                    + result.AppliedDamage
+                    + " void damage from Rotting Aura.",
+                Damage = result.DamageResolution?.Damage,
             };
             entry.Tags.Add("aura");
             entry.Tags.Add(RuleSlug);

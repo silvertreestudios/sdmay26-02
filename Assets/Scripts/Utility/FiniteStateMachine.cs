@@ -1,11 +1,13 @@
-using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
-public class FiniteStateMachine <T> where T : IFSMState<T>
-{
+using UnityEngine;
 
-    public T CurrentState { get; protected set;}
+public class FiniteStateMachine<T>
+    where T : IFSMState<T>
+{
+    public T CurrentState { get; protected set; }
     protected T PreviousState;
+
     //public idle to the states themselves can set the FSM back to idle upon exiting, may change this to be handled by the API
     public bool IsInTransition { get; private set; } = false;
 
@@ -23,13 +25,15 @@ public class FiniteStateMachine <T> where T : IFSMState<T>
     protected void StateTransition(T newState)
     {
         IsInTransition = true;
-        if (CurrentState != null)CurrentState.Exit();
+        if (CurrentState != null)
+            CurrentState.Exit();
         //Debug.Log($"[FiniteStateMachine] Exited state: {currentState?.GetType().Name}");
-        
+
         PreviousState = CurrentState;
         CurrentState = newState;
 
-        if(CurrentState != null) CurrentState.Enter(this);
+        if (CurrentState != null)
+            CurrentState.Enter(this);
 
         IsInTransition = false;
         //Debug.Log($"[FiniteStateMachine] Entered state: {currentState?.GetType().Name}");
@@ -37,9 +41,8 @@ public class FiniteStateMachine <T> where T : IFSMState<T>
 
     public void RevertState()
     {
-        if (PreviousState != null) ChangeState(PreviousState);
+        if (PreviousState != null)
+            ChangeState(PreviousState);
         //else Debug.LogWarning("[FiniteStateMachine] No previous state to revert to.");
     }
-
-    
 }

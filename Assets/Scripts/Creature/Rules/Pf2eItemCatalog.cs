@@ -1,6 +1,6 @@
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace Game.Creature.Rules
@@ -11,8 +11,12 @@ namespace Game.Creature.Rules
     public sealed class Pf2eItemCatalog
     {
         private readonly Dictionary<string, Pf2eItem> bySlug = new();
-        private readonly Dictionary<string, Pf2eItem> byName = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, Pf2eItem> byUuid = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Pf2eItem> byName = new(
+            StringComparer.OrdinalIgnoreCase
+        );
+        private readonly Dictionary<string, Pf2eItem> byUuid = new(
+            StringComparer.OrdinalIgnoreCase
+        );
         private readonly List<Pf2eItem> items = new();
         private static Pf2eItemCatalog instance;
 
@@ -77,7 +81,10 @@ namespace Game.Creature.Rules
                 return item;
 
             string nameFromUuid = ExtractUuidItemName(trimmed);
-            if (!string.IsNullOrWhiteSpace(nameFromUuid) && TryResolveByNameOrSlug(nameFromUuid, out item))
+            if (
+                !string.IsNullOrWhiteSpace(nameFromUuid)
+                && TryResolveByNameOrSlug(nameFromUuid, out item)
+            )
                 return item;
 
             return TryResolveByNameOrSlug(trimmed, out item) ? item : null;
@@ -102,7 +109,11 @@ namespace Game.Creature.Rules
             return bySlug.TryGetValue(slug, out item);
         }
 
-        private static void Index(Dictionary<string, Pf2eItem> dictionary, string key, Pf2eItem item)
+        private static void Index(
+            Dictionary<string, Pf2eItem> dictionary,
+            string key,
+            Pf2eItem item
+        )
         {
             if (!string.IsNullOrWhiteSpace(key) && !dictionary.ContainsKey(key))
                 dictionary.Add(key, item);
@@ -110,7 +121,8 @@ namespace Game.Creature.Rules
 
         private static IEnumerable<string> GenerateUuidAliases(Pf2eItem item)
         {
-            string sourceId = item.Json.SelectToken("flags.core.sourceId")?.Value<string>()
+            string sourceId =
+                item.Json.SelectToken("flags.core.sourceId")?.Value<string>()
                 ?? item.Json.SelectToken("flags.pf2e.sourceId")?.Value<string>()
                 ?? item.Json.SelectToken("system.source.value")?.Value<string>();
             if (!string.IsNullOrWhiteSpace(sourceId))
@@ -123,7 +135,7 @@ namespace Game.Creature.Rules
                 "actionspf2e",
                 "feat-effects",
                 "feats-srd",
-                "conditionitems"
+                "conditionitems",
             };
 
             foreach (string pack in commonPacks)

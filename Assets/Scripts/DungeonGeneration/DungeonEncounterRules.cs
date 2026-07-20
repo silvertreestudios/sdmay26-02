@@ -10,7 +10,15 @@ namespace Game.DungeonGeneration
     {
         private static readonly int[] CreatureXpByRelativeLevel =
         {
-            10, 15, 20, 30, 40, 60, 80, 120, 160
+            10,
+            15,
+            20,
+            30,
+            40,
+            60,
+            80,
+            120,
+            160,
         };
 
         /// <summary>Calculates the adjusted XP budget for a party and supported threat.</summary>

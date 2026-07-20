@@ -24,7 +24,8 @@ namespace Game.Rules.Runtime
         internal OpCallbackContext(
             RuleDispatcher dispatcher,
             OpId parentId,
-            CallbackWorkCoordinator work)
+            CallbackWorkCoordinator work
+        )
         {
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
             this.parentId = parentId;
@@ -92,18 +93,19 @@ namespace Game.Rules.Runtime
             return work.StartDispatch(
                 () => dispatcher.DispatchNested(op, parentId),
                 "An operation context is not actively executing after its callback returns.",
-                $"Operation {parentId.Value} cannot begin an overlapping child dispatch. " +
-                "Await the active child before dispatching another.",
-                $"Operation {parentId.Value} cannot begin an overlapping child dispatch while " +
-                "its middleware continuation is active. Await the continuation before " +
-                "dispatching a child.");
+                $"Operation {parentId.Value} cannot begin an overlapping child dispatch. "
+                    + "Await the active child before dispatching another.",
+                $"Operation {parentId.Value} cannot begin an overlapping child dispatch while "
+                    + "its middleware continuation is active. Await the continuation before "
+                    + "dispatching a child."
+            );
         }
 
         internal ValueTask<CallbackWorkCompletion> CompleteInvocation() =>
             work.CompleteInvocation("An operation context completed more than once.");
 
-        internal void RequireActive() => work.RequireActive(
-            "An operation context cannot be used after its callback returns.");
+        internal void RequireActive() =>
+            work.RequireActive("An operation context cannot be used after its callback returns.");
 
         private sealed class CallbackRollService : IRollService
         {
@@ -114,7 +116,8 @@ namespace Game.Rules.Runtime
             public CallbackRollService(
                 OpCallbackContext owner,
                 RuleDispatcher dispatcher,
-                OpId operationId)
+                OpId operationId
+            )
             {
                 this.owner = owner;
                 this.dispatcher = dispatcher;
@@ -141,10 +144,9 @@ namespace Game.Rules.Runtime
         private OpHandlerContext(
             RuleDispatcher dispatcher,
             OpId parentId,
-            CallbackWorkCoordinator work)
-            : base(dispatcher, parentId, work)
-        {
-        }
+            CallbackWorkCoordinator work
+        )
+            : base(dispatcher, parentId, work) { }
 
         internal static OpHandlerContext Create(RuleDispatcher dispatcher, OpId parentId) =>
             new OpHandlerContext(dispatcher, parentId, new CallbackWorkCoordinator());
@@ -166,7 +168,8 @@ namespace Game.Rules.Runtime
             RuleDispatcher dispatcher,
             OpId parentId,
             ActiveRuleBinding binding,
-            CallbackWorkCoordinator work)
+            CallbackWorkCoordinator work
+        )
             : base(dispatcher, parentId, work)
         {
             this.binding = binding ?? throw new ArgumentNullException(nameof(binding));
@@ -193,7 +196,7 @@ namespace Game.Rules.Runtime
             RuleDispatcher dispatcher,
             OpId parentId,
             ActiveRuleBinding binding,
-            CallbackWorkCoordinator work) =>
-            new OpMiddlewareContext(dispatcher, parentId, binding, work);
+            CallbackWorkCoordinator work
+        ) => new OpMiddlewareContext(dispatcher, parentId, binding, work);
     }
 }

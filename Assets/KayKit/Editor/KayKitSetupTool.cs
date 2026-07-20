@@ -25,17 +25,18 @@ namespace Game.KayKit.Editor
         private static readonly IReadOnlyDictionary<string, string> SourceAtlasByModel =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                { "arrow_bow", "ranger_texture" }
+                { "arrow_bow", "ranger_texture" },
             };
 
-        private static readonly HashSet<string> DungeonLineOfSightOverrides =
-            new(StringComparer.OrdinalIgnoreCase)
-            {
-                "barrel_small",
-                "column",
-                "crates_stacked",
-                "shelf_large"
-            };
+        private static readonly HashSet<string> DungeonLineOfSightOverrides = new(
+            StringComparer.OrdinalIgnoreCase
+        )
+        {
+            "barrel_small",
+            "column",
+            "crates_stacked",
+            "shelf_large",
+        };
 
         private static readonly PackDescriptor[] Packs =
         {
@@ -45,28 +46,32 @@ namespace Game.KayKit.Editor
                 "1.1",
                 "https://kaylousberg.itch.io/kaykit-dungeon-remastered",
                 211,
-                1),
+                1
+            ),
             new(
                 KayKitPathUtility.AdventurersRoot,
                 "Adventurers",
                 "2.0",
                 "https://kaylousberg.itch.io/kaykit-adventurers",
                 37,
-                5),
+                5
+            ),
             new(
                 KayKitPathUtility.SkeletonsRoot,
                 "Skeletons",
                 "1.1",
                 "https://kaylousberg.itch.io/kaykit-skeletons",
                 17,
-                1),
+                1
+            ),
             new(
                 KayKitPathUtility.AnimationsRoot,
                 "Character Animations",
                 "1.1",
                 "https://kaylousberg.itch.io/kaykit-character-animations",
                 8,
-                0)
+                0
+            ),
         };
 
         [MenuItem("Tools/KayKit/Reimport Vendor Tree")]
@@ -74,7 +79,8 @@ namespace Game.KayKit.Editor
         {
             AssetDatabase.ImportAsset(
                 KayKitPathUtility.VendorRoot,
-                ImportAssetOptions.ForceUpdate | ImportAssetOptions.ImportRecursive);
+                ImportAssetOptions.ForceUpdate | ImportAssetOptions.ImportRecursive
+            );
         }
 
         [MenuItem("Tools/KayKit/Regenerate Project Assets")]
@@ -112,20 +118,25 @@ namespace Game.KayKit.Editor
         public static void RegenerateDungeonAssets()
         {
             Material material = AssetDatabase.LoadAssetAtPath<Material>(
-                MaterialRoot + "/KayKitDungeon_dungeon_texture.mat");
+                MaterialRoot + "/KayKitDungeon_dungeon_texture.mat"
+            );
             if (material == null)
             {
                 throw new InvalidOperationException(
-                    "The generated KayKit dungeon material is missing. Run Regenerate Project Assets first.");
+                    "The generated KayKit dungeon material is missing. Run Regenerate Project Assets first."
+                );
             }
 
             EnsureProjectFolders();
             KayKitDungeonSetupTool.RegenerateGeneratedFloorPrefabs(material);
             KayKitDungeonSetupTool.RegenerateWallPrefabs(material);
-            KayKitDungeonCatalog catalog =
-                AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(DungeonCatalogPath);
+            KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+                DungeonCatalogPath
+            );
             if (catalog == null)
-                throw new InvalidOperationException("The generated KayKit dungeon catalog is missing.");
+                throw new InvalidOperationException(
+                    "The generated KayKit dungeon catalog is missing."
+                );
             catalog.ReplaceEntries(catalog.Entries.Select(ApplyAuditedDungeonSemantics));
 
             catalog.ConfigureStructure(
@@ -134,7 +145,8 @@ namespace Game.KayKit.Editor
                 KayKitDungeonSetupTool.LoadWallResolverPrefab(),
                 KayKitDungeonSetupTool.LoadDoorwayPrefab(),
                 KayKitDungeonSetupTool.LoadClosedDoorPrefab(),
-                KayKitDungeonSetupTool.LoadStairPrefab());
+                KayKitDungeonSetupTool.LoadStairPrefab()
+            );
             EditorUtility.SetDirty(catalog);
             AssetDatabase.SaveAssets();
         }
@@ -162,19 +174,31 @@ namespace Game.KayKit.Editor
                     continue;
                 }
 
-                string[] packFiles = AssetDatabase.FindAssets(string.Empty, new[] { pack.Root })
+                string[] packFiles = AssetDatabase
+                    .FindAssets(string.Empty, new[] { pack.Root })
                     .Select(AssetDatabase.GUIDToAssetPath)
                     .Where(File.Exists)
                     .ToArray();
                 int fbxCount = packFiles.Count(path =>
-                    string.Equals(Path.GetExtension(path), ".fbx", StringComparison.OrdinalIgnoreCase));
+                    string.Equals(
+                        Path.GetExtension(path),
+                        ".fbx",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                );
                 int pngCount = packFiles.Count(path =>
-                    string.Equals(Path.GetExtension(path), ".png", StringComparison.OrdinalIgnoreCase));
+                    string.Equals(
+                        Path.GetExtension(path),
+                        ".png",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                );
                 if (fbxCount != pack.ExpectedFbxCount || pngCount != pack.ExpectedPngCount)
                 {
                     errors.Add(
-                        $"{pack.Name} inventory is {fbxCount} FBX/{pngCount} PNG; " +
-                        $"expected {pack.ExpectedFbxCount} FBX/{pack.ExpectedPngCount} PNG.");
+                        $"{pack.Name} inventory is {fbxCount} FBX/{pngCount} PNG; "
+                            + $"expected {pack.ExpectedFbxCount} FBX/{pack.ExpectedPngCount} PNG."
+                    );
                 }
 
                 string licensePath = pack.Root + "/License.txt";
@@ -185,11 +209,26 @@ namespace Game.KayKit.Editor
             string[] vendorFiles = GetVendorFilePaths();
             string[] forbiddenExtensions =
             {
-                ".gltf", ".glb", ".obj", ".bin", ".blend", ".zip", ".rar",
-                ".7z", ".url", ".unity", ".unitypackage"
+                ".gltf",
+                ".glb",
+                ".obj",
+                ".bin",
+                ".blend",
+                ".zip",
+                ".rar",
+                ".7z",
+                ".url",
+                ".unity",
+                ".unitypackage",
             };
-            foreach (string path in vendorFiles.Where(path =>
-                         forbiddenExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)))
+            foreach (
+                string path in vendorFiles.Where(path =>
+                    forbiddenExtensions.Contains(
+                        Path.GetExtension(path),
+                        StringComparer.OrdinalIgnoreCase
+                    )
+                )
+            )
             {
                 errors.Add($"Excluded file type is present: {path}");
             }
@@ -202,8 +241,14 @@ namespace Game.KayKit.Editor
                 .ToArray();
             string[] expectedCategories =
             {
-                "General", "MovementBasic", "MovementAdvanced", "CombatMelee",
-                "CombatRanged", "Simulation", "Special", "Tools"
+                "General",
+                "MovementBasic",
+                "MovementAdvanced",
+                "CombatMelee",
+                "CombatRanged",
+                "Simulation",
+                "Special",
+                "Tools",
             };
             foreach (string category in expectedCategories)
             {
@@ -211,7 +256,9 @@ namespace Game.KayKit.Editor
                     errors.Add($"Missing Rig_Medium animation set: {category}");
             }
             if (animationSources.Length != expectedCategories.Length)
-                errors.Add($"Expected 8 Rig_Medium animation FBXs, found {animationSources.Length}.");
+                errors.Add(
+                    $"Expected 8 Rig_Medium animation FBXs, found {animationSources.Length}."
+                );
 
             KayKitDungeonCatalog dungeonCatalog =
                 AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(DungeonCatalogPath);
@@ -221,8 +268,9 @@ namespace Game.KayKit.Editor
                 AssetDatabase.LoadAssetAtPath<KayKitAnimationLibrary>(AnimationLibraryPath);
             ValidateAnimationLibrary(animationLibrary, errors);
 
-            KayKitSourceManifest manifest =
-                AssetDatabase.LoadAssetAtPath<KayKitSourceManifest>(SourceManifestPath);
+            KayKitSourceManifest manifest = AssetDatabase.LoadAssetAtPath<KayKitSourceManifest>(
+                SourceManifestPath
+            );
             ValidateManifest(manifest, vendorFiles, errors);
 
             ValidateImporters(vendorFiles, errors);
@@ -234,7 +282,11 @@ namespace Game.KayKit.Editor
         {
             Dictionary<string, Material[]> materials = new(StringComparer.OrdinalIgnoreCase);
             GenerateMaterialsForPack(KayKitPathUtility.DungeonRoot, "KayKitDungeon", materials);
-            GenerateMaterialsForPack(KayKitPathUtility.AdventurersRoot, "KayKitAdventurers", materials);
+            GenerateMaterialsForPack(
+                KayKitPathUtility.AdventurersRoot,
+                "KayKitAdventurers",
+                materials
+            );
             GenerateMaterialsForPack(KayKitPathUtility.SkeletonsRoot, "KayKitSkeletons", materials);
             return materials;
         }
@@ -242,11 +294,19 @@ namespace Game.KayKit.Editor
         private static void GenerateMaterialsForPack(
             string packRoot,
             string materialPrefix,
-            IDictionary<string, Material[]> output)
+            IDictionary<string, Material[]> output
+        )
         {
-            string[] texturePaths = AssetDatabase.FindAssets("t:Texture2D", new[] { packRoot })
+            string[] texturePaths = AssetDatabase
+                .FindAssets("t:Texture2D", new[] { packRoot })
                 .Select(AssetDatabase.GUIDToAssetPath)
-                .Where(path => string.Equals(Path.GetExtension(path), ".png", StringComparison.OrdinalIgnoreCase))
+                .Where(path =>
+                    string.Equals(
+                        Path.GetExtension(path),
+                        ".png",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
                 .OrderBy(path => path, StringComparer.Ordinal)
                 .ToArray();
             if (texturePaths.Length == 0)
@@ -256,14 +316,17 @@ namespace Game.KayKit.Editor
             foreach (string texturePath in texturePaths)
             {
                 Texture2D texture = AssetDatabase.LoadAssetAtPath<Texture2D>(texturePath);
-                string materialName = $"{materialPrefix}_{Path.GetFileNameWithoutExtension(texturePath)}";
+                string materialName =
+                    $"{materialPrefix}_{Path.GetFileNameWithoutExtension(texturePath)}";
                 string materialPath = $"{MaterialRoot}/{materialName}.mat";
                 Material material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
                 if (material == null)
                 {
                     Shader shader = Shader.Find("Standard");
                     if (shader == null)
-                        throw new InvalidOperationException("Built-in Render Pipeline Standard shader was not found.");
+                        throw new InvalidOperationException(
+                            "Built-in Render Pipeline Standard shader was not found."
+                        );
                     material = new Material(shader) { name = materialName };
                     AssetDatabase.CreateAsset(material, materialPath);
                 }
@@ -291,26 +354,34 @@ namespace Game.KayKit.Editor
 
                 GameObject model = AssetDatabase.LoadAssetAtPath<GameObject>(path);
                 if (model == null)
-                    throw new InvalidOperationException($"Dungeon model could not be loaded: {path}");
-                entries.Add(ApplyAuditedDungeonSemantics(
-                    KayKitDungeonSetupTool.CreateCatalogEntry(id, model)));
+                    throw new InvalidOperationException(
+                        $"Dungeon model could not be loaded: {path}"
+                    );
+                entries.Add(
+                    ApplyAuditedDungeonSemantics(
+                        KayKitDungeonSetupTool.CreateCatalogEntry(id, model)
+                    )
+                );
             }
 
             KayKitDungeonCatalog catalog = GetOrCreate<KayKitDungeonCatalog>(DungeonCatalogPath);
             catalog.ReplaceEntries(entries.OrderBy(entry => entry.Id, StringComparer.Ordinal));
             catalog.ConfigureStructure(
                 AssetDatabase.LoadAssetAtPath<Material>(
-                    MaterialRoot + "/KayKitDungeon_dungeon_texture.mat"),
+                    MaterialRoot + "/KayKitDungeon_dungeon_texture.mat"
+                ),
                 KayKitDungeonSetupTool.LoadFloorPrefab(),
                 KayKitDungeonSetupTool.LoadWallResolverPrefab(),
                 KayKitDungeonSetupTool.LoadDoorwayPrefab(),
                 KayKitDungeonSetupTool.LoadClosedDoorPrefab(),
-                KayKitDungeonSetupTool.LoadStairPrefab());
+                KayKitDungeonSetupTool.LoadStairPrefab()
+            );
             EditorUtility.SetDirty(catalog);
         }
 
         private static KayKitDungeonCatalogEntry ApplyAuditedDungeonSemantics(
-            KayKitDungeonCatalogEntry entry)
+            KayKitDungeonCatalogEntry entry
+        )
         {
             // These tall props were visually audited as full line-of-sight blockers. The generic
             // entry factory remains geometry-driven; full catalog regeneration reapplies the audit.
@@ -325,7 +396,8 @@ namespace Game.KayKit.Editor
                 entry.DefaultRotation,
                 entry.DefaultYOffset,
                 entry.BlocksMovement,
-                true);
+                true
+            );
         }
 
         private static void GenerateAnimationLibrary()
@@ -337,9 +409,12 @@ namespace Game.KayKit.Editor
             foreach (string path in GetFbxPaths(KayKitPathUtility.AnimationsRoot))
             {
                 string category = KayKitPathUtility.GetAnimationCategory(path);
-                AnimationClip[] clips = AssetDatabase.LoadAllAssetsAtPath(path)
+                AnimationClip[] clips = AssetDatabase
+                    .LoadAllAssetsAtPath(path)
                     .OfType<AnimationClip>()
-                    .Where(clip => !clip.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase))
+                    .Where(clip =>
+                        !clip.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase)
+                    )
                     .OrderBy(clip => clip.name, StringComparer.Ordinal)
                     .ToArray();
                 if (clips.Length == 0)
@@ -359,23 +434,32 @@ namespace Game.KayKit.Editor
                     string id = KayKitPathUtility.GetAnimationId(path, clip.name);
                     if (!ids.Add(id))
                         throw new InvalidOperationException($"Duplicate animation clip ID: {id}");
-                    entries.Add(new KayKitAnimationEntry(
-                        id,
-                        category,
-                        clip,
-                        semantics == KayKitClipSemantics.Loop,
-                        clip.length));
+                    entries.Add(
+                        new KayKitAnimationEntry(
+                            id,
+                            category,
+                            clip,
+                            semantics == KayKitClipSemantics.Loop,
+                            clip.length
+                        )
+                    );
                 }
             }
 
             if (ambiguous.Count > 0)
             {
                 throw new InvalidOperationException(
-                    "Ambiguous animation semantics; add an explicit classification before generating: " +
-                    string.Join(", ", ambiguous.OrderBy(value => value, StringComparer.Ordinal)));
+                    "Ambiguous animation semantics; add an explicit classification before generating: "
+                        + string.Join(
+                            ", ",
+                            ambiguous.OrderBy(value => value, StringComparer.Ordinal)
+                        )
+                );
             }
 
-            KayKitAnimationLibrary library = GetOrCreate<KayKitAnimationLibrary>(AnimationLibraryPath);
+            KayKitAnimationLibrary library = GetOrCreate<KayKitAnimationLibrary>(
+                AnimationLibraryPath
+            );
             library.ReplaceEntries(entries.OrderBy(entry => entry.Id, StringComparer.Ordinal));
             EditorUtility.SetDirty(library);
         }
@@ -387,33 +471,44 @@ namespace Game.KayKit.Editor
             foreach (string path in GetVendorFilePaths())
             {
                 PackDescriptor pack = Packs.Single(candidate =>
-                    path.StartsWith(candidate.Root + "/", StringComparison.OrdinalIgnoreCase));
+                    path.StartsWith(candidate.Root + "/", StringComparison.OrdinalIgnoreCase)
+                );
                 string relativePath = KayKitPathUtility.GetRelativePath(path, pack.Root);
                 string stableId = KayKitPathUtility.GetStableAssetId(path);
                 if (!ids.Add(stableId))
-                    throw new InvalidOperationException($"Duplicate source-manifest ID: {stableId}");
+                    throw new InvalidOperationException(
+                        $"Duplicate source-manifest ID: {stableId}"
+                    );
 
                 Object asset = AssetDatabase.LoadMainAssetAtPath(path);
                 if (asset == null)
-                    throw new InvalidOperationException($"Vendor asset could not be loaded: {path}");
-                entries.Add(new KayKitSourceManifestEntry(
-                    pack.SourceUrl,
-                    pack.Name,
-                    pack.Version,
-                    DownloadDate,
-                    LicenseName,
-                    relativePath,
-                    stableId,
-                    asset));
+                    throw new InvalidOperationException(
+                        $"Vendor asset could not be loaded: {path}"
+                    );
+                entries.Add(
+                    new KayKitSourceManifestEntry(
+                        pack.SourceUrl,
+                        pack.Name,
+                        pack.Version,
+                        DownloadDate,
+                        LicenseName,
+                        relativePath,
+                        stableId,
+                        asset
+                    )
+                );
             }
 
             KayKitSourceManifest manifest = GetOrCreate<KayKitSourceManifest>(SourceManifestPath);
-            manifest.ReplaceEntries(entries.OrderBy(entry => entry.StableId, StringComparer.Ordinal));
+            manifest.ReplaceEntries(
+                entries.OrderBy(entry => entry.StableId, StringComparer.Ordinal)
+            );
             EditorUtility.SetDirty(manifest);
         }
 
         private static void GenerateRepresentativePrefabs(
-            IReadOnlyDictionary<string, Material[]> materials)
+            IReadOnlyDictionary<string, Material[]> materials
+        )
         {
             string adventurer = GetFbxPaths(KayKitPathUtility.AdventurersRoot)
                 .FirstOrDefault(KayKitPathUtility.IsCharacterModel);
@@ -426,54 +521,68 @@ namespace Game.KayKit.Editor
                 string.Equals(
                     Path.GetFileNameWithoutExtension(path),
                     "floor_tile_large",
-                    StringComparison.OrdinalIgnoreCase));
+                    StringComparison.OrdinalIgnoreCase
+                )
+            );
             string dungeonWall = dungeonModels.FirstOrDefault(path =>
                 string.Equals(
                     Path.GetFileNameWithoutExtension(path),
                     "wall",
-                    StringComparison.OrdinalIgnoreCase));
+                    StringComparison.OrdinalIgnoreCase
+                )
+            );
             string dungeonProp = dungeonModels.FirstOrDefault(path =>
                 string.Equals(
                     Path.GetFileNameWithoutExtension(path),
                     "table_medium",
-                    StringComparison.OrdinalIgnoreCase));
+                    StringComparison.OrdinalIgnoreCase
+                )
+            );
 
             CreateWrapper(
                 "RepresentativeAdventurer",
                 adventurer,
                 SelectMaterial(materials[KayKitPathUtility.AdventurersRoot], adventurer),
-                true);
+                true
+            );
             CreateWrapper(
                 "RepresentativeSkeleton",
                 skeleton,
                 SelectMaterial(materials[KayKitPathUtility.SkeletonsRoot], skeleton),
-                true);
+                true
+            );
             CreateWrapper(
                 "RepresentativeAccessory",
                 accessory,
                 SelectMaterial(materials[KayKitPathUtility.AdventurersRoot], accessory),
-                false);
+                false
+            );
             CreateWrapper(
                 "RepresentativeDungeonPiece",
                 dungeonFloor,
                 SelectMaterial(materials[KayKitPathUtility.DungeonRoot], dungeonFloor),
-                false);
+                false
+            );
             CreateWrapper(
                 "RepresentativeDungeonWall",
                 dungeonWall,
                 SelectMaterial(materials[KayKitPathUtility.DungeonRoot], dungeonWall),
-                false);
+                false
+            );
             CreateWrapper(
                 "RepresentativeDungeonProp",
                 dungeonProp,
                 SelectMaterial(materials[KayKitPathUtility.DungeonRoot], dungeonProp),
-                false);
+                false
+            );
         }
 
         private static Material SelectMaterial(IReadOnlyList<Material> materials, string modelPath)
         {
             if (materials.Count == 0)
-                throw new InvalidOperationException($"No project materials are available for {modelPath}.");
+                throw new InvalidOperationException(
+                    $"No project materials are available for {modelPath}."
+                );
             if (materials.Count == 1)
                 return materials[0];
 
@@ -481,11 +590,14 @@ namespace Game.KayKit.Editor
             SourceAtlasByModel.TryGetValue(modelName, out string sourceAtlasName);
             Material match = materials.FirstOrDefault(material =>
             {
-                string textureName = material.mainTexture == null
-                    ? string.Empty
-                    : material.mainTexture.name;
+                string textureName =
+                    material.mainTexture == null ? string.Empty : material.mainTexture.name;
                 if (!string.IsNullOrEmpty(sourceAtlasName))
-                    return string.Equals(textureName, sourceAtlasName, StringComparison.OrdinalIgnoreCase);
+                    return string.Equals(
+                        textureName,
+                        sourceAtlasName,
+                        StringComparison.OrdinalIgnoreCase
+                    );
 
                 const string suffix = "_texture";
                 string key = textureName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
@@ -496,7 +608,8 @@ namespace Game.KayKit.Editor
             if (match == null)
             {
                 throw new InvalidOperationException(
-                    $"Could not determine the source texture atlas for model: {modelPath}");
+                    $"Could not determine the source texture atlas for model: {modelPath}"
+                );
             }
 
             return match;
@@ -506,7 +619,8 @@ namespace Game.KayKit.Editor
             string name,
             string modelPath,
             Material material,
-            bool ensureAnimator)
+            bool ensureAnimator
+        )
         {
             if (string.IsNullOrEmpty(modelPath))
                 throw new InvalidOperationException($"Could not select a model for {name}.");
@@ -521,7 +635,9 @@ namespace Game.KayKit.Editor
 
                 foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
                 {
-                    Material[] replacements = Enumerable.Repeat(material, renderer.sharedMaterials.Length).ToArray();
+                    Material[] replacements = Enumerable
+                        .Repeat(material, renderer.sharedMaterials.Length)
+                        .ToArray();
                     renderer.sharedMaterials = replacements;
                 }
 
@@ -539,7 +655,10 @@ namespace Game.KayKit.Editor
             }
         }
 
-        private static void ValidateDungeonCatalog(KayKitDungeonCatalog catalog, ICollection<string> errors)
+        private static void ValidateDungeonCatalog(
+            KayKitDungeonCatalog catalog,
+            ICollection<string> errors
+        )
         {
             if (catalog == null)
             {
@@ -549,16 +668,20 @@ namespace Game.KayKit.Editor
 
             int expected = GetFbxPaths(KayKitPathUtility.DungeonRoot).Length;
             if (catalog.Entries.Count != expected)
-                errors.Add($"Dungeon catalog has {catalog.Entries.Count} entries; expected {expected}.");
+                errors.Add(
+                    $"Dungeon catalog has {catalog.Entries.Count} entries; expected {expected}."
+                );
             ValidateUniqueReferences(
                 catalog.Entries.Select(entry => (entry.Id, (Object)entry.Model)),
                 "Dungeon catalog",
-                errors);
+                errors
+            );
         }
 
         private static void ValidateAnimationLibrary(
             KayKitAnimationLibrary library,
-            ICollection<string> errors)
+            ICollection<string> errors
+        )
         {
             if (library == null)
             {
@@ -569,7 +692,8 @@ namespace Game.KayKit.Editor
             ValidateUniqueReferences(
                 library.Entries.Select(entry => (entry.Id, (Object)entry.Clip)),
                 "Animation library",
-                errors);
+                errors
+            );
             foreach (KayKitAnimationEntry entry in library.Entries)
             {
                 if (entry.Clip == null)
@@ -589,7 +713,10 @@ namespace Game.KayKit.Editor
 
             foreach (string requiredId in CreatureAnimationController.RequiredDefaultClipIds())
             {
-                if (!library.TryGet(requiredId, out KayKitAnimationEntry entry) || entry.Clip == null)
+                if (
+                    !library.TryGet(requiredId, out KayKitAnimationEntry entry)
+                    || entry.Clip == null
+                )
                     errors.Add($"Required animated-creature default is missing: {requiredId}");
             }
         }
@@ -597,7 +724,8 @@ namespace Game.KayKit.Editor
         private static void ValidateManifest(
             KayKitSourceManifest manifest,
             IReadOnlyCollection<string> vendorFiles,
-            ICollection<string> errors)
+            ICollection<string> errors
+        )
         {
             if (manifest == null)
             {
@@ -606,11 +734,14 @@ namespace Game.KayKit.Editor
             }
 
             if (manifest.Entries.Count != vendorFiles.Count)
-                errors.Add($"Source manifest has {manifest.Entries.Count} entries; expected {vendorFiles.Count}.");
+                errors.Add(
+                    $"Source manifest has {manifest.Entries.Count} entries; expected {vendorFiles.Count}."
+                );
             ValidateUniqueReferences(
                 manifest.Entries.Select(entry => (entry.StableId, entry.Asset)),
                 "Source manifest",
-                errors);
+                errors
+            );
             foreach (KayKitSourceManifestEntry entry in manifest.Entries)
             {
                 if (entry.License != LicenseName || string.IsNullOrWhiteSpace(entry.SourceUrl))
@@ -618,31 +749,56 @@ namespace Game.KayKit.Editor
             }
         }
 
-        private static void ValidateImporters(IEnumerable<string> vendorFiles, ICollection<string> errors)
+        private static void ValidateImporters(
+            IEnumerable<string> vendorFiles,
+            ICollection<string> errors
+        )
         {
             foreach (string path in vendorFiles)
             {
-                if (string.Equals(Path.GetExtension(path), ".png", StringComparison.OrdinalIgnoreCase))
+                if (
+                    string.Equals(
+                        Path.GetExtension(path),
+                        ".png",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
                 {
                     TextureImporter texture = AssetImporter.GetAtPath(path) as TextureImporter;
-                    if (texture == null || !texture.sRGBTexture || !texture.mipmapEnabled ||
-                        texture.maxTextureSize != 1024 || texture.isReadable)
+                    if (
+                        texture == null
+                        || !texture.sRGBTexture
+                        || !texture.mipmapEnabled
+                        || texture.maxTextureSize != 1024
+                        || texture.isReadable
+                    )
                     {
                         errors.Add($"Texture importer does not match KayKit policy: {path}");
                     }
                 }
-                else if (string.Equals(Path.GetExtension(path), ".fbx", StringComparison.OrdinalIgnoreCase))
+                else if (
+                    string.Equals(
+                        Path.GetExtension(path),
+                        ".fbx",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
                 {
                     ModelImporter model = AssetImporter.GetAtPath(path) as ModelImporter;
-                    if (model == null || !Mathf.Approximately(model.globalScale, 1.0f) ||
-                        model.addCollider || model.materialImportMode != ModelImporterMaterialImportMode.None)
+                    if (
+                        model == null
+                        || !Mathf.Approximately(model.globalScale, 1.0f)
+                        || model.addCollider
+                        || model.materialImportMode != ModelImporterMaterialImportMode.None
+                    )
                     {
                         errors.Add($"Model importer does not match KayKit policy: {path}");
                         continue;
                     }
 
-                    bool humanoid = KayKitPathUtility.IsAnimationSource(path) ||
-                        KayKitPathUtility.IsCharacterModel(path);
+                    bool humanoid =
+                        KayKitPathUtility.IsAnimationSource(path)
+                        || KayKitPathUtility.IsCharacterModel(path);
                     if (humanoid && model.animationType != ModelImporterAnimationType.Human)
                         errors.Add($"Humanoid import is required for: {path}");
                     if (!humanoid && model.importAnimation)
@@ -656,7 +812,8 @@ namespace Game.KayKit.Editor
         private static void ValidateAnimationImporter(
             string path,
             ModelImporter importer,
-            ICollection<string> errors)
+            ICollection<string> errors
+        )
         {
             ModelImporterClipAnimation[] clips = importer.clipAnimations;
             if (clips.Length == 0)
@@ -665,38 +822,52 @@ namespace Game.KayKit.Editor
                 return;
             }
 
-            AnimationClip[] importedClips = AssetDatabase.LoadAllAssetsAtPath(path)
+            AnimationClip[] importedClips = AssetDatabase
+                .LoadAllAssetsAtPath(path)
                 .OfType<AnimationClip>()
-                .Where(clip => !clip.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase))
+                .Where(clip =>
+                    !clip.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase)
+                )
                 .ToArray();
             foreach (AnimationClip importedClip in importedClips)
             {
                 ModelImporterClipAnimation settings = clips.FirstOrDefault(clip =>
-                    string.Equals(clip.name, importedClip.name, StringComparison.Ordinal));
+                    string.Equals(clip.name, importedClip.name, StringComparison.Ordinal)
+                );
                 if (settings == null)
                 {
-                    errors.Add($"Animation clip override is missing for {path}/{importedClip.name}.");
+                    errors.Add(
+                        $"Animation clip override is missing for {path}/{importedClip.name}."
+                    );
                     continue;
                 }
 
                 bool shouldLoop =
                     KayKitPathUtility.ClassifyClip(importedClip.name) == KayKitClipSemantics.Loop;
-                if (settings.loopTime != shouldLoop || settings.loopPose != shouldLoop ||
-                    !settings.lockRootRotation || !settings.lockRootHeightY ||
-                    !settings.lockRootPositionXZ)
+                if (
+                    settings.loopTime != shouldLoop
+                    || settings.loopPose != shouldLoop
+                    || !settings.lockRootRotation
+                    || !settings.lockRootHeightY
+                    || !settings.lockRootPositionXZ
+                )
                 {
                     errors.Add(
-                        $"Animation clip import settings are incorrect for {path}/{importedClip.name}.");
+                        $"Animation clip import settings are incorrect for {path}/{importedClip.name}."
+                    );
                 }
                 if (importedClip.isLooping != shouldLoop)
-                    errors.Add($"Imported animation loop setting is incorrect for {path}/{importedClip.name}.");
+                    errors.Add(
+                        $"Imported animation loop setting is incorrect for {path}/{importedClip.name}."
+                    );
             }
         }
 
         private static void ValidateUniqueReferences(
             IEnumerable<(string Id, Object Asset)> values,
             string label,
-            ICollection<string> errors)
+            ICollection<string> errors
+        )
         {
             HashSet<string> ids = new(StringComparer.Ordinal);
             foreach ((string id, Object asset) in values)
@@ -708,7 +879,8 @@ namespace Game.KayKit.Editor
             }
         }
 
-        private static T GetOrCreate<T>(string path) where T : ScriptableObject
+        private static T GetOrCreate<T>(string path)
+            where T : ScriptableObject
         {
             T asset = AssetDatabase.LoadAssetAtPath<T>(path);
             if (asset != null)
@@ -724,9 +896,16 @@ namespace Game.KayKit.Editor
             if (!AssetDatabase.IsValidFolder(root))
                 return Array.Empty<string>();
 
-            return AssetDatabase.FindAssets(string.Empty, new[] { root })
+            return AssetDatabase
+                .FindAssets(string.Empty, new[] { root })
                 .Select(AssetDatabase.GUIDToAssetPath)
-                .Where(path => string.Equals(Path.GetExtension(path), ".fbx", StringComparison.OrdinalIgnoreCase))
+                .Where(path =>
+                    string.Equals(
+                        Path.GetExtension(path),
+                        ".fbx",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(path => path, StringComparer.Ordinal)
                 .ToArray();
@@ -734,8 +913,8 @@ namespace Game.KayKit.Editor
 
         private static string[] GetVendorFilePaths()
         {
-            return KayKitPathUtility.PackRoots
-                .Where(AssetDatabase.IsValidFolder)
+            return KayKitPathUtility
+                .PackRoots.Where(AssetDatabase.IsValidFolder)
                 .SelectMany(root => AssetDatabase.FindAssets(string.Empty, new[] { root }))
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .Where(File.Exists)
@@ -781,7 +960,8 @@ namespace Game.KayKit.Editor
                 string version,
                 string sourceUrl,
                 int expectedFbxCount,
-                int expectedPngCount)
+                int expectedPngCount
+            )
             {
                 Root = root;
                 Name = name;
@@ -809,7 +989,9 @@ namespace Game.KayKit.Editor
         {
             List<string> parts = new()
             {
-                IsValid ? "KayKit validation passed." : $"KayKit validation failed with {Errors.Count} error(s)."
+                IsValid
+                    ? "KayKit validation passed."
+                    : $"KayKit validation failed with {Errors.Count} error(s).",
             };
             parts.AddRange(Errors.Select(error => "ERROR: " + error));
             parts.AddRange(Warnings.Select(warning => "WARNING: " + warning));

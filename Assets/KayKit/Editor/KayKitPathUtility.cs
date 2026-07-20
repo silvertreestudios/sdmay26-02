@@ -10,7 +10,7 @@ namespace Game.KayKit.Editor
         Ambiguous,
         Loop,
         OneShot,
-        SetupPose
+        SetupPose,
     }
 
     public static class KayKitPathUtility
@@ -26,33 +26,108 @@ namespace Game.KayKit.Editor
             DungeonRoot,
             AdventurersRoot,
             SkeletonsRoot,
-            AnimationsRoot
+            AnimationsRoot,
         };
 
         private static readonly HashSet<string> LoopWords = new(StringComparer.OrdinalIgnoreCase)
         {
-            "idle", "idling", "walk", "walking", "run", "running", "sprint",
-            "sprinting", "crawl", "crawling", "sneak", "sneaking", "crouch_idle",
-            "swim", "swimming", "block_idle", "aim", "aiming", "holding",
-            "blocking", "shooting", "crouching", "push_ups",
-            "inactive_floor_pose", "inactive_standing_pose",
-            "chopping", "digging", "fishing_idle", "fishing_reeling",
-            "fishing_struggling", "hammering", "lockpicking", "pickaxing",
-            "sawing", "working"
+            "idle",
+            "idling",
+            "walk",
+            "walking",
+            "run",
+            "running",
+            "sprint",
+            "sprinting",
+            "crawl",
+            "crawling",
+            "sneak",
+            "sneaking",
+            "crouch_idle",
+            "swim",
+            "swimming",
+            "block_idle",
+            "aim",
+            "aiming",
+            "holding",
+            "blocking",
+            "shooting",
+            "crouching",
+            "push_ups",
+            "inactive_floor_pose",
+            "inactive_standing_pose",
+            "chopping",
+            "digging",
+            "fishing_idle",
+            "fishing_reeling",
+            "fishing_struggling",
+            "hammering",
+            "lockpicking",
+            "pickaxing",
+            "sawing",
+            "working",
         };
 
         private static readonly string[] OneShotWords =
         {
-            "attack", "hit", "hurt", "damage", "death", "defeat", "die",
-            "spawn", "cast", "spell", "shoot", "reload", "dodge", "roll",
-            "dash", "jump", "hop", "land", "fall", "interact", "pickup",
-            "pick_up", "throw", "wave", "cheer", "sit", "stand", "lie",
-            "knock", "open", "close", "equip", "unequip", "use", "drink",
-            "eat", "block", "draw", "release", "raise", "spellcasting",
-            "summon", "cheering", "waving", "transform", "awaken", "taunt",
-            "chop", "dig", "fishing_bite", "fishing_cast",
-            "fishing_catch", "fishing_tug", "hammer", "lockpick", "pickaxe",
-            "saw", "work"
+            "attack",
+            "hit",
+            "hurt",
+            "damage",
+            "death",
+            "defeat",
+            "die",
+            "spawn",
+            "cast",
+            "spell",
+            "shoot",
+            "reload",
+            "dodge",
+            "roll",
+            "dash",
+            "jump",
+            "hop",
+            "land",
+            "fall",
+            "interact",
+            "pickup",
+            "pick_up",
+            "throw",
+            "wave",
+            "cheer",
+            "sit",
+            "stand",
+            "lie",
+            "knock",
+            "open",
+            "close",
+            "equip",
+            "unequip",
+            "use",
+            "drink",
+            "eat",
+            "block",
+            "draw",
+            "release",
+            "raise",
+            "spellcasting",
+            "summon",
+            "cheering",
+            "waving",
+            "transform",
+            "awaken",
+            "taunt",
+            "chop",
+            "dig",
+            "fishing_bite",
+            "fishing_cast",
+            "fishing_catch",
+            "fishing_tug",
+            "hammer",
+            "lockpick",
+            "pickaxe",
+            "saw",
+            "work",
         };
 
         public static string Normalize(string path)
@@ -68,23 +143,36 @@ namespace Game.KayKit.Editor
 
         public static bool IsDungeonModel(string path)
         {
-            return IsUnder(path, DungeonRoot) &&
-                string.Equals(Path.GetExtension(path), ".fbx", StringComparison.OrdinalIgnoreCase);
+            return IsUnder(path, DungeonRoot)
+                && string.Equals(
+                    Path.GetExtension(path),
+                    ".fbx",
+                    StringComparison.OrdinalIgnoreCase
+                );
         }
 
         public static bool IsAnimationSource(string path)
         {
-            return IsUnder(path, AnimationsRoot) &&
-                string.Equals(Path.GetExtension(path), ".fbx", StringComparison.OrdinalIgnoreCase);
+            return IsUnder(path, AnimationsRoot)
+                && string.Equals(
+                    Path.GetExtension(path),
+                    ".fbx",
+                    StringComparison.OrdinalIgnoreCase
+                );
         }
 
         public static bool IsCharacterModel(string path)
         {
             string normalized = Normalize(path);
-            bool characterPack = IsUnder(normalized, AdventurersRoot) || IsUnder(normalized, SkeletonsRoot);
-            return characterPack &&
-                string.Equals(Path.GetExtension(normalized), ".fbx", StringComparison.OrdinalIgnoreCase) &&
-                normalized.IndexOf("/Characters/", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool characterPack =
+                IsUnder(normalized, AdventurersRoot) || IsUnder(normalized, SkeletonsRoot);
+            return characterPack
+                && string.Equals(
+                    Path.GetExtension(normalized),
+                    ".fbx",
+                    StringComparison.OrdinalIgnoreCase
+                )
+                && normalized.IndexOf("/Characters/", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         public static string GetDungeonId(string path)
@@ -92,13 +180,17 @@ namespace Game.KayKit.Editor
             if (!IsDungeonModel(path))
                 throw new ArgumentException($"Not a Dungeon Remastered FBX: {path}", nameof(path));
 
-            return "dungeon/" + WithoutExtension(GetRelativePath(path, DungeonRoot)).ToLowerInvariant();
+            return "dungeon/"
+                + WithoutExtension(GetRelativePath(path, DungeonRoot)).ToLowerInvariant();
         }
 
         public static string GetAnimationCategory(string path)
         {
             if (!IsAnimationSource(path))
-                throw new ArgumentException($"Not a Character Animations FBX: {path}", nameof(path));
+                throw new ArgumentException(
+                    $"Not a Character Animations FBX: {path}",
+                    nameof(path)
+                );
 
             string fileName = Path.GetFileNameWithoutExtension(Normalize(path));
             const string prefix = "Rig_Medium_";
@@ -107,9 +199,7 @@ namespace Game.KayKit.Editor
 
             string relative = GetRelativePath(path, AnimationsRoot);
             string directory = Path.GetDirectoryName(relative)?.Replace((char)92, '/');
-            return string.IsNullOrEmpty(directory)
-                ? fileName
-                : directory.Split('/').Last();
+            return string.IsNullOrEmpty(directory) ? fileName : directory.Split('/').Last();
         }
 
         public static string GetAnimationId(string sourcePath, string clipName)
@@ -125,7 +215,8 @@ namespace Game.KayKit.Editor
             if (root == null)
                 throw new ArgumentException($"Not a known KayKit pack asset: {path}", nameof(path));
 
-            string pack = root == DungeonRoot ? "dungeon"
+            string pack =
+                root == DungeonRoot ? "dungeon"
                 : root == AdventurersRoot ? "adventurers"
                 : root == SkeletonsRoot ? "skeletons"
                 : "animations";
@@ -162,19 +253,23 @@ namespace Game.KayKit.Editor
             if (string.IsNullOrWhiteSpace(value))
                 return string.Empty;
 
-            char[] normalized = value.Trim().ToLowerInvariant()
+            char[] normalized = value
+                .Trim()
+                .ToLowerInvariant()
                 .Select(character => char.IsLetterOrDigit(character) ? character : '_')
                 .ToArray();
-            return string.Join("_", new string(normalized)
-                .Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries));
+            return string.Join(
+                "_",
+                new string(normalized).Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries)
+            );
         }
 
         private static bool MatchesAction(string slug, string action)
         {
-            return slug == action ||
-                slug.StartsWith(action + "_", StringComparison.Ordinal) ||
-                slug.EndsWith("_" + action, StringComparison.Ordinal) ||
-                slug.Contains("_" + action + "_");
+            return slug == action
+                || slug.StartsWith(action + "_", StringComparison.Ordinal)
+                || slug.EndsWith("_" + action, StringComparison.Ordinal)
+                || slug.Contains("_" + action + "_");
         }
 
         private static bool IsUnder(string path, string root)

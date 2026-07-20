@@ -6,9 +6,9 @@ using System.Text.RegularExpressions;
 using Game.KayKit;
 using Game.KayKit.Editor;
 using GridPrivate;
-using NUnit.Framework;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
@@ -31,7 +31,8 @@ public sealed class KayKitDungeonMapTests
         KayKitDungeonCatalog catalog = Catalog();
         KayKitDungeonMapParseResult result = ParseMap(
             @"{""rows"":[""#D "",""...""],""objects"":[]}",
-            catalog);
+            catalog
+        );
 
         Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
         Assert.That(result.Map.Width, Is.EqualTo(3));
@@ -51,10 +52,12 @@ public sealed class KayKitDungeonMapTests
             "dungeon/assets/fbx(unity)/barrel_small",
             Vector2Int.one,
             false,
-            false);
+            false
+        );
         KayKitDungeonMapParseResult result = ParseMap(
             @"{""rows"":[""...""],""objects"":[{""assetId"":""dungeon/assets/fbx(unity)/barrel_small"",""x"":1,""z"":0}]}",
-            Catalog(entry));
+            Catalog(entry)
+        );
 
         Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
         Assert.That(result.Map.Objects.Count, Is.EqualTo(1));
@@ -65,47 +68,71 @@ public sealed class KayKitDungeonMapTests
 
     [TestCase(@"{""rows"":[""X""]}", "Rows may use only")]
     [TestCase(@"{""rows"":["".."","".""]}", "Row width must equal 2")]
-    [TestCase(@"{""rows"":["".""],""objects"":[{""assetId"":""missing"",""x"":0,""z"":0}]}", "unknown assetId")]
-    [TestCase(@"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":45}]}", "rotations must be")]
-    [TestCase(@"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":9223372036854775808,""z"":0}]}", "signed 32-bit range")]
-    [TestCase(@"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":9223372036854775808}]}", "signed 32-bit range")]
-    [TestCase(@"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""yOffset"":9223372036854775808}]}", "finite number when present")]
+    [TestCase(
+        @"{""rows"":["".""],""objects"":[{""assetId"":""missing"",""x"":0,""z"":0}]}",
+        "unknown assetId"
+    )]
+    [TestCase(
+        @"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":45}]}",
+        "rotations must be"
+    )]
+    [TestCase(
+        @"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":9223372036854775808,""z"":0}]}",
+        "signed 32-bit range"
+    )]
+    [TestCase(
+        @"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""rotation"":9223372036854775808}]}",
+        "signed 32-bit range"
+    )]
+    [TestCase(
+        @"{""rows"":["".""],""objects"":[{""assetId"":""prop"",""x"":0,""z"":0,""yOffset"":9223372036854775808}]}",
+        "finite number when present"
+    )]
     public void InvalidJson_FailsWithActionableMessage(string json, string expected)
     {
         KayKitDungeonCatalog catalog = Catalog(Entry("prop", Vector2Int.one, false, false));
         KayKitDungeonMapParseResult result = ParseMap(json, catalog);
 
         Assert.That(result.IsValid, Is.False);
-        Assert.That(result.Errors.Any(error =>
-            error.IndexOf(expected, StringComparison.OrdinalIgnoreCase) >= 0), Is.True);
+        Assert.That(
+            result.Errors.Any(error =>
+                error.IndexOf(expected, StringComparison.OrdinalIgnoreCase) >= 0
+            ),
+            Is.True
+        );
     }
-
 
     [Test]
     public void JsonMap_RejectsDuplicateCatalogIds()
     {
         KayKitDungeonCatalog catalog = Catalog(
             Entry("duplicate", Vector2Int.one, false, false),
-            Entry("duplicate", Vector2Int.one, false, false));
+            Entry("duplicate", Vector2Int.one, false, false)
+        );
 
         KayKitDungeonMapParseResult result = ParseMap(
             @"{""rows"":["".""],""objects"":[]}",
-            catalog);
+            catalog
+        );
 
         Assert.That(catalog.TryGet("duplicate", out _), Is.False);
         Assert.That(result.Map, Is.Null);
-        Assert.That(result.Errors, Has.Some.EqualTo(
-            "KayKit dungeon catalog contains duplicate id 'duplicate'."));
+        Assert.That(
+            result.Errors,
+            Has.Some.EqualTo("KayKit dungeon catalog contains duplicate id 'duplicate'.")
+        );
     }
 
     [Test]
     public void RotatedBlockingFootprint_OverlaysObstacleCells()
     {
         KayKitDungeonCatalog catalog = Catalog(
-            Entry("blocking", new Vector2Int(2, 1), true, false));
+            Entry("blocking", new Vector2Int(2, 1), true, false)
+        );
         KayKitDungeonMapParseResult result = ParseMap(
             @"{""rows"":[""....."",""....."",""....."",""....."","".....""],""objects"":[{""assetId"":""blocking"",""x"":2,""z"":1,""rotation"":90}]}",
-            catalog);
+            catalog
+        );
 
         Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
         Assert.That(result.Map.Objects[0].Footprint, Is.EqualTo(new Vector2Int(1, 2)));
@@ -118,33 +145,49 @@ public sealed class KayKitDungeonMapTests
     public void RotatedLineOfSightCollider_UsesUnrotatedLocalFootprint()
     {
         KayKitDungeonCatalog projectCatalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
+            KayKitSetupTool.DungeonCatalogPath
+        );
         GameObject model = projectCatalog.Entries.First(entry => entry.Model != null).Model;
-        KayKitDungeonCatalog catalog = Catalog(new KayKitDungeonCatalogEntry(
-            "non-square",
-            model,
-            null,
-            new Vector2Int(2, 1),
-            0,
-            0f,
-            false,
-            true));
+        KayKitDungeonCatalog catalog = Catalog(
+            new KayKitDungeonCatalogEntry(
+                "non-square",
+                model,
+                null,
+                new Vector2Int(2, 1),
+                0,
+                0f,
+                false,
+                true
+            )
+        );
         catalog.ConfigureStructure(
             projectCatalog.DefaultMaterial,
             projectCatalog.FloorPrefab,
             projectCatalog.WallPrefab,
             projectCatalog.DoorwayPrefab,
             projectCatalog.ClosedDoorPrefab,
-            projectCatalog.StairPrefab);
+            projectCatalog.StairPrefab
+        );
         GameObject mapObject = Track(new GameObject("Collider Map"));
         Map map = mapObject.AddComponent<Map>();
         map.ConfigureJson(
-            Track(new TextAsset(CurrentMapJson(JObject.Parse(
-                @"{""rows"":[""...."",""....""],""objects"":[{""assetId"":""non-square"",""x"":1,""z"":0,""rotation"":90}]}")))),
-            catalog);
+            Track(
+                new TextAsset(
+                    CurrentMapJson(
+                        JObject.Parse(
+                            @"{""rows"":[""...."",""....""],""objects"":[{""assetId"":""non-square"",""x"":1,""z"":0,""rotation"":90}]}"
+                        )
+                    )
+                )
+            ),
+            catalog
+        );
 
-        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
-            string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(Environment.NewLine, validation.Errors)
+        );
         Transform instance = mapObject.transform.Find("GeneratedMap/Objects/Object_000_non_square");
         Assert.That(instance, Is.Not.Null);
         BoxCollider collider = instance.GetComponent<BoxCollider>();
@@ -157,20 +200,23 @@ public sealed class KayKitDungeonMapTests
 
     [TestCase(
         @"{""rows"":["".."",""..""],""objects"":[{""assetId"":""blocking"",""x"":2,""z"":1}]}",
-        "cells must be in bounds")]
+        "cells must be in bounds"
+    )]
     [TestCase(
         @"{""rows"":[""..."","".D."",""...""],""objects"":[{""assetId"":""blocking"",""x"":1,""z"":1}]}",
-        "entirely on Ground")]
+        "entirely on Ground"
+    )]
     [TestCase(
         @"{""rows"":[""..."",""..."",""...""],""objects"":[{""assetId"":""blocking"",""x"":0,""z"":1}]}",
-        "map boundary")]
+        "map boundary"
+    )]
     [TestCase(
         @"{""rows"":[""..."",""..."",""...""],""objects"":[{""assetId"":""blocking"",""x"":1,""z"":1},{""assetId"":""blocking"",""x"":1,""z"":1}]}",
-        "overlaps another blocking")]
+        "overlaps another blocking"
+    )]
     public void InvalidBlockingFootprints_FailBeforeProducingMap(string json, string expected)
     {
-        KayKitDungeonCatalog catalog = Catalog(
-            Entry("blocking", Vector2Int.one, true, true));
+        KayKitDungeonCatalog catalog = Catalog(Entry("blocking", Vector2Int.one, true, true));
         KayKitDungeonMapParseResult result = ParseMap(json, catalog);
 
         Assert.That(result.Map, Is.Null);
@@ -194,25 +240,38 @@ public sealed class KayKitDungeonMapTests
     public void Catalog_IsUniqueCompleteAndConfiguredForEveryDungeonModel()
     {
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
-        string[] modelPaths = AssetDatabase.FindAssets(
-                string.Empty,
-                new[] { KayKitPathUtility.DungeonRoot })
+            KayKitSetupTool.DungeonCatalogPath
+        );
+        string[] modelPaths = AssetDatabase
+            .FindAssets(string.Empty, new[] { KayKitPathUtility.DungeonRoot })
             .Select(AssetDatabase.GUIDToAssetPath)
-            .Where(path => string.Equals(
-                System.IO.Path.GetExtension(path),
-                ".fbx",
-                StringComparison.OrdinalIgnoreCase))
+            .Where(path =>
+                string.Equals(
+                    System.IO.Path.GetExtension(path),
+                    ".fbx",
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
             .ToArray();
 
         Assert.That(catalog, Is.Not.Null);
         Assert.That(catalog.Entries, Has.Count.EqualTo(modelPaths.Length));
-        Assert.That(catalog.Entries.Select(entry => entry.Id).Distinct().Count(),
-            Is.EqualTo(modelPaths.Length));
-        Assert.That(catalog.Entries.All(entry =>
-            entry.Id == entry.Id.ToLowerInvariant() && entry.Id.Contains('/')), Is.True);
-        Assert.That(catalog.Entries.All(entry =>
-            entry.Model != null && entry.Footprint.x > 0 && entry.Footprint.y > 0), Is.True);
+        Assert.That(
+            catalog.Entries.Select(entry => entry.Id).Distinct().Count(),
+            Is.EqualTo(modelPaths.Length)
+        );
+        Assert.That(
+            catalog.Entries.All(entry =>
+                entry.Id == entry.Id.ToLowerInvariant() && entry.Id.Contains('/')
+            ),
+            Is.True
+        );
+        Assert.That(
+            catalog.Entries.All(entry =>
+                entry.Model != null && entry.Footprint.x > 0 && entry.Footprint.y > 0
+            ),
+            Is.True
+        );
         Assert.That(catalog.FloorPrefab, Is.Not.Null);
         Assert.That(catalog.WallPrefab, Is.Not.Null);
         Assert.That(catalog.DoorwayPrefab, Is.Not.Null);
@@ -226,17 +285,25 @@ public sealed class KayKitDungeonMapTests
     public void CatalogWallPlacements_BlockMovementLineOfSightAndPhysicsWithoutChangingStructuralWalls()
     {
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
+            KayKitSetupTool.DungeonCatalogPath
+        );
         KayKitDungeonCatalogEntry wall = catalog.Entries.Single(entry =>
-            entry.Id.EndsWith("/wall", StringComparison.Ordinal));
-        KayKitDungeonCatalogEntry regenerated =
-            KayKitDungeonSetupTool.CreateCatalogEntry(wall.Id, wall.Model);
+            entry.Id.EndsWith("/wall", StringComparison.Ordinal)
+        );
+        KayKitDungeonCatalogEntry regenerated = KayKitDungeonSetupTool.CreateCatalogEntry(
+            wall.Id,
+            wall.Model
+        );
         KayKitDungeonCatalogEntry doorway = catalog.Entries.Single(entry =>
-            entry.Id.EndsWith("/wall_doorway", StringComparison.Ordinal));
+            entry.Id.EndsWith("/wall_doorway", StringComparison.Ordinal)
+        );
         KayKitDungeonCatalogEntry barrel = catalog.Entries.Single(entry =>
-            entry.Id.EndsWith("/barrel_small", StringComparison.Ordinal));
-        KayKitDungeonCatalogEntry regeneratedBarrel =
-            KayKitDungeonSetupTool.CreateCatalogEntry(barrel.Id, barrel.Model);
+            entry.Id.EndsWith("/barrel_small", StringComparison.Ordinal)
+        );
+        KayKitDungeonCatalogEntry regeneratedBarrel = KayKitDungeonSetupTool.CreateCatalogEntry(
+            barrel.Id,
+            barrel.Model
+        );
 
         Assert.That(wall.PlacementPrefab, Is.Not.Null);
         Assert.That(wall.PlacementPrefab.GetComponent<BoxCollider>(), Is.Not.Null);
@@ -253,7 +320,8 @@ public sealed class KayKitDungeonMapTests
 
         KayKitDungeonMapParseResult result = ParseMap(
             $"{{\"rows\":[\"###\",\"...\",\"...\"],\"objects\":[{{\"assetId\":\"{wall.Id}\",\"x\":1,\"z\":1}}]}}",
-            catalog);
+            catalog
+        );
 
         Assert.That(result.IsValid, Is.True, string.Join(Environment.NewLine, result.Errors));
         Assert.That(result.Map.GridData[0, 2], Is.EqualTo(TileType.Wall));
@@ -276,7 +344,8 @@ public sealed class KayKitDungeonMapTests
             0,
             0f,
             false,
-            false);
+            false
+        );
 
         Assert.That(entry.BlocksMovement, Is.False);
         Assert.That(entry.BlocksLineOfSight, Is.True);
@@ -287,7 +356,8 @@ public sealed class KayKitDungeonMapTests
     {
         Assert.That(
             KayKitDungeonSetupTool.DungeonVisualScale,
-            Is.EqualTo(KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale));
+            Is.EqualTo(KayKitAnimatedCreatureSetupTool.AnimatedCreatureVisualScale)
+        );
         Assert.That(KayKitDungeonSetupTool.WallVisualScale, Is.EqualTo(0.25f));
 
         HashSet<string> reducedScaleWrappers = new(StringComparer.Ordinal)
@@ -301,12 +371,11 @@ public sealed class KayKitDungeonMapTests
             "DungeonDoorwayOpen",
             "DungeonDoorClosed",
             "DungeonStair",
-            "BannerRed"
+            "BannerRed",
         };
 
-        GameObject[] wrappers = AssetDatabase.FindAssets(
-                "t:Prefab",
-                new[] { KayKitDungeonSetupTool.DungeonPrefabRoot })
+        GameObject[] wrappers = AssetDatabase
+            .FindAssets("t:Prefab", new[] { KayKitDungeonSetupTool.DungeonPrefabRoot })
             .Select(AssetDatabase.GUIDToAssetPath)
             .Select(AssetDatabase.LoadAssetAtPath<GameObject>)
             .Where(prefab => prefab != null && prefab.transform.Find("Model") != null)
@@ -320,7 +389,8 @@ public sealed class KayKitDungeonMapTests
             Assert.That(
                 wrapper.transform.Find("Model").localScale,
                 Is.EqualTo(Vector3.one * expectedScale),
-                wrapper.name);
+                wrapper.name
+            );
         }
     }
 
@@ -328,7 +398,8 @@ public sealed class KayKitDungeonMapTests
     public void GeneratedStairPrefab_KeepsRootStableAndCorrectsNestedModel()
     {
         GameObject stair = AssetDatabase.LoadAssetAtPath<GameObject>(
-            KayKitDungeonSetupTool.StairPrefabPath);
+            KayKitDungeonSetupTool.StairPrefabPath
+        );
         Transform model = stair.transform.Find("Model");
 
         Assert.That(stair.transform.localPosition, Is.EqualTo(Vector3.zero));
@@ -337,16 +408,19 @@ public sealed class KayKitDungeonMapTests
         Assert.That(model.localPosition, Is.EqualTo(new Vector3(0f, 0f, -0.85f)));
         Assert.That(
             model.localScale,
-            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.StairVisualScale));
+            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.StairVisualScale)
+        );
     }
 
     [Test]
     public void MountedDecorationPrefabs_OffsetRootsWithoutDisturbingTheirChildren()
     {
         GameObject banner = AssetDatabase.LoadAssetAtPath<GameObject>(
-            KayKitDungeonSetupTool.DungeonPrefabRoot + "/BannerRed.prefab");
+            KayKitDungeonSetupTool.DungeonPrefabRoot + "/BannerRed.prefab"
+        );
         GameObject torch = AssetDatabase.LoadAssetAtPath<GameObject>(
-            KayKitDungeonSetupTool.DungeonPrefabRoot + "/TorchMounted.prefab");
+            KayKitDungeonSetupTool.DungeonPrefabRoot + "/TorchMounted.prefab"
+        );
         DungeonPlacementOffset bannerOffset = banner.GetComponent<DungeonPlacementOffset>();
         DungeonPlacementOffset torchOffset = torch.GetComponent<DungeonPlacementOffset>();
         Transform bannerModel = banner.transform.Find("Model");
@@ -359,14 +433,17 @@ public sealed class KayKitDungeonMapTests
         Assert.That(bannerModel.localPosition, Is.EqualTo(Vector3.zero));
         Assert.That(
             bannerModel.localScale,
-            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.BannerVisualScale));
+            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.BannerVisualScale)
+        );
 
         Assert.That(torch.transform.localScale, Is.EqualTo(Vector3.one));
         Assert.That(torchOffset, Is.Not.Null);
         Assert.That(torchOffset.LocalOffset, Is.EqualTo(new Vector3(0f, 0.35f, -0.925f)));
         Assert.That(torchModel.localPosition, Is.EqualTo(Vector3.zero));
-        Assert.That(torchModel.localScale,
-            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.DungeonVisualScale));
+        Assert.That(
+            torchModel.localScale,
+            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.DungeonVisualScale)
+        );
         Assert.That(torchLight.localPosition, Is.EqualTo(new Vector3(0f, 1.5f, 0.2f)));
     }
 
@@ -374,7 +451,8 @@ public sealed class KayKitDungeonMapTests
     public void StraightWallPrefab_OccupiesOneUnitAndTouchesItsNeighbor()
     {
         GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
-            KayKitDungeonSetupTool.WallStraightPrefabPath);
+            KayKitDungeonSetupTool.WallStraightPrefabPath
+        );
         GameObject first = Track((GameObject)PrefabUtility.InstantiatePrefab(prefab));
         GameObject second = Track((GameObject)PrefabUtility.InstantiatePrefab(prefab));
         second.transform.position = Vector3.right;
@@ -385,12 +463,16 @@ public sealed class KayKitDungeonMapTests
         Renderer secondRenderer = secondModel.GetComponentInChildren<Renderer>();
         BoxCollider collider = first.GetComponent<BoxCollider>();
 
-        Assert.That(firstModel.localScale,
-            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.WallVisualScale));
+        Assert.That(
+            firstModel.localScale,
+            Is.EqualTo(Vector3.one * KayKitDungeonSetupTool.WallVisualScale)
+        );
         Assert.That(firstRenderer.bounds.size.x, Is.EqualTo(1f).Within(0.001f));
         Assert.That(firstRenderer.bounds.size.y, Is.EqualTo(1f).Within(0.001f));
-        Assert.That(firstRenderer.bounds.max.x,
-            Is.EqualTo(secondRenderer.bounds.min.x).Within(0.001f));
+        Assert.That(
+            firstRenderer.bounds.max.x,
+            Is.EqualTo(secondRenderer.bounds.min.x).Within(0.001f)
+        );
         Assert.That(collider.center.y, Is.EqualTo(0.5f).Within(0.001f));
         Assert.That(collider.size.y, Is.EqualTo(1f).Within(0.001f));
     }
@@ -399,10 +481,12 @@ public sealed class KayKitDungeonMapTests
     public void OpenDoorwayPrefab_UsesLeafFreeGeometryAndLeavesCenterPassageClear()
     {
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
+            KayKitSetupTool.DungeonCatalogPath
+        );
         GameObject doorwayPrefab = catalog.DoorwayPrefab;
         KayKitDungeonCatalogEntry doorwayEntry = catalog.Entries.Single(entry =>
-            entry.Id.EndsWith("/wall_doorway", StringComparison.Ordinal));
+            entry.Id.EndsWith("/wall_doorway", StringComparison.Ordinal)
+        );
         Transform model = doorwayPrefab.transform.Find("Model");
         Assert.That(model, Is.Not.Null);
         string[] meshPaths = model
@@ -418,14 +502,18 @@ public sealed class KayKitDungeonMapTests
         Assert.That(doorwayPrefab.GetComponent<BoxCollider>(), Is.Null);
         Assert.That(doorwayPrefab.GetComponent<MapLineOfSightBlocker>(), Is.Null);
         Assert.That(meshPaths, Is.Not.Empty);
-        Assert.That(meshPaths.All(path =>
+        Assert.That(
+            meshPaths.All(path =>
                 string.Equals(
                     System.IO.Path.GetFileNameWithoutExtension(path),
                     KayKitDungeonSetupTool.OpenDoorwayModelName,
-                    StringComparison.OrdinalIgnoreCase)),
+                    StringComparison.OrdinalIgnoreCase
+                )
+            ),
             Is.True,
-            $"Open doorway meshes must come from {KayKitDungeonSetupTool.OpenDoorwayModelName}, " +
-            $"not the closed wall_doorway model. Found: {string.Join(", ", meshPaths)}");
+            $"Open doorway meshes must come from {KayKitDungeonSetupTool.OpenDoorwayModelName}, "
+                + $"not the closed wall_doorway model. Found: {string.Join(", ", meshPaths)}"
+        );
 
         GameObject instance = Track((GameObject)PrefabUtility.InstantiatePrefab(doorwayPrefab));
         Physics.SyncTransforms();
@@ -434,16 +522,22 @@ public sealed class KayKitDungeonMapTests
             Vector3.forward,
             2f,
             ~0,
-            QueryTriggerInteraction.Collide);
+            QueryTriggerInteraction.Collide
+        );
 
         BoxCollider[] doorwayPosts = instance.GetComponentsInChildren<BoxCollider>();
         Assert.That(doorwayPosts, Has.Length.EqualTo(2));
-        Assert.That(doorwayPosts.All(post =>
-            Mathf.Approximately(post.center.y, 0f) &&
-            Mathf.Approximately(post.size.y, 1f)), Is.True);
-        Assert.That(centerHits.Any(hit => hit.collider.transform.IsChildOf(instance.transform)),
+        Assert.That(
+            doorwayPosts.All(post =>
+                Mathf.Approximately(post.center.y, 0f) && Mathf.Approximately(post.size.y, 1f)
+            ),
+            Is.True
+        );
+        Assert.That(
+            centerHits.Any(hit => hit.collider.transform.IsChildOf(instance.transform)),
             Is.False,
-            "The open doorway center must remain physically passable.");
+            "The open doorway center must remain physically passable."
+        );
     }
 
     [Test]
@@ -483,9 +577,11 @@ public sealed class KayKitDungeonMapTests
         GameObject mapObject = Track(new GameObject("JSON Spacing Contract"));
         Map map = mapObject.AddComponent<Map>();
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
+            KayKitSetupTool.DungeonCatalogPath
+        );
         TextAsset source = AssetDatabase.LoadAssetAtPath<TextAsset>(
-            KayKitDungeonExampleTool.JsonPath);
+            KayKitDungeonExampleTool.JsonPath
+        );
         map.ConfigureJson(source, catalog);
         Assert.That(map.TryGenerate(out _), Is.True);
         Transform generated = mapObject.transform.Find("GeneratedMap");
@@ -510,7 +606,8 @@ public sealed class KayKitDungeonMapTests
 
         FieldInfo settingsField = typeof(Map).GetField(
             "Settings",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.That(settingsField, Is.Not.Null);
         settingsField.SetValue(map, new TileSettings());
         SerializedObject serialized = new(map);
@@ -525,7 +622,11 @@ public sealed class KayKitDungeonMapTests
 
         MapSourceValidationResult validation = map.ValidateSource();
 
-        Assert.That(validation.IsValid, Is.True, string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(
+            validation.IsValid,
+            Is.True,
+            string.Join(Environment.NewLine, validation.Errors)
+        );
         Assert.That(map.Spacing, Is.EqualTo(2f));
     }
 
@@ -556,11 +657,15 @@ public sealed class KayKitDungeonMapTests
 
         Assert.That(map.SourceMode, Is.EqualTo(MapSourceMode.Bitmap));
         Assert.That(map.Spacing, Is.EqualTo(2f));
-        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
-            string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(Environment.NewLine, validation.Errors)
+        );
         AssertWorldPosition(
             mapObject.transform.Find("GeneratedMap/Structure/Floor_001_000"),
-            new Vector3(2f, 0f, 0f));
+            new Vector3(2f, 0f, 0f)
+        );
     }
 
     [Test]
@@ -569,13 +674,15 @@ public sealed class KayKitDungeonMapTests
         GameObject ancestor = Track(new GameObject("Bitmap Map Ancestor"));
         ancestor.transform.SetPositionAndRotation(
             new Vector3(-6f, 4f, 9f),
-            Quaternion.Euler(13f, 29f, 7f));
+            Quaternion.Euler(13f, 29f, 7f)
+        );
         ancestor.transform.localScale = new Vector3(2.25f, 0.6f, 1.4f);
         GameObject mapObject = Track(new GameObject("Transformed Bitmap Map"));
         mapObject.transform.SetParent(ancestor.transform, false);
         mapObject.transform.SetPositionAndRotation(
             new Vector3(14.3f, 2f, 11.5f),
-            Quaternion.Euler(0f, 37f, 0f));
+            Quaternion.Euler(0f, 37f, 0f)
+        );
         mapObject.transform.localScale = new Vector3(1.5f, 2f, 0.75f);
         Map map = mapObject.AddComponent<Map>();
         Texture2D image = Track(new Texture2D(2, 1));
@@ -584,7 +691,8 @@ public sealed class KayKitDungeonMapTests
 
         FieldInfo settingsField = typeof(Map).GetField(
             "Settings",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.That(settingsField, Is.Not.Null);
         settingsField.SetValue(map, new TileSettings());
         SerializedObject serialized = new(map);
@@ -597,13 +705,17 @@ public sealed class KayKitDungeonMapTests
         definition.FindPropertyRelative("Tile").enumValueIndex = (int)TileType.Wall;
         definition.FindPropertyRelative("Prefab").objectReferenceValue =
             AssetDatabase.LoadAssetAtPath<GameObject>(
-                "Assets/Prefabs/MapPieces/Walls/Bricks/Wall_Brick.prefab");
+                "Assets/Prefabs/MapPieces/Walls/Bricks/Wall_Brick.prefab"
+            );
         definition.FindPropertyRelative("Floor").objectReferenceValue =
             AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Dirt.mat");
         serialized.ApplyModifiedPropertiesWithoutUndo();
 
-        Assert.That(map.TryGenerate(out MapSourceValidationResult firstResult), Is.True,
-            string.Join(Environment.NewLine, firstResult.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult firstResult),
+            Is.True,
+            string.Join(Environment.NewLine, firstResult.Errors)
+        );
         Transform generated = mapObject.transform.Find("GeneratedMap");
         Transform structure = generated.Find("Structure");
         Transform wall = structure.Find("Structure_001_000_Wall_Brick");
@@ -622,17 +734,22 @@ public sealed class KayKitDungeonMapTests
 
         GameObject manual = new("Manual Infrastructure");
         manual.transform.SetParent(mapObject.transform, false);
-        Assert.That(map.TryGenerate(out MapSourceValidationResult secondResult), Is.True,
-            string.Join(Environment.NewLine, secondResult.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult secondResult),
+            Is.True,
+            string.Join(Environment.NewLine, secondResult.Errors)
+        );
 
         generated = mapObject.transform.Find("GeneratedMap");
         Assert.That(Snapshot(generated), Is.EqualTo(first));
         AssertWorldPosition(
             generated.Find("Structure/Structure_001_000_Wall_Brick"),
-            new Vector3(2f, 0f, 0f));
+            new Vector3(2f, 0f, 0f)
+        );
         AssertWorldRotation(
             generated.Find("Structure/Structure_001_000_Wall_Brick"),
-            Quaternion.identity);
+            Quaternion.identity
+        );
         AssertWorldScale(generated.Find("Structure/Floor_001_000"), Vector3.one);
         Assert.That(manual, Is.Not.Null);
 
@@ -645,29 +762,43 @@ public sealed class KayKitDungeonMapTests
     public void JsonGeneration_PreservesWorldGridUnderTransformedMapRoot()
     {
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
+            KayKitSetupTool.DungeonCatalogPath
+        );
         KayKitDungeonCatalogEntry entry = catalog.Entries.First(candidate =>
-            candidate.PlacementPrefab != null &&
-            candidate.Footprint == Vector2Int.one &&
-            !candidate.BlocksMovement);
-        TextAsset source = Track(new TextAsset(CurrentMapJson(JObject.Parse(
-            $"{{\"rows\":[\"#D#\",\"...\"],\"objects\":[{{\"assetId\":\"{entry.Id}\",\"x\":1,\"z\":0,\"rotation\":90}}]}}"))));
+            candidate.PlacementPrefab != null
+            && candidate.Footprint == Vector2Int.one
+            && !candidate.BlocksMovement
+        );
+        TextAsset source = Track(
+            new TextAsset(
+                CurrentMapJson(
+                    JObject.Parse(
+                        $"{{\"rows\":[\"#D#\",\"...\"],\"objects\":[{{\"assetId\":\"{entry.Id}\",\"x\":1,\"z\":0,\"rotation\":90}}]}}"
+                    )
+                )
+            )
+        );
         GameObject ancestor = Track(new GameObject("JSON Map Ancestor"));
         ancestor.transform.SetPositionAndRotation(
             new Vector3(7f, -2f, -11f),
-            Quaternion.Euler(9f, 31f, 5f));
+            Quaternion.Euler(9f, 31f, 5f)
+        );
         ancestor.transform.localScale = new Vector3(1.8f, 0.7f, 2.4f);
         GameObject mapObject = Track(new GameObject("Transformed JSON Map"));
         mapObject.transform.SetParent(ancestor.transform, false);
         mapObject.transform.SetPositionAndRotation(
             new Vector3(-8.25f, 3f, 4.5f),
-            Quaternion.Euler(0f, 53f, 0f));
+            Quaternion.Euler(0f, 53f, 0f)
+        );
         mapObject.transform.localScale = new Vector3(0.5f, 1.75f, 2.25f);
         Map map = mapObject.AddComponent<Map>();
         map.ConfigureJson(source, catalog);
 
-        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
-            string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(Environment.NewLine, validation.Errors)
+        );
         Transform generated = mapObject.transform.Find("GeneratedMap");
         Transform structure = generated.Find("Structure");
         Transform objects = generated.Find("Objects");
@@ -686,9 +817,7 @@ public sealed class KayKitDungeonMapTests
         AssertWorldRotation(wall, Quaternion.identity);
         AssertWorldPosition(doorway, new Vector3(1f, 0f, 1f));
         AssertWorldRotation(doorway, Quaternion.identity);
-        AssertWorldPosition(
-            placedObject,
-            new Vector3(placement.X, placement.YOffset, placement.Z));
+        AssertWorldPosition(placedObject, new Vector3(placement.X, placement.YOffset, placement.Z));
         AssertWorldRotation(placedObject, Quaternion.Euler(0f, 90f, 0f));
         AssertWorldScale(placedObject, entry.PlacementPrefab.transform.lossyScale);
         Assert.That(map.GetMapData()[2, 1], Is.EqualTo(TileType.Wall));
@@ -701,19 +830,32 @@ public sealed class KayKitDungeonMapTests
     public void JsonGeneration_RotatesMountedDecorationRootOffset(int rotation)
     {
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
+            KayKitSetupTool.DungeonCatalogPath
+        );
         KayKitDungeonCatalogEntry torch = catalog.Entries.Single(entry =>
-            entry.Id.EndsWith("/torch_mounted", StringComparison.Ordinal));
-        TextAsset source = Track(new TextAsset(CurrentMapJson(JObject.Parse(
-            $"{{\"rows\":[\"...\",\"...\",\"...\"],\"objects\":[{{\"assetId\":\"{torch.Id}\",\"x\":1,\"z\":1,\"rotation\":{rotation},\"yOffset\":0.2}}]}}"))));
+            entry.Id.EndsWith("/torch_mounted", StringComparison.Ordinal)
+        );
+        TextAsset source = Track(
+            new TextAsset(
+                CurrentMapJson(
+                    JObject.Parse(
+                        $"{{\"rows\":[\"...\",\"...\",\"...\"],\"objects\":[{{\"assetId\":\"{torch.Id}\",\"x\":1,\"z\":1,\"rotation\":{rotation},\"yOffset\":0.2}}]}}"
+                    )
+                )
+            )
+        );
         GameObject mapObject = Track(new GameObject("Mounted Decoration Map"));
         Map map = mapObject.AddComponent<Map>();
         map.ConfigureJson(source, catalog);
 
-        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
-            string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(Environment.NewLine, validation.Errors)
+        );
         Transform instance = mapObject.transform.Find(
-            "GeneratedMap/Objects/Object_000_dungeon_assets_fbx_unity__torch_mounted");
+            "GeneratedMap/Objects/Object_000_dungeon_assets_fbx_unity__torch_mounted"
+        );
         DungeonPlacementOffset offset = instance.GetComponent<DungeonPlacementOffset>();
         Quaternion expectedRotation = Quaternion.Euler(0f, rotation, 0f);
         Vector3 expectedPosition =
@@ -724,70 +866,124 @@ public sealed class KayKitDungeonMapTests
         Assert.That(instance.Find("Model").localPosition, Is.EqualTo(Vector3.zero));
         Assert.That(
             instance.Find("TorchLight").localPosition,
-            Is.EqualTo(new Vector3(0f, 1.5f, 0.2f)));
+            Is.EqualTo(new Vector3(0f, 1.5f, 0.2f))
+        );
     }
 
     [Test]
     public void JsonGeneration_RendersOnlyTheWallShellAroundWalkableCells()
     {
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
-        TextAsset source = Track(new TextAsset(CurrentMapJson(JObject.Parse(
-            "{\"rows\":[\"#####\",\"#...#\",\"#####\",\"#####\",\"#####\"]}"))));
+            KayKitSetupTool.DungeonCatalogPath
+        );
+        TextAsset source = Track(
+            new TextAsset(
+                CurrentMapJson(
+                    JObject.Parse("{\"rows\":[\"#####\",\"#...#\",\"#####\",\"#####\",\"#####\"]}")
+                )
+            )
+        );
         GameObject mapObject = Track(new GameObject("Wall Shell JSON Map"));
         Map map = mapObject.AddComponent<Map>();
         map.ConfigureJson(source, catalog);
 
-        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
-            string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(Environment.NewLine, validation.Errors)
+        );
         Transform structure = mapObject.transform.Find("GeneratedMap/Structure");
         Transform exposedWall = structure.Find("Wall_002_002");
 
-        Assert.That(map.GetMapData()[2, 0], Is.EqualTo(TileType.Wall),
-            "Interior solid cells must remain blocked in the gameplay topology.");
-        Assert.That(structure.Find("Wall_002_000"), Is.Null,
-            "Interior solid cells must not create dense wall geometry.");
-        Assert.That(structure.Find("Floor_002_000"), Is.Null,
-            "Interior solid cells must not create hidden floor geometry.");
-        Assert.That(exposedWall, Is.Not.Null,
-            "The wall shell next to walkable dungeon space must remain visible.");
-        Assert.That(structure.Find("Floor_002_002"), Is.Not.Null,
-            "Visible wall shell cells must cover the floor beneath them.");
-        Assert.That(structure.Find("Wall_000_004"), Is.Not.Null,
-            "Diagonal shell cells must preserve connected room corners.");
-        Assert.That(structure.Find("Floor_000_004"), Is.Not.Null,
-            "Diagonal shell corners must also cover the floor beneath them.");
-        Assert.That(exposedWall.GetComponent<Wall>().SelectedVariant,
+        Assert.That(
+            map.GetMapData()[2, 0],
+            Is.EqualTo(TileType.Wall),
+            "Interior solid cells must remain blocked in the gameplay topology."
+        );
+        Assert.That(
+            structure.Find("Wall_002_000"),
+            Is.Null,
+            "Interior solid cells must not create dense wall geometry."
+        );
+        Assert.That(
+            structure.Find("Floor_002_000"),
+            Is.Null,
+            "Interior solid cells must not create hidden floor geometry."
+        );
+        Assert.That(
+            exposedWall,
+            Is.Not.Null,
+            "The wall shell next to walkable dungeon space must remain visible."
+        );
+        Assert.That(
+            structure.Find("Floor_002_002"),
+            Is.Not.Null,
+            "Visible wall shell cells must cover the floor beneath them."
+        );
+        Assert.That(
+            structure.Find("Wall_000_004"),
+            Is.Not.Null,
+            "Diagonal shell cells must preserve connected room corners."
+        );
+        Assert.That(
+            structure.Find("Floor_000_004"),
+            Is.Not.Null,
+            "Diagonal shell corners must also cover the floor beneath them."
+        );
+        Assert.That(
+            exposedWall.GetComponent<Wall>().SelectedVariant,
             Is.EqualTo(WallVariant.Straight),
-            "Wall variants must resolve against the filtered visual topology.");
+            "Wall variants must resolve against the filtered visual topology."
+        );
     }
 
     [Test]
     public void JsonGeneration_ProjectsMaskedBoundaryAsWallWithoutChangingGameplay()
     {
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
-        TextAsset source = Track(new TextAsset(CurrentMapJson(JObject.Parse(
-            "{\"rows\":[\"#####\",\"#... \",\"#####\"]}"))));
+            KayKitSetupTool.DungeonCatalogPath
+        );
+        TextAsset source = Track(
+            new TextAsset(
+                CurrentMapJson(JObject.Parse("{\"rows\":[\"#####\",\"#... \",\"#####\"]}"))
+            )
+        );
         GameObject mapObject = Track(new GameObject("Masked Boundary JSON Map"));
         Map map = mapObject.AddComponent<Map>();
         map.ConfigureJson(source, catalog);
 
-        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
-            string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(Environment.NewLine, validation.Errors)
+        );
         Transform structure = mapObject.transform.Find("GeneratedMap/Structure");
         Transform boundaryWall = structure.Find("Wall_004_001");
 
-        Assert.That(map.GetMapData()[4, 1], Is.EqualTo(TileType.Empty),
-            "The layout-mask cell must remain outside the playable topology.");
-        Assert.That(map.GetLineOfSightBlocks()[4, 1], Is.True,
-            "The layout-mask cell must continue blocking line of sight.");
-        Assert.That(boundaryWall, Is.Not.Null,
-            "A walkable room edge must receive visual wall geometry against the mask.");
-        Assert.That(structure.Find("Floor_004_001"), Is.Not.Null,
-            "The projected wall must retain the floor tile beneath its geometry.");
-        Assert.That(boundaryWall.GetComponent<Wall>().SelectedVariant,
-            Is.EqualTo(WallVariant.Straight));
+        Assert.That(
+            map.GetMapData()[4, 1],
+            Is.EqualTo(TileType.Empty),
+            "The layout-mask cell must remain outside the playable topology."
+        );
+        Assert.That(
+            map.GetLineOfSightBlocks()[4, 1],
+            Is.True,
+            "The layout-mask cell must continue blocking line of sight."
+        );
+        Assert.That(
+            boundaryWall,
+            Is.Not.Null,
+            "A walkable room edge must receive visual wall geometry against the mask."
+        );
+        Assert.That(
+            structure.Find("Floor_004_001"),
+            Is.Not.Null,
+            "The projected wall must retain the floor tile beneath its geometry."
+        );
+        Assert.That(
+            boundaryWall.GetComponent<Wall>().SelectedVariant,
+            Is.EqualTo(WallVariant.Straight)
+        );
     }
 
     [Test]
@@ -814,9 +1010,11 @@ public sealed class KayKitDungeonMapTests
         GameObject manual = Track(new GameObject("Manual Infrastructure"));
         manual.transform.SetParent(mapObject.transform, false);
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
-        TextAsset source = Track(new TextAsset(CurrentMapJson(JObject.Parse(
-            @"{""rows"":[""..""],""objects"":[]}"))));
+            KayKitSetupTool.DungeonCatalogPath
+        );
+        TextAsset source = Track(
+            new TextAsset(CurrentMapJson(JObject.Parse(@"{""rows"":[""..""],""objects"":[]}")))
+        );
         map.ConfigureJson(source, catalog);
 
         map.ClearGeneratedContent();
@@ -835,8 +1033,11 @@ public sealed class KayKitDungeonMapTests
         spacedLegacyFloor.transform.position = new Vector3(2f, 0f, 0f);
         spacedLegacyFloor.GetComponent<MeshRenderer>().sharedMaterial = floor;
         spacedLegacyFloor.transform.SetParent(mapObject.transform, true);
-        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
-            string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(Environment.NewLine, validation.Errors)
+        );
 
         Assert.That(legacyFloor, Is.Not.Null);
         Assert.That(spacedLegacyFloor, Is.Not.Null);
@@ -899,30 +1100,41 @@ public sealed class KayKitDungeonMapTests
         manual.transform.SetParent(mapObject.transform, false);
 
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
-        TextAsset json = Track(new TextAsset(CurrentMapJson(JObject.Parse(
-            @"{""rows"":["".""],""objects"":[]}"))));
+            KayKitSetupTool.DungeonCatalogPath
+        );
+        TextAsset json = Track(
+            new TextAsset(CurrentMapJson(JObject.Parse(@"{""rows"":["".""],""objects"":[]}")))
+        );
         map.ConfigureJson(json, catalog);
         SetLegacyBitmapMigrationPending(map);
 
         string clearError = null;
-        Type logAssertType = AppDomain.CurrentDomain.GetAssemblies()
+        Type logAssertType = AppDomain
+            .CurrentDomain.GetAssemblies()
             .Select(assembly => assembly.GetType("UnityEngine.TestTools.LogAssert"))
             .First(type => type != null);
         MethodInfo expectLog = logAssertType.GetMethod(
             "Expect",
-            new[] { typeof(LogType), typeof(Regex) });
+            new[] { typeof(LogType), typeof(Regex) }
+        );
         Assert.That(expectLog, Is.Not.Null);
-        expectLog.Invoke(null, new object[]
-        {
-            LogType.Error,
-            new Regex(
-                "Map generated-content clear failed: Legacy bitmap migration remains pending.*readable.*retry",
-                RegexOptions.IgnoreCase)
-        });
+        expectLog.Invoke(
+            null,
+            new object[]
+            {
+                LogType.Error,
+                new Regex(
+                    "Map generated-content clear failed: Legacy bitmap migration remains pending.*readable.*retry",
+                    RegexOptions.IgnoreCase
+                ),
+            }
+        );
         void CaptureClearError(string condition, string _, LogType type)
         {
-            if (type == LogType.Error && condition.StartsWith("Map generated-content clear failed:"))
+            if (
+                type == LogType.Error
+                && condition.StartsWith("Map generated-content clear failed:")
+            )
                 clearError = condition;
         }
 
@@ -946,7 +1158,10 @@ public sealed class KayKitDungeonMapTests
 
         Assert.That(map.TryGenerate(out MapSourceValidationResult failedValidation), Is.False);
         Assert.That(failedValidation.Errors.Count, Is.EqualTo(1));
-        Assert.That(failedValidation.Errors[0], Does.Contain("migration remains pending").IgnoreCase);
+        Assert.That(
+            failedValidation.Errors[0],
+            Does.Contain("migration remains pending").IgnoreCase
+        );
         Assert.That(failedValidation.Errors[0], Does.Contain("readable").IgnoreCase);
         Assert.That(failedValidation.Errors[0], Does.Contain("retry").IgnoreCase);
         Assert.That(MigrationVersion(map), Is.Zero);
@@ -960,11 +1175,17 @@ public sealed class KayKitDungeonMapTests
         serialized.FindProperty("ImageMap").objectReferenceValue = correctedImage;
         serialized.ApplyModifiedPropertiesWithoutUndo();
 
-        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
-            string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(Environment.NewLine, validation.Errors)
+        );
         Assert.That(legacyFloor == null, Is.True);
         Assert.That(MigrationVersion(map), Is.GreaterThan(0));
-        Assert.That(mapObject.GetComponentsInChildren<GeneratedMapRoot>(true), Has.Length.EqualTo(1));
+        Assert.That(
+            mapObject.GetComponentsInChildren<GeneratedMapRoot>(true),
+            Has.Length.EqualTo(1)
+        );
         Assert.That(manual, Is.Not.Null);
         Assert.That(manual.transform.parent, Is.SameAs(mapObject.transform));
     }
@@ -975,24 +1196,33 @@ public sealed class KayKitDungeonMapTests
         GameObject mapObject = Track(new GameObject("Empty Map Without Legacy Metadata"));
         Map map = mapObject.AddComponent<Map>();
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
-        TextAsset json = Track(new TextAsset(CurrentMapJson(JObject.Parse(
-            @"{""rows"":["".""],""objects"":[]}"))));
+            KayKitSetupTool.DungeonCatalogPath
+        );
+        TextAsset json = Track(
+            new TextAsset(CurrentMapJson(JObject.Parse(@"{""rows"":["".""],""objects"":[]}")))
+        );
         map.ConfigureJson(json, catalog);
         SetLegacyBitmapMigrationPending(map);
 
         Assert.That(mapObject.transform.childCount, Is.Zero);
-        Assert.That(map.TryGenerate(out MapSourceValidationResult validation), Is.True,
-            string.Join(Environment.NewLine, validation.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult validation),
+            Is.True,
+            string.Join(Environment.NewLine, validation.Errors)
+        );
         Assert.That(MigrationVersion(map), Is.GreaterThan(0));
-        Assert.That(mapObject.GetComponentsInChildren<GeneratedMapRoot>(true), Has.Length.EqualTo(1));
+        Assert.That(
+            mapObject.GetComponentsInChildren<GeneratedMapRoot>(true),
+            Has.Length.EqualTo(1)
+        );
     }
 
     [TestCase(true, "Image Map")]
     [TestCase(false, "Tile Settings")]
     public void MissingLegacyBitmapMetadata_LeavesMigrationPendingAndPreservesDirectChildren(
         bool removeImageMap,
-        string expectedMetadata)
+        string expectedMetadata
+    )
     {
         GameObject mapObject = Track(new GameObject("Missing Legacy Metadata"));
         Map map = mapObject.AddComponent<Map>();
@@ -1003,9 +1233,11 @@ public sealed class KayKitDungeonMapTests
         ConfigureBitmapSource(map, image, floor);
 
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
-        TextAsset json = Track(new TextAsset(CurrentMapJson(JObject.Parse(
-            @"{""rows"":["".""],""objects"":[]}"))));
+            KayKitSetupTool.DungeonCatalogPath
+        );
+        TextAsset json = Track(
+            new TextAsset(CurrentMapJson(JObject.Parse(@"{""rows"":["".""],""objects"":[]}")))
+        );
         map.ConfigureJson(json, catalog);
         SetLegacyBitmapMigrationPending(map);
 
@@ -1019,7 +1251,8 @@ public sealed class KayKitDungeonMapTests
         {
             FieldInfo settingsField = typeof(Map).GetField(
                 "Settings",
-                BindingFlags.Instance | BindingFlags.NonPublic);
+                BindingFlags.Instance | BindingFlags.NonPublic
+            );
             Assert.That(settingsField, Is.Not.Null);
             settingsField.SetValue(map, null);
         }
@@ -1043,8 +1276,10 @@ public sealed class KayKitDungeonMapTests
     [Test]
     public void RegenerationSceneGuard_SkipsPromptWhenNoSceneIsDirty()
     {
-        bool result = ConfirmSceneTransition(false, () =>
-            throw new AssertionException("The save prompt must not run for clean scenes."));
+        bool result = ConfirmSceneTransition(
+            false,
+            () => throw new AssertionException("The save prompt must not run for clean scenes.")
+        );
 
         Assert.That(result, Is.True);
     }
@@ -1054,11 +1289,14 @@ public sealed class KayKitDungeonMapTests
     {
         int prompts = 0;
 
-        bool result = ConfirmSceneTransition(true, () =>
-        {
-            prompts++;
-            return false;
-        });
+        bool result = ConfirmSceneTransition(
+            true,
+            () =>
+            {
+                prompts++;
+                return false;
+            }
+        );
 
         Assert.That(result, Is.False);
         Assert.That(prompts, Is.EqualTo(1));
@@ -1075,7 +1313,8 @@ public sealed class KayKitDungeonMapTests
         disabledPortrait.farClipPlane = 1.72f;
         disabledPortrait.transform.SetPositionAndRotation(
             new Vector3(0f, 0.836f, 1.226f),
-            Quaternion.Euler(0f, 180f, 0f));
+            Quaternion.Euler(0f, 180f, 0f)
+        );
 
         RenderTexture portraitTexture = Track(new RenderTexture(70, 100, 24));
         GameObject boundPortraitObject = Track(new GameObject("Bound Portrait Camera"));
@@ -1088,7 +1327,8 @@ public sealed class KayKitDungeonMapTests
 
         Camera selected = SelectGameplayCamera(new[] { disabledPortrait, gameplay, boundPortrait });
         Camera selectedFromReversedInput = SelectGameplayCamera(
-            new[] { boundPortrait, gameplay, disabledPortrait });
+            new[] { boundPortrait, gameplay, disabledPortrait }
+        );
         ApplyExampleCameraConfiguration(selected);
 
         Assert.That(selected, Is.SameAs(gameplay));
@@ -1098,17 +1338,22 @@ public sealed class KayKitDungeonMapTests
         Assert.That(gameplay.transform.position, Is.EqualTo(new Vector3(24.5f, 6f, 6f)));
         Assert.That(
             Quaternion.Angle(gameplay.transform.rotation, Quaternion.Euler(35f, 0f, 0f)),
-            Is.LessThan(0.001f));
+            Is.LessThan(0.001f)
+        );
 
         Assert.That(disabledPortrait.enabled, Is.False);
         Assert.That(disabledPortrait.orthographic, Is.False);
         Assert.That(disabledPortrait.fieldOfView, Is.EqualTo(26f));
         Assert.That(disabledPortrait.nearClipPlane, Is.EqualTo(0.3f));
         Assert.That(disabledPortrait.farClipPlane, Is.EqualTo(1.72f));
-        Assert.That(disabledPortrait.transform.position, Is.EqualTo(new Vector3(0f, 0.836f, 1.226f)));
-        Assert.That(Quaternion.Angle(
-            disabledPortrait.transform.rotation,
-            Quaternion.Euler(0f, 180f, 0f)), Is.LessThan(0.001f));
+        Assert.That(
+            disabledPortrait.transform.position,
+            Is.EqualTo(new Vector3(0f, 0.836f, 1.226f))
+        );
+        Assert.That(
+            Quaternion.Angle(disabledPortrait.transform.rotation, Quaternion.Euler(0f, 180f, 0f)),
+            Is.LessThan(0.001f)
+        );
         Assert.That(boundPortrait.targetTexture, Is.SameAs(portraitTexture));
     }
 
@@ -1121,16 +1366,24 @@ public sealed class KayKitDungeonMapTests
         manual.transform.SetParent(mapObject.transform, false);
         manual.AddComponent<Camera>();
         TextAsset source = AssetDatabase.LoadAssetAtPath<TextAsset>(
-            KayKitDungeonExampleTool.JsonPath);
+            KayKitDungeonExampleTool.JsonPath
+        );
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
+            KayKitSetupTool.DungeonCatalogPath
+        );
         map.ConfigureJson(source, catalog);
 
-        Assert.That(map.TryGenerate(out MapSourceValidationResult firstResult), Is.True,
-            string.Join(Environment.NewLine, firstResult.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult firstResult),
+            Is.True,
+            string.Join(Environment.NewLine, firstResult.Errors)
+        );
         string[] first = Snapshot(mapObject.transform.Find("GeneratedMap"));
-        Assert.That(map.TryGenerate(out MapSourceValidationResult secondResult), Is.True,
-            string.Join(Environment.NewLine, secondResult.Errors));
+        Assert.That(
+            map.TryGenerate(out MapSourceValidationResult secondResult),
+            Is.True,
+            string.Join(Environment.NewLine, secondResult.Errors)
+        );
         string[] second = Snapshot(mapObject.transform.Find("GeneratedMap"));
 
         Assert.That(second, Is.EqualTo(first));
@@ -1146,10 +1399,12 @@ public sealed class KayKitDungeonMapTests
         GameObject mapObject = Track(new GameObject("Test Map"));
         Map map = mapObject.AddComponent<Map>();
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
-            KayKitSetupTool.DungeonCatalogPath);
+            KayKitSetupTool.DungeonCatalogPath
+        );
         map.ConfigureJson(
             AssetDatabase.LoadAssetAtPath<TextAsset>(KayKitDungeonExampleTool.JsonPath),
-            catalog);
+            catalog
+        );
         Assert.That(map.TryGenerate(out _), Is.True);
         Transform generated = mapObject.transform.Find("GeneratedMap");
         string[] before = Snapshot(generated);
@@ -1174,11 +1429,13 @@ public sealed class KayKitDungeonMapTests
     public void WallResolver_AppliesNegativeNinetyYawToCornersAndTIntersections(
         string neighbors,
         WallVariant expectedVariant,
-        int expectedRotation)
+        int expectedRotation
+    )
     {
         WallResolution resolution = WallStructuralResolver.Resolve(
             new Vector3Int(1, 0, 1),
-            WallGrid(neighbors));
+            WallGrid(neighbors)
+        );
 
         Assert.That(resolution.Variant, Is.EqualTo(expectedVariant));
         Assert.That(resolution.Rotation, Is.EqualTo(expectedRotation));
@@ -1190,11 +1447,13 @@ public sealed class KayKitDungeonMapTests
     [TestCase("S", 90)]
     public void WallResolver_RendersOneNeighborAsAFullStraightSegment(
         string neighbors,
-        int expectedRotation)
+        int expectedRotation
+    )
     {
         WallResolution resolution = WallStructuralResolver.Resolve(
             new Vector3Int(1, 0, 1),
-            WallGrid(neighbors));
+            WallGrid(neighbors)
+        );
 
         Assert.That(resolution.Variant, Is.EqualTo(WallVariant.Straight));
         Assert.That(resolution.Rotation, Is.EqualTo(expectedRotation));
@@ -1210,7 +1469,7 @@ public sealed class KayKitDungeonMapTests
         TileType[,] grid =
         {
             { TileType.Wall },
-            { TileType.Obstacle }
+            { TileType.Obstacle },
         };
         WallResolution isolated = WallStructuralResolver.Resolve(Vector3Int.zero, grid);
         Assert.That(isolated.Variant, Is.EqualTo(WallVariant.Pillar));
@@ -1224,29 +1483,35 @@ public sealed class KayKitDungeonMapTests
     [Test]
     public void MovementOnlyObstacle_RemainsTransparentToLineOfSight()
     {
-        Tile[,] tiles = { { new Tile() }, { null }, { new Tile() } };
-        bool[,] blockers = { { false }, { false }, { false } };
+        Tile[,] tiles =
+        {
+            { new Tile() },
+            { null },
+            { new Tile() },
+        };
+        bool[,] blockers =
+        {
+            { false },
+            { false },
+            { false },
+        };
         TileType[,] gridData =
         {
             { TileType.Ground },
             { TileType.Obstacle },
-            { TileType.Ground }
+            { TileType.Ground },
         };
         GridLineOfSightData.Register(tiles, blockers, gridData);
         try
         {
             Assert.That(
-                StrikeTargeting.CountClearRays(
-                    tiles,
-                    Vector3Int.zero,
-                    new Vector3Int(2, 0, 0)),
-                Is.EqualTo(16));
+                StrikeTargeting.CountClearRays(tiles, Vector3Int.zero, new Vector3Int(2, 0, 0)),
+                Is.EqualTo(16)
+            );
             Assert.That(
-                GridTargeting.CountClearRays(
-                    tiles,
-                    Vector3Int.zero,
-                    new Vector3Int(2, 0, 0)),
-                Is.EqualTo(16));
+                GridTargeting.CountClearRays(tiles, Vector3Int.zero, new Vector3Int(2, 0, 0)),
+                Is.EqualTo(16)
+            );
         }
         finally
         {
@@ -1260,27 +1525,25 @@ public sealed class KayKitDungeonMapTests
         Tile[,] tiles =
         {
             { new Tile(), null },
-            { null, new Tile() }
+            { null, new Tile() },
         };
         bool[,] blockers =
         {
             { false, false },
-            { false, false }
+            { false, false },
         };
         TileType[,] gridData =
         {
             { TileType.Ground, TileType.Obstacle },
-            { TileType.Obstacle, TileType.Ground }
+            { TileType.Obstacle, TileType.Ground },
         };
         GridLineOfSightData.Register(tiles, blockers, gridData);
         try
         {
             Assert.That(
-                GridTargeting.BlocksDiagonalCorner(
-                    tiles,
-                    Vector3Int.zero,
-                    new Vector3Int(1, 0, 1)),
-                Is.False);
+                GridTargeting.BlocksDiagonalCorner(tiles, Vector3Int.zero, new Vector3Int(1, 0, 1)),
+                Is.False
+            );
         }
         finally
         {
@@ -1291,8 +1554,18 @@ public sealed class KayKitDungeonMapTests
     [Test]
     public void ColliderBackedBlocker_AffectsStrikeAndSharedLineOfEffectChecks()
     {
-        Tile[,] tiles = { { new Tile() }, { new Tile() }, { new Tile() } };
-        bool[,] blockers = { { false }, { false }, { false } };
+        Tile[,] tiles =
+        {
+            { new Tile() },
+            { new Tile() },
+            { new Tile() },
+        };
+        bool[,] blockers =
+        {
+            { false },
+            { false },
+            { false },
+        };
         GridLineOfSightData.Register(tiles, blockers);
         GameObject blocker = Track(new GameObject("Line Of Sight Blocker"));
         blocker.transform.position = new Vector3(1.5f, 0f, 0.25f);
@@ -1304,23 +1577,17 @@ public sealed class KayKitDungeonMapTests
         try
         {
             Assert.That(
-                StrikeTargeting.CountClearRays(
-                    tiles,
-                    Vector3Int.zero,
-                    new Vector3Int(2, 0, 0)),
-                Is.Zero);
+                StrikeTargeting.CountClearRays(tiles, Vector3Int.zero, new Vector3Int(2, 0, 0)),
+                Is.Zero
+            );
             Assert.That(
-                GridTargeting.CountClearRays(
-                    tiles,
-                    Vector3Int.zero,
-                    new Vector3Int(2, 0, 0)),
-                Is.Zero);
+                GridTargeting.CountClearRays(tiles, Vector3Int.zero, new Vector3Int(2, 0, 0)),
+                Is.Zero
+            );
             Assert.That(
-                GridTargeting.CountClearRaysFromPoint(
-                    tiles,
-                    Vector2.zero,
-                    new Vector3Int(2, 0, 0)),
-                Is.Zero);
+                GridTargeting.CountClearRaysFromPoint(tiles, Vector2.zero, new Vector3Int(2, 0, 0)),
+                Is.Zero
+            );
         }
         finally
         {
@@ -1331,8 +1598,18 @@ public sealed class KayKitDungeonMapTests
     [Test]
     public void ColliderBackedBlocker_StrikeRaysUseSampledCellCenterCoordinates()
     {
-        Tile[,] tiles = { { new Tile() }, { new Tile() }, { new Tile() } };
-        bool[,] blockers = { { false }, { false }, { false } };
+        Tile[,] tiles =
+        {
+            { new Tile() },
+            { new Tile() },
+            { new Tile() },
+        };
+        bool[,] blockers =
+        {
+            { false },
+            { false },
+            { false },
+        };
         GridLineOfSightData.Register(tiles, blockers);
         GameObject blocker = Track(new GameObject("Asymmetric Line Of Sight Blocker"));
         blocker.transform.position = new Vector3(1.5f, 0f, 0.65f);
@@ -1346,11 +1623,13 @@ public sealed class KayKitDungeonMapTests
             int sharedClearRays = GridTargeting.CountClearRays(
                 tiles,
                 Vector3Int.zero,
-                new Vector3Int(2, 0, 0));
+                new Vector3Int(2, 0, 0)
+            );
             int strikeClearRays = StrikeTargeting.CountClearRays(
                 tiles,
                 Vector3Int.zero,
-                new Vector3Int(2, 0, 0));
+                new Vector3Int(2, 0, 0)
+            );
 
             Assert.That(sharedClearRays, Is.EqualTo(14));
             Assert.That(strikeClearRays, Is.EqualTo(sharedClearRays));
@@ -1382,8 +1661,10 @@ public sealed class KayKitDungeonMapTests
         Assert.That(
             MapLineOfSightBlocker.BlocksSegment(
                 new Vector3(0f, 0.75f, 0.5f),
-                new Vector3(3f, 0.75f, 0.5f)),
-            Is.True);
+                new Vector3(3f, 0.75f, 0.5f)
+            ),
+            Is.True
+        );
     }
 
     [Test]
@@ -1397,7 +1678,9 @@ public sealed class KayKitDungeonMapTests
 
         for (int index = 0; index < 40; index++)
         {
-            GameObject nonBlocker = Track(new GameObject($"Trailing Non-blocking Collider {index}"));
+            GameObject nonBlocker = Track(
+                new GameObject($"Trailing Non-blocking Collider {index}")
+            );
             nonBlocker.transform.position = new Vector3(1f + index * 0.04f, 0.75f, 0.5f);
             BoxCollider collider = nonBlocker.AddComponent<BoxCollider>();
             collider.size = new Vector3(0.02f, 1f, 0.5f);
@@ -1408,8 +1691,10 @@ public sealed class KayKitDungeonMapTests
         Assert.That(
             MapLineOfSightBlocker.BlocksSegment(
                 new Vector3(0f, 0.75f, 0.5f),
-                new Vector3(3f, 0.75f, 0.5f)),
-            Is.True);
+                new Vector3(3f, 0.75f, 0.5f)
+            ),
+            Is.True
+        );
     }
 
     [Test]
@@ -1426,8 +1711,10 @@ public sealed class KayKitDungeonMapTests
         Assert.That(
             MapLineOfSightBlocker.BlocksSegment(
                 new Vector3(0f, 0.75f, 0.5f),
-                new Vector3(3f, 0.75f, 0.5f)),
-            Is.False);
+                new Vector3(3f, 0.75f, 0.5f)
+            ),
+            Is.False
+        );
     }
 
     [Test]
@@ -1438,12 +1725,13 @@ public sealed class KayKitDungeonMapTests
 
         Assert.That(map.SourceMode, Is.EqualTo(MapSourceMode.Bitmap));
         SerializedObject serialized = new(map);
-        Assert.That(serialized.FindProperty("legacyBitmapMigrationVersion").intValue, Is.GreaterThan(0));
+        Assert.That(
+            serialized.FindProperty("legacyBitmapMigrationVersion").intValue,
+            Is.GreaterThan(0)
+        );
     }
 
-    private static KayKitDungeonMapParseResult ParseMap(
-        string json,
-        KayKitDungeonCatalog catalog)
+    private static KayKitDungeonMapParseResult ParseMap(string json, KayKitDungeonCatalog catalog)
     {
         JObject source;
         try
@@ -1455,9 +1743,7 @@ public sealed class KayKitDungeonMapTests
             return KayKitDungeonMapParser.Parse(json, catalog);
         }
 
-        string currentJson = source["generation"] == null
-            ? CurrentMapJson(source)
-            : json;
+        string currentJson = source["generation"] == null ? CurrentMapJson(source) : json;
         return KayKitDungeonMapParser.Parse(currentJson, catalog);
     }
 
@@ -1470,20 +1756,23 @@ public sealed class KayKitDungeonMapTests
         int doorIndex = 0;
         for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
         {
-            string row = rows[rowIndex].Type == JTokenType.String
-                ? rows[rowIndex].Value<string>()
-                : string.Empty;
+            string row =
+                rows[rowIndex].Type == JTokenType.String
+                    ? rows[rowIndex].Value<string>()
+                    : string.Empty;
             for (int x = 0; x < row.Length; x++)
             {
                 if (row[x] != 'D')
                     continue;
                 doorIndex++;
-                doors.Add(new JObject
-                {
-                    ["id"] = $"door-{doorIndex:0000}",
-                    ["cell"] = Cell(x, rows.Count - 1 - rowIndex),
-                    ["isOpen"] = false
-                });
+                doors.Add(
+                    new JObject
+                    {
+                        ["id"] = $"door-{doorIndex:0000}",
+                        ["cell"] = Cell(x, rows.Count - 1 - rowIndex),
+                        ["isOpen"] = false,
+                    }
+                );
             }
         }
 
@@ -1503,9 +1792,9 @@ public sealed class KayKitDungeonMapTests
                     ["cell"] = new JObject
                     {
                         ["x"] = item["x"]?.DeepClone(),
-                        ["z"] = item["z"]?.DeepClone()
+                        ["z"] = item["z"]?.DeepClone(),
                     },
-                    ["rotation"] = item["rotation"]?.DeepClone() ?? 0
+                    ["rotation"] = item["rotation"]?.DeepClone() ?? 0,
                 };
                 if (item["yOffset"] != null)
                     mapped["yOffset"] = item["yOffset"].DeepClone();
@@ -1522,7 +1811,7 @@ public sealed class KayKitDungeonMapTests
                 ["algorithm"] = "kaykit-authored",
                 ["runSeed"] = 0,
                 ["depth"] = 0,
-                ["topologyAttempt"] = 0
+                ["topologyAttempt"] = 0,
             },
             ["rows"] = rows.DeepClone(),
             ["rooms"] = new JArray(),
@@ -1531,10 +1820,10 @@ public sealed class KayKitDungeonMapTests
             ["arrival"] = new JObject
             {
                 ["start"] = Cell(start.X, start.Z),
-                ["safeCells"] = new JArray(Cell(start.X, start.Z))
+                ["safeCells"] = new JArray(Cell(start.X, start.Z)),
             },
             ["objects"] = objects,
-            ["encounterPlans"] = new JArray()
+            ["encounterPlans"] = new JArray(),
         };
         return root.ToString(Formatting.None);
     }
@@ -1555,11 +1844,7 @@ public sealed class KayKitDungeonMapTests
         return new DungeonTestCell(0, 0);
     }
 
-    private static JObject Cell(int x, int z) => new()
-    {
-        ["x"] = x,
-        ["z"] = z
-    };
+    private static JObject Cell(int x, int z) => new() { ["x"] = x, ["z"] = z };
 
     private readonly struct DungeonTestCell
     {
@@ -1591,7 +1876,8 @@ public sealed class KayKitDungeonMapTests
     private KayKitDungeonCatalog Catalog(params KayKitDungeonCatalogEntry[] entries)
     {
         KayKitDungeonCatalog catalog = Track(
-            ScriptableObject.CreateInstance<KayKitDungeonCatalog>());
+            ScriptableObject.CreateInstance<KayKitDungeonCatalog>()
+        );
         catalog.ReplaceEntries(entries);
         return catalog;
     }
@@ -1602,7 +1888,7 @@ public sealed class KayKitDungeonMapTests
         {
             TileDefinitions = new List<TileDefinition>
             {
-                new() { Color = color, Tile = tile }
+                new() { Color = color, Tile = tile },
             };
         }
     }
@@ -1611,7 +1897,8 @@ public sealed class KayKitDungeonMapTests
         string id,
         Vector2Int footprint,
         bool blocksMovement,
-        bool blocksLineOfSight)
+        bool blocksLineOfSight
+    )
     {
         GameObject model = Track(new GameObject(id));
         return new KayKitDungeonCatalogEntry(
@@ -1622,10 +1909,12 @@ public sealed class KayKitDungeonMapTests
             0,
             0f,
             blocksMovement,
-            blocksLineOfSight);
+            blocksLineOfSight
+        );
     }
 
-    private T Track<T>(T target) where T : UnityEngine.Object
+    private T Track<T>(T target)
+        where T : UnityEngine.Object
     {
         cleanup.Add(target);
         return target;
@@ -1635,11 +1924,13 @@ public sealed class KayKitDungeonMapTests
         Map map,
         Texture2D image,
         Material floor,
-        float tileSpacing = 1f)
+        float tileSpacing = 1f
+    )
     {
         FieldInfo settingsField = typeof(Map).GetField(
             "Settings",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.That(settingsField, Is.Not.Null);
         settingsField.SetValue(map, new TileSettings());
         SerializedObject serialized = new(map);
@@ -1678,7 +1969,8 @@ public sealed class KayKitDungeonMapTests
     {
         MethodInfo method = typeof(KayKitDungeonExampleTool).GetMethod(
             "ConfirmSceneTransition",
-            BindingFlags.Static | BindingFlags.NonPublic);
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
         Assert.That(method, Is.Not.Null);
         return (bool)method.Invoke(null, new object[] { hasDirtyScenes, savePrompt });
     }
@@ -1687,7 +1979,8 @@ public sealed class KayKitDungeonMapTests
     {
         MethodInfo method = typeof(KayKitDungeonExampleTool).GetMethod(
             "SelectGameplayCamera",
-            BindingFlags.Static | BindingFlags.NonPublic);
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
         Assert.That(method, Is.Not.Null);
         return (Camera)method.Invoke(null, new object[] { cameras });
     }
@@ -1696,7 +1989,8 @@ public sealed class KayKitDungeonMapTests
     {
         MethodInfo method = typeof(KayKitDungeonExampleTool).GetMethod(
             "ApplyCameraConfiguration",
-            BindingFlags.Static | BindingFlags.NonPublic);
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
         Assert.That(method, Is.Not.Null);
         method.Invoke(null, new object[] { camera });
     }
@@ -1728,9 +2022,10 @@ public sealed class KayKitDungeonMapTests
         Vector3 position = current.localPosition;
         Vector3 rotation = current.localEulerAngles;
         values.Add(
-            $"{path}|{current.gameObject.activeSelf}|" +
-            $"{position.x:F4},{position.y:F4},{position.z:F4}|" +
-            $"{rotation.x:F4},{rotation.y:F4},{rotation.z:F4}");
+            $"{path}|{current.gameObject.activeSelf}|"
+                + $"{position.x:F4},{position.y:F4},{position.z:F4}|"
+                + $"{rotation.x:F4},{rotation.y:F4},{rotation.z:F4}"
+        );
         foreach (Transform child in current)
             Visit(child, path + "/" + child.name, values);
     }

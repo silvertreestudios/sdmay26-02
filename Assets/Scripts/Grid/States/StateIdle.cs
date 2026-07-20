@@ -3,7 +3,5 @@ using UnityEngine;
 
 namespace GridPrivate
 {
-    public class StateIdle : GridFSMState
-    {
-    }
+    public class StateIdle : GridFSMState { }
 }

@@ -1,10 +1,10 @@
-using Game.Creature;
-using Game.Creature.Rules;
-using GridPublic;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Creature;
+using Game.Creature.Rules;
+using GridPublic;
 using UnityEngine;
 
 namespace Game.Combat.Spells
@@ -22,46 +22,80 @@ namespace Game.Combat.Spells
     {
         public abstract string Slug { get; }
 
-        public virtual IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => spell?.ActionCosts ?? Array.Empty<uint>();
-        public virtual bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
-        public abstract IEnumerator SelectAndCast(SpellCastContext context);
-        public abstract bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result);
+        public virtual IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) =>
+            spell?.ActionCosts ?? Array.Empty<uint>();
 
-        protected static IEnumerator CastNow(SpellCastContext context, SpellTargetSelection selection)
+        public virtual bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
+
+        public abstract IEnumerator SelectAndCast(SpellCastContext context);
+        public abstract bool Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        );
+
+        protected static IEnumerator CastNow(
+            SpellCastContext context,
+            SpellTargetSelection selection
+        )
         {
             context.Cast(selection);
             yield break;
         }
 
-        protected static IEnumerator SelectFixedRangeTargetAndCast(SpellCastContext context, int rangeFeet)
+        protected static IEnumerator SelectFixedRangeTargetAndCast(
+            SpellCastContext context,
+            int rangeFeet
+        )
         {
             CoroutineResult<StrikeTargetResult> target = new();
-            yield return GridAPI.GetInstance().GetStrikeTarget(context.Caster, SpellcastingRuntime.FixedRangeTarget(rangeFeet), target);
+            yield return GridAPI
+                .GetInstance()
+                .GetStrikeTarget(
+                    context.Caster,
+                    SpellcastingRuntime.FixedRangeTarget(rangeFeet),
+                    target
+                );
             if (target.Value != null && target.Value.Target != null)
                 context.Cast(SpellTargetSelection.ForTarget(target.Value.Target));
             else
-                SpellcastingRuntime.Fail(new CastSpellResult(), "Spell target is invalid.", context.ActionController);
+                SpellcastingRuntime.Fail(
+                    new CastSpellResult(),
+                    "Spell target is invalid.",
+                    context.ActionController
+                );
         }
 
-        protected static IEnumerator SelectAreaAndCast(SpellCastContext context, AreaTargetRequest request)
+        protected static IEnumerator SelectAreaAndCast(
+            SpellCastContext context,
+            AreaTargetRequest request
+        )
         {
             CoroutineResult<AreaTargetResult> area = new();
             yield return GridAPI.GetInstance().GetAreaTarget(context.Caster, request, area);
             if (area.Value != null)
                 context.Cast(SpellTargetSelection.ForArea(area.Value));
             else
-                SpellcastingRuntime.Fail(new CastSpellResult(), "Spell target is invalid.", context.ActionController);
+                SpellcastingRuntime.Fail(
+                    new CastSpellResult(),
+                    "Spell target is invalid.",
+                    context.ActionController
+                );
         }
 
         protected static GameObject FirstTarget(SpellTargetSelection selection)
         {
-            return selection?.Targets != null && selection.Targets.Count > 0 ? selection.Targets[0] : null;
+            return selection?.Targets != null && selection.Targets.Count > 0
+                ? selection.Targets[0]
+                : null;
         }
     }
 
     public static class SpellRegistry
     {
-        private static readonly Dictionary<string, ISpellDefinition> Definitions = new(StringComparer.OrdinalIgnoreCase)
+        private static readonly Dictionary<string, ISpellDefinition> Definitions = new(
+            StringComparer.OrdinalIgnoreCase
+        )
         {
             ["shield"] = new ShieldSpell(),
             ["guidance"] = new GuidanceSpell(),
@@ -70,7 +104,7 @@ namespace Game.Combat.Spells
             ["light"] = new LightSpell(),
             ["bless"] = new BlessSpell(),
             ["infuse-vitality"] = new InfuseVitalitySpell(),
-            ["heal"] = new HealSpell()
+            ["heal"] = new HealSpell(),
         };
 
         public static bool TryGet(string slug, out ISpellDefinition definition)
@@ -88,11 +122,18 @@ namespace Game.Combat.Spells
     {
         public override string Slug => "shield";
 
-        public override IEnumerator SelectAndCast(SpellCastContext context) => CastNow(context, SpellTargetSelection.None);
+        public override IEnumerator SelectAndCast(SpellCastContext context) =>
+            CastNow(context, SpellTargetSelection.None);
 
-        public override bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result)
+        public override bool Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
         {
-            SpellEffectController.GetOrAdd(context.Caster).AddOrRefresh(new ShieldSpellEffect(context.Caster));
+            SpellEffectController
+                .GetOrAdd(context.Caster)
+                .AddOrRefresh(new ShieldSpellEffect(context.Caster));
             result.Targets.Add(context.Caster);
             return true;
         }
@@ -102,9 +143,14 @@ namespace Game.Combat.Spells
     {
         public override string Slug => "light";
 
-        public override IEnumerator SelectAndCast(SpellCastContext context) => CastNow(context, SpellTargetSelection.None);
+        public override IEnumerator SelectAndCast(SpellCastContext context) =>
+            CastNow(context, SpellTargetSelection.None);
 
-        public override bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result)
+        public override bool Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
         {
             result.Targets.Add(context.Caster);
             return true;
@@ -115,12 +161,20 @@ namespace Game.Combat.Spells
     {
         public override string Slug => "guidance";
 
-        public override IEnumerator SelectAndCast(SpellCastContext context) => SelectFixedRangeTargetAndCast(context, 30);
+        public override IEnumerator SelectAndCast(SpellCastContext context) =>
+            SelectFixedRangeTargetAndCast(context, 30);
 
-        public override bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result)
+        public override bool Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
         {
             GameObject target = FirstTarget(selection) ?? context.Caster;
-            if (!SpellcastingRuntime.IsFriendly(context.Caster, target) || SpellcastingRuntime.DistanceFeet(context.Caster, target) > 30)
+            if (
+                !SpellcastingRuntime.IsFriendly(context.Caster, target)
+                || SpellcastingRuntime.DistanceFeet(context.Caster, target) > 30
+            )
                 return false;
             SpellEffectController controller = SpellEffectController.GetOrAdd(target);
             if (controller.HasEffect<GuidanceImmunitySpellEffect>())
@@ -134,25 +188,39 @@ namespace Game.Combat.Spells
     public sealed class DivineLanceSpell : SpellDefinition
     {
         public override string Slug => "divine-lance";
+
         public override bool AppliesMultipleAttackPenalty(SpellCastContext context) => true;
 
-        public override IEnumerator SelectAndCast(SpellCastContext context) => SelectFixedRangeTargetAndCast(context, 60);
+        public override IEnumerator SelectAndCast(SpellCastContext context) =>
+            SelectFixedRangeTargetAndCast(context, 60);
 
-        public override bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result)
+        public override bool Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
         {
             GameObject target = FirstTarget(selection);
             if (target == null || SpellcastingRuntime.DistanceFeet(context.Caster, target) > 60)
                 return false;
             CreatureComponent casterCreature = context.CasterCreature;
-            StrikeProfile profile = new(new List<Dice> { new Dice(2, 4, "spirit") }, new List<DamageValue>())
+            StrikeProfile profile = new(
+                new List<Dice> { new Dice(2, 4, "spirit") },
+                new List<DamageValue>()
+            )
             {
                 AttackModifierOverride = casterCreature.Prepared.Spellcasting.SpellAttackModifier,
-                SourceInfo = new AttackSourceInfo("Divine Lance", "spell", "spell", new[] { "attack", "spell", "spirit" }),
+                SourceInfo = new AttackSourceInfo(
+                    "Divine Lance",
+                    "spell",
+                    "spell",
+                    new[] { "attack", "spell", "spirit" }
+                ),
                 Traits = new List<string> { "attack", "spell", "spirit" },
                 ItemSlug = "divine-lance",
                 WeaponCategory = string.Empty,
                 IsRangedAttack = true,
-                ReachFeet = 60
+                ReachFeet = 60,
             };
             StrikeTargetResult targeting = new()
             {
@@ -160,15 +228,17 @@ namespace Game.Combat.Spells
                 DistanceFeet = SpellcastingRuntime.DistanceFeet(context.Caster, target),
                 LineOfEffect = StrikeLineOfEffect.Clear,
                 Cover = StrikeCover.None,
-                RangePenalty = 0
+                RangePenalty = 0,
             };
-            StrikeResolutionPipeline.Resolve(new StrikeResolutionRequest
-            {
-                Attacker = context.Caster,
-                Target = target,
-                Profile = profile,
-                TargetingResult = targeting
-            });
+            StrikeResolutionPipeline.Resolve(
+                new StrikeResolutionRequest
+                {
+                    Attacker = context.Caster,
+                    Target = target,
+                    Profile = profile,
+                    TargetingResult = targeting,
+                }
+            );
             result.Targets.Add(target);
             return true;
         }
@@ -180,15 +250,32 @@ namespace Game.Combat.Spells
 
         public override IEnumerator SelectAndCast(SpellCastContext context)
         {
-            return SelectAreaAndCast(context, new AreaTargetRequest { Shape = AreaShape.Cone, SizeFeet = 15 });
+            return SelectAreaAndCast(
+                context,
+                new AreaTargetRequest { Shape = AreaShape.Cone, SizeFeet = 15 }
+            );
         }
 
-        public override bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result)
+        public override bool Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
         {
             if (selection?.Area == null)
                 return false;
-            foreach (AreaAffectedCreature affected in selection.Area.Creatures.Where(creature => creature.IsAffected))
-                SpellcastingRuntime.ApplyBasicFortitudeDamage(context.Caster, affected.Creature, new Dice(1, 8, "sonic"), result, applyDeafenedOnCriticalFailure: true);
+            foreach (
+                AreaAffectedCreature affected in selection.Area.Creatures.Where(creature =>
+                    creature.IsAffected
+                )
+            )
+                SpellcastingRuntime.ApplyBasicFortitudeDamage(
+                    context.Caster,
+                    affected.Creature,
+                    new Dice(1, 8, "sonic"),
+                    result,
+                    applyDeafenedOnCriticalFailure: true
+                );
             return true;
         }
     }
@@ -199,19 +286,35 @@ namespace Game.Combat.Spells
 
         public override IEnumerator SelectAndCast(SpellCastContext context)
         {
-            return CastNow(context, SpellTargetSelection.ForTargets(SpellcastingRuntime.FriendlyCreaturesInEmanation(context.Caster, 15)));
+            return CastNow(
+                context,
+                SpellTargetSelection.ForTargets(
+                    SpellcastingRuntime.FriendlyCreaturesInEmanation(context.Caster, 15)
+                )
+            );
         }
 
-        public override bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result)
+        public override bool Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
         {
-            IReadOnlyList<GameObject> selected = selection?.Targets == null || selection.Targets.Count == 0
-                ? new[] { context.Caster }
-                : selection.Targets;
+            IReadOnlyList<GameObject> selected =
+                selection?.Targets == null || selection.Targets.Count == 0
+                    ? new[] { context.Caster }
+                    : selection.Targets;
             foreach (GameObject target in selected)
             {
-                if (target != null && SpellcastingRuntime.IsFriendly(context.Caster, target) && SpellcastingRuntime.DistanceFeet(context.Caster, target) <= 15)
+                if (
+                    target != null
+                    && SpellcastingRuntime.IsFriendly(context.Caster, target)
+                    && SpellcastingRuntime.DistanceFeet(context.Caster, target) <= 15
+                )
                 {
-                    SpellEffectController.GetOrAdd(target).AddOrRefresh(new BlessSpellEffect(context.Caster));
+                    SpellEffectController
+                        .GetOrAdd(target)
+                        .AddOrRefresh(new BlessSpellEffect(context.Caster));
                     result.Targets.Add(target);
                 }
             }
@@ -223,21 +326,37 @@ namespace Game.Combat.Spells
     {
         public override string Slug => "infuse-vitality";
 
-        public override IEnumerator SelectAndCast(SpellCastContext context) => SelectFixedRangeTargetAndCast(context, 30);
+        public override IEnumerator SelectAndCast(SpellCastContext context) =>
+            SelectFixedRangeTargetAndCast(context, 30);
 
-        public override bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result)
+        public override bool Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
         {
-            if (selection?.Targets == null || selection.Targets.Count == 0 || selection.Targets.Count > context.ActionCost)
+            if (
+                selection?.Targets == null
+                || selection.Targets.Count == 0
+                || selection.Targets.Count > context.ActionCost
+            )
                 return false;
             HashSet<GameObject> unique = new();
             foreach (GameObject target in selection.Targets)
             {
-                if (target == null || !unique.Add(target) || !SpellcastingRuntime.IsFriendly(context.Caster, target) || SpellcastingRuntime.DistanceFeet(context.Caster, target) > 30)
+                if (
+                    target == null
+                    || !unique.Add(target)
+                    || !SpellcastingRuntime.IsFriendly(context.Caster, target)
+                    || SpellcastingRuntime.DistanceFeet(context.Caster, target) > 30
+                )
                     return false;
             }
             foreach (GameObject target in unique)
             {
-                SpellEffectController.GetOrAdd(target).AddOrRefresh(new InfuseVitalitySpellEffect(context.Caster));
+                SpellEffectController
+                    .GetOrAdd(target)
+                    .AddOrRefresh(new InfuseVitalitySpellEffect(context.Caster));
                 result.Targets.Add(target);
             }
             return true;
@@ -251,32 +370,62 @@ namespace Game.Combat.Spells
         public override IEnumerator SelectAndCast(SpellCastContext context)
         {
             if (context.ActionCost == 3)
-                return SelectAreaAndCast(context, new AreaTargetRequest { Shape = AreaShape.Emanation, SizeFeet = 30, IncludeCenter = true });
+                return SelectAreaAndCast(
+                    context,
+                    new AreaTargetRequest
+                    {
+                        Shape = AreaShape.Emanation,
+                        SizeFeet = 30,
+                        IncludeCenter = true,
+                    }
+                );
             return SelectFixedRangeTargetAndCast(context, context.ActionCost == 1 ? 5 : 30);
         }
 
-        public override bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result)
+        public override bool Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
         {
             List<GameObject> selected = new();
             if (context.ActionCost == 3 && selection?.Area != null)
-                selected.AddRange(selection.Area.Creatures.Where(creature => creature.IsAffected).Select(creature => creature.Creature));
+                selected.AddRange(
+                    selection
+                        .Area.Creatures.Where(creature => creature.IsAffected)
+                        .Select(creature => creature.Creature)
+                );
             else if (selection?.Targets != null)
                 selected.AddRange(selection.Targets.Where(target => target != null));
             if (selected.Count == 0)
                 return false;
             foreach (GameObject target in selected.Distinct())
             {
-                if (context.ActionCost == 1 && SpellcastingRuntime.DistanceFeet(context.Caster, target) > 5)
+                if (
+                    context.ActionCost == 1
+                    && SpellcastingRuntime.DistanceFeet(context.Caster, target) > 5
+                )
                     return false;
-                if (context.ActionCost == 2 && SpellcastingRuntime.DistanceFeet(context.Caster, target) > 30)
+                if (
+                    context.ActionCost == 2
+                    && SpellcastingRuntime.DistanceFeet(context.Caster, target) > 30
+                )
                     return false;
                 CreatureComponent creature = target.GetComponent<CreatureComponent>();
                 if (creature == null)
                     continue;
-                int amount = new Dice(1, 8, "vitality").Roll() + (context.ActionCost == 2 && !SpellcastingRuntime.IsUndead(creature) ? 8 : 0);
+                int amount =
+                    new Dice(1, 8, "vitality").Roll()
+                    + (context.ActionCost == 2 && !SpellcastingRuntime.IsUndead(creature) ? 8 : 0);
                 result.Targets.Add(target);
                 if (SpellcastingRuntime.IsUndead(creature))
-                    SpellcastingRuntime.ApplyBasicFortitudeDamage(context.Caster, target, new DamageValue("vitality", amount), result, applyDeafenedOnCriticalFailure: false);
+                    SpellcastingRuntime.ApplyBasicFortitudeDamage(
+                        context.Caster,
+                        target,
+                        new DamageValue("vitality", amount),
+                        result,
+                        applyDeafenedOnCriticalFailure: false
+                    );
                 else if (SpellcastingRuntime.IsFriendly(context.Caster, target))
                 {
                     creature.Heal(amount);

@@ -24,7 +24,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
-            new LoadSceneParameters(LoadSceneMode.Single));
+            new LoadSceneParameters(LoadSceneMode.Single)
+        );
         while (!load.isDone)
             yield return null;
         yield return null;
@@ -45,34 +46,48 @@ public sealed class ProceduralDungeonScenePlayModeTests
         DungeonLevelDocument document = parsed.Document;
         Assert.That(grid.GridData.GetLength(0), Is.EqualTo(document.Width));
         Assert.That(grid.GridData.GetLength(1), Is.EqualTo(document.Height));
-        Assert.That(CountGeneratedWalls(structure),
-            Is.EqualTo(CountExposedWalls(grid.GridData)),
-            "The scene must contain the wall shell and masked boundary around walkable cells.");
-        Assert.That(CountGeneratedFloors(structure),
-            Is.EqualTo(CountFloorBearingCells(grid.GridData) + CountExposedWalls(grid.GridData)),
-            "Every visible wall shell cell must have a floor tile underneath it.");
         Assert.That(
-            structure.GetComponentsInChildren<Wall>(true)
+            CountGeneratedWalls(structure),
+            Is.EqualTo(CountExposedWalls(grid.GridData)),
+            "The scene must contain the wall shell and masked boundary around walkable cells."
+        );
+        Assert.That(
+            CountGeneratedFloors(structure),
+            Is.EqualTo(CountFloorBearingCells(grid.GridData) + CountExposedWalls(grid.GridData)),
+            "Every visible wall shell cell must have a floor tile underneath it."
+        );
+        Assert.That(
+            structure
+                .GetComponentsInChildren<Wall>(true)
                 .All(wall => wall.SelectedVariant != WallVariant.Endcap),
             Is.True,
-            "A wall with one structural neighbor must use a full straight segment, not a pillar-like endcap.");
-        Assert.That(TryFindInteriorWall(grid.GridData, out Vector2Int interiorWall), Is.True,
-            "The fixture must retain at least one solid interior cell for regression coverage.");
+            "A wall with one structural neighbor must use a full straight segment, not a pillar-like endcap."
+        );
+        Assert.That(
+            TryFindInteriorWall(grid.GridData, out Vector2Int interiorWall),
+            Is.True,
+            "The fixture must retain at least one solid interior cell for regression coverage."
+        );
         Assert.That(grid.GridData[interiorWall.x, interiorWall.y], Is.EqualTo(TileType.Wall));
         Assert.That(
             structure.Find($"Wall_{interiorWall.x:D3}_{interiorWall.y:D3}"),
             Is.Null,
-            "Solid interior cells remain blocked data but must not create scene geometry.");
+            "Solid interior cells remain blocked data but must not create scene geometry."
+        );
         Assert.That(
             structure.Find($"Floor_{interiorWall.x:D3}_{interiorWall.y:D3}"),
             Is.Null,
-            "Solid interior cells must not create hidden floor geometry.");
+            "Solid interior cells must not create hidden floor geometry."
+        );
 
-        DungeonRoom[] roomsAtMaskedBoundary = document.Rooms
-            .Where(room => MaskedBoundaryCells(room, grid.GridData).Count > 0)
+        DungeonRoom[] roomsAtMaskedBoundary = document
+            .Rooms.Where(room => MaskedBoundaryCells(room, grid.GridData).Count > 0)
             .ToArray();
-        Assert.That(roomsAtMaskedBoundary, Has.Length.EqualTo(2),
-            "The fixture must retain both rooms bordering the center mask for regression coverage.");
+        Assert.That(
+            roomsAtMaskedBoundary,
+            Has.Length.EqualTo(2),
+            "The fixture must retain both rooms bordering the center mask for regression coverage."
+        );
         foreach (DungeonRoom room in roomsAtMaskedBoundary)
         {
             IReadOnlyList<DungeonCell> boundary = MaskedBoundaryCells(room, grid.GridData);
@@ -80,20 +95,32 @@ public sealed class ProceduralDungeonScenePlayModeTests
             foreach (DungeonCell cell in boundary)
             {
                 Assert.That(grid.GridData[cell.X, cell.Z], Is.EqualTo(TileType.Empty));
-                Assert.That(structure.Find($"Wall_{cell.X:D3}_{cell.Z:D3}"), Is.Not.Null,
-                    $"Room {room.Id} must have a wall against masked cell ({cell.X},{cell.Z}).");
-                Assert.That(structure.Find($"Floor_{cell.X:D3}_{cell.Z:D3}"), Is.Not.Null,
-                    $"Room {room.Id}'s masked boundary wall must have a floor beneath it.");
+                Assert.That(
+                    structure.Find($"Wall_{cell.X:D3}_{cell.Z:D3}"),
+                    Is.Not.Null,
+                    $"Room {room.Id} must have a wall against masked cell ({cell.X},{cell.Z})."
+                );
+                Assert.That(
+                    structure.Find($"Floor_{cell.X:D3}_{cell.Z:D3}"),
+                    Is.Not.Null,
+                    $"Room {room.Id}'s masked boundary wall must have a floor beneath it."
+                );
             }
         }
 
         int centerX = (document.Width - 1) / 2;
         int centerZ = (document.Height - 1) / 2;
         Assert.That(grid.GridData[centerX, centerZ], Is.EqualTo(TileType.Empty));
-        Assert.That(structure.Find($"Wall_{centerX:D3}_{centerZ:D3}"), Is.Null,
-            "The interior of the center mask must remain visually empty.");
-        Assert.That(structure.Find($"Floor_{centerX:D3}_{centerZ:D3}"), Is.Null,
-            "The interior of the center mask must not receive floor geometry.");
+        Assert.That(
+            structure.Find($"Wall_{centerX:D3}_{centerZ:D3}"),
+            Is.Null,
+            "The interior of the center mask must remain visually empty."
+        );
+        Assert.That(
+            structure.Find($"Floor_{centerX:D3}_{centerZ:D3}"),
+            Is.Null,
+            "The interior of the center mask must not receive floor geometry."
+        );
 
         Transform firstStraightWall = structure.Find("Wall_011_000");
         Transform secondStraightWall = structure.Find("Wall_012_000");
@@ -107,25 +134,32 @@ public sealed class ProceduralDungeonScenePlayModeTests
             .Single();
         Assert.That(firstStraightRenderer.bounds.size.x, Is.EqualTo(1f).Within(0.001f));
         Assert.That(firstStraightRenderer.bounds.size.y, Is.EqualTo(1f).Within(0.001f));
-        Assert.That(firstStraightRenderer.bounds.max.x,
+        Assert.That(
+            firstStraightRenderer.bounds.max.x,
             Is.EqualTo(secondStraightRenderer.bounds.min.x).Within(0.001f),
-            "Adjacent one-unit wall segments must touch without overlapping.");
+            "Adjacent one-unit wall segments must touch without overlapping."
+        );
 
         DungeonDoorController[] doors = Object.FindObjectsByType<DungeonDoorController>(
             FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
+            FindObjectsSortMode.None
+        );
         DungeonStairMarker[] stairs = Object.FindObjectsByType<DungeonStairMarker>(
             FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
+            FindObjectsSortMode.None
+        );
         Assert.That(doors, Has.Length.EqualTo(document.Doors.Count));
         Assert.That(stairs, Has.Length.EqualTo(document.Stairs.Count));
-        Assert.That(stairs.Select(stair => stair.Kind),
-            Is.EquivalentTo(document.Stairs.Select(stair => stair.Kind)));
-        Assert.That(stairs.All(stair =>
-            Manhattan(stair.Cell, stair.ArrivalCell) == 1), Is.True);
-        Assert.That(stairs.All(stair =>
-            grid.GetTiles()[stair.Cell.X, stair.Cell.Z] != null), Is.True,
-            "Semantic stair endpoints must remain walkable on their generated floor.");
+        Assert.That(
+            stairs.Select(stair => stair.Kind),
+            Is.EquivalentTo(document.Stairs.Select(stair => stair.Kind))
+        );
+        Assert.That(stairs.All(stair => Manhattan(stair.Cell, stair.ArrivalCell) == 1), Is.True);
+        Assert.That(
+            stairs.All(stair => grid.GetTiles()[stair.Cell.X, stair.Cell.Z] != null),
+            Is.True,
+            "Semantic stair endpoints must remain walkable on their generated floor."
+        );
         foreach (DungeonStairMarker stair in stairs)
         {
             Transform visual = stair.transform.Find("Visual");
@@ -133,7 +167,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
             Assert.That(visual.localPosition, Is.EqualTo(Vector3.zero));
             Assert.That(
                 Mathf.DeltaAngle(visual.localEulerAngles.y, 180f),
-                Is.EqualTo(0f).Within(0.001f));
+                Is.EqualTo(0f).Within(0.001f)
+            );
             Assert.That(model.localPosition, Is.EqualTo(new Vector3(0f, 0f, -0.85f)));
             Assert.That(model.localScale, Is.EqualTo(Vector3.one * 0.25f));
         }
@@ -142,28 +177,40 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Assert.That(objects, Is.Not.Null);
         Assert.That(objects.childCount, Is.EqualTo(document.Objects.Count));
         Assert.That(document.Objects, Is.Not.Empty);
-        Assert.That(document.Objects.All(placement =>
-            placement.AssetId.EndsWith("/banner_red") ||
-            placement.AssetId.EndsWith("/torch_mounted")), Is.True);
-        Assert.That(document.Objects.All(placement =>
-            grid.GetTiles()[placement.Cell.X, placement.Cell.Z] != null), Is.True,
-            "Wall decorations must retain their adjacent walkable floor cells.");
+        Assert.That(
+            document.Objects.All(placement =>
+                placement.AssetId.EndsWith("/banner_red")
+                || placement.AssetId.EndsWith("/torch_mounted")
+            ),
+            Is.True
+        );
+        Assert.That(
+            document.Objects.All(placement =>
+                grid.GetTiles()[placement.Cell.X, placement.Cell.Z] != null
+            ),
+            Is.True,
+            "Wall decorations must retain their adjacent walkable floor cells."
+        );
         KayKitDungeonMapParseResult projected = KayKitDungeonMapParser.Parse(
             map.JsonSource.text,
-            map.DungeonCatalog);
+            map.DungeonCatalog
+        );
         Assert.That(projected.IsValid, Is.True, string.Join("\n", projected.Errors));
         for (int index = 0; index < projected.Map.Objects.Count; index++)
         {
             KayKitDungeonObjectPlacement placement = projected.Map.Objects[index];
             string namePrefix = $"Object_{index:D3}_";
-            Transform instance = objects.Cast<Transform>().Single(candidate =>
-                candidate.name.StartsWith(namePrefix, System.StringComparison.Ordinal));
+            Transform instance = objects
+                .Cast<Transform>()
+                .Single(candidate =>
+                    candidate.name.StartsWith(namePrefix, System.StringComparison.Ordinal)
+                );
             DungeonPlacementOffset placementOffset =
                 instance.GetComponent<DungeonPlacementOffset>();
             Quaternion rotation = Quaternion.Euler(0f, placement.Rotation, 0f);
             Vector3 expectedPosition =
-                new Vector3(placement.X, placement.YOffset, placement.Z) +
-                rotation * placementOffset.LocalOffset;
+                new Vector3(placement.X, placement.YOffset, placement.Z)
+                + rotation * placementOffset.LocalOffset;
             AssertVector3(instance.position, expectedPosition, instance.name + " root position");
             Assert.That(Quaternion.Angle(instance.rotation, rotation), Is.LessThan(0.001f));
             Assert.That(instance.localScale, Is.EqualTo(Vector3.one));
@@ -174,24 +221,27 @@ public sealed class ProceduralDungeonScenePlayModeTests
             {
                 Assert.That(
                     placementOffset.LocalOffset,
-                    Is.EqualTo(new Vector3(0f, 0.35f, -0.925f)));
+                    Is.EqualTo(new Vector3(0f, 0.35f, -0.925f))
+                );
                 Assert.That(model.localScale, Is.EqualTo(Vector3.one * 0.5f));
                 Assert.That(
                     instance.Find("TorchLight").localPosition,
-                    Is.EqualTo(new Vector3(0f, 1.5f, 0.2f)));
+                    Is.EqualTo(new Vector3(0f, 1.5f, 0.2f))
+                );
             }
             else
             {
-                Assert.That(
-                    placementOffset.LocalOffset,
-                    Is.EqualTo(new Vector3(0f, -0.25f, -1f)));
+                Assert.That(placementOffset.LocalOffset, Is.EqualTo(new Vector3(0f, -0.25f, -1f)));
                 Assert.That(model.localScale, Is.EqualTo(Vector3.one * 0.25f));
             }
         }
 
         DungeonDoorController door = doors.OrderBy(candidate => candidate.StableId).First();
         DungeonDoor record = document.Doors.Single(candidate => candidate.Id == door.StableId);
-        (DungeonCell firstSide, DungeonCell secondSide) = OppositeWalkableSides(document, record.Cell);
+        (DungeonCell firstSide, DungeonCell secondSide) = OppositeWalkableSides(
+            document,
+            record.Cell
+        );
         Vector3Int start = new(firstSide.X, 0, firstSide.Z);
         Vector3Int end = new(secondSide.X, 0, secondSide.Z);
         Transform floor = structure.Find($"Floor_{record.Cell.X:D3}_{record.Cell.Z:D3}");
@@ -216,8 +266,11 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Assert.That(grid.GetPathfinder().Pathfind(null, start, end), Is.Not.Null.And.Not.Empty);
         Assert.That(door.transform.Find("ClosedVisual").gameObject.activeSelf, Is.False);
         Assert.That(door.transform.Find("OpenVisual").gameObject.activeSelf, Is.True);
-        Assert.That(structure.Find($"Floor_{record.Cell.X:D3}_{record.Cell.Z:D3}"), Is.SameAs(floor),
-            "Opening a door must not rebuild its floor geometry.");
+        Assert.That(
+            structure.Find($"Floor_{record.Cell.X:D3}_{record.Cell.Z:D3}"),
+            Is.SameAs(floor),
+            "Opening a door must not rebuild its floor geometry."
+        );
 
         Assert.That(door.TrySetOpen(false), Is.True);
         yield return null;
@@ -236,7 +289,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
-            new LoadSceneParameters(LoadSceneMode.Single));
+            new LoadSceneParameters(LoadSceneMode.Single)
+        );
         while (!load.isDone)
             yield return null;
         yield return null;
@@ -253,36 +307,51 @@ public sealed class ProceduralDungeonScenePlayModeTests
         tokenObject.AddComponent<Token>();
         Assert.That(priorTiles[tokenCell.X, tokenCell.Z].Occupants, Contains.Item(tokenObject));
         DungeonCell inactiveCell = parsed.Document.SafeCells.First(cell =>
-            cell != tokenCell && priorTiles[cell.X, cell.Z] != null);
+            cell != tokenCell && priorTiles[cell.X, cell.Z] != null
+        );
         GameObject inactiveTokenObject = new("Inactive Runtime Repopulation Token");
         inactiveTokenObject.transform.position = new Vector3(inactiveCell.X, 0f, inactiveCell.Z);
         inactiveTokenObject.AddComponent<Token>();
-        Assert.That(priorTiles[inactiveCell.X, inactiveCell.Z].Occupants,
-            Contains.Item(inactiveTokenObject));
+        Assert.That(
+            priorTiles[inactiveCell.X, inactiveCell.Z].Occupants,
+            Contains.Item(inactiveTokenObject)
+        );
         inactiveTokenObject.SetActive(false);
 
-        Assert.That(map.TryPopulateJson(
+        Assert.That(
+            map.TryPopulateJson(
                 map.JsonSource.text,
                 map.DungeonCatalog,
-                out MapSourceValidationResult validation),
+                out MapSourceValidationResult validation
+            ),
             Is.True,
-            string.Join(System.Environment.NewLine, validation.Errors));
+            string.Join(System.Environment.NewLine, validation.Errors)
+        );
 
-        Assert.That(priorRoot.gameObject.activeInHierarchy, Is.False,
-            "Deferred destruction must not leave the prior generation active for the rest of the frame.");
+        Assert.That(
+            priorRoot.gameObject.activeInHierarchy,
+            Is.False,
+            "Deferred destruction must not leave the prior generation active for the rest of the frame."
+        );
         Assert.That(grid.IsInitialized, Is.True);
         Assert.That(grid.GridData, Is.SameAs(map.GetMapData()));
         Assert.That(grid.GetLineOfSightBlocks(), Is.SameAs(map.GetLineOfSightBlocks()));
         Assert.That(grid.GetTiles(), Is.Not.SameAs(priorTiles));
         Assert.That(grid.Fsm, Is.SameAs(priorFsm));
         Assert.That(grid.GetPathfinder(), Is.Not.Null);
-        Assert.That(grid.GetTiles()[tokenCell.X, tokenCell.Z].Occupants, Contains.Item(tokenObject));
+        Assert.That(
+            grid.GetTiles()[tokenCell.X, tokenCell.Z].Occupants,
+            Contains.Item(tokenObject)
+        );
         Assert.That(
             grid.GetTiles()[inactiveCell.X, inactiveCell.Z].Occupants.Contains(inactiveTokenObject),
-            Is.False);
+            Is.False
+        );
         inactiveTokenObject.SetActive(true);
-        Assert.That(grid.GetTiles()[inactiveCell.X, inactiveCell.Z].Occupants,
-            Contains.Item(inactiveTokenObject));
+        Assert.That(
+            grid.GetTiles()[inactiveCell.X, inactiveCell.Z].Occupants,
+            Contains.Item(inactiveTokenObject)
+        );
         Assert.That(grid.GetComponent<GridInput>().enabled, Is.True);
 
         Object.Destroy(tokenObject);
@@ -295,7 +364,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
-            new LoadSceneParameters(LoadSceneMode.Single));
+            new LoadSceneParameters(LoadSceneMode.Single)
+        );
         while (!load.isDone)
             yield return null;
         yield return null;
@@ -313,13 +383,20 @@ public sealed class ProceduralDungeonScenePlayModeTests
         float priorSpacing = map.Spacing;
         const int replacementSize = 15;
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
-        DungeonCell highCell = parsed.Document.Rooms
-            .SelectMany(room => Enumerable.Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
-                .SelectMany(z => Enumerable.Range(room.MinimumX, room.MaximumX - room.MinimumX + 1)
-                    .Select(x => new DungeonCell(x, z))))
+        DungeonCell highCell = parsed
+            .Document.Rooms.SelectMany(room =>
+                Enumerable
+                    .Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
+                    .SelectMany(z =>
+                        Enumerable
+                            .Range(room.MinimumX, room.MaximumX - room.MinimumX + 1)
+                            .Select(x => new DungeonCell(x, z))
+                    )
+            )
             .First(cell =>
-                (cell.X >= replacementSize || cell.Z >= replacementSize) &&
-                priorTiles[cell.X, cell.Z] != null);
+                (cell.X >= replacementSize || cell.Z >= replacementSize)
+                && priorTiles[cell.X, cell.Z] != null
+            );
         GameObject tokenObject = new("Token Outside Replacement Bounds");
         tokenObject.transform.position = new Vector3(highCell.X, 0f, highCell.Z);
         tokenObject.AddComponent<Token>();
@@ -331,15 +408,19 @@ public sealed class ProceduralDungeonScenePlayModeTests
                 Width = replacementSize,
                 Height = replacementSize,
                 MinimumRoomCount = 0,
-                StairCount = 0
-            });
+                StairCount = 0,
+            }
+        );
         Assert.That(replacement.IsSuccess, Is.True);
 
-        Assert.That(map.TryPopulateJson(
+        Assert.That(
+            map.TryPopulateJson(
                 DungeonLevelJsonSerializer.Serialize(replacement.Document),
                 map.DungeonCatalog,
-                out MapSourceValidationResult validation),
-            Is.False);
+                out MapSourceValidationResult validation
+            ),
+            Is.False
+        );
 
         Assert.That(validation.Errors, Is.Not.Empty);
         Assert.That(Object.FindFirstObjectByType<GeneratedMapRoot>(), Is.SameAs(priorRoot));
@@ -358,9 +439,13 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Assert.That(priorTiles[highCell.X, highCell.Z].Occupants, Contains.Item(tokenObject));
 
         yield return null;
-        Assert.That(Object.FindObjectsByType<GeneratedMapRoot>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None), Is.EqualTo(new[] { priorRoot }));
+        Assert.That(
+            Object.FindObjectsByType<GeneratedMapRoot>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None
+            ),
+            Is.EqualTo(new[] { priorRoot })
+        );
 
         Object.Destroy(tokenObject);
         yield return null;
@@ -371,7 +456,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
-            new LoadSceneParameters(LoadSceneMode.Single));
+            new LoadSceneParameters(LoadSceneMode.Single)
+        );
         while (!load.isDone)
             yield return null;
         yield return null;
@@ -380,29 +466,37 @@ public sealed class ProceduralDungeonScenePlayModeTests
         GridBase grid = Object.FindFirstObjectByType<GridBase>();
         const int replacementSize = 15;
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
-        DungeonCell highCell = parsed.Document.Rooms
-            .SelectMany(room => Enumerable.Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
-                .SelectMany(z => Enumerable.Range(room.MinimumX, room.MaximumX - room.MinimumX + 1)
-                    .Select(x => new DungeonCell(x, z))))
+        DungeonCell highCell = parsed
+            .Document.Rooms.SelectMany(room =>
+                Enumerable
+                    .Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
+                    .SelectMany(z =>
+                        Enumerable
+                            .Range(room.MinimumX, room.MaximumX - room.MinimumX + 1)
+                            .Select(x => new DungeonCell(x, z))
+                    )
+            )
             .First(cell =>
-                (cell.X >= replacementSize || cell.Z >= replacementSize) &&
-                grid.GetTiles()[cell.X, cell.Z] != null);
+                (cell.X >= replacementSize || cell.Z >= replacementSize)
+                && grid.GetTiles()[cell.X, cell.Z] != null
+            );
         GameObject tokenObject = new("Inactive Token Reserved Across Rebinds");
         tokenObject.transform.position = new Vector3(highCell.X, 0f, highCell.Z);
         tokenObject.AddComponent<Token>();
-        Assert.That(grid.GetTiles()[highCell.X, highCell.Z].Occupants,
-            Contains.Item(tokenObject));
+        Assert.That(grid.GetTiles()[highCell.X, highCell.Z].Occupants, Contains.Item(tokenObject));
         tokenObject.SetActive(false);
 
-        Assert.That(map.TryPopulateJson(
+        Assert.That(
+            map.TryPopulateJson(
                 map.JsonSource.text,
                 map.DungeonCatalog,
-                out MapSourceValidationResult firstValidation),
+                out MapSourceValidationResult firstValidation
+            ),
             Is.True,
-            string.Join(System.Environment.NewLine, firstValidation.Errors));
+            string.Join(System.Environment.NewLine, firstValidation.Errors)
+        );
         Tile[,] fullSizeTiles = grid.GetTiles();
-        Assert.That(fullSizeTiles[highCell.X, highCell.Z].Occupants,
-            Has.No.Member(tokenObject));
+        Assert.That(fullSizeTiles[highCell.X, highCell.Z].Occupants, Has.No.Member(tokenObject));
 
         DungeonGenerationResult replacement = new DeterministicDungeonGenerator().Generate(
             new DungeonGenerationRequest
@@ -411,26 +505,34 @@ public sealed class ProceduralDungeonScenePlayModeTests
                 Width = replacementSize,
                 Height = replacementSize,
                 MinimumRoomCount = 0,
-                StairCount = 0
-            });
+                StairCount = 0,
+            }
+        );
         Assert.That(replacement.IsSuccess, Is.True);
 
-        Assert.That(map.TryPopulateJson(
+        Assert.That(
+            map.TryPopulateJson(
                 DungeonLevelJsonSerializer.Serialize(replacement.Document),
                 map.DungeonCatalog,
-                out MapSourceValidationResult rejected),
-            Is.False);
-        Assert.That(rejected.Errors, Is.EqualTo(new[]
-        {
-            "Runtime JSON population could not rebind GridBase: " +
-            $"Token '{tokenObject.name}' at cell ({highCell.X}, {highCell.Z}) is outside " +
-            $"replacement bounds {replacementSize}x{replacementSize}."
-        }));
+                out MapSourceValidationResult rejected
+            ),
+            Is.False
+        );
+        Assert.That(
+            rejected.Errors,
+            Is.EqualTo(
+                new[]
+                {
+                    "Runtime JSON population could not rebind GridBase: "
+                        + $"Token '{tokenObject.name}' at cell ({highCell.X}, {highCell.Z}) is outside "
+                        + $"replacement bounds {replacementSize}x{replacementSize}.",
+                }
+            )
+        );
         Assert.That(grid.GetTiles(), Is.SameAs(fullSizeTiles));
 
         tokenObject.SetActive(true);
-        Assert.That(fullSizeTiles[highCell.X, highCell.Z].Occupants,
-            Contains.Item(tokenObject));
+        Assert.That(fullSizeTiles[highCell.X, highCell.Z].Occupants, Contains.Item(tokenObject));
 
         Object.Destroy(tokenObject);
         yield return null;
@@ -441,7 +543,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
-            new LoadSceneParameters(LoadSceneMode.Single));
+            new LoadSceneParameters(LoadSceneMode.Single)
+        );
         while (!load.isDone)
             yield return null;
         yield return null;
@@ -451,13 +554,20 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Tile[,] priorTiles = grid.GetTiles();
         const int replacementSize = 15;
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
-        DungeonCell highCell = parsed.Document.Rooms
-            .SelectMany(room => Enumerable.Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
-                .SelectMany(z => Enumerable.Range(room.MinimumX, room.MaximumX - room.MinimumX + 1)
-                    .Select(x => new DungeonCell(x, z))))
+        DungeonCell highCell = parsed
+            .Document.Rooms.SelectMany(room =>
+                Enumerable
+                    .Range(room.MinimumZ, room.MaximumZ - room.MinimumZ + 1)
+                    .SelectMany(z =>
+                        Enumerable
+                            .Range(room.MinimumX, room.MaximumX - room.MinimumX + 1)
+                            .Select(x => new DungeonCell(x, z))
+                    )
+            )
             .First(cell =>
-                (cell.X >= replacementSize || cell.Z >= replacementSize) &&
-                priorTiles[cell.X, cell.Z] != null);
+                (cell.X >= replacementSize || cell.Z >= replacementSize)
+                && priorTiles[cell.X, cell.Z] != null
+            );
         GameObject tokenObject = new("Removed Token Outside Replacement Bounds");
         tokenObject.transform.position = new Vector3(highCell.X, 0f, highCell.Z);
         tokenObject.AddComponent<Token>();
@@ -472,16 +582,20 @@ public sealed class ProceduralDungeonScenePlayModeTests
                 Width = replacementSize,
                 Height = replacementSize,
                 MinimumRoomCount = 0,
-                StairCount = 0
-            });
+                StairCount = 0,
+            }
+        );
         Assert.That(replacement.IsSuccess, Is.True);
 
-        Assert.That(map.TryPopulateJson(
+        Assert.That(
+            map.TryPopulateJson(
                 DungeonLevelJsonSerializer.Serialize(replacement.Document),
                 map.DungeonCatalog,
-                out MapSourceValidationResult validation),
+                out MapSourceValidationResult validation
+            ),
             Is.True,
-            string.Join(System.Environment.NewLine, validation.Errors));
+            string.Join(System.Environment.NewLine, validation.Errors)
+        );
         Assert.That(grid.GridData.GetLength(0), Is.EqualTo(replacementSize));
         Assert.That(grid.GridData.GetLength(1), Is.EqualTo(replacementSize));
 
@@ -494,7 +608,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
-            new LoadSceneParameters(LoadSceneMode.Single));
+            new LoadSceneParameters(LoadSceneMode.Single)
+        );
         while (!load.isDone)
             yield return null;
         yield return null;
@@ -503,7 +618,9 @@ public sealed class ProceduralDungeonScenePlayModeTests
         GridBase grid = Object.FindFirstObjectByType<GridBase>();
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
         DungeonCell firstCell = parsed.Document.StartCell;
-        DungeonCell secondCell = parsed.Document.SafeCells.First(cell => Manhattan(firstCell, cell) > 6);
+        DungeonCell secondCell = parsed.Document.SafeCells.First(cell =>
+            Manhattan(firstCell, cell) > 6
+        );
         GameObject auraSource = new("Runtime Rebind Aura Source");
         auraSource.transform.position = new Vector3(firstCell.X, 0f, firstCell.Z);
         CreatureComponent creature = auraSource.AddComponent<CreatureComponent>();
@@ -514,33 +631,44 @@ public sealed class ProceduralDungeonScenePlayModeTests
                 name = "Runtime Rebind Aura",
                 slug = RottingAuraRule.RuleSlug,
                 radiusFeet = 10,
-                traits = new List<string> { "disease", "void" }
-            }
+                traits = new List<string> { "disease", "void" },
+            },
         };
         auraSource.AddComponent<RebindAuraActionController>();
 
         AuraGridVisuals auraVisuals = grid.GetComponent<AuraGridVisuals>();
         Assert.That(auraVisuals, Is.Not.Null);
         auraVisuals.Refresh();
-        Assert.That(auraVisuals.CurrentCells, Does.Contain(
-            new Vector3Int(firstCell.X, 0, firstCell.Z)));
+        Assert.That(
+            auraVisuals.CurrentCells,
+            Does.Contain(new Vector3Int(firstCell.X, 0, firstCell.Z))
+        );
 
         auraSource.transform.position = new Vector3(secondCell.X, 0f, secondCell.Z);
-        Assert.That(auraVisuals.CurrentCells, Has.No.Member(
-            new Vector3Int(secondCell.X, 0, secondCell.Z)),
-            "Moving the source alone should leave the prior visualization intact until a refresh.");
+        Assert.That(
+            auraVisuals.CurrentCells,
+            Has.No.Member(new Vector3Int(secondCell.X, 0, secondCell.Z)),
+            "Moving the source alone should leave the prior visualization intact until a refresh."
+        );
 
-        Assert.That(map.TryPopulateJson(
+        Assert.That(
+            map.TryPopulateJson(
                 map.JsonSource.text,
                 map.DungeonCatalog,
-                out MapSourceValidationResult validation),
+                out MapSourceValidationResult validation
+            ),
             Is.True,
-            string.Join(System.Environment.NewLine, validation.Errors));
+            string.Join(System.Environment.NewLine, validation.Errors)
+        );
 
-        Assert.That(auraVisuals.CurrentCells, Does.Contain(
-            new Vector3Int(secondCell.X, 0, secondCell.Z)));
-        Assert.That(auraVisuals.CurrentCells, Has.No.Member(
-            new Vector3Int(firstCell.X, 0, firstCell.Z)));
+        Assert.That(
+            auraVisuals.CurrentCells,
+            Does.Contain(new Vector3Int(secondCell.X, 0, secondCell.Z))
+        );
+        Assert.That(
+            auraVisuals.CurrentCells,
+            Has.No.Member(new Vector3Int(firstCell.X, 0, firstCell.Z))
+        );
 
         Object.Destroy(auraSource);
         yield return null;
@@ -551,7 +679,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
-            new LoadSceneParameters(LoadSceneMode.Single));
+            new LoadSceneParameters(LoadSceneMode.Single)
+        );
         while (!load.isDone)
             yield return null;
         yield return null;
@@ -569,22 +698,31 @@ public sealed class ProceduralDungeonScenePlayModeTests
         MindlessController controller = controllerObject.AddComponent<MindlessController>();
         FieldInfo isTurn = typeof(ActionController).GetField(
             "IsTurn",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.That(isTurn, Is.Not.Null);
         isTurn.SetValue(controller, true);
 
-        Assert.That(map.TryPopulateJson(
+        Assert.That(
+            map.TryPopulateJson(
                 map.JsonSource.text,
                 map.DungeonCatalog,
-                out MapSourceValidationResult validation),
-            Is.False);
+                out MapSourceValidationResult validation
+            ),
+            Is.False
+        );
 
-        Assert.That(validation.Errors, Is.EqualTo(new[]
-        {
-            "Runtime JSON population could not rebind GridBase: " +
-            "AI controller 'Pending Inactive AI' has pending turn or action work " +
-            "and cannot rebind to the replacement grid."
-        }));
+        Assert.That(
+            validation.Errors,
+            Is.EqualTo(
+                new[]
+                {
+                    "Runtime JSON population could not rebind GridBase: "
+                        + "AI controller 'Pending Inactive AI' has pending turn or action work "
+                        + "and cannot rebind to the replacement grid.",
+                }
+            )
+        );
         Assert.That(Object.FindFirstObjectByType<GeneratedMapRoot>(), Is.SameAs(priorRoot));
         Assert.That(map.transform.Find("GeneratedMap"), Is.SameAs(priorRoot.transform));
         Assert.That(priorRoot.gameObject.activeInHierarchy, Is.True);
@@ -605,7 +743,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
-            new LoadSceneParameters(LoadSceneMode.Single));
+            new LoadSceneParameters(LoadSceneMode.Single)
+        );
         while (!load.isDone)
             yield return null;
         yield return null;
@@ -619,19 +758,25 @@ public sealed class ProceduralDungeonScenePlayModeTests
         priorRootObject.AddComponent<GeneratedMapRoot>();
         priorRootObject.transform.SetParent(duplicateObject.transform, false);
 
-        Assert.That(duplicateMap.TryPopulateJson(
+        Assert.That(
+            duplicateMap.TryPopulateJson(
                 activeMap.JsonSource.text,
                 activeMap.DungeonCatalog,
-                out MapSourceValidationResult validation),
-            Is.False);
+                out MapSourceValidationResult validation
+            ),
+            Is.False
+        );
 
         Assert.That(validation.Errors, Is.Not.Empty);
         Assert.That(priorRootObject.transform.parent, Is.SameAs(duplicateObject.transform));
         Assert.That(priorRootObject.activeSelf, Is.True);
 
         yield return null;
-        Assert.That(duplicateObject == null, Is.False,
-            "A rejected runtime population must not queue the duplicate map for destruction.");
+        Assert.That(
+            duplicateObject == null,
+            Is.False,
+            "A rejected runtime population must not queue the duplicate map for destruction."
+        );
         Assert.That(priorRootObject.transform.parent, Is.SameAs(duplicateObject.transform));
         Assert.That(priorRootObject.activeSelf, Is.True);
 
@@ -641,7 +786,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
 
     private static (DungeonCell first, DungeonCell second) OppositeWalkableSides(
         DungeonLevelDocument document,
-        DungeonCell door)
+        DungeonCell door
+    )
     {
         DungeonCell north = new(door.X, door.Z + 1);
         DungeonCell south = new(door.X, door.Z - 1);
@@ -693,10 +839,12 @@ public sealed class ProceduralDungeonScenePlayModeTests
             for (int x = 0; x < grid.GetLength(0); x++)
             {
                 TileType tile = grid[x, z];
-                if (tile == TileType.Ground ||
-                    tile == TileType.Door ||
-                    tile == TileType.ClosedDoor ||
-                    tile == TileType.Obstacle)
+                if (
+                    tile == TileType.Ground
+                    || tile == TileType.Door
+                    || tile == TileType.ClosedDoor
+                    || tile == TileType.Obstacle
+                )
                 {
                     count++;
                 }
@@ -714,8 +862,10 @@ public sealed class ProceduralDungeonScenePlayModeTests
             for (int x = 0; x < grid.GetLength(0); x++)
             {
                 TileType tile = grid[x, z];
-                if ((tile == TileType.Wall || tile == TileType.Empty) &&
-                    BordersFloorBearingCell(grid, x, z))
+                if (
+                    (tile == TileType.Wall || tile == TileType.Empty)
+                    && BordersFloorBearingCell(grid, x, z)
+                )
                     count++;
             }
         }
@@ -752,17 +902,23 @@ public sealed class ProceduralDungeonScenePlayModeTests
 
                 int neighborX = x + xOffset;
                 int neighborZ = z + zOffset;
-                if (neighborX < 0 || neighborZ < 0 ||
-                    neighborX >= grid.GetLength(0) || neighborZ >= grid.GetLength(1))
+                if (
+                    neighborX < 0
+                    || neighborZ < 0
+                    || neighborX >= grid.GetLength(0)
+                    || neighborZ >= grid.GetLength(1)
+                )
                 {
                     continue;
                 }
 
                 TileType neighbor = grid[neighborX, neighborZ];
-                if (neighbor == TileType.Ground ||
-                    neighbor == TileType.Door ||
-                    neighbor == TileType.ClosedDoor ||
-                    neighbor == TileType.Obstacle)
+                if (
+                    neighbor == TileType.Ground
+                    || neighbor == TileType.Door
+                    || neighbor == TileType.ClosedDoor
+                    || neighbor == TileType.Obstacle
+                )
                 {
                     return true;
                 }
@@ -774,7 +930,8 @@ public sealed class ProceduralDungeonScenePlayModeTests
 
     private static IReadOnlyList<DungeonCell> MaskedBoundaryCells(
         DungeonRoom room,
-        TileType[,] grid)
+        TileType[,] grid
+    )
     {
         HashSet<DungeonCell> cells = new();
         for (int z = room.MinimumZ; z <= room.MaximumZ; z++)
@@ -792,9 +949,13 @@ public sealed class ProceduralDungeonScenePlayModeTests
 
         void AddIfMasked(int x, int z)
         {
-            if (x < 0 || z < 0 ||
-                x >= grid.GetLength(0) || z >= grid.GetLength(1) ||
-                grid[x, z] != TileType.Empty)
+            if (
+                x < 0
+                || z < 0
+                || x >= grid.GetLength(0)
+                || z >= grid.GetLength(1)
+                || grid[x, z] != TileType.Empty
+            )
             {
                 return;
             }
@@ -817,8 +978,6 @@ public sealed class ProceduralDungeonScenePlayModeTests
 
     private sealed class RebindAuraActionController : ActionController
     {
-        public override void EndTurn()
-        {
-        }
+        public override void EndTurn() { }
     }
 }

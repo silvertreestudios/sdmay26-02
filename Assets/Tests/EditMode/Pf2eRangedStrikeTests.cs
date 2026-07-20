@@ -40,9 +40,18 @@ namespace TestsCombat
         public void GridDistanceUsesAlternatingDiagonalCosts()
         {
             // PF2e source: https://2e.aonprd.com/Rules.aspx?ID=2357
-            Assert.AreEqual(5, StrikeTargeting.MeasureGridDistanceFeet(Vector3Int.zero, new Vector3Int(1, 0, 1)));
-            Assert.AreEqual(15, StrikeTargeting.MeasureGridDistanceFeet(Vector3Int.zero, new Vector3Int(2, 0, 2)));
-            Assert.AreEqual(30, StrikeTargeting.MeasureGridDistanceFeet(Vector3Int.zero, new Vector3Int(4, 0, 4)));
+            Assert.AreEqual(
+                5,
+                StrikeTargeting.MeasureGridDistanceFeet(Vector3Int.zero, new Vector3Int(1, 0, 1))
+            );
+            Assert.AreEqual(
+                15,
+                StrikeTargeting.MeasureGridDistanceFeet(Vector3Int.zero, new Vector3Int(2, 0, 2))
+            );
+            Assert.AreEqual(
+                30,
+                StrikeTargeting.MeasureGridDistanceFeet(Vector3Int.zero, new Vector3Int(4, 0, 4))
+            );
         }
 
         [Test]
@@ -52,7 +61,9 @@ namespace TestsCombat
             Assert.AreEqual(0, StrikeTargeting.CalculateRangePenalty(60, 60));
             Assert.AreEqual(-2, StrikeTargeting.CalculateRangePenalty(65, 60));
             Assert.AreEqual(-10, StrikeTargeting.CalculateRangePenalty(360, 60));
-            Assert.Throws<ArgumentOutOfRangeException>(() => StrikeTargeting.CalculateRangePenalty(365, 60));
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                StrikeTargeting.CalculateRangePenalty(365, 60)
+            );
         }
 
         [Test]
@@ -65,22 +76,26 @@ namespace TestsCombat
             attacker.transform.position = new Vector3(0, 0, 0);
             target.transform.position = new Vector3(72, 0, 0);
 
-            StrikeTargetResult legal = StrikeTargeting.Evaluate(attacker, target, tiles, new StrikeTargetRequest
-            {
-                IsRanged = true,
-                RangeIncrementFeet = 60
-            });
+            StrikeTargetResult legal = StrikeTargeting.Evaluate(
+                attacker,
+                target,
+                tiles,
+                new StrikeTargetRequest { IsRanged = true, RangeIncrementFeet = 60 }
+            );
 
             Assert.IsNotNull(legal);
             Assert.AreEqual(360, legal.DistanceFeet);
             Assert.AreEqual(-10, legal.RangePenalty);
 
             target.transform.position = new Vector3(73, 0, 0);
-            Assert.IsNull(StrikeTargeting.Evaluate(attacker, target, tiles, new StrikeTargetRequest
-            {
-                IsRanged = true,
-                RangeIncrementFeet = 60
-            }));
+            Assert.IsNull(
+                StrikeTargeting.Evaluate(
+                    attacker,
+                    target,
+                    tiles,
+                    new StrikeTargetRequest { IsRanged = true, RangeIncrementFeet = 60 }
+                )
+            );
 
             UnityEngine.Object.DestroyImmediate(attacker);
             UnityEngine.Object.DestroyImmediate(target);
@@ -97,11 +112,12 @@ namespace TestsCombat
             attacker.transform.position = new Vector3(0, 0, 0);
             target.transform.position = new Vector3(4, 0, 0);
 
-            StrikeTargetResult result = StrikeTargeting.Evaluate(attacker, target, tiles, new StrikeTargetRequest
-            {
-                IsRanged = true,
-                RangeIncrementFeet = 60
-            });
+            StrikeTargetResult result = StrikeTargeting.Evaluate(
+                attacker,
+                target,
+                tiles,
+                new StrikeTargetRequest { IsRanged = true, RangeIncrementFeet = 60 }
+            );
 
             Assert.IsNull(result);
             UnityEngine.Object.DestroyImmediate(attacker);
@@ -119,11 +135,12 @@ namespace TestsCombat
             attacker.transform.position = new Vector3(0, 0, 0);
             target.transform.position = new Vector3(2, 0, 1);
 
-            StrikeTargetResult result = StrikeTargeting.Evaluate(attacker, target, tiles, new StrikeTargetRequest
-            {
-                IsRanged = true,
-                RangeIncrementFeet = 60
-            });
+            StrikeTargetResult result = StrikeTargeting.Evaluate(
+                attacker,
+                target,
+                tiles,
+                new StrikeTargetRequest { IsRanged = true, RangeIncrementFeet = 60 }
+            );
 
             Assert.IsNotNull(result);
             Assert.AreEqual(StrikeCover.Standard, result.Cover);
@@ -142,11 +159,12 @@ namespace TestsCombat
             attacker.transform.position = new Vector3(0, 0, 0);
             target.transform.position = new Vector3(4, 0, 0);
 
-            StrikeTargetResult result = StrikeTargeting.Evaluate(attacker, target, tiles, new StrikeTargetRequest
-            {
-                IsRanged = true,
-                RangeIncrementFeet = 60
-            });
+            StrikeTargetResult result = StrikeTargeting.Evaluate(
+                attacker,
+                target,
+                tiles,
+                new StrikeTargetRequest { IsRanged = true, RangeIncrementFeet = 60 }
+            );
 
             Assert.IsNotNull(result);
             Assert.AreEqual(StrikeCover.None, result.Cover);
@@ -167,11 +185,12 @@ namespace TestsCombat
             attacker.transform.position = new Vector3(0, 0, 0);
             target.transform.position = new Vector3(1, 0, 1);
 
-            StrikeTargetResult result = StrikeTargeting.Evaluate(attacker, target, tiles, new StrikeTargetRequest
-            {
-                IsRanged = false,
-                ReachFeet = 5
-            });
+            StrikeTargetResult result = StrikeTargeting.Evaluate(
+                attacker,
+                target,
+                tiles,
+                new StrikeTargetRequest { IsRanged = false, ReachFeet = 5 }
+            );
 
             Assert.IsNull(result);
             UnityEngine.Object.DestroyImmediate(attacker);
@@ -188,10 +207,16 @@ namespace TestsCombat
             GameObject target = CreateCombatCreature("target", 100);
             TestActionController controller = attacker.GetComponent<TestActionController>();
 
-            StrikeProfile normal = new StrikeProfile(new List<Dice> { new Dice(1, 6, "slashing") }, new List<DamageValue>());
-            StrikeProfile agile = new StrikeProfile(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>())
+            StrikeProfile normal = new StrikeProfile(
+                new List<Dice> { new Dice(1, 6, "slashing") },
+                new List<DamageValue>()
+            );
+            StrikeProfile agile = new StrikeProfile(
+                new List<Dice> { new Dice(1, 6, "piercing") },
+                new List<DamageValue>()
+            )
             {
-                Traits = new List<string> { "agile" }
+                Traits = new List<string> { "agile" },
             };
 
             controller.StrikePenalty = 0;
@@ -227,22 +252,29 @@ namespace TestsCombat
             targetCreature.ac = 100;
             targetCreature.hp = 100;
 
-            StrikeProfile profile = new StrikeProfile(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>());
-            StrikeResolutionPipeline.Resolve(new StrikeResolutionRequest
-            {
-                Attacker = attacker,
-                Target = target,
-                Profile = profile,
-                TargetingResult = new StrikeTargetResult
+            StrikeProfile profile = new StrikeProfile(
+                new List<Dice> { new Dice(1, 6, "piercing") },
+                new List<DamageValue>()
+            );
+            StrikeResolutionPipeline.Resolve(
+                new StrikeResolutionRequest
                 {
+                    Attacker = attacker,
                     Target = target,
-                    LineOfEffect = StrikeLineOfEffect.Clear,
-                    Cover = StrikeCover.Standard,
-                    RangePenalty = -2
+                    Profile = profile,
+                    TargetingResult = new StrikeTargetResult
+                    {
+                        Target = target,
+                        LineOfEffect = StrikeLineOfEffect.Clear,
+                        Cover = StrikeCover.Standard,
+                        RangePenalty = -2,
+                    },
                 }
-            });
+            );
 
-            string attackLog = log.Messages.FirstOrDefault(message => message.StartsWith("attacker -> target | Strike", StringComparison.Ordinal));
+            string attackLog = log.Messages.FirstOrDefault(message =>
+                message.StartsWith("attacker -> target | Strike", StringComparison.Ordinal)
+            );
             Assert.IsNotNull(attackLog);
             StringAssert.Contains("vs AC 102", attackLog);
             StringAssert.Contains("Target AC: 102 (100 + 2 cover)", attackLog);
@@ -259,12 +291,20 @@ namespace TestsCombat
             UnityEngine.Object.DestroyImmediate(target);
             UnityEngine.Object.DestroyImmediate(logObject);
         }
+
         [Test]
         public void AmmoAndReloadStateAreEnforced()
         {
             GameObject creature = new GameObject("archer");
             CreatureComponent component = creature.AddComponent<CreatureComponent>();
-            EquipmentWeapon sling = new EquipmentWeapon { name = "Sling", range = 50, reload = "1", ammo = "sling-bullets", damage = new Dice(1, 6, "bludgeoning") };
+            EquipmentWeapon sling = new EquipmentWeapon
+            {
+                name = "Sling",
+                range = 50,
+                reload = "1",
+                ammo = "sling-bullets",
+                damage = new Dice(1, 6, "bludgeoning"),
+            };
 
             component.SetAmmoQuantity("Sling Bullets", 2);
 
@@ -283,10 +323,14 @@ namespace TestsCombat
         [Test]
         public void CreatureJsonImportsRangedWeaponBonusAmmoAndReload()
         {
-            GameObject goblin = CreatureJsonConverter.CreateFromFile("DataFiles/pathfinder-monster-core/goblin-warrior");
+            GameObject goblin = CreatureJsonConverter.CreateFromFile(
+                "DataFiles/pathfinder-monster-core/goblin-warrior"
+            );
             Assert.IsNotNull(goblin);
             CreatureComponent component = goblin.GetComponent<CreatureComponent>();
-            EquipmentWeapon shortbow = component.weapons.FirstOrDefault(weapon => weapon.name == "Shortbow");
+            EquipmentWeapon shortbow = component.weapons.FirstOrDefault(weapon =>
+                weapon.name == "Shortbow"
+            );
 
             Assert.IsNotNull(shortbow);
             Assert.AreEqual(60, shortbow.range);
@@ -301,7 +345,9 @@ namespace TestsCombat
         [Test]
         public void WeaponStrikeAdderAutomaticAddsRangedAndReloadActionsWithoutDuplicates()
         {
-            GameObject kobold = CreatureJsonConverter.CreateFromFile("DataFiles/pathfinder-monster-core/kobold-warrior");
+            GameObject kobold = CreatureJsonConverter.CreateFromFile(
+                "DataFiles/pathfinder-monster-core/kobold-warrior"
+            );
             Assert.IsNotNull(kobold);
             kobold.AddComponent<TestActionController>();
 
@@ -309,9 +355,15 @@ namespace TestsCombat
             StrikeWeapon.WeaponStrikeAdderAutomatic(kobold);
 
             List<EntityAction> actions = kobold.GetComponent<ActionController>().GetActions();
-            Assert.AreEqual(1, actions.OfType<StrikeWeapon>().Count(action => action.ActionName == "Sling"));
+            Assert.AreEqual(
+                1,
+                actions.OfType<StrikeWeapon>().Count(action => action.ActionName == "Sling")
+            );
             Assert.AreEqual(1, actions.Count(action => action.ActionName == "Reload Sling"));
-            Assert.AreEqual(20, kobold.GetComponent<CreatureComponent>().GetAmmoQuantity("sling-bullets"));
+            Assert.AreEqual(
+                20,
+                kobold.GetComponent<CreatureComponent>().GetAmmoQuantity("sling-bullets")
+            );
 
             UnityEngine.Object.DestroyImmediate(kobold);
         }
@@ -329,7 +381,7 @@ namespace TestsCombat
                 reload = "0",
                 ammo = "arrows",
                 damage = new Dice(1, 6, "piercing"),
-                traits = new System.Collections.Generic.List<string> { "deadly-d10" }
+                traits = new System.Collections.Generic.List<string> { "deadly-d10" },
             };
 
             StrikeWeapon action = new StrikeWeapon(1, shortbow, creature);
@@ -354,26 +406,36 @@ namespace TestsCombat
                 {
                     ClassName = "Barbarian",
                     SubclassName = "Fury Instinct",
-                    ClassFeatName = "Raging Intimidation"
+                    ClassFeatName = "Raging Intimidation",
                 };
                 creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
                 Assert.IsTrue(new Rage(0).UseRage(creatureObject));
 
-                StrikeProfile projectileStrike = new StrikeProfile(new List<Dice> { new Dice(1, 6, "piercing") }, new List<DamageValue>())
+                StrikeProfile projectileStrike = new StrikeProfile(
+                    new List<Dice> { new Dice(1, 6, "piercing") },
+                    new List<DamageValue>()
+                )
                 {
                     Traits = new List<string> { "ranged" },
-                    IsRangedAttack = true
+                    IsRangedAttack = true,
                 };
                 GameObject target = new GameObject("target");
                 target.AddComponent<CreatureComponent>();
 
-                StrikeResolutionContext context = StrikeResolutionContext.FromRequest(new StrikeResolutionRequest
-                {
-                    Attacker = creatureObject,
-                    Target = target,
-                    Profile = projectileStrike,
-                    TargetingResult = new StrikeTargetResult { Target = target, LineOfEffect = StrikeLineOfEffect.Clear, Cover = StrikeCover.None }
-                });
+                StrikeResolutionContext context = StrikeResolutionContext.FromRequest(
+                    new StrikeResolutionRequest
+                    {
+                        Attacker = creatureObject,
+                        Target = target,
+                        Profile = projectileStrike,
+                        TargetingResult = new StrikeTargetResult
+                        {
+                            Target = target,
+                            LineOfEffect = StrikeLineOfEffect.Clear,
+                            Cover = StrikeCover.None,
+                        },
+                    }
+                );
                 Assert.DoesNotThrow(() => Pf2eRulesEngine.ApplyPreparedStrikeAdjustments(context));
                 Assert.AreEqual(0, context.FlatDamages.Count);
                 UnityEngine.Object.DestroyImmediate(target);
@@ -399,21 +461,30 @@ namespace TestsCombat
             return creature;
         }
 
-        private static StrikeResolutionContext ResolveForContext(GameObject attacker, GameObject target, StrikeProfile profile)
+        private static StrikeResolutionContext ResolveForContext(
+            GameObject attacker,
+            GameObject target,
+            StrikeProfile profile
+        )
         {
-            return StrikeResolutionPipeline.Resolve(new StrikeResolutionRequest
-            {
-                Attacker = attacker,
-                Target = target,
-                Profile = profile,
-                TargetingResult = new StrikeTargetResult
-                {
-                    Target = target,
-                    LineOfEffect = StrikeLineOfEffect.Clear,
-                    Cover = StrikeCover.None
-                }
-            }).Context;
+            return StrikeResolutionPipeline
+                .Resolve(
+                    new StrikeResolutionRequest
+                    {
+                        Attacker = attacker,
+                        Target = target,
+                        Profile = profile,
+                        TargetingResult = new StrikeTargetResult
+                        {
+                            Target = target,
+                            LineOfEffect = StrikeLineOfEffect.Clear,
+                            Cover = StrikeCover.None,
+                        },
+                    }
+                )
+                .Context;
         }
+
         private static Tile[,] BuildTiles(int width, int height)
         {
             Tile[,] tiles = new Tile[width, height];
@@ -428,7 +499,10 @@ namespace TestsCombat
         private static TestCombatLog InstallTestCombatLog(GameObject logObject)
         {
             TestCombatLog log = logObject.AddComponent<TestCombatLog>();
-            FieldInfo field = typeof(SingletonMonoBehaviour<CombatLogInterface>).GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+            FieldInfo field = typeof(SingletonMonoBehaviour<CombatLogInterface>).GetField(
+                "Instance",
+                BindingFlags.Static | BindingFlags.NonPublic
+            );
             Assert.IsNotNull(field);
             field.SetValue(null, log);
             return log;
@@ -444,15 +518,25 @@ namespace TestsCombat
             public readonly List<string> Messages = new();
 
             public override void DevMode() { }
+
             public override void ReleaseMode() { }
+
             public override void AddWhiteList(string tag) { }
+
             public override void AddBlackList(string tag) { }
+
             public override void DevLog(string msg) => Messages.Add(msg);
+
             public override void DevLog(string msg, string tag) => Messages.Add(msg);
+
             public override void DevLog(string msg, List<string> tags) => Messages.Add(msg);
+
             public override void Log(string msg) => Messages.Add(msg);
+
             public override void Log(string msg, string tag) => Messages.Add(msg);
+
             public override void Log(string msg, List<string> tags) => Messages.Add(msg);
+
             public override List<string> GetMessages() => new(Messages);
         }
     }

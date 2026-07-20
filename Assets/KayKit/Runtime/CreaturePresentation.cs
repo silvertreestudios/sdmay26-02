@@ -9,7 +9,10 @@ namespace Game.KayKit
         public CreatureAnimationController AnimationController { get; private set; }
         public CreatureEquipmentVisuals EquipmentVisuals { get; private set; }
 
-        public void Bind(CreatureAnimationController animationController, CreatureEquipmentVisuals equipmentVisuals)
+        public void Bind(
+            CreatureAnimationController animationController,
+            CreatureEquipmentVisuals equipmentVisuals
+        )
         {
             if (AnimationController != null && AnimationController != animationController)
                 AnimationController.SetMoving(false, 0.0f);
@@ -32,9 +35,10 @@ namespace Game.KayKit
         public void PlayAttack(EquipmentWeapon weapon)
         {
             EquipmentVisuals?.SetActiveWeapon(weapon);
-            AnimationStyle style = EquipmentVisuals != null
-                ? EquipmentVisuals.GetAnimationStyle(weapon)
-                : AnimationStyle.Unarmed;
+            AnimationStyle style =
+                EquipmentVisuals != null
+                    ? EquipmentVisuals.GetAnimationStyle(weapon)
+                    : AnimationStyle.Unarmed;
             AnimationController?.PlayAttack(style);
         }
 

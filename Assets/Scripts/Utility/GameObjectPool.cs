@@ -39,9 +39,9 @@ public class GameObjectPool
     public GameObject GetObject()
     {
         Pool.RemoveAll(go => go == null);
-        foreach(GameObject go in Pool)
+        foreach (GameObject go in Pool)
         {
-            if(go != null && !go.activeInHierarchy)
+            if (go != null && !go.activeInHierarchy)
             {
                 go.SetActive(true);
                 Active.Add(go);
@@ -53,7 +53,6 @@ public class GameObjectPool
         Active.Add(g);
         return g;
     }
-
 
     public List<GameObject> GetMany(int amt)
     {
@@ -70,7 +69,7 @@ public class GameObjectPool
                     return result;
             }
         }
-        while(result.Count < amt)
+        while (result.Count < amt)
         {
             GameObject g = UnityEngine.Object.Instantiate(Prefab);
             Pool.Add(g);

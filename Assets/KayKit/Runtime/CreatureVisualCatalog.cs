@@ -7,17 +7,29 @@ namespace Game.KayKit
     [Serializable]
     public sealed class CreatureVisualCatalogEntry
     {
-        [SerializeField] private string key;
-        [SerializeField] private string visualId;
-        [SerializeField] private string species;
-        [SerializeField] private GameObject visualPrefab;
+        [SerializeField]
+        private string key;
+
+        [SerializeField]
+        private string visualId;
+
+        [SerializeField]
+        private string species;
+
+        [SerializeField]
+        private GameObject visualPrefab;
 
         public string Key => key;
         public string VisualId => visualId;
         public string Species => species;
         public GameObject VisualPrefab => visualPrefab;
 
-        public CreatureVisualCatalogEntry(string key, string visualId, string species, GameObject visualPrefab)
+        public CreatureVisualCatalogEntry(
+            string key,
+            string visualId,
+            string species,
+            GameObject visualPrefab
+        )
         {
             this.key = key;
             this.visualId = visualId;
@@ -26,10 +38,14 @@ namespace Game.KayKit
         }
     }
 
-    [CreateAssetMenu(menuName = "KayKit/Creature Visual Catalog", fileName = "CreatureVisualCatalog")]
+    [CreateAssetMenu(
+        menuName = "KayKit/Creature Visual Catalog",
+        fileName = "CreatureVisualCatalog"
+    )]
     public sealed class CreatureVisualCatalog : ScriptableObject
     {
-        [SerializeField] private List<CreatureVisualCatalogEntry> entries = new();
+        [SerializeField]
+        private List<CreatureVisualCatalogEntry> entries = new();
 
         public IReadOnlyList<CreatureVisualCatalogEntry> Entries => entries;
 
@@ -38,8 +54,11 @@ namespace Game.KayKit
             string normalized = NormalizeKey(key);
             foreach (CreatureVisualCatalogEntry candidate in entries)
             {
-                if (candidate != null && NormalizeKey(candidate.Key) == normalized &&
-                    candidate.VisualPrefab != null)
+                if (
+                    candidate != null
+                    && NormalizeKey(candidate.Key) == normalized
+                    && candidate.VisualPrefab != null
+                )
                 {
                     entry = candidate;
                     return true;
@@ -60,9 +79,10 @@ namespace Game.KayKit
 #if UNITY_EDITOR
         public void ReplaceEntries(IEnumerable<CreatureVisualCatalogEntry> replacement)
         {
-            entries = replacement == null
-                ? new List<CreatureVisualCatalogEntry>()
-                : new List<CreatureVisualCatalogEntry>(replacement);
+            entries =
+                replacement == null
+                    ? new List<CreatureVisualCatalogEntry>()
+                    : new List<CreatureVisualCatalogEntry>(replacement);
         }
 #endif
     }

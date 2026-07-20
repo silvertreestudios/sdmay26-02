@@ -1,16 +1,16 @@
-using UnityEngine;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using UnityEngine;
 
 namespace Game.Creature
 {
-
     public class DataFileInterface : MonoBehaviour
     {
         //store gameObject reference
-        [SerializeField] private GameObject prefab;
+        [SerializeField]
+        private GameObject prefab;
 
         void SpawnFromPrefab()
         {

@@ -13,12 +13,12 @@ public abstract class EntityAction
 
     protected void PayCost(ActionController ac)
     {
-        if (ac != null) 
+        if (ac != null)
             ac.ActionPoints -= ActionCost;
     }
 
     /// <summary>
-    /// Base caller for entity actions. Should be 
+    /// Base caller for entity actions. Should be
     /// called once action is completed.
     /// </summary>
     /// <param name="target">The calling gameobject</param>

@@ -19,11 +19,14 @@ namespace TestsCombat
                 Target = "Zombie",
                 Action = "Longsword",
                 Roll = new CombatLogRoll { Total = 23, DifficultyClass = 18 },
-                Damage = new CombatLogDamage { Total = 18 }
+                Damage = new CombatLogDamage { Total = 18 },
             };
             entry.Damage.Parts.Add(new CombatLogDamagePart("slashing", 18));
 
-            Assert.AreEqual("Lena -> Zombie | Longsword | 23 vs AC 18 | Critical Hit | 18 slashing", CombatLogEntryFormatter.ToSummary(entry));
+            Assert.AreEqual(
+                "Lena -> Zombie | Longsword | 23 vs AC 18 | Critical Hit | 18 slashing",
+                CombatLogEntryFormatter.ToSummary(entry)
+            );
         }
 
         [Test]
@@ -36,14 +39,17 @@ namespace TestsCombat
                 Actor = "Archer",
                 Target = "Kobold",
                 Action = "Shortbow",
-                Roll = new CombatLogRoll { Total = 17, DifficultyClass = 16 }
+                Roll = new CombatLogRoll { Total = 17, DifficultyClass = 16 },
             };
             entry.Details.Add(new CombatLogDetail("MAP", "-5"));
             entry.Details.Add(new CombatLogDetail("Cover", "+2 AC"));
 
             string text = CombatLogEntryFormatter.ToPlainText(entry);
 
-            StringAssert.Contains("Archer -> Kobold | Shortbow | 17 vs AC 16 | Hit | No damage", text);
+            StringAssert.Contains(
+                "Archer -> Kobold | Shortbow | 17 vs AC 16 | Hit | No damage",
+                text
+            );
             StringAssert.Contains("MAP: -5", text);
             StringAssert.Contains("Cover: +2 AC", text);
         }
@@ -78,14 +84,23 @@ namespace TestsCombat
                 new List<DamageValue> { new DamageValue("slashing", 2) },
                 DegreeOfSuccess.CriticalSuccess,
                 new List<DamageValue> { new DamageValue("slashing", 3) },
-                new List<DamageValue> { new DamageValue("slashing", 1) });
+                new List<DamageValue> { new DamageValue("slashing", 1) }
+            );
 
             Assert.AreEqual(8, resolution.TotalDamage);
             Assert.AreEqual(8, resolution.Damage.Total);
             Assert.AreEqual("slashing", resolution.Damage.Parts[0].DamageType);
             Assert.IsTrue(resolution.Details.Any(detail => detail.Label == "Critical"));
-            Assert.IsTrue(resolution.Details.Any(detail => detail.Label == "Weakness" && detail.Value.Contains("+3")));
-            Assert.IsTrue(resolution.Details.Any(detail => detail.Label == "Resistance" && detail.Value.Contains("-1")));
+            Assert.IsTrue(
+                resolution.Details.Any(detail =>
+                    detail.Label == "Weakness" && detail.Value.Contains("+3")
+                )
+            );
+            Assert.IsTrue(
+                resolution.Details.Any(detail =>
+                    detail.Label == "Resistance" && detail.Value.Contains("-1")
+                )
+            );
 
             Random.state = state;
         }

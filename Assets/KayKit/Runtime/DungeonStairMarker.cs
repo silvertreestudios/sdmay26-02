@@ -10,12 +10,23 @@ namespace Game.KayKit
     [DisallowMultipleComponent]
     public sealed class DungeonStairMarker : MonoBehaviour
     {
-        [SerializeField] private string stableId = string.Empty;
-        [SerializeField] private DungeonStairKind kind;
-        [SerializeField] private int cellX;
-        [SerializeField] private int cellZ;
-        [SerializeField] private int arrivalCellX;
-        [SerializeField] private int arrivalCellZ;
+        [SerializeField]
+        private string stableId = string.Empty;
+
+        [SerializeField]
+        private DungeonStairKind kind;
+
+        [SerializeField]
+        private int cellX;
+
+        [SerializeField]
+        private int cellZ;
+
+        [SerializeField]
+        private int arrivalCellX;
+
+        [SerializeField]
+        private int arrivalCellZ;
 
         /// <summary>Gets the stable JSON stair ID.</summary>
         public string StableId => stableId;
@@ -41,7 +52,8 @@ namespace Game.KayKit
             string id,
             DungeonStairKind kind,
             DungeonCell cell,
-            DungeonCell arrivalCell)
+            DungeonCell arrivalCell
+        )
         {
             if (string.IsNullOrWhiteSpace(id))
                 throw new ArgumentException("A generated stair requires a stable ID.", nameof(id));
@@ -50,7 +62,8 @@ namespace Game.KayKit
             {
                 throw new ArgumentException(
                     "A stair arrival cell must be orthogonally adjacent to its endpoint.",
-                    nameof(arrivalCell));
+                    nameof(arrivalCell)
+                );
             }
 
             stableId = id;

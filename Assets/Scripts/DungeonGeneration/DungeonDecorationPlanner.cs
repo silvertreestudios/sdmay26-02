@@ -13,6 +13,7 @@ namespace Game.DungeonGeneration
         internal const string BannerAssetId = "dungeon/assets/fbx(unity)/banner_red";
         internal const string TorchAssetId = "dungeon/assets/fbx(unity)/torch_mounted";
         internal const int TorchSpacingCells = 8;
+
         // A three-cell minimum makes every accepted torch strictly more than two grid units
         // from a corner or intersection along the wall on which it is mounted.
         internal const int MinimumTorchCornerDistanceCells = 3;
@@ -23,7 +24,8 @@ namespace Game.DungeonGeneration
             IReadOnlyList<string> rows,
             IReadOnlyList<DungeonRoom> rooms,
             IReadOnlyCollection<DungeonCell> reservedCells,
-            IDungeonRandom random)
+            IDungeonRandom random
+        )
         {
             if (rows == null)
                 throw new ArgumentNullException(nameof(rows));
@@ -40,7 +42,8 @@ namespace Game.DungeonGeneration
             int torchIndex = 0;
             foreach (IReadOnlyList<WallFace> run in FindWallRuns(rows, reserved))
             {
-                List<int> eligibleFaceIndices = Enumerable.Range(0, run.Count)
+                List<int> eligibleFaceIndices = Enumerable
+                    .Range(0, run.Count)
                     .Where(index => HasTorchCornerClearance(rows, run[index]))
                     .ToList();
                 if (eligibleFaceIndices.Count == 0)
@@ -48,11 +51,11 @@ namespace Game.DungeonGeneration
 
                 int torchCount = Math.Min(
                     eligibleFaceIndices.Count,
-                    Math.Max(1, (run.Count + TorchSpacingCells / 2) / TorchSpacingCells));
+                    Math.Max(1, (run.Count + TorchSpacingCells / 2) / TorchSpacingCells)
+                );
                 for (int index = 0; index < torchCount; index++)
                 {
-                    int targetFaceIndex = (int)Math.Floor(
-                        (index + 0.5) * run.Count / torchCount);
+                    int targetFaceIndex = (int)Math.Floor((index + 0.5) * run.Count / torchCount);
                     // Preserve the established spacing whenever its target is valid. For a
                     // corner-adjacent target, choose the nearest safe face with lower indices
                     // winning ties so serialized placement remains deterministic.
@@ -60,9 +63,11 @@ namespace Game.DungeonGeneration
                     for (int candidate = 1; candidate < eligibleFaceIndices.Count; candidate++)
                     {
                         int selectedDistance = Math.Abs(
-                            eligibleFaceIndices[selectedIndex] - targetFaceIndex);
+                            eligibleFaceIndices[selectedIndex] - targetFaceIndex
+                        );
                         int candidateDistance = Math.Abs(
-                            eligibleFaceIndices[candidate] - targetFaceIndex);
+                            eligibleFaceIndices[candidate] - targetFaceIndex
+                        );
                         if (candidateDistance < selectedDistance)
                             selectedIndex = candidate;
                     }
@@ -72,12 +77,15 @@ namespace Game.DungeonGeneration
                     WallFace face = run[faceIndex];
                     occupiedFaces.Add(face);
                     torchIndex++;
-                    placements.Add(new DungeonObjectPlacement(
-                        "sconce-" + torchIndex.ToString("D4", CultureInfo.InvariantCulture),
-                        TorchAssetId,
-                        face.Cell,
-                        face.Rotation,
-                        yOffset: 0.2f));
+                    placements.Add(
+                        new DungeonObjectPlacement(
+                            "sconce-" + torchIndex.ToString("D4", CultureInfo.InvariantCulture),
+                            TorchAssetId,
+                            face.Cell,
+                            face.Rotation,
+                            yOffset: 0.2f
+                        )
+                    );
                 }
             }
 
@@ -89,7 +97,8 @@ namespace Game.DungeonGeneration
                         room.MinimumZ,
                         room.MaximumX,
                         room.MaximumZ,
-                        reserved)
+                        reserved
+                    )
                     .Where(face => !occupiedFaces.Contains(face))
                     .ToList();
                 for (int attempt = 0; attempt < BannerAttemptsPerRoom; attempt++)
@@ -101,13 +110,18 @@ namespace Game.DungeonGeneration
                     WallFace face = candidates[candidateIndex];
                     candidates.RemoveAt(candidateIndex);
                     occupiedFaces.Add(face);
-                    placements.Add(new DungeonObjectPlacement(
-                        "decoration-" + room.Id.ToString("D4", CultureInfo.InvariantCulture) +
-                        "-" + (attempt + 1).ToString("D2", CultureInfo.InvariantCulture),
-                        BannerAssetId,
-                        face.Cell,
-                        face.Rotation,
-                        yOffset: 0.25f));
+                    placements.Add(
+                        new DungeonObjectPlacement(
+                            "decoration-"
+                                + room.Id.ToString("D4", CultureInfo.InvariantCulture)
+                                + "-"
+                                + (attempt + 1).ToString("D2", CultureInfo.InvariantCulture),
+                            BannerAssetId,
+                            face.Cell,
+                            face.Rotation,
+                            yOffset: 0.25f
+                        )
+                    );
                 }
             }
 
@@ -120,7 +134,8 @@ namespace Game.DungeonGeneration
             int minimumZ,
             int maximumX,
             int maximumZ,
-            HashSet<DungeonCell> reservedCells)
+            HashSet<DungeonCell> reservedCells
+        )
         {
             List<WallFace> candidates = new();
             for (int z = minimumZ; z <= maximumZ; z++)
@@ -140,21 +155,21 @@ namespace Game.DungeonGeneration
             return candidates;
         }
 
-        private static bool HasTorchCornerClearance(
-            IReadOnlyList<string> rows,
-            WallFace face)
+        private static bool HasTorchCornerClearance(IReadOnlyList<string> rows, WallFace face)
         {
             int alongX = face.Rotation == 0 || face.Rotation == 180 ? 1 : 0;
             int alongZ = alongX == 1 ? 0 : 1;
             for (int direction = -1; direction <= 1; direction += 2)
             {
-                for (int distance = 1;
-                     distance < MinimumTorchCornerDistanceCells;
-                     distance++)
+                for (int distance = 1; distance < MinimumTorchCornerDistanceCells; distance++)
                 {
-                    if (CellAt(rows,
+                    if (
+                        CellAt(
+                            rows,
                             face.Cell.X + direction * alongX * distance,
-                            face.Cell.Z + direction * alongZ * distance) == '#')
+                            face.Cell.Z + direction * alongZ * distance
+                        ) == '#'
+                    )
                         return false;
                 }
             }
@@ -164,7 +179,8 @@ namespace Game.DungeonGeneration
 
         private static IReadOnlyList<IReadOnlyList<WallFace>> FindWallRuns(
             IReadOnlyList<string> rows,
-            HashSet<DungeonCell> reservedCells)
+            HashSet<DungeonCell> reservedCells
+        )
         {
             int width = rows.Count == 0 ? 0 : rows[0].Length;
             List<WallFace> faces = FindWallFaces(
@@ -173,7 +189,8 @@ namespace Game.DungeonGeneration
                 0,
                 width - 1,
                 rows.Count - 1,
-                reservedCells);
+                reservedCells
+            );
             List<IReadOnlyList<WallFace>> runs = new();
             int[] rotations = { 0, 90, 180, 270 };
             foreach (int rotation in rotations)
@@ -209,16 +226,12 @@ namespace Game.DungeonGeneration
 
         private static int LineCoordinate(WallFace face)
         {
-            return face.Rotation == 0 || face.Rotation == 180
-                ? face.Cell.Z
-                : face.Cell.X;
+            return face.Rotation == 0 || face.Rotation == 180 ? face.Cell.Z : face.Cell.X;
         }
 
         private static int AlongCoordinate(WallFace face)
         {
-            return face.Rotation == 0 || face.Rotation == 180
-                ? face.Cell.X
-                : face.Cell.Z;
+            return face.Rotation == 0 || face.Rotation == 180 ? face.Cell.X : face.Cell.Z;
         }
 
         private static void AddWallFace(
@@ -228,7 +241,8 @@ namespace Game.DungeonGeneration
             int z,
             int offsetX,
             int offsetZ,
-            int rotation)
+            int rotation
+        )
         {
             if (CellAt(rows, x + offsetX, z + offsetZ) == '#')
                 candidates.Add(new WallFace(new DungeonCell(x, z), rotation));
@@ -238,10 +252,10 @@ namespace Game.DungeonGeneration
             IReadOnlyList<string> rows,
             int x,
             int z,
-            HashSet<DungeonCell> reservedCells)
+            HashSet<DungeonCell> reservedCells
+        )
         {
-            return CellAt(rows, x, z) == '.' &&
-                   !reservedCells.Contains(new DungeonCell(x, z));
+            return CellAt(rows, x, z) == '.' && !reservedCells.Contains(new DungeonCell(x, z));
         }
 
         private static char CellAt(IReadOnlyList<string> rows, int x, int z)
@@ -254,8 +268,7 @@ namespace Game.DungeonGeneration
 
         private readonly struct WallFace
         {
-            internal WallFace(
-                DungeonCell cell, int rotation)
+            internal WallFace(DungeonCell cell, int rotation)
             {
                 Cell = cell;
                 Rotation = rotation;
@@ -266,9 +279,7 @@ namespace Game.DungeonGeneration
 
             public override bool Equals(object obj)
             {
-                return obj is WallFace other &&
-                       Cell == other.Cell &&
-                       Rotation == other.Rotation;
+                return obj is WallFace other && Cell == other.Cell && Rotation == other.Rotation;
             }
 
             public override int GetHashCode()

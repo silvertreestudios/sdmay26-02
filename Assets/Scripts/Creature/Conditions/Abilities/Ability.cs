@@ -8,7 +8,6 @@ public class Ability : ConditionSource
     public List<string> Traits = new List<string>();
     UnityAction<GameObject> ApplyCallback;
 
-
     public Ability(string name, UnityAction<GameObject> apply)
     {
         this.Name = name;
@@ -18,6 +17,6 @@ public class Ability : ConditionSource
     public void Apply(GameObject g)
     {
         ApplyCallback(g);
-        Debug.Log("Applied ability " + Name +" to " + g.name);
+        Debug.Log("Applied ability " + Name + " to " + g.name);
     }
 }

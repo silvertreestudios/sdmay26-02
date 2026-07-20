@@ -40,7 +40,9 @@ namespace Game.Rules.Runtime
                         : " root";
                     completions.TryGetValue(frame.Id, out DiagnosticCompletion completion);
                     string result = completion == null ? string.Empty : $" -> {completion.Status}";
-                    lines.Add($"{prefix}[op {frame.Id.Value}{relation}] {frame.OpType.Name}{result}");
+                    lines.Add(
+                        $"{prefix}[op {frame.Id.Value}{relation}] {frame.OpType.Name}{result}"
+                    );
 
                     if (frame.IsAction)
                         lines.Add($"{prefix}  profile: {frame.ActionProfile.ToDiagnosticString()}");
@@ -48,8 +50,9 @@ namespace Game.Rules.Runtime
                     foreach (ResolutionRoll roll in trace.GetRolls(frame.Id))
                     {
                         lines.Add(
-                            $"{prefix}  roll {roll.Sequence}: {roll.Dice} -> " +
-                            $"[{string.Join(", ", roll.Result.Values)}] total={roll.Result.Total}");
+                            $"{prefix}  roll {roll.Sequence}: {roll.Dice} -> "
+                                + $"[{string.Join(", ", roll.Result.Values)}] total={roll.Result.Total}"
+                        );
                     }
 
                     if (completion == null)
@@ -57,8 +60,9 @@ namespace Game.Rules.Runtime
                     foreach (RuleFact fact in completion.DirectFacts)
                     {
                         lines.Add(
-                            $"{prefix}  [fact {fact.Id.Value}] {fact.GetType().Name} " +
-                            $"source={fact.SourceOpId.Value} root={fact.RootOpId.Value}");
+                            $"{prefix}  [fact {fact.Id.Value}] {fact.GetType().Name} "
+                                + $"source={fact.SourceOpId.Value} root={fact.RootOpId.Value}"
+                        );
                     }
                 }
                 return string.Join("\n", lines);
@@ -68,7 +72,9 @@ namespace Game.Rules.Runtime
         internal void Complete(OpId id, OpStatus status, IReadOnlyList<RuleFact> directFacts)
         {
             if (completions.ContainsKey(id))
-                throw new InvalidOperationException($"Operation {id.Value} completed more than once.");
+                throw new InvalidOperationException(
+                    $"Operation {id.Value} completed more than once."
+                );
             completions.Add(id, new DiagnosticCompletion(status, directFacts));
         }
 

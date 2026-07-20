@@ -15,7 +15,7 @@ namespace Game.DungeonGeneration
             new(1, 0),
             new(0, 1),
             new(0, -1),
-            new(-1, 0)
+            new(-1, 0),
         };
 
         /// <summary>
@@ -32,7 +32,8 @@ namespace Game.DungeonGeneration
             IReadOnlyList<string> rows,
             IReadOnlyList<DungeonRoom> rooms,
             IReadOnlyList<DungeonDoor> doors,
-            int minimumLoopPathLength)
+            int minimumLoopPathLength
+        )
         {
             if (rows == null)
                 throw new ArgumentNullException(nameof(rows));
@@ -48,8 +49,8 @@ namespace Game.DungeonGeneration
             {
                 List<DungeonCell> roomDoors = doors
                     .Where(door =>
-                        activeDoorCells.Contains(door.Cell) &&
-                        IsAdjacentToRoom(door.Cell, room))
+                        activeDoorCells.Contains(door.Cell) && IsAdjacentToRoom(door.Cell, room)
+                    )
                     .Select(door => door.Cell)
                     .ToList();
                 if (roomDoors.Count < 2)
@@ -72,10 +73,12 @@ namespace Game.DungeonGeneration
                         outsideCell,
                         room,
                         activeDoorCells,
-                        excludedEntrances);
+                        excludedEntrances
+                    );
                     bool duplicatesNearbyPath = retainedOutsideCells.Any(retained =>
-                        distances.TryGetValue(retained, out int distance) &&
-                        distance < minimumLoopPathLength);
+                        distances.TryGetValue(retained, out int distance)
+                        && distance < minimumLoopPathLength
+                    );
                     if (duplicatesNearbyPath)
                     {
                         activeDoorCells.Remove(doorCell);
@@ -91,7 +94,8 @@ namespace Game.DungeonGeneration
                 doors
                     .Where(door => activeDoorCells.Contains(door.Cell))
                     .Select(door => door.Cell)
-                    .ToArray());
+                    .ToArray()
+            );
         }
 
         private static Dictionary<DungeonCell, int> DistancesFrom(
@@ -99,7 +103,8 @@ namespace Game.DungeonGeneration
             DungeonCell start,
             DungeonRoom excludedRoom,
             HashSet<DungeonCell> activeDoorCells,
-            HashSet<DungeonCell> excludedEntrances)
+            HashSet<DungeonCell> excludedEntrances
+        )
         {
             Dictionary<DungeonCell, int> distances = new() { [start] = 0 };
             Queue<DungeonCell> queue = new();
@@ -109,16 +114,17 @@ namespace Game.DungeonGeneration
                 DungeonCell current = queue.Dequeue();
                 foreach (DungeonCell direction in Directions)
                 {
-                    DungeonCell next = new(
-                        current.X + direction.X,
-                        current.Z + direction.Z);
-                    if (distances.ContainsKey(next) ||
-                        !CanTraverse(
+                    DungeonCell next = new(current.X + direction.X, current.Z + direction.Z);
+                    if (
+                        distances.ContainsKey(next)
+                        || !CanTraverse(
                             rows,
                             next,
                             excludedRoom,
                             activeDoorCells,
-                            excludedEntrances))
+                            excludedEntrances
+                        )
+                    )
                     {
                         continue;
                     }
@@ -136,37 +142,36 @@ namespace Game.DungeonGeneration
             DungeonCell cell,
             DungeonRoom excludedRoom,
             HashSet<DungeonCell> activeDoorCells,
-            HashSet<DungeonCell> excludedEntrances)
+            HashSet<DungeonCell> excludedEntrances
+        )
         {
-            if (!InBounds(rows, cell) ||
-                Contains(excludedRoom, cell) ||
-                excludedEntrances.Contains(cell))
+            if (
+                !InBounds(rows, cell)
+                || Contains(excludedRoom, cell)
+                || excludedEntrances.Contains(cell)
+            )
             {
                 return false;
             }
 
             char symbol = Symbol(rows, cell);
-            return symbol == '.' ||
-                   symbol == 'D' && activeDoorCells.Contains(cell);
+            return symbol == '.' || symbol == 'D' && activeDoorCells.Contains(cell);
         }
 
         private static bool TryGetOutsideNeighbor(
             IReadOnlyList<string> rows,
             DungeonRoom room,
             DungeonCell door,
-            out DungeonCell outside)
+            out DungeonCell outside
+        )
         {
             foreach (DungeonCell direction in Directions)
             {
-                DungeonCell inside = new(
-                    door.X + direction.X,
-                    door.Z + direction.Z);
+                DungeonCell inside = new(door.X + direction.X, door.Z + direction.Z);
                 if (!Contains(room, inside))
                     continue;
 
-                DungeonCell candidate = new(
-                    door.X - direction.X,
-                    door.Z - direction.Z);
+                DungeonCell candidate = new(door.X - direction.X, door.Z - direction.Z);
                 if (InBounds(rows, candidate) && IsSerializedWalkable(rows, candidate))
                 {
                     outside = candidate;
@@ -180,21 +185,23 @@ namespace Game.DungeonGeneration
 
         private static bool IsAdjacentToRoom(DungeonCell cell, DungeonRoom room)
         {
-            return cell.X >= room.MinimumX && cell.X <= room.MaximumX &&
-                   (cell.Z == room.MinimumZ - 1 || cell.Z == room.MaximumZ + 1) ||
-                   cell.Z >= room.MinimumZ && cell.Z <= room.MaximumZ &&
-                   (cell.X == room.MinimumX - 1 || cell.X == room.MaximumX + 1);
+            return cell.X >= room.MinimumX
+                    && cell.X <= room.MaximumX
+                    && (cell.Z == room.MinimumZ - 1 || cell.Z == room.MaximumZ + 1)
+                || cell.Z >= room.MinimumZ
+                    && cell.Z <= room.MaximumZ
+                    && (cell.X == room.MinimumX - 1 || cell.X == room.MaximumX + 1);
         }
 
         private static bool Contains(DungeonRoom room, DungeonCell cell)
         {
-            return cell.X >= room.MinimumX && cell.X <= room.MaximumX &&
-                   cell.Z >= room.MinimumZ && cell.Z <= room.MaximumZ;
+            return cell.X >= room.MinimumX
+                && cell.X <= room.MaximumX
+                && cell.Z >= room.MinimumZ
+                && cell.Z <= room.MaximumZ;
         }
 
-        private static bool IsSerializedWalkable(
-            IReadOnlyList<string> rows,
-            DungeonCell cell)
+        private static bool IsSerializedWalkable(IReadOnlyList<string> rows, DungeonCell cell)
         {
             char symbol = Symbol(rows, cell);
             return symbol == '.' || symbol == 'D';
@@ -202,8 +209,10 @@ namespace Game.DungeonGeneration
 
         private static bool InBounds(IReadOnlyList<string> rows, DungeonCell cell)
         {
-            return cell.Z >= 0 && cell.Z < rows.Count &&
-                   cell.X >= 0 && cell.X < rows[rows.Count - 1 - cell.Z].Length;
+            return cell.Z >= 0
+                && cell.Z < rows.Count
+                && cell.X >= 0
+                && cell.X < rows[rows.Count - 1 - cell.Z].Length;
         }
 
         private static char Symbol(IReadOnlyList<string> rows, DungeonCell cell)

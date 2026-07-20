@@ -9,18 +9,18 @@ namespace Game.Rules.Runtime
     {
         public async ValueTask<CheckOutcome> Handle(
             OpFrame<SkillCheckOp> frame,
-            OpHandlerContext context)
+            OpHandlerContext context
+        )
         {
             CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
             OpResult<ModifierCollection> modifiersResult = await context.Dispatch(
-                new CollectSkillCheckModifiersOp(
-                    frame.Op.Actor,
-                    frame.Op.Skill,
-                    frame.Op.Source));
+                new CollectSkillCheckModifiersOp(frame.Op.Actor, frame.Op.Skill, frame.Op.Source)
+            );
             if (!(modifiersResult is ResolvedOpResult<ModifierCollection> resolvedModifiers))
             {
                 throw new InvalidOperationException(
-                    "Skill-check modifier collection must produce a resolved result.");
+                    "Skill-check modifier collection must produce a resolved result."
+                );
             }
 
             RollResult roll = context.Rolls.Roll(DiceExpressions.D20);
@@ -29,7 +29,8 @@ namespace Game.Rules.Runtime
                 frame.Op.Source,
                 roll,
                 resolvedModifiers.Value,
-                frame.Op.DifficultyClass);
+                frame.Op.DifficultyClass
+            );
         }
     }
 
@@ -37,18 +38,18 @@ namespace Game.Rules.Runtime
     {
         public async ValueTask<CheckOutcome> Handle(
             OpFrame<SavingThrowOp> frame,
-            OpHandlerContext context)
+            OpHandlerContext context
+        )
         {
             CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
             OpResult<ModifierCollection> modifiersResult = await context.Dispatch(
-                new CollectSavingThrowModifiersOp(
-                    frame.Op.Actor,
-                    frame.Op.Save,
-                    frame.Op.Source));
+                new CollectSavingThrowModifiersOp(frame.Op.Actor, frame.Op.Save, frame.Op.Source)
+            );
             if (!(modifiersResult is ResolvedOpResult<ModifierCollection> resolvedModifiers))
             {
                 throw new InvalidOperationException(
-                    "Saving-throw modifier collection must produce a resolved result.");
+                    "Saving-throw modifier collection must produce a resolved result."
+                );
             }
 
             RollResult roll = context.Rolls.Roll(DiceExpressions.D20);
@@ -57,7 +58,8 @@ namespace Game.Rules.Runtime
                 frame.Op.Source,
                 roll,
                 resolvedModifiers.Value,
-                frame.Op.DifficultyClass);
+                frame.Op.DifficultyClass
+            );
         }
     }
 
@@ -71,13 +73,13 @@ namespace Game.Rules.Runtime
 
         public ValueTask<ModifierCollection> Handle(
             OpFrame<CollectSkillCheckModifiersOp> frame,
-            OpHandlerContext context)
+            OpHandlerContext context
+        )
         {
             CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
-            return new ValueTask<ModifierCollection>(selectors.GetSkillCheckModifiers(
-                context.Snapshot,
-                frame.Op.Actor,
-                frame.Op.Skill));
+            return new ValueTask<ModifierCollection>(
+                selectors.GetSkillCheckModifiers(context.Snapshot, frame.Op.Actor, frame.Op.Skill)
+            );
         }
     }
 
@@ -91,13 +93,13 @@ namespace Game.Rules.Runtime
 
         public ValueTask<ModifierCollection> Handle(
             OpFrame<CollectSavingThrowModifiersOp> frame,
-            OpHandlerContext context)
+            OpHandlerContext context
+        )
         {
             CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
-            return new ValueTask<ModifierCollection>(selectors.GetSavingThrowModifiers(
-                context.Snapshot,
-                frame.Op.Actor,
-                frame.Op.Save));
+            return new ValueTask<ModifierCollection>(
+                selectors.GetSavingThrowModifiers(context.Snapshot, frame.Op.Actor, frame.Op.Save)
+            );
         }
     }
 
@@ -111,11 +113,13 @@ namespace Game.Rules.Runtime
 
         public ValueTask<ModifierCollection> Handle(
             OpFrame<CollectAttackModifiersOp> frame,
-            OpHandlerContext context)
+            OpHandlerContext context
+        )
         {
             CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
             return new ValueTask<ModifierCollection>(
-                selectors.GetAttackModifiers(context.Snapshot, frame.Op.Attacker));
+                selectors.GetAttackModifiers(context.Snapshot, frame.Op.Attacker)
+            );
         }
     }
 
@@ -124,16 +128,20 @@ namespace Game.Rules.Runtime
         public static void RequireAncestorSource(
             OpId checkId,
             CheckSource source,
-            ResolutionTrace trace)
+            ResolutionTrace trace
+        )
         {
             if (trace == null)
                 throw new ArgumentNullException(nameof(trace));
-            if (!trace.Exists(source.OperationId) ||
-                !trace.IsDescendantOf(checkId, source.OperationId))
+            if (
+                !trace.Exists(source.OperationId)
+                || !trace.IsDescendantOf(checkId, source.OperationId)
+            )
             {
                 throw new InvalidOperationException(
-                    $"Check source {source.OperationId.Value} is not an ancestor of operation " +
-                    $"{checkId.Value}.");
+                    $"Check source {source.OperationId.Value} is not an ancestor of operation "
+                        + $"{checkId.Value}."
+                );
             }
         }
     }

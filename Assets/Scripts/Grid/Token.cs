@@ -33,18 +33,23 @@ namespace GridPublic
 
         private bool TryRegister(GridAPI grid)
         {
-            if (registered || detachedFromGrid || !isActiveAndEnabled ||
-                (registeredGrid != null && registeredGrid != grid) ||
-                grid is not GridAPIPrivate privateGrid)
+            if (
+                registered
+                || detachedFromGrid
+                || !isActiveAndEnabled
+                || (registeredGrid != null && registeredGrid != grid)
+                || grid is not GridAPIPrivate privateGrid
+            )
                 return registered;
 
             Vector3Int position = Vector3Int.RoundToInt(transform.position);
             if (!GridTargeting.IsInBounds(privateGrid.GetTiles(), position))
             {
                 Debug.LogWarning(
-                    $"Failed to register token '{name}' at grid cell ({position.x}, {position.z}). " +
-                    "The cell is outside the grid bounds.",
-                    this);
+                    $"Failed to register token '{name}' at grid cell ({position.x}, {position.z}). "
+                        + "The cell is outside the grid bounds.",
+                    this
+                );
                 return false;
             }
 
@@ -57,9 +62,10 @@ namespace GridPublic
             if (!registered)
             {
                 Debug.LogWarning(
-                    $"Failed to register token '{name}' at grid cell ({position.x}, {position.z}). " +
-                    "The cell may be blocked or already occupied.",
-                    this);
+                    $"Failed to register token '{name}' at grid cell ({position.x}, {position.z}). "
+                        + "The cell may be blocked or already occupied.",
+                    this
+                );
             }
             return registered;
         }

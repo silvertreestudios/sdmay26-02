@@ -28,31 +28,44 @@ public sealed class DungeonLevelPngExporterTests
                 MaximumRoomSize = 13,
                 MinimumRoomCount = 3,
                 StairCount = 2,
-                DeadEndRemovalPercent = 100
-            });
+                DeadEndRemovalPercent = 100,
+            }
+        );
 
-        Assert.That(expected.IsSuccess, Is.True,
-            string.Join(Environment.NewLine, expected.Diagnostics));
-        Assert.That(FixtureJson(), Is.EqualTo(
-            DungeonLevelJsonSerializer.Serialize(expected.Document)));
+        Assert.That(
+            expected.IsSuccess,
+            Is.True,
+            string.Join(Environment.NewLine, expected.Diagnostics)
+        );
+        Assert.That(
+            FixtureJson(),
+            Is.EqualTo(DungeonLevelJsonSerializer.Serialize(expected.Document))
+        );
         Assert.That(expected.Document.Rooms, Has.Count.GreaterThanOrEqualTo(3));
-        Assert.That(expected.Document.Rooms.All(room =>
-        {
-            int width = room.MaximumX - room.MinimumX + 1;
-            int height = room.MaximumZ - room.MinimumZ + 1;
-            return width is >= 5 and <= 13 && width % 2 == 1 &&
-                   height is >= 5 and <= 13 && height % 2 == 1;
-        }), Is.True);
-        Assert.That(expected.Document.Rooms
-                .Select(room =>
+        Assert.That(
+            expected.Document.Rooms.All(room =>
+            {
+                int width = room.MaximumX - room.MinimumX + 1;
+                int height = room.MaximumZ - room.MinimumZ + 1;
+                return width is >= 5 and <= 13
+                    && width % 2 == 1
+                    && height is >= 5 and <= 13
+                    && height % 2 == 1;
+            }),
+            Is.True
+        );
+        Assert.That(
+            expected
+                .Document.Rooms.Select(room =>
                 {
                     int width = room.MaximumX - room.MinimumX + 1;
                     int height = room.MaximumZ - room.MinimumZ + 1;
-                    return (Minimum: Math.Min(width, height),
-                            Maximum: Math.Max(width, height));
+                    return (Minimum: Math.Min(width, height), Maximum: Math.Max(width, height));
                 })
                 .Distinct()
-                .Count(), Is.GreaterThan(1));
+                .Count(),
+            Is.GreaterThan(1)
+        );
     }
 
     [Test]
@@ -69,7 +82,8 @@ public sealed class DungeonLevelPngExporterTests
             Assert.That(
                 CellCenter(texture, asymmetricWall.X, asymmetricWall.Z),
                 Is.EqualTo(CellCenter(texture, 0, 0)),
-                "The source row for a map cell must be rendered at that cell's Z coordinate, not its vertical mirror.");
+                "The source row for a map cell must be rendered at that cell's Z coordinate, not its vertical mirror."
+            );
         }
         finally
         {
@@ -92,18 +106,23 @@ public sealed class DungeonLevelPngExporterTests
                 CellCenter(texture, FindPlainCell(document, '.', roomCells, true)),
                 CellCenter(texture, FindPlainCell(document, '.', roomCells, false)),
                 CellCenter(texture, document.Doors[0].Cell),
-                CellCenter(texture, document.Stairs.Single(stair =>
-                    stair.Kind == DungeonStairKind.Up).Cell),
-                CellCenter(texture, document.Stairs.Single(stair =>
-                    stair.Kind == DungeonStairKind.Down).Cell),
+                CellCenter(
+                    texture,
+                    document.Stairs.Single(stair => stair.Kind == DungeonStairKind.Up).Cell
+                ),
+                CellCenter(
+                    texture,
+                    document.Stairs.Single(stair => stair.Kind == DungeonStairKind.Down).Cell
+                ),
                 Pixel(texture, document.StartCell.X, document.StartCell.Z, 1, 1),
-                CellCenter(texture, document.Objects[0].Cell)
+                CellCenter(texture, document.Objects[0].Cell),
             };
 
             Assert.That(
                 new HashSet<Color32>(semanticColors).Count,
                 Is.EqualTo(semanticColors.Length),
-                "Every documented base semantic and overlay must have a stable distinct color.");
+                "Every documented base semantic and overlay must have a stable distinct color."
+            );
         }
         finally
         {
@@ -126,13 +145,16 @@ public sealed class DungeonLevelPngExporterTests
     public void RenderPng_RejectsInvalidJsonAndUnsupportedCellSize()
     {
         InvalidDataException invalidDocument = Assert.Throws<InvalidDataException>(() =>
-            DungeonLevelPngExporter.RenderPng("{\"rows\":[]}", CellSize));
+            DungeonLevelPngExporter.RenderPng("{\"rows\":[]}", CellSize)
+        );
         Assert.That(invalidDocument.Message, Does.Contain("Generation metadata is required"));
 
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            DungeonLevelPngExporter.RenderPng(FixtureJson(), 6));
+            DungeonLevelPngExporter.RenderPng(FixtureJson(), 6)
+        );
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            DungeonLevelPngExporter.RenderPng(FixtureJson(), 129));
+            DungeonLevelPngExporter.RenderPng(FixtureJson(), 129)
+        );
 
         DungeonGenerationResult large = new DeterministicDungeonGenerator().Generate(
             new DungeonGenerationRequest
@@ -141,11 +163,13 @@ public sealed class DungeonLevelPngExporterTests
                 Width = 101,
                 Height = 101,
                 MinimumRoomCount = 0,
-                StairCount = 0
-            });
+                StairCount = 0,
+            }
+        );
         Assert.That(large.IsSuccess, Is.True);
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            DungeonLevelPngExporter.RenderPng(large.Document, 128));
+            DungeonLevelPngExporter.RenderPng(large.Document, 128)
+        );
     }
 
     [Test]
@@ -156,12 +180,15 @@ public sealed class DungeonLevelPngExporterTests
 
         Assert.That(
             Path.GetDirectoryName(DungeonLevelPngExporter.DefaultOutputPath),
-            Is.EqualTo(expectedDirectory).IgnoreCase);
+            Is.EqualTo(expectedDirectory).IgnoreCase
+        );
         Assert.That(
             DungeonLevelPngExporter.DefaultOutputPath.StartsWith(
                 Path.GetFullPath(Application.dataPath) + Path.DirectorySeparatorChar,
-                StringComparison.OrdinalIgnoreCase),
-            Is.False);
+                StringComparison.OrdinalIgnoreCase
+            ),
+            Is.False
+        );
     }
 
     [Test]
@@ -171,18 +198,22 @@ public sealed class DungeonLevelPngExporterTests
             Path.GetFullPath(Path.Combine(Application.dataPath, "..")),
             ".agent-temp",
             "tests",
-            "dungeon-level-png-exporter.png");
+            "dungeon-level-png-exporter.png"
+        );
         try
         {
             string writtenPath = DungeonLevelPngExporter.WriteFile(
                 DungeonLevelPngExporter.DefaultInputPath,
                 outputPath,
-                CellSize);
+                CellSize
+            );
 
             Assert.That(writtenPath, Is.EqualTo(Path.GetFullPath(outputPath)).IgnoreCase);
             Assert.That(File.Exists(writtenPath), Is.True);
-            Assert.That(File.ReadAllBytes(writtenPath), Is.EqualTo(
-                DungeonLevelPngExporter.RenderPng(FixtureJson(), CellSize)));
+            Assert.That(
+                File.ReadAllBytes(writtenPath),
+                Is.EqualTo(DungeonLevelPngExporter.RenderPng(FixtureJson(), CellSize))
+            );
         }
         finally
         {
@@ -190,10 +221,13 @@ public sealed class DungeonLevelPngExporterTests
                 File.Delete(outputPath);
         }
 
-        Assert.Throws<ArgumentException>(() => DungeonLevelPngExporter.WritePng(
-            FixtureJson(),
-            Path.Combine(Application.dataPath, "diagnostic.png"),
-            CellSize));
+        Assert.Throws<ArgumentException>(() =>
+            DungeonLevelPngExporter.WritePng(
+                FixtureJson(),
+                Path.Combine(Application.dataPath, "diagnostic.png"),
+                CellSize
+            )
+        );
     }
 
     private static DungeonLevelDocument FixtureDocument()
@@ -202,12 +236,13 @@ public sealed class DungeonLevelPngExporterTests
         Assert.That(
             parsed.IsSuccess,
             Is.True,
-            string.Join(Environment.NewLine, parsed.Diagnostics));
+            string.Join(Environment.NewLine, parsed.Diagnostics)
+        );
         return parsed.Document;
     }
 
-    private static string FixtureJson() => File.ReadAllText(
-        DungeonLevelPngExporter.DefaultInputPath);
+    private static string FixtureJson() =>
+        File.ReadAllText(DungeonLevelPngExporter.DefaultInputPath);
 
     private static Texture2D Decode(byte[] png)
     {
@@ -233,7 +268,8 @@ public sealed class DungeonLevelPngExporterTests
         }
 
         throw new AssertionException(
-            "The fixture must contain a wall whose vertical mirror has a different semantic.");
+            "The fixture must contain a wall whose vertical mirror has a different semantic."
+        );
     }
 
     private static HashSet<DungeonCell> RoomCells(DungeonLevelDocument document)
@@ -253,7 +289,8 @@ public sealed class DungeonLevelPngExporterTests
         DungeonLevelDocument document,
         char symbol,
         HashSet<DungeonCell> roomCells,
-        bool requireRoom)
+        bool requireRoom
+    )
     {
         HashSet<DungeonCell> overlays = new(document.Stairs.Select(stair => stair.Cell));
         overlays.UnionWith(document.Objects.Select(item => item.Cell));
@@ -263,16 +300,19 @@ public sealed class DungeonLevelPngExporterTests
         for (int x = 0; x < document.Width; x++)
         {
             DungeonCell cell = new(x, z);
-            if (document.Rows[document.Height - 1 - z][x] == symbol &&
-                roomCells.Contains(cell) == requireRoom &&
-                !overlays.Contains(cell))
+            if (
+                document.Rows[document.Height - 1 - z][x] == symbol
+                && roomCells.Contains(cell) == requireRoom
+                && !overlays.Contains(cell)
+            )
             {
                 return cell;
             }
         }
 
         throw new AssertionException(
-            $"The fixture must contain an unoverlaid '{symbol}' cell with room={requireRoom}.");
+            $"The fixture must contain an unoverlaid '{symbol}' cell with room={requireRoom}."
+        );
     }
 
     private static Color32 CellCenter(Texture2D texture, DungeonCell cell) =>
@@ -281,10 +321,6 @@ public sealed class DungeonLevelPngExporterTests
     private static Color32 CellCenter(Texture2D texture, int x, int z) =>
         Pixel(texture, x, z, CellSize / 2, CellSize / 2);
 
-    private static Color32 Pixel(
-        Texture2D texture,
-        int x,
-        int z,
-        int localX,
-        int localY) => texture.GetPixel(x * CellSize + localX, z * CellSize + localY);
+    private static Color32 Pixel(Texture2D texture, int x, int z, int localX, int localY) =>
+        texture.GetPixel(x * CellSize + localX, z * CellSize + localY);
 }

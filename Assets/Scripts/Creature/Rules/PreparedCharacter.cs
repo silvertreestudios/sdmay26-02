@@ -1,8 +1,8 @@
-using Game.Combat.Spells;
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Combat.Spells;
+using Newtonsoft.Json.Linq;
 
 namespace Game.Creature.Rules
 {
@@ -21,7 +21,8 @@ namespace Game.Creature.Rules
         public List<ActivePf2eEffect> ActiveEffects { get; } = new();
         public Dictionary<string, int> SkillRanks { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, int> RuleValues { get; } = new(StringComparer.OrdinalIgnoreCase);
-        public Dictionary<string, string> RuleReferences { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, string> RuleReferences { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
         public List<string> UnsupportedRuleKeys { get; } = new();
         public SpellcastingState Spellcasting { get; set; }
 
@@ -57,7 +58,9 @@ namespace Game.Creature.Rules
         /// <returns>True when an owned item has the supplied slug.</returns>
         public bool HasOwnedItem(string slug)
         {
-            return OwnedItems.Any(item => string.Equals(item.Item.Slug, slug, StringComparison.OrdinalIgnoreCase));
+            return OwnedItems.Any(item =>
+                string.Equals(item.Item.Slug, slug, StringComparison.OrdinalIgnoreCase)
+            );
         }
 
         /// <summary>
@@ -68,8 +71,9 @@ namespace Game.Creature.Rules
         public bool HasActiveEffect(string slug)
         {
             return ActiveEffects.Any(effect =>
-                string.Equals(effect.Slug, slug, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(effect.SourceSlug, slug, StringComparison.OrdinalIgnoreCase));
+                string.Equals(effect.Slug, slug, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(effect.SourceSlug, slug, StringComparison.OrdinalIgnoreCase)
+            );
         }
 
         /// <summary>
@@ -82,8 +86,9 @@ namespace Game.Creature.Rules
         {
             string slug = string.IsNullOrWhiteSpace(sourceSlug) ? item?.Slug : sourceSlug;
             ActivePf2eEffect existing = ActiveEffects.FirstOrDefault(effect =>
-                string.Equals(effect.Slug, slug, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(effect.SourceSlug, slug, StringComparison.OrdinalIgnoreCase));
+                string.Equals(effect.Slug, slug, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(effect.SourceSlug, slug, StringComparison.OrdinalIgnoreCase)
+            );
             if (existing != null)
                 return existing;
 
@@ -101,9 +106,18 @@ namespace Game.Creature.Rules
         /// <param name="slug">The effect slug or source slug to remove.</param>
         public void RemoveActiveEffect(string slug)
         {
-            foreach (ActivePf2eEffect effect in ActiveEffects.Where(effect =>
-                string.Equals(effect.Slug, slug, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(effect.SourceSlug, slug, StringComparison.OrdinalIgnoreCase)).ToArray())
+            foreach (
+                ActivePf2eEffect effect in ActiveEffects
+                    .Where(effect =>
+                        string.Equals(effect.Slug, slug, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(
+                            effect.SourceSlug,
+                            slug,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                    .ToArray()
+            )
             {
                 RollOptions.Remove($"self:effect:{effect.Slug}");
                 RollOptions.Remove($"self:effect:{effect.SourceSlug}");
@@ -120,7 +134,10 @@ namespace Game.Creature.Rules
                 RollOptions.Add($"feat:{item.Slug}");
 
             string category = item.System?.SelectToken("category")?.Value<string>();
-            if (item.Type == "feat" && string.Equals(category, "classfeature", StringComparison.OrdinalIgnoreCase))
+            if (
+                item.Type == "feat"
+                && string.Equals(category, "classfeature", StringComparison.OrdinalIgnoreCase)
+            )
                 RollOptions.Add($"feature:{item.Slug}");
 
             if (item.Type == "action")
@@ -196,6 +213,7 @@ namespace Game.Creature.Rules
         public int Priority;
         public JToken Predicate;
     }
+
     /// <summary>
     /// Represents a supported DamageDice rule element after item preparation.
     /// </summary>

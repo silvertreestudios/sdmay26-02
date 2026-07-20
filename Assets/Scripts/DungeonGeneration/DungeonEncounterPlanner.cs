@@ -16,16 +16,14 @@ namespace Game.DungeonGeneration
             new(1, 0),
             new(0, 1),
             new(0, -1),
-            new(-1, 0)
+            new(-1, 0),
         };
 
         private readonly IEncounterBuilder builder;
 
         /// <summary>Creates a planner using <see cref="DungeonEncounterBuilder"/>.</summary>
         public DungeonEncounterPlanner()
-            : this(new DungeonEncounterBuilder())
-        {
-        }
+            : this(new DungeonEncounterBuilder()) { }
 
         /// <summary>Creates a planner with an explicit testable composition service.</summary>
         /// <param name="builder">The non-null encounter composition service.</param>
@@ -54,7 +52,8 @@ namespace Game.DungeonGeneration
             DungeonLevelDocument source,
             int partyLevel,
             int partySize,
-            IReadOnlyList<DungeonEncounterCandidate> candidates)
+            IReadOnlyList<DungeonEncounterCandidate> candidates
+        )
         {
             if (source == null)
                 throw new ArgumentNullException(nameof(source));
@@ -62,7 +61,9 @@ namespace Game.DungeonGeneration
                 DungeonSeedSequence.ForSubstream(
                     source.Generation.RunSeed,
                     source.Generation.Depth,
-                    DungeonSeedSubstream.Encounter));
+                    DungeonSeedSubstream.Encounter
+                )
+            );
             return Plan(source, partyLevel, partySize, candidates, random);
         }
 
@@ -71,7 +72,8 @@ namespace Game.DungeonGeneration
             int partyLevel,
             int partySize,
             IReadOnlyList<DungeonEncounterCandidate> candidates,
-            IDungeonRandom random)
+            IDungeonRandom random
+        )
         {
             if (source == null)
                 throw new ArgumentNullException(nameof(source));
@@ -84,7 +86,8 @@ namespace Game.DungeonGeneration
             if (source.EncounterPlans.Count != 0 || source.RuntimeState != null)
             {
                 throw new InvalidOperationException(
-                    "Encounter planning requires a pristine document without plans or runtime state.");
+                    "Encounter planning requires a pristine document without plans or runtime state."
+                );
             }
 
             HashSet<DungeonCell> reachable = ReachableCells(source.Rows, source.StartCell);
@@ -103,8 +106,9 @@ namespace Game.DungeonGeneration
             DungeonCell arrivalAnchor = source.StartCell;
             if (source.Generation.Depth > 0)
             {
-                DungeonStair up = source.Stairs.FirstOrDefault(
-                    stair => stair.Kind == DungeonStairKind.Up);
+                DungeonStair up = source.Stairs.FirstOrDefault(stair =>
+                    stair.Kind == DungeonStairKind.Up
+                );
                 if (up != null)
                     arrivalAnchor = up.ArrivalCell;
             }
@@ -123,25 +127,28 @@ namespace Game.DungeonGeneration
                     .ToList();
                 DungeonEncounterThreat threat = DungeonEncounterRules.SelectThreat(
                     source.Generation.Depth,
-                    random);
+                    random
+                );
                 DungeonEncounterBuildResult composition = builder.Build(
                     partyLevel,
                     partySize,
                     threat,
                     candidates,
                     cells.Count,
-                    random);
+                    random
+                );
                 Shuffle(cells, random);
-                DungeonCell[] spawnCells = cells
-                    .Take(composition.CreatureIds.Count)
-                    .ToArray();
-                plans.Add(new DungeonEncounterPlan(
-                    "encounter-" + room.Id.ToString("D4", CultureInfo.InvariantCulture),
-                    room.Id,
-                    threat,
-                    composition.Budget,
-                    spawnCells,
-                    composition.CreatureIds));
+                DungeonCell[] spawnCells = cells.Take(composition.CreatureIds.Count).ToArray();
+                plans.Add(
+                    new DungeonEncounterPlan(
+                        "encounter-" + room.Id.ToString("D4", CultureInfo.InvariantCulture),
+                        room.Id,
+                        threat,
+                        composition.Budget,
+                        spawnCells,
+                        composition.CreatureIds
+                    )
+                );
             }
 
             return new DungeonLevelDocument(
@@ -153,23 +160,22 @@ namespace Game.DungeonGeneration
                 source.StartCell,
                 source.SafeCells,
                 source.Objects,
-                plans);
+                plans
+            );
         }
 
-        private static int? FindNearestRoomId(
-            DungeonLevelDocument source,
-            DungeonCell anchor)
+        private static int? FindNearestRoomId(DungeonLevelDocument source, DungeonCell anchor)
         {
             Dictionary<DungeonCell, int> distances = Distances(source.Rows, anchor);
-            return source.Rooms
-                .Select(room => new
+            return source
+                .Rooms.Select(room => new
                 {
                     room.Id,
                     Distance = CellsInRoom(room)
                         .Where(distances.ContainsKey)
                         .Select(cell => distances[cell])
                         .DefaultIfEmpty(int.MaxValue)
-                        .Min()
+                        .Min(),
                 })
                 .Where(candidate => candidate.Distance != int.MaxValue)
                 .OrderBy(candidate => candidate.Distance)
@@ -180,11 +186,13 @@ namespace Game.DungeonGeneration
 
         private static HashSet<DungeonCell> ReachableCells(
             IReadOnlyList<string> rows,
-            DungeonCell start) => new(Distances(rows, start).Keys);
+            DungeonCell start
+        ) => new(Distances(rows, start).Keys);
 
         private static Dictionary<DungeonCell, int> Distances(
             IReadOnlyList<string> rows,
-            DungeonCell start)
+            DungeonCell start
+        )
         {
             Dictionary<DungeonCell, int> distances = new();
             if (!IsWalkable(rows, start))
@@ -198,9 +206,7 @@ namespace Game.DungeonGeneration
                 DungeonCell current = pending.Dequeue();
                 foreach (DungeonCell direction in Directions)
                 {
-                    DungeonCell next = new(
-                        current.X + direction.X,
-                        current.Z + direction.Z);
+                    DungeonCell next = new(current.X + direction.X, current.Z + direction.Z);
                     if (IsWalkable(rows, next) && !distances.ContainsKey(next))
                     {
                         distances.Add(next, distances[current] + 1);
@@ -219,9 +225,7 @@ namespace Game.DungeonGeneration
                 yield return new DungeonCell(x, z);
         }
 
-        private static bool IsWalkable(
-            IReadOnlyList<string> rows,
-            DungeonCell cell)
+        private static bool IsWalkable(IReadOnlyList<string> rows, DungeonCell cell)
         {
             if (rows.Count == 0 || cell.Z < 0 || cell.Z >= rows.Count || cell.X < 0)
                 return false;

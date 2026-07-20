@@ -43,7 +43,12 @@ namespace TestsState
             Assert.IsNotNull(grid);
             Tile[,] tiles = grid.GetTiles();
             GameObject target = FindPlayerTarget();
-            GameObject enemy = CreateRangedEnemy("ranged-ai-execute-test-enemy", CreateShortbow(), 1, 100);
+            GameObject enemy = CreateRangedEnemy(
+                "ranged-ai-execute-test-enemy",
+                CreateShortbow(),
+                1,
+                100
+            );
             PlaceOnClearLine(tiles, enemy, target);
             Vector3 startingPosition = enemy.transform.position;
 
@@ -60,7 +65,11 @@ namespace TestsState
             yield return WaitUntilWithTimeout(timeout, () => !controller.IsTakingAction);
             UnityEngine.Random.state = randomState;
 
-            Assert.AreEqual(startingPosition, enemy.transform.position, "Ranged AI should not move when it can Strike from its current cell.");
+            Assert.AreEqual(
+                startingPosition,
+                enemy.transform.position,
+                "Ranged AI should not move when it can Strike from its current cell."
+            );
             Assert.AreEqual(2u, controller.ActionPoints);
             Assert.AreEqual(1u, controller.StrikePenalty);
             Assert.AreEqual(0, enemy.GetComponent<CreatureComponent>().GetAmmoQuantity("arrows"));
@@ -85,12 +94,18 @@ namespace TestsState
             OnNextTurn.Invoke(player);
 
             Button shortbowButton = null;
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                shortbowButton = root.Q<Button>("ShortbowButton");
-                return shortbowButton != null;
-            });
-            Assert.IsNotNull(shortbowButton, "Shortbow action button was not created for the player.");
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    shortbowButton = root.Q<Button>("ShortbowButton");
+                    return shortbowButton != null;
+                }
+            );
+            Assert.IsNotNull(
+                shortbowButton,
+                "Shortbow action button was not created for the player."
+            );
 
             PushButton(shortbowButton);
             yield return WaitUntilWithTimeout(timeout, () => grid.Fsm.CurrentState is StateStrike);
@@ -103,7 +118,10 @@ namespace TestsState
             UnityEngine.Random.State randomState = UnityEngine.Random.state;
             UnityEngine.Random.InitState(7603);
             grid.Fsm.CurrentState.Leftclick();
-            yield return WaitUntilWithTimeout(timeout, () => !controller.IsTakingAction && grid.Fsm.CurrentState is StateIdle);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => !controller.IsTakingAction && grid.Fsm.CurrentState is StateIdle
+            );
             UnityEngine.Random.state = randomState;
 
             Assert.IsTrue(grid.Fsm.CurrentState is StateIdle);
@@ -134,12 +152,18 @@ namespace TestsState
             OnNextTurn.Invoke(player);
 
             Button shortbowButton = null;
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                shortbowButton = root.Q<Button>("ShortbowButton");
-                return shortbowButton != null;
-            });
-            Assert.IsNotNull(shortbowButton, "Shortbow action button was not created for the player.");
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    shortbowButton = root.Q<Button>("ShortbowButton");
+                    return shortbowButton != null;
+                }
+            );
+            Assert.IsNotNull(
+                shortbowButton,
+                "Shortbow action button was not created for the player."
+            );
 
             PushButton(shortbowButton);
             yield return WaitUntilWithTimeout(timeout, () => grid.Fsm.CurrentState is StateStrike);
@@ -148,7 +172,10 @@ namespace TestsState
             yield return null;
 
             ActionController controller = player.GetComponent<ActionController>();
-            Assert.IsTrue(grid.Fsm.CurrentState is StateStrike, "Blocked line of effect should leave targeting active.");
+            Assert.IsTrue(
+                grid.Fsm.CurrentState is StateStrike,
+                "Blocked line of effect should leave targeting active."
+            );
             Assert.AreEqual(3u, controller.ActionPoints);
             Assert.AreEqual(0u, controller.StrikePenalty);
             Assert.AreEqual(1, player.GetComponent<CreatureComponent>().GetAmmoQuantity("arrows"));
@@ -184,19 +211,23 @@ namespace TestsState
         private IEnumerator WaitForCurrentPlayerTurn(System.Action<GameObject> assign)
         {
             GameObject current = null;
-            yield return WaitUntilWithTimeout(timeout, () =>
-            {
-                try
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
                 {
-                    current = CombatManagerInterface.GetInstance().WhosTurn();
-                }
-                catch (System.NullReferenceException)
-                {
-                    current = null;
-                }
+                    try
+                    {
+                        current = CombatManagerInterface.GetInstance().WhosTurn();
+                    }
+                    catch (System.NullReferenceException)
+                    {
+                        current = null;
+                    }
 
-                return current != null && current.GetComponent<PlayerActionController>() != null;
-            });
+                    return current != null
+                        && current.GetComponent<PlayerActionController>() != null;
+                }
+            );
 
             Assert.IsNotNull(current, "Expected an active player turn in UnitTestingScene.");
             assign(current);
@@ -231,7 +262,12 @@ namespace TestsState
             return null;
         }
 
-        private static GameObject CreateRangedEnemy(string name, EquipmentWeapon weapon, int ammo, int attackBonus)
+        private static GameObject CreateRangedEnemy(
+            string name,
+            EquipmentWeapon weapon,
+            int ammo,
+            int attackBonus
+        )
         {
             GameObject enemy = new GameObject(name);
             enemy.SetActive(false);
@@ -251,7 +287,12 @@ namespace TestsState
             return enemy;
         }
 
-        private static void SetupRangedAction(GameObject actor, EquipmentWeapon weapon, int ammo, int attackBonus)
+        private static void SetupRangedAction(
+            GameObject actor,
+            EquipmentWeapon weapon,
+            int ammo,
+            int attackBonus
+        )
         {
             CreatureComponent creature = actor.GetComponent<CreatureComponent>();
             creature.attackBonus = attackBonus;
@@ -278,7 +319,7 @@ namespace TestsState
                 reload = "0",
                 ammo = "arrows",
                 damage = new Dice(1, 6, "piercing"),
-                traits = new List<string> { "deadly-d10" }
+                traits = new List<string> { "deadly-d10" },
             };
         }
 
@@ -291,7 +332,7 @@ namespace TestsState
                 reload = "1",
                 ammo = "sling-bullets",
                 damage = new Dice(1, 6, "bludgeoning"),
-                traits = new List<string> { "propulsive" }
+                traits = new List<string> { "propulsive" },
             };
         }
 
@@ -302,7 +343,12 @@ namespace TestsState
             MoveCombatant(tiles, target, targetCell);
         }
 
-        private static void FindEmptyStraightLine(Tile[,] tiles, int length, out Vector3Int start, out Vector3Int target)
+        private static void FindEmptyStraightLine(
+            Tile[,] tiles,
+            int length,
+            out Vector3Int start,
+            out Vector3Int target
+        )
         {
             for (int z = 0; z < tiles.GetLength(1); z++)
             {

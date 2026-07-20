@@ -5,20 +5,34 @@ namespace Game.Rules.Runtime
 {
     public sealed class RulesStateSeed
     {
-        internal Dictionary<CreatureId, CreatureState> Creatures { get; } = new Dictionary<CreatureId, CreatureState>();
-        internal Dictionary<CreatureId, CreatureStatisticsState> Statistics { get; } = new Dictionary<CreatureId, CreatureStatisticsState>();
-        internal Dictionary<CreatureId, HealthState> Health { get; } = new Dictionary<CreatureId, HealthState>();
-        internal Dictionary<CreatureId, GridPosition> Positions { get; } = new Dictionary<CreatureId, GridPosition>();
-        internal Dictionary<CreatureId, ActionEconomyState> ActionEconomy { get; } = new Dictionary<CreatureId, ActionEconomyState>();
-        internal Dictionary<SpellSlotPoolId, SpellSlotState> SpellSlots { get; } = new Dictionary<SpellSlotPoolId, SpellSlotState>();
-        internal Dictionary<CreatureId, FocusPointState> FocusPoints { get; } = new Dictionary<CreatureId, FocusPointState>();
-        internal Dictionary<ItemId, AmmunitionState> Ammunition { get; } = new Dictionary<ItemId, AmmunitionState>();
-        internal Dictionary<CreatureId, MultipleAttackPenaltyState> MultipleAttackPenalty { get; } = new Dictionary<CreatureId, MultipleAttackPenaltyState>();
-        internal Dictionary<ConditionId, ConditionState> Conditions { get; } = new Dictionary<ConditionId, ConditionState>();
-        internal Dictionary<ItemId, EquipmentState> Equipment { get; } = new Dictionary<ItemId, EquipmentState>();
-        internal Dictionary<ActiveEffectId, ActiveEffectState> ActiveEffects { get; } = new Dictionary<ActiveEffectId, ActiveEffectState>();
-        internal Dictionary<BindingId, ActiveRuleBinding> RuleBindings { get; } = new Dictionary<BindingId, ActiveRuleBinding>();
-        internal Dictionary<BindingId, FrequencyState> Frequencies { get; } = new Dictionary<BindingId, FrequencyState>();
+        internal Dictionary<CreatureId, CreatureState> Creatures { get; } =
+            new Dictionary<CreatureId, CreatureState>();
+        internal Dictionary<CreatureId, CreatureStatisticsState> Statistics { get; } =
+            new Dictionary<CreatureId, CreatureStatisticsState>();
+        internal Dictionary<CreatureId, HealthState> Health { get; } =
+            new Dictionary<CreatureId, HealthState>();
+        internal Dictionary<CreatureId, GridPosition> Positions { get; } =
+            new Dictionary<CreatureId, GridPosition>();
+        internal Dictionary<CreatureId, ActionEconomyState> ActionEconomy { get; } =
+            new Dictionary<CreatureId, ActionEconomyState>();
+        internal Dictionary<SpellSlotPoolId, SpellSlotState> SpellSlots { get; } =
+            new Dictionary<SpellSlotPoolId, SpellSlotState>();
+        internal Dictionary<CreatureId, FocusPointState> FocusPoints { get; } =
+            new Dictionary<CreatureId, FocusPointState>();
+        internal Dictionary<ItemId, AmmunitionState> Ammunition { get; } =
+            new Dictionary<ItemId, AmmunitionState>();
+        internal Dictionary<CreatureId, MultipleAttackPenaltyState> MultipleAttackPenalty { get; } =
+            new Dictionary<CreatureId, MultipleAttackPenaltyState>();
+        internal Dictionary<ConditionId, ConditionState> Conditions { get; } =
+            new Dictionary<ConditionId, ConditionState>();
+        internal Dictionary<ItemId, EquipmentState> Equipment { get; } =
+            new Dictionary<ItemId, EquipmentState>();
+        internal Dictionary<ActiveEffectId, ActiveEffectState> ActiveEffects { get; } =
+            new Dictionary<ActiveEffectId, ActiveEffectState>();
+        internal Dictionary<BindingId, ActiveRuleBinding> RuleBindings { get; } =
+            new Dictionary<BindingId, ActiveRuleBinding>();
+        internal Dictionary<BindingId, FrequencyState> Frequencies { get; } =
+            new Dictionary<BindingId, FrequencyState>();
 
         public RulesStateSeed SeedCreature(CreatureState value)
         {
@@ -102,7 +116,10 @@ namespace Game.Rules.Runtime
             return this;
         }
 
-        public RulesStateSeed SeedMultipleAttackPenalty(CreatureId creature, MultipleAttackPenaltyState value)
+        public RulesStateSeed SeedMultipleAttackPenalty(
+            CreatureId creature,
+            MultipleAttackPenaltyState value
+        )
         {
             RequireCreatureId(creature, nameof(creature));
             MultipleAttackPenalty[creature] = value;

@@ -10,7 +10,7 @@ namespace GridPrivate
         Corner,
         Crossing,
         Pillar,
-        TIntersection
+        TIntersection,
     }
 
     public readonly struct WallResolution
@@ -35,21 +35,26 @@ namespace GridPrivate
             bool south = IsStructure(gridData, x, z - 1);
             bool east = IsStructure(gridData, x + 1, z);
             bool west = IsStructure(gridData, x - 1, z);
-            int count = Convert.ToInt32(north) + Convert.ToInt32(south) +
-                        Convert.ToInt32(east) + Convert.ToInt32(west);
+            int count =
+                Convert.ToInt32(north)
+                + Convert.ToInt32(south)
+                + Convert.ToInt32(east)
+                + Convert.ToInt32(west);
 
             if (count == 4)
                 return new WallResolution(WallVariant.Crossing, 0);
 
             if (count == 3)
             {
-                int rotation = !north ? 270
+                int rotation =
+                    !north ? 270
                     : !south ? 90
                     : !east ? 0
                     : 180;
                 return new WallResolution(
                     WallVariant.TIntersection,
-                    CounterClockwiseQuarterTurn(rotation));
+                    CounterClockwiseQuarterTurn(rotation)
+                );
             }
 
             if (count == 2)
@@ -59,19 +64,19 @@ namespace GridPrivate
                 if (east && west)
                     return new WallResolution(WallVariant.Straight, 0);
 
-                int rotation = north && west ? 0
+                int rotation =
+                    north && west ? 0
                     : north && east ? 90
                     : south && west ? 270
                     : 180;
                 return new WallResolution(
                     WallVariant.Corner,
-                    CounterClockwiseQuarterTurn(rotation));
+                    CounterClockwiseQuarterTurn(rotation)
+                );
             }
 
             if (count == 1)
-                return new WallResolution(
-                    WallVariant.Straight,
-                    east || west ? 0 : 90);
+                return new WallResolution(WallVariant.Straight, east || west ? 0 : 90);
 
             return new WallResolution(WallVariant.Pillar, 0);
         }
@@ -83,26 +88,41 @@ namespace GridPrivate
 
         public static bool IsStructure(TileType[,] gridData, int x, int z)
         {
-            if (gridData == null || x < 0 || z < 0 ||
-                x >= gridData.GetLength(0) || z >= gridData.GetLength(1))
+            if (
+                gridData == null
+                || x < 0
+                || z < 0
+                || x >= gridData.GetLength(0)
+                || z >= gridData.GetLength(1)
+            )
             {
                 return false;
             }
 
             TileType tile = gridData[x, z];
-            return tile == TileType.Wall || tile == TileType.Door ||
-                   tile == TileType.ClosedDoor;
+            return tile == TileType.Wall || tile == TileType.Door || tile == TileType.ClosedDoor;
         }
     }
 
     public class Wall : MonoBehaviour, IOnGridGeneration
     {
-        [SerializeField] protected Transform wall;
-        [SerializeField] protected Transform cap;
-        [SerializeField] protected Transform corner;
-        [SerializeField] protected Transform crossIntersection;
-        [SerializeField] protected Transform pillar;
-        [SerializeField] protected Transform tIntersection;
+        [SerializeField]
+        protected Transform wall;
+
+        [SerializeField]
+        protected Transform cap;
+
+        [SerializeField]
+        protected Transform corner;
+
+        [SerializeField]
+        protected Transform crossIntersection;
+
+        [SerializeField]
+        protected Transform pillar;
+
+        [SerializeField]
+        protected Transform tIntersection;
 
         public WallVariant SelectedVariant { get; private set; }
 

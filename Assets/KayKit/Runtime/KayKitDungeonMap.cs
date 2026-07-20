@@ -24,7 +24,8 @@ namespace Game.KayKit
             float yOffset,
             int rotation,
             Vector2Int footprint,
-            KayKitDungeonCatalogEntry catalogEntry)
+            KayKitDungeonCatalogEntry catalogEntry
+        )
         {
             AssetId = assetId;
             X = x;
@@ -43,6 +44,7 @@ namespace Game.KayKit
         public TileType[,] GridData { get; }
         public bool[,] LineOfSightBlocks { get; }
         public IReadOnlyList<KayKitDungeonObjectPlacement> Objects { get; }
+
         /// <summary>Gets the complete source document retained for downstream runtime systems.</summary>
         public DungeonLevelDocument LevelDocument { get; }
 
@@ -55,7 +57,8 @@ namespace Game.KayKit
             TileType[,] gridData,
             bool[,] lineOfSightBlocks,
             IReadOnlyList<KayKitDungeonObjectPlacement> objects,
-            DungeonLevelDocument levelDocument)
+            DungeonLevelDocument levelDocument
+        )
         {
             GridData = gridData;
             LineOfSightBlocks = lineOfSightBlocks;
@@ -90,7 +93,9 @@ namespace Game.KayKit
                 return new KayKitDungeonMapParseResult(
                     null,
                     catalog.DuplicateIds.Select(id =>
-                        $"KayKit dungeon catalog contains duplicate id '{id}'."));
+                        $"KayKit dungeon catalog contains duplicate id '{id}'."
+                    )
+                );
             }
 
             DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(json);
@@ -99,7 +104,9 @@ namespace Game.KayKit
                 return new KayKitDungeonMapParseResult(
                     null,
                     parsed.Diagnostics.Select(diagnostic =>
-                        $"JSON map {diagnostic.Field}: {diagnostic.Message}"));
+                        $"JSON map {diagnostic.Field}: {diagnostic.Message}"
+                    )
+                );
             }
 
             DungeonLevelDocument document = parsed.Document;
@@ -113,16 +120,11 @@ namespace Game.KayKit
                 width,
                 grid,
                 lineOfSightBlocks,
-                errors);
+                errors
+            );
 
             List<KayKitDungeonObjectPlacement> placements = new();
-            ParseObjects(
-                document.Objects,
-                catalog,
-                grid,
-                lineOfSightBlocks,
-                placements,
-                errors);
+            ParseObjects(document.Objects, catalog, grid, lineOfSightBlocks, placements, errors);
             if (errors.Count > 0)
                 return new KayKitDungeonMapParseResult(null, errors);
 
@@ -137,8 +139,10 @@ namespace Game.KayKit
                     grid,
                     lineOfSightBlocks,
                     deterministicPlacements,
-                    document),
-                Array.Empty<string>());
+                    document
+                ),
+                Array.Empty<string>()
+            );
         }
 
         private static void ParseRows(
@@ -147,7 +151,8 @@ namespace Game.KayKit
             int width,
             TileType[,] grid,
             bool[,] lineOfSightBlocks,
-            ICollection<string> errors)
+            ICollection<string> errors
+        )
         {
             for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
             {
@@ -166,9 +171,7 @@ namespace Game.KayKit
                             break;
                         case 'D':
                             DungeonDoor door = doors[new DungeonCell(x, z)];
-                            grid[x, z] = door.IsOpen
-                                ? TileType.Door
-                                : TileType.ClosedDoor;
+                            grid[x, z] = door.IsOpen ? TileType.Door : TileType.ClosedDoor;
                             lineOfSightBlocks[x, z] = !door.IsOpen;
                             break;
                         case ' ':
@@ -177,8 +180,9 @@ namespace Game.KayKit
                             break;
                         default:
                             errors.Add(
-                                $"JSON map row {rowIndex}, column {x} contains unknown symbol '{row[x]}'. " +
-                                "Allowed symbols are '.', '#', 'D', and space.");
+                                $"JSON map row {rowIndex}, column {x} contains unknown symbol '{row[x]}'. "
+                                    + "Allowed symbols are '.', '#', 'D', and space."
+                            );
                             break;
                     }
                 }
@@ -191,7 +195,8 @@ namespace Game.KayKit
             TileType[,] grid,
             bool[,] lineOfSightBlocks,
             ICollection<KayKitDungeonObjectPlacement> placements,
-            ICollection<string> errors)
+            ICollection<string> errors
+        )
         {
             HashSet<Vector2Int> occupiedBlockingCells = new();
             for (int index = 0; index < objects.Count; index++)
@@ -199,7 +204,9 @@ namespace Game.KayKit
                 DungeonObjectPlacement source = objects[index];
                 if (!catalog.TryGet(source.AssetId, out KayKitDungeonCatalogEntry entry))
                 {
-                    errors.Add($"JSON map object {index} references unknown assetId '{source.AssetId}'.");
+                    errors.Add(
+                        $"JSON map object {index} references unknown assetId '{source.AssetId}'."
+                    );
                     continue;
                 }
 
@@ -207,53 +214,65 @@ namespace Game.KayKit
                 if (sourceFootprint.x < 1 || sourceFootprint.y < 1)
                 {
                     errors.Add(
-                        $"Catalog entry '{source.AssetId}' has invalid footprint {sourceFootprint.x}x{sourceFootprint.y}.");
+                        $"Catalog entry '{source.AssetId}' has invalid footprint {sourceFootprint.x}x{sourceFootprint.y}."
+                    );
                     continue;
                 }
 
-                Vector2Int footprint = source.Rotation == 90 || source.Rotation == 270
-                    ? new Vector2Int(sourceFootprint.y, sourceFootprint.x)
-                    : sourceFootprint;
+                Vector2Int footprint =
+                    source.Rotation == 90 || source.Rotation == 270
+                        ? new Vector2Int(sourceFootprint.y, sourceFootprint.x)
+                        : sourceFootprint;
                 List<Vector2Int> footprintCells = FootprintCells(
-                    source.Cell.X,
-                    source.Cell.Z,
-                    footprint).ToList();
+                        source.Cell.X,
+                        source.Cell.Z,
+                        footprint
+                    )
+                    .ToList();
                 if (footprintCells.Any(cell => !IsInBounds(grid, cell)))
                 {
                     errors.Add(
-                        $"JSON map object {index} ('{source.AssetId}') footprint at ({source.Cell.X}, {source.Cell.Z}) " +
-                        $"with size {footprint.x}x{footprint.y} is out of bounds.");
+                        $"JSON map object {index} ('{source.AssetId}') footprint at ({source.Cell.X}, {source.Cell.Z}) "
+                            + $"with size {footprint.x}x{footprint.y} is out of bounds."
+                    );
                     continue;
                 }
 
                 if (entry.BlocksMovement)
                 {
-                    Vector2Int overlap = footprintCells.FirstOrDefault(occupiedBlockingCells.Contains);
+                    Vector2Int overlap = footprintCells.FirstOrDefault(
+                        occupiedBlockingCells.Contains
+                    );
                     if (footprintCells.Any(occupiedBlockingCells.Contains))
                     {
                         errors.Add(
-                            $"Blocking JSON map object {index} ('{source.AssetId}') overlaps another blocking " +
-                            $"footprint at ({overlap.x}, {overlap.y}).");
+                            $"Blocking JSON map object {index} ('{source.AssetId}') overlaps another blocking "
+                                + $"footprint at ({overlap.x}, {overlap.y})."
+                        );
                         continue;
                     }
 
-                    Vector2Int boundaryCell = footprintCells.FirstOrDefault(
-                        cell => IsMapBoundary(grid, cell));
+                    Vector2Int boundaryCell = footprintCells.FirstOrDefault(cell =>
+                        IsMapBoundary(grid, cell)
+                    );
                     if (footprintCells.Any(cell => IsMapBoundary(grid, cell)))
                     {
                         errors.Add(
-                            $"Blocking JSON map object {index} ('{source.AssetId}') may not overlap the map " +
-                            $"boundary; cell ({boundaryCell.x}, {boundaryCell.y}) is on the boundary.");
+                            $"Blocking JSON map object {index} ('{source.AssetId}') may not overlap the map "
+                                + $"boundary; cell ({boundaryCell.x}, {boundaryCell.y}) is on the boundary."
+                        );
                         continue;
                     }
 
-                    Vector2Int invalidCell = footprintCells.FirstOrDefault(
-                        cell => grid[cell.x, cell.y] != TileType.Ground);
+                    Vector2Int invalidCell = footprintCells.FirstOrDefault(cell =>
+                        grid[cell.x, cell.y] != TileType.Ground
+                    );
                     if (footprintCells.Any(cell => grid[cell.x, cell.y] != TileType.Ground))
                     {
                         errors.Add(
-                            $"Blocking JSON map object {index} ('{source.AssetId}') must lie entirely on Ground; " +
-                            $"cell ({invalidCell.x}, {invalidCell.y}) is {grid[invalidCell.x, invalidCell.y]}.");
+                            $"Blocking JSON map object {index} ('{source.AssetId}') must lie entirely on Ground; "
+                                + $"cell ({invalidCell.x}, {invalidCell.y}) is {grid[invalidCell.x, invalidCell.y]}."
+                        );
                         continue;
                     }
 
@@ -270,14 +289,17 @@ namespace Game.KayKit
                         lineOfSightBlocks[cell.x, cell.y] = true;
                 }
 
-                placements.Add(new KayKitDungeonObjectPlacement(
-                    source.AssetId,
-                    source.Cell.X,
-                    source.Cell.Z,
-                    source.YOffset,
-                    source.Rotation,
-                    footprint,
-                    entry));
+                placements.Add(
+                    new KayKitDungeonObjectPlacement(
+                        source.AssetId,
+                        source.Cell.X,
+                        source.Cell.Z,
+                        source.YOffset,
+                        source.Rotation,
+                        footprint,
+                        entry
+                    )
+                );
             }
         }
 
@@ -292,14 +314,18 @@ namespace Game.KayKit
 
         private static bool IsInBounds(TileType[,] grid, Vector2Int cell)
         {
-            return cell.x >= 0 && cell.y >= 0 &&
-                   cell.x < grid.GetLength(0) && cell.y < grid.GetLength(1);
+            return cell.x >= 0
+                && cell.y >= 0
+                && cell.x < grid.GetLength(0)
+                && cell.y < grid.GetLength(1);
         }
 
         private static bool IsMapBoundary(TileType[,] grid, Vector2Int cell)
         {
-            return cell.x == 0 || cell.y == 0 ||
-                   cell.x == grid.GetLength(0) - 1 || cell.y == grid.GetLength(1) - 1;
+            return cell.x == 0
+                || cell.y == 0
+                || cell.x == grid.GetLength(0) - 1
+                || cell.y == grid.GetLength(1) - 1;
         }
 
         private static KayKitDungeonMapParseResult Invalid(string message)

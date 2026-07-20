@@ -1,11 +1,14 @@
 using UnityEngine;
 
-
 public class AudioManager : SingletonMonoBehaviour<AudioManager>
 {
     [Header("Audio Sources")]
-    [SerializeField] private AudioSource musicSource;
-    [SerializeField] private AudioSource sfxSource;
+    [SerializeField]
+    private AudioSource musicSource;
+
+    [SerializeField]
+    private AudioSource sfxSource;
+
     [Header("Audio Clips")]
     public AudioClip backgroundMusic;
     public AudioClip onHitSFX;
@@ -17,7 +20,6 @@ public class AudioManager : SingletonMonoBehaviour<AudioManager>
     public AudioClip onWinSFX;
     public AudioClip onLoseSFX;
 
-
     void OnEnable()
     {
         //put listeners for events here
@@ -27,11 +29,12 @@ public class AudioManager : SingletonMonoBehaviour<AudioManager>
         OnAttackMiss.AddListener(PlayMissSFX);
         OnCombatOutcome.AddListener(PlayWinLoseSFX);
     }
+
     void OnDisable()
     {
         //remove listeners for events here
-        OnStepEnd.RemoveListener(PlayStepSFX); 
-        OnDamageDealt.RemoveListener(PlayDamageSFX);   
+        OnStepEnd.RemoveListener(PlayStepSFX);
+        OnDamageDealt.RemoveListener(PlayDamageSFX);
         OnDeath.RemoveListener(PlayDeathSFX);
         OnAttackMiss.RemoveListener(PlayMissSFX);
         OnCombatOutcome.RemoveListener(PlayWinLoseSFX);
@@ -44,6 +47,7 @@ public class AudioManager : SingletonMonoBehaviour<AudioManager>
         musicSource.loop = true;
         musicSource.Play();
     }
+
     //play step sfx
     void PlayStepSFX(Vector3 position)
     {
@@ -107,5 +111,4 @@ public class AudioManager : SingletonMonoBehaviour<AudioManager>
             sfxSource.PlayOneShot(onLoseSFX);
         }
     }
-
 }

@@ -60,30 +60,41 @@ namespace Game.KayKit.Editor
                     MaximumRoomSize = FixtureMaximumRoomSize,
                     MinimumRoomCount = 3,
                     StairCount = 2,
-                    DeadEndRemovalPercent = 100
-                });
+                    DeadEndRemovalPercent = 100,
+                }
+            );
             if (!generation.IsSuccess)
             {
-                throw new InvalidOperationException(string.Join(
-                    Environment.NewLine,
-                    generation.Diagnostics.Select(diagnostic => diagnostic.Message)));
+                throw new InvalidOperationException(
+                    string.Join(
+                        Environment.NewLine,
+                        generation.Diagnostics.Select(diagnostic => diagnostic.Message)
+                    )
+                );
             }
             if (generation.Document.Objects.Count == 0)
-                throw new InvalidOperationException("The procedural fixture seed produced no wall decorations.");
+                throw new InvalidOperationException(
+                    "The procedural fixture seed produced no wall decorations."
+                );
 
             WriteFixture(DungeonLevelJsonSerializer.Serialize(generation.Document));
             Scene scene = EditorSceneManager.OpenScene(SourceScenePath, OpenSceneMode.Single);
             TextAsset fixture = RequireAsset<TextAsset>(FixturePath);
             KayKitDungeonCatalog catalog = RequireAsset<KayKitDungeonCatalog>(
-                KayKitSetupTool.DungeonCatalogPath);
+                KayKitSetupTool.DungeonCatalogPath
+            );
             Map map = Object.FindFirstObjectByType<Map>();
             if (map == null)
-                throw new InvalidOperationException("The source scene does not contain a Map component.");
+                throw new InvalidOperationException(
+                    "The source scene does not contain a Map component."
+                );
 
             map.ClearLegacyBitmapGeneratedContent();
             map.ConfigureJson(fixture, catalog);
             if (!map.TryGenerate(out MapSourceValidationResult validation))
-                throw new InvalidOperationException(string.Join(Environment.NewLine, validation.Errors));
+                throw new InvalidOperationException(
+                    string.Join(Environment.NewLine, validation.Errors)
+                );
 
             RemoveCombatants(scene);
             RemoveNamedRoot(scene, "GameManager");
@@ -91,16 +102,22 @@ namespace Game.KayKit.Editor
             RemoveNamedRoot(scene, "Grass");
             ConfigureCamera(generation.Document.Width, generation.Document.Height);
             ConfigureLighting();
-            if (EditorBuildSettings.scenes.Any(entry =>
-                    string.Equals(entry.path, ScenePath, StringComparison.OrdinalIgnoreCase)))
+            if (
+                EditorBuildSettings.scenes.Any(entry =>
+                    string.Equals(entry.path, ScenePath, StringComparison.OrdinalIgnoreCase)
+                )
+            )
             {
                 throw new InvalidOperationException(
-                    "ProceduralDungeon remains excluded from build settings until production-flow integration.");
+                    "ProceduralDungeon remains excluded from build settings until production-flow integration."
+                );
             }
 
             EditorSceneManager.MarkSceneDirty(scene);
             if (!EditorSceneManager.SaveScene(scene, ScenePath, false))
-                throw new InvalidOperationException($"Could not save generated scene at {ScenePath}.");
+                throw new InvalidOperationException(
+                    $"Could not save generated scene at {ScenePath}."
+                );
             AssetDatabase.SaveAssets();
             Debug.Log($"Generated reusable procedural dungeon scene at {ScenePath}.");
         }
@@ -108,8 +125,10 @@ namespace Game.KayKit.Editor
         private static void WriteFixture(string serializedJson)
         {
             string absolutePath = Path.GetFullPath(FixturePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(absolutePath) ??
-                                      throw new InvalidOperationException("Fixture path has no parent directory."));
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(absolutePath)
+                    ?? throw new InvalidOperationException("Fixture path has no parent directory.")
+            );
             File.WriteAllText(absolutePath, serializedJson);
             AssetDatabase.ImportAsset(FixturePath, ImportAssetOptions.ForceUpdate);
         }
@@ -125,9 +144,12 @@ namespace Game.KayKit.Editor
 
         private static void RemoveNamedRoot(Scene scene, string name)
         {
-            foreach (GameObject root in scene.GetRootGameObjects()
-                         .Where(root => string.Equals(root.name, name, StringComparison.Ordinal))
-                         .ToArray())
+            foreach (
+                GameObject root in scene
+                    .GetRootGameObjects()
+                    .Where(root => string.Equals(root.name, name, StringComparison.Ordinal))
+                    .ToArray()
+            )
             {
                 Object.DestroyImmediate(root);
             }
@@ -135,14 +157,14 @@ namespace Game.KayKit.Editor
 
         private static void ConfigureCamera(int width, int height)
         {
-            Camera camera = Object.FindObjectsByType<Camera>(
-                    FindObjectsInactive.Include,
-                    FindObjectsSortMode.None)
+            Camera camera = Object
+                .FindObjectsByType<Camera>(FindObjectsInactive.Include, FindObjectsSortMode.None)
                 .Single(candidate =>
-                    candidate.enabled &&
-                    candidate.gameObject.activeInHierarchy &&
-                    candidate.targetTexture == null &&
-                    candidate.CompareTag("MainCamera"));
+                    candidate.enabled
+                    && candidate.gameObject.activeInHierarchy
+                    && candidate.targetTexture == null
+                    && candidate.CompareTag("MainCamera")
+                );
             float centerX = (width - 1) * 0.5f;
             float centerZ = (height - 1) * 0.5f;
             camera.orthographic = false;
@@ -167,7 +189,8 @@ namespace Game.KayKit.Editor
 
         private static void ConfigureLighting()
         {
-            Light light = Object.FindObjectsByType<Light>(FindObjectsSortMode.None)
+            Light light = Object
+                .FindObjectsByType<Light>(FindObjectsSortMode.None)
                 .First(candidate => candidate.type == LightType.Directional);
             light.intensity = 0.8f;
             light.color = new Color(0.78f, 0.84f, 1f);
@@ -177,7 +200,8 @@ namespace Game.KayKit.Editor
             EditorUtility.SetDirty(light.transform);
         }
 
-        private static T RequireAsset<T>(string path) where T : Object
+        private static T RequireAsset<T>(string path)
+            where T : Object
         {
             T asset = AssetDatabase.LoadAssetAtPath<T>(path);
             return asset != null

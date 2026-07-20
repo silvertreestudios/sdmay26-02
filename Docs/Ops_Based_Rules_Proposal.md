@@ -403,7 +403,7 @@ public abstract record RuleFact
 }
 ```
 
-The `FactSink` supplies identity and provenance from the current frame when a reducer emits a domain Fact. Individual reducers supply only the domain data.
+The `FactSink` supplies identity and provenance from the current frame when a reducer emits a domain Fact. Individual reducers supply only the domain data. A Fact also carries the transition payload that cannot be reconstructed from current state alone, such as old and new squares, damage applied, or a resource amount spent.
 
 Useful Facts include:
 
@@ -425,7 +425,7 @@ Committed Facts also drive the player-facing combat log. A Unity log presenter c
 
 ### 4.4 Commit and notification timing
 
-Reducers apply one atomic state transition and enqueue its Facts. Typed fact listeners are notified after the current resolution batch commits. A listener therefore cannot retroactively prevent that state change.
+Reducers apply one atomic state transition and commit its Facts. Dynamic typed Fact observers run after each individual reduction commit and are awaited before that reducer result returns to its parent handler. They receive the exact committed snapshot and may deliberately pace continuation, such as waiting for one movement animation before the next square is reduced. Binding-scoped Fact listeners retain their separate behavior: they run after the completed root resolution. Neither callback can retroactively prevent or roll back committed state.
 
 Use the correct extension point:
 
@@ -496,10 +496,28 @@ unconsumed, the dispatcher waits for cleanup before releasing ownership. A callb
 cleanup failure propagates unchanged when it is the only failure; when both fail, the dispatcher
 reports an ordered aggregate containing the callback failure first and the cleanup failure second.
 
-### 5.3 Fact listeners run after commits
+### 5.3 Fact observers and listeners run after commits
+
+Unity-facing and other dynamically owned adapters use the minimal awaited observer contract:
 
 ```csharp
-public interface IFactListener<TFact>
+public interface IFactObserver<TFact>
+    where TFact : RuleFact
+{
+    ValueTask OnFactCommitted(
+        TFact fact,
+        RulesSnapshot currentSnapshot);
+}
+```
+
+Immediately before observer delivery, the dispatcher snapshots its current dynamic registrations in deterministic registration order, then delivers the reduction's Facts in commit order. Registration changes during a callback affect later reductions, not remaining Facts in that notification plan. Every selected matching delivery runs even when another observer fails. State is already durable; one failure propagates unchanged and multiple failures produce a deterministic aggregate without rollback.
+
+Observers use only `currentSnapshot` for identity lookup and derived current state. Any before-and-after values needed by presentation belong in the typed Fact transition payload. There is no previous-snapshot envelope.
+
+Rules selected through active bindings continue to use the root-scoped listener contract:
+
+```csharp
+public interface IRuleFactListener<TFact>
     where TFact : RuleFact
 {
     ValueTask OnFactCommitted(
@@ -519,7 +537,7 @@ Listener eligibility is frozen from the source operation frame's start snapshot.
 Some rules need to consider all matching Facts from one committed root together. The registry also supports a batch form:
 
 ```csharp
-public interface IFactBatchListener<TFact>
+public interface IRuleFactBatchListener<TFact>
     where TFact : RuleFact
 {
     ValueTask OnFactsCommitted(
@@ -617,6 +635,8 @@ If a future trigger needs information that is not universal to actions, it shoul
 - a more specific lifecycle Op at the actual timing point.
 
 For example, leaving a threatened square is represented by `MovementLeavingSquareOp`, because it occurs during movement and contains square-level geometry. It identifies the originating action so reaction middleware can read that action's frozen profile before matching the departure trigger. The movement workflow dispatches this lifecycle Op even when reactions are ineligible.
+
+Path movement resolves square by square. For each step it dispatches `MovementLeavingSquareOp`, commits the position change and a `TokenMovedFact` containing the old and new squares, awaits matching reduction observers, and only then continues to the next square. This keeps reaction timing authoritative while allowing presentation to pace the visible token path without gaining authority over the commit.
 
 ### 5.6 Nested operations and prompts
 
@@ -832,7 +852,7 @@ Bless is the motivating example. Whether a creature receives its bonus is a func
 
 The Bless binding can calculate that during `CollectAttackModifiersOp`. Movement does not need to maintain a second list of child bonuses, and teleportation cannot make that list stale.
 
-Presentation uses the same selectors to show aura geometry and visible bonus icons. UI projections are derived views, not authoritative rule state. The Unity bridge does not poll these selectors every frame; Section 7.2 describes how committed Facts invalidate and push only the projections that might have changed.
+Presentation uses the same selectors to show aura geometry and visible bonus icons. UI projections are derived views, not authoritative rule state. A typed observer can refresh an affected view from the current committed snapshot when a relevant transition Fact arrives; the rules model does not maintain synchronized presentation state.
 
 ---
 
@@ -917,79 +937,11 @@ Unity-facing code has four jobs:
 
 For example, when a player clicks the Strike button, Unity gathers a `StrikeSelection` and dispatches `StrikeActionOp`. The nested Strike rules may later dispatch `ApplyDamageOp`, but UI, AI, and other external callers cannot submit that nested-only mutation directly. Rules code reads positions from `RulesSnapshot`; it does not read a `Transform` or call `Creature.TakeDamage`.
 
-Animations may lag behind committed state. A presentation queue can translate Facts into movement, hit, floating-number, condition, and death animations in order. Presentation completion must not determine whether the rules change occurred.
+Animations may lag behind committed state, or an awaited observer may intentionally pace a multi-reduction workflow. In both cases presentation observes a transition that is already true. It cannot reject, alter, or roll back that commit; failure is reported only after every matching observer selected for that notification has been attempted.
 
-The current project can host this boundary in a `MonoBehaviour` attached beside `GameManager`. That bridge subscribes to the rules runtime in `OnEnable`, unsubscribes in `OnDisable`, and delegates to small presenter classes for the HUD, combat log, tokens, and animations. It should not grow a feature-specific `if` chain.
+The main Unity assembly provides a configurable generic `MonoBehaviour` helper implementing `IFactObserver<TFact>`. A concrete component receives its `RuleDispatcher` explicitly from the composition root, registers while configured and enabled, and unregisters when disabled or destroyed. It uses no static event or singleton lookup. Unregistration prevents selection by later notification passes but does not cancel an observation already selected for an in-progress notification.
 
-The following bridge is intentionally illustrative. It shows the proposed ownership and data flow, not the exact interfaces, class names, or invalidation code that must be implemented. Those details should be grounded against the real Unity code when this boundary is built.
-
-Derived visible effects use push-based invalidation rather than per-frame polling:
-
-```csharp
-[RequireComponent(typeof(GameManager))]
-public sealed class RulesUnityBridge : MonoBehaviour
-{
-    [SerializeField] private HUDController hud;
-    [SerializeField] private CombatLog combatLog;
-
-    private IRulesRuntime rules;
-    private IUnityFactPresenterRegistry factPresenters;
-    private IVisibleEffectProjectionSelector visibleEffects;
-    private IDerivedEffectInvalidator effectInvalidator;
-
-    private void Awake()
-    {
-        // GameManager is the composition root in the current project. These
-        // collaborators can be plain C# objects or focused MonoBehaviours.
-        rules = GetComponent<GameManager>().Rules;
-        factPresenters = RulesPresentationComposition.BuildPresenters(this);
-        visibleEffects = RulesPresentationComposition.BuildEffectSelector();
-        effectInvalidator = RulesPresentationComposition.BuildInvalidator();
-    }
-
-    private void OnEnable()
-    {
-        rules.FactCommitted += OnFactCommitted;
-    }
-
-    private void OnDisable()
-    {
-        rules.FactCommitted -= OnFactCommitted;
-    }
-
-    private void OnFactCommitted(CommittedRuleFact committed)
-    {
-        // Registered presenters handle concrete side effects such as token
-        // movement, hit animation, floating numbers, and condition visuals.
-        factPresenters.Present(committed.Fact, committed.CurrentSnapshot);
-
-        // The existing CombatLog remains a Unity UI Toolkit component. A
-        // projector converts the typed Fact into its player-facing entry.
-        var logEntry = CombatLogFactProjector.TryProject(committed.Fact);
-        if (logEntry is not null)
-            combatLog.LogEntry(logEntry);
-
-        // Recompute only tokens whose visible-effect projection could change.
-        // TokenMovedFact includes old/new positions, so moving an aura source
-        // can invalidate candidates near both locations. Effect creation,
-        // removal, state changes, and team changes have similar invalidators.
-        foreach (var creature in effectInvalidator.AffectedCreatures(
-            committed.Fact,
-            committed.PreviousSnapshot,
-            committed.CurrentSnapshot))
-        {
-            var projection = visibleEffects.ForCreature(
-                committed.CurrentSnapshot,
-                creature);
-            hud.RefreshVisibleEffects(creature, projection);
-        }
-    }
-}
-```
-
-`IVisibleEffectProjectionSelector.ForCreature` returns one UI-facing list containing both stored active effects and derived effects such as “currently inside Bless.” Selecting a token can query that list immediately, while committed movement, team, and active-effect Facts keep displayed tokens current. This gives the player an a priori Bless indicator without storing a second per-target rules effect or running a selector from `Update()`.
-
-`GameManager.Rules`, `HUDController.RefreshVisibleEffects`, the presentation registry, selector, and invalidator are narrow adapters proposed for the migration; they are not claimed as current APIs. The existing `CombatLog.LogEntry` and `GridPrivate.TokenMovement` remain the final Unity-facing components behind those adapters.
+Each concrete observer handles one typed transition. For example, a `TokenMovedFact` supplies its old and new squares for animation while `currentSnapshot` supplies the token's authoritative current position and any derived current aura or UI state. This keeps transition history in Facts, current-state lookup in the snapshot, and Unity concerns outside the rules authority.
 
 ---
 
@@ -2319,7 +2271,7 @@ When implementing a new rule, answer these questions in order:
 
 5. **Does it respond after a change occurred?**
 
-   Register a typed Fact listener.
+   Register a binding-scoped typed Fact listener for rules behavior, or a dynamic typed Fact observer for an awaited external adapter.
 
 6. **Does it need persistent per-instance data?**
 

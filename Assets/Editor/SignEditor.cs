@@ -12,7 +12,10 @@ public class SignEditor : Editor
         DrawPropertiesExcluding(serializedObject, "SelectedKey");
 
         Sign sign = (Sign)target;
-        string[] keys = sign.Messages.Select(m => m.Key).Where(k => !string.IsNullOrEmpty(k)).ToArray();
+        string[] keys = sign
+            .Messages.Select(m => m.Key)
+            .Where(k => !string.IsNullOrEmpty(k))
+            .ToArray();
 
         if (keys.Length > 0)
         {
@@ -27,7 +30,10 @@ public class SignEditor : Editor
         }
         else
         {
-            EditorGUILayout.HelpBox("Add entries to Messages first, then keys will appear here.", MessageType.Info);
+            EditorGUILayout.HelpBox(
+                "Add entries to Messages first, then keys will appear here.",
+                MessageType.Info
+            );
         }
 
         serializedObject.ApplyModifiedProperties();

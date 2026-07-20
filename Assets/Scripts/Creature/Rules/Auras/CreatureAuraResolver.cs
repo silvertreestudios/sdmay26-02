@@ -12,17 +12,23 @@ namespace Game.Creature.Rules
             ActionController acting,
             IEnumerable<ActionController> combatants,
             Tile[,] tiles,
-            IPf2eDiceRoller diceRoller = null)
+            IPf2eDiceRoller diceRoller = null
+        )
         {
             return ApplyAuras(CreatureAuraTiming.TurnStart, acting, combatants, tiles, diceRoller);
         }
 
-        public static List<Vector3Int> GetAuraCells(IEnumerable<ActionController> combatants, Tile[,] tiles)
+        public static List<Vector3Int> GetAuraCells(
+            IEnumerable<ActionController> combatants,
+            Tile[,] tiles
+        )
         {
             return CreatureAuraArea.GetCells(GetVisualAuras(combatants), tiles);
         }
 
-        public static List<CreatureAuraInstance> GetVisualAuras(IEnumerable<ActionController> combatants)
+        public static List<CreatureAuraInstance> GetVisualAuras(
+            IEnumerable<ActionController> combatants
+        )
         {
             List<CreatureAuraInstance> visualAuras = new();
             foreach (CreatureAuraInstance instance in GetActiveAuras(combatants))
@@ -38,7 +44,8 @@ namespace Game.Creature.Rules
             ActionController acting,
             IEnumerable<ActionController> combatants,
             Tile[,] tiles,
-            IPf2eDiceRoller diceRoller)
+            IPf2eDiceRoller diceRoller
+        )
         {
             List<CreatureAuraEffectResult> results = new();
             if (acting == null || combatants == null || tiles == null)
@@ -50,12 +57,25 @@ namespace Game.Creature.Rules
                 if (instance.Rule.Timing != timing)
                     continue;
 
-                AreaTargetResult area = CreatureAuraArea.EvaluateEmanation(instance.SourceObject, instance.Aura, tiles);
+                AreaTargetResult area = CreatureAuraArea.EvaluateEmanation(
+                    instance.SourceObject,
+                    instance.Aura,
+                    tiles
+                );
                 if (!CreatureAuraArea.AffectsCreature(area, acting.gameObject))
                     continue;
 
                 CreatureComponent targetCreature = acting.GetComponent<CreatureComponent>();
-                CreatureAuraContext context = new(instance.SourceController, acting, instance.SourceCreature, targetCreature, instance.Aura, tiles, area, diceRoller);
+                CreatureAuraContext context = new(
+                    instance.SourceController,
+                    acting,
+                    instance.SourceCreature,
+                    targetCreature,
+                    instance.Aura,
+                    tiles,
+                    area,
+                    diceRoller
+                );
                 if (!instance.Rule.CanAffect(context))
                     continue;
 
@@ -66,7 +86,9 @@ namespace Game.Creature.Rules
             return results;
         }
 
-        private static IEnumerable<CreatureAuraInstance> GetActiveAuras(IEnumerable<ActionController> combatants)
+        private static IEnumerable<CreatureAuraInstance> GetActiveAuras(
+            IEnumerable<ActionController> combatants
+        )
         {
             if (combatants == null)
                 yield break;
@@ -74,7 +96,8 @@ namespace Game.Creature.Rules
             foreach (ActionController controller in combatants)
             {
                 GameObject sourceObject = controller == null ? null : controller.gameObject;
-                CreatureComponent source = sourceObject == null ? null : sourceObject.GetComponent<CreatureComponent>();
+                CreatureComponent source =
+                    sourceObject == null ? null : sourceObject.GetComponent<CreatureComponent>();
                 if (source == null || source.auras == null || !sourceObject.activeInHierarchy)
                     continue;
 

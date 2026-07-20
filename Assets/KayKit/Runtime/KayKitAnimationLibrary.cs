@@ -7,11 +7,20 @@ namespace Game.KayKit
     [Serializable]
     public sealed class KayKitAnimationEntry
     {
-        [SerializeField] private string id;
-        [SerializeField] private string sourceCategory;
-        [SerializeField] private AnimationClip clip;
-        [SerializeField] private bool loop;
-        [SerializeField] private float duration;
+        [SerializeField]
+        private string id;
+
+        [SerializeField]
+        private string sourceCategory;
+
+        [SerializeField]
+        private AnimationClip clip;
+
+        [SerializeField]
+        private bool loop;
+
+        [SerializeField]
+        private float duration;
 
         public string Id => id;
         public string SourceCategory => sourceCategory;
@@ -24,7 +33,8 @@ namespace Game.KayKit
             string sourceCategory,
             AnimationClip clip,
             bool loop,
-            float duration)
+            float duration
+        )
         {
             this.id = id;
             this.sourceCategory = sourceCategory;
@@ -37,7 +47,8 @@ namespace Game.KayKit
     [CreateAssetMenu(menuName = "KayKit/Animation Library", fileName = "KayKitAnimationLibrary")]
     public sealed class KayKitAnimationLibrary : ScriptableObject
     {
-        [SerializeField] private List<KayKitAnimationEntry> entries = new();
+        [SerializeField]
+        private List<KayKitAnimationEntry> entries = new();
 
         public IReadOnlyList<KayKitAnimationEntry> Entries => entries;
 
@@ -47,10 +58,10 @@ namespace Game.KayKit
             {
                 foreach (KayKitAnimationEntry candidate in entries)
                 {
-                    if (candidate != null && string.Equals(
-                            candidate.Id,
-                            id,
-                            StringComparison.OrdinalIgnoreCase))
+                    if (
+                        candidate != null
+                        && string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase)
+                    )
                     {
                         entry = candidate;
                         return true;

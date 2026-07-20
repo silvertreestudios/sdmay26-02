@@ -13,7 +13,8 @@ namespace Game.Rules.Runtime
             Type operationType,
             Type resultType,
             RuleLifecyclePhase phase,
-            long registrationOrder)
+            long registrationOrder
+        )
         {
             OperationType = operationType ?? throw new ArgumentNullException(nameof(operationType));
             ResultType = resultType ?? throw new ArgumentNullException(nameof(resultType));
@@ -42,7 +43,8 @@ namespace Game.Rules.Runtime
             ActiveRuleBinding binding,
             IFrameInvocation invocation,
             RuleDispatcher dispatcher,
-            Func<ValueTask<object>> next);
+            Func<ValueTask<object>> next
+        );
     }
 
     /// <summary>
@@ -54,7 +56,8 @@ namespace Game.Rules.Runtime
             Type factType,
             RuleLifecyclePhase phase,
             bool isBatch,
-            long registrationOrder)
+            long registrationOrder
+        )
         {
             FactType = factType ?? throw new ArgumentNullException(nameof(factType));
             Phase = phase;
@@ -82,6 +85,7 @@ namespace Game.Rules.Runtime
         internal abstract ValueTask Invoke(
             OpId rootId,
             IReadOnlyList<RuleFact> facts,
-            FactContext context);
+            FactContext context
+        );
     }
 }

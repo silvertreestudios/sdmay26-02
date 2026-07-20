@@ -8,7 +8,7 @@ namespace GridPublic
         Burst,
         Cone,
         Emanation,
-        Line
+        Line,
     }
 
     public enum AreaDirection
@@ -20,7 +20,7 @@ namespace GridPublic
         West,
         SouthWest,
         South,
-        SouthEast
+        SouthEast,
     }
 
     public class AreaTargetRequest
@@ -35,14 +35,15 @@ namespace GridPublic
 
     public class AreaTargetSource
     {
-        public AreaTargetSource()
-        {
-        }
+        public AreaTargetSource() { }
 
         public AreaTargetSource(GameObject sourceObject)
         {
             SourceObject = sourceObject;
-            Cell = sourceObject == null ? Vector3Int.zero : Vector3Int.RoundToInt(sourceObject.transform.position);
+            Cell =
+                sourceObject == null
+                    ? Vector3Int.zero
+                    : Vector3Int.RoundToInt(sourceObject.transform.position);
         }
 
         public AreaTargetSource(Vector3Int cell)
@@ -52,7 +53,8 @@ namespace GridPublic
 
         public GameObject SourceObject { get; set; }
         public Vector3Int Cell { get; set; }
-        public Vector3Int OriginCell => SourceObject == null ? Cell : Vector3Int.RoundToInt(SourceObject.transform.position);
+        public Vector3Int OriginCell =>
+            SourceObject == null ? Cell : Vector3Int.RoundToInt(SourceObject.transform.position);
     }
 
     public class AreaPlacement
@@ -95,14 +97,30 @@ namespace GridPrivate
     {
         private const float AngleEpsilon = 0.01f;
 
-        public static GridPublic.AreaTargetResult Evaluate(GameObject actor, Tile[,] tiles, GridPublic.AreaTargetRequest request, GridPublic.AreaPlacement placement)
+        public static GridPublic.AreaTargetResult Evaluate(
+            GameObject actor,
+            Tile[,] tiles,
+            GridPublic.AreaTargetRequest request,
+            GridPublic.AreaPlacement placement
+        )
         {
             return Evaluate(new GridPublic.AreaTargetSource(actor), tiles, request, placement);
         }
 
-        public static GridPublic.AreaTargetResult Evaluate(GridPublic.AreaTargetSource source, Tile[,] tiles, GridPublic.AreaTargetRequest request, GridPublic.AreaPlacement placement)
+        public static GridPublic.AreaTargetResult Evaluate(
+            GridPublic.AreaTargetSource source,
+            Tile[,] tiles,
+            GridPublic.AreaTargetRequest request,
+            GridPublic.AreaPlacement placement
+        )
         {
-            if (source == null || tiles == null || request == null || placement == null || request.SizeFeet <= 0)
+            if (
+                source == null
+                || tiles == null
+                || request == null
+                || placement == null
+                || request.SizeFeet <= 0
+            )
                 return null;
             if (!IsPlacementInRange(source, request, placement))
                 return null;
@@ -114,28 +132,36 @@ namespace GridPrivate
             GridPublic.AreaPlacement resultPlacement = new()
             {
                 Shape = placement.Shape,
-                OriginCell = request.Shape == GridPublic.AreaShape.Burst ? placement.OriginCell : source.OriginCell,
+                OriginCell =
+                    request.Shape == GridPublic.AreaShape.Burst
+                        ? placement.OriginCell
+                        : source.OriginCell,
                 OriginCorner = placement.OriginCorner,
-                Direction = placement.Direction
+                Direction = placement.Direction,
             };
             GridPublic.AreaTargetResult result = new()
             {
                 Placement = resultPlacement,
                 Cells = cells,
-                Creatures = GetCreatures(source, tiles, request, placement, cells)
+                Creatures = GetCreatures(source, tiles, request, placement, cells),
             };
             return result;
         }
 
-        public static List<Vector3Int> CellsInPlacementRange(Tile[,] tiles, Vector3Int start, GridPublic.AreaTargetRequest request)
+        public static List<Vector3Int> CellsInPlacementRange(
+            Tile[,] tiles,
+            Vector3Int start,
+            GridPublic.AreaTargetRequest request
+        )
         {
             List<Vector3Int> result = new();
             if (tiles == null || request == null)
                 return result;
 
-            int rangeFeet = request.Shape == GridPublic.AreaShape.Burst && request.RangeFeet > 0
-                ? request.RangeFeet
-                : Mathf.Max(request.SizeFeet, 5);
+            int rangeFeet =
+                request.Shape == GridPublic.AreaShape.Burst && request.RangeFeet > 0
+                    ? request.RangeFeet
+                    : Mathf.Max(request.SizeFeet, 5);
             int maxCells = Mathf.CeilToInt(rangeFeet / 5.0f);
             for (int x = start.x - maxCells; x <= start.x + maxCells; x++)
             {
@@ -151,12 +177,20 @@ namespace GridPrivate
             return result;
         }
 
-        public static GridPublic.AreaPlacement PlacementFromHover(GameObject actor, GridPublic.AreaTargetRequest request, GridPublic.GridHoverInfo hover)
+        public static GridPublic.AreaPlacement PlacementFromHover(
+            GameObject actor,
+            GridPublic.AreaTargetRequest request,
+            GridPublic.GridHoverInfo hover
+        )
         {
             return PlacementFromHover(new GridPublic.AreaTargetSource(actor), request, hover);
         }
 
-        public static GridPublic.AreaPlacement PlacementFromHover(GridPublic.AreaTargetSource source, GridPublic.AreaTargetRequest request, GridPublic.GridHoverInfo hover)
+        public static GridPublic.AreaPlacement PlacementFromHover(
+            GridPublic.AreaTargetSource source,
+            GridPublic.AreaTargetRequest request,
+            GridPublic.GridHoverInfo hover
+        )
         {
             if (source == null || request == null)
                 return null;
@@ -168,7 +202,7 @@ namespace GridPrivate
                 Shape = request.Shape,
                 OriginCell = sourceCell,
                 OriginCorner = hover?.NearestCorner ?? new Vector2Int(hoverCell.x, hoverCell.z),
-                Direction = DirectionFromDelta(hoverCell - sourceCell)
+                Direction = DirectionFromDelta(hoverCell - sourceCell),
             };
 
             if (request.Shape == GridPublic.AreaShape.Burst)
@@ -195,7 +229,7 @@ namespace GridPrivate
                 GridPublic.AreaDirection.SouthWest => new Vector3Int(-1, 0, -1),
                 GridPublic.AreaDirection.South => new Vector3Int(0, 0, -1),
                 GridPublic.AreaDirection.SouthEast => new Vector3Int(1, 0, -1),
-                _ => new Vector3Int(1, 0, 0)
+                _ => new Vector3Int(1, 0, 0),
             };
         }
 
@@ -211,15 +245,25 @@ namespace GridPrivate
             return (GridPublic.AreaDirection)octant;
         }
 
-        private static bool IsPlacementInRange(GridPublic.AreaTargetSource source, GridPublic.AreaTargetRequest request, GridPublic.AreaPlacement placement)
+        private static bool IsPlacementInRange(
+            GridPublic.AreaTargetSource source,
+            GridPublic.AreaTargetRequest request,
+            GridPublic.AreaPlacement placement
+        )
         {
             if (request.Shape != GridPublic.AreaShape.Burst || request.RangeFeet <= 0)
                 return true;
 
-            return DistanceCellToCornerFeet(source.OriginCell, placement.OriginCorner) <= request.RangeFeet;
+            return DistanceCellToCornerFeet(source.OriginCell, placement.OriginCorner)
+                <= request.RangeFeet;
         }
 
-        private static List<Vector3Int> CellsForPlacement(GridPublic.AreaTargetSource source, Tile[,] tiles, GridPublic.AreaTargetRequest request, GridPublic.AreaPlacement placement)
+        private static List<Vector3Int> CellsForPlacement(
+            GridPublic.AreaTargetSource source,
+            Tile[,] tiles,
+            GridPublic.AreaTargetRequest request,
+            GridPublic.AreaPlacement placement
+        )
         {
             return request.Shape switch
             {
@@ -227,17 +271,29 @@ namespace GridPrivate
                 GridPublic.AreaShape.Cone => ConeCells(source, tiles, request, placement),
                 GridPublic.AreaShape.Emanation => EmanationCells(source, tiles, request),
                 GridPublic.AreaShape.Line => LineCells(source, tiles, request, placement),
-                _ => new List<Vector3Int>()
+                _ => new List<Vector3Int>(),
             };
         }
 
-        private static List<Vector3Int> BurstCells(Tile[,] tiles, GridPublic.AreaTargetRequest request, GridPublic.AreaPlacement placement)
+        private static List<Vector3Int> BurstCells(
+            Tile[,] tiles,
+            GridPublic.AreaTargetRequest request,
+            GridPublic.AreaPlacement placement
+        )
         {
             List<Vector3Int> cells = new();
             int radiusCells = Mathf.CeilToInt(request.SizeFeet / 5.0f);
-            for (int x = placement.OriginCorner.x - radiusCells - 1; x <= placement.OriginCorner.x + radiusCells; x++)
+            for (
+                int x = placement.OriginCorner.x - radiusCells - 1;
+                x <= placement.OriginCorner.x + radiusCells;
+                x++
+            )
             {
-                for (int z = placement.OriginCorner.y - radiusCells - 1; z <= placement.OriginCorner.y + radiusCells; z++)
+                for (
+                    int z = placement.OriginCorner.y - radiusCells - 1;
+                    z <= placement.OriginCorner.y + radiusCells;
+                    z++
+                )
                 {
                     Vector3Int cell = new(x, 0, z);
                     if (!IsTemplateCell(tiles, cell))
@@ -249,7 +305,12 @@ namespace GridPrivate
             return cells;
         }
 
-        private static List<Vector3Int> ConeCells(GridPublic.AreaTargetSource source, Tile[,] tiles, GridPublic.AreaTargetRequest request, GridPublic.AreaPlacement placement)
+        private static List<Vector3Int> ConeCells(
+            GridPublic.AreaTargetSource source,
+            Tile[,] tiles,
+            GridPublic.AreaTargetRequest request,
+            GridPublic.AreaPlacement placement
+        )
         {
             List<Vector3Int> cells = new();
             Vector3Int start = source.OriginCell;
@@ -274,7 +335,11 @@ namespace GridPrivate
             return cells;
         }
 
-        private static List<Vector3Int> EmanationCells(GridPublic.AreaTargetSource source, Tile[,] tiles, GridPublic.AreaTargetRequest request)
+        private static List<Vector3Int> EmanationCells(
+            GridPublic.AreaTargetSource source,
+            Tile[,] tiles,
+            GridPublic.AreaTargetRequest request
+        )
         {
             List<Vector3Int> cells = new();
             Vector3Int start = source.OriginCell;
@@ -295,12 +360,20 @@ namespace GridPrivate
             return cells;
         }
 
-        private static List<Vector3Int> LineCells(GridPublic.AreaTargetSource source, Tile[,] tiles, GridPublic.AreaTargetRequest request, GridPublic.AreaPlacement placement)
+        private static List<Vector3Int> LineCells(
+            GridPublic.AreaTargetSource source,
+            Tile[,] tiles,
+            GridPublic.AreaTargetRequest request,
+            GridPublic.AreaPlacement placement
+        )
         {
             List<Vector3Int> cells = new();
             Vector3Int start = source.OriginCell;
             float lengthCells = request.SizeFeet / 5.0f;
-            int widthCells = Mathf.Max(1, Mathf.CeilToInt(Mathf.Max(5, request.LineWidthFeet) / 5.0f));
+            int widthCells = Mathf.Max(
+                1,
+                Mathf.CeilToInt(Mathf.Max(5, request.LineWidthFeet) / 5.0f)
+            );
             int search = Mathf.CeilToInt(lengthCells) + widthCells + 1;
             Vector2 direction = ToVector2(DirectionOffset(placement.Direction)).normalized;
 
@@ -317,13 +390,20 @@ namespace GridPrivate
                     if (projection <= 0.0f || projection > lengthCells + AngleEpsilon)
                         continue;
 
-                    float perpendicular = Mathf.Abs(offset.x * direction.y - offset.y * direction.x);
+                    float perpendicular = Mathf.Abs(
+                        offset.x * direction.y - offset.y * direction.x
+                    );
                     float halfWidth = Mathf.Max(0.01f, (widthCells - 1) * 0.5f + 0.01f);
                     if (perpendicular <= halfWidth)
                         cells.Add(cell);
                 }
             }
-            cells.Sort((a, b) => GridTargeting.MeasureGridDistanceFeet(start, a).CompareTo(GridTargeting.MeasureGridDistanceFeet(start, b)));
+            cells.Sort(
+                (a, b) =>
+                    GridTargeting
+                        .MeasureGridDistanceFeet(start, a)
+                        .CompareTo(GridTargeting.MeasureGridDistanceFeet(start, b))
+            );
             return cells;
         }
 
@@ -332,36 +412,45 @@ namespace GridPrivate
             Tile[,] tiles,
             GridPublic.AreaTargetRequest request,
             GridPublic.AreaPlacement placement,
-            List<Vector3Int> cells)
+            List<Vector3Int> cells
+        )
         {
             List<GridPublic.AreaAffectedCreature> creatures = new();
             Vector3Int sourceCell = source.OriginCell;
-            Vector2 sourcePoint = request.Shape == GridPublic.AreaShape.Burst
-                ? new Vector2(placement.OriginCorner.x, placement.OriginCorner.y)
-                : new Vector2(sourceCell.x + 0.5f, sourceCell.z + 0.5f);
+            Vector2 sourcePoint =
+                request.Shape == GridPublic.AreaShape.Burst
+                    ? new Vector2(placement.OriginCorner.x, placement.OriginCorner.y)
+                    : new Vector2(sourceCell.x + 0.5f, sourceCell.z + 0.5f);
 
             foreach (Vector3Int cell in cells)
             {
                 foreach (GameObject occupant in GridTargeting.OccupantsAt(tiles, cell))
                 {
-                    int clearRays = request.Shape == GridPublic.AreaShape.Burst
-                        ? GridTargeting.CountClearRaysFromPoint(tiles, sourcePoint, cell)
-                        : GridTargeting.CountClearRays(tiles, sourceCell, cell);
-                    GridPublic.StrikeLineOfEffect lineOfEffect = clearRays > 0
-                        ? GridPublic.StrikeLineOfEffect.Clear
-                        : GridPublic.StrikeLineOfEffect.Blocked;
-                    GridPublic.StrikeCover cover = clearRays > 0 && clearRays < 16
-                        ? GridPublic.StrikeCover.Standard
-                        : GridPublic.StrikeCover.None;
+                    int clearRays =
+                        request.Shape == GridPublic.AreaShape.Burst
+                            ? GridTargeting.CountClearRaysFromPoint(tiles, sourcePoint, cell)
+                            : GridTargeting.CountClearRays(tiles, sourceCell, cell);
+                    GridPublic.StrikeLineOfEffect lineOfEffect =
+                        clearRays > 0
+                            ? GridPublic.StrikeLineOfEffect.Clear
+                            : GridPublic.StrikeLineOfEffect.Blocked;
+                    GridPublic.StrikeCover cover =
+                        clearRays > 0 && clearRays < 16
+                            ? GridPublic.StrikeCover.Standard
+                            : GridPublic.StrikeCover.None;
 
-                    creatures.Add(new GridPublic.AreaAffectedCreature
-                    {
-                        Creature = occupant,
-                        Cell = cell,
-                        ClearRays = clearRays,
-                        Cover = cover,
-                        LineOfEffect = request.RequiresLineOfEffect ? lineOfEffect : GridPublic.StrikeLineOfEffect.Clear
-                    });
+                    creatures.Add(
+                        new GridPublic.AreaAffectedCreature
+                        {
+                            Creature = occupant,
+                            Cell = cell,
+                            ClearRays = clearRays,
+                            Cover = cover,
+                            LineOfEffect = request.RequiresLineOfEffect
+                                ? lineOfEffect
+                                : GridPublic.StrikeLineOfEffect.Clear,
+                        }
+                    );
                 }
             }
             return creatures;
@@ -376,7 +465,13 @@ namespace GridPrivate
         {
             int best = int.MaxValue;
             foreach (Vector2Int cellCorner in CellCorners(cell))
-                best = Mathf.Min(best, GridTargeting.MeasureGridDistanceFeet(corner.x - cellCorner.x, corner.y - cellCorner.y));
+                best = Mathf.Min(
+                    best,
+                    GridTargeting.MeasureGridDistanceFeet(
+                        corner.x - cellCorner.x,
+                        corner.y - cellCorner.y
+                    )
+                );
             return best;
         }
 
@@ -384,7 +479,13 @@ namespace GridPrivate
         {
             int best = int.MaxValue;
             foreach (Vector2Int cellCorner in CellCorners(cell))
-                best = Mathf.Min(best, GridTargeting.MeasureGridDistanceFeet(corner.x - cellCorner.x, corner.y - cellCorner.y));
+                best = Mathf.Min(
+                    best,
+                    GridTargeting.MeasureGridDistanceFeet(
+                        corner.x - cellCorner.x,
+                        corner.y - cellCorner.y
+                    )
+                );
             return best;
         }
 

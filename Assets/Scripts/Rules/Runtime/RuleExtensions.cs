@@ -33,7 +33,7 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Rules that observe the settled outcome after rules-changing stages have run.
         /// </summary>
-        Observation
+        Observation,
     }
 
     /// <summary>
@@ -74,7 +74,8 @@ namespace Game.Rules.Runtime
         ValueTask<OpResult<TResult>> Invoke(
             OpFrame<TOp> frame,
             OpMiddlewareContext context,
-            OpNext<TResult> next);
+            OpNext<TResult> next
+        );
     }
 
     /// <summary>
@@ -89,7 +90,7 @@ namespace Game.Rules.Runtime
     /// cannot observe that frame's Facts, while a binding disabled, removed, or changed before
     /// delivery is skipped.
     /// </remarks>
-    public interface IFactListener<TFact>
+    public interface IRuleFactListener<TFact>
         where TFact : RuleFact
     {
         /// <summary>
@@ -100,9 +101,7 @@ namespace Game.Rules.Runtime
         /// The authorizing binding, post-commit state, trace data, and causal dispatch.
         /// </param>
         /// <returns>A task-like value that completes when the listener and its dispatched work finish.</returns>
-        ValueTask OnFactCommitted(
-            TFact fact,
-            FactContext context);
+        ValueTask OnFactCommitted(TFact fact, FactContext context);
     }
 
     /// <summary>
@@ -113,7 +112,7 @@ namespace Game.Rules.Runtime
     /// A batch contains only the root's matching Facts whose source frames began while the
     /// binding was eligible. The binding must also remain active when delivery begins.
     /// </remarks>
-    public interface IFactBatchListener<TFact>
+    public interface IRuleFactBatchListener<TFact>
         where TFact : RuleFact
     {
         /// <summary>
@@ -124,8 +123,6 @@ namespace Game.Rules.Runtime
         /// The authorizing binding, post-commit state, trace data, and causal dispatch.
         /// </param>
         /// <returns>A task-like value that completes when the listener and its dispatched work finish.</returns>
-        ValueTask OnFactsCommitted(
-            CommittedFactBatch<TFact> batch,
-            FactContext context);
+        ValueTask OnFactsCommitted(CommittedFactBatch<TFact> batch, FactContext context);
     }
 }

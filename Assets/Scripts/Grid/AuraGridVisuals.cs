@@ -8,10 +8,17 @@ namespace GridPrivate
     [RequireComponent(typeof(GridAPIPrivate))]
     public class AuraGridVisuals : MonoBehaviour
     {
-        [SerializeField] private GameObject AuraPrefab;
-        [SerializeField] private float AuraOffset = 0.015f;
-        [SerializeField] private GameObject AuraParticlePrefab;
-        [SerializeField] private float AuraParticleVerticalOffset = 0.08f;
+        [SerializeField]
+        private GameObject AuraPrefab;
+
+        [SerializeField]
+        private float AuraOffset = 0.015f;
+
+        [SerializeField]
+        private GameObject AuraParticlePrefab;
+
+        [SerializeField]
+        private float AuraParticleVerticalOffset = 0.08f;
 
         private GameObjectPool AuraPool;
         private GameObjectPool AuraParticlePool;
@@ -54,8 +61,12 @@ namespace GridPrivate
             if (GridApi == null)
                 return;
 
-            List<ActionController> combatants = new(Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None));
-            currentCells.AddRange(CreatureAuraResolver.GetAuraCells(combatants, GridApi.GetTiles()));
+            List<ActionController> combatants = new(
+                Object.FindObjectsByType<ActionController>(FindObjectsSortMode.None)
+            );
+            currentCells.AddRange(
+                CreatureAuraResolver.GetAuraCells(combatants, GridApi.GetTiles())
+            );
 
             RefreshTileAuras();
             RefreshParticleAuras(combatants);
@@ -75,7 +86,9 @@ namespace GridPrivate
 
         private void RefreshParticleAuras(IEnumerable<ActionController> combatants)
         {
-            foreach (CreatureAuraInstance auraInstance in CreatureAuraResolver.GetVisualAuras(combatants))
+            foreach (
+                CreatureAuraInstance auraInstance in CreatureAuraResolver.GetVisualAuras(combatants)
+            )
             {
                 if (auraInstance.SourceObject == null || auraInstance.Aura == null)
                     continue;
@@ -87,7 +100,9 @@ namespace GridPrivate
                     continue;
 
                 GameObject go = AuraParticlePool.GetObject();
-                go.transform.position = auraInstance.SourceObject.transform.position + Vector3.up * AuraParticleVerticalOffset;
+                go.transform.position =
+                    auraInstance.SourceObject.transform.position
+                    + Vector3.up * AuraParticleVerticalOffset;
                 go.transform.rotation = Quaternion.identity;
                 go.transform.localScale = Vector3.one;
                 ConfigureParticleRadius(go, radius);

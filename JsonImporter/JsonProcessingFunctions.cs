@@ -43,35 +43,67 @@ namespace JsonImporter
             // Build the new "system" object with only the allowed fields
             var allowedSystemFields = new HashSet<string>
             {
-                "baseItem", "bonus", "bonusDamage", "bulk", "category", "damage", "description", "equipped",
-                "group", "material", "price", "publication", "quantity", "range", "reload", "rules",
-                "runes", "size", "splashDamage", "traits", "usage"
+                "baseItem",
+                "bonus",
+                "bonusDamage",
+                "bulk",
+                "category",
+                "damage",
+                "description",
+                "equipped",
+                "group",
+                "material",
+                "price",
+                "publication",
+                "quantity",
+                "range",
+                "reload",
+                "rules",
+                "runes",
+                "size",
+                "splashDamage",
+                "traits",
+                "usage",
             };
 
             //REFERENCE ["hands"] = system.SelectToken("equipped.handsHeld"),
             // var newSystem = new JObject();
-            if(system.SelectToken("group") != null)
+            if (system.SelectToken("group") != null)
                 output["group"] = system.SelectToken("group");
-            if(system.SelectToken("category") != null)
+            if (system.SelectToken("category") != null)
                 output["category"] = system.SelectToken("category");
-            if(system.SelectToken("usage") != null)
+            if (system.SelectToken("usage") != null)
                 // TODO make sure this applies in all cases
-                if(system.SelectToken("usage.value").ToString().Equals("held-in-one-hand", StringComparison.OrdinalIgnoreCase))
+                if (
+                    system
+                        .SelectToken("usage.value")
+                        .ToString()
+                        .Equals("held-in-one-hand", StringComparison.OrdinalIgnoreCase)
+                )
                     output["hands"] = 1;
                 else
                     output["hands"] = 2;
-            if(system.SelectToken("damage") != null)
+            if (system.SelectToken("damage") != null)
                 output["damageDice"] = system.SelectToken("damage.dice");
-                // remove 'd' to make damage die to int, e.g., "1d6" -> 6
-                output["damageDie"] = system.SelectToken("damage.die")?.ToString().TrimStart('d');
-                output["damageType"] = system.SelectToken("damage.damageType");
-            if(system.SelectToken("description") != null){
+            // remove 'd' to make damage die to int, e.g., "1d6" -> 6
+            output["damageDie"] = system.SelectToken("damage.die")?.ToString().TrimStart('d');
+            output["damageType"] = system.SelectToken("damage.damageType");
+            if (system.SelectToken("description") != null)
+            {
                 // output["description"] = system.SelectToken("description.value");
-                HtmlUtils.ExtractPlainAndParagraphs(system.SelectToken("description.value")?.ToString(), out string plainDesc, out JArray plainText, out JArray contexts);
+                HtmlUtils.ExtractPlainAndParagraphs(
+                    system.SelectToken("description.value")?.ToString(),
+                    out string plainDesc,
+                    out JArray plainText,
+                    out JArray contexts
+                );
                 output["description"] = plainText;
             }
-            if(system.SelectToken("traits") != null)
-                foreach (var trait in system.SelectToken("traits.value")?.OfType<JValue>() ?? Enumerable.Empty<JValue>())
+            if (system.SelectToken("traits") != null)
+                foreach (
+                    var trait in system.SelectToken("traits.value")?.OfType<JValue>()
+                        ?? Enumerable.Empty<JValue>()
+                )
                 {
                     if (trait != null)
                     {
@@ -80,13 +112,17 @@ namespace JsonImporter
                         ((JArray)output["traits"]).Add(trait);
                     }
                 }
-            if(system.SelectToken("material") != null){
+            if (system.SelectToken("material") != null)
+            {
                 output["materialType"] = system.SelectToken("material.type");
                 output["materialGrade"] = system.SelectToken("material.grade");
             }
-            if(system.SelectToken("runes") != null)
+            if (system.SelectToken("runes") != null)
                 // TODO rework to match rune implementation if needed
-                foreach (var rune in system.SelectToken("runes.value")?.OfType<JValue>() ?? Enumerable.Empty<JValue>())
+                foreach (
+                    var rune in system.SelectToken("runes.value")?.OfType<JValue>()
+                        ?? Enumerable.Empty<JValue>()
+                )
                 {
                     if (rune != null)
                     {
@@ -95,7 +131,8 @@ namespace JsonImporter
                         ((JArray)output["runes"]).Add(rune);
                     }
                 }
-            if(system.SelectToken("price") != null){
+            if (system.SelectToken("price") != null)
+            {
                 // Assumes gold is standard currency.
                 double goldValue = 0.0;
                 if (system.SelectToken("price.value.cp") != null)
@@ -108,27 +145,30 @@ namespace JsonImporter
                     goldValue += system.SelectToken("price.value.pp").Value<double>() * 10.0; // 1 pp = 10 gp
                 output["price_GP"] = goldValue;
             }
-            if(system.SelectToken("range") != null)
+            if (system.SelectToken("range") != null)
                 output["range"] = system.SelectToken("range");
-            if(system.SelectToken("reload") != null)
+            if (system.SelectToken("reload") != null)
                 output["reload"] = system.SelectToken("reload.value");
-            if(system.SelectToken("ammo") != null)
+            if (system.SelectToken("ammo") != null)
                 output["ammo"] = system.SelectToken("ammo.baseType");
-            if(system.SelectToken("bulk") != null)
+            if (system.SelectToken("bulk") != null)
                 output["bulk"] = system.SelectToken("bulk.value");
-            if(system.SelectToken("size") != null)
+            if (system.SelectToken("size") != null)
                 output["size"] = system.SelectToken("size");
-            if(system.SelectToken("baseItem") != null)
+            if (system.SelectToken("baseItem") != null)
                 output["baseItem"] = system.SelectToken("baseItem");
-            if(system.SelectToken("bonus.value") != null)
+            if (system.SelectToken("bonus.value") != null)
                 output["bonus"] = system.SelectToken("bonus.value");
-            if(system.SelectToken("bonusDamage.value") != null)
+            if (system.SelectToken("bonusDamage.value") != null)
                 output["bonusDamage"] = system.SelectToken("bonusDamage.value");
-            if(system.SelectToken("splashDamage") != null)
+            if (system.SelectToken("splashDamage") != null)
                 output["splashDamage"] = system.SelectToken("splashDamage.value");
-            if(system.SelectToken("rules") != null)
+            if (system.SelectToken("rules") != null)
                 // TODO rework as needed, as of yet rules[] has only been empty
-                foreach (var rule in system.SelectToken("rules")?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+                foreach (
+                    var rule in system.SelectToken("rules")?.OfType<JObject>()
+                        ?? Enumerable.Empty<JObject>()
+                )
                 {
                     if (rule != null)
                     {
@@ -137,11 +177,12 @@ namespace JsonImporter
                         ((JArray)output["rules"]).Add(rule);
                     }
                 }
-            if(system.SelectToken("publication") != null)
-                 output["publication"] = system.SelectToken("publication");
+            if (system.SelectToken("publication") != null)
+                output["publication"] = system.SelectToken("publication");
 
             return output.ToString(Newtonsoft.Json.Formatting.Indented);
         }
+
         public static string ProcessArmorJson(string jsonContent)
         {
             var input = JToken.Parse(jsonContent);
@@ -170,12 +211,20 @@ namespace JsonImporter
             output["speedPenalty"] = input.SelectToken("system.speedPenalty");
             output["strengthRequirement"] = input.SelectToken("system.strength");
             //output["description"] = input.SelectToken("system.description.value");
-            HtmlUtils.ExtractPlainAndParagraphs(input.SelectToken("system.description.value")?.ToString(), out string plainDesc, out JArray plainText, out JArray contexts);
+            HtmlUtils.ExtractPlainAndParagraphs(
+                input.SelectToken("system.description.value")?.ToString(),
+                out string plainDesc,
+                out JArray plainText,
+                out JArray contexts
+            );
             output["description"] = plainText;
             output["bulk"] = input.SelectToken("system.bulk.value").Value<double>();
             output["group"] = input.SelectToken("system.group");
             output["armorTraits"] = new JArray();
-            foreach (var trait in input.SelectToken("system.traits.value")?.OfType<JValue>() ?? Enumerable.Empty<JValue>())
+            foreach (
+                var trait in input.SelectToken("system.traits.value")?.OfType<JValue>()
+                    ?? Enumerable.Empty<JValue>()
+            )
             {
                 if (trait != null)
                 {
@@ -183,7 +232,10 @@ namespace JsonImporter
                 }
             }
             output["runes"] = new JArray();
-            foreach (var trait in input.SelectToken("system.runes")?.OfType<JValue>() ?? Enumerable.Empty<JValue>())
+            foreach (
+                var trait in input.SelectToken("system.runes")?.OfType<JValue>()
+                    ?? Enumerable.Empty<JValue>()
+            )
             {
                 if (trait != null)
                 {
@@ -228,10 +280,7 @@ namespace JsonImporter
             }
 
             // Example: Only keep certain fields at root (customize as needed)
-            var allowedRootFields = new HashSet<string>
-            {
-                "name", "system", "type"
-            };
+            var allowedRootFields = new HashSet<string> { "name", "system", "type" };
 
             var output = new JObject();
             foreach (var prop in obj.Properties())
@@ -306,7 +355,7 @@ namespace JsonImporter
                     {
                         ["name"] = name ?? "",
                         ["uuid"] = uuid,
-                        ["preselectedChoices"] = preselectedChoices
+                        ["preselectedChoices"] = preselectedChoices,
                     };
                     system["backgroundFeat"] = backgroundFeat;
                 }
@@ -320,10 +369,7 @@ namespace JsonImporter
             }
 
             // Only keep certain fields at root
-            var allowedRootFields = new HashSet<string>
-            {
-                "name", "system", "type"
-            };
+            var allowedRootFields = new HashSet<string> { "name", "system", "type" };
 
             var output = new JObject();
             foreach (var prop in obj.Properties())
@@ -359,12 +405,14 @@ namespace JsonImporter
                 }
 
                 // Sort by "level"
-                sortedItems.Sort((a, b) =>
-                {
-                    int levelA = a["level"]?.Value<int>() ?? 0;
-                    int levelB = b["level"]?.Value<int>() ?? 0;
-                    return levelA.CompareTo(levelB);
-                });
+                sortedItems.Sort(
+                    (a, b) =>
+                    {
+                        int levelA = a["level"]?.Value<int>() ?? 0;
+                        int levelB = b["level"]?.Value<int>() ?? 0;
+                        return levelA.CompareTo(levelB);
+                    }
+                );
 
                 // Build new items object with "name" as key
                 var newItemsObj = new JObject();
@@ -385,10 +433,7 @@ namespace JsonImporter
             }
 
             // Only keep certain fields at root
-            var allowedRootFields = new HashSet<string>
-            {
-                "name", "system", "type"
-            };
+            var allowedRootFields = new HashSet<string> { "name", "system", "type" };
 
             var output = new JObject();
             foreach (var prop in obj.Properties())
@@ -415,10 +460,7 @@ namespace JsonImporter
             }
 
             // Only keep certain fields at root (customize as needed)
-            var allowedRootFields = new HashSet<string>
-            {
-                "name", "system", "type"
-            };
+            var allowedRootFields = new HashSet<string> { "name", "system", "type" };
 
             var output = new JObject();
             foreach (var prop in obj.Properties())
@@ -446,10 +488,7 @@ namespace JsonImporter
             }
 
             // Only keep certain fields at root (customize as needed)
-            var allowedRootFields = new HashSet<string>
-            {
-                "name", "system", "type"
-            };
+            var allowedRootFields = new HashSet<string> { "name", "system", "type" };
 
             var output = new JObject();
             foreach (var prop in obj.Properties())
@@ -483,10 +522,7 @@ namespace JsonImporter
             }
 
             // Only keep certain fields at root (customize as needed)
-            var allowedRootFields = new HashSet<string>
-            {
-                "name", "system", "type"
-            };
+            var allowedRootFields = new HashSet<string> { "name", "system", "type" };
 
             var output = new JObject();
             foreach (var prop in obj.Properties())

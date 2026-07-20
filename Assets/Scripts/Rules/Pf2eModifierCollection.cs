@@ -34,7 +34,9 @@ namespace Game.Rules
             if (string.IsNullOrWhiteSpace(source))
                 return;
 
-            modifiers.RemoveAll(modifier => string.Equals(modifier.Source, source, System.StringComparison.OrdinalIgnoreCase));
+            modifiers.RemoveAll(modifier =>
+                string.Equals(modifier.Source, source, System.StringComparison.OrdinalIgnoreCase)
+            );
         }
 
         /// <summary>

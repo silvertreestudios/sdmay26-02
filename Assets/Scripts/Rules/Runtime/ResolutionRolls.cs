@@ -28,10 +28,14 @@ namespace Game.Rules.Runtime
             OpId operationId,
             int sequence,
             DiceExpression dice,
-            RollResult result)
+            RollResult result
+        )
         {
             if (operationId.IsEmpty)
-                throw new ArgumentException("A resolution roll requires an operation ID.", nameof(operationId));
+                throw new ArgumentException(
+                    "A resolution roll requires an operation ID.",
+                    nameof(operationId)
+                );
             if (sequence <= 0)
                 throw new ArgumentOutOfRangeException(nameof(sequence));
 
@@ -49,13 +53,16 @@ namespace Game.Rules.Runtime
             lock (gate)
             {
                 if (activeRoot.IsIdle)
-                    throw new InvalidOperationException("A rules roll requires an active root resolution.");
+                    throw new InvalidOperationException(
+                        "A rules roll requires an active root resolution."
+                    );
 
                 IOpFrameView frame = Trace.Require(operationId);
                 if (frame.RootId != activeRoot.RootId)
                 {
                     throw new InvalidOperationException(
-                        $"Operation {operationId.Value} does not belong to the active root resolution.");
+                        $"Operation {operationId.Value} does not belong to the active root resolution."
+                    );
                 }
 
                 RollResult result = rollService.Roll(dice);

@@ -19,11 +19,13 @@ public class StoryBoardControl : MonoBehaviour
         string sceneName = SceneManager.GetActiveScene().name;
 
         TextAsset jsonAsset = Resources.Load<TextAsset>("storyboard");
-        if (jsonAsset == null) return;
+        if (jsonAsset == null)
+            return;
 
         StoryBoardData data = JsonUtility.FromJson<StoryBoardData>(jsonAsset.text);
         StoryEntry entry = data.GetEntry(sceneName);
-        if (entry == null) return;
+        if (entry == null)
+            return;
 
         ui.Q<Label>("StoryBoardTitle").text = entry.Title;
         ui.Q<Label>("StoryText").text = entry.Message;
@@ -32,7 +34,8 @@ public class StoryBoardControl : MonoBehaviour
         continueButton.clicked += Close;
 
         HUDController hud = FindFirstObjectByType<HUDController>();
-        if (hud != null) hud.ui.style.display = DisplayStyle.None;
+        if (hud != null)
+            hud.ui.style.display = DisplayStyle.None;
 
         Time.timeScale = 0f;
         ui.style.display = DisplayStyle.Flex;
@@ -48,7 +51,8 @@ public class StoryBoardControl : MonoBehaviour
     {
         ui.style.display = DisplayStyle.None;
         HUDController hud = FindFirstObjectByType<HUDController>();
-        if (hud != null) hud.ui.style.display = DisplayStyle.Flex;
+        if (hud != null)
+            hud.ui.style.display = DisplayStyle.Flex;
         StartCoroutine(ResumeAfterDelay(0.5f));
     }
 
@@ -72,12 +76,13 @@ public class StoryBoardControl : MonoBehaviour
         public StoryEntry Level2;
         public StoryEntry Level3;
 
-        public StoryEntry GetEntry(string sceneName) => sceneName switch
-        {
-            "Level1" => Level1,
-            "Level2" => Level2,
-            "Level3" => Level3,
-            _ => null
-        };
+        public StoryEntry GetEntry(string sceneName) =>
+            sceneName switch
+            {
+                "Level1" => Level1,
+                "Level2" => Level2,
+                "Level3" => Level3,
+                _ => null,
+            };
     }
 }

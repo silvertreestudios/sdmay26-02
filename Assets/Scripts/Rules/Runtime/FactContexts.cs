@@ -25,11 +25,19 @@ namespace Game.Rules.Runtime
         internal CommittedFactBatch(OpId rootId, IReadOnlyList<TFact> facts)
         {
             if (rootId.IsEmpty)
-                throw new ArgumentException("A committed Fact batch requires a root operation ID.", nameof(rootId));
+                throw new ArgumentException(
+                    "A committed Fact batch requires a root operation ID.",
+                    nameof(rootId)
+                );
             if (facts == null || facts.Count == 0)
-                throw new ArgumentException("A committed Fact batch cannot be empty.", nameof(facts));
+                throw new ArgumentException(
+                    "A committed Fact batch cannot be empty.",
+                    nameof(facts)
+                );
             if (facts.Any(fact => fact == null || !fact.IsStamped || fact.RootOpId != rootId))
-                throw new InvalidOperationException("Every Fact in a committed batch must belong to its root.");
+                throw new InvalidOperationException(
+                    "Every Fact in a committed batch must belong to its root."
+                );
 
             RootId = rootId;
             Facts = facts;
@@ -58,7 +66,8 @@ namespace Game.Rules.Runtime
             ActiveRuleBinding binding,
             OpId committedRootId,
             OpId causeId,
-            CallbackWorkCoordinator work)
+            CallbackWorkCoordinator work
+        )
         {
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
             Binding = binding ?? throw new ArgumentNullException(nameof(binding));
@@ -136,7 +145,8 @@ namespace Game.Rules.Runtime
                 () => dispatcher.DispatchFromFact(op, CommittedRootId, causeId),
                 "A Fact context cannot dispatch after its listener returns.",
                 overlapMessage,
-                overlapMessage);
+                overlapMessage
+            );
         }
 
         internal ValueTask<CallbackWorkCompletion> CompleteInvocation() =>
@@ -146,15 +156,17 @@ namespace Game.Rules.Runtime
             RuleDispatcher dispatcher,
             ActiveRuleBinding binding,
             OpId committedRootId,
-            OpId causeId) =>
+            OpId causeId
+        ) =>
             new FactContext(
                 dispatcher,
                 binding,
                 committedRootId,
                 causeId,
-                new CallbackWorkCoordinator());
+                new CallbackWorkCoordinator()
+            );
 
-        private void RequireActive() => work.RequireActive(
-            "A Fact context cannot be used after its listener returns.");
+        private void RequireActive() =>
+            work.RequireActive("A Fact context cannot be used after its listener returns.");
     }
 }

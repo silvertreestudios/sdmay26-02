@@ -14,75 +14,89 @@ namespace Game.KayKit.Editor
     {
         /// <summary>The default uniform scale used by one-cell floor tiles and props.</summary>
         public const float DungeonVisualScale = 0.50f;
+
         /// <summary>The uniform scale that fits structural wall modules to one grid unit.</summary>
         public const float WallVisualScale = 0.25f;
+
         /// <summary>The uniform scale used by generated stair visuals.</summary>
         public const float StairVisualScale = 0.25f;
+
         /// <summary>The uniform scale used by the generated wall-banner visual.</summary>
         public const float BannerVisualScale = 0.25f;
         public const string DungeonPrefabRoot = KayKitSetupTool.PrefabRoot + "/Dungeon";
         public const string FloorPrefabPath = DungeonPrefabRoot + "/DungeonFloorSmall.prefab";
-        public const string WallStraightPrefabPath = DungeonPrefabRoot + "/DungeonWallStraight.prefab";
+        public const string WallStraightPrefabPath =
+            DungeonPrefabRoot + "/DungeonWallStraight.prefab";
         public const string WallCornerPrefabPath = DungeonPrefabRoot + "/DungeonWallCorner.prefab";
-        public const string WallTPrefabPath = DungeonPrefabRoot + "/DungeonWallTIntersection.prefab";
+        public const string WallTPrefabPath =
+            DungeonPrefabRoot + "/DungeonWallTIntersection.prefab";
         public const string WallCrossPrefabPath = DungeonPrefabRoot + "/DungeonWallCrossing.prefab";
         public const string WallEndcapPrefabPath = DungeonPrefabRoot + "/DungeonWallEndcap.prefab";
         public const string WallPillarPrefabPath = DungeonPrefabRoot + "/DungeonWallPillar.prefab";
-        public const string WallResolverPrefabPath = DungeonPrefabRoot + "/DungeonWallResolver.prefab";
+        public const string WallResolverPrefabPath =
+            DungeonPrefabRoot + "/DungeonWallResolver.prefab";
         public const string DoorwayPrefabPath = DungeonPrefabRoot + "/DungeonDoorwayOpen.prefab";
+
         /// <summary>The generated project-owned prefab used for a blocking closed door.</summary>
         public const string ClosedDoorPrefabPath = DungeonPrefabRoot + "/DungeonDoorClosed.prefab";
+
         /// <summary>The generated project-owned prefab used to mark a semantic stair endpoint.</summary>
         public const string StairPrefabPath = DungeonPrefabRoot + "/DungeonStair.prefab";
         public const string OpenDoorwayModelName = "wall_doorway_sides";
 
         private const float WallVisualHeight = 4f * WallVisualScale;
 
-        private static readonly WrapperDescriptor ClosedDoorWrapper =
-            new(
-                "DungeonDoorClosed",
-                "__generated_closed_door__",
-                true,
-                false,
-                "wall_doorway",
-                WallVisualScale);
-        private static readonly WrapperDescriptor StairWrapper =
-            new(
-                "DungeonStair",
-                "__generated_stair__",
-                false,
-                false,
-                "stairs",
-                StairVisualScale,
-                -0.85f,
-                Vector3.zero);
-        private static readonly WrapperDescriptor BannerWrapper =
-            new(
-                "BannerRed",
-                "banner_red",
-                false,
-                false,
-                "banner_red",
-                BannerVisualScale,
-                0f,
-                new Vector3(0f, -0.25f, -1f));
-        private static readonly WrapperDescriptor TorchWrapper =
-            new(
-                "TorchMounted",
-                "torch_mounted",
-                false,
-                false,
-                "torch_mounted",
-                DungeonVisualScale,
-                0f,
-                new Vector3(0f, 0.35f, -0.925f));
+        private static readonly WrapperDescriptor ClosedDoorWrapper = new(
+            "DungeonDoorClosed",
+            "__generated_closed_door__",
+            true,
+            false,
+            "wall_doorway",
+            WallVisualScale
+        );
+        private static readonly WrapperDescriptor StairWrapper = new(
+            "DungeonStair",
+            "__generated_stair__",
+            false,
+            false,
+            "stairs",
+            StairVisualScale,
+            -0.85f,
+            Vector3.zero
+        );
+        private static readonly WrapperDescriptor BannerWrapper = new(
+            "BannerRed",
+            "banner_red",
+            false,
+            false,
+            "banner_red",
+            BannerVisualScale,
+            0f,
+            new Vector3(0f, -0.25f, -1f)
+        );
+        private static readonly WrapperDescriptor TorchWrapper = new(
+            "TorchMounted",
+            "torch_mounted",
+            false,
+            false,
+            "torch_mounted",
+            DungeonVisualScale,
+            0f,
+            new Vector3(0f, 0.35f, -0.925f)
+        );
 
         private static readonly WrapperDescriptor[] Wrappers =
         {
             new("DungeonFloorSmall", "floor_tile_small", false, false),
             new("DungeonWallStraight", "wall", true, false, visualScale: WallVisualScale),
             new("DungeonWallCorner", "wall_corner", true, false, visualScale: WallVisualScale),
-            new("DungeonWallTIntersection", "wall_Tsplit", true, false, visualScale: WallVisualScale),
+            new(
+                "DungeonWallTIntersection",
+                "wall_Tsplit",
+                true,
+                false,
+                visualScale: WallVisualScale
+            ),
             new("DungeonWallCrossing", "wall_crossing", true, false, visualScale: WallVisualScale),
             new("DungeonWallEndcap", "wall_endcap", true, false, visualScale: WallVisualScale),
             new("DungeonWallPillar", "wall_pillar", true, false, visualScale: WallVisualScale),
@@ -92,7 +106,8 @@ namespace Game.KayKit.Editor
                 false,
                 true,
                 OpenDoorwayModelName,
-                WallVisualScale),
+                WallVisualScale
+            ),
             ClosedDoorWrapper,
             StairWrapper,
             new("BarrelSmall", "barrel_small", false, false),
@@ -103,14 +118,15 @@ namespace Game.KayKit.Editor
             new("ShelfLarge", "shelf_large", false, false),
             new("RubbleHalf", "rubble_half", false, false),
             BannerWrapper,
-            TorchWrapper
+            TorchWrapper,
         };
 
         private static readonly Dictionary<string, string> WrapperPathByModel =
             Wrappers.ToDictionary(
                 descriptor => descriptor.ModelName,
                 descriptor => $"{DungeonPrefabRoot}/{descriptor.PrefabName}.prefab",
-                StringComparer.OrdinalIgnoreCase);
+                StringComparer.OrdinalIgnoreCase
+            );
 
         public static void RegeneratePrefabs(Material material)
         {
@@ -141,8 +157,11 @@ namespace Game.KayKit.Editor
         public static void RegenerateWallPrefabs(Material material)
         {
             EnsureFolder(DungeonPrefabRoot);
-            foreach (WrapperDescriptor descriptor in Wrappers.Where(
-                         descriptor => descriptor.WallCollider || descriptor.OpenDoorway))
+            foreach (
+                WrapperDescriptor descriptor in Wrappers.Where(descriptor =>
+                    descriptor.WallCollider || descriptor.OpenDoorway
+                )
+            )
             {
                 CreateWrapper(descriptor, material);
             }
@@ -156,21 +175,28 @@ namespace Game.KayKit.Editor
             if (WrapperPathByModel.TryGetValue(name, out string wrapperPath))
                 wrapper = AssetDatabase.LoadAssetAtPath<GameObject>(wrapperPath);
 
-            Vector2Int footprint = string.Equals(name, "table_long", StringComparison.OrdinalIgnoreCase)
+            Vector2Int footprint = string.Equals(
+                name,
+                "table_long",
+                StringComparison.OrdinalIgnoreCase
+            )
                 ? new Vector2Int(2, 1)
                 : Vector2Int.one;
             bool wrapperBlocksPlacement =
-                wrapper != null &&
-                wrapper.GetComponent<Collider>() != null &&
-                wrapper.GetComponent<MapLineOfSightBlocker>() != null;
-            bool blocksMovement = wrapperBlocksPlacement || IsOneOf(
-                name,
-                "barrel_small",
-                "column",
-                "crates_stacked",
-                "chest",
-                "table_long",
-                "shelf_large");
+                wrapper != null
+                && wrapper.GetComponent<Collider>() != null
+                && wrapper.GetComponent<MapLineOfSightBlocker>() != null;
+            bool blocksMovement =
+                wrapperBlocksPlacement
+                || IsOneOf(
+                    name,
+                    "barrel_small",
+                    "column",
+                    "crates_stacked",
+                    "chest",
+                    "table_long",
+                    "shelf_large"
+                );
             bool blocksLineOfSight = wrapperBlocksPlacement;
 
             return new KayKitDungeonCatalogEntry(
@@ -181,7 +207,8 @@ namespace Game.KayKit.Editor
                 0,
                 0f,
                 blocksMovement,
-                blocksLineOfSight);
+                blocksLineOfSight
+            );
         }
 
         public static GameObject LoadFloorPrefab()
@@ -251,7 +278,13 @@ namespace Game.KayKit.Editor
                     AddDoorPost(root.transform, "RightDoorPostCollider", 0.43f);
                 }
 
-                if (string.Equals(descriptor.ModelName, "torch_mounted", StringComparison.OrdinalIgnoreCase))
+                if (
+                    string.Equals(
+                        descriptor.ModelName,
+                        "torch_mounted",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
                 {
                     GameObject lightObject = new("TorchLight");
                     lightObject.transform.SetParent(root.transform, false);
@@ -272,7 +305,8 @@ namespace Game.KayKit.Editor
 
                 PrefabUtility.SaveAsPrefabAsset(
                     root,
-                    $"{DungeonPrefabRoot}/{descriptor.PrefabName}.prefab");
+                    $"{DungeonPrefabRoot}/{descriptor.PrefabName}.prefab"
+                );
             }
             finally
             {
@@ -330,7 +364,7 @@ namespace Game.KayKit.Editor
                 "corner",
                 "crossIntersection",
                 "pillar",
-                "tIntersection"
+                "tIntersection",
             };
             foreach (string field in fields)
             {
@@ -361,14 +395,21 @@ namespace Game.KayKit.Editor
 
         private static GameObject LoadDungeonModel(string modelName)
         {
-            string path = AssetDatabase.FindAssets(string.Empty, new[] { KayKitPathUtility.DungeonRoot })
+            string path = AssetDatabase
+                .FindAssets(string.Empty, new[] { KayKitPathUtility.DungeonRoot })
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .FirstOrDefault(candidate =>
-                    string.Equals(Path.GetExtension(candidate), ".fbx", StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(
+                        Path.GetExtension(candidate),
+                        ".fbx",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                    && string.Equals(
                         Path.GetFileNameWithoutExtension(candidate),
                         modelName,
-                        StringComparison.OrdinalIgnoreCase));
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                );
             GameObject model = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             if (model == null)
                 throw new InvalidOperationException($"Missing Dungeon model '{modelName}'.");
@@ -387,7 +428,8 @@ namespace Game.KayKit.Editor
         private static bool IsOneOf(string value, params string[] candidates)
         {
             return candidates.Any(candidate =>
-                string.Equals(value, candidate, StringComparison.OrdinalIgnoreCase));
+                string.Equals(value, candidate, StringComparison.OrdinalIgnoreCase)
+            );
         }
 
         private static void EnsureFolder(string path)
@@ -417,7 +459,8 @@ namespace Game.KayKit.Editor
                 bool wallCollider,
                 bool openDoorway,
                 string sourceModelName = null,
-                float visualScale = DungeonVisualScale)
+                float visualScale = DungeonVisualScale
+            )
                 : this(
                     prefabName,
                     modelName,
@@ -426,9 +469,8 @@ namespace Game.KayKit.Editor
                     sourceModelName,
                     visualScale,
                     0f,
-                    Vector3.zero)
-            {
-            }
+                    Vector3.zero
+                ) { }
 
             public WrapperDescriptor(
                 string prefabName,
@@ -438,7 +480,8 @@ namespace Game.KayKit.Editor
                 string sourceModelName,
                 float visualScale,
                 float modelLocalZ,
-                Vector3 placementOffset)
+                Vector3 placementOffset
+            )
             {
                 PrefabName = prefabName;
                 ModelName = modelName;

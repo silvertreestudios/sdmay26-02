@@ -1,6 +1,6 @@
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace Game.Creature.Rules
@@ -60,14 +60,19 @@ namespace Game.Creature.Rules
                     Slug = string.IsNullOrWhiteSpace(slug) ? Pf2eSlug.FromName(name) : slug,
                     Type = type,
                     ResourceName = resourceName,
-                    Source = root.Value<string>("Source") ?? root.SelectToken("system.publication.title")?.Value<string>() ?? string.Empty,
-                    Json = root
+                    Source =
+                        root.Value<string>("Source")
+                        ?? root.SelectToken("system.publication.title")?.Value<string>()
+                        ?? string.Empty,
+                    Json = root,
                 };
                 return true;
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"PF2e catalog skipped malformed item '{resourceName}': {ex.Message}");
+                Debug.LogWarning(
+                    $"PF2e catalog skipped malformed item '{resourceName}': {ex.Message}"
+                );
                 return false;
             }
         }

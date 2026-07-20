@@ -11,20 +11,23 @@ namespace Game.Rules.Runtime
     /// </summary>
     /// <remarks>
     /// Root resolutions are serialized: a second external root waits until the active root and its
-    /// post-commit listeners finish.
+    /// post-commit callbacks finish.
     /// Handlers may dispatch nested children through <see cref="OpHandlerContext"/>, but each active frame
-    /// may own only one child at a time and must await it. Committed-Fact listeners finish before
-    /// the caller regains root ownership; listener-dispatched work runs as serialized causal roots.
+    /// may own only one child at a time and must await it. Dynamic Fact observers finish after each
+    /// reduction commit, before its parent handler continues. Binding-scoped Fact listeners finish
+    /// after the root; listener-dispatched work runs as serialized causal roots.
     /// Trace and diagnostic history accumulate for the lifetime of the dispatcher.
     /// </remarks>
     public sealed partial class RuleDispatcher
     {
-        private static readonly IReadOnlyList<RuleFact> NoFacts =
-            Array.AsReadOnly(Array.Empty<RuleFact>());
+        private static readonly IReadOnlyList<RuleFact> NoFacts = Array.AsReadOnly(
+            Array.Empty<RuleFact>()
+        );
         private static readonly IReadOnlyList<BoundMiddlewareRegistration> NoMiddleware =
             Array.AsReadOnly(Array.Empty<BoundMiddlewareRegistration>());
         private readonly object gate = new object();
         private readonly SemaphoreSlim rootSerial = new SemaphoreSlim(1, 1);
+
         // Zero is the idle async-flow sentinel. A unique nonzero lease distinguishes callbacks still
         // running inside this dispatcher's current resolution from callers that should wait on the gate.
         private readonly AsyncLocal<long> activeResolutionFlow = new AsyncLocal<long>();
@@ -44,15 +47,19 @@ namespace Game.Rules.Runtime
             IRollService rollService,
             IDictionary<Type, IRegistration> registrations,
             RuleRegistry ruleRegistry,
-            ActionRuntime actionRuntime)
+            ActionRuntime actionRuntime
+        )
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
             this.rollService = rollService ?? throw new ArgumentNullException(nameof(rollService));
             this.registrations = new ReadOnlyDictionary<Type, IRegistration>(
-                new Dictionary<Type, IRegistration>(registrations));
-            this.ruleRegistry = ruleRegistry ?? throw new ArgumentNullException(nameof(ruleRegistry));
-            this.actionRuntime = actionRuntime ?? throw new ArgumentNullException(nameof(actionRuntime));
+                new Dictionary<Type, IRegistration>(registrations)
+            );
+            this.ruleRegistry =
+                ruleRegistry ?? throw new ArgumentNullException(nameof(ruleRegistry));
+            this.actionRuntime =
+                actionRuntime ?? throw new ArgumentNullException(nameof(actionRuntime));
             Trace = new ResolutionTrace();
             Diagnostics = new ResolutionDiagnostics(Trace);
         }
@@ -86,14 +93,15 @@ namespace Game.Rules.Runtime
         /// calls this public root API reentrantly, or a handler violates nested-dispatch ownership.
         /// </exception>
         /// <remarks>
-        /// Resolver, middleware, and post-commit listener exceptions propagate to the caller. State
-        /// already committed by a reducer is not rolled back. If resolution fails after a commit,
-        /// listeners receive the durable Facts before the resolution exception is rethrown. If that
-        /// notification also fails, an <see cref="AggregateException"/> reports the resolution
-        /// exception first and the notification exception second. The dispatcher then releases root
-        /// ownership so a later independent root may be dispatched. When a callback and its unconsumed
-        /// work both fail, their aggregate likewise retains the callback exception first. Other
-        /// external roots remain queued until this entire resolution releases ownership.
+        /// Resolver, middleware, observer, and post-commit listener exceptions propagate to the
+        /// caller. State already committed by a reducer is not rolled back. If resolution fails
+        /// after a commit, listeners receive the durable Facts before the resolution exception is
+        /// rethrown. If that notification also fails, an <see cref="AggregateException"/> reports
+        /// the resolution exception first and the notification exception second. The dispatcher
+        /// then releases root ownership so a later independent root may be dispatched. When a
+        /// callback and its unconsumed work both fail, their aggregate likewise retains the callback
+        /// exception first. Other external roots remain queued until this entire resolution releases
+        /// ownership.
         /// </remarks>
         public async ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
         {
@@ -105,8 +113,9 @@ namespace Game.Rules.Runtime
                 if (callerFlowLease != 0 && callerFlowLease == activeResolutionFlowLease)
                 {
                     throw new InvalidOperationException(
-                        "An active resolution cannot call the public root Dispatch API. " +
-                        "Use its callback context for nested work.");
+                        "An active resolution cannot call the public root Dispatch API. "
+                            + "Use its callback context for nested work."
+                    );
                 }
             }
 
@@ -122,7 +131,8 @@ namespace Game.Rules.Runtime
                     if (!activeRoot.IsIdle)
                     {
                         throw new InvalidOperationException(
-                            "Serialized root ownership was not released before the next root began.");
+                            "Serialized root ownership was not released before the next root began."
+                        );
                     }
 
                     activeRoot = resolution;
@@ -134,7 +144,8 @@ namespace Game.Rules.Runtime
                 if (registration.Policy != InvocationPolicy.ExternalAllowed)
                 {
                     throw new InvalidOperationException(
-                        $"{op.GetType().Name} is nested-only and cannot be externally dispatched.");
+                        $"{op.GetType().Name} is nested-only and cannot be externally dispatched."
+                    );
                 }
 
                 OpId rootId;
@@ -145,12 +156,7 @@ namespace Game.Rules.Runtime
                     resolution.Initialize(rootId);
                 }
 
-                return await DispatchRoot(
-                    op,
-                    registration,
-                    resolution,
-                    rootId,
-                    null);
+                return await DispatchRoot(op, registration, resolution, rootId, null);
             }
             finally
             {
@@ -178,7 +184,8 @@ namespace Game.Rules.Runtime
 
         internal async ValueTask<OpResult<TResult>> DispatchNested<TResult>(
             IRuleOp<TResult> op,
-            OpId parentId)
+            OpId parentId
+        )
         {
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
@@ -188,7 +195,9 @@ namespace Game.Rules.Runtime
             lock (gate)
             {
                 if (activeRoot.IsIdle)
-                    throw new InvalidOperationException("Nested dispatch requires an active root resolution.");
+                    throw new InvalidOperationException(
+                        "Nested dispatch requires an active root resolution."
+                    );
 
                 resolution = activeRoot;
                 reservation = resolution.ReserveChild(parentId);
@@ -203,7 +212,8 @@ namespace Game.Rules.Runtime
                     resolution,
                     resolution.RootId,
                     parentId,
-                    parentId);
+                    parentId
+                );
             }
             finally
             {
@@ -222,7 +232,8 @@ namespace Game.Rules.Runtime
         internal async ValueTask<OpResult<TResult>> DispatchFromFact<TResult>(
             IRuleOp<TResult> op,
             OpId committedRootId,
-            OpId causeId)
+            OpId causeId
+        )
         {
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
@@ -231,7 +242,8 @@ namespace Game.Rules.Runtime
             if (registration.Policy != InvocationPolicy.ExternalAllowed)
             {
                 throw new InvalidOperationException(
-                    $"{op.GetType().Name} is nested-only and cannot begin a Fact-listener batch.");
+                    $"{op.GetType().Name} is nested-only and cannot begin a Fact-listener batch."
+                );
             }
 
             RootResolution owner;
@@ -242,7 +254,8 @@ namespace Game.Rules.Runtime
                 if (activeRoot.IsIdle || activeRoot.RootId != committedRootId)
                 {
                     throw new InvalidOperationException(
-                        "Fact-listener dispatch requires its completed root to retain resolution ownership.");
+                        "Fact-listener dispatch requires its completed root to retain resolution ownership."
+                    );
                 }
 
                 owner = activeRoot;

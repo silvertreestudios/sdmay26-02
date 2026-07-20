@@ -23,7 +23,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     private Vector2 rotateInput = Vector2.zero;
     private Vector2 currentVelocity = Vector2.zero;
     private float currentRotationVelocity = 0f;
-    
+
     private CombatManager combatManager;
     private GameObject followTarget;
     public bool IsFollowing => followTarget != null;
@@ -71,7 +71,6 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         }
     }
 
-
     private void GetCamera()
     {
         if (Camera.main != null)
@@ -98,21 +97,34 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         right.y = 0;
         forward.Normalize();
         right.Normalize();
-        
-        float accelerationRate = moveInput.magnitude > 0.01f ? cameraMovementAcceleration : cameraMovementDeceleration;
-        
-        currentVelocity = Vector2.Lerp(currentVelocity, moveInput, accelerationRate * Time.unscaledDeltaTime);
+
+        float accelerationRate =
+            moveInput.magnitude > 0.01f ? cameraMovementAcceleration : cameraMovementDeceleration;
+
+        currentVelocity = Vector2.Lerp(
+            currentVelocity,
+            moveInput,
+            accelerationRate * Time.unscaledDeltaTime
+        );
 
         // Scale speed based on camera height
-        float zoomScale = Mathf.InverseLerp(minCamearYLimit, maxCameraYLimit, mainCamera.transform.position.y);
+        float zoomScale = Mathf.InverseLerp(
+            minCamearYLimit,
+            maxCameraYLimit,
+            mainCamera.transform.position.y
+        );
 
         Vector3 moveDirection = right * currentVelocity.x + forward * currentVelocity.y;
-        mainCamera.transform.Translate(moveDirection * cameraMoveSpeed * Time.unscaledDeltaTime * (0.5f + zoomScale), Space.World);
+        mainCamera.transform.Translate(
+            moveDirection * cameraMoveSpeed * Time.unscaledDeltaTime * (0.5f + zoomScale),
+            Space.World
+        );
     }
 
     private void HandleCameraZoom()
     {
-        if (HUDController.IsPointerOverLog) return;
+        if (HUDController.IsPointerOverLog)
+            return;
         zoomInput = zoomAction.ReadValue<Vector2>();
         if (invertZoom)
         {
@@ -125,7 +137,8 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
     private bool TryApplyZoom(float zoomAmount)
     {
-        Vector3 newPosition = mainCamera.transform.position + mainCamera.transform.forward * zoomAmount;
+        Vector3 newPosition =
+            mainCamera.transform.position + mainCamera.transform.forward * zoomAmount;
 
         if (newPosition.y < minCamearYLimit || newPosition.y > maxCameraYLimit)
         {
@@ -139,24 +152,41 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     {
         rotateInput = rotateAction.ReadValue<Vector2>();
 
-        float accelerationRate = rotateInput.magnitude > 0.01f ? cameraMovementAcceleration : cameraMovementDeceleration;
-        
-        currentRotationVelocity = Mathf.Lerp(currentRotationVelocity, rotateInput.x, accelerationRate * Time.unscaledDeltaTime);
+        float accelerationRate =
+            rotateInput.magnitude > 0.01f ? cameraMovementAcceleration : cameraMovementDeceleration;
+
+        currentRotationVelocity = Mathf.Lerp(
+            currentRotationVelocity,
+            rotateInput.x,
+            accelerationRate * Time.unscaledDeltaTime
+        );
 
         // Scale rotation based on camera height
-        float zoomScale = Mathf.InverseLerp(minCamearYLimit, maxCameraYLimit, mainCamera.transform.position.y);
+        float zoomScale = Mathf.InverseLerp(
+            minCamearYLimit,
+            maxCameraYLimit,
+            mainCamera.transform.position.y
+        );
 
-        float rotationAmount = currentRotationVelocity * cameraRotationSpeed * Time.unscaledDeltaTime * (0.5f + zoomScale);
-        Vector3 orbitCenter = followTarget != null ? followTarget.transform.position : GetCameraLookAtPosition();
+        float rotationAmount =
+            currentRotationVelocity
+            * cameraRotationSpeed
+            * Time.unscaledDeltaTime
+            * (0.5f + zoomScale);
+        Vector3 orbitCenter =
+            followTarget != null ? followTarget.transform.position : GetCameraLookAtPosition();
         mainCamera.transform.RotateAround(orbitCenter, Vector3.up, rotationAmount);
     }
-
 
     // Used for the center point that the camera rotates around.
     private Vector3 GetCameraLookAtPosition()
     {
-        Vector3 returnPosition = new Vector3(mainCamera.transform.position.x, 0, mainCamera.transform.position.z);
-        Plane plane = new Plane(Vector3.up, Vector3.zero);      
+        Vector3 returnPosition = new Vector3(
+            mainCamera.transform.position.x,
+            0,
+            mainCamera.transform.position.z
+        );
+        Plane plane = new Plane(Vector3.up, Vector3.zero);
         Ray ray = mainCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
         if (plane.Raycast(ray, out float enter))
         {
@@ -172,7 +202,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
         if (positions.Length == 0)
             return Vector3.zero;
-        
+
         Vector3 sum = Vector3.zero;
         foreach (Vector3 pos in positions)
         {
@@ -185,10 +215,14 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
     public void PanToTarget(GameObject target, bool followIndefinitely = false)
     {
-        if (target == null) return;
-        if (mainCamera == null) GetCamera();
-        if (mainCamera == null) return;
-        if (currentPanRoutine != null) StopCoroutine(currentPanRoutine);
+        if (target == null)
+            return;
+        if (mainCamera == null)
+            GetCamera();
+        if (mainCamera == null)
+            return;
+        if (currentPanRoutine != null)
+            StopCoroutine(currentPanRoutine);
         currentPanRoutine = StartCoroutine(PanToTargetRoutine(target, followIndefinitely));
     }
 
@@ -211,12 +245,17 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         float elapsed = 0f;
         while (elapsed < panDuration)
         {
-            if (target == null) yield break;
+            if (target == null)
+                yield break;
             elapsed += Time.unscaledDeltaTime;
             float t = Mathf.Clamp01(elapsed / panDuration);
             Vector3 desiredPosition = target.transform.position + offset;
             desiredPosition.y = mainCamera.transform.position.y;
-            mainCamera.transform.position = Vector3.Lerp(mainCamera.transform.position, desiredPosition, t);
+            mainCamera.transform.position = Vector3.Lerp(
+                mainCamera.transform.position,
+                desiredPosition,
+                t
+            );
             yield return null;
         }
 
@@ -246,7 +285,8 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
             elapsed = 0f;
             while (elapsed < 1f)
             {
-                if (target == null) yield break;
+                if (target == null)
+                    yield break;
                 elapsed += Time.unscaledDeltaTime;
                 Vector3 desiredPosition = target.transform.position + offset;
                 desiredPosition.y = mainCamera.transform.position.y;
@@ -260,20 +300,20 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     {
         Vector3 averagePosition = GetAveragePosition();
         Vector3 currentLookAt = GetCameraLookAtPosition();
-        
+
         // Calculate the offset from current look-at to camera
         Vector3 offset = mainCamera.transform.position - currentLookAt;
-        
+
         // Calculate desired zoom based on combatant spread
         float maxDistance = GetMaxDistanceFromAveragePoint(averagePosition);
-        
+
         // Map distance to Y height (closer combatants = lower camera, spread out = higher camera)
         float targetY = Mathf.Lerp(minCamearYLimit, maxCameraYLimit, maxDistance / 5f);
         targetY = Mathf.Clamp(targetY, minCamearYLimit, maxCameraYLimit);
-        
+
         // Update Y component of offset
         offset.y = targetY - averagePosition.y;
-        
+
         // Move camera to maintain offset from new target
         mainCamera.transform.position = averagePosition + offset;
     }
@@ -282,14 +322,17 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     {
         Vector3[] positions = combatManager.getPoistions();
         float maxDist = 0f;
-        
+
         foreach (Vector3 pos in positions)
         {
-            float dist = Vector3.Distance(new Vector3(average.x, 0, average.z), new Vector3(pos.x, 0, pos.z));
+            float dist = Vector3.Distance(
+                new Vector3(average.x, 0, average.z),
+                new Vector3(pos.x, 0, pos.z)
+            );
             if (dist > maxDist)
                 maxDist = dist;
         }
-        
+
         return maxDist;
     }
 }

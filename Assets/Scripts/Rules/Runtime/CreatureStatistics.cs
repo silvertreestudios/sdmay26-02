@@ -85,10 +85,14 @@ namespace Game.Rules.Runtime
             int reflexModifier,
             int willModifier,
             IReadOnlyDictionary<Skill, int> skillModifiers,
-            IEnumerable<Modifier> modifiers)
+            IEnumerable<Modifier> modifiers
+        )
         {
             if (creature.IsEmpty)
-                throw new ArgumentException("A statistics state requires a creature ID.", nameof(creature));
+                throw new ArgumentException(
+                    "A statistics state requires a creature ID.",
+                    nameof(creature)
+                );
             if (armorClass < 0)
                 throw new ArgumentOutOfRangeException(nameof(armorClass));
             if (skillModifiers == null)
@@ -100,13 +104,19 @@ namespace Game.Rules.Runtime
             foreach (KeyValuePair<Skill, int> pair in skillModifiers)
             {
                 if (pair.Key.IsEmpty)
-                    throw new ArgumentException("Skill modifiers cannot contain an empty skill.", nameof(skillModifiers));
+                    throw new ArgumentException(
+                        "Skill modifiers cannot contain an empty skill.",
+                        nameof(skillModifiers)
+                    );
                 copiedSkills.Add(pair.Key, pair.Value);
             }
 
             Modifier[] copiedModifiers = modifiers.ToArray();
             if (copiedModifiers.Any(modifier => modifier.IsEmpty))
-                throw new ArgumentException("Statistics modifiers cannot contain an empty value.", nameof(modifiers));
+                throw new ArgumentException(
+                    "Statistics modifiers cannot contain an empty value.",
+                    nameof(modifiers)
+                );
 
             Creature = creature;
             AttackModifier = attackModifier;
@@ -154,19 +164,33 @@ namespace Game.Rules.Runtime
 
         /// <inheritdoc/>
         public bool Equals(CreatureStatisticsState other) =>
-            other != null && Creature == other.Creature && AttackModifier == other.AttackModifier &&
-            ArmorClass == other.ArmorClass && FortitudeModifier == other.FortitudeModifier &&
-            ReflexModifier == other.ReflexModifier && WillModifier == other.WillModifier &&
-            skillModifiers.OrderBy(pair => pair.Key.Slug, StringComparer.Ordinal).SequenceEqual(
-                other.skillModifiers.OrderBy(pair => pair.Key.Slug, StringComparer.Ordinal)) &&
-            modifiers.SequenceEqual(other.modifiers);
+            other != null
+            && Creature == other.Creature
+            && AttackModifier == other.AttackModifier
+            && ArmorClass == other.ArmorClass
+            && FortitudeModifier == other.FortitudeModifier
+            && ReflexModifier == other.ReflexModifier
+            && WillModifier == other.WillModifier
+            && skillModifiers
+                .OrderBy(pair => pair.Key.Slug, StringComparer.Ordinal)
+                .SequenceEqual(
+                    other.skillModifiers.OrderBy(pair => pair.Key.Slug, StringComparer.Ordinal)
+                )
+            && modifiers.SequenceEqual(other.modifiers);
 
         /// <inheritdoc/>
-        public override bool Equals(object obj) => obj is CreatureStatisticsState other && Equals(other);
+        public override bool Equals(object obj) =>
+            obj is CreatureStatisticsState other && Equals(other);
 
         /// <inheritdoc/>
         public override int GetHashCode() =>
-            HashCode.Combine(Creature, AttackModifier, ArmorClass, FortitudeModifier,
-                ReflexModifier, WillModifier);
+            HashCode.Combine(
+                Creature,
+                AttackModifier,
+                ArmorClass,
+                FortitudeModifier,
+                ReflexModifier,
+                WillModifier
+            );
     }
 }

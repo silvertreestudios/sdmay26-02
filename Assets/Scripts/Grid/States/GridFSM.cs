@@ -1,6 +1,6 @@
-using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 using UniversalEvents;
 
 namespace GridPrivate
@@ -16,7 +16,8 @@ namespace GridPrivate
         public GridFSM()
         {
             CurrentState = IdleState;
-            OnCancel.AddListener(() => {
+            OnCancel.AddListener(() =>
+            {
                 Debug.Log("Action Cancel");
                 if (ChangeState(new StateIdle()))
                     OnActionCancel.Invoke();
@@ -38,8 +39,7 @@ namespace GridPrivate
         /// <summary>
         /// Gets whether runtime map replacement can proceed without interrupting an action.
         /// </summary>
-        internal bool CanResetForGridRebind =>
-            !IsInTransition && CurrentState is StateIdle;
+        internal bool CanResetForGridRebind => !IsInTransition && CurrentState is StateIdle;
 
         /// <summary>
         /// Returns this subscribed FSM to its reusable idle state without creating another
@@ -58,7 +58,8 @@ namespace GridPrivate
         // Update is called once per frame
         public void InputUpdate()
         {
-            if (HUDController.IsPointerOverHUD) return;
+            if (HUDController.IsPointerOverHUD)
+                return;
 
             TimeSinceLastClick = Time.time - LastClickTime;
             if (InputCompat.LeftClickDown())

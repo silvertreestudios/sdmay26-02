@@ -13,34 +13,49 @@ namespace Game.Rules.Runtime
     {
         /// <summary>Acrobatics.</summary>
         public static readonly Skill Acrobatics = FromSlug("acrobatics");
+
         /// <summary>Arcana.</summary>
         public static readonly Skill Arcana = FromSlug("arcana");
+
         /// <summary>Athletics.</summary>
         public static readonly Skill Athletics = FromSlug("athletics");
+
         /// <summary>Crafting.</summary>
         public static readonly Skill Crafting = FromSlug("crafting");
+
         /// <summary>Deception.</summary>
         public static readonly Skill Deception = FromSlug("deception");
+
         /// <summary>Diplomacy.</summary>
         public static readonly Skill Diplomacy = FromSlug("diplomacy");
+
         /// <summary>Intimidation.</summary>
         public static readonly Skill Intimidation = FromSlug("intimidation");
+
         /// <summary>Medicine.</summary>
         public static readonly Skill Medicine = FromSlug("medicine");
+
         /// <summary>Nature.</summary>
         public static readonly Skill Nature = FromSlug("nature");
+
         /// <summary>Occultism.</summary>
         public static readonly Skill Occultism = FromSlug("occultism");
+
         /// <summary>Performance.</summary>
         public static readonly Skill Performance = FromSlug("performance");
+
         /// <summary>Religion.</summary>
         public static readonly Skill Religion = FromSlug("religion");
+
         /// <summary>Society.</summary>
         public static readonly Skill Society = FromSlug("society");
+
         /// <summary>Stealth.</summary>
         public static readonly Skill Stealth = FromSlug("stealth");
+
         /// <summary>Survival.</summary>
         public static readonly Skill Survival = FromSlug("survival");
+
         /// <summary>Thievery.</summary>
         public static readonly Skill Thievery = FromSlug("thievery");
 

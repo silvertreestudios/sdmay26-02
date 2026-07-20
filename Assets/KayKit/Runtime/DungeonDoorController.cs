@@ -10,13 +10,26 @@ namespace Game.KayKit
     [DisallowMultipleComponent]
     public sealed class DungeonDoorController : MonoBehaviour
     {
-        [SerializeField] private string stableId = string.Empty;
-        [SerializeField] private int cellX;
-        [SerializeField] private int cellZ;
-        [SerializeField] private Map map;
-        [SerializeField] private GameObject closedVisual;
-        [SerializeField] private GameObject openVisual;
-        [SerializeField] private bool isOpen;
+        [SerializeField]
+        private string stableId = string.Empty;
+
+        [SerializeField]
+        private int cellX;
+
+        [SerializeField]
+        private int cellZ;
+
+        [SerializeField]
+        private Map map;
+
+        [SerializeField]
+        private GameObject closedVisual;
+
+        [SerializeField]
+        private GameObject openVisual;
+
+        [SerializeField]
+        private bool isOpen;
 
         /// <summary>Gets the stable JSON door ID used by persistence and later interaction systems.</summary>
         public string StableId => stableId;
@@ -44,19 +57,21 @@ namespace Game.KayKit
             bool isOpen,
             Map owningMap,
             GameObject closedRepresentation,
-            GameObject openRepresentation)
+            GameObject openRepresentation
+        )
         {
             if (string.IsNullOrWhiteSpace(id))
                 throw new ArgumentException("A generated door requires a stable ID.", nameof(id));
-            map = owningMap != null
-                ? owningMap
-                : throw new ArgumentNullException(nameof(owningMap));
-            closedVisual = closedRepresentation != null
-                ? closedRepresentation
-                : throw new ArgumentNullException(nameof(closedRepresentation));
-            openVisual = openRepresentation != null
-                ? openRepresentation
-                : throw new ArgumentNullException(nameof(openRepresentation));
+            map =
+                owningMap != null ? owningMap : throw new ArgumentNullException(nameof(owningMap));
+            closedVisual =
+                closedRepresentation != null
+                    ? closedRepresentation
+                    : throw new ArgumentNullException(nameof(closedRepresentation));
+            openVisual =
+                openRepresentation != null
+                    ? openRepresentation
+                    : throw new ArgumentNullException(nameof(openRepresentation));
             stableId = id;
             cellX = doorCell.X;
             cellZ = doorCell.Z;

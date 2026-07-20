@@ -12,7 +12,7 @@ namespace Game.Rules
         Untyped,
         Circumstance,
         Item,
-        Status
+        Status,
     }
 
     /// <summary>
@@ -27,7 +27,7 @@ namespace Game.Rules
         WillSave,
         SkillCheck,
         Initiative,
-        DifficultyClass
+        DifficultyClass,
     }
 
     /// <summary>
@@ -40,14 +40,17 @@ namespace Game.Rules
         /// Signed numeric value applied when this modifier is not suppressed.
         /// </summary>
         public int Value { get; }
+
         /// <summary>
         /// PF2e stacking category for this modifier.
         /// </summary>
         public Pf2eModifierType Type { get; }
+
         /// <summary>
         /// Short source label used in logs, tests, and modifier audits.
         /// </summary>
         public string Source { get; }
+
         /// <summary>
         /// Statistic this modifier is allowed to affect.
         /// </summary>
@@ -60,7 +63,12 @@ namespace Game.Rules
         /// <param name="type">The PF2e stacking category for this modifier.</param>
         /// <param name="source">A short source label used for diagnostics and combat logs.</param>
         /// <param name="targetStatistic">The statistic this modifier can affect.</param>
-        public Pf2eModifier(int value, Pf2eModifierType type, string source, Pf2eStatistic targetStatistic)
+        public Pf2eModifier(
+            int value,
+            Pf2eModifierType type,
+            string source,
+            Pf2eStatistic targetStatistic
+        )
         {
             Value = value;
             Type = type;
@@ -78,10 +86,12 @@ namespace Game.Rules
         /// Final total after typed stacking rules are applied.
         /// </summary>
         public int Total { get; }
+
         /// <summary>
         /// Modifiers that contributed to the final total.
         /// </summary>
         public IReadOnlyList<Pf2eModifier> AppliedModifiers { get; }
+
         /// <summary>
         /// Modifiers ignored because another same-type bonus or penalty was stronger.
         /// </summary>
@@ -93,7 +103,11 @@ namespace Game.Rules
         /// <param name="total">The final modifier total after stacking rules are applied.</param>
         /// <param name="appliedModifiers">Modifiers that contributed to the total.</param>
         /// <param name="suppressedModifiers">Modifiers ignored because another modifier of the same type was stronger.</param>
-        public Pf2eModifierResolution(int total, IReadOnlyList<Pf2eModifier> appliedModifiers, IReadOnlyList<Pf2eModifier> suppressedModifiers)
+        public Pf2eModifierResolution(
+            int total,
+            IReadOnlyList<Pf2eModifier> appliedModifiers,
+            IReadOnlyList<Pf2eModifier> suppressedModifiers
+        )
         {
             Total = total;
             AppliedModifiers = appliedModifiers ?? Array.Empty<Pf2eModifier>();
@@ -114,27 +128,54 @@ namespace Game.Rules
         /// <param name="modifiers">Candidate modifiers from creature providers and the immediate roll context.</param>
         /// <param name="statistic">The statistic being resolved; modifiers for other statistics are ignored.</param>
         /// <returns>The resolved total with applied and suppressed modifier details.</returns>
-        public static Pf2eModifierResolution Resolve(IEnumerable<Pf2eModifier> modifiers, Pf2eStatistic statistic)
+        public static Pf2eModifierResolution Resolve(
+            IEnumerable<Pf2eModifier> modifiers,
+            Pf2eStatistic statistic
+        )
         {
-            List<Pf2eModifier> relevant = modifiers?
-                .Where(modifier => modifier.TargetStatistic == statistic && modifier.Value != 0)
-                .ToList() ?? new List<Pf2eModifier>();
+            List<Pf2eModifier> relevant =
+                modifiers
+                    ?.Where(modifier =>
+                        modifier.TargetStatistic == statistic && modifier.Value != 0
+                    )
+                    .ToList()
+                ?? new List<Pf2eModifier>();
             List<Pf2eModifier> applied = new();
             List<Pf2eModifier> suppressed = new();
 
-            foreach (Pf2eModifier modifier in relevant.Where(modifier => modifier.Type == Pf2eModifierType.Untyped))
+            foreach (
+                Pf2eModifier modifier in relevant.Where(modifier =>
+                    modifier.Type == Pf2eModifierType.Untyped
+                )
+            )
                 applied.Add(modifier);
 
-            foreach (Pf2eModifierType type in new[] { Pf2eModifierType.Circumstance, Pf2eModifierType.Item, Pf2eModifierType.Status })
+            foreach (
+                Pf2eModifierType type in new[]
+                {
+                    Pf2eModifierType.Circumstance,
+                    Pf2eModifierType.Item,
+                    Pf2eModifierType.Status,
+                }
+            )
             {
                 ResolveTypedBonuses(relevant, type, applied, suppressed);
                 ResolveTypedPenalties(relevant, type, applied, suppressed);
             }
 
-            return new Pf2eModifierResolution(applied.Sum(modifier => modifier.Value), applied, suppressed);
+            return new Pf2eModifierResolution(
+                applied.Sum(modifier => modifier.Value),
+                applied,
+                suppressed
+            );
         }
 
-        private static void ResolveTypedBonuses(List<Pf2eModifier> relevant, Pf2eModifierType type, List<Pf2eModifier> applied, List<Pf2eModifier> suppressed)
+        private static void ResolveTypedBonuses(
+            List<Pf2eModifier> relevant,
+            Pf2eModifierType type,
+            List<Pf2eModifier> applied,
+            List<Pf2eModifier> suppressed
+        )
         {
             List<Pf2eModifier> bonuses = relevant
                 .Where(modifier => modifier.Type == type && modifier.Value > 0)
@@ -149,7 +190,12 @@ namespace Game.Rules
                 suppressed.Add(bonuses[i]);
         }
 
-        private static void ResolveTypedPenalties(List<Pf2eModifier> relevant, Pf2eModifierType type, List<Pf2eModifier> applied, List<Pf2eModifier> suppressed)
+        private static void ResolveTypedPenalties(
+            List<Pf2eModifier> relevant,
+            Pf2eModifierType type,
+            List<Pf2eModifier> applied,
+            List<Pf2eModifier> suppressed
+        )
         {
             List<Pf2eModifier> penalties = relevant
                 .Where(modifier => modifier.Type == type && modifier.Value < 0)

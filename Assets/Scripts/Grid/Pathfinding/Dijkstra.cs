@@ -1,6 +1,6 @@
-﻿using NUnit;
-using System;
+﻿using System;
 using System.Collections.Generic;
+using NUnit;
 using Unity.VisualScripting;
 using UnityEngine;
 
@@ -31,11 +31,16 @@ namespace GridPrivate
             Distances.Clear();
             Searched = null;
             // Unpathable
-            if ((end.x >= Tiles.GetLength(0)) || (end.z >= Tiles.GetLength(1)) || end.x < 0 || end.z < 0)
+            if (
+                (end.x >= Tiles.GetLength(0))
+                || (end.z >= Tiles.GetLength(1))
+                || end.x < 0
+                || end.z < 0
+            )
                 return new();
 
             // Initialize heap
-            Heap.Push( new PathNode( 0.0f, start));
+            Heap.Push(new PathNode(0.0f, start));
             Locations.Add(start, new PathNode(0.0f, start));
 
             while (Heap.Count() > 0)
@@ -47,7 +52,7 @@ namespace GridPrivate
             }
 
             PathNode found;
-            if(Locations.TryGetValue(end, out found))
+            if (Locations.TryGetValue(end, out found))
             {
                 return TracePath(found);
             }
@@ -114,18 +119,24 @@ namespace GridPrivate
         {
             if (Searched == null)
             {
-                Debug.LogError("Attempting \"Find\" before a \"Search\" is not valid. \n" +
-                    "Call Pathfind for a single request, call Search then Find to request number of times.");
+                Debug.LogError(
+                    "Attempting \"Find\" before a \"Search\" is not valid. \n"
+                        + "Call Pathfind for a single request, call Search then Find to request number of times."
+                );
                 return null;
             }
             // Unpathable
-            if ((end.x >= Tiles.GetLength(0)) || (end.z >= Tiles.GetLength(1)) || end.x < 0 || end.z < 0)
+            if (
+                (end.x >= Tiles.GetLength(0))
+                || (end.z >= Tiles.GetLength(1))
+                || end.x < 0
+                || end.z < 0
+            )
                 return new();
             PathNode path;
             if (Locations.TryGetValue(end, out path))
                 return TracePath(path);
             return new();
-
         }
 
         public List<Vector3Int> InRange(GameObject pathfinder, Vector3Int start, float distance)
@@ -171,7 +182,12 @@ namespace GridPrivate
                 foreach (var dir in Directions)
                 {
                     Vector3Int adjacent = start + dir;
-                    if (adjacent.x >= 0 && adjacent.z >= 0 && adjacent.x < Tiles.GetLength(0) && adjacent.z < Tiles.GetLength(1))
+                    if (
+                        adjacent.x >= 0
+                        && adjacent.z >= 0
+                        && adjacent.x < Tiles.GetLength(0)
+                        && adjacent.z < Tiles.GetLength(1)
+                    )
                     {
                         rangeTiles.Add(adjacent);
                     }
@@ -192,7 +208,12 @@ namespace GridPrivate
                         Vector3Int candidate = new Vector3Int(start.x + x, start.y, start.z + z);
 
                         // Check bounds first
-                        if (candidate.x < 0 || candidate.z < 0 || candidate.x >= Tiles.GetLength(0) || candidate.z >= Tiles.GetLength(1))
+                        if (
+                            candidate.x < 0
+                            || candidate.z < 0
+                            || candidate.x >= Tiles.GetLength(0)
+                            || candidate.z >= Tiles.GetLength(1)
+                        )
                             continue;
 
                         float distanceSquared = x * x + z * z;
@@ -225,12 +246,14 @@ namespace GridPrivate
                     int x = offset.x + path.Location.x;
                     int z = offset.z + path.Location.z;
                     if (
-                        offset.y != 0 || (
-                        x < 0 ||
-                        z < 0 ||
-                        x >= Tiles.GetLength(0) ||
-                        z >= Tiles.GetLength(1) ||
-                        Tiles[x, z] == null)
+                        offset.y != 0
+                        || (
+                            x < 0
+                            || z < 0
+                            || x >= Tiles.GetLength(0)
+                            || z >= Tiles.GetLength(1)
+                            || Tiles[x, z] == null
+                        )
                     )
                         continue;
                     neighbors |= (Neighbors)(1 << i);
@@ -244,7 +267,7 @@ namespace GridPrivate
             }
 
             // Filter to accessible
-            for(int i = 0; i < neighborOffsets.Count; i++)
+            for (int i = 0; i < neighborOffsets.Count; i++)
             {
                 Vector3Int cell = path.Location + OFFSETS[neighborOffsets[i]];
                 Tile tile = Tiles[cell.x, cell.z];
@@ -282,7 +305,7 @@ namespace GridPrivate
         protected List<PathNode> TracePath(PathNode end)
         {
             List<PathNode> backwards = new();
-            while(end != null)
+            while (end != null)
             {
                 backwards.Add(end);
                 end = end.Prev;
@@ -290,7 +313,6 @@ namespace GridPrivate
             backwards.Reverse();
             return backwards;
         }
-
 
         /// <summary>
         /// Removes unusable diagonals from the list
@@ -334,7 +356,7 @@ namespace GridPrivate
             for (int i = 0; i < OFFSETS.Length; i++)
             {
                 // Extract bit (0 or 1)
-                if(((mask >> i) & 1) == 1)
+                if (((mask >> i) & 1) == 1)
                     result.Add(i);
             }
 
@@ -383,43 +405,70 @@ namespace GridPrivate
             switch (v.x, v.y, v.z)
             {
                 // None
-                case (0, 0, 0): return Neighbors.None;
+                case (0, 0, 0):
+                    return Neighbors.None;
 
                 // Axes
-                case (1, 0, 0): return Neighbors.X;
-                case (-1, 0, 0): return Neighbors.Nx;
-                case (0, 1, 0): return Neighbors.Y;
-                case (0, -1, 0): return Neighbors.Ny;
-                case (0, 0, 1): return Neighbors.Z;
-                case (0, 0, -1): return Neighbors.Nz;
+                case (1, 0, 0):
+                    return Neighbors.X;
+                case (-1, 0, 0):
+                    return Neighbors.Nx;
+                case (0, 1, 0):
+                    return Neighbors.Y;
+                case (0, -1, 0):
+                    return Neighbors.Ny;
+                case (0, 0, 1):
+                    return Neighbors.Z;
+                case (0, 0, -1):
+                    return Neighbors.Nz;
 
                 // XY plane
-                case (1, 1, 0): return Neighbors.XY;
-                case (1, -1, 0): return Neighbors.XNy;
-                case (-1, 1, 0): return Neighbors.NxY;
-                case (-1, -1, 0): return Neighbors.NxNy;
+                case (1, 1, 0):
+                    return Neighbors.XY;
+                case (1, -1, 0):
+                    return Neighbors.XNy;
+                case (-1, 1, 0):
+                    return Neighbors.NxY;
+                case (-1, -1, 0):
+                    return Neighbors.NxNy;
 
                 // XZ plane
-                case (1, 0, 1): return Neighbors.XZ;
-                case (1, 0, -1): return Neighbors.XNz;
-                case (-1, 0, 1): return Neighbors.NxZ;
-                case (-1, 0, -1): return Neighbors.NxNz;
+                case (1, 0, 1):
+                    return Neighbors.XZ;
+                case (1, 0, -1):
+                    return Neighbors.XNz;
+                case (-1, 0, 1):
+                    return Neighbors.NxZ;
+                case (-1, 0, -1):
+                    return Neighbors.NxNz;
 
                 // YZ plane
-                case (0, 1, 1): return Neighbors.YZ;
-                case (0, 1, -1): return Neighbors.YNz;
-                case (0, -1, 1): return Neighbors.NyZ;
-                case (0, -1, -1): return Neighbors.NyNz;
+                case (0, 1, 1):
+                    return Neighbors.YZ;
+                case (0, 1, -1):
+                    return Neighbors.YNz;
+                case (0, -1, 1):
+                    return Neighbors.NyZ;
+                case (0, -1, -1):
+                    return Neighbors.NyNz;
 
                 // 3D diagonals
-                case (1, 1, 1): return Neighbors.XYZ;
-                case (1, 1, -1): return Neighbors.XYNz;
-                case (1, -1, 1): return Neighbors.XNyZ;
-                case (1, -1, -1): return Neighbors.XNyNz;
-                case (-1, 1, 1): return Neighbors.NxYZ;
-                case (-1, 1, -1): return Neighbors.NxYNz;
-                case (-1, -1, 1): return Neighbors.NxNyZ;
-                case (-1, -1, -1): return Neighbors.NxNyNz;
+                case (1, 1, 1):
+                    return Neighbors.XYZ;
+                case (1, 1, -1):
+                    return Neighbors.XYNz;
+                case (1, -1, 1):
+                    return Neighbors.XNyZ;
+                case (1, -1, -1):
+                    return Neighbors.XNyNz;
+                case (-1, 1, 1):
+                    return Neighbors.NxYZ;
+                case (-1, 1, -1):
+                    return Neighbors.NxYNz;
+                case (-1, -1, 1):
+                    return Neighbors.NxNyZ;
+                case (-1, -1, -1):
+                    return Neighbors.NxNyNz;
 
                 default:
                     throw new ArgumentException($"Invalid neighbor offset: {v}");
@@ -428,35 +477,31 @@ namespace GridPrivate
 
         private static readonly Vector3Int[] OFFSETS = new Vector3Int[]
         {
-            new Vector3Int( 1,  0,  0), // X
-            new Vector3Int(-1,  0,  0), // Nx
-            new Vector3Int( 0,  1,  0), // Y
-            new Vector3Int( 0, -1,  0), // Ny
-            new Vector3Int( 0,  0,  1), // Z
-            new Vector3Int( 0,  0, -1), // Nz
-
-            new Vector3Int( 1,  1,  0),
-            new Vector3Int( 1, -1,  0),
-            new Vector3Int(-1,  1,  0),
-            new Vector3Int(-1, -1,  0),
-
-            new Vector3Int( 1,  0,  1),
-            new Vector3Int( 1,  0, -1),
-            new Vector3Int(-1,  0,  1),
-            new Vector3Int(-1,  0, -1),
-
-            new Vector3Int( 0,  1,  1),
-            new Vector3Int( 0,  1, -1),
-            new Vector3Int( 0, -1,  1),
-            new Vector3Int( 0, -1, -1),
-
-            new Vector3Int( 1,  1,  1),
-            new Vector3Int( 1,  1, -1),
-            new Vector3Int( 1, -1,  1),
-            new Vector3Int( 1, -1, -1),
-            new Vector3Int(-1,  1,  1),
-            new Vector3Int(-1,  1, -1),
-            new Vector3Int(-1, -1,  1),
+            new Vector3Int(1, 0, 0), // X
+            new Vector3Int(-1, 0, 0), // Nx
+            new Vector3Int(0, 1, 0), // Y
+            new Vector3Int(0, -1, 0), // Ny
+            new Vector3Int(0, 0, 1), // Z
+            new Vector3Int(0, 0, -1), // Nz
+            new Vector3Int(1, 1, 0),
+            new Vector3Int(1, -1, 0),
+            new Vector3Int(-1, 1, 0),
+            new Vector3Int(-1, -1, 0),
+            new Vector3Int(1, 0, 1),
+            new Vector3Int(1, 0, -1),
+            new Vector3Int(-1, 0, 1),
+            new Vector3Int(-1, 0, -1),
+            new Vector3Int(0, 1, 1),
+            new Vector3Int(0, 1, -1),
+            new Vector3Int(0, -1, 1),
+            new Vector3Int(0, -1, -1),
+            new Vector3Int(1, 1, 1),
+            new Vector3Int(1, 1, -1),
+            new Vector3Int(1, -1, 1),
+            new Vector3Int(1, -1, -1),
+            new Vector3Int(-1, 1, 1),
+            new Vector3Int(-1, 1, -1),
+            new Vector3Int(-1, -1, 1),
             new Vector3Int(-1, -1, -1),
         };
 
@@ -466,11 +511,10 @@ namespace GridPrivate
             new Vector3Int(-1, 0, 0),
             new Vector3Int(0, 0, 1),
             new Vector3Int(0, 0, -1),
-
             new Vector3Int(1, 0, 1),
             new Vector3Int(-1, 0, 1),
             new Vector3Int(1, 0, -1),
-            new Vector3Int(-1, 0, -1)
+            new Vector3Int(-1, 0, -1),
         };
 
         private static readonly float[] NEIGHBOR_DISTANCE = BuildDistances();
@@ -482,10 +526,7 @@ namespace GridPrivate
             for (int i = 0; i < OFFSETS.Length; i++)
             {
                 var o = OFFSETS[i];
-                int count =
-                    (o.x != 0 ? 1 : 0) +
-                    (o.y != 0 ? 1 : 0) +
-                    (o.z != 0 ? 1 : 0);
+                int count = (o.x != 0 ? 1 : 0) + (o.y != 0 ? 1 : 0) + (o.z != 0 ? 1 : 0);
 
                 d[i] = Mathf.Sqrt(count);
             }

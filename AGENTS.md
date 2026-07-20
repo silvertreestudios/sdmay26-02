@@ -34,9 +34,16 @@
 Use the installed Unity editor for this exact version when possible.
 
 ```powershell
+dotnet tool restore
+dotnet csharpier check .
+dotnet csharpier format .
 & "C:\Program Files\Unity\Hub\Editor\6000.2.1f1\Editor\Unity.exe" -batchmode -runTests -projectPath . -testPlatform editmode -testResults TestResults/EditModeResults.xml -logFile TestResults/EditMode.log
 & "C:\Program Files\Unity\Hub\Editor\6000.2.1f1\Editor\Unity.exe" -batchmode -runTests -projectPath . -testPlatform playmode -testResults TestResults/PlayModeResults.xml -logFile TestResults/PlayMode.log
 ```
+
+Run CSharpier from the checkout root. Use `format` to fix C# formatting and `check` to verify it
+without writing. Install the repository hook with `pre-commit install`; it formats staged C# files
+using the pinned tool version. See `Docs/CSharp_Formatting.md` for onboarding and behavior.
 
 Do not add `-quit` to Unity Test Framework command-line runs in this project. The resolved Unity Test Framework `1.5.1` runner exits on its own and logs that tests will not work when `-quit` is specified.
 
@@ -69,6 +76,8 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 ## Coding
 
 - Follow existing C# style and Unity lifecycle patterns.
+- Keep every new or modified C# file compliant with the repository-pinned CSharpier version. Run
+  `dotnet csharpier format .` before tests and `dotnet csharpier check .` before handoff.
 - Treat setting, passing, returning, or defaulting to `null` as a design smell. Prefer required dependencies, explicit construction paths, distinct types or states, empty collections, and Null Object implementations. Use `null` only at unavoidable framework or interop boundaries, or when absence is genuinely part of the domain and no clearer representation is practical; keep that boundary narrow and document the reason.
 - Follow Microsoft's C# XML documentation comment conventions for new C# APIs. Add XML documentation to every new public type and every non-trivial public or protected constructor, method, property, event, and field; use `<inheritdoc/>` when an inherited contract already explains the member accurately.
 - Document complex internal code where intent, invariants, ownership, lifecycle, concurrency, side effects, failure behavior, or other non-obvious constraints would otherwise be difficult to recover from the implementation.

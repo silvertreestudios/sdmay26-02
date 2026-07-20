@@ -18,20 +18,42 @@ namespace TestsCombat
             {
                 Shape = AreaShape.Emanation,
                 SizeFeet = 10,
-                IncludeCenter = false
+                IncludeCenter = false,
             };
-            AreaPlacement placement = new() { Shape = AreaShape.Emanation, OriginCell = new Vector3Int(3, 0, 3) };
+            AreaPlacement placement = new()
+            {
+                Shape = AreaShape.Emanation,
+                OriginCell = new Vector3Int(3, 0, 3),
+            };
 
             AreaTargetResult result = AreaTargeting.Evaluate(actor, tiles, request, placement);
 
-            CollectionAssert.AreEquivalent(new[]
-            {
-                Cell(1, 2), Cell(1, 3), Cell(1, 4),
-                Cell(2, 1), Cell(2, 2), Cell(2, 3), Cell(2, 4), Cell(2, 5),
-                Cell(3, 1), Cell(3, 2),             Cell(3, 4), Cell(3, 5),
-                Cell(4, 1), Cell(4, 2), Cell(4, 3), Cell(4, 4), Cell(4, 5),
-                Cell(5, 2), Cell(5, 3), Cell(5, 4)
-            }, result.Cells);
+            CollectionAssert.AreEquivalent(
+                new[]
+                {
+                    Cell(1, 2),
+                    Cell(1, 3),
+                    Cell(1, 4),
+                    Cell(2, 1),
+                    Cell(2, 2),
+                    Cell(2, 3),
+                    Cell(2, 4),
+                    Cell(2, 5),
+                    Cell(3, 1),
+                    Cell(3, 2),
+                    Cell(3, 4),
+                    Cell(3, 5),
+                    Cell(4, 1),
+                    Cell(4, 2),
+                    Cell(4, 3),
+                    Cell(4, 4),
+                    Cell(4, 5),
+                    Cell(5, 2),
+                    Cell(5, 3),
+                    Cell(5, 4),
+                },
+                result.Cells
+            );
             Assert.IsFalse(result.Cells.Contains(Cell(3, 3)));
 
             request.IncludeCenter = true;
@@ -46,25 +68,29 @@ namespace TestsCombat
         {
             Tile[,] tiles = BuildTiles(10, 10);
             GameObject actor = CreateToken("actor", 1, 1);
-            AreaTargetRequest request = new()
-            {
-                Shape = AreaShape.Line,
-                SizeFeet = 30
-            };
+            AreaTargetRequest request = new() { Shape = AreaShape.Line, SizeFeet = 30 };
 
-            AreaTargetResult east = AreaTargeting.Evaluate(actor, tiles, request, new AreaPlacement
-            {
-                Shape = AreaShape.Line,
-                Direction = AreaDirection.East
-            });
-            CollectionAssert.AreEqual(new[] { Cell(2, 1), Cell(3, 1), Cell(4, 1), Cell(5, 1), Cell(6, 1), Cell(7, 1) }, east.Cells);
+            AreaTargetResult east = AreaTargeting.Evaluate(
+                actor,
+                tiles,
+                request,
+                new AreaPlacement { Shape = AreaShape.Line, Direction = AreaDirection.East }
+            );
+            CollectionAssert.AreEqual(
+                new[] { Cell(2, 1), Cell(3, 1), Cell(4, 1), Cell(5, 1), Cell(6, 1), Cell(7, 1) },
+                east.Cells
+            );
 
-            AreaTargetResult diagonal = AreaTargeting.Evaluate(actor, tiles, request, new AreaPlacement
-            {
-                Shape = AreaShape.Line,
-                Direction = AreaDirection.NorthEast
-            });
-            CollectionAssert.AreEqual(new[] { Cell(2, 2), Cell(3, 3), Cell(4, 4), Cell(5, 5) }, diagonal.Cells);
+            AreaTargetResult diagonal = AreaTargeting.Evaluate(
+                actor,
+                tiles,
+                request,
+                new AreaPlacement { Shape = AreaShape.Line, Direction = AreaDirection.NorthEast }
+            );
+            CollectionAssert.AreEqual(
+                new[] { Cell(2, 2), Cell(3, 3), Cell(4, 4), Cell(5, 5) },
+                diagonal.Cells
+            );
 
             Object.DestroyImmediate(actor);
         }
@@ -74,17 +100,14 @@ namespace TestsCombat
         {
             Tile[,] tiles = BuildTiles(8, 8);
             AreaTargetSource source = new(Cell(2, 2));
-            AreaTargetRequest request = new()
-            {
-                Shape = AreaShape.Line,
-                SizeFeet = 15
-            };
+            AreaTargetRequest request = new() { Shape = AreaShape.Line, SizeFeet = 15 };
 
-            AreaTargetResult result = AreaTargeting.Evaluate(source, tiles, request, new AreaPlacement
-            {
-                Shape = AreaShape.Line,
-                Direction = AreaDirection.East
-            });
+            AreaTargetResult result = AreaTargeting.Evaluate(
+                source,
+                tiles,
+                request,
+                new AreaPlacement { Shape = AreaShape.Line, Direction = AreaDirection.East }
+            );
 
             Assert.IsNotNull(result);
             CollectionAssert.AreEqual(new[] { Cell(3, 2), Cell(4, 2), Cell(5, 2) }, result.Cells);
@@ -96,24 +119,32 @@ namespace TestsCombat
         {
             Tile[,] tiles = BuildTiles(8, 8);
             GameObject actor = CreateToken("actor", 3, 3);
-            AreaTargetRequest request = new()
-            {
-                Shape = AreaShape.Cone,
-                SizeFeet = 15
-            };
+            AreaTargetRequest request = new() { Shape = AreaShape.Cone, SizeFeet = 15 };
 
-            AreaTargetResult result = AreaTargeting.Evaluate(actor, tiles, request, new AreaPlacement
-            {
-                Shape = AreaShape.Cone,
-                Direction = AreaDirection.East
-            });
+            AreaTargetResult result = AreaTargeting.Evaluate(
+                actor,
+                tiles,
+                request,
+                new AreaPlacement { Shape = AreaShape.Cone, Direction = AreaDirection.East }
+            );
 
-            CollectionAssert.AreEquivalent(new[]
-            {
-                Cell(4, 2), Cell(4, 3), Cell(4, 4),
-                Cell(5, 1), Cell(5, 2), Cell(5, 3), Cell(5, 4), Cell(5, 5),
-                Cell(6, 2), Cell(6, 3), Cell(6, 4)
-            }, result.Cells);
+            CollectionAssert.AreEquivalent(
+                new[]
+                {
+                    Cell(4, 2),
+                    Cell(4, 3),
+                    Cell(4, 4),
+                    Cell(5, 1),
+                    Cell(5, 2),
+                    Cell(5, 3),
+                    Cell(5, 4),
+                    Cell(5, 5),
+                    Cell(6, 2),
+                    Cell(6, 3),
+                    Cell(6, 4),
+                },
+                result.Cells
+            );
             Assert.IsFalse(result.Cells.Contains(Cell(3, 3)));
 
             Object.DestroyImmediate(actor);
@@ -128,24 +159,28 @@ namespace TestsCombat
             {
                 Shape = AreaShape.Burst,
                 SizeFeet = 10,
-                RangeFeet = 10
+                RangeFeet = 10,
             };
 
-            AreaTargetResult legal = AreaTargeting.Evaluate(actor, tiles, request, new AreaPlacement
-            {
-                Shape = AreaShape.Burst,
-                OriginCorner = new Vector2Int(1, 1)
-            });
+            AreaTargetResult legal = AreaTargeting.Evaluate(
+                actor,
+                tiles,
+                request,
+                new AreaPlacement { Shape = AreaShape.Burst, OriginCorner = new Vector2Int(1, 1) }
+            );
             Assert.IsNotNull(legal);
             Assert.Contains(Cell(0, 0), legal.Cells);
             Assert.Contains(Cell(2, 2), legal.Cells);
-            Assert.IsTrue(legal.Cells.All(cell => cell.x >= 0 && cell.z >= 0 && cell.x < 5 && cell.z < 5));
+            Assert.IsTrue(
+                legal.Cells.All(cell => cell.x >= 0 && cell.z >= 0 && cell.x < 5 && cell.z < 5)
+            );
 
-            AreaTargetResult tooFar = AreaTargeting.Evaluate(actor, tiles, request, new AreaPlacement
-            {
-                Shape = AreaShape.Burst,
-                OriginCorner = new Vector2Int(5, 5)
-            });
+            AreaTargetResult tooFar = AreaTargeting.Evaluate(
+                actor,
+                tiles,
+                request,
+                new AreaPlacement { Shape = AreaShape.Burst, OriginCorner = new Vector2Int(5, 5) }
+            );
             Assert.IsNull(tooFar);
 
             Object.DestroyImmediate(actor);
@@ -162,19 +197,20 @@ namespace TestsCombat
             tiles[4, 1].Occupants.Add(blocked);
             tiles[2, 1] = null;
 
-            AreaTargetRequest line = new()
-            {
-                Shape = AreaShape.Line,
-                SizeFeet = 20
-            };
-            AreaTargetResult result = AreaTargeting.Evaluate(actor, tiles, line, new AreaPlacement
-            {
-                Shape = AreaShape.Line,
-                Direction = AreaDirection.East
-            });
+            AreaTargetRequest line = new() { Shape = AreaShape.Line, SizeFeet = 20 };
+            AreaTargetResult result = AreaTargeting.Evaluate(
+                actor,
+                tiles,
+                line,
+                new AreaPlacement { Shape = AreaShape.Line, Direction = AreaDirection.East }
+            );
 
-            AreaAffectedCreature allyResult = result.Creatures.Single(creature => creature.Creature == ally);
-            AreaAffectedCreature blockedResult = result.Creatures.Single(creature => creature.Creature == blocked);
+            AreaAffectedCreature allyResult = result.Creatures.Single(creature =>
+                creature.Creature == ally
+            );
+            AreaAffectedCreature blockedResult = result.Creatures.Single(creature =>
+                creature.Creature == blocked
+            );
             Assert.AreEqual(StrikeLineOfEffect.Clear, allyResult.LineOfEffect);
             Assert.AreEqual(StrikeLineOfEffect.Blocked, blockedResult.LineOfEffect);
             Assert.IsTrue(allyResult.IsAffected);
@@ -184,17 +220,16 @@ namespace TestsCombat
             tiles[1, 2] = null;
             GameObject covered = CreateToken("covered", 2, 2);
             tiles[2, 2].Occupants.Add(covered);
-            AreaTargetResult cone = AreaTargeting.Evaluate(actor, tiles, new AreaTargetRequest
-            {
-                Shape = AreaShape.Cone,
-                SizeFeet = 15
-            }, new AreaPlacement
-            {
-                Shape = AreaShape.Cone,
-                Direction = AreaDirection.NorthEast
-            });
+            AreaTargetResult cone = AreaTargeting.Evaluate(
+                actor,
+                tiles,
+                new AreaTargetRequest { Shape = AreaShape.Cone, SizeFeet = 15 },
+                new AreaPlacement { Shape = AreaShape.Cone, Direction = AreaDirection.NorthEast }
+            );
 
-            AreaAffectedCreature coveredResult = cone.Creatures.Single(creature => creature.Creature == covered);
+            AreaAffectedCreature coveredResult = cone.Creatures.Single(creature =>
+                creature.Creature == covered
+            );
             Assert.AreEqual(StrikeLineOfEffect.Clear, coveredResult.LineOfEffect);
             Assert.AreEqual(StrikeCover.Standard, coveredResult.Cover);
 

@@ -1,7 +1,7 @@
-using Game.Creature.Rules;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Creature.Rules;
 
 namespace Game.Combat.Spells
 {
@@ -9,7 +9,7 @@ namespace Game.Combat.Spells
     {
         Cantrip,
         Prepared,
-        Font
+        Font,
     }
 
     public sealed class SpellSlotPool
@@ -52,7 +52,14 @@ namespace Game.Combat.Spells
         public string SlotPoolId { get; }
         public IReadOnlyList<uint> ActionCosts { get; }
 
-        public PreparedSpell(string name, int rank, bool isCantrip, bool isFontSpell, string slotPoolId, IEnumerable<uint> actionCosts)
+        public PreparedSpell(
+            string name,
+            int rank,
+            bool isCantrip,
+            bool isFontSpell,
+            string slotPoolId,
+            IEnumerable<uint> actionCosts
+        )
         {
             Name = name ?? string.Empty;
             Slug = Pf2eSlug.FromName(Name);
@@ -66,7 +73,9 @@ namespace Game.Combat.Spells
 
     public sealed class SpellcastingState
     {
-        private readonly Dictionary<string, SpellSlotPool> pools = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, SpellSlotPool> pools = new(
+            StringComparer.OrdinalIgnoreCase
+        );
         private readonly List<PreparedSpell> spells = new();
 
         public string Tradition { get; set; } = "divine";
@@ -85,7 +94,13 @@ namespace Game.Combat.Spells
 
         public void AddSpell(PreparedSpell spell)
         {
-            if (spell == null || spells.Any(existing => string.Equals(existing.Name, spell.Name, StringComparison.OrdinalIgnoreCase) && existing.ActionCosts.SequenceEqual(spell.ActionCosts)))
+            if (
+                spell == null
+                || spells.Any(existing =>
+                    string.Equals(existing.Name, spell.Name, StringComparison.OrdinalIgnoreCase)
+                    && existing.ActionCosts.SequenceEqual(spell.ActionCosts)
+                )
+            )
                 return;
             spells.Add(spell);
         }
@@ -93,7 +108,9 @@ namespace Game.Combat.Spells
         public PreparedSpell GetSpell(string slugOrName)
         {
             string slug = Pf2eSlug.FromName(slugOrName);
-            return spells.FirstOrDefault(spell => string.Equals(spell.Slug, slug, StringComparison.OrdinalIgnoreCase));
+            return spells.FirstOrDefault(spell =>
+                string.Equals(spell.Slug, slug, StringComparison.OrdinalIgnoreCase)
+            );
         }
 
         public bool CanCast(PreparedSpell spell)
@@ -102,7 +119,8 @@ namespace Game.Combat.Spells
                 return false;
             if (spell.IsCantrip)
                 return true;
-            return pools.TryGetValue(spell.SlotPoolId, out SpellSlotPool pool) && pool.UsesRemaining > 0;
+            return pools.TryGetValue(spell.SlotPoolId, out SpellSlotPool pool)
+                && pool.UsesRemaining > 0;
         }
 
         public bool Spend(PreparedSpell spell)

@@ -22,10 +22,14 @@ namespace Game.Rules.Runtime
             public override bool IsAction => false;
 
             public override ActionOpInfo RequireInfo() =>
-                throw new InvalidOperationException("This operation frame does not represent an action.");
+                throw new InvalidOperationException(
+                    "This operation frame does not represent an action."
+                );
 
             public override ActionProfile RequireProfile() =>
-                throw new InvalidOperationException("This operation frame does not represent an action.");
+                throw new InvalidOperationException(
+                    "This operation frame does not represent an action."
+                );
         }
 
         private sealed class FrozenActionFrameState : FrameActionState
@@ -40,7 +44,9 @@ namespace Game.Rules.Runtime
             }
 
             public override bool IsAction => true;
+
             public override ActionOpInfo RequireInfo() => info;
+
             public override ActionProfile RequireProfile() => profile;
         }
     }
@@ -64,12 +70,18 @@ namespace Game.Rules.Runtime
         public ActionValidationResult Validate(IFrameInvocation invocation)
         {
             if (!(invocation is FrameInvocation<TOp> typed))
-                throw new InvalidOperationException("An action validator received an impossible frame type.");
+                throw new InvalidOperationException(
+                    "An action validator received an impossible frame type."
+                );
 
-            ActionValidationResult result =
-                validator.Validate(typed.Frame, typed.Frame.StartSnapshot);
-            return result ?? throw new InvalidOperationException(
-                $"Action validator {validator.GetType().Name} returned null.");
+            ActionValidationResult result = validator.Validate(
+                typed.Frame,
+                typed.Frame.StartSnapshot
+            );
+            return result
+                ?? throw new InvalidOperationException(
+                    $"Action validator {validator.GetType().Name} returned null."
+                );
         }
     }
 
@@ -84,15 +96,16 @@ namespace Game.Rules.Runtime
             OpId? causeId,
             InvocationPolicy invocationPolicy,
             IRuleOp op,
-            RulesSnapshot snapshot);
+            RulesSnapshot snapshot
+        );
 
         public abstract ActionValidationResult Validate(IFrameInvocation invocation);
 
         public static ActionRuntime Create(
             IActionCatalog catalog,
             IActionProfileResolver resolver,
-            IDictionary<Type, List<IActionValidatorRegistration>> validators) =>
-            new ConfiguredActionRuntime(catalog, resolver, validators);
+            IDictionary<Type, List<IActionValidatorRegistration>> validators
+        ) => new ConfiguredActionRuntime(catalog, resolver, validators);
 
         private sealed class DisabledActionRuntime : ActionRuntime
         {
@@ -103,32 +116,38 @@ namespace Game.Rules.Runtime
                 OpId? causeId,
                 InvocationPolicy invocationPolicy,
                 IRuleOp op,
-                RulesSnapshot snapshot)
+                RulesSnapshot snapshot
+            )
             {
                 if (op is IActionOpMetadata)
                 {
                     throw new InvalidOperationException(
-                        $"Action lifecycle services are not configured for {op.GetType().Name}.");
+                        $"Action lifecycle services are not configured for {op.GetType().Name}."
+                    );
                 }
                 return FrameActionState.NonAction;
             }
 
             public override ActionValidationResult Validate(IFrameInvocation invocation) =>
                 throw new InvalidOperationException(
-                    "A disabled action runtime cannot validate an action frame.");
+                    "A disabled action runtime cannot validate an action frame."
+                );
         }
 
         private sealed class ConfiguredActionRuntime : ActionRuntime
         {
             private readonly IActionCatalog catalog;
             private readonly IActionProfileResolver resolver;
-            private readonly IReadOnlyDictionary<Type, IReadOnlyList<IActionValidatorRegistration>>
-                validators;
+            private readonly IReadOnlyDictionary<
+                Type,
+                IReadOnlyList<IActionValidatorRegistration>
+            > validators;
 
             public ConfiguredActionRuntime(
                 IActionCatalog catalog,
                 IActionProfileResolver resolver,
-                IDictionary<Type, List<IActionValidatorRegistration>> validators)
+                IDictionary<Type, List<IActionValidatorRegistration>> validators
+            )
             {
                 this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
                 this.resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
@@ -137,8 +156,10 @@ namespace Game.Rules.Runtime
                     new Dictionary<Type, IReadOnlyList<IActionValidatorRegistration>>();
                 foreach (KeyValuePair<Type, List<IActionValidatorRegistration>> pair in validators)
                     copied.Add(pair.Key, Array.AsReadOnly(pair.Value.ToArray()));
-                this.validators =
-                    new ReadOnlyDictionary<Type, IReadOnlyList<IActionValidatorRegistration>>(copied);
+                this.validators = new ReadOnlyDictionary<
+                    Type,
+                    IReadOnlyList<IActionValidatorRegistration>
+                >(copied);
             }
 
             public override FrameActionState CreateFrameState(
@@ -148,7 +169,8 @@ namespace Game.Rules.Runtime
                 OpId? causeId,
                 InvocationPolicy invocationPolicy,
                 IRuleOp op,
-                RulesSnapshot snapshot)
+                RulesSnapshot snapshot
+            )
             {
                 if (!(op is IActionOpMetadata action))
                     return FrameActionState.NonAction;
@@ -161,21 +183,29 @@ namespace Game.Rules.Runtime
                     invocationPolicy,
                     action.Actor,
                     action.DefinitionId,
-                    op.GetType());
-                ActionProfile baseProfile = action.GetBaseProfile(catalog) ??
-                    throw new InvalidOperationException(
-                        $"Action {op.GetType().Name} returned a null base profile.");
-                ActionProfile effective = resolver.Resolve(info, baseProfile, snapshot) ??
-                    throw new InvalidOperationException(
-                        $"Action profile resolver {resolver.GetType().Name} returned null.");
+                    op.GetType()
+                );
+                ActionProfile baseProfile =
+                    action.GetBaseProfile(catalog)
+                    ?? throw new InvalidOperationException(
+                        $"Action {op.GetType().Name} returned a null base profile."
+                    );
+                ActionProfile effective =
+                    resolver.Resolve(info, baseProfile, snapshot)
+                    ?? throw new InvalidOperationException(
+                        $"Action profile resolver {resolver.GetType().Name} returned null."
+                    );
                 return FrameActionState.Frozen(info, effective);
             }
 
             public override ActionValidationResult Validate(IFrameInvocation invocation)
             {
-                if (!validators.TryGetValue(
-                    invocation.FrameView.OpType,
-                    out IReadOnlyList<IActionValidatorRegistration> selected))
+                if (
+                    !validators.TryGetValue(
+                        invocation.FrameView.OpType,
+                        out IReadOnlyList<IActionValidatorRegistration> selected
+                    )
+                )
                 {
                     return ActionValidationResult.Valid;
                 }
@@ -207,32 +237,32 @@ namespace Game.Rules.Runtime
         public abstract bool IsConfigured { get; }
 
         public abstract ActionRuntime CreateRuntime(
-            IDictionary<Type, List<IActionValidatorRegistration>> validators);
+            IDictionary<Type, List<IActionValidatorRegistration>> validators
+        );
 
         public static ActionRuntimeConfiguration Configure(
             IActionCatalog catalog,
-            IActionProfileResolver resolver) =>
-            new ConfiguredActionRuntimeConfiguration(catalog, resolver);
+            IActionProfileResolver resolver
+        ) => new ConfiguredActionRuntimeConfiguration(catalog, resolver);
 
-        private sealed class UnconfiguredActionRuntimeConfiguration :
-            ActionRuntimeConfiguration
+        private sealed class UnconfiguredActionRuntimeConfiguration : ActionRuntimeConfiguration
         {
             public override bool IsConfigured => false;
 
             public override ActionRuntime CreateRuntime(
-                IDictionary<Type, List<IActionValidatorRegistration>> validators) =>
-                ActionRuntime.Disabled;
+                IDictionary<Type, List<IActionValidatorRegistration>> validators
+            ) => ActionRuntime.Disabled;
         }
 
-        private sealed class ConfiguredActionRuntimeConfiguration :
-            ActionRuntimeConfiguration
+        private sealed class ConfiguredActionRuntimeConfiguration : ActionRuntimeConfiguration
         {
             private readonly IActionCatalog catalog;
             private readonly IActionProfileResolver resolver;
 
             public ConfiguredActionRuntimeConfiguration(
                 IActionCatalog catalog,
-                IActionProfileResolver resolver)
+                IActionProfileResolver resolver
+            )
             {
                 this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
                 this.resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
@@ -241,8 +271,8 @@ namespace Game.Rules.Runtime
             public override bool IsConfigured => true;
 
             public override ActionRuntime CreateRuntime(
-                IDictionary<Type, List<IActionValidatorRegistration>> validators) =>
-                ActionRuntime.Create(catalog, resolver, validators);
+                IDictionary<Type, List<IActionValidatorRegistration>> validators
+            ) => ActionRuntime.Create(catalog, resolver, validators);
         }
     }
 
@@ -251,14 +281,12 @@ namespace Game.Rules.Runtime
         public static IdentityActionProfileResolver Instance { get; } =
             new IdentityActionProfileResolver();
 
-        private IdentityActionProfileResolver()
-        {
-        }
+        private IdentityActionProfileResolver() { }
 
         public ActionProfile Resolve(
             ActionOpInfo action,
             ActionProfile baseProfile,
-            RulesSnapshot snapshot) => baseProfile;
+            RulesSnapshot snapshot
+        ) => baseProfile;
     }
-
 }
