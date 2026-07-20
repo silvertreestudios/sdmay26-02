@@ -101,7 +101,9 @@ namespace Game.Rules.Runtime
         /// </summary>
         /// <typeparam name="TState">The definition-owned immutable state value type.</typeparam>
         /// <returns>This definition builder so registrations can be chained.</returns>
-        /// <exception cref="InvalidOperationException">A state type was already declared.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// A state type was already declared, or <typeparamref name="TState"/> is not concrete.
+        /// </exception>
         public RuleDefinitionBuilder EffectState<TState>()
             where TState : IEffectState
         {
@@ -112,7 +114,15 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            effectStateType = typeof(TState);
+            Type declaredType = typeof(TState);
+            if (declaredType.IsInterface || declaredType.IsAbstract)
+            {
+                throw new InvalidOperationException(
+                    $"Definition {Id.Value} requires a concrete effect state type, not {declaredType.Name}."
+                );
+            }
+
+            effectStateType = declaredType;
             return this;
         }
 

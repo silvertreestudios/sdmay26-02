@@ -307,6 +307,7 @@ namespace Game.Rules.Runtime
 
             state.ActiveEffects.Remove(effect.Id);
             state.RuleBindings.Remove(binding.Id);
+            state.Frequencies.Remove(binding.Id);
             facts.Stage(
                 new ActiveEffectRemovedFact(
                     effect.Id,

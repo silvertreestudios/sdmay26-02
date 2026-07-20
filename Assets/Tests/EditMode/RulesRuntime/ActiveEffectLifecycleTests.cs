@@ -29,6 +29,16 @@ namespace Game.Rules.Runtime.Tests
             Assert.Throws<InvalidOperationException>(() =>
                 definition.EffectState<OtherEffectState>()
             );
+            Assert.Throws<InvalidOperationException>(() =>
+                new RuleRegistryBuilder()
+                    .Define(new RuleDefinitionId("interface-state"))
+                    .EffectState<IEffectState>()
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                new RuleRegistryBuilder()
+                    .Define(new RuleDefinitionId("abstract-state"))
+                    .EffectState<AbstractEffectState>()
+            );
         }
 
         [Test]
@@ -211,7 +221,12 @@ namespace Game.Rules.Runtime.Tests
         {
             ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
             ActiveRuleBinding binding = CreateBinding(effect);
-            InMemoryRulesStore store = CreateSeededStore(effect, binding);
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed()
+                    .SeedActiveEffect(effect)
+                    .SeedRuleBinding(binding)
+                    .SeedFrequency(BindingId, new FrequencyState(3, 1))
+            );
 
             ReductionResult<ActiveEffectExpirationOutcome> expired = store.Reduce(
                 Context(
@@ -232,6 +247,7 @@ namespace Game.Rules.Runtime.Tests
                 Is.EqualTo(ActiveEffectStatus.Expired)
             );
             Assert.That(expired.Snapshot.RuleBindings[BindingId].IsEnabled, Is.False);
+            Assert.That(expired.Snapshot.Frequencies.Contains(BindingId), Is.True);
             Assert.That(expired.Facts.Single(), Is.TypeOf<ActiveEffectExpiredFact>());
 
             ReductionResult<ActiveEffectExpirationOutcome> repeatedExpiration = store.Reduce(
@@ -253,6 +269,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(removed.IsAccepted, Is.True);
             Assert.That(removed.Snapshot.ActiveEffects.Contains(EffectId), Is.False);
             Assert.That(removed.Snapshot.RuleBindings.Contains(BindingId), Is.False);
+            Assert.That(removed.Snapshot.Frequencies.Contains(BindingId), Is.False);
             ActiveEffectRemovedFact fact = (ActiveEffectRemovedFact)removed.Facts.Single();
             Assert.That(fact.RemovedStatus, Is.EqualTo(ActiveEffectStatus.Expired));
             Assert.That(fact.RemovedVersion, Is.EqualTo(new EffectStateVersion(1)));
@@ -384,6 +401,8 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class OtherEffectState : IEffectState { }
+
+        private abstract class AbstractEffectState : IEffectState { }
 
         private sealed class UpdateWorkflowOp : IRuleOp<OpResult<ActiveEffectStateUpdateOutcome>>
         {
