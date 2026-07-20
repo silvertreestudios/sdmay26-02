@@ -693,8 +693,8 @@ namespace TestsUI
         }
 
         /// <summary>
-        /// Verifies combat end removes action rows, invalidates detached button callbacks, and keeps
-        /// a later HUD re-enable from restoring the ended combat's last reported turn.
+        /// Verifies combat end while the HUD is disabled invalidates detached button callbacks and
+        /// keeps a later re-enable from restoring the ended combat's last reported turn.
         /// </summary>
         [UnityTest]
         public IEnumerator CombatEndInvalidatesDefinitionRowsAndPreventsRestore()
@@ -713,11 +713,11 @@ namespace TestsUI
             HUDController hud = UnityEngine.Object.FindFirstObjectByType<HUDController>();
             Assert.That(hud, Is.Not.Null);
 
-            // Keep this static event focused on HUD behavior; the scene's GameManager listener would
-            // otherwise initiate a level transition and turn this into an unrelated integration test.
-            OnCombatEnd.RemoveAllListeners();
-            hud.enabled = false;
-            hud.enabled = true;
+            // Disabling only the level coordinator removes its combat-end listener without
+            // disturbing the HUD listener whose disabled-lifecycle behavior this test exercises.
+            GameManager gameManager = UnityEngine.Object.FindFirstObjectByType<GameManager>();
+            Assert.That(gameManager, Is.Not.Null);
+            gameManager.enabled = false;
 
             ActionController controller = player.GetComponent<ActionController>();
             InMemoryRulesStore store = new InMemoryRulesStore(
@@ -751,8 +751,10 @@ namespace TestsUI
                 }
             );
 
+            hud.enabled = false;
             OnCombatEnd.Invoke("Players");
 
+            Assert.That(hud.enabled, Is.False);
             Assert.That(root.Q<Button>("CombatendeddefinitionButton"), Is.Null);
             definitionButton.SetEnabled(true);
             PushButton(definitionButton);
@@ -765,7 +767,6 @@ namespace TestsUI
             Assert.That(store.Snapshot.Version, Is.Zero);
             Assert.That(controller.IsTakingAction, Is.False);
 
-            hud.enabled = false;
             hud.enabled = true;
             yield return null;
 

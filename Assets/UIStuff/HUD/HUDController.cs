@@ -96,6 +96,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             EnableUi();
             Setup();
         });
+        OnCombatEnd.RemoveListener(OnCombatEnded);
+        OnCombatEnd.AddListener(OnCombatEnded);
         OnActionConfirm.AddListener(() => canCancelAction = false);
         OnActionComplete.AddListener(() => canCancelAction = true);
         //Copiloy made this so I could point it to another UXML file for a template
@@ -208,9 +210,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         OnNextTurn.RemoveListener(OnTurnChanged);
         OnNextTurn.AddListener(OnTurnChanged);
 
-        OnCombatEnd.RemoveListener(OnCombatEnded);
-        OnCombatEnd.AddListener(OnCombatEnded);
-
         // During initial combat setup the manager has not assigned a turn yet. isActive becomes true
         // only after that setup path, so an ordinary re-enable can safely restore an active turn.
         if (isActive && CombatManagerInterface.TryGetInstance(out CombatManagerInterface manager))
@@ -225,7 +224,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         SetSelectedButton(null);
         //Debug.Log("OnDisable called");
         OnNextTurn.RemoveListener(OnTurnChanged);
-        OnCombatEnd.RemoveListener(OnCombatEnded);
         if (toggleAutoCameraAction != null)
             toggleAutoCameraAction.performed -= OnToggleAutoCamera;
         if (logToggleButton != null)
@@ -248,6 +246,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         _hudHoverCount = 0;
         IsPointerOverHUD = false;
         SettingsMenuControl.OnLogOpacityChanged -= ApplyLogOpacity;
+    }
+
+    private void OnDestroy()
+    {
+        OnCombatEnd.RemoveListener(OnCombatEnded);
     }
 
     public void EnableUi()
