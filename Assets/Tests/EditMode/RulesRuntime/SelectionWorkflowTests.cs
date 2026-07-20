@@ -1,13 +1,11 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 
 namespace Game.Rules.Runtime.Tests
 {
-    /// <summary>Verifies typed workflow execution, composition, and structural outcomes.</summary>
+    /// <summary>Verifies generic typed workflow execution, composition, and structural outcomes.</summary>
     public sealed class SelectionWorkflowTests
     {
         private static readonly CreatureId Actor = new CreatureId("selection-actor");
@@ -20,286 +18,276 @@ namespace Game.Rules.Runtime.Tests
         {
             TestActionDefinition definition = new TestActionDefinition(Target);
             RulesSnapshot snapshot = new RulesState(new RulesStateSeed()).Snapshot;
-            ScriptedSelectionAdapter adapter = new ScriptedSelectionAdapter(
-                SelectionOutcome<CreatureSelection>.Completed(new CreatureSelection(Target))
+            ScriptedSelectionResolver resolver = new ScriptedSelectionResolver(
+                SelectionOutcome<CreatureId>.Completed(Target)
             );
 
             ActionAvailability availability = definition.GetAvailability(snapshot, Actor);
-            SelectionOutcome<CreatureSelection> outcome = await definition
+            SelectionOutcome<CreatureId> outcome = await definition
                 .CreateSelectionWorkflow(snapshot, Actor)
-                .Run(adapter);
-            CreatureSelection selection = RequireCompleted(outcome);
-            TestActionOp op = definition.CreateOp(Actor, selection);
+                .Run(resolver);
+            TestActionOp operation = definition.CreateOp(Actor, RequireCompleted(outcome));
 
             Assert.That(availability, Is.SameAs(ActionAvailability.Available));
-            Assert.That(op.Actor, Is.EqualTo(Actor));
-            Assert.That(op.Target, Is.EqualTo(Target));
-            Assert.That(adapter.Requests, Has.Count.EqualTo(1));
-            Assert.That(adapter.Remaining, Is.Zero);
+            Assert.That(operation.Actor, Is.EqualTo(Actor));
+            Assert.That(operation.Target, Is.EqualTo(Target));
+            Assert.That(resolver.Requests, Has.Count.EqualTo(1));
+            Assert.That(resolver.Remaining, Is.Zero);
         }
 
-        /// <summary>Verifies a path can determine a later target step and preserve both values.</summary>
+        /// <summary>Verifies dependent requests run in order and preserve both typed values.</summary>
         [Test]
-        public async Task PathPlusTargetRunsInOrderAndBuildsTumbleThroughSelection()
+        public async Task OrderedChoicesRunInSequence()
         {
-            GridPosition start = new GridPosition(0, 0, 0);
-            GridPosition middle = new GridPosition(1, 0, 0);
-            GridPosition destination = new GridPosition(2, 0, 0);
-            SelectionRequestId pathId = new SelectionRequestId("tumble-path");
-            SelectionRequestId targetId = new SelectionRequestId("tumble-enemy");
-            PathSelection path = new PathSelection(new[] { start, middle, destination });
-            ScriptedSelectionAdapter adapter = new ScriptedSelectionAdapter(
-                SelectionOutcome<PathSelection>.Completed(path),
-                SelectionOutcome<CreatureSelection>.Completed(new CreatureSelection(Target))
+            TestSelectionRequest<int> firstRequest = new TestSelectionRequest<int>(
+                "positive-number",
+                value => value > 0
             );
-            SelectionWorkflow<TumbleThroughSelection> workflow = SelectionWorkflow
-                .From(new PathSelectionRequest(pathId, Actor, start, new[] { destination }, 3))
-                .Then(_ =>
-                    SelectionWorkflow.From(new CreatureSelectionRequest(targetId, new[] { Target }))
-                )
-                .Select(ordered => new TumbleThroughSelection(
-                    ordered.First.Positions,
-                    ordered.Second.Creature,
-                    new MovementMode("land")
-                ));
-
-            TumbleThroughSelection selection = RequireCompleted(await workflow.Run(adapter));
-
-            Assert.That(selection.Path, Is.EqualTo(new[] { start, middle, destination }));
-            Assert.That(selection.Enemy, Is.EqualTo(Target));
-            Assert.That(selection.Mode, Is.EqualTo(new MovementMode("land")));
-            Assert.That(adapter.Requests, Is.EqualTo(new[] { pathId, targetId }));
-        }
-
-        /// <summary>Verifies area selection carries its template, origin, and facing without Unity.</summary>
-        [Test]
-        public async Task AreaWorkflowPreservesTemplateAndOrientation()
-        {
-            AreaTemplateId template = new AreaTemplateId("fifteen-foot-cone");
-            GridPosition origin = new GridPosition(4, 0, 2);
-            AreaOrientation orientation = new AreaOrientation(origin, new GridPosition(5, 0, 2));
-            AreaSelection expected = new AreaSelection(template, orientation);
-            ScriptedSelectionAdapter adapter = new ScriptedSelectionAdapter(
-                SelectionOutcome<AreaSelection>.Completed(expected)
+            TestSelectionRequest<string> secondRequest = new TestSelectionRequest<string>(
+                "matching-label",
+                value => value == "chosen"
             );
-            SelectionWorkflow<AreaSelection> workflow = SelectionWorkflow.From(
-                new AreaSelectionRequest(
-                    new SelectionRequestId("spell-area"),
-                    new[] { template },
-                    new[] { origin }
-                )
+            ScriptedSelectionResolver resolver = new ScriptedSelectionResolver(
+                SelectionOutcome<int>.Completed(3),
+                SelectionOutcome<string>.Completed("chosen")
+            );
+            SelectionWorkflow<OrderedSelection<int, string>> workflow = SelectionWorkflow
+                .From(firstRequest)
+                .Then(_ => SelectionWorkflow.From(secondRequest));
+
+            OrderedSelection<int, string> selection = RequireCompleted(
+                await workflow.Run(resolver)
             );
 
-            AreaSelection actual = RequireCompleted(await workflow.Run(adapter));
-
-            Assert.That(actual, Is.EqualTo(expected));
-            Assert.That(actual.Orientation.Facing, Is.EqualTo(new GridPosition(5, 0, 2)));
-        }
-
-        /// <summary>Verifies three ordered choices project into one structurally targeted spell.</summary>
-        [Test]
-        public async Task OrderedMultiChoiceBuildsStructurallyTargetedSpellSelection()
-        {
-            SpellSlotPoolId slot = new SpellSlotPoolId("wizard-rank-one");
-            SpellVariantId variant = new SpellVariantId("force-barrage-one-action");
-            MultipleCreatureSelection targets = new MultipleCreatureSelection(
-                new[] { Target, Other }
-            );
-            SelectionRequestId slotId = new SelectionRequestId("spell-slot");
-            SelectionRequestId variantId = new SelectionRequestId("spell-variant");
-            SelectionRequestId targetsId = new SelectionRequestId("spell-targets");
-            ScriptedSelectionAdapter adapter = new ScriptedSelectionAdapter(
-                SelectionOutcome<SpellSlotSelection>.Completed(new SpellSlotSelection(slot)),
-                SelectionOutcome<SpellVariantSelection>.Completed(
-                    new SpellVariantSelection(variant)
-                ),
-                SelectionOutcome<MultipleCreatureSelection>.Completed(targets)
-            );
-            SelectionWorkflow<CastSpellSelection> workflow = SelectionWorkflow
-                .From(new SpellSlotSelectionRequest(slotId, new[] { slot }))
-                .Then(_ =>
-                    SelectionWorkflow.From(
-                        new SpellVariantSelectionRequest(variantId, new[] { variant })
-                    )
-                )
-                .Then(_ =>
-                    SelectionWorkflow.From(
-                        new MultipleCreatureSelectionRequest(
-                            targetsId,
-                            new[] { Target, Other },
-                            1,
-                            2
-                        )
-                    )
-                )
-                .Select(ordered => new CastSpellSelection(
-                    ordered.First.First.Pool,
-                    ordered.First.Second.Variant,
-                    new MultipleCreatureSpellTargetSelection(ordered.Second.Creatures)
-                ));
-
-            CastSpellSelection selection = RequireCompleted(await workflow.Run(adapter));
-
-            Assert.That(selection.SlotPool, Is.EqualTo(slot));
-            Assert.That(selection.Variant, Is.EqualTo(variant));
-            Assert.That(selection.Targets, Is.TypeOf<MultipleCreatureSpellTargetSelection>());
+            Assert.That(selection.First, Is.EqualTo(3));
+            Assert.That(selection.Second, Is.EqualTo("chosen"));
             Assert.That(
-                ((MultipleCreatureSpellTargetSelection)selection.Targets).Targets,
-                Is.EqualTo(new[] { Target, Other })
+                resolver.Requests,
+                Is.EqualTo(new object[] { firstRequest, secondRequest })
             );
-            Assert.That(adapter.Requests, Is.EqualTo(new[] { slotId, variantId, targetsId }));
         }
 
-        /// <summary>Verifies cancellation discards partial data and skips every later step.</summary>
+        /// <summary>Verifies projection runs only after a completed selection.</summary>
+        [Test]
+        public async Task SelectProjectsCompletedValue()
+        {
+            TestSelectionRequest<int> request = new TestSelectionRequest<int>(
+                "projection-input",
+                value => value == 4
+            );
+            ScriptedSelectionResolver resolver = new ScriptedSelectionResolver(
+                SelectionOutcome<int>.Completed(4)
+            );
+
+            string selection = RequireCompleted(
+                await SelectionWorkflow
+                    .From(request)
+                    .Select(value => $"value-{value}")
+                    .Run(resolver)
+            );
+
+            Assert.That(selection, Is.EqualTo("value-4"));
+        }
+
+        /// <summary>Verifies explicit cancellation discards partial data and skips later work.</summary>
         [Test]
         public async Task CancellationShortCircuitsDependentSelection()
         {
-            SelectionRequestId firstId = new SelectionRequestId("cancel-first");
-            ScriptedSelectionAdapter adapter = new ScriptedSelectionAdapter(
-                SelectionOutcome<CreatureSelection>.Cancelled,
-                SelectionOutcome<ConfirmationSelection>.Completed(new ConfirmationSelection(true))
+            TestSelectionRequest<CreatureId> firstRequest = new TestSelectionRequest<CreatureId>(
+                "cancel-first",
+                value => value == Target
             );
-            SelectionWorkflow<OrderedSelection<CreatureSelection, ConfirmationSelection>> workflow =
-                SelectionWorkflow
-                    .From(new CreatureSelectionRequest(firstId, new[] { Target }))
-                    .Then(_ =>
-                        SelectionWorkflow.From(
-                            new ConfirmationSelectionRequest(
-                                new SelectionRequestId("never-confirm")
-                            )
-                        )
-                    );
+            TestSelectionRequest<bool> secondRequest = new TestSelectionRequest<bool>(
+                "never-run",
+                _ => true
+            );
+            ScriptedSelectionResolver resolver = new ScriptedSelectionResolver(
+                SelectionOutcome<CreatureId>.Cancelled,
+                SelectionOutcome<bool>.Completed(true)
+            );
+            SelectionWorkflow<OrderedSelection<CreatureId, bool>> workflow = SelectionWorkflow
+                .From(firstRequest)
+                .Then(_ => SelectionWorkflow.From(secondRequest));
 
-            SelectionOutcome<OrderedSelection<CreatureSelection, ConfirmationSelection>> outcome =
-                await workflow.Run(adapter);
+            SelectionOutcome<OrderedSelection<CreatureId, bool>> outcome = await workflow.Run(
+                resolver
+            );
 
             Assert.That(
                 outcome,
-                Is.TypeOf<
-                    CancelledSelectionOutcome<
-                        OrderedSelection<CreatureSelection, ConfirmationSelection>
-                    >
-                >()
+                Is.TypeOf<CancelledSelectionOutcome<OrderedSelection<CreatureId, bool>>>()
             );
-            Assert.That(adapter.Requests, Is.EqualTo(new[] { firstId }));
-            Assert.That(adapter.Remaining, Is.EqualTo(1));
+            Assert.That(resolver.Requests, Is.EqualTo(new object[] { firstRequest }));
+            Assert.That(resolver.Remaining, Is.EqualTo(1));
         }
 
-        /// <summary>Verifies undeclared adapter values become invalid and skip later steps.</summary>
+        /// <summary>Verifies a resolver cannot complete a request with a value it did not offer.</summary>
         [Test]
-        public async Task InvalidSelectionShortCircuitsDependentSelection()
+        public async Task OutOfRequestValueBecomesInvalidAndSkipsDependentSelection()
         {
-            ScriptedSelectionAdapter adapter = new ScriptedSelectionAdapter(
-                SelectionOutcome<CreatureSelection>.Completed(new CreatureSelection(Other)),
-                SelectionOutcome<ConfirmationSelection>.Completed(new ConfirmationSelection(true))
+            TestSelectionRequest<CreatureId> firstRequest = new TestSelectionRequest<CreatureId>(
+                "restricted-target",
+                value => value == Target
             );
-            SelectionWorkflow<OrderedSelection<CreatureSelection, ConfirmationSelection>> workflow =
-                SelectionWorkflow
-                    .From(
-                        new CreatureSelectionRequest(
-                            new SelectionRequestId("restricted-target"),
-                            new[] { Target }
-                        )
-                    )
-                    .Then(_ =>
-                        SelectionWorkflow.From(
-                            new ConfirmationSelectionRequest(
-                                new SelectionRequestId("never-confirm")
-                            )
-                        )
-                    );
+            TestSelectionRequest<bool> secondRequest = new TestSelectionRequest<bool>(
+                "never-run",
+                _ => true
+            );
+            ScriptedSelectionResolver resolver = new ScriptedSelectionResolver(
+                SelectionOutcome<CreatureId>.Completed(Other),
+                SelectionOutcome<bool>.Completed(true)
+            );
+            SelectionWorkflow<OrderedSelection<CreatureId, bool>> workflow = SelectionWorkflow
+                .From(firstRequest)
+                .Then(_ => SelectionWorkflow.From(secondRequest));
 
-            SelectionOutcome<OrderedSelection<CreatureSelection, ConfirmationSelection>> outcome =
-                await workflow.Run(adapter);
+            SelectionOutcome<OrderedSelection<CreatureId, bool>> outcome = await workflow.Run(
+                resolver
+            );
 
             Assert.That(
                 outcome,
-                Is.TypeOf<
-                    InvalidSelectionOutcome<
-                        OrderedSelection<CreatureSelection, ConfirmationSelection>
-                    >
-                >()
+                Is.TypeOf<InvalidSelectionOutcome<OrderedSelection<CreatureId, bool>>>()
             );
             Assert.That(
-                (
-                    (InvalidSelectionOutcome<
-                        OrderedSelection<CreatureSelection, ConfirmationSelection>
-                    >)
-                        outcome
-                ).Reason,
-                Does.Contain("restricted-target")
+                ((InvalidSelectionOutcome<OrderedSelection<CreatureId, bool>>)outcome).Reason,
+                Does.Contain("outside the request")
             );
-            Assert.That(adapter.Requests, Has.Count.EqualTo(1));
-            Assert.That(adapter.Remaining, Is.EqualTo(1));
+            Assert.That(resolver.Requests, Is.EqualTo(new object[] { firstRequest }));
+            Assert.That(resolver.Remaining, Is.EqualTo(1));
+        }
+
+        /// <summary>Verifies a resolver's structural invalid result is preserved unchanged.</summary>
+        [Test]
+        public async Task InvalidOutcomeShortCircuitsDependentSelection()
+        {
+            TestSelectionRequest<int> firstRequest = new TestSelectionRequest<int>(
+                "invalid-first",
+                _ => true
+            );
+            TestSelectionRequest<bool> secondRequest = new TestSelectionRequest<bool>(
+                "never-run",
+                _ => true
+            );
+            ScriptedSelectionResolver resolver = new ScriptedSelectionResolver(
+                SelectionOutcome<int>.Invalid("No legal choice remains."),
+                SelectionOutcome<bool>.Completed(true)
+            );
+
+            SelectionOutcome<OrderedSelection<int, bool>> outcome = await SelectionWorkflow
+                .From(firstRequest)
+                .Then(_ => SelectionWorkflow.From(secondRequest))
+                .Run(resolver);
+
+            Assert.That(
+                ((InvalidSelectionOutcome<OrderedSelection<int, bool>>)outcome).Reason,
+                Is.EqualTo("No legal choice remains.")
+            );
+            Assert.That(resolver.Requests, Is.EqualTo(new object[] { firstRequest }));
+            Assert.That(resolver.Remaining, Is.EqualTo(1));
         }
 
         /// <summary>
-        /// Verifies cancellation discards a late adapter result and never begins a dependent step.
+        /// Verifies cancellation discards a late resolver result and never begins a dependent step.
         /// </summary>
         [Test]
         public async Task CancellationTokenDiscardsLateResultAndSkipsDependentSelection()
         {
-            SelectionRequestId firstId = new SelectionRequestId("pending-cancel-first");
-            TaskCompletionSource<SelectionOutcome<CreatureSelection>> pending =
-                new TaskCompletionSource<SelectionOutcome<CreatureSelection>>();
-            ScriptedSelectionAdapter adapter = new ScriptedSelectionAdapter(
-                pending.Task,
-                SelectionOutcome<ConfirmationSelection>.Completed(new ConfirmationSelection(true))
+            TestSelectionRequest<int> firstRequest = new TestSelectionRequest<int>(
+                "pending-first",
+                value => value == 1
             );
-            SelectionWorkflow<OrderedSelection<CreatureSelection, ConfirmationSelection>> workflow =
-                SelectionWorkflow
-                    .From(new CreatureSelectionRequest(firstId, new[] { Target }))
-                    .Then(_ =>
-                        SelectionWorkflow.From(
-                            new ConfirmationSelectionRequest(
-                                new SelectionRequestId("never-confirm-after-token-cancel")
-                            )
-                        )
-                    );
+            TestSelectionRequest<bool> secondRequest = new TestSelectionRequest<bool>(
+                "never-run",
+                _ => true
+            );
+            TaskCompletionSource<SelectionOutcome<int>> pending =
+                new TaskCompletionSource<SelectionOutcome<int>>();
+            ScriptedSelectionResolver resolver = new ScriptedSelectionResolver(
+                pending.Task,
+                SelectionOutcome<bool>.Completed(true)
+            );
+            SelectionWorkflow<OrderedSelection<int, bool>> workflow = SelectionWorkflow
+                .From(firstRequest)
+                .Then(_ => SelectionWorkflow.From(secondRequest));
+
             using (CancellationTokenSource cancellation = new CancellationTokenSource())
             {
-                Task<
-                    SelectionOutcome<OrderedSelection<CreatureSelection, ConfirmationSelection>>
-                > execution = workflow.Run(adapter, cancellation.Token).AsTask();
+                Task<SelectionOutcome<OrderedSelection<int, bool>>> execution = workflow
+                    .Run(resolver, cancellation.Token)
+                    .AsTask();
 
                 cancellation.Cancel();
-                pending.SetResult(
-                    SelectionOutcome<CreatureSelection>.Completed(new CreatureSelection(Target))
-                );
-                SelectionOutcome<
-                    OrderedSelection<CreatureSelection, ConfirmationSelection>
-                > outcome = await execution;
+                pending.SetResult(SelectionOutcome<int>.Completed(1));
+                SelectionOutcome<OrderedSelection<int, bool>> outcome = await execution;
 
                 Assert.That(
                     outcome,
-                    Is.TypeOf<
-                        CancelledSelectionOutcome<
-                            OrderedSelection<CreatureSelection, ConfirmationSelection>
-                        >
-                    >()
+                    Is.TypeOf<CancelledSelectionOutcome<OrderedSelection<int, bool>>>()
                 );
-                Assert.That(adapter.Requests, Is.EqualTo(new[] { firstId }));
-                Assert.That(adapter.Remaining, Is.EqualTo(1));
+                Assert.That(resolver.Requests, Is.EqualTo(new object[] { firstRequest }));
+                Assert.That(resolver.Remaining, Is.EqualTo(1));
             }
         }
 
-        /// <summary>Verifies an explicit no is completed data rather than workflow cancellation.</summary>
+        /// <summary>Verifies a token cancelled before execution invokes no resolver.</summary>
         [Test]
-        public async Task ConfirmationDeclineIsCompletedSelection()
+        public async Task PreCancelledWorkflowDoesNotInvokeResolver()
         {
-            ScriptedSelectionAdapter adapter = new ScriptedSelectionAdapter(
-                SelectionOutcome<ConfirmationSelection>.Completed(new ConfirmationSelection(false))
+            TestSelectionRequest<int> request = new TestSelectionRequest<int>(
+                "pre-cancelled",
+                _ => true
+            );
+            ScriptedSelectionResolver resolver = new ScriptedSelectionResolver(
+                SelectionOutcome<int>.Completed(1)
+            );
+            using (CancellationTokenSource cancellation = new CancellationTokenSource())
+            {
+                cancellation.Cancel();
+
+                SelectionOutcome<int> outcome = await SelectionWorkflow
+                    .From(request)
+                    .Run(resolver, cancellation.Token);
+
+                Assert.That(outcome, Is.TypeOf<CancelledSelectionOutcome<int>>());
+                Assert.That(resolver.Requests, Is.Empty);
+                Assert.That(resolver.Remaining, Is.EqualTo(1));
+            }
+        }
+
+        /// <summary>Verifies an immediately invalid workflow invokes no resolver.</summary>
+        [Test]
+        public async Task ImmediatelyInvalidWorkflowInvokesNoResolver()
+        {
+            ScriptedSelectionResolver resolver = new ScriptedSelectionResolver(
+                SelectionOutcome<int>.Completed(1)
             );
 
-            ConfirmationSelection selection = RequireCompleted(
-                await SelectionWorkflow
-                    .From(
-                        new ConfirmationSelectionRequest(new SelectionRequestId("confirm-action"))
-                    )
-                    .Run(adapter)
-            );
+            SelectionOutcome<int> outcome = await SelectionWorkflow
+                .Invalid<int>("Preview cannot produce a legal request.")
+                .Run(resolver);
 
-            Assert.That(selection.IsConfirmed, Is.False);
+            Assert.That(
+                ((InvalidSelectionOutcome<int>)outcome).Reason,
+                Is.EqualTo("Preview cannot produce a legal request.")
+            );
+            Assert.That(resolver.Requests, Is.Empty);
+            Assert.That(resolver.Remaining, Is.EqualTo(1));
+        }
+
+        /// <summary>Verifies a broken resolver cannot represent absence as a valid outcome.</summary>
+        [Test]
+        public void MissingResolverOutcomeThrows()
+        {
+            TestSelectionRequest<int> request = new TestSelectionRequest<int>(
+                "missing-outcome",
+                _ => true
+            );
+            ScriptedSelectionResolver resolver = new ScriptedSelectionResolver((object)null);
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await SelectionWorkflow.From(request).Run(resolver)
+            );
         }
 
         private static T RequireCompleted<T>(SelectionOutcome<T> outcome)
@@ -319,7 +307,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class TestActionDefinition
-            : IActionDefinition<CreatureSelection, TestActionOp, TestActionOutcome>
+            : IActionDefinition<CreatureId, TestActionOp, TestActionOutcome>
         {
             private readonly CreatureId target;
 
@@ -334,19 +322,19 @@ namespace Game.Rules.Runtime.Tests
                 return ActionAvailability.Available;
             }
 
-            public SelectionWorkflow<CreatureSelection> CreateSelectionWorkflow(
+            public SelectionWorkflow<CreatureId> CreateSelectionWorkflow(
                 RulesSnapshot snapshot,
                 CreatureId actor
             ) =>
                 SelectionWorkflow.From(
-                    new CreatureSelectionRequest(
-                        new SelectionRequestId("test-one-click-target"),
-                        new[] { target }
+                    new TestSelectionRequest<CreatureId>(
+                        "test-one-click-target",
+                        selection => selection == target
                     )
                 );
 
-            public TestActionOp CreateOp(CreatureId actor, CreatureSelection selection) =>
-                new TestActionOp(actor, selection.Creature);
+            public TestActionOp CreateOp(CreatureId actor, CreatureId selection) =>
+                new TestActionOp(actor, selection);
         }
     }
 }

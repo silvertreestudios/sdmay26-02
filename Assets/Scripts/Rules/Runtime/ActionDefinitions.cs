@@ -3,8 +3,8 @@ using System;
 namespace Game.Rules.Runtime
 {
     /// <summary>
-    /// Connects an action catalog entry to its preview, typed input workflow, and immutable root
-    /// operation.
+    /// Connects an action's preview, typed input workflow, and immutable root operation without
+    /// choosing a presentation or registration model.
     /// </summary>
     /// <typeparam name="TSelection">The action-specific plain data produced by every choice.</typeparam>
     /// <typeparam name="TOp">The public root operation created from the selection.</typeparam>

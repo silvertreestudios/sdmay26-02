@@ -926,14 +926,9 @@ When the player clicks Strike, the action bar asks `StrikeActionDefinition` for 
 
 `SelectionWorkflow<TSelection>` may be one click, a path plus target, multiple creatures, an area template and orientation, or several ordered choices. The generic action bar only handles availability and launches the definition's workflow; it does not need nullable fields or a switch for every PF2e action.
 
-Each primitive request owns an immutable candidate set, and the workflow rejects an adapter value outside that preview set. Completion, cancellation, and invalidity are separate structural outcomes. `Then` and `Select` compose typed values while cancellation or invalidity discards partial choices and skips all later steps. Only a completed outcome reaches `CreateOp`; selection cancellation and invalidity create no root frame and spend no resource.
+Each concrete request owns the immutable constraints for its answer, and the workflow rejects a resolver value outside those constraints. Completion, cancellation, and invalidity are separate structural outcomes. `Then` and `Select` compose typed values while cancellation or invalidity discards partial choices and skips all later steps. Only a completed outcome reaches `CreateOp`; selection cancellation and invalidity create no root frame and spend no resource.
 
-During migration, Unity presents two explicit action-bar entry forms:
-
-- a legacy entry that invokes its unchanged `EntityAction` through its owning `ActionController`; and
-- a type-erased definition entry that keeps its generic selection and Op types connected internally.
-
-Every entry has an explicit stable action-bar key independent of display text. A definition suppresses a legacy entry only when their keys intentionally match, occupying that legacy entry's position; equal labels never imply identity. This permits mixed legacy and definition-backed rows without disguising legacy behavior as an Op. Definition availability is recomputed from the dispatcher's current snapshot, including after committed Facts, while legacy availability continues to use legacy action points until that action's authoritative ownership migrates.
+The common framework exposes one generic resolver operation rather than enumerating every possible choice needed by current or future actions. Concrete request types and their player or AI handling land with the production feature that proves their shape. Likewise, the action-bar registration and migration bridge are defined when the first production action uses them, so framework code does not prematurely choose scene-object mappings, AI planning APIs, or legacy replacement semantics.
 
 ### 7.2 Unity is an adapter, not the rules authority
 

@@ -1,100 +1,52 @@
 using System;
-using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
     /// <summary>Creates one-step and immediately invalid typed selection workflows.</summary>
     public static class SelectionWorkflow
     {
-        /// <summary>Creates a one-creature workflow.</summary>
-        public static SelectionWorkflow<CreatureSelection> From(CreatureSelectionRequest request) =>
-            Create(
-                request,
-                adapter => adapter.SelectCreature(request),
-                selection => request.Accepts(selection)
-            );
+        /// <summary>Creates a one-step workflow for any concrete typed request.</summary>
+        /// <typeparam name="TSelection">The complete answer type required by the request.</typeparam>
+        /// <param name="request">The required immutable request resolved by the workflow boundary.</param>
+        /// <returns>
+        /// A workflow that verifies a completed resolver answer against
+        /// <see cref="SelectionRequest{TSelection}.Accepts"/>.
+        /// </returns>
+        /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
+        public static SelectionWorkflow<TSelection> From<TSelection>(
+            SelectionRequest<TSelection> request
+        )
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
 
-        /// <summary>Creates a multiple-creature workflow.</summary>
-        public static SelectionWorkflow<MultipleCreatureSelection> From(
-            MultipleCreatureSelectionRequest request
-        ) =>
-            Create(
-                request,
-                adapter => adapter.SelectCreatures(request),
-                selection => request.Accepts(selection)
-            );
+            return new SelectionWorkflow<TSelection>(
+                async (resolver, cancellationToken) =>
+                {
+                    SelectionOutcome<TSelection> outcome = await resolver.Select(
+                        request,
+                        cancellationToken
+                    );
+                    if (outcome == null)
+                        throw new InvalidOperationException(
+                            "A selection resolver returned no outcome."
+                        );
+                    if (
+                        outcome is CompletedSelectionOutcome<TSelection> completed
+                        && !request.Accepts(completed.Selection)
+                    )
+                    {
+                        return SelectionOutcome<TSelection>.Invalid(
+                            "A selection resolver returned a value outside the request."
+                        );
+                    }
 
-        /// <summary>Creates an item workflow.</summary>
-        public static SelectionWorkflow<ItemSelection> From(ItemSelectionRequest request) =>
-            Create(
-                request,
-                adapter => adapter.SelectItem(request),
-                selection => request.Accepts(selection)
+                    return outcome;
+                }
             );
+        }
 
-        /// <summary>Creates a weapon workflow.</summary>
-        public static SelectionWorkflow<WeaponSelection> From(WeaponSelectionRequest request) =>
-            Create(
-                request,
-                adapter => adapter.SelectWeapon(request),
-                selection => request.Accepts(selection)
-            );
-
-        /// <summary>Creates a path workflow.</summary>
-        public static SelectionWorkflow<PathSelection> From(PathSelectionRequest request) =>
-            Create(
-                request,
-                adapter => adapter.SelectPath(request),
-                selection => request.Accepts(selection)
-            );
-
-        /// <summary>Creates a grid-cell workflow.</summary>
-        public static SelectionWorkflow<GridCellSelection> From(GridCellSelectionRequest request) =>
-            Create(
-                request,
-                adapter => adapter.SelectGridCell(request),
-                selection => request.Accepts(selection)
-            );
-
-        /// <summary>Creates an area-template and orientation workflow.</summary>
-        public static SelectionWorkflow<AreaSelection> From(AreaSelectionRequest request) =>
-            Create(
-                request,
-                adapter => adapter.SelectArea(request),
-                selection => request.Accepts(selection)
-            );
-
-        /// <summary>Creates a spell-variant workflow.</summary>
-        public static SelectionWorkflow<SpellVariantSelection> From(
-            SpellVariantSelectionRequest request
-        ) =>
-            Create(
-                request,
-                adapter => adapter.SelectSpellVariant(request),
-                selection => request.Accepts(selection)
-            );
-
-        /// <summary>Creates a spell-slot pool workflow.</summary>
-        public static SelectionWorkflow<SpellSlotSelection> From(
-            SpellSlotSelectionRequest request
-        ) =>
-            Create(
-                request,
-                adapter => adapter.SelectSpellSlot(request),
-                selection => request.Accepts(selection)
-            );
-
-        /// <summary>Creates an explicit confirmation-or-decline workflow.</summary>
-        public static SelectionWorkflow<ConfirmationSelection> From(
-            ConfirmationSelectionRequest request
-        ) =>
-            Create(
-                request,
-                adapter => adapter.Confirm(request),
-                ConfirmationSelectionRequest.Accepts
-            );
-
-        /// <summary>Creates a workflow that is already invalid and invokes no adapter.</summary>
+        /// <summary>Creates a workflow that is already invalid and invokes no resolver.</summary>
         /// <typeparam name="TSelection">The selection type that cannot be produced.</typeparam>
         /// <param name="reason">A non-empty explanation.</param>
         /// <returns>An immediately invalid workflow.</returns>
@@ -104,37 +56,8 @@ namespace Game.Rules.Runtime
                 reason
             );
             return new SelectionWorkflow<TSelection>(
-                (_, _) => new ValueTask<SelectionOutcome<TSelection>>(invalid)
-            );
-        }
-
-        private static SelectionWorkflow<TSelection> Create<TRequest, TSelection>(
-            TRequest request,
-            Func<ISelectionAdapter, ValueTask<SelectionOutcome<TSelection>>> select,
-            Func<TSelection, bool> accepts
-        )
-            where TRequest : SelectionRequest
-        {
-            if (request == null)
-                throw new ArgumentNullException(nameof(request));
-
-            return new SelectionWorkflow<TSelection>(
-                async (adapter, _) =>
-                {
-                    SelectionOutcome<TSelection> outcome = await select(adapter);
-                    if (outcome == null)
-                        throw new InvalidOperationException(
-                            $"Selection adapter returned no outcome for request '{request.Id}'."
-                        );
-                    if (
-                        outcome is CompletedSelectionOutcome<TSelection> completed
-                        && !accepts(completed.Selection)
-                    )
-                        return SelectionOutcome<TSelection>.Invalid(
-                            $"Selection adapter returned a value outside request '{request.Id}'."
-                        );
-                    return outcome;
-                }
+                (_, _) =>
+                    new System.Threading.Tasks.ValueTask<SelectionOutcome<TSelection>>(invalid)
             );
         }
     }

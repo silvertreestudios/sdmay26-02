@@ -13,48 +13,49 @@ namespace Game.Rules.Runtime
     public sealed class SelectionWorkflow<TSelection>
     {
         private readonly Func<
-            ISelectionAdapter,
+            ISelectionResolver,
             CancellationToken,
             ValueTask<SelectionOutcome<TSelection>>
         > execute;
 
         internal SelectionWorkflow(
             Func<
-                ISelectionAdapter,
+                ISelectionResolver,
                 CancellationToken,
                 ValueTask<SelectionOutcome<TSelection>>
             > execute
         ) => this.execute = execute ?? throw new ArgumentNullException(nameof(execute));
 
-        /// <summary>Runs this workflow through one player, AI, replay, or test adapter.</summary>
-        /// <param name="adapter">The non-null adapter that resolves primitive requests.</param>
+        /// <summary>Runs this workflow through one player, AI, replay, or test resolver.</summary>
+        /// <param name="resolver">The non-null boundary that resolves typed requests.</param>
         /// <returns>The completed, cancelled, or invalid workflow outcome.</returns>
-        /// <exception cref="ArgumentNullException"><paramref name="adapter"/> is <see langword="null"/>.</exception>
-        public ValueTask<SelectionOutcome<TSelection>> Run(ISelectionAdapter adapter) =>
-            Run(adapter, CancellationToken.None);
+        /// <exception cref="ArgumentNullException"><paramref name="resolver"/> is <see langword="null"/>.</exception>
+        public ValueTask<SelectionOutcome<TSelection>> Run(ISelectionResolver resolver) =>
+            Run(resolver, CancellationToken.None);
 
         /// <summary>
         /// Runs this workflow while allowing its presentation owner to discard a pending selection
         /// before it can advance to another step or create an operation.
         /// </summary>
-        /// <param name="adapter">The non-null adapter that resolves primitive requests.</param>
+        /// <param name="resolver">The non-null boundary that resolves typed requests.</param>
         /// <param name="cancellationToken">
         /// A token that structurally cancels the workflow between asynchronous selection boundaries.
-        /// Adapters do not need to observe the token themselves; a late result is discarded after it returns.
+        /// A resolver should observe this token so abandoned presentation can end promptly. The
+        /// workflow also discards a late completed result after cancellation as a final safeguard.
         /// </param>
         /// <returns>The completed, cancelled, or invalid workflow outcome.</returns>
-        /// <exception cref="ArgumentNullException"><paramref name="adapter"/> is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="resolver"/> is <see langword="null"/>.</exception>
         public async ValueTask<SelectionOutcome<TSelection>> Run(
-            ISelectionAdapter adapter,
+            ISelectionResolver resolver,
             CancellationToken cancellationToken
         )
         {
-            if (adapter == null)
-                throw new ArgumentNullException(nameof(adapter));
+            if (resolver == null)
+                throw new ArgumentNullException(nameof(resolver));
             if (cancellationToken.IsCancellationRequested)
                 return SelectionOutcome<TSelection>.Cancelled;
 
-            SelectionOutcome<TSelection> outcome = await execute(adapter, cancellationToken);
+            SelectionOutcome<TSelection> outcome = await execute(resolver, cancellationToken);
             if (outcome == null)
                 throw new InvalidOperationException("A selection workflow returned no outcome.");
             if (cancellationToken.IsCancellationRequested)
@@ -72,9 +73,9 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(selector));
 
             return new SelectionWorkflow<TResult>(
-                async (adapter, cancellationToken) =>
+                async (resolver, cancellationToken) =>
                 {
-                    SelectionOutcome<TSelection> outcome = await Run(adapter, cancellationToken);
+                    SelectionOutcome<TSelection> outcome = await Run(resolver, cancellationToken);
                     if (outcome is CompletedSelectionOutcome<TSelection> completed)
                         return SelectionOutcome<TResult>.Completed(selector(completed.Selection));
                     if (outcome is InvalidSelectionOutcome<TSelection> invalid)
@@ -103,10 +104,10 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(next));
 
             return new SelectionWorkflow<OrderedSelection<TSelection, TNext>>(
-                async (adapter, cancellationToken) =>
+                async (resolver, cancellationToken) =>
                 {
                     SelectionOutcome<TSelection> firstOutcome = await Run(
-                        adapter,
+                        resolver,
                         cancellationToken
                     );
                     if (firstOutcome is InvalidSelectionOutcome<TSelection> firstInvalid)
@@ -127,7 +128,7 @@ namespace Game.Rules.Runtime
                         );
 
                     SelectionOutcome<TNext> secondOutcome = await nextWorkflow.Run(
-                        adapter,
+                        resolver,
                         cancellationToken
                     );
                     if (secondOutcome is InvalidSelectionOutcome<TNext> secondInvalid)
