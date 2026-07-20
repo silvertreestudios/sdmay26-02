@@ -293,7 +293,10 @@ namespace Game.Rules.Runtime
                 if (triggerFailure.Kind != MovementFailureKind.None)
                     return Stopped(context, op, committedSteps, distanceSpent, triggerFailure);
 
-                if (step.Allowance.HasOccupant)
+                // Departure middleware may relocate the reserved occupant. Batch the entry with
+                // its exit only while authoritative state still requires an occupied crossing;
+                // the reducer repeats this check when it settles the transaction.
+                if (ReservedOccupantStillOccupies(context.Snapshot, step))
                 {
                     MovementStepPlan exit = validation.Steps[stepIndex + 1];
                     MovementTriggerId exitTriggerId = new MovementTriggerId(
@@ -471,6 +474,14 @@ namespace Game.Rules.Runtime
             }
             return false;
         }
+
+        private static bool ReservedOccupantStillOccupies(
+            RulesSnapshot snapshot,
+            MovementStepPlan step
+        ) =>
+            step.Allowance.HasOccupant
+            && snapshot.Positions.TryGet(step.Allowance.Occupant, out GridPosition occupantPosition)
+            && occupantPosition == step.To;
 
         private static bool CrossingCommitted(
             RulesSnapshot before,
