@@ -134,6 +134,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
         cleric.level = 1;
         cleric.InitializeHealth(1, 1);
+        Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { cleric });
         cleric.wisMod = 4;
         cleric.Build = new CharacterBuild { ClassName = "Cleric" };
         cleric.Prepared = Pf2eCharacterPreparer.Prepare(cleric, cleric.Build);

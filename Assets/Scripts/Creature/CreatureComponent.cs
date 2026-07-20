@@ -92,6 +92,9 @@ namespace Game.Creature
 
         // Combat stats
         // [Header("Combat")]
+        // Unity serializes these values into existing prefabs. They seed the authoritative
+        // encounter state and then receive Fact-driven projections for Inspector visibility;
+        // gameplay reads Health and writes only through dispatcher-backed operations.
         [SerializeField]
         private int _hp;
 
@@ -1041,7 +1044,7 @@ namespace Game.Creature
         /// <param name="source">The existing rules source responsible for the damage.</param>
         /// <returns>The exact temporary- and current-HP amounts committed.</returns>
         public DamageOutcome ApplyFinalDamage(int amount, RuleSource source) =>
-            EnsureHealthRules().ApplyFinalDamage(healthCreatureId, amount, source);
+            RequireHealthRules().ApplyFinalDamage(healthCreatureId, amount, source);
 
         //helper function to signal to CombatManager when a player is defeated, so they can be removed from the turn queue and combat
         //this function also clears the character's position from the grid memory and deactivates their game object
@@ -1087,7 +1090,7 @@ namespace Game.Creature
         /// <param name="source">The existing rules source responsible for the healing.</param>
         /// <returns>The amount committed after maximum-HP clamping.</returns>
         public HealingOutcome Heal(int healAmount, RuleSource source) =>
-            EnsureHealthRules().ApplyHealing(healthCreatureId, healAmount, source);
+            RequireHealthRules().ApplyHealing(healthCreatureId, healAmount, source);
 
         /// <summary>
         /// Grants non-stacking temporary Hit Points owned by one rule source.
@@ -1098,13 +1101,13 @@ namespace Game.Creature
         public TemporaryHitPointsGrantOutcome GrantSourceTemporaryHitPoints(
             RuleSource source,
             int amount
-        ) => EnsureHealthRules().GrantTemporaryHitPoints(healthCreatureId, amount, source);
+        ) => RequireHealthRules().GrantTemporaryHitPoints(healthCreatureId, amount, source);
 
         /// <summary>Removes temporary Hit Points still owned by one rule source.</summary>
         /// <param name="source">The source whose remaining pool may be removed.</param>
         /// <returns>The amount removed, or zero when another source owns the pool.</returns>
         public TemporaryHitPointsRemovalOutcome RemoveSourceTemporaryHitPoints(RuleSource source) =>
-            EnsureHealthRules().RemoveTemporaryHitPoints(healthCreatureId, source);
+            RequireHealthRules().RemoveTemporaryHitPoints(healthCreatureId, source);
 
         /// <summary>
         /// Records that a source cannot grant temporary Hit Points again until game flow resets the immunity set.
@@ -1112,7 +1115,7 @@ namespace Game.Creature
         /// <param name="source">The source to block from later grants.</param>
         /// <returns>Whether a new immunity was committed.</returns>
         public TemporaryHitPointImmunityOutcome AddTemporaryHitPointImmunity(RuleSource source) =>
-            EnsureHealthRules().AddTemporaryHitPointImmunity(healthCreatureId, source);
+            RequireHealthRules().AddTemporaryHitPointImmunity(healthCreatureId, source);
 
         /// <summary>
         /// Checks whether a source is currently blocked from granting temporary Hit Points.
@@ -1121,9 +1124,7 @@ namespace Game.Creature
         /// <returns>True when the source has temporary Hit Point immunity.</returns>
         public bool HasTempHpImmunity(string source) =>
             !string.IsNullOrWhiteSpace(source)
-            && EnsureHealthRules()
-                .GetHealth(healthCreatureId)
-                .HasTemporaryHitPointImmunity(RuleSource.FromSlug(source));
+            && Health.HasTemporaryHitPointImmunity(RuleSource.FromSlug(source));
 
         /// <summary>
         /// Returns a snapshot of temporary Hit Point immunity sources for Unity-free rule evaluation.
@@ -1131,10 +1132,7 @@ namespace Game.Creature
         /// <returns>The active source keys with temporary Hit Point immunity.</returns>
         public IReadOnlyCollection<string> GetTempHpImmunitySources()
         {
-            return EnsureHealthRules()
-                .GetHealth(healthCreatureId)
-                .TemporaryHitPointImmunities.Select(source => source.Slug)
-                .ToArray();
+            return Health.TemporaryHitPointImmunities.Select(source => source.Slug).ToArray();
         }
 
         internal HealthState GetHealthInitializationState()
@@ -1170,10 +1168,14 @@ namespace Game.Creature
             GetComponent<CreaturePresentation>()?.PlayHit();
         }
 
-        private UnityHealthRulesBridge EnsureHealthRules()
+        private UnityHealthRulesBridge RequireHealthRules()
         {
             if (healthRules == null)
-                healthRules = UnityHealthRulesBridge.Create(new[] { this });
+            {
+                throw new InvalidOperationException(
+                    "Health commands require an encounter health bridge. CombatManager.StartCombat or an explicit test composition must initialize it first."
+                );
+            }
             return healthRules;
         }
 

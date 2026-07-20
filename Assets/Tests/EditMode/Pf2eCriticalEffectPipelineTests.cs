@@ -321,6 +321,7 @@ namespace TestsCombat
             CreatureComponent component = creature.AddComponent<CreatureComponent>();
             creature.AddComponent<TestActionController>();
             component.InitializeHealth(hp, hp);
+            Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { component });
             component.ac = 10;
             component.attackBonus = 10;
             component.weaknesses = new List<DamageValue>();

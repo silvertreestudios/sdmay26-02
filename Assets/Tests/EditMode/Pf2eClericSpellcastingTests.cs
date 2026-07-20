@@ -288,6 +288,7 @@ public class Pf2eClericSpellcastingTests
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
         creature.InitializeHealth(10, 10);
+        Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
         return creature;
     }
 

@@ -400,6 +400,7 @@ namespace TestsCombat
             {
                 CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
                 creatureObject.AddComponent<Conditions>();
+                Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
                 creature.level = 1;
                 creature.conMod = 1;
                 creature.Build = new CharacterBuild
@@ -453,6 +454,7 @@ namespace TestsCombat
             CreatureComponent component = creature.AddComponent<CreatureComponent>();
             creature.AddComponent<TestActionController>();
             component.InitializeHealth(hp, hp);
+            Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { component });
             component.ac = 10;
             component.attackBonus = 10;
             component.weaknesses = new List<DamageValue>();

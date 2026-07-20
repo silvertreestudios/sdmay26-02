@@ -11,6 +11,28 @@ using Object = UnityEngine.Object;
 public sealed class UnityHealthRulesBridgeTests
 {
     [Test]
+    public void CreatureHealthCommandsRejectMissingEncounterBridge()
+    {
+        GameObject creatureObject = new GameObject("creature");
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            creature.InitializeHealth(10, 10);
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                creature.ApplyFinalDamage(1, RuleSource.FromSlug("test-damage"))
+            );
+
+            StringAssert.Contains("require an encounter health bridge", error.Message);
+            Assert.That(creature.Health, Is.EqualTo(new HealthState(10, 10)));
+        }
+        finally
+        {
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    [Test]
     public void BridgeOwnsHealthAndProjectsCommittedFactsBackToComponents()
     {
         GameObject firstObject = new GameObject("first");
