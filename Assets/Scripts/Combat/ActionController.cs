@@ -5,7 +5,6 @@ using Game.Combat.Spells;
 using Game.Creature;
 using Game.Rules.Unity;
 using Game.Strikes;
-using NUnit.Framework;
 using UnityEngine;
 
 /// <summary>

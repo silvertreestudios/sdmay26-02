@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
@@ -869,7 +870,10 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                     definitionEntry
                 );
                 definitionButtonEntries.Add(btn, binding);
-                btn.clicked += () => ExecuteDefinitionAction(btn, binding);
+                btn.clicked += () =>
+                {
+                    _ = ExecuteDefinitionAction(btn, binding);
+                };
             }
             else
             {
@@ -880,7 +884,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         }
     }
 
-    private async void ExecuteDefinitionAction(Button btn, DefinitionActionButtonBinding binding)
+    private async Task ExecuteDefinitionAction(Button btn, DefinitionActionButtonBinding binding)
     {
         if (!binding.BelongsTo(currentTurnAC, actionBarTurnGeneration) || isActionRunning())
             return;
