@@ -99,7 +99,7 @@ namespace Game.Rules.Runtime
 
             MovementFailure failure = PrepareStep(
                 op,
-                state,
+                state.Positions,
                 current,
                 budget,
                 out PreparedMovementStep prepared
@@ -114,16 +114,101 @@ namespace Game.Rules.Runtime
             );
         }
 
+        /// <summary>
+        /// Purely prepares both halves of an occupied crossing against one committed snapshot.
+        /// </summary>
+        /// <remarks>
+        /// This uses the same contract as final reducer settlement so handlers can decide whether
+        /// exit timing may open without staging state or Facts.
+        /// </remarks>
+        internal MovementFailure ValidateCrossing(
+            CommitOccupiedMovementCrossingOp op,
+            RulesSnapshot snapshot
+        )
+        {
+            if (!snapshot.Positions.TryGet(op.Entry.Mover, out GridPosition current))
+                return Failure(MovementFailureKind.MissingPosition, op.Entry);
+            if (!snapshot.MovementBudgets.TryGet(op.Entry.Mover, out MovementBudgetState budget))
+            {
+                return Failure(MovementFailureKind.MissingBudget, op.Entry);
+            }
+
+            return PrepareCrossing(
+                op,
+                snapshot.Positions,
+                current,
+                budget,
+                out PreparedMovementStep _,
+                out PreparedMovementStep _
+            );
+        }
+
+        internal MovementFailure PrepareCrossing(
+            CommitOccupiedMovementCrossingOp op,
+            RulesStateDraft state,
+            out PreparedMovementStep preparedEntry,
+            out PreparedMovementStep preparedExit
+        )
+        {
+            preparedEntry = default;
+            preparedExit = default;
+            if (!state.Positions.TryGet(op.Entry.Mover, out GridPosition current))
+                return Failure(MovementFailureKind.MissingPosition, op.Entry);
+            if (!state.MovementBudgets.TryGet(op.Entry.Mover, out MovementBudgetState budget))
+            {
+                return Failure(MovementFailureKind.MissingBudget, op.Entry);
+            }
+
+            return PrepareCrossing(
+                op,
+                state.Positions,
+                current,
+                budget,
+                out preparedEntry,
+                out preparedExit
+            );
+        }
+
+        private MovementFailure PrepareCrossing(
+            CommitOccupiedMovementCrossingOp op,
+            IReadOnlyCollection<KeyValuePair<CreatureId, GridPosition>> positions,
+            GridPosition current,
+            MovementBudgetState budget,
+            out PreparedMovementStep preparedEntry,
+            out PreparedMovementStep preparedExit
+        )
+        {
+            preparedEntry = default;
+            preparedExit = default;
+            MovementFailure failure = PrepareStep(
+                op.Entry,
+                positions,
+                current,
+                budget,
+                out preparedEntry
+            );
+            if (failure.Kind != MovementFailureKind.None)
+                return failure;
+
+            return PrepareStep(
+                op.Exit,
+                positions,
+                op.Entry.To,
+                preparedEntry.UpdatedBudget,
+                out preparedExit
+            );
+        }
+
         internal MovementFailure PrepareStep(
             CommitMovementStepOp op,
-            RulesStateDraft state,
+            IReadOnlyCollection<KeyValuePair<CreatureId, GridPosition>> positions,
             GridPosition current,
             MovementBudgetState budget,
             out PreparedMovementStep prepared
         )
         {
             prepared = default;
-            bool reservedOccupantPresent = ReservedOccupantOccupies(op, state);
+            bool reservedOccupantPresent = ReservedOccupantOccupies(op, positions);
             if (current != op.From)
                 return new MovementFailure(
                     MovementFailureKind.StaleOrigin,
@@ -155,7 +240,7 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            if (TryFindBlockingOccupant(state.Positions, op.Mover, op.To, out CreatureId occupant))
+            if (TryFindBlockingOccupant(positions, op.Mover, op.To, out CreatureId occupant))
             {
                 if (op.IsDestination)
                     return Failure(MovementFailureKind.DestinationOccupied, op);
@@ -171,7 +256,7 @@ namespace Game.Rules.Runtime
                 }
                 if (
                     occupant != op.Allowance.Occupant
-                    || HasOtherOccupant(state.Positions, op.Mover, op.To, op.Allowance.Occupant)
+                    || HasOtherOccupant(positions, op.Mover, op.To, op.Allowance.Occupant)
                 )
                 {
                     return MovementPathValidator.PermissionFailure(
@@ -272,11 +357,19 @@ namespace Game.Rules.Runtime
 
         private static bool ReservedOccupantOccupies(
             CommitMovementStepOp op,
-            RulesStateDraft state
-        ) =>
-            op.Allowance.HasOccupant
-            && state.Positions.TryGet(op.Allowance.Occupant, out GridPosition occupantPosition)
-            && occupantPosition == op.To;
+            IReadOnlyCollection<KeyValuePair<CreatureId, GridPosition>> positions
+        )
+        {
+            if (!op.Allowance.HasOccupant)
+                return false;
+
+            foreach (KeyValuePair<CreatureId, GridPosition> pair in positions)
+            {
+                if (pair.Key == op.Allowance.Occupant)
+                    return pair.Value == op.To;
+            }
+            return false;
+        }
 
         private bool BlocksDiagonalCorner(GridPosition from, GridPosition to)
         {
@@ -293,7 +386,7 @@ namespace Game.Rules.Runtime
             new MovementFailure(kind, op.TriggerId.StepNumber, op.To);
 
         private static bool TryFindBlockingOccupant(
-            StateSliceDraft<CreatureId, GridPosition> positions,
+            IReadOnlyCollection<KeyValuePair<CreatureId, GridPosition>> positions,
             CreatureId mover,
             GridPosition position,
             out CreatureId occupant
@@ -312,7 +405,7 @@ namespace Game.Rules.Runtime
         }
 
         private static bool HasOtherOccupant(
-            StateSliceDraft<CreatureId, GridPosition> positions,
+            IReadOnlyCollection<KeyValuePair<CreatureId, GridPosition>> positions,
             CreatureId mover,
             GridPosition position,
             CreatureId permittedOccupant
@@ -350,9 +443,9 @@ namespace Game.Rules.Runtime
     {
         private readonly CommitMovementStepReducer stepReducer;
 
-        public CommitOccupiedMovementCrossingReducer(GridTopology topology)
+        public CommitOccupiedMovementCrossingReducer(CommitMovementStepReducer stepReducer)
         {
-            stepReducer = new CommitMovementStepReducer(topology);
+            this.stepReducer = stepReducer ?? throw new ArgumentNullException(nameof(stepReducer));
         }
 
         public ReductionResult<MovementCrossingCommitOutcome> Reduce(
@@ -363,26 +456,10 @@ namespace Game.Rules.Runtime
         {
             CommitMovementStepOp entry = context.Op.Entry;
             CommitMovementStepOp exit = context.Op.Exit;
-            if (!state.Positions.TryGet(entry.Mover, out GridPosition current))
-                return Rejected(Failure(MovementFailureKind.MissingPosition, entry));
-            if (!state.MovementBudgets.TryGet(entry.Mover, out MovementBudgetState budget))
-                return Rejected(Failure(MovementFailureKind.MissingBudget, entry));
-
-            MovementFailure failure = stepReducer.PrepareStep(
-                entry,
+            MovementFailure failure = stepReducer.PrepareCrossing(
+                context.Op,
                 state,
-                current,
-                budget,
-                out CommitMovementStepReducer.PreparedMovementStep preparedEntry
-            );
-            if (failure.Kind != MovementFailureKind.None)
-                return Rejected(failure);
-
-            failure = stepReducer.PrepareStep(
-                exit,
-                state,
-                entry.To,
-                preparedEntry.UpdatedBudget,
+                out CommitMovementStepReducer.PreparedMovementStep preparedEntry,
                 out CommitMovementStepReducer.PreparedMovementStep preparedExit
             );
             if (failure.Kind != MovementFailureKind.None)
@@ -407,9 +484,6 @@ namespace Game.Rules.Runtime
             ReductionResult<MovementCrossingCommitOutcome>.Accept(
                 new MovementCrossingCommitOutcome(failure)
             );
-
-        private static MovementFailure Failure(MovementFailureKind kind, CommitMovementStepOp op) =>
-            new MovementFailure(kind, op.TriggerId.StepNumber, op.To);
     }
 
     internal sealed class CommitRelocationReducer

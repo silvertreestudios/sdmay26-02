@@ -26,6 +26,7 @@ namespace Game.Rules.Runtime
 
             MovementPathValidator validator = new MovementPathValidator(topology);
             MovementPermission.Authority authority = new MovementPermission.Authority();
+            CommitMovementStepReducer stepReducer = new CommitMovementStepReducer(topology);
             return builder
                 .RegisterHandler<BeginMovementBudgetOp, MovementBudgetStartOutcome>(
                     new BeginMovementBudgetHandler(),
@@ -52,17 +53,17 @@ namespace Game.Rules.Runtime
                     InvocationPolicy.NestedOnly
                 )
                 .RegisterHandler<MovePathOp, MovePathOutcome>(
-                    new MovePathHandler(validator, authority),
+                    new MovePathHandler(validator, authority, stepReducer),
                     InvocationPolicy.NestedOnly
                 )
                 .RegisterEngineReducer<CommitMovementStepOp, MovementStepCommitOutcome>(
-                    new CommitMovementStepReducer(topology),
+                    stepReducer,
                     MovementSource
                 )
                 .RegisterEngineReducer<
                     CommitOccupiedMovementCrossingOp,
                     MovementCrossingCommitOutcome
-                >(new CommitOccupiedMovementCrossingReducer(topology), MovementSource)
+                >(new CommitOccupiedMovementCrossingReducer(stepReducer), MovementSource)
                 .RegisterHandler<RelocateTokenOp, RelocationOutcome>(
                     new RelocateTokenHandler(validator),
                     InvocationPolicy.NestedOnly
@@ -210,14 +211,17 @@ namespace Game.Rules.Runtime
     {
         private readonly MovementPathValidator validator;
         private readonly MovementPermission.Authority authority;
+        private readonly CommitMovementStepReducer stepReducer;
 
         public MovePathHandler(
             MovementPathValidator validator,
-            MovementPermission.Authority authority
+            MovementPermission.Authority authority,
+            CommitMovementStepReducer stepReducer
         )
         {
             this.validator = validator;
             this.authority = authority;
+            this.stepReducer = stepReducer;
         }
 
         public async ValueTask<MovePathOutcome> Handle(
@@ -303,6 +307,24 @@ namespace Game.Rules.Runtime
                         frame.Id,
                         stepIndex + 2
                     );
+                    CommitOccupiedMovementCrossingOp crossingOp =
+                        new CommitOccupiedMovementCrossingOp(
+                            CreateCommitOp(op, step, triggerId),
+                            CreateCommitOp(op, exit, exitTriggerId)
+                        );
+
+                    // Entry middleware may have invalidated either half. Apply the reducer's pure
+                    // preparation contract to the authoritative snapshot before exit timing can
+                    // commit reactions for a crossing that can no longer begin.
+                    MovementFailure crossingFailure = stepReducer.ValidateCrossing(
+                        crossingOp,
+                        context.Snapshot
+                    );
+                    if (crossingFailure.Kind != MovementFailureKind.None)
+                    {
+                        return Stopped(context, op, committedSteps, distanceSpent, crossingFailure);
+                    }
+
                     OpResult<MovementTriggerOutcome> exitTrigger = await DispatchDeparture(
                         context,
                         op,
@@ -314,11 +336,6 @@ namespace Game.Rules.Runtime
                         exit.To,
                         exitTriggerId
                     );
-                    CommitOccupiedMovementCrossingOp crossingOp =
-                        new CommitOccupiedMovementCrossingOp(
-                            CreateCommitOp(op, step, triggerId),
-                            CreateCommitOp(op, exit, exitTriggerId)
-                        );
                     RulesSnapshot beforeCrossing = context.Snapshot;
                     OpResult<MovementCrossingCommitOutcome> crossing;
                     try

@@ -183,6 +183,106 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task EntryRelocationOfMoverRejectsCrossingBeforeExitTiming()
+        {
+            PermissionActionHandler handler = new PermissionActionHandler(
+                PermissionScenario.OccupantRelocatesBeforeTraversal
+            );
+            InMemoryRulesStore store = CreateStore(seedMiddleware: true);
+            EntryRelocatesMoverMiddleware middleware = new EntryRelocatesMoverMiddleware();
+            RuleDispatcher dispatcher = CreateDispatcher(store, handler, middleware);
+
+            OpResult<bool> result = await dispatcher.Dispatch(new PermissionActionOp());
+
+            Assert.That(RequireResolved(result).Value, Is.False);
+            Assert.That(handler.FirstMove.Status, Is.EqualTo(MovePathStatus.Stopped));
+            Assert.That(
+                handler.FirstMove.Failure.Kind,
+                Is.EqualTo(MovementFailureKind.StaleOrigin)
+            );
+            Assert.That(handler.FirstMove.Failure.StepNumber, Is.EqualTo(1));
+            Assert.That(handler.FirstMove.FinalPosition, Is.EqualTo(new GridPosition(0, 0, 1)));
+            Assert.That(handler.FirstMove.CommittedSteps, Is.Zero);
+            Assert.That(handler.FirstMove.DistanceSpent.Feet, Is.Zero);
+            Assert.That(middleware.ExitTimingCalls, Is.Zero);
+            Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(new GridPosition(0, 0, 1)));
+            Assert.That(store.Snapshot.Positions[Occupant], Is.EqualTo(Occupied));
+            Assert.That(
+                store.Snapshot.Positions[OtherOccupant],
+                Is.EqualTo(new GridPosition(4, 0, 4))
+            );
+            TokenRelocatedFact relocation = result.Facts.OfType<TokenRelocatedFact>().Single();
+            Assert.That(relocation.Mover, Is.EqualTo(Mover));
+            Assert.That(result.Facts.OfType<TokenMovedFact>(), Is.Empty);
+            Assert.That(result.Facts.OfType<OccupiedSpaceTraversedFact>(), Is.Empty);
+        }
+
+        [Test]
+        public async Task EntryOccupationOfExitRejectsCrossingBeforeExitTiming()
+        {
+            PermissionActionHandler handler = new PermissionActionHandler(
+                PermissionScenario.OccupantRelocatesBeforeTraversal
+            );
+            InMemoryRulesStore store = CreateStore(seedMiddleware: true);
+            EntryOccupiesExitMiddleware middleware = new EntryOccupiesExitMiddleware();
+            RuleDispatcher dispatcher = CreateDispatcher(store, handler, middleware);
+
+            OpResult<bool> result = await dispatcher.Dispatch(new PermissionActionOp());
+
+            Assert.That(RequireResolved(result).Value, Is.False);
+            Assert.That(handler.FirstMove.Status, Is.EqualTo(MovePathStatus.Stopped));
+            Assert.That(handler.FirstMove.Failure.Kind, Is.EqualTo(MovementFailureKind.Occupied));
+            Assert.That(handler.FirstMove.Failure.StepNumber, Is.EqualTo(2));
+            Assert.That(handler.FirstMove.FinalPosition, Is.EqualTo(Origin));
+            Assert.That(handler.FirstMove.CommittedSteps, Is.Zero);
+            Assert.That(handler.FirstMove.DistanceSpent.Feet, Is.Zero);
+            Assert.That(middleware.ExitTimingCalls, Is.Zero);
+            Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(Origin));
+            Assert.That(store.Snapshot.Positions[Occupant], Is.EqualTo(Occupied));
+            Assert.That(store.Snapshot.Positions[OtherOccupant], Is.EqualTo(SecondIntermediate));
+            TokenRelocatedFact relocation = result.Facts.OfType<TokenRelocatedFact>().Single();
+            Assert.That(relocation.Mover, Is.EqualTo(OtherOccupant));
+            Assert.That(result.Facts.OfType<TokenMovedFact>(), Is.Empty);
+            Assert.That(result.Facts.OfType<OccupiedSpaceTraversedFact>(), Is.Empty);
+        }
+
+        [Test]
+        public async Task ValidOccupiedCrossingOpensBothTimingsAndCommitsAtomically()
+        {
+            PermissionActionHandler handler = new PermissionActionHandler(
+                PermissionScenario.OccupantRelocatesBeforeTraversal
+            );
+            InMemoryRulesStore store = CreateStore(seedMiddleware: true);
+            RecordingDepartureMiddleware middleware = new RecordingDepartureMiddleware();
+            RuleDispatcher dispatcher = CreateDispatcher(store, handler, middleware);
+            CrossingSnapshotObserver observer = new CrossingSnapshotObserver();
+            dispatcher.RegisterFactObserver<TokenMovedFact>(observer);
+            dispatcher.RegisterFactObserver<OccupiedSpaceTraversedFact>(observer);
+
+            OpResult<bool> result = await dispatcher.Dispatch(new PermissionActionOp());
+
+            Assert.That(RequireResolved(result).Value, Is.True);
+            Assert.That(handler.FirstMove.ReachedDestination, Is.True);
+            Assert.That(
+                middleware.DepartureCells,
+                Is.EqualTo(new[] { Origin, Occupied, SecondIntermediate })
+            );
+            Assert.That(
+                result.Facts.OfType<TokenMovedFact>().Select(fact => fact.To),
+                Is.EqualTo(new[] { Occupied, SecondIntermediate, Exit })
+            );
+            Assert.That(result.Facts.OfType<OccupiedSpaceTraversedFact>().Count(), Is.EqualTo(1));
+            Assert.That(
+                observer.Positions,
+                Is.EqualTo(
+                    new[] { SecondIntermediate, SecondIntermediate, SecondIntermediate, Exit }
+                )
+            );
+            Assert.That(observer.UniquePositions, Is.All.True);
+            Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(Exit));
+        }
+
+        [Test]
         public async Task VacatedReservedEntryCommitsPrefixBeforeInterruptedNextDeparture()
         {
             PermissionActionHandler handler = new PermissionActionHandler(
@@ -393,6 +493,36 @@ namespace Game.Rules.Runtime.Tests
                 Is.EqualTo(new GridPosition(4, 0, 4))
             );
             Assert.That(handler.PositionsUniqueAtAllMoveBoundaries, Is.True);
+            AssertUniquePositions(store.Snapshot);
+        }
+
+        [Test]
+        public async Task ExitTimingContentionRemainsReducerBackstopWithoutPartialCrossing()
+        {
+            PermissionActionHandler handler = new PermissionActionHandler(
+                PermissionScenario.OccupantRelocatesBeforeTraversal
+            );
+            InMemoryRulesStore store = CreateStore(seedMiddleware: true);
+            OneTimeExitContentionMiddleware middleware = new OneTimeExitContentionMiddleware();
+            RuleDispatcher dispatcher = CreateDispatcher(store, handler, middleware);
+
+            OpResult<bool> result = await dispatcher.Dispatch(new PermissionActionOp());
+
+            Assert.That(RequireResolved(result).Value, Is.False);
+            Assert.That(handler.FirstMove.Status, Is.EqualTo(MovePathStatus.Stopped));
+            Assert.That(handler.FirstMove.Failure.Kind, Is.EqualTo(MovementFailureKind.Occupied));
+            Assert.That(handler.FirstMove.Failure.StepNumber, Is.EqualTo(2));
+            Assert.That(handler.FirstMove.FinalPosition, Is.EqualTo(Origin));
+            Assert.That(handler.FirstMove.CommittedSteps, Is.Zero);
+            Assert.That(handler.FirstMove.DistanceSpent.Feet, Is.Zero);
+            Assert.That(middleware.ExitTimingCalls, Is.EqualTo(1));
+            Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(Origin));
+            Assert.That(store.Snapshot.Positions[Occupant], Is.EqualTo(Occupied));
+            Assert.That(store.Snapshot.Positions[OtherOccupant], Is.EqualTo(SecondIntermediate));
+            TokenRelocatedFact relocation = result.Facts.OfType<TokenRelocatedFact>().Single();
+            Assert.That(relocation.Mover, Is.EqualTo(OtherOccupant));
+            Assert.That(result.Facts.OfType<TokenMovedFact>(), Is.Empty);
+            Assert.That(result.Facts.OfType<OccupiedSpaceTraversedFact>(), Is.Empty);
             AssertUniquePositions(store.Snapshot);
         }
 
@@ -1142,6 +1272,120 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
+        private sealed class EntryRelocatesMoverMiddleware
+            : IOpMiddleware<MovementLeavingSquareOp, MovementTriggerOutcome>
+        {
+            public int ExitTimingCalls { get; private set; }
+
+            public async ValueTask<OpResult<MovementTriggerOutcome>> Invoke(
+                OpFrame<MovementLeavingSquareOp> frame,
+                OpMiddlewareContext context,
+                OpNext<MovementTriggerOutcome> next
+            )
+            {
+                OpResult<MovementTriggerOutcome> current = await next();
+                if (frame.Op.TriggerId.StepNumber == 1)
+                {
+                    RelocationOutcome relocated = RequireResolved(
+                        await context.Dispatch(
+                            new RelocateTokenOp(
+                                Mover,
+                                Origin,
+                                new GridPosition(0, 0, 1),
+                                frame.Id,
+                                RelocationKind.FromSlug("permission-entry-mover-relocation"),
+                                TestSource
+                            )
+                        )
+                    ).Value;
+                    Assert.That(relocated.Relocated, Is.True);
+                }
+                else if (frame.Op.TriggerId.StepNumber == 2)
+                {
+                    ExitTimingCalls++;
+                    RelocationOutcome relocated = RequireResolved(
+                        await context.Dispatch(
+                            new RelocateTokenOp(
+                                OtherOccupant,
+                                new GridPosition(4, 0, 4),
+                                new GridPosition(4, 0, 2),
+                                frame.Id,
+                                RelocationKind.FromSlug("permission-phantom-exit-reaction"),
+                                TestSource
+                            )
+                        )
+                    ).Value;
+                    Assert.That(relocated.Relocated, Is.True);
+                }
+                return current;
+            }
+        }
+
+        private sealed class EntryOccupiesExitMiddleware
+            : IOpMiddleware<MovementLeavingSquareOp, MovementTriggerOutcome>
+        {
+            public int ExitTimingCalls { get; private set; }
+
+            public async ValueTask<OpResult<MovementTriggerOutcome>> Invoke(
+                OpFrame<MovementLeavingSquareOp> frame,
+                OpMiddlewareContext context,
+                OpNext<MovementTriggerOutcome> next
+            )
+            {
+                OpResult<MovementTriggerOutcome> current = await next();
+                if (frame.Op.TriggerId.StepNumber == 1)
+                {
+                    RelocationOutcome relocated = RequireResolved(
+                        await context.Dispatch(
+                            new RelocateTokenOp(
+                                OtherOccupant,
+                                new GridPosition(4, 0, 4),
+                                SecondIntermediate,
+                                frame.Id,
+                                RelocationKind.FromSlug("permission-entry-exit-contention"),
+                                TestSource
+                            )
+                        )
+                    ).Value;
+                    Assert.That(relocated.Relocated, Is.True);
+                }
+                else if (frame.Op.TriggerId.StepNumber == 2)
+                {
+                    ExitTimingCalls++;
+                    RelocationOutcome relocated = RequireResolved(
+                        await context.Dispatch(
+                            new RelocateTokenOp(
+                                Mover,
+                                Origin,
+                                new GridPosition(0, 0, 1),
+                                frame.Id,
+                                RelocationKind.FromSlug("permission-phantom-exit-reaction"),
+                                TestSource
+                            )
+                        )
+                    ).Value;
+                    Assert.That(relocated.Relocated, Is.True);
+                }
+                return current;
+            }
+        }
+
+        private sealed class RecordingDepartureMiddleware
+            : IOpMiddleware<MovementLeavingSquareOp, MovementTriggerOutcome>
+        {
+            public List<GridPosition> DepartureCells { get; } = new List<GridPosition>();
+
+            public async ValueTask<OpResult<MovementTriggerOutcome>> Invoke(
+                OpFrame<MovementLeavingSquareOp> frame,
+                OpMiddlewareContext context,
+                OpNext<MovementTriggerOutcome> next
+            )
+            {
+                DepartureCells.Add(frame.Op.From);
+                return await next();
+            }
+        }
+
         private sealed class ThrowingReservedExitMiddleware
             : IOpMiddleware<MovementLeavingSquareOp, MovementTriggerOutcome>
         {
@@ -1250,6 +1494,8 @@ namespace Game.Rules.Runtime.Tests
         {
             private bool relocated;
 
+            public int ExitTimingCalls { get; private set; }
+
             public async ValueTask<OpResult<MovementTriggerOutcome>> Invoke(
                 OpFrame<MovementLeavingSquareOp> frame,
                 OpMiddlewareContext context,
@@ -1261,6 +1507,7 @@ namespace Game.Rules.Runtime.Tests
                     return current;
 
                 relocated = true;
+                ExitTimingCalls++;
                 RelocationOutcome outcome = RequireResolved(
                     await context.Dispatch(
                         new RelocateTokenOp(
