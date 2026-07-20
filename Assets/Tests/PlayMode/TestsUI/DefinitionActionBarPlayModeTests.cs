@@ -418,7 +418,8 @@ namespace TestsUI
 
         /// <summary>
         /// Verifies disabling the HUD retires presentation-owned selection while allowing its
-        /// unfinished adapter task to unwind safely without dispatching a late result.
+        /// unfinished adapter task to unwind safely without dispatching a late result, and that
+        /// re-enabling restores both the current row and the authoritative turn subscription.
         /// </summary>
         [UnityTest]
         public IEnumerator HudDisableRetiresPendingSelectionAndRejectsLateResult()
@@ -489,11 +490,44 @@ namespace TestsUI
             Assert.That(store.Snapshot.Version, Is.Zero);
             Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
             Assert.That(controller.IsTakingAction, Is.False);
+
+            hud.enabled = true;
+
+            Button rebuiltButton = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    Button candidate = root.Q<Button>("DisabledHUDdefinitionButton");
+                    if (candidate == null || ReferenceEquals(candidate, definitionButton))
+                        return false;
+                    rebuiltButton = candidate;
+                    return candidate.enabledSelf;
+                }
+            );
+            Assert.That(CountButtonsNamed("DisabledHUDdefinitionButton"), Is.EqualTo(1));
+
+            OnNextTurn.Invoke(player);
+
+            Button eventRebuiltButton = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    Button candidate = root.Q<Button>("DisabledHUDdefinitionButton");
+                    if (candidate == null || ReferenceEquals(candidate, rebuiltButton))
+                        return false;
+                    eventRebuiltButton = candidate;
+                    return candidate.enabledSelf;
+                }
+            );
+            Assert.That(eventRebuiltButton, Is.Not.Null);
+            Assert.That(CountButtonsNamed("DisabledHUDdefinitionButton"), Is.EqualTo(1));
         }
 
         /// <summary>
-        /// Verifies HUD disable cannot retire authoritative dispatch, but invalidates presentation
-        /// ownership so completion releases only the dispatch owner and does not revisit disabled UI.
+        /// Verifies HUD disable and re-enable cannot retire authoritative dispatch, while the rebuilt
+        /// row stays locked until completion releases the dispatch owner and refreshes presentation.
         /// </summary>
         [UnityTest]
         public IEnumerator HudDisableDuringDispatchKeepsOwnerLockedUntilDispatchReturns()
@@ -511,7 +545,7 @@ namespace TestsUI
 
             ActionController controller = player.GetComponent<ActionController>();
             InMemoryRulesStore store = new InMemoryRulesStore(
-                new RulesStateSeed().SeedActionEconomy(Actor, new ActionEconomyState(1, true))
+                new RulesStateSeed().SeedActionEconomy(Actor, new ActionEconomyState(2, true))
             );
             BlockingDispatchHandler handler = new BlockingDispatchHandler();
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
@@ -556,16 +590,37 @@ namespace TestsUI
             );
             Assert.That(handler.Operations, Has.Count.EqualTo(1));
 
+            hud.enabled = true;
+
+            Button rebuiltButton = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    Button candidate = root.Q<Button>("DispatchingdisabledHUDButton");
+                    if (candidate == null || ReferenceEquals(candidate, definitionButton))
+                        return false;
+                    rebuiltButton = candidate;
+                    return !candidate.enabledSelf;
+                }
+            );
+            Assert.That(CountButtonsNamed("DispatchingdisabledHUDButton"), Is.EqualTo(1));
+            Assert.That(
+                controller.IsTakingAction,
+                Is.True,
+                "Rebuilding presentation must not retire an authoritative dispatch owner."
+            );
+
             handler.Complete();
             yield return WaitUntilWithTimeout(timeout, () => !controller.IsTakingAction);
-            yield return null;
+            yield return WaitUntilWithTimeout(timeout, () => rebuiltButton.enabledSelf);
 
             Assert.That(controller.IsTakingAction, Is.False);
             Assert.That(handler.Operations, Has.Count.EqualTo(1));
             Assert.That(definition.CreateOpCalls, Is.EqualTo(1));
             Assert.That(store.Snapshot.Version, Is.EqualTo(1));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.Zero);
-            Assert.That(hud.enabled, Is.False);
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(hud.enabled, Is.True);
         }
 
         private int CountButtonsNamed(string buttonName) =>

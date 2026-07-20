@@ -79,7 +79,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
     private bool canCancelAction = true;
 
     private static List<GameObject> Players;
-    private static bool IsActive = false;
+    private bool isActive;
 
     private CombatLogInterface combatLog;
 
@@ -96,7 +96,6 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             EnableUi();
             Setup();
         });
-        OnNextTurn.AddListener(OnTurnChanged);
         OnActionConfirm.AddListener(() => canCancelAction = false);
         OnActionComplete.AddListener(() => canCancelAction = true);
         //Copiloy made this so I could point it to another UXML file for a template
@@ -203,6 +202,16 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
                 SettingsMenuControl.LogOpacityDefault
             )
         );
+
+        // Keep event ownership symmetric across repeated enable/disable cycles. Removing first also
+        // makes this registration idempotent if Unity invokes setup more than once unexpectedly.
+        OnNextTurn.RemoveListener(OnTurnChanged);
+        OnNextTurn.AddListener(OnTurnChanged);
+
+        // During initial combat setup the manager has not assigned a turn yet. isActive becomes true
+        // only after that setup path, so an ordinary re-enable can safely restore the current turn.
+        if (isActive && CombatManagerInterface.TryGetInstance(out CombatManagerInterface manager))
+            OnTurnChanged(manager.WhosTurn());
     }
 
     private void OnDisable()
@@ -242,16 +251,16 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         this.enabled = true;
     }
 
-    public static void Setup()
+    private void Setup()
     {
         Players = CombatManagerInterface.GetInstance().GetCombatants();
 
-        IsActive = true;
+        isActive = true;
     }
 
     void Update()
     {
-        if (!IsActive)
+        if (!isActive)
             return;
         List<GameObject> currentCombatants = CombatManagerInterface.GetInstance().GetCombatants();
         if (Players == null)
