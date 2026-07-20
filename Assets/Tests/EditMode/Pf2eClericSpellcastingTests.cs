@@ -208,8 +208,7 @@ public class Pf2eClericSpellcastingTests
     public void HealUsesFontPoolAndCanHealLivingTargets()
     {
         CreatureComponent cleric = CreatePreparedCleric();
-        CreatureComponent ally = CreateCreature("Ally");
-        ally.InitializeHealthBeforeEncounter(3, 20);
+        CreatureComponent ally = CreateCreature("Ally", 3, 20);
         UnityEngine.Random.InitState(12);
 
         CastSpellResult result = Cast("heal", cleric, 2, ally.gameObject);
@@ -227,10 +226,9 @@ public class Pf2eClericSpellcastingTests
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
         controller.ActionPoints = 3;
         controller.IsTakingAction = true;
-        CreatureComponent target = CreateCreature("Target");
+        CreatureComponent target = CreateCreature("Target", 100, 100);
         target.transform.position = new Vector3(6, 0, 0);
         target.ac = 12;
-        target.InitializeHealthBeforeEncounter(100, 100);
         UnityEngine.Random.InitState(3);
         InstallTestCombatLog();
 
@@ -281,13 +279,17 @@ public class Pf2eClericSpellcastingTests
         return creature;
     }
 
-    private CreatureComponent CreateCreature(string name)
+    private CreatureComponent CreateCreature(
+        string name,
+        int currentHitPoints = 10,
+        int maximumHitPoints = 10
+    )
     {
         GameObject go = new(name);
         created.Add(go);
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
-        creature.InitializeHealthBeforeEncounter(10, 10);
+        creature.InitializeHealthBeforeEncounter(currentHitPoints, maximumHitPoints);
         Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
         return creature;
     }

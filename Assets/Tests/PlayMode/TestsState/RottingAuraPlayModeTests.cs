@@ -5,6 +5,7 @@ using System.Reflection;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
+using Game.Rules.Unity;
 using GridPrivate;
 using NUnit.Framework;
 using UnityEditor;
@@ -61,6 +62,13 @@ namespace TestsState
             GameObject target = CreateTarget("wounded target", 8, 12);
             TestActionController targetController = target.GetComponent<TestActionController>();
             MoveCombatant(tiles, target, targetCell);
+            UnityHealthRulesBridge.Create(
+                new[]
+                {
+                    zombie.GetComponent<CreatureComponent>(),
+                    target.GetComponent<CreatureComponent>(),
+                }
+            );
 
             AuraGridVisuals auraVisuals = grid.GetComponent<AuraGridVisuals>();
             if (auraVisuals == null)
@@ -459,9 +467,44 @@ namespace TestsState
             ActionController turnTaker
         )
         {
+            CreatureComponent[] encounterCreatures = combatants
+                .Select(combatant => combatant.GetComponent<CreatureComponent>())
+                .ToArray();
+            UnityHealthRulesBridge healthRules = GetPrivateField<UnityHealthRulesBridge>(
+                manager,
+                "healthRules"
+            );
+            if (
+                encounterCreatures.Length > 0
+                && !ContainsAllCreatures(healthRules, encounterCreatures)
+            )
+            {
+                healthRules = UnityHealthRulesBridge.Create(encounterCreatures);
+                SetPrivateField(manager, "healthRules", healthRules);
+            }
+
             SetPrivateField(manager, "Combatants", combatants);
             SetPrivateField(manager, "TurnQueue", turnQueue);
             SetPrivateField(manager, "TurnTaker", turnTaker);
+        }
+
+        private static bool ContainsAllCreatures(
+            UnityHealthRulesBridge healthRules,
+            IEnumerable<CreatureComponent> creatures
+        )
+        {
+            if (healthRules == null)
+                return false;
+            try
+            {
+                foreach (CreatureComponent creature in creatures)
+                    healthRules.GetCreatureId(creature);
+                return true;
+            }
+            catch (System.InvalidOperationException)
+            {
+                return false;
+            }
         }
 
         private static void SetPrivateField<T>(CombatManager manager, string fieldName, T value)

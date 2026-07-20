@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using Game.Creature;
+using Game.Rules.Unity;
 using Game.Strikes;
 using GridPrivate;
 using NUnit.Framework;
@@ -57,6 +58,13 @@ namespace TestsState
             controller.StopAllCoroutines();
             EntityAction selected = controller.MindlessDecision();
             Assert.IsInstanceOf<StrikeWeapon>(selected);
+            UnityHealthRulesBridge.Create(
+                new[]
+                {
+                    enemy.GetComponent<CreatureComponent>(),
+                    controller.BestTarget.GetComponent<CreatureComponent>(),
+                }
+            );
             CreatureComponent selectedTargetCreature = PrepareDurableTarget(controller.BestTarget);
 
             UnityEngine.Random.State randomState = UnityEngine.Random.state;
