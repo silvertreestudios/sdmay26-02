@@ -917,7 +917,7 @@ public sealed record TumbleThroughSelection(
     MovementMode Mode);
 
 public sealed record CastSpellSelection(
-    SpellSlotId Slot,
+    SpellSlotPoolId SlotPool,
     SpellVariantId Variant,
     ISpellTargetSelection Targets);
 ```
@@ -925,6 +925,10 @@ public sealed record CastSpellSelection(
 When the player clicks Strike, the action bar asks `StrikeActionDefinition` for its workflow. Unity runs the two choices, receives a `StrikeSelection`, calls `CreateOp`, and dispatches the resulting `StrikeActionOp`. AI can produce the same selection without using Unity UI. The rules handler receives only the completed Op and still performs authoritative validation, since preview state may have changed before dispatch.
 
 `SelectionWorkflow<TSelection>` may be one click, a path plus target, multiple creatures, an area template and orientation, or several ordered choices. The generic action bar only handles availability and launches the definition's workflow; it does not need nullable fields or a switch for every PF2e action.
+
+Each concrete `ActionSelectionRequest<TSelection>` owns the immutable constraints for one action parameter, and the workflow rejects a resolver value outside those constraints. Completion, cancellation, and invalidity are separate structural outcomes. `Then` and `Select` compose typed values while cancellation or invalidity discards partial choices and skips all later steps. Only a completed outcome reaches `CreateOp`; selection cancellation and invalidity create no root frame and spend no resource.
+
+The common framework exposes one generic action-selection resolver operation rather than enumerating every possible choice needed by current or future actions. Concrete request types and their player or AI handling land with the production feature that proves their shape. Rules-time decisions remain `PromptChoiceOp<TChoice>` operations and are not action-selection requests. Likewise, the action-bar registration and migration bridge are defined when the first production action uses them, so framework code does not prematurely choose scene-object mappings, AI planning APIs, or legacy replacement semantics.
 
 ### 7.2 Unity is an adapter, not the rules authority
 
@@ -1377,7 +1381,7 @@ Bless demonstrates spellcasting costs, active effect state, derived bonuses, sta
 // ActionBegunOp, so manipulate disruption retains both costs.
 public sealed record CastSpellActionOp(
     CreatureId Actor,
-    SpellSlotId Slot,
+    SpellSlotPoolId SlotPool,
     SpellId Spell,
     SpellVariantId Variant,
     ISpellTargetSelection Targets)
@@ -1388,7 +1392,7 @@ public sealed record CastSpellActionOp(
         var variant = catalog.GetSpellVariant(Spell, Variant);
         return new ActionProfile(
             variant.ActionCost,
-            [new SpellSlotCost(Slot)],
+            [RuleCost.SpellSlot(SlotPool)],
             variant.Traits,
             CanTriggerReactions: true);
     }
