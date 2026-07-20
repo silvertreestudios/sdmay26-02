@@ -252,7 +252,7 @@ public class CombatManager : CombatManagerInterface
     private void RollInitiative(IReadOnlyList<ActionController> participants)
     {
         List<ActionController> turnOrder = new();
-        List<uint> initiatives = new();
+        List<uint> initiativeValues = new();
 
         // Insert all AC's in sorted turnOrder
         foreach (ActionController ac in participants)
@@ -262,23 +262,23 @@ public class CombatManager : CombatManagerInterface
             uint initiative = ac.GetInitiative();
             for (i = 0; i < turnOrder.Count; i++)
             {
-                if (initiatives[i] < initiative)
+                if (initiativeValues[i] < initiative)
                 {
-                    initiatives.Insert(i, initiative);
+                    initiativeValues.Insert(i, initiative);
                     turnOrder.Insert(i, ac);
                     break;
                 }
             }
             // If no insertion, insert at end
-            if (i == initiatives.Count)
+            if (i == initiativeValues.Count)
             {
-                initiatives.Add(initiative);
+                initiativeValues.Add(initiative);
                 turnOrder.Add(ac);
             }
         }
         this.initiatives.Clear();
         for (int index = 0; index < turnOrder.Count; index++)
-            this.initiatives.Add(turnOrder[index], initiatives[index]);
+            initiatives.Add(turnOrder[index], initiativeValues[index]);
 
         LogInitiative("Initiative Order", turnOrder);
 
