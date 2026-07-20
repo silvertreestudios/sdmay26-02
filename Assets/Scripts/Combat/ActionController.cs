@@ -14,6 +14,9 @@ public abstract class ActionController : MonoBehaviour
     protected bool IsTurn = false;
     public bool IsTakingAction { get; set; } = false;
 
+    /// <summary>Gets whether this controller currently has movement-only exploration authority.</summary>
+    public bool IsInDungeonExploration { get; private set; }
+
     [field: SerializeField]
     public uint ActionPoints { get; set; }
     public bool Reacted { get; set; }
@@ -39,6 +42,42 @@ public abstract class ActionController : MonoBehaviour
         ActionPoints = newActionPoints.Value;
         StrikePenalty = 0;
         SpellEffectController.ExpireAtStartOfTurn(gameObject);
+    }
+
+    /// <summary>
+    /// Clears encounter-scoped turn authority and action economy without changing creature,
+    /// equipment, position, condition, or effect state.
+    /// </summary>
+    /// <remarks>
+    /// Dungeon retreat and encounter restoration use this boundary so a fresh initiative round
+    /// cannot retain actions, reactions, or multiple-attack penalty from the prior round.
+    /// </remarks>
+    public virtual void ResetEncounterTurnState()
+    {
+        IsTurn = false;
+        IsTakingAction = false;
+        ActionPoints = 0;
+        Reacted = false;
+        StrikePenalty = 0;
+    }
+
+    /// <summary>Enables or disables movement-only authority between dungeon encounters.</summary>
+    /// <param name="enabled">
+    /// Whether the controller may repeatedly invoke its movement actions without initiative or
+    /// action-point expenditure.
+    /// </param>
+    /// <remarks>
+    /// Encounter composition disables this mode before initiative grants normal turn authority.
+    /// Non-movement actions remain unavailable while exploration is enabled.
+    /// </remarks>
+    public void SetDungeonExploration(bool enabled)
+    {
+        IsInDungeonExploration = enabled;
+        IsTurn = enabled;
+        IsTakingAction = false;
+        ActionPoints = enabled ? 3u : 0u;
+        Reacted = false;
+        StrikePenalty = 0;
     }
 
     public abstract void EndTurn();
@@ -89,7 +128,11 @@ public abstract class ActionController : MonoBehaviour
         }
         //Debug.Log("Attempting to take action: " + action);
         uint cost = action.ActionCost;
-        if (!IsTurn || cost > ActionPoints)
+        if (
+            !IsTurn
+            || cost > ActionPoints
+            || IsInDungeonExploration && !GetMovements().Contains(action)
+        )
             return;
         IsTakingAction = true;
         action.Invoke(this.gameObject);

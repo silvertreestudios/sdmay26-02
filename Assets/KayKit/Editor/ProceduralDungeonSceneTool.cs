@@ -26,6 +26,8 @@ namespace Game.KayKit.Editor
         private const int FixtureSize = 31;
         private const int FixtureMinimumRoomSize = 5;
         private const int FixtureMaximumRoomSize = 13;
+        private const int FixturePartyLevel = 1;
+        private const int FixturePartySize = 4;
 
         /// <summary>Regenerates the fixture and scene after offering to save dirty open scenes.</summary>
         [MenuItem("Tools/KayKit/Regenerate Procedural Dungeon Scene")]
@@ -47,6 +49,7 @@ namespace Game.KayKit.Editor
         private static void Regenerate()
         {
             KayKitSetupTool.RegenerateDungeonAssets();
+            DungeonEncounterRuntimeCatalogTool.RegenerateBatch();
             DungeonGenerationResult generation = new DeterministicDungeonGenerator().Generate(
                 new DungeonGenerationRequest
                 {
@@ -77,7 +80,21 @@ namespace Game.KayKit.Editor
                     "The procedural fixture seed produced no wall decorations."
                 );
 
-            WriteFixture(DungeonLevelJsonSerializer.Serialize(generation.Document));
+            TextAsset encounterManifest = RequireAsset<TextAsset>(
+                DungeonEncounterRuntimeCatalogTool.EncounterManifestPath
+            );
+            DungeonLevelDocument plannedDocument = new DungeonEncounterPlanner().Plan(
+                generation.Document,
+                FixturePartyLevel,
+                FixturePartySize,
+                DungeonEncounterCatalogJson.Parse(encounterManifest.text)
+            );
+            if (plannedDocument.EncounterPlans.Count == 0)
+                throw new InvalidOperationException(
+                    "The procedural fixture seed produced no eligible encounter rooms."
+                );
+
+            WriteFixture(DungeonLevelJsonSerializer.Serialize(plannedDocument));
             Scene scene = EditorSceneManager.OpenScene(SourceScenePath, OpenSceneMode.Single);
             TextAsset fixture = RequireAsset<TextAsset>(FixturePath);
             KayKitDungeonCatalog catalog = RequireAsset<KayKitDungeonCatalog>(
@@ -100,7 +117,7 @@ namespace Game.KayKit.Editor
             RemoveNamedRoot(scene, "GameManager");
             RemoveNamedRoot(scene, "UIDocument");
             RemoveNamedRoot(scene, "Grass");
-            ConfigureCamera(generation.Document.Width, generation.Document.Height);
+            ConfigureCamera(plannedDocument.Width, plannedDocument.Height);
             ConfigureLighting();
             if (
                 EditorBuildSettings.scenes.Any(entry =>

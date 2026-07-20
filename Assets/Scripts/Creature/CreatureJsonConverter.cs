@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using Game.Creature.Rules;
 using Game.Strikes;
+using GridPublic;
 using UnityEngine;
 
 // using System.Diagnostics;
@@ -661,6 +662,112 @@ namespace Game.Creature
             if (!string.IsNullOrWhiteSpace(comp.Build.ClassName))
                 comp.Prepared = Pf2eCharacterPreparer.Prepare(comp, comp.Build);
             return go;
+        }
+
+        /// <summary>
+        /// Creates a prefab-backed creature at its final hierarchy and transform before Awake-time
+        /// grid or combat registration, then applies its Resources JSON data.
+        /// </summary>
+        /// <param name="jsonFilePath">The Resources-relative creature JSON path.</param>
+        /// <param name="prefab">The non-null creature prefab to instantiate.</param>
+        /// <param name="position">The final world position.</param>
+        /// <param name="rotation">The final world rotation.</param>
+        /// <param name="parent">The non-null final parent.</param>
+        /// <returns>The fully populated non-null creature root.</returns>
+        /// <exception cref="ArgumentException"><paramref name="jsonFilePath"/> is blank.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="prefab"/> or <paramref name="parent"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">No JSON asset exists at the normalized Resources path.</exception>
+        /// <exception cref="FormatException">The JSON cannot be parsed into a complete creature definition.</exception>
+        public static GameObject CreateFromFile(
+            string jsonFilePath,
+            GameObject prefab,
+            Vector3 position,
+            Quaternion rotation,
+            Transform parent
+        )
+        {
+            if (string.IsNullOrWhiteSpace(jsonFilePath))
+                throw new ArgumentException(
+                    "A creature Resources path is required.",
+                    nameof(jsonFilePath)
+                );
+            if (prefab == null)
+                throw new ArgumentNullException(nameof(prefab));
+            if (parent == null)
+                throw new ArgumentNullException(nameof(parent));
+
+            string resourcePath = jsonFilePath.Replace('\\', '/').Trim();
+            const string resourcesPrefix = "Assets/Resources/";
+            if (resourcePath.StartsWith(resourcesPrefix, StringComparison.OrdinalIgnoreCase))
+                resourcePath = resourcePath.Substring(resourcesPrefix.Length);
+            if (resourcePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                resourcePath = resourcePath.Substring(0, resourcePath.Length - 5);
+
+            TextAsset creatureAsset = Resources.Load<TextAsset>(resourcePath);
+            if (creatureAsset == null)
+                throw new InvalidOperationException(
+                    $"Creature JSON was not found at Resources/{resourcePath}."
+                );
+
+            CreatureDto dto;
+            try
+            {
+                dto = JsonUtility.FromJson<CreatureDto>(creatureAsset.text);
+                PopulateSparseSkillsFromJson(creatureAsset.text, dto);
+            }
+            catch (Exception exception)
+            {
+                throw new FormatException(
+                    $"Creature JSON at Resources/{resourcePath} could not be parsed.",
+                    exception
+                );
+            }
+            if (dto?.system == null)
+                throw new FormatException(
+                    $"Creature JSON at Resources/{resourcePath} has no system definition."
+                );
+
+            GameObject instance = null;
+            try
+            {
+                instance = UnityEngine.Object.Instantiate(prefab, position, rotation, parent);
+                CreatureComponent component =
+                    instance.GetComponent<CreatureComponent>()
+                    ?? instance.AddComponent<CreatureComponent>();
+                component.ApplyFromDto(dto);
+                component.Build = CharacterBuild.FromCreatureJson(creatureAsset.text);
+                if (!string.IsNullOrWhiteSpace(component.Build.ClassName))
+                    component.Prepared = Pf2eCharacterPreparer.Prepare(component, component.Build);
+                component.InitializeRuntimeActions();
+                return instance;
+            }
+            catch
+            {
+                if (instance != null)
+                {
+                    ActionController controller = instance.GetComponent<ActionController>();
+                    if (
+                        controller != null
+                        && CombatManagerInterface.TryGetInstance(
+                            out CombatManagerInterface combatManager
+                        )
+                    )
+                    {
+                        combatManager.Remove(controller);
+                    }
+                    Token token = instance.GetComponent<Token>();
+                    if (
+                        token != null
+                        && token.IsRegistered
+                        && GridAPI.TryGetInstance(out GridAPI grid)
+                    )
+                    {
+                        grid.DestroyToken(instance);
+                    }
+                    UnityEngine.Object.DestroyImmediate(instance);
+                }
+                throw;
+            }
         }
 
         // Create by name from Resources/Datafiles

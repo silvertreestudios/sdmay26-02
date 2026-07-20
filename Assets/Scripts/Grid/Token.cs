@@ -14,6 +14,9 @@ namespace GridPublic
         private GridAPI registeredGrid;
         private bool detachedFromGrid;
 
+        /// <summary>Gets whether the active grid currently owns this token's cell.</summary>
+        public bool IsRegistered => registered;
+
         private void Awake()
         {
             if (isActiveAndEnabled)

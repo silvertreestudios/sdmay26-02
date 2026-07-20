@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using Game.Creature;
 using Game.Strikes;
 using GridPrivate;
@@ -16,6 +17,7 @@ namespace TestsState
         public IEnumerator EnemyCanChooseLegalRangedStrike()
         {
             yield return base.Setup();
+            yield return null;
 
             GridBase grid = Object.FindFirstObjectByType<GridBase>();
             Assert.IsNotNull(grid);
@@ -34,10 +36,58 @@ namespace TestsState
         }
 
         [UnityTest]
+        public IEnumerator ResetEncounterTurnStateCancelsPendingAiTurnSequence()
+        {
+            yield return base.Setup();
+            yield return null;
+
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            Assert.IsNotNull(grid);
+            GameObject target = FindPlayerTarget();
+            GameObject enemy = CreateRangedEnemy(
+                "ranged-ai-reset-test-enemy",
+                CreateShortbow(),
+                1,
+                100
+            );
+            PlaceOnClearLine(grid.GetTiles(), enemy, target);
+            PrepareDurableTarget(target);
+
+            MindlessController controller = enemy.GetComponent<MindlessController>();
+            FieldInfo turnSequenceField = typeof(MindlessController).GetField(
+                "turnSequence",
+                BindingFlags.Instance | BindingFlags.NonPublic
+            );
+            Assert.IsNotNull(turnSequenceField);
+
+            controller.StartTurn();
+            Coroutine suspendedSequence = turnSequenceField.GetValue(controller) as Coroutine;
+            Assert.IsNotNull(suspendedSequence);
+            controller.ResetEncounterTurnState();
+            Assert.IsNull(turnSequenceField.GetValue(controller));
+
+            controller.StartTurn();
+            Coroutine resumedSequence = turnSequenceField.GetValue(controller) as Coroutine;
+            Assert.IsNotNull(resumedSequence);
+            Assert.AreNotSame(suspendedSequence, resumedSequence);
+            controller.StopCoroutine(resumedSequence);
+
+            yield return new WaitForSeconds(1.2f);
+
+            Assert.AreEqual(3u, controller.ActionPoints);
+            Assert.AreEqual(
+                1,
+                enemy.GetComponent<CreatureComponent>().GetAmmoQuantity("arrows"),
+                "The suspended sequence must not resume after a new turn starts."
+            );
+        }
+
+        [UnityTest]
         public IEnumerator EnemyExecutesLegalRangedStrikeConsumesAmmoAndDamagesTarget()
         {
             // PF2e source for Strike as a one-action ranged attack: https://2e.aonprd.com/Rules.aspx?ID=2343
             yield return base.Setup();
+            yield return null;
 
             GridBase grid = Object.FindFirstObjectByType<GridBase>();
             Assert.IsNotNull(grid);

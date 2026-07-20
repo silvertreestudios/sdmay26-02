@@ -1566,6 +1566,7 @@ public sealed class DungeonGenerationTests
         JObject root = JObject.Parse(ContractJson());
         ((JObject)root["generation"])["algorithm"] = "   ";
         JObject encounter = (JObject)((JArray)root["encounterPlans"])[0];
+        encounter["id"] = " ";
         encounter["creatureIds"] = new JArray("\t");
 
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
@@ -1576,6 +1577,13 @@ public sealed class DungeonGenerationTests
             parsed.Diagnostics,
             Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
                 diagnostic.Field == "generation.algorithm"
+                && diagnostic.Message.Contains("non-empty")
+            )
+        );
+        Assert.That(
+            parsed.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "encounterPlans[0].id"
                 && diagnostic.Message.Contains("non-empty")
             )
         );
@@ -1756,6 +1764,79 @@ public sealed class DungeonGenerationTests
     }
 
     [Test]
+    public void DungeonJson_RejectsNonpositiveHitPointsForLiveCreatures()
+    {
+        JObject root = JObject.Parse(ContractJson());
+        ((JObject)((JArray)((JObject)root["runtimeState"])["creatures"])[0])["hitPoints"] = 0;
+
+        DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
+            root.ToString(Formatting.None)
+        );
+
+        Assert.That(
+            parsed.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "runtimeState.creatures"
+                && diagnostic.Message.Contains("hit points must be positive")
+            )
+        );
+    }
+
+    [Test]
+    public void DungeonJson_RequiresCompleteStateForEveryMaterializedEncounter()
+    {
+        JObject partial = JObject.Parse(ContractJson());
+        ((JObject)partial["runtimeState"])["creatures"] = new JArray();
+        DungeonLevelParseResult partialResult = DungeonLevelJsonParser.Parse(
+            partial.ToString(Formatting.None)
+        );
+
+        JObject defeatedButUnresolved = JObject.Parse(ContractJson());
+        ((JObject)defeatedButUnresolved["runtimeState"])["creatures"] = new JArray();
+        ((JObject)defeatedButUnresolved["runtimeState"])["defeatedCreatureIds"] = new JArray(
+            "encounter-1/creature-0000",
+            "encounter-1/creature-0001"
+        );
+        DungeonLevelParseResult defeatedButUnresolvedResult = DungeonLevelJsonParser.Parse(
+            defeatedButUnresolved.ToString(Formatting.None)
+        );
+
+        JObject resolvedWithoutCompleteDefeatedState = JObject.Parse(ContractJson());
+        ((JObject)((JArray)resolvedWithoutCompleteDefeatedState["encounterPlans"])[0])[
+            "isResolved"
+        ] = true;
+        ((JObject)resolvedWithoutCompleteDefeatedState["runtimeState"])["resolvedEncounterIds"] =
+            new JArray("encounter-1");
+        ((JObject)resolvedWithoutCompleteDefeatedState["runtimeState"])["creatures"] = new JArray();
+        DungeonLevelParseResult resolvedWithoutCompleteDefeatedStateResult =
+            DungeonLevelJsonParser.Parse(
+                resolvedWithoutCompleteDefeatedState.ToString(Formatting.None)
+            );
+
+        Assert.That(
+            partialResult.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "runtimeState"
+                && diagnostic.Message.Contains("account for every planned creature")
+            )
+        );
+        Assert.That(
+            defeatedButUnresolvedResult.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "runtimeState.resolvedEncounterIds"
+                && diagnostic.Message.Contains("must be marked resolved")
+            )
+        );
+        Assert.That(
+            resolvedWithoutCompleteDefeatedStateResult.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Field == "runtimeState"
+                && diagnostic.Message.Contains("persist every planned creature as defeated")
+            )
+        );
+    }
+
+    [Test]
     public void DungeonJson_RejectsLiveCreaturesForResolvedPlansAndExcessMultiplicity()
     {
         JObject resolved = JObject.Parse(ContractJson());
@@ -1768,7 +1849,7 @@ public sealed class DungeonGenerationTests
         JObject excess = JObject.Parse(ContractJson());
         JObject duplicateCreature = (JObject)
             ((JArray)((JObject)excess["runtimeState"])["creatures"])[0].DeepClone();
-        duplicateCreature["instanceId"] = "creature-b#2";
+        duplicateCreature["instanceId"] = "encounter-1/creature-0002";
         ((JArray)((JObject)excess["runtimeState"])["creatures"]).Add(duplicateCreature);
         DungeonLevelParseResult excessResult = DungeonLevelJsonParser.Parse(
             excess.ToString(Formatting.None)
@@ -1795,8 +1876,8 @@ public sealed class DungeonGenerationTests
     {
         JObject root = JObject.Parse(ContractJson());
         ((JObject)root["runtimeState"])["defeatedCreatureIds"] = new JArray(
-            "creature-a#1",
-            "creature-b#1"
+            "encounter-1/creature-0000",
+            "encounter-1/creature-0001"
         );
 
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(
@@ -1818,7 +1899,6 @@ public sealed class DungeonGenerationTests
         JObject duplicateInstance = JObject.Parse(ContractJson());
         JObject secondByInstance = (JObject)
             ((JArray)((JObject)duplicateInstance["runtimeState"])["creatures"])[0].DeepClone();
-        secondByInstance["creatureId"] = "creature-a";
         secondByInstance["cell"] = JsonCell(new DungeonCell(0, 1));
         ((JArray)((JObject)duplicateInstance["runtimeState"])["creatures"]).Add(secondByInstance);
         DungeonLevelParseResult duplicateInstanceResult = DungeonLevelJsonParser.Parse(
@@ -1828,9 +1908,10 @@ public sealed class DungeonGenerationTests
         JObject duplicateCell = JObject.Parse(ContractJson());
         JObject secondByCell = (JObject)
             ((JArray)((JObject)duplicateCell["runtimeState"])["creatures"])[0].DeepClone();
-        secondByCell["instanceId"] = "creature-a#2";
+        secondByCell["instanceId"] = "encounter-1/creature-0000";
         secondByCell["creatureId"] = "creature-a";
         ((JArray)((JObject)duplicateCell["runtimeState"])["creatures"]).Add(secondByCell);
+        ((JObject)duplicateCell["runtimeState"])["defeatedCreatureIds"] = new JArray();
         DungeonLevelParseResult duplicateCellResult = DungeonLevelJsonParser.Parse(
             duplicateCell.ToString(Formatting.None)
         );
@@ -1850,7 +1931,13 @@ public sealed class DungeonGenerationTests
             )
         );
         Assert.That(
-            duplicateInstanceResult.Diagnostics.Concat(duplicateCellResult.Diagnostics),
+            duplicateInstanceResult.Diagnostics,
+            Has.Some.Matches<DungeonGenerationDiagnostic>(diagnostic =>
+                diagnostic.Message.Contains("available creature entry")
+            )
+        );
+        Assert.That(
+            duplicateCellResult.Diagnostics,
             Has.None.Matches<DungeonGenerationDiagnostic>(diagnostic =>
                 diagnostic.Message.Contains("available creature entry")
                 || diagnostic.Message.Contains("disjoint")
@@ -2198,11 +2285,11 @@ public sealed class DungeonGenerationTests
             new DungeonRuntimeState(
                 new[] { "door-0001" },
                 Array.Empty<string>(),
-                new[] { "creature-a#1" },
+                new[] { "encounter-1/creature-0000" },
                 new[]
                 {
                     new DungeonCreatureRuntimeState(
-                        "creature-b#1",
+                        "encounter-1/creature-0001",
                         "creature-b",
                         "encounter-1",
                         new DungeonCell(2, 1),

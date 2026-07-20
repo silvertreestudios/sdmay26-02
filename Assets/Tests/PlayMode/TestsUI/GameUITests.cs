@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using Game.Creature;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -196,6 +197,47 @@ namespace TestsUI
                     "Action medallion container height should not shift as AP changes."
                 );
             }
+        }
+
+        [UnityTest]
+        public IEnumerator ExplorationPlayerCardsRefreshHealth()
+        {
+            List<GameObject> combatants = CombatManagerInterface.GetInstance().GetCombatants();
+            player = combatants.Find(combatant =>
+                combatant.GetComponent<PlayerActionController>() != null
+            );
+            Assert.IsNotNull(player, "Expected a player combatant in UnitTestingScene.");
+
+            ActionController controller = player.GetComponent<ActionController>();
+            CreatureComponent creature = player.GetComponent<CreatureComponent>();
+            HUDController.GetInstance().ShowExploration(new[] { controller }, controller);
+
+            VisualElement cardHolder = null;
+            Label healthLabel = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    cardHolder = root.Q<VisualElement>("CardHolder");
+                    if (cardHolder == null || cardHolder.childCount != 1)
+                        return false;
+
+                    healthLabel = cardHolder.ElementAt(0).Q<Label>("HealthBarLabel");
+                    return healthLabel != null;
+                }
+            );
+            Assert.IsNotNull(healthLabel, "Exploration player card health label was not created.");
+
+            creature.maxHp = 12;
+            creature.hp = 7;
+            creature.tempHp = 2;
+            yield return WaitUntilWithTimeout(timeout, () => healthLabel.text == "9/14");
+
+            Assert.AreEqual(
+                "9/14",
+                healthLabel.text,
+                "Exploration cards should refresh after the creature's health changes."
+            );
         }
 
         [UnityTest]

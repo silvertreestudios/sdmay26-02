@@ -44,6 +44,11 @@ public sealed class ProceduralDungeonScenePlayModeTests
         DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(map.JsonSource.text);
         Assert.That(parsed.IsSuccess, Is.True);
         DungeonLevelDocument document = parsed.Document;
+        Assert.That(
+            document.EncounterPlans,
+            Is.Not.Empty,
+            "The reusable generated-floor fixture must exercise room-scoped encounters."
+        );
         Assert.That(grid.GridData.GetLength(0), Is.EqualTo(document.Width));
         Assert.That(grid.GridData.GetLength(1), Is.EqualTo(document.Height));
         Assert.That(

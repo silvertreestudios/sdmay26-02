@@ -17,6 +17,7 @@ public class MindlessController : AIActionController
     protected GridAPIPrivate GridAPI;
     protected IPathfinder Pathfinder;
     protected Tile[,] Tiles;
+    private Coroutine turnSequence;
 
     private static readonly Vector3Int[] CardinalDirections = new[]
     {
@@ -41,7 +42,14 @@ public class MindlessController : AIActionController
         }
 
         base.StartTurn();
-        StartCoroutine(ExecuteTurnSequence());
+        turnSequence = StartCoroutine(ExecuteTurnSequence());
+    }
+
+    /// <inheritdoc/>
+    public override void ResetEncounterTurnState()
+    {
+        CancelTurnSequence();
+        base.ResetEncounterTurnState();
     }
 
     internal void RebindGrid(GridAPIPrivate grid)
@@ -68,6 +76,9 @@ public class MindlessController : AIActionController
 
     private IEnumerator ExecuteTurnSequence()
     {
+        // Let StartTurn retain the coroutine handle before this sequence can complete or end a turn.
+        yield return null;
+
         while (ActionPoints > 0)
         {
             //Debug.Log(ActionPoints + " action points remaining");
@@ -87,8 +98,18 @@ public class MindlessController : AIActionController
                 break;
             }
         }
+        turnSequence = null;
         EndTurn();
         yield return null;
+    }
+
+    private void CancelTurnSequence()
+    {
+        if (turnSequence == null)
+            return;
+
+        StopCoroutine(turnSequence);
+        turnSequence = null;
     }
 
     //TODO create a gridcharactercontorller3D api for this to use
