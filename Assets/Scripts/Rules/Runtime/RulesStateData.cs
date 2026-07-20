@@ -16,7 +16,7 @@ namespace Game.Rules.Runtime
         public Dictionary<CreatureId, MultipleAttackPenaltyState> MultipleAttackPenalty { get; }
         public Dictionary<ConditionId, ConditionState> Conditions { get; }
         public Dictionary<ItemId, EquipmentState> Equipment { get; }
-        public Dictionary<ActiveEffectId, ActiveEffectState> ActiveEffects { get; }
+        public Dictionary<ActiveEffectId, ActiveEffectInstance> ActiveEffects { get; }
         public Dictionary<BindingId, ActiveRuleBinding> RuleBindings { get; }
         public Dictionary<BindingId, FrequencyState> Frequencies { get; }
 
@@ -34,7 +34,7 @@ namespace Game.Rules.Runtime
                 new Dictionary<CreatureId, MultipleAttackPenaltyState>(seed.MultipleAttackPenalty),
                 new Dictionary<ConditionId, ConditionState>(seed.Conditions),
                 new Dictionary<ItemId, EquipmentState>(seed.Equipment),
-                new Dictionary<ActiveEffectId, ActiveEffectState>(seed.ActiveEffects),
+                new Dictionary<ActiveEffectId, ActiveEffectInstance>(seed.ActiveEffects),
                 new Dictionary<BindingId, ActiveRuleBinding>(seed.RuleBindings),
                 new Dictionary<BindingId, FrequencyState>(seed.Frequencies)
             ) { }
@@ -52,7 +52,7 @@ namespace Game.Rules.Runtime
             Dictionary<CreatureId, MultipleAttackPenaltyState> multipleAttackPenalty,
             Dictionary<ConditionId, ConditionState> conditions,
             Dictionary<ItemId, EquipmentState> equipment,
-            Dictionary<ActiveEffectId, ActiveEffectState> activeEffects,
+            Dictionary<ActiveEffectId, ActiveEffectInstance> activeEffects,
             Dictionary<BindingId, ActiveRuleBinding> ruleBindings,
             Dictionary<BindingId, FrequencyState> frequencies
         )

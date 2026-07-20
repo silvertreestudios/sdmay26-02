@@ -21,6 +21,7 @@ namespace Game.Rules.Runtime
         private readonly IOpIdProvider ids;
         private readonly IRollService rollService;
         private RuleRegistry ruleRegistry = RuleRegistry.Empty;
+        private bool isRuleRegistryConfigured;
         private ActionRuntimeConfiguration actionRuntimeConfiguration =
             ActionRuntimeConfiguration.Unconfigured;
 
@@ -310,13 +311,26 @@ namespace Game.Rules.Runtime
         /// <param name="registry">The static registry to validate and attach to the dispatcher.</param>
         /// <returns>This builder so configuration can be chained.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="registry"/> is <see langword="null"/>.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// A different registry instance was already configured for this builder.
+        /// </exception>
         /// <remarks>
         /// The registry stores static definitions only. Which registrations participate is decided
         /// from <see cref="RulesSnapshot.RuleBindings"/> each time rules work is resolved.
         /// </remarks>
         public RuleDispatcherBuilder UseRuleRegistry(RuleRegistry registry)
         {
-            ruleRegistry = registry ?? throw new ArgumentNullException(nameof(registry));
+            if (registry == null)
+                throw new ArgumentNullException(nameof(registry));
+            if (isRuleRegistryConfigured && !ReferenceEquals(ruleRegistry, registry))
+            {
+                throw new InvalidOperationException(
+                    "A dispatcher builder cannot replace its configured rule registry."
+                );
+            }
+
+            ruleRegistry = registry;
+            isRuleRegistryConfigured = true;
             return this;
         }
 
