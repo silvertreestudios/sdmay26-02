@@ -32,7 +32,11 @@ namespace Game.Rules.Runtime
         > MultipleAttackPenalty { get; }
         public StateSliceDraft<ConditionId, ConditionState> Conditions { get; }
         public StateSliceDraft<ItemId, EquipmentState> Equipment { get; }
-        public StateSliceDraft<ActiveEffectId, ActiveEffectState> ActiveEffects { get; }
+
+        /// <summary>
+        /// Gets transaction-scoped write access to immutable active-effect instances.
+        /// </summary>
+        public StateSliceDraft<ActiveEffectId, ActiveEffectInstance> ActiveEffects { get; }
 
         /// <summary>
         /// Gets controlled write access to rule bindings for the current reducer transaction.
@@ -86,7 +90,7 @@ namespace Game.Rules.Runtime
                 data.Equipment,
                 (id, value) => !id.IsEmpty && value != null && id == value.Id
             );
-            ActiveEffects = new StateSliceDraft<ActiveEffectId, ActiveEffectState>(
+            ActiveEffects = new StateSliceDraft<ActiveEffectId, ActiveEffectInstance>(
                 data.ActiveEffects,
                 (id, value) => !id.IsEmpty && value != null && id == value.Id
             );

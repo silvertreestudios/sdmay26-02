@@ -27,8 +27,8 @@ namespace Game.Rules.Runtime
             new Dictionary<ConditionId, ConditionState>();
         internal Dictionary<ItemId, EquipmentState> Equipment { get; } =
             new Dictionary<ItemId, EquipmentState>();
-        internal Dictionary<ActiveEffectId, ActiveEffectState> ActiveEffects { get; } =
-            new Dictionary<ActiveEffectId, ActiveEffectState>();
+        internal Dictionary<ActiveEffectId, ActiveEffectInstance> ActiveEffects { get; } =
+            new Dictionary<ActiveEffectId, ActiveEffectInstance>();
         internal Dictionary<BindingId, ActiveRuleBinding> RuleBindings { get; } =
             new Dictionary<BindingId, ActiveRuleBinding>();
         internal Dictionary<BindingId, FrequencyState> Frequencies { get; } =
@@ -142,7 +142,13 @@ namespace Game.Rules.Runtime
             return this;
         }
 
-        public RulesStateSeed SeedActiveEffect(ActiveEffectState value)
+        /// <summary>
+        /// Seeds one immutable active-effect instance before the store begins resolving operations.
+        /// </summary>
+        /// <param name="value">The complete effect instance to add or replace by ID.</param>
+        /// <returns>This seed so initial state can be composed fluently.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
+        public RulesStateSeed SeedActiveEffect(ActiveEffectInstance value)
         {
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
