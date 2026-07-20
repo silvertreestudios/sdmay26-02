@@ -59,6 +59,10 @@ namespace Game.Rules.Runtime
                     new CommitMovementStepReducer(topology),
                     MovementSource
                 )
+                .RegisterEngineReducer<
+                    CommitOccupiedMovementCrossingOp,
+                    MovementCrossingCommitOutcome
+                >(new CommitOccupiedMovementCrossingReducer(topology), MovementSource)
                 .RegisterHandler<RelocateTokenOp, RelocationOutcome>(
                     new RelocateTokenHandler(validator),
                     InvocationPolicy.NestedOnly
@@ -275,57 +279,92 @@ namespace Game.Rules.Runtime
 
             int committedSteps = 0;
             int distanceSpent = 0;
-            MovementFailure deferredStop = default;
-            foreach (MovementStepPlan step in validation.Steps)
+            for (int stepIndex = 0; stepIndex < validation.Steps.Count; stepIndex++)
             {
-                MovementTriggerId triggerId = new MovementTriggerId(frame.Id, committedSteps + 1);
-                OpResult<MovementTriggerOutcome> trigger = await context.Dispatch(
-                    new MovementLeavingSquareOp(
-                        op.ActionOpId,
-                        op.Mover,
-                        step.From,
-                        step.To,
-                        triggerId,
-                        MovementTriggerKind.Departure
-                    )
+                MovementStepPlan step = validation.Steps[stepIndex];
+                MovementTriggerId triggerId = new MovementTriggerId(frame.Id, stepIndex + 1);
+                OpResult<MovementTriggerOutcome> trigger = await DispatchDeparture(
+                    context,
+                    op,
+                    step,
+                    triggerId
                 );
                 MovementFailure triggerFailure = GetTriggerFailure(trigger, step.To, triggerId);
                 if (triggerFailure.Kind != MovementFailureKind.None)
-                {
-                    if (!OccupiesReservedCell(context.Snapshot, op))
-                        return Stopped(context, op, committedSteps, distanceSpent, triggerFailure);
+                    return Stopped(context, op, committedSteps, distanceSpent, triggerFailure);
 
-                    // Entry into a reserved occupied square commits atomically, so it cannot be
-                    // rolled back without breaking the durable prefix. Settle a requested stop
-                    // through the already-reserved exit step, then stop at that legal square.
-                    deferredStop = triggerFailure;
-                }
+                if (step.Allowance.HasOccupant)
+                {
+                    MovementStepPlan exit = validation.Steps[stepIndex + 1];
+                    MovementTriggerId exitTriggerId = new MovementTriggerId(
+                        frame.Id,
+                        stepIndex + 2
+                    );
+                    OpResult<MovementTriggerOutcome> exitTrigger = await DispatchDeparture(
+                        context,
+                        op,
+                        exit,
+                        exitTriggerId
+                    );
+                    MovementFailure exitTriggerFailure = GetTriggerFailure(
+                        exitTrigger,
+                        exit.To,
+                        exitTriggerId
+                    );
+                    CommitOccupiedMovementCrossingOp crossingOp =
+                        new CommitOccupiedMovementCrossingOp(
+                            CreateCommitOp(op, step, triggerId),
+                            CreateCommitOp(op, exit, exitTriggerId)
+                        );
+                    RulesSnapshot beforeCrossing = context.Snapshot;
+                    OpResult<MovementCrossingCommitOutcome> crossing;
+                    try
+                    {
+                        crossing = await context.Dispatch(crossingOp);
+                    }
+                    catch
+                    {
+                        if (CrossingCommitted(beforeCrossing, context.Snapshot, crossingOp))
+                            authority.Consume(op.Permission);
+                        throw;
+                    }
 
-                CommitMovementStepOp commitOp = new CommitMovementStepOp(
-                    op.ActionOpId,
-                    op.Mover,
-                    op.BudgetId,
-                    step.From,
-                    step.To,
-                    step.Cost,
-                    triggerId,
-                    MovementTriggerKind.Departure,
-                    step.Allowance,
-                    op.PermissionPurpose,
-                    step.IsDestination
-                );
-                RulesSnapshot beforeCommit = context.Snapshot;
-                OpResult<MovementStepCommitOutcome> commit;
-                try
-                {
-                    commit = await context.Dispatch(commitOp);
-                }
-                catch
-                {
-                    if (TraversalCommitted(beforeCommit, context.Snapshot, commitOp))
+                    MovementCrossingCommitOutcome committedCrossing =
+                        MovementHandlerValidation.RequireResolved(crossing, "occupied crossing");
+                    if (!committedCrossing.DidMove)
+                    {
+                        return Stopped(
+                            context,
+                            op,
+                            committedSteps,
+                            distanceSpent,
+                            committedCrossing.Failure
+                        );
+                    }
+
+                    committedSteps += 2;
+                    distanceSpent +=
+                        committedCrossing.EntryCost.Distance.Feet
+                        + committedCrossing.ExitCost.Distance.Feet;
+                    if (ContainsTraversalFact(crossing))
                         authority.Consume(op.Permission);
-                    throw;
+                    if (exitTriggerFailure.Kind != MovementFailureKind.None)
+                    {
+                        return Stopped(
+                            context,
+                            op,
+                            committedSteps,
+                            distanceSpent,
+                            exitTriggerFailure
+                        );
+                    }
+
+                    stepIndex++;
+                    continue;
                 }
+
+                CommitMovementStepOp commitOp = CreateCommitOp(op, step, triggerId);
+                OpResult<MovementStepCommitOutcome> commit = await context.Dispatch(commitOp);
                 MovementStepCommitOutcome committed = MovementHandlerValidation.RequireResolved(
                     commit,
                     "movement step"
@@ -337,10 +376,6 @@ namespace Game.Rules.Runtime
 
                 committedSteps++;
                 distanceSpent += committed.Cost.Distance.Feet;
-                if (ContainsTraversalFact(commit))
-                    authority.Consume(op.Permission);
-                if (deferredStop.Kind != MovementFailureKind.None)
-                    return Stopped(context, op, committedSteps, distanceSpent, deferredStop);
             }
 
             return new MovePathOutcome(
@@ -351,6 +386,42 @@ namespace Game.Rules.Runtime
                 default
             );
         }
+
+        private static ValueTask<OpResult<MovementTriggerOutcome>> DispatchDeparture(
+            OpHandlerContext context,
+            MovePathOp op,
+            MovementStepPlan step,
+            MovementTriggerId triggerId
+        ) =>
+            context.Dispatch(
+                new MovementLeavingSquareOp(
+                    op.ActionOpId,
+                    op.Mover,
+                    step.From,
+                    step.To,
+                    triggerId,
+                    MovementTriggerKind.Departure
+                )
+            );
+
+        private static CommitMovementStepOp CreateCommitOp(
+            MovePathOp op,
+            MovementStepPlan step,
+            MovementTriggerId triggerId
+        ) =>
+            new CommitMovementStepOp(
+                op.ActionOpId,
+                op.Mover,
+                op.BudgetId,
+                step.From,
+                step.To,
+                step.Cost,
+                triggerId,
+                MovementTriggerKind.Departure,
+                step.Allowance,
+                op.PermissionPurpose,
+                step.IsDestination
+            );
 
         private static MovementFailure GetTriggerFailure(
             OpResult<MovementTriggerOutcome> result,
@@ -391,7 +462,7 @@ namespace Game.Rules.Runtime
             );
         }
 
-        private static bool ContainsTraversalFact(OpResult<MovementStepCommitOutcome> result)
+        private static bool ContainsTraversalFact<TResult>(OpResult<TResult> result)
         {
             foreach (RuleFact fact in result.Facts)
             {
@@ -401,46 +472,47 @@ namespace Game.Rules.Runtime
             return false;
         }
 
-        private static bool OccupiesReservedCell(RulesSnapshot snapshot, MovePathOp op) =>
-            !op.Permission.IsNone
-            && snapshot.Positions.TryGet(op.Mover, out GridPosition moverPosition)
-            && moverPosition == op.Permission.ReservedPosition
-            && snapshot.Positions.TryGet(op.Permission.Occupant, out GridPosition occupantPosition)
-            && occupantPosition == op.Permission.ReservedPosition;
-
-        private static bool TraversalCommitted(
+        private static bool CrossingCommitted(
             RulesSnapshot before,
             RulesSnapshot after,
-            CommitMovementStepOp op
+            CommitOccupiedMovementCrossingOp op
         )
         {
-            if (!op.Allowance.HasOccupant || after.Version != before.Version + 1)
+            CommitMovementStepOp entry = op.Entry;
+            CommitMovementStepOp exit = op.Exit;
+            if (after.Version != before.Version + 1)
                 return false;
             if (
-                !before.Positions.TryGet(op.Mover, out GridPosition previousPosition)
-                || previousPosition != op.From
-                || !after.Positions.TryGet(op.Mover, out GridPosition currentPosition)
-                || currentPosition != op.To
-                || !after.Positions.TryGet(op.Allowance.Occupant, out GridPosition occupantPosition)
-                || occupantPosition != op.To
+                !before.Positions.TryGet(entry.Mover, out GridPosition previousPosition)
+                || previousPosition != entry.From
+                || !before.Positions.TryGet(
+                    entry.Allowance.Occupant,
+                    out GridPosition occupantPosition
+                )
+                || occupantPosition != entry.To
+                || !after.Positions.TryGet(entry.Mover, out GridPosition currentPosition)
+                || currentPosition != exit.To
+                || !after.Positions.TryGet(
+                    entry.Allowance.Occupant,
+                    out GridPosition currentOccupantPosition
+                )
+                || currentOccupantPosition != entry.To
             )
             {
                 return false;
             }
             if (
-                !before.MovementBudgets.TryGet(op.Mover, out MovementBudgetState previousBudget)
-                || !after.MovementBudgets.TryGet(op.Mover, out MovementBudgetState currentBudget)
-                || previousBudget.Id != op.BudgetId
-                || currentBudget.Id != op.BudgetId
+                !before.MovementBudgets.TryGet(entry.Mover, out MovementBudgetState previousBudget)
+                || !after.MovementBudgets.TryGet(entry.Mover, out MovementBudgetState currentBudget)
+                || previousBudget.Id != entry.BudgetId
+                || currentBudget.Id != entry.BudgetId
             )
             {
                 return false;
             }
 
-            // Observers run after the reducer's one-version atomic commit. Matching the complete
-            // position and budget transition proves that its occupied-traversal Fact is durable.
-            return currentBudget.Remaining.Feet
-                == previousBudget.Remaining.Feet - op.ExpectedCost.Distance.Feet;
+            int expectedCost = entry.ExpectedCost.Distance.Feet + exit.ExpectedCost.Distance.Feet;
+            return currentBudget.Remaining.Feet == previousBudget.Remaining.Feet - expectedCost;
         }
 
         private static MovePathOutcome Stopped(

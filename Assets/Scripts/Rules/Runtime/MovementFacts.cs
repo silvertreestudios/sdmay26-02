@@ -25,8 +25,13 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Records one atomic path step together with its movement cost and frozen provenance.
+    /// Records one path transition together with its movement cost and frozen provenance.
     /// </summary>
+    /// <remarks>
+    /// Ordinary steps commit individually. An authorized occupied entry and its immediate exit
+    /// emit two ordered transition Facts from one atomic reduction, so both share the final
+    /// post-exit observer snapshot while retaining their exact intermediate payloads.
+    /// </remarks>
     public sealed class TokenMovedFact : RuleFact
     {
         internal TokenMovedFact(
@@ -86,7 +91,7 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Records one authorized entry into an occupied intermediate cell after that step commits.
+    /// Records one authorized occupied-cell traversal after its entry-and-exit transaction commits.
     /// </summary>
     public sealed class OccupiedSpaceTraversedFact : RuleFact
     {

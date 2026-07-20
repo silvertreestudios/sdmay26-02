@@ -90,6 +90,8 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// The operation retains the originating action and stable path-step trigger identity even
     /// when the action's frozen profile cannot trigger reactions. Middleware owns eligibility.
+    /// For an authorized occupied crossing, entry and exit timing operations both run while
+    /// the preceding legal square remains authoritative; their two steps then commit together.
     /// </remarks>
     public sealed class MovementLeavingSquareOp : IRuleOp<MovementTriggerOutcome>
     {
@@ -329,6 +331,31 @@ namespace Game.Rules.Runtime
         public bool IsDestination { get; }
     }
 
+    internal sealed class CommitOccupiedMovementCrossingOp : IRuleOp<MovementCrossingCommitOutcome>
+    {
+        public CommitOccupiedMovementCrossingOp(
+            CommitMovementStepOp entry,
+            CommitMovementStepOp exit
+        )
+        {
+            Entry = entry ?? throw new ArgumentNullException(nameof(entry));
+            Exit = exit ?? throw new ArgumentNullException(nameof(exit));
+            if (!entry.Allowance.HasOccupant)
+                throw new ArgumentException(
+                    "An occupied crossing requires an authorized entry step.",
+                    nameof(entry)
+                );
+            if (exit.Allowance.HasOccupant || entry.To != exit.From)
+                throw new ArgumentException(
+                    "An occupied crossing requires the immediately following unoccupied exit step.",
+                    nameof(exit)
+                );
+        }
+
+        public CommitMovementStepOp Entry { get; }
+        public CommitMovementStepOp Exit { get; }
+    }
+
     /// <summary>
     /// Requests a nested authoritative relocation that spends no action or movement budget.
     /// </summary>
@@ -511,6 +538,37 @@ namespace Game.Rules.Runtime
 
         public bool DidMove { get; }
         public MovementStepCost Cost { get; }
+        public GridDistance Remaining { get; }
+        public MovementFailure Failure { get; }
+    }
+
+    internal readonly struct MovementCrossingCommitOutcome
+    {
+        public MovementCrossingCommitOutcome(
+            MovementStepCost entryCost,
+            MovementStepCost exitCost,
+            GridDistance remaining
+        )
+        {
+            DidMove = true;
+            EntryCost = entryCost;
+            ExitCost = exitCost;
+            Remaining = remaining;
+            Failure = default;
+        }
+
+        public MovementCrossingCommitOutcome(MovementFailure failure)
+        {
+            DidMove = false;
+            EntryCost = default;
+            ExitCost = default;
+            Remaining = default;
+            Failure = failure;
+        }
+
+        public bool DidMove { get; }
+        public MovementStepCost EntryCost { get; }
+        public MovementStepCost ExitCost { get; }
         public GridDistance Remaining { get; }
         public MovementFailure Failure { get; }
     }

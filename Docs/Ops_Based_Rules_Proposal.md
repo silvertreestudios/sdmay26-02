@@ -636,7 +636,9 @@ If a future trigger needs information that is not universal to actions, it shoul
 
 For example, leaving a threatened square is represented by `MovementLeavingSquareOp`, because it occurs during movement and contains square-level geometry. It identifies the originating action so reaction middleware can read that action's frozen profile before matching the departure trigger. The movement workflow dispatches this lifecycle Op even when reactions are ineligible.
 
-Path movement resolves square by square. For each step it dispatches `MovementLeavingSquareOp`, commits the position change and a `TokenMovedFact` containing the old and new squares, awaits matching reduction observers, and only then continues to the next square. This keeps reaction timing authoritative while allowing presentation to pace the visible token path without gaining authority over the commit.
+Ordinary path movement resolves square by square. For each step it dispatches `MovementLeavingSquareOp`, commits the position change and a `TokenMovedFact` containing the old and new squares, awaits matching reduction observers, and only then continues to the next square. This keeps reaction timing authoritative while allowing presentation to pace the visible token path without gaining authority over the commit.
+
+An authorized occupied crossing is the narrow exception to per-step commits. The movement workflow dispatches the occupied entry and immediate-exit `MovementLeavingSquareOp` timing points in order while the preceding legal square remains authoritative, then commits both position transitions and their combined budget change in one reducer transaction. An exit interruption, cancellation, or invalid result settles that transaction and then stops at the legal exit. If either timing callback throws or commit-time revalidation rejects either half, neither half commits. Ordered `TokenMovedFact`, `OccupiedSpaceTraversedFact`, and exit `TokenMovedFact` payloads still describe both transitions, but every observer receives the transaction's final post-exit snapshot. No externally observable snapshot can therefore place the mover and reserved occupant in the same cell.
 
 ### 5.6 Nested operations and prompts
 
@@ -1730,7 +1732,8 @@ public sealed class TumbleThroughHandler
         }
 
         // This engine-issued permission is scoped to this frame and enemy. A
-        // different caller cannot reuse it to enter occupied spaces.
+        // different caller cannot reuse it to enter occupied spaces. Entry and
+        // the first legal exit commit as one occupied-crossing transaction.
         var permission = context.MovementPermissions.ForTumbleThrough(
             frame,
             op.Enemy,

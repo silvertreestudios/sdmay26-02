@@ -216,7 +216,7 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// Callers can hold this immutable value but cannot construct an authorized instance. The
     /// movement runtime issues it for one root, parent frame, mover, occupant, budget, exact path,
-    /// and purpose, then consumes it after the authorized occupied step commits.
+    /// and purpose, then consumes it after the authorized occupied entry and exit commit together.
     /// </remarks>
     public sealed class MovementPermission
     {
@@ -429,19 +429,19 @@ namespace Game.Rules.Runtime
 
         /// <summary>
         /// The movement timing operation requested interruption at this departure. An authorized
-        /// occupied crossing can first settle through its reserved exit.
+        /// occupied crossing settles its atomic entry and exit before returning this stop.
         /// </summary>
         TriggerInterrupted,
 
         /// <summary>
         /// The movement timing operation became invalid at this departure. An authorized occupied
-        /// crossing can first settle through its reserved exit.
+        /// crossing settles its atomic entry and exit before returning this stop.
         /// </summary>
         TriggerInvalid,
 
         /// <summary>
         /// The movement timing operation was cancelled at this departure. An authorized occupied
-        /// crossing can first settle through its reserved exit.
+        /// crossing settles its atomic entry and exit before returning this stop.
         /// </summary>
         TriggerCancelled,
 
@@ -603,8 +603,8 @@ namespace Game.Rules.Runtime
         Continue,
 
         /// <summary>
-        /// The path requests a stop at this departure. If the mover already entered a reserved
-        /// occupied cell, the stop settles after the atomic exit step commits.
+        /// The path requests a stop at this departure. For a reserved crossing's exit timing, the
+        /// atomic entry and exit commit before the stop is returned.
         /// </summary>
         Interrupted,
     }

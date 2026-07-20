@@ -92,79 +92,44 @@ namespace Game.Rules.Runtime
         )
         {
             CommitMovementStepOp op = context.Op;
-            bool reservedOccupantPresent = ReservedOccupantOccupies(op, state);
-            MovementFailure failure = ValidateCurrentStep(op, state, reservedOccupantPresent);
+            if (!state.Positions.TryGet(op.Mover, out GridPosition current))
+                return Rejected(Failure(MovementFailureKind.MissingPosition, op));
+            if (!state.MovementBudgets.TryGet(op.Mover, out MovementBudgetState budget))
+                return Rejected(Failure(MovementFailureKind.MissingBudget, op));
+
+            MovementFailure failure = PrepareStep(
+                op,
+                state,
+                current,
+                budget,
+                out PreparedMovementStep prepared
+            );
             if (failure.Kind != MovementFailureKind.None)
-            {
-                return ReductionResult<MovementStepCommitOutcome>.Accept(
-                    new MovementStepCommitOutcome(failure)
-                );
-            }
+                return Rejected(failure);
 
-            MovementBudgetState budget = default;
-            state.MovementBudgets.TryGet(op.Mover, out budget);
-            MovementStepCost cost = CalculateCost(op, budget, reservedOccupantPresent);
-            GridDistance remaining = new GridDistance(budget.Remaining.Feet - cost.Distance.Feet);
-            MovementBudgetState updatedBudget = new MovementBudgetState(
-                budget.Id,
-                budget.Owner,
-                remaining,
-                cost.NextDiagonalPhase
-            );
-
-            state.Positions.Set(op.Mover, op.To);
-            state.MovementBudgets.Set(op.Mover, updatedBudget);
-            facts.Stage(
-                new TokenMovedFact(
-                    op.Mover,
-                    op.From,
-                    op.To,
-                    cost.Distance,
-                    remaining,
-                    updatedBudget.DiagonalPhase,
-                    op.BudgetId,
-                    op.ActionOpId,
-                    op.TriggerId,
-                    op.TriggerKind
-                )
-            );
-
-            if (reservedOccupantPresent)
-            {
-                facts.Stage(
-                    new OccupiedSpaceTraversedFact(
-                        op.Mover,
-                        op.Allowance.Occupant,
-                        op.To,
-                        op.BudgetId,
-                        op.ActionOpId,
-                        op.TriggerId,
-                        op.PermissionPurpose
-                    )
-                );
-            }
+            CommitPreparedStep(op, prepared, state, facts);
 
             return ReductionResult<MovementStepCommitOutcome>.Accept(
-                new MovementStepCommitOutcome(cost, remaining)
+                new MovementStepCommitOutcome(prepared.Cost, prepared.UpdatedBudget.Remaining)
             );
         }
 
-        private MovementFailure ValidateCurrentStep(
+        internal MovementFailure PrepareStep(
             CommitMovementStepOp op,
             RulesStateDraft state,
-            bool reservedOccupantPresent
+            GridPosition current,
+            MovementBudgetState budget,
+            out PreparedMovementStep prepared
         )
         {
-            if (!state.Positions.TryGet(op.Mover, out GridPosition current))
-                return Failure(MovementFailureKind.MissingPosition, op);
+            prepared = default;
+            bool reservedOccupantPresent = ReservedOccupantOccupies(op, state);
             if (current != op.From)
                 return new MovementFailure(
                     MovementFailureKind.StaleOrigin,
                     op.TriggerId.StepNumber,
                     current
                 );
-            if (!state.MovementBudgets.TryGet(op.Mover, out MovementBudgetState budget))
-                return Failure(MovementFailureKind.MissingBudget, op);
             if (budget.Id != op.BudgetId || budget.Owner != op.Mover)
                 return Failure(MovementFailureKind.BudgetMismatch, op);
             if (!topology.Contains(op.To))
@@ -229,8 +194,69 @@ namespace Game.Rules.Runtime
             }
             if (currentCost.Distance.Feet > budget.Remaining.Feet)
                 return Failure(MovementFailureKind.InsufficientMovement, op);
+
+            GridDistance remaining = new GridDistance(
+                budget.Remaining.Feet - currentCost.Distance.Feet
+            );
+            prepared = new PreparedMovementStep(
+                currentCost,
+                new MovementBudgetState(
+                    budget.Id,
+                    budget.Owner,
+                    remaining,
+                    currentCost.NextDiagonalPhase
+                ),
+                reservedOccupantPresent
+            );
             return default;
         }
+
+        internal static void CommitPreparedStep(
+            CommitMovementStepOp op,
+            PreparedMovementStep prepared,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            state.Positions.Set(op.Mover, op.To);
+            state.MovementBudgets.Set(op.Mover, prepared.UpdatedBudget);
+            facts.Stage(
+                new TokenMovedFact(
+                    op.Mover,
+                    op.From,
+                    op.To,
+                    prepared.Cost.Distance,
+                    prepared.UpdatedBudget.Remaining,
+                    prepared.UpdatedBudget.DiagonalPhase,
+                    op.BudgetId,
+                    op.ActionOpId,
+                    op.TriggerId,
+                    op.TriggerKind
+                )
+            );
+
+            if (prepared.ReservedOccupantPresent)
+            {
+                facts.Stage(
+                    new OccupiedSpaceTraversedFact(
+                        op.Mover,
+                        op.Allowance.Occupant,
+                        op.To,
+                        op.BudgetId,
+                        op.ActionOpId,
+                        op.TriggerId,
+                        op.PermissionPurpose
+                    )
+                );
+            }
+        }
+
+        private static ReductionResult<MovementStepCommitOutcome> Rejected(
+            MovementFailure failure
+        ) =>
+            ReductionResult<MovementStepCommitOutcome>.Accept(
+                new MovementStepCommitOutcome(failure)
+            );
 
         private MovementStepCost CalculateCost(
             CommitMovementStepOp op,
@@ -299,6 +325,91 @@ namespace Game.Rules.Runtime
             }
             return false;
         }
+
+        internal readonly struct PreparedMovementStep
+        {
+            public PreparedMovementStep(
+                MovementStepCost cost,
+                MovementBudgetState updatedBudget,
+                bool reservedOccupantPresent
+            )
+            {
+                Cost = cost;
+                UpdatedBudget = updatedBudget;
+                ReservedOccupantPresent = reservedOccupantPresent;
+            }
+
+            public MovementStepCost Cost { get; }
+            public MovementBudgetState UpdatedBudget { get; }
+            public bool ReservedOccupantPresent { get; }
+        }
+    }
+
+    internal sealed class CommitOccupiedMovementCrossingReducer
+        : IOpReducer<CommitOccupiedMovementCrossingOp, MovementCrossingCommitOutcome>
+    {
+        private readonly CommitMovementStepReducer stepReducer;
+
+        public CommitOccupiedMovementCrossingReducer(GridTopology topology)
+        {
+            stepReducer = new CommitMovementStepReducer(topology);
+        }
+
+        public ReductionResult<MovementCrossingCommitOutcome> Reduce(
+            ReductionContext<CommitOccupiedMovementCrossingOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            CommitMovementStepOp entry = context.Op.Entry;
+            CommitMovementStepOp exit = context.Op.Exit;
+            if (!state.Positions.TryGet(entry.Mover, out GridPosition current))
+                return Rejected(Failure(MovementFailureKind.MissingPosition, entry));
+            if (!state.MovementBudgets.TryGet(entry.Mover, out MovementBudgetState budget))
+                return Rejected(Failure(MovementFailureKind.MissingBudget, entry));
+
+            MovementFailure failure = stepReducer.PrepareStep(
+                entry,
+                state,
+                current,
+                budget,
+                out CommitMovementStepReducer.PreparedMovementStep preparedEntry
+            );
+            if (failure.Kind != MovementFailureKind.None)
+                return Rejected(failure);
+
+            failure = stepReducer.PrepareStep(
+                exit,
+                state,
+                entry.To,
+                preparedEntry.UpdatedBudget,
+                out CommitMovementStepReducer.PreparedMovementStep preparedExit
+            );
+            if (failure.Kind != MovementFailureKind.None)
+                return Rejected(failure);
+
+            // No draft mutation or Fact staging occurs until both halves validate. Observers then
+            // receive the ordered entry/traversal/exit Facts against the final legal exit snapshot.
+            CommitMovementStepReducer.CommitPreparedStep(entry, preparedEntry, state, facts);
+            CommitMovementStepReducer.CommitPreparedStep(exit, preparedExit, state, facts);
+            return ReductionResult<MovementCrossingCommitOutcome>.Accept(
+                new MovementCrossingCommitOutcome(
+                    preparedEntry.Cost,
+                    preparedExit.Cost,
+                    preparedExit.UpdatedBudget.Remaining
+                )
+            );
+        }
+
+        private static ReductionResult<MovementCrossingCommitOutcome> Rejected(
+            MovementFailure failure
+        ) =>
+            ReductionResult<MovementCrossingCommitOutcome>.Accept(
+                new MovementCrossingCommitOutcome(failure)
+            );
+
+        private static MovementFailure Failure(MovementFailureKind kind, CommitMovementStepOp op) =>
+            new MovementFailure(kind, op.TriggerId.StepNumber, op.To);
     }
 
     internal sealed class CommitRelocationReducer
