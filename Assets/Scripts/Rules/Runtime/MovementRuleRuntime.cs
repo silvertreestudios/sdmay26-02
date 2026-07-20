@@ -336,6 +336,61 @@ namespace Game.Rules.Runtime
                         exit.To,
                         exitTriggerId
                     );
+
+                    // Exit middleware can vacate the reservation after the pre-timing gate. The
+                    // occupied crossing no longer needs atomic settlement, so restore ordinary
+                    // per-step commits and prefix preservation without firing exit timing twice.
+                    if (!ReservedOccupantStillOccupies(context.Snapshot, step))
+                    {
+                        MovementStepCommitOutcome committedEntry = await CommitStep(
+                            context,
+                            crossingOp.Entry
+                        );
+                        if (!committedEntry.DidMove)
+                        {
+                            return Stopped(
+                                context,
+                                op,
+                                committedSteps,
+                                distanceSpent,
+                                committedEntry.Failure
+                            );
+                        }
+
+                        committedSteps++;
+                        distanceSpent += committedEntry.Cost.Distance.Feet;
+                        if (exitTriggerFailure.Kind != MovementFailureKind.None)
+                        {
+                            return Stopped(
+                                context,
+                                op,
+                                committedSteps,
+                                distanceSpent,
+                                exitTriggerFailure
+                            );
+                        }
+
+                        MovementStepCommitOutcome committedExit = await CommitStep(
+                            context,
+                            crossingOp.Exit
+                        );
+                        if (!committedExit.DidMove)
+                        {
+                            return Stopped(
+                                context,
+                                op,
+                                committedSteps,
+                                distanceSpent,
+                                committedExit.Failure
+                            );
+                        }
+
+                        committedSteps++;
+                        distanceSpent += committedExit.Cost.Distance.Feet;
+                        stepIndex++;
+                        continue;
+                    }
+
                     RulesSnapshot beforeCrossing = context.Snapshot;
                     OpResult<MovementCrossingCommitOutcome> crossing;
                     try
@@ -383,11 +438,9 @@ namespace Game.Rules.Runtime
                     continue;
                 }
 
-                CommitMovementStepOp commitOp = CreateCommitOp(op, step, triggerId);
-                OpResult<MovementStepCommitOutcome> commit = await context.Dispatch(commitOp);
-                MovementStepCommitOutcome committed = MovementHandlerValidation.RequireResolved(
-                    commit,
-                    "movement step"
+                MovementStepCommitOutcome committed = await CommitStep(
+                    context,
+                    CreateCommitOp(op, step, triggerId)
                 );
                 if (!committed.DidMove)
                 {
@@ -442,6 +495,15 @@ namespace Game.Rules.Runtime
                 op.PermissionPurpose,
                 step.IsDestination
             );
+
+        private static async ValueTask<MovementStepCommitOutcome> CommitStep(
+            OpHandlerContext context,
+            CommitMovementStepOp op
+        )
+        {
+            OpResult<MovementStepCommitOutcome> commit = await context.Dispatch(op);
+            return MovementHandlerValidation.RequireResolved(commit, "movement step");
+        }
 
         private static MovementFailure GetTriggerFailure(
             OpResult<MovementTriggerOutcome> result,

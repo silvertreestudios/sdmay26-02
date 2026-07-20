@@ -28,9 +28,11 @@ namespace Game.Rules.Runtime
     /// Records one path transition together with its movement cost and frozen provenance.
     /// </summary>
     /// <remarks>
-    /// Ordinary steps commit individually. An authorized occupied entry and its immediate exit
-    /// emit two ordered transition Facts from one atomic reduction, so both share the final
-    /// post-exit observer snapshot while retaining their exact intermediate payloads.
+    /// Ordinary steps commit individually. While the reserved occupant remains through both
+    /// timing points, an authorized occupied entry and its immediate exit emit two ordered
+    /// transition Facts from one atomic reduction, so both share the final post-exit observer
+    /// snapshot while retaining their exact intermediate payloads. If the occupant vacates first,
+    /// the steps return to ordinary per-step commits and observer pacing.
     /// </remarks>
     public sealed class TokenMovedFact : RuleFact
     {

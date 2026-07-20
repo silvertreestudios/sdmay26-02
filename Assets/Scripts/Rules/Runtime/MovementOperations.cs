@@ -91,7 +91,8 @@ namespace Game.Rules.Runtime
     /// The operation retains the originating action and stable path-step trigger identity even
     /// when the action's frozen profile cannot trigger reactions. Middleware owns eligibility.
     /// For an authorized occupied crossing, entry and exit timing operations both run while
-    /// the preceding legal square remains authoritative; their two steps then commit together.
+    /// the preceding legal square remains authoritative. Their two steps commit together while
+    /// the reserved occupant remains through exit timing; otherwise ordinary step commits resume.
     /// </remarks>
     public sealed class MovementLeavingSquareOp : IRuleOp<MovementTriggerOutcome>
     {

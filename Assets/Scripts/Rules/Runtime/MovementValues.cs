@@ -429,19 +429,22 @@ namespace Game.Rules.Runtime
 
         /// <summary>
         /// The movement timing operation requested interruption at this departure. An authorized
-        /// occupied crossing settles its atomic entry and exit before returning this stop.
+        /// occupied crossing whose reservation remains occupied settles its atomic entry and exit
+        /// before returning this stop.
         /// </summary>
         TriggerInterrupted,
 
         /// <summary>
         /// The movement timing operation became invalid at this departure. An authorized occupied
-        /// crossing settles its atomic entry and exit before returning this stop.
+        /// crossing whose reservation remains occupied settles its atomic entry and exit before
+        /// returning this stop.
         /// </summary>
         TriggerInvalid,
 
         /// <summary>
         /// The movement timing operation was cancelled at this departure. An authorized occupied
-        /// crossing settles its atomic entry and exit before returning this stop.
+        /// crossing whose reservation remains occupied settles its atomic entry and exit before
+        /// returning this stop.
         /// </summary>
         TriggerCancelled,
 
@@ -604,7 +607,8 @@ namespace Game.Rules.Runtime
 
         /// <summary>
         /// The path requests a stop at this departure. For a reserved crossing's exit timing, the
-        /// atomic entry and exit commit before the stop is returned.
+        /// atomic entry and exit commit before the stop is returned while the reservation remains
+        /// occupied; if its occupant vacates first, only the ordinary committed prefix remains.
         /// </summary>
         Interrupted,
     }
