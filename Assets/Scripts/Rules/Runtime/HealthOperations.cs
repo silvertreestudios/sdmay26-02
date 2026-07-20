@@ -43,6 +43,12 @@ namespace Game.Rules.Runtime
     /// Starts the externally dispatchable damage workflow for an already-final amount.
     /// </summary>
     /// <remarks>
+    /// This operation is a narrow direct-damage seam, not the usual entry point for completed
+    /// rules-engine actions. It also bridges Unity-driven features that already calculate final
+    /// damage while those workflows are migrated. Higher-level action operations for Strikes,
+    /// spells, and similar features should own their complete workflow and apply damage from
+    /// within it, so direct dispatch of this operation should become rare.
+    ///
     /// Handlers and middleware receive this public request before its handler dispatches the
     /// nested-only <see cref="CommitDamageOp"/>. Keeping the state-writing reducer behind that
     /// nested operation prevents callers from bypassing workflow authorization and provenance.
