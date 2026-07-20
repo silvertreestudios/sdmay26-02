@@ -11,6 +11,8 @@ namespace Game.Rules.Runtime.Tests
         private static readonly CreatureId Creature = new CreatureId("creature-1");
         private static readonly RuleSource TestSource = RuleSource.FromSlug("test-source");
 
+        private sealed class TestEffectState : IEffectState { }
+
         [Test]
         public void RuntimeAssemblyHasNoUnityOrMainGameDependency()
         {
@@ -56,11 +58,13 @@ namespace Game.Rules.Runtime.Tests
                 Creature,
                 true
             );
-            ActiveEffectState effect = new ActiveEffectState(
+            ActiveEffectInstance effect = new ActiveEffectInstance(
                 new ActiveEffectId("effect-1"),
                 new RuleDefinitionId("bless-aura"),
                 Creature,
-                TestSource
+                TestSource,
+                EffectDuration.OneMinute,
+                new TestEffectState()
             );
             ActiveRuleBinding binding = new ActiveRuleBinding(
                 new BindingId("binding-1"),
@@ -373,16 +377,54 @@ namespace Game.Rules.Runtime.Tests
                 )
             );
             Assert.Throws<ArgumentException>(() =>
-                new ActiveEffectState(default, definition, Creature, TestSource)
+                new ActiveEffectInstance(
+                    default,
+                    definition,
+                    Creature,
+                    TestSource,
+                    EffectDuration.Indefinite,
+                    new TestEffectState()
+                )
             );
             Assert.Throws<ArgumentException>(() =>
-                new ActiveEffectState(effect, default, Creature, TestSource)
+                new ActiveEffectInstance(
+                    effect,
+                    default,
+                    Creature,
+                    TestSource,
+                    EffectDuration.Indefinite,
+                    new TestEffectState()
+                )
             );
             Assert.Throws<ArgumentException>(() =>
-                new ActiveEffectState(effect, definition, default, TestSource)
+                new ActiveEffectInstance(
+                    effect,
+                    definition,
+                    default,
+                    TestSource,
+                    EffectDuration.Indefinite,
+                    new TestEffectState()
+                )
             );
             Assert.Throws<ArgumentException>(() =>
-                new ActiveEffectState(effect, definition, Creature, default)
+                new ActiveEffectInstance(
+                    effect,
+                    definition,
+                    Creature,
+                    default,
+                    EffectDuration.Indefinite,
+                    new TestEffectState()
+                )
+            );
+            Assert.Throws<ArgumentNullException>(() =>
+                new ActiveEffectInstance(
+                    effect,
+                    definition,
+                    Creature,
+                    TestSource,
+                    EffectDuration.Indefinite,
+                    null
+                )
             );
             Assert.Throws<ArgumentException>(() =>
                 new ActiveRuleBinding(default, definition, Creature, effect, TestSource, 0)

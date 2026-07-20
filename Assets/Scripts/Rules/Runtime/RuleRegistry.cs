@@ -200,6 +200,9 @@ namespace Game.Rules.Runtime
             && current.IsEnabled
             && current.Equals(binding);
 
+        internal bool TryGetDefinition(RuleDefinitionId id, out RuleDefinition definition) =>
+            byId.TryGetValue(id, out definition);
+
         private RuleDefinition RequireDefinition(RuleDefinitionId id)
         {
             if (!byId.TryGetValue(id, out RuleDefinition definition))

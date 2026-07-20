@@ -33,7 +33,11 @@ namespace Game.Rules.Runtime
         > MultipleAttackPenalty { get; }
         public StateSliceSnapshot<ConditionId, ConditionState> Conditions { get; }
         public StateSliceSnapshot<ItemId, EquipmentState> Equipment { get; }
-        public StateSliceSnapshot<ActiveEffectId, ActiveEffectState> ActiveEffects { get; }
+
+        /// <summary>
+        /// Gets immutable typed effect instances, including expired instances awaiting removal.
+        /// </summary>
+        public StateSliceSnapshot<ActiveEffectId, ActiveEffectInstance> ActiveEffects { get; }
 
         /// <summary>
         /// Gets the active and explicitly disabled rule bindings in committed state.
@@ -61,7 +65,7 @@ namespace Game.Rules.Runtime
             );
             Conditions = new StateSliceSnapshot<ConditionId, ConditionState>(data.Conditions);
             Equipment = new StateSliceSnapshot<ItemId, EquipmentState>(data.Equipment);
-            ActiveEffects = new StateSliceSnapshot<ActiveEffectId, ActiveEffectState>(
+            ActiveEffects = new StateSliceSnapshot<ActiveEffectId, ActiveEffectInstance>(
                 data.ActiveEffects
             );
             RuleBindings = new StateSliceSnapshot<BindingId, ActiveRuleBinding>(data.RuleBindings);
