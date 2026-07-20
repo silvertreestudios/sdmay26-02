@@ -92,7 +92,8 @@ namespace Game.Rules.Runtime
         )
         {
             CommitMovementStepOp op = context.Op;
-            MovementFailure failure = ValidateCurrentStep(op, state);
+            bool reservedOccupantPresent = ReservedOccupantOccupies(op, state);
+            MovementFailure failure = ValidateCurrentStep(op, state, reservedOccupantPresent);
             if (failure.Kind != MovementFailureKind.None)
             {
                 return ReductionResult<MovementStepCommitOutcome>.Accept(
@@ -102,15 +103,7 @@ namespace Game.Rules.Runtime
 
             MovementBudgetState budget = default;
             state.MovementBudgets.TryGet(op.Mover, out budget);
-            TerrainCost terrain = topology.GetTerrainCost(op.To);
-            if (op.Allowance.HasOccupant)
-                terrain = MovementCostRules.ApplyOccupiedSpaceFloor(terrain);
-            MovementStepCost cost = MovementCostRules.Calculate(
-                op.From,
-                op.To,
-                terrain,
-                budget.DiagonalPhase
-            );
+            MovementStepCost cost = CalculateCost(op, budget, reservedOccupantPresent);
             GridDistance remaining = new GridDistance(budget.Remaining.Feet - cost.Distance.Feet);
             MovementBudgetState updatedBudget = new MovementBudgetState(
                 budget.Id,
@@ -136,11 +129,7 @@ namespace Game.Rules.Runtime
                 )
             );
 
-            if (
-                op.Allowance.HasOccupant
-                && state.Positions.TryGet(op.Allowance.Occupant, out GridPosition occupantPosition)
-                && occupantPosition == op.To
-            )
+            if (reservedOccupantPresent)
             {
                 facts.Stage(
                     new OccupiedSpaceTraversedFact(
@@ -160,7 +149,11 @@ namespace Game.Rules.Runtime
             );
         }
 
-        private MovementFailure ValidateCurrentStep(CommitMovementStepOp op, RulesStateDraft state)
+        private MovementFailure ValidateCurrentStep(
+            CommitMovementStepOp op,
+            RulesStateDraft state,
+            bool reservedOccupantPresent
+        )
         {
             if (!state.Positions.TryGet(op.Mover, out GridPosition current))
                 return Failure(MovementFailureKind.MissingPosition, op);
@@ -224,21 +217,40 @@ namespace Game.Rules.Runtime
                 }
             }
 
-            TerrainCost terrain = topology.GetTerrainCost(op.To);
-            if (op.Allowance.HasOccupant)
-                terrain = MovementCostRules.ApplyOccupiedSpaceFloor(terrain);
-            MovementStepCost currentCost = MovementCostRules.Calculate(
-                op.From,
-                op.To,
-                terrain,
-                budget.DiagonalPhase
-            );
+            MovementStepCost currentCost = CalculateCost(op, budget, reservedOccupantPresent);
             if (!currentCost.Equals(op.ExpectedCost))
-                return Failure(MovementFailureKind.BudgetMismatch, op);
+            {
+                bool departureExplainsDifference =
+                    op.Allowance.HasOccupant
+                    && !reservedOccupantPresent
+                    && CalculateCost(op, budget, true).Equals(op.ExpectedCost);
+                if (!departureExplainsDifference)
+                    return Failure(MovementFailureKind.BudgetMismatch, op);
+            }
             if (currentCost.Distance.Feet > budget.Remaining.Feet)
                 return Failure(MovementFailureKind.InsufficientMovement, op);
             return default;
         }
+
+        private MovementStepCost CalculateCost(
+            CommitMovementStepOp op,
+            MovementBudgetState budget,
+            bool reservedOccupantPresent
+        )
+        {
+            TerrainCost terrain = topology.GetTerrainCost(op.To);
+            if (reservedOccupantPresent)
+                terrain = MovementCostRules.ApplyOccupiedSpaceFloor(terrain);
+            return MovementCostRules.Calculate(op.From, op.To, terrain, budget.DiagonalPhase);
+        }
+
+        private static bool ReservedOccupantOccupies(
+            CommitMovementStepOp op,
+            RulesStateDraft state
+        ) =>
+            op.Allowance.HasOccupant
+            && state.Positions.TryGet(op.Allowance.Occupant, out GridPosition occupantPosition)
+            && occupantPosition == op.To;
 
         private bool BlocksDiagonalCorner(
             RulesStateDraft state,

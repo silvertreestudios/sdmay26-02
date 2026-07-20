@@ -292,21 +292,31 @@ namespace Game.Rules.Runtime
                 if (triggerFailure.Kind != MovementFailureKind.None)
                     return Stopped(context, op, committedSteps, distanceSpent, triggerFailure);
 
-                OpResult<MovementStepCommitOutcome> commit = await context.Dispatch(
-                    new CommitMovementStepOp(
-                        op.ActionOpId,
-                        op.Mover,
-                        op.BudgetId,
-                        step.From,
-                        step.To,
-                        step.Cost,
-                        triggerId,
-                        MovementTriggerKind.Departure,
-                        step.Allowance,
-                        op.PermissionPurpose,
-                        step.IsDestination
-                    )
+                CommitMovementStepOp commitOp = new CommitMovementStepOp(
+                    op.ActionOpId,
+                    op.Mover,
+                    op.BudgetId,
+                    step.From,
+                    step.To,
+                    step.Cost,
+                    triggerId,
+                    MovementTriggerKind.Departure,
+                    step.Allowance,
+                    op.PermissionPurpose,
+                    step.IsDestination
                 );
+                RulesSnapshot beforeCommit = context.Snapshot;
+                OpResult<MovementStepCommitOutcome> commit;
+                try
+                {
+                    commit = await context.Dispatch(commitOp);
+                }
+                catch
+                {
+                    if (TraversalCommitted(beforeCommit, context.Snapshot, commitOp))
+                        authority.Consume(op.Permission);
+                    throw;
+                }
                 MovementStepCommitOutcome committed = MovementHandlerValidation.RequireResolved(
                     commit,
                     "movement step"
@@ -378,6 +388,41 @@ namespace Game.Rules.Runtime
                     return true;
             }
             return false;
+        }
+
+        private static bool TraversalCommitted(
+            RulesSnapshot before,
+            RulesSnapshot after,
+            CommitMovementStepOp op
+        )
+        {
+            if (!op.Allowance.HasOccupant || after.Version != before.Version + 1)
+                return false;
+            if (
+                !before.Positions.TryGet(op.Mover, out GridPosition previousPosition)
+                || previousPosition != op.From
+                || !after.Positions.TryGet(op.Mover, out GridPosition currentPosition)
+                || currentPosition != op.To
+                || !after.Positions.TryGet(op.Allowance.Occupant, out GridPosition occupantPosition)
+                || occupantPosition != op.To
+            )
+            {
+                return false;
+            }
+            if (
+                !before.MovementBudgets.TryGet(op.Mover, out MovementBudgetState previousBudget)
+                || !after.MovementBudgets.TryGet(op.Mover, out MovementBudgetState currentBudget)
+                || previousBudget.Id != op.BudgetId
+                || currentBudget.Id != op.BudgetId
+            )
+            {
+                return false;
+            }
+
+            // Observers run after the reducer's one-version atomic commit. Matching the complete
+            // position and budget transition proves that its occupied-traversal Fact is durable.
+            return currentBudget.Remaining.Feet
+                == previousBudget.Remaining.Feet - op.ExpectedCost.Distance.Feet;
         }
 
         private static MovePathOutcome Stopped(

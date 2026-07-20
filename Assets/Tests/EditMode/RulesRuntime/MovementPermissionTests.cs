@@ -16,6 +16,12 @@ namespace Game.Rules.Runtime.Tests
         private static readonly ActionDefinitionId ActionDefinition = new ActionDefinitionId(
             "permission-action"
         );
+        private static readonly RuleDefinitionId MiddlewareDefinition = new RuleDefinitionId(
+            "permission-departure-middleware"
+        );
+        private static readonly BindingId MiddlewareBinding = new BindingId(
+            "permission-departure-binding"
+        );
         private static readonly MovementPermissionPurpose Purpose =
             MovementPermissionPurpose.FromSlug("occupied-crossing-test");
         private static readonly MovementPermissionPurpose OtherPurpose =
@@ -68,6 +74,31 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task CommittedTraversalConsumesPermissionWhenObserverThrows()
+        {
+            PermissionActionHandler handler = new PermissionActionHandler(
+                PermissionScenario.ObserverFailureThenReuse
+            );
+            InMemoryRulesStore store = CreateStore();
+            RuleDispatcher dispatcher = CreateDispatcher(store, handler);
+            dispatcher.RegisterFactObserver(new ThrowingTraversalObserver());
+
+            OpResult<bool> result = await dispatcher.Dispatch(new PermissionActionOp());
+
+            Assert.That(RequireResolved(result).Value, Is.True);
+            Assert.That(handler.CaughtObserverFailure, Is.True);
+            Assert.That(handler.SecondMove.Status, Is.EqualTo(MovePathStatus.Stopped));
+            Assert.That(
+                handler.SecondMove.Failure.PermissionFailure,
+                Is.EqualTo(MovementPermissionFailureKind.Reused)
+            );
+            Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(Origin));
+            Assert.That(result.Facts.OfType<TokenMovedFact>().Count(), Is.EqualTo(1));
+            Assert.That(result.Facts.OfType<OccupiedSpaceTraversedFact>().Count(), Is.EqualTo(1));
+            Assert.That(result.Facts.OfType<TokenRelocatedFact>().Count(), Is.EqualTo(1));
+        }
+
+        [Test]
         public void OccupiedCrossingPreflightRejectsTopologyOnlyBudget()
         {
             MovementBudgetId budgetId = new MovementBudgetId(new OpId(10));
@@ -107,6 +138,31 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(validation.Failure.StepNumber, Is.EqualTo(3));
             Assert.That(store.Snapshot.Version, Is.Zero);
+        }
+
+        [Test]
+        public async Task DepartureRelocationOfReservedOccupantRemovesOccupiedSurcharge()
+        {
+            PermissionActionHandler handler = new PermissionActionHandler(
+                PermissionScenario.OccupantRelocatesBeforeTraversal
+            );
+            InMemoryRulesStore store = CreateStore(seedMiddleware: true);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                store,
+                handler,
+                new OccupantDepartureMiddleware(new GridPosition(4, 0, 3))
+            );
+
+            OpResult<bool> result = await dispatcher.Dispatch(new PermissionActionOp());
+
+            Assert.That(RequireResolved(result).Value, Is.True);
+            Assert.That(handler.FirstMove.ReachedDestination, Is.True);
+            Assert.That(
+                result.Facts.OfType<TokenMovedFact>().Select(fact => fact.Cost.Feet),
+                Is.EqualTo(new[] { 5, 5, 5 })
+            );
+            Assert.That(result.Facts.OfType<OccupiedSpaceTraversedFact>(), Is.Empty);
+            Assert.That(store.Snapshot.MovementBudgets[Mover].Remaining.Feet, Is.EqualTo(15));
         }
 
         [TestCase(PermissionScenario.PathMismatch, MovementPermissionFailureKind.PathMismatch)]
@@ -236,20 +292,47 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result.Facts.OfType<TokenMovedFact>(), Is.Empty);
         }
 
-        private static InMemoryRulesStore CreateStore() =>
-            new InMemoryRulesStore(
-                new RulesStateSeed()
-                    .SeedPosition(Mover, Origin)
-                    .SeedPosition(Occupant, Occupied)
-                    .SeedPosition(OtherOccupant, new GridPosition(4, 0, 4))
-                    .SeedActionEconomy(Mover, new ActionEconomyState(3, true))
-            );
+        private static InMemoryRulesStore CreateStore(bool seedMiddleware = false)
+        {
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedPosition(Mover, Origin)
+                .SeedPosition(Occupant, Occupied)
+                .SeedPosition(OtherOccupant, new GridPosition(4, 0, 4))
+                .SeedActionEconomy(Mover, new ActionEconomyState(3, true));
+            if (seedMiddleware)
+            {
+                seed.SeedRuleBinding(
+                    new ActiveRuleBinding(
+                        MiddlewareBinding,
+                        MiddlewareDefinition,
+                        Mover,
+                        null,
+                        TestSource,
+                        0
+                    )
+                );
+            }
+            return new InMemoryRulesStore(seed);
+        }
 
         private static RuleDispatcher CreateDispatcher(
             InMemoryRulesStore store,
             PermissionActionHandler handler
-        ) =>
-            new RuleDispatcherBuilder(store)
+        ) => CreateDispatcher(store, handler, OccupantDepartureRegistration.None);
+
+        private static RuleDispatcher CreateDispatcher(
+            InMemoryRulesStore store,
+            PermissionActionHandler handler,
+            OccupantDepartureMiddleware middleware
+        ) => CreateDispatcher(store, handler, new OccupantDepartureRegistration(middleware));
+
+        private static RuleDispatcher CreateDispatcher(
+            InMemoryRulesStore store,
+            PermissionActionHandler handler,
+            OccupantDepartureRegistration departureRegistration
+        )
+        {
+            RuleDispatcherBuilder builder = new RuleDispatcherBuilder(store)
                 .RegisterHandler<PermissionActionOp, bool>(handler)
                 .RegisterHandler<MoveRelayOp, MovePathOutcome>(new MoveRelayHandler())
                 .UseActionLifecycle(new FreeActionCatalog())
@@ -258,8 +341,17 @@ namespace Game.Rules.Runtime.Tests
                         new GridBounds(new GridPosition(0, 0, 0), new GridPosition(4, 0, 4)),
                         Array.Empty<GridCell>()
                     )
-                )
-                .Build();
+                );
+            if (departureRegistration.IsConfigured)
+            {
+                RuleRegistryBuilder registry = new RuleRegistryBuilder();
+                registry
+                    .Define(MiddlewareDefinition)
+                    .Middleware(RuleLifecyclePhase.Reaction, departureRegistration.Middleware);
+                builder.UseRuleRegistry(registry.Build());
+            }
+            return builder.Build();
+        }
 
         private static ResolvedOpResult<TResult> RequireResolved<TResult>(OpResult<TResult> result)
         {
@@ -294,6 +386,8 @@ namespace Game.Rules.Runtime.Tests
             UseInjected,
             UseOrdinaryValue,
             InvalidReservation,
+            ObserverFailureThenReuse,
+            OccupantRelocatesBeforeTraversal,
         }
 
         private sealed class PermissionActionHandler : IOpHandler<PermissionActionOp, bool>
@@ -321,6 +415,7 @@ namespace Game.Rules.Runtime.Tests
             public MovePathOutcome FirstMove { get; private set; }
             public MovePathOutcome SecondMove { get; private set; }
             public MovementFailure GrantFailure { get; private set; }
+            public bool CaughtObserverFailure { get; private set; }
 
             public async ValueTask<bool> Handle(
                 OpFrame<PermissionActionOp> frame,
@@ -398,6 +493,37 @@ namespace Game.Rules.Runtime.Tests
                 )
                 {
                     return true;
+                }
+
+                if (scenario == PermissionScenario.ObserverFailureThenReuse)
+                {
+                    try
+                    {
+                        FirstMove = await Move(
+                            frame,
+                            context,
+                            started.Budget.Id,
+                            CrossingPath,
+                            IssuedPermission,
+                            Purpose
+                        );
+                    }
+                    catch (InvalidOperationException exception)
+                    {
+                        CaughtObserverFailure = exception.Message == "injected observer failure";
+                    }
+
+                    await Relocate(frame, context, Mover, Occupied, Origin);
+                    SecondMove = await Move(
+                        frame,
+                        context,
+                        started.Budget.Id,
+                        CrossingPath,
+                        IssuedPermission,
+                        Purpose
+                    );
+                    return SecondMove.Failure.PermissionFailure
+                        == MovementPermissionFailureKind.Reused;
                 }
 
                 MovementPath movePath =
@@ -556,6 +682,63 @@ namespace Game.Rules.Runtime.Tests
                         )
                     )
                 ).Value;
+        }
+
+        private readonly struct OccupantDepartureRegistration
+        {
+            public static OccupantDepartureRegistration None => default;
+
+            public OccupantDepartureRegistration(OccupantDepartureMiddleware middleware)
+            {
+                Middleware = middleware;
+                IsConfigured = true;
+            }
+
+            public bool IsConfigured { get; }
+            public OccupantDepartureMiddleware Middleware { get; }
+        }
+
+        private sealed class OccupantDepartureMiddleware
+            : IOpMiddleware<MovementLeavingSquareOp, MovementTriggerOutcome>
+        {
+            private readonly GridPosition destination;
+
+            public OccupantDepartureMiddleware(GridPosition destination) =>
+                this.destination = destination;
+
+            public async ValueTask<OpResult<MovementTriggerOutcome>> Invoke(
+                OpFrame<MovementLeavingSquareOp> frame,
+                OpMiddlewareContext context,
+                OpNext<MovementTriggerOutcome> next
+            )
+            {
+                OpResult<MovementTriggerOutcome> current = await next();
+                if (frame.Op.TriggerId.StepNumber != 1)
+                    return current;
+
+                RelocationOutcome relocated = RequireResolved(
+                    await context.Dispatch(
+                        new RelocateTokenOp(
+                            Occupant,
+                            Occupied,
+                            destination,
+                            frame.Id,
+                            RelocationKind.FromSlug("permission-occupant-departure"),
+                            TestSource
+                        )
+                    )
+                ).Value;
+                Assert.That(relocated.Relocated, Is.True);
+                return current;
+            }
+        }
+
+        private sealed class ThrowingTraversalObserver : IFactObserver<OccupiedSpaceTraversedFact>
+        {
+            public ValueTask OnFactCommitted(
+                OccupiedSpaceTraversedFact fact,
+                RulesSnapshot currentSnapshot
+            ) => throw new InvalidOperationException("injected observer failure");
         }
     }
 }
