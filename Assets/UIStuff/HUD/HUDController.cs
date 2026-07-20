@@ -208,8 +208,11 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         OnNextTurn.RemoveListener(OnTurnChanged);
         OnNextTurn.AddListener(OnTurnChanged);
 
+        OnCombatEnd.RemoveListener(OnCombatEnded);
+        OnCombatEnd.AddListener(OnCombatEnded);
+
         // During initial combat setup the manager has not assigned a turn yet. isActive becomes true
-        // only after that setup path, so an ordinary re-enable can safely restore the current turn.
+        // only after that setup path, so an ordinary re-enable can safely restore an active turn.
         if (isActive && CombatManagerInterface.TryGetInstance(out CombatManagerInterface manager))
             OnTurnChanged(manager.WhosTurn());
     }
@@ -222,6 +225,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         SetSelectedButton(null);
         //Debug.Log("OnDisable called");
         OnNextTurn.RemoveListener(OnTurnChanged);
+        OnCombatEnd.RemoveListener(OnCombatEnded);
         if (toggleAutoCameraAction != null)
             toggleAutoCameraAction.performed -= OnToggleAutoCamera;
         if (logToggleButton != null)
@@ -420,6 +424,23 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
             CameraManager.GetInstance().StopFollowing();
             combatLog.Log("Auto camera disabled.");
         }
+    }
+
+    private void OnCombatEnded(string _)
+    {
+        isActive = false;
+        RetirePendingDefinitionExecution();
+        actionBarTurnGeneration++;
+        currentTurnAC = null;
+        SetSelectedButton(null);
+        if (slideCoroutine != null)
+        {
+            StopCoroutine(slideCoroutine);
+            slideCoroutine = null;
+        }
+
+        if (buttonGrid != null)
+            ClearAllRows();
     }
 
     private void OnTurnChanged(GameObject turnTaker)
@@ -1064,7 +1085,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>
         public IDefinitionActionBarEntry Entry { get; }
 
         public bool BelongsTo(ActionController owner, int turnGeneration) =>
-            Owner == owner && TurnGeneration == turnGeneration;
+            Owner == owner && TurnGeneration == turnGeneration && Owner.HasTurnAuthority;
     }
 
     private void updatePlayerQueueCards()

@@ -30,6 +30,12 @@ public abstract class ActionController : MonoBehaviour
 
     public bool IsTakingAction { get; set; } = false;
 
+    /// <summary>
+    /// Gets whether this controller currently owns turn authority for presentation-triggered
+    /// actions. Internal adapters must check this live value in addition to any cached UI identity.
+    /// </summary>
+    internal bool HasTurnAuthority => IsTurn;
+
     [field: SerializeField]
     public uint ActionPoints { get; set; }
     public bool Reacted { get; set; }

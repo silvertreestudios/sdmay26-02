@@ -623,6 +623,155 @@ namespace TestsUI
             Assert.That(hud.enabled, Is.True);
         }
 
+        /// <summary>
+        /// Verifies a definition row consults live controller authority when a turn ends without a
+        /// HUD turn event, so even a forcibly re-enabled stale button cannot launch selection.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator DefinitionRowRejectsEndedTurnWithoutTurnEvent()
+        {
+            Button initialAction = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    initialAction = root.Q<Button>("UnarmedStrikeButton");
+                    return player != null && initialAction != null;
+                }
+            );
+
+            ActionController controller = player.GetComponent<ActionController>();
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed().SeedActionEconomy(Actor, new ActionEconomyState(1, true))
+            );
+            RecordingHandler handler = new RecordingHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<TestActionOp, TestActionResult>(handler)
+                .UseActionLifecycle(new FixedActionCatalog())
+                .Build();
+            TestDefinition definition = new TestDefinition();
+            BlockingConfirmationAdapter adapter = new BlockingConfirmationAdapter();
+            controller.AddDefinitionAction(
+                CreateEntry(
+                    new ActionBarEntryKey("test/ended-turn-without-event"),
+                    "Ended turn without event",
+                    definition,
+                    dispatcher,
+                    adapter
+                )
+            );
+            OnNextTurn.Invoke(player);
+
+            Button definitionButton = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    definitionButton = root.Q<Button>("EndedturnwithouteventButton");
+                    return definitionButton != null && definitionButton.enabledSelf;
+                }
+            );
+
+            // Model paths such as an empty turn queue, where EndTurn revokes controller authority
+            // but no subsequent turn notification reaches presentation.
+            OnNextTurn.RemoveAllListeners();
+            controller.EndTurn();
+            yield return WaitUntilWithTimeout(timeout, () => !definitionButton.enabledSelf);
+
+            Assert.That(definitionButton.enabledSelf, Is.False);
+            definitionButton.SetEnabled(true);
+            PushButton(definitionButton);
+            yield return null;
+            yield return null;
+
+            Assert.That(adapter.SelectionRequested, Is.False);
+            Assert.That(handler.Operations, Is.Empty);
+            Assert.That(definition.CreateOpCalls, Is.Zero);
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(controller.IsTakingAction, Is.False);
+        }
+
+        /// <summary>
+        /// Verifies combat end removes action rows, invalidates detached button callbacks, and keeps
+        /// a later HUD re-enable from restoring the ended combat's last reported turn.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator CombatEndInvalidatesDefinitionRowsAndPreventsRestore()
+        {
+            Button initialAction = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    initialAction = root.Q<Button>("UnarmedStrikeButton");
+                    return player != null && initialAction != null;
+                }
+            );
+
+            HUDController hud = UnityEngine.Object.FindFirstObjectByType<HUDController>();
+            Assert.That(hud, Is.Not.Null);
+
+            // Keep this static event focused on HUD behavior; the scene's GameManager listener would
+            // otherwise initiate a level transition and turn this into an unrelated integration test.
+            OnCombatEnd.RemoveAllListeners();
+            hud.enabled = false;
+            hud.enabled = true;
+
+            ActionController controller = player.GetComponent<ActionController>();
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed().SeedActionEconomy(Actor, new ActionEconomyState(1, true))
+            );
+            RecordingHandler handler = new RecordingHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<TestActionOp, TestActionResult>(handler)
+                .UseActionLifecycle(new FixedActionCatalog())
+                .Build();
+            TestDefinition definition = new TestDefinition();
+            BlockingConfirmationAdapter adapter = new BlockingConfirmationAdapter();
+            controller.AddDefinitionAction(
+                CreateEntry(
+                    new ActionBarEntryKey("test/combat-ended-definition"),
+                    "Combat ended definition",
+                    definition,
+                    dispatcher,
+                    adapter
+                )
+            );
+            OnNextTurn.Invoke(player);
+
+            Button definitionButton = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    definitionButton = root.Q<Button>("CombatendeddefinitionButton");
+                    return definitionButton != null && definitionButton.enabledSelf;
+                }
+            );
+
+            OnCombatEnd.Invoke("Players");
+
+            Assert.That(root.Q<Button>("CombatendeddefinitionButton"), Is.Null);
+            definitionButton.SetEnabled(true);
+            PushButton(definitionButton);
+            yield return null;
+            yield return null;
+
+            Assert.That(adapter.SelectionRequested, Is.False);
+            Assert.That(handler.Operations, Is.Empty);
+            Assert.That(definition.CreateOpCalls, Is.Zero);
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(controller.IsTakingAction, Is.False);
+
+            hud.enabled = false;
+            hud.enabled = true;
+            yield return null;
+
+            Assert.That(root.Q<Button>("CombatendeddefinitionButton"), Is.Null);
+        }
+
         private int CountButtonsNamed(string buttonName) =>
             root.Query<Button>().ToList().Count(button => button.name == buttonName);
 
