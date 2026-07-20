@@ -307,6 +307,7 @@ namespace Game.Rules.Runtime
         /// <param name="phase">The phase before this step.</param>
         /// <returns>The total cost and phase after the step.</returns>
         /// <exception cref="ArgumentException">The cells are not one contiguous ground step.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="phase"/> is undefined.</exception>
         public static MovementStepCost Calculate(
             GridPosition from,
             GridPosition to,
@@ -314,6 +315,8 @@ namespace Game.Rules.Runtime
             DiagonalMovementPhase phase
         )
         {
+            if (!Enum.IsDefined(typeof(DiagonalMovementPhase), phase))
+                throw new ArgumentOutOfRangeException(nameof(phase));
             if (!IsContiguous(from, to))
                 throw new ArgumentException("Movement cost requires one contiguous ground step.");
 

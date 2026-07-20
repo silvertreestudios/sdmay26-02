@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace Game.Rules.Runtime
 {
@@ -258,9 +259,11 @@ namespace Game.Rules.Runtime
 
         internal sealed class Authority
         {
-            private readonly HashSet<MovementPermission> issued = new HashSet<MovementPermission>();
-            private readonly HashSet<MovementPermission> consumed =
-                new HashSet<MovementPermission>();
+            // Authenticate capability identity without keeping permissions alive after every
+            // external holder releases them. The per-permission state remains reachable while a
+            // caller can still attempt a valid use or reuse.
+            private readonly ConditionalWeakTable<MovementPermission, PermissionState> issued =
+                new ConditionalWeakTable<MovementPermission, PermissionState>();
 
             public MovementPermission Issue(
                 OpId rootId,
@@ -283,7 +286,7 @@ namespace Game.Rules.Runtime
                     path,
                     purpose
                 );
-                issued.Add(permission);
+                issued.Add(permission, new PermissionState());
                 return permission;
             }
 
@@ -300,9 +303,9 @@ namespace Game.Rules.Runtime
                         ? MovementPermissionFailureKind.None
                         : MovementPermissionFailureKind.PurposeMismatch;
                 }
-                if (!issued.Contains(permission))
+                if (!issued.TryGetValue(permission, out PermissionState state))
                     return MovementPermissionFailureKind.NotIssued;
-                if (consumed.Contains(permission))
+                if (state.IsConsumed)
                     return MovementPermissionFailureKind.Reused;
                 if (permission.RootId != frame.RootId)
                     return MovementPermissionFailureKind.RootMismatch;
@@ -323,12 +326,24 @@ namespace Game.Rules.Runtime
 
             public void Consume(MovementPermission permission)
             {
-                if (permission == null || permission.IsNone || !issued.Contains(permission))
+                if (
+                    permission == null
+                    || permission.IsNone
+                    || !issued.TryGetValue(permission, out PermissionState state)
+                )
+                {
                     throw new InvalidOperationException(
                         "Only an issued permission can be consumed."
                     );
-                if (!consumed.Add(permission))
+                }
+                if (state.IsConsumed)
                     throw new InvalidOperationException("A movement permission cannot be reused.");
+                state.IsConsumed = true;
+            }
+
+            private sealed class PermissionState
+            {
+                public bool IsConsumed { get; set; }
             }
         }
     }

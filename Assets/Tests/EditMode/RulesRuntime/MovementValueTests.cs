@@ -104,6 +104,19 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void UndefinedDiagonalPhaseIsRejected()
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                MovementCostRules.Calculate(
+                    new GridPosition(0, 0, 0),
+                    new GridPosition(1, 0, 1),
+                    TerrainCost.Normal,
+                    (DiagonalMovementPhase)99
+                )
+            );
+        }
+
+        [Test]
         public void TopologyAndPathDefensivelyCopyCallerCollections()
         {
             GridPosition difficult = new GridPosition(1, 0, 0);
