@@ -132,12 +132,10 @@ namespace Game.Rules.Runtime
                     traversedAuthorizedOccupant = true;
                 }
 
-                MovementStepCost cost = MovementCostRules.Calculate(
-                    from,
-                    to,
-                    topology.GetTerrainCost(to),
-                    phase
-                );
+                TerrainCost terrain = topology.GetTerrainCost(to);
+                if (committedAllowance.HasOccupant)
+                    terrain = MovementCostRules.ApplyOccupiedSpaceFloor(terrain);
+                MovementStepCost cost = MovementCostRules.Calculate(from, to, terrain, phase);
                 if (cost.Distance.Feet > remaining)
                 {
                     return MovementPathValidation.Rejected(

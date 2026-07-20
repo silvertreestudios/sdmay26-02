@@ -50,6 +50,11 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(Exit));
             Assert.That(result.Facts.OfType<TokenMovedFact>().Count(), Is.EqualTo(3));
+            Assert.That(
+                result.Facts.OfType<TokenMovedFact>().Select(fact => fact.Cost.Feet),
+                Is.EqualTo(new[] { 10, 5, 5 })
+            );
+            Assert.That(store.Snapshot.MovementBudgets[Mover].Remaining.Feet, Is.EqualTo(10));
             OccupiedSpaceTraversedFact traversal = result
                 .Facts.OfType<OccupiedSpaceTraversedFact>()
                 .Single();
@@ -60,6 +65,48 @@ namespace Game.Rules.Runtime.Tests
                 result.Facts.OfType<TokenMovedFact>().Count(fact => fact.To == Occupied),
                 Is.EqualTo(1)
             );
+        }
+
+        [Test]
+        public void OccupiedCrossingPreflightRejectsTopologyOnlyBudget()
+        {
+            MovementBudgetId budgetId = new MovementBudgetId(new OpId(10));
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed()
+                    .SeedPosition(Mover, Origin)
+                    .SeedPosition(Occupant, Occupied)
+                    .SeedMovementBudget(
+                        Mover,
+                        new MovementBudgetState(
+                            budgetId,
+                            Mover,
+                            new GridDistance(15),
+                            DiagonalMovementPhase.NextCostsFiveFeet
+                        )
+                    )
+            );
+            MovementPathValidator validator = new MovementPathValidator(
+                new GridTopology(
+                    new GridBounds(new GridPosition(0, 0, 0), new GridPosition(4, 0, 4)),
+                    Array.Empty<GridCell>()
+                )
+            );
+
+            MovementPathValidation validation = validator.Validate(
+                store.Snapshot,
+                Mover,
+                budgetId,
+                CrossingPath,
+                OccupiedTraversalAllowance.ForReservedPosition(Occupant, Occupied)
+            );
+
+            Assert.That(validation.IsValid, Is.False);
+            Assert.That(
+                validation.Failure.Kind,
+                Is.EqualTo(MovementFailureKind.InsufficientMovement)
+            );
+            Assert.That(validation.Failure.StepNumber, Is.EqualTo(3));
+            Assert.That(store.Snapshot.Version, Is.Zero);
         }
 
         [TestCase(PermissionScenario.PathMismatch, MovementPermissionFailureKind.PathMismatch)]

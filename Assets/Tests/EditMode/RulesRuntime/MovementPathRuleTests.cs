@@ -560,6 +560,35 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task SameSquareRelocationRejectsWithoutFactsVersionOrObservers()
+        {
+            GridPosition origin = new GridPosition(0, 0, 0);
+            InMemoryRulesStore store = CreateStore(origin);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                store,
+                CreateTopology(),
+                new StandardMoveActionHandler()
+            );
+            RelocationObserver observer = new RelocationObserver();
+            dispatcher.RegisterFactObserver(observer);
+
+            ResolvedOpResult<RelocationOutcome> result = RequireResolved(
+                await dispatcher.Dispatch(new RelocationHarnessOp(origin, origin))
+            );
+
+            Assert.That(result.Value.Relocated, Is.False);
+            Assert.That(result.Value.FinalPosition, Is.EqualTo(origin));
+            Assert.That(
+                result.Value.Failure.Kind,
+                Is.EqualTo(MovementFailureKind.DestinationUnchanged)
+            );
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(observer.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(origin));
+        }
+
+        [Test]
         public void MovementWorkCannotBeDispatchedAsExternalRoots()
         {
             MovementPath path = new MovementPath(
@@ -878,6 +907,17 @@ namespace Game.Rules.Runtime.Tests
                         currentSnapshot.MovementBudgets[fact.Mover].Remaining.Feet
                     )
                 );
+                return default;
+            }
+        }
+
+        private sealed class RelocationObserver : IFactObserver<TokenRelocatedFact>
+        {
+            public List<TokenRelocatedFact> Facts { get; } = new List<TokenRelocatedFact>();
+
+            public ValueTask OnFactCommitted(TokenRelocatedFact fact, RulesSnapshot currentSnapshot)
+            {
+                Facts.Add(fact);
                 return default;
             }
         }

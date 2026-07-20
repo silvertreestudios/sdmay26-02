@@ -397,6 +397,9 @@ namespace Game.Rules.Runtime
         /// <summary>The current position no longer matches the requested origin.</summary>
         StaleOrigin,
 
+        /// <summary>The requested relocation destination equals the authoritative origin.</summary>
+        DestinationUnchanged,
+
         /// <summary>An intermediate cell lies outside the topology.</summary>
         OutOfBounds,
 

@@ -283,6 +283,13 @@ namespace Game.Rules.Runtime
     /// </summary>
     public static class MovementCostRules
     {
+        /// <summary>
+        /// Applies the difficult-terrain floor for occupied traversal without downgrading greater
+        /// difficult terrain supplied by topology.
+        /// </summary>
+        internal static TerrainCost ApplyOccupiedSpaceFloor(TerrainCost terrain) =>
+            terrain.Kind == TerrainCostKind.Normal ? TerrainCost.Difficult : terrain;
+
         /// <summary>Determines whether two cells form one horizontal ground-movement step.</summary>
         public static bool IsContiguous(GridPosition from, GridPosition to)
         {

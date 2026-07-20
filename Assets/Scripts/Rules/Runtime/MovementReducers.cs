@@ -102,10 +102,13 @@ namespace Game.Rules.Runtime
 
             MovementBudgetState budget = default;
             state.MovementBudgets.TryGet(op.Mover, out budget);
+            TerrainCost terrain = topology.GetTerrainCost(op.To);
+            if (op.Allowance.HasOccupant)
+                terrain = MovementCostRules.ApplyOccupiedSpaceFloor(terrain);
             MovementStepCost cost = MovementCostRules.Calculate(
                 op.From,
                 op.To,
-                topology.GetTerrainCost(op.To),
+                terrain,
                 budget.DiagonalPhase
             );
             GridDistance remaining = new GridDistance(budget.Remaining.Feet - cost.Distance.Feet);
@@ -221,10 +224,13 @@ namespace Game.Rules.Runtime
                 }
             }
 
+            TerrainCost terrain = topology.GetTerrainCost(op.To);
+            if (op.Allowance.HasOccupant)
+                terrain = MovementCostRules.ApplyOccupiedSpaceFloor(terrain);
             MovementStepCost currentCost = MovementCostRules.Calculate(
                 op.From,
                 op.To,
-                topology.GetTerrainCost(op.To),
+                terrain,
                 budget.DiagonalPhase
             );
             if (!currentCost.Equals(op.ExpectedCost))
@@ -355,6 +361,14 @@ namespace Game.Rules.Runtime
             }
             if (current != op.ExpectedOrigin)
                 return new MovementFailure(MovementFailureKind.StaleOrigin, 0, current);
+            if (op.Destination == op.ExpectedOrigin)
+            {
+                return new MovementFailure(
+                    MovementFailureKind.DestinationUnchanged,
+                    0,
+                    op.Destination
+                );
+            }
             if (!topology.Contains(op.Destination))
             {
                 return new MovementFailure(
