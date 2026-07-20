@@ -35,9 +35,6 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the initial effect-state version.</summary>
         public EffectStateVersion Version { get; }
 
-        /// <summary>Gets the exact state type established by the effect instance.</summary>
-        public Type StateType { get; }
-
         /// <summary>Gets the effect's declared duration metadata.</summary>
         public EffectDuration Duration { get; }
 
@@ -50,7 +47,6 @@ namespace Game.Rules.Runtime
         {
             BindingId = ActiveEffectOperationValidation.RequireBinding(bindingId);
             Version = effect.EffectStateVersion;
-            StateType = effect.State.GetType();
             Duration = effect.Duration;
         }
     }
@@ -64,22 +60,17 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the newly committed version.</summary>
         public EffectStateVersion CurrentVersion { get; }
 
-        /// <summary>Gets the exact state type preserved by the effect instance.</summary>
-        public Type StateType { get; }
-
         /// <summary>Initializes one committed typed-state update record.</summary>
         public ActiveEffectStateUpdatedFact(
             ActiveEffectId effectId,
             RuleDefinitionId definitionId,
             EffectStateVersion previousVersion,
-            EffectStateVersion currentVersion,
-            Type stateType
+            EffectStateVersion currentVersion
         )
             : base(effectId, definitionId)
         {
             PreviousVersion = previousVersion;
             CurrentVersion = currentVersion;
-            StateType = stateType ?? throw new ArgumentNullException(nameof(stateType));
         }
     }
 

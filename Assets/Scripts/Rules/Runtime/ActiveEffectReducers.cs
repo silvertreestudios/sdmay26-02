@@ -182,8 +182,7 @@ namespace Game.Rules.Runtime
                     effect.Id,
                     effect.DefinitionId,
                     effect.EffectStateVersion,
-                    nextVersion,
-                    context.Op.State.GetType()
+                    nextVersion
                 )
             );
             return ReductionResult<ActiveEffectStateUpdateOutcome>.Accept(

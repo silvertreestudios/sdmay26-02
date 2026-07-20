@@ -43,7 +43,6 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(fact.EffectId, Is.EqualTo(EffectId));
             Assert.That(fact.BindingId, Is.EqualTo(BindingId));
             Assert.That(fact.Version, Is.EqualTo(EffectStateVersion.Initial));
-            Assert.That(fact.StateType, Is.EqualTo(typeof(AuraEffectState)));
             Assert.That(fact.Duration, Is.EqualTo(EffectDuration.OneMinute));
         }
 
@@ -65,8 +64,6 @@ namespace Game.Rules.Runtime.Tests
                 result.Snapshot.ActiveEffects[EffectId].GetState<OtherEffectState>(),
                 Is.SameAs(effect.State)
             );
-            ActiveEffectCreatedFact fact = (ActiveEffectCreatedFact)result.Facts.Single();
-            Assert.That(fact.StateType, Is.EqualTo(typeof(OtherEffectState)));
         }
 
         [Test]
