@@ -36,6 +36,12 @@ namespace Game.Combat.Encounters
         private HashSet<int> encounterRoomIds = new();
         private readonly SortedSet<int> pendingEncounterRooms = new();
         private readonly Dictionary<ActionController, int> previousRoomByParty = new();
+        private readonly List<ActionController> livingPartyBuffer = new();
+        private readonly HashSet<ActionController> livingPartySet = new();
+        private readonly List<ActionController> stalePartyObservations = new();
+        private readonly HashSet<int> occupiedRooms = new();
+        private readonly Dictionary<ActionController, int> currentRoomByParty = new();
+        private readonly List<Vector3> livingPartyPositions = new();
         private DungeonEncounterDirector director;
         private CombatManagerInterface combatManager;
         private IDungeonExplorationPresentation explorationPresentation;
@@ -227,23 +233,25 @@ namespace Game.Combat.Encounters
             if (!IsInitialized)
                 return;
 
-            ActionController[] livingParty = party.Where(CanObserve).ToArray();
-            HashSet<ActionController> livingPartySet = new(livingParty);
-            foreach (
-                ActionController missing in previousRoomByParty
-                    .Keys.Where(controller => !livingPartySet.Contains(controller))
-                    .ToArray()
-            )
-            {
-                previousRoomByParty.Remove(missing);
-            }
+            livingPartyBuffer.Clear();
+            livingPartySet.Clear();
+            stalePartyObservations.Clear();
+            occupiedRooms.Clear();
+            currentRoomByParty.Clear();
+            livingPartyPositions.Clear();
 
-            SortedSet<int> enteredEncounterRooms = new();
-            HashSet<int> occupiedRooms = new();
-            Dictionary<ActionController, int> currentRoomByParty = new();
-            foreach (ActionController partyMember in livingParty)
+            bool partyActionInProgress = false;
+            foreach (ActionController partyMember in party)
             {
-                int currentRoom = FindRoomId(partyMember.transform.position);
+                if (!CanObserve(partyMember))
+                    continue;
+
+                livingPartyBuffer.Add(partyMember);
+                livingPartySet.Add(partyMember);
+                partyActionInProgress |= partyMember.IsTakingAction;
+                Vector3 position = partyMember.transform.position;
+                livingPartyPositions.Add(position);
+                int currentRoom = FindRoomId(position);
                 if (currentRoom <= 0)
                     continue;
 
@@ -253,37 +261,41 @@ namespace Game.Combat.Encounters
                     !previousRoomByParty.TryGetValue(partyMember, out int previousRoom)
                     || previousRoom != currentRoom;
                 if (roomChanged && encounterRoomIds.Contains(currentRoom))
-                    enteredEncounterRooms.Add(currentRoom);
+                    pendingEncounterRooms.Add(currentRoom);
             }
 
-            pendingEncounterRooms.UnionWith(enteredEncounterRooms);
+            foreach (ActionController observed in previousRoomByParty.Keys)
+            {
+                if (!livingPartySet.Contains(observed))
+                    stalePartyObservations.Add(observed);
+            }
+            foreach (ActionController stale in stalePartyObservations)
+                previousRoomByParty.Remove(stale);
 
             // Sample each movement frame so a room crossed during one Stride is not lost, but do
             // not reset turn state until the movement coroutine has completed its own cleanup.
-            if (livingParty.Any(controller => controller.IsTakingAction))
+            if (partyActionInProgress)
             {
-                CommitRoomObservations(livingParty, currentRoomByParty);
+                CommitRoomObservations(livingPartyBuffer, currentRoomByParty);
                 return;
             }
 
             foreach (int roomId in pendingEncounterRooms)
                 director.EnterRoom(roomId);
             pendingEncounterRooms.Clear();
-            director.ResumeReachedSuspendedEncounters(
-                livingParty.Select(controller => controller.transform.position)
-            );
+            director.ResumeReachedSuspendedEncounters(livingPartyPositions);
 
             // Commit observations only after all room-entry work succeeds. A failed materialization
             // therefore retries instead of permanently consuming the room transition.
-            CommitRoomObservations(livingParty, currentRoomByParty);
+            CommitRoomObservations(livingPartyBuffer, currentRoomByParty);
 
             if (
-                livingParty.Length > 0
+                livingPartyBuffer.Count > 0
                 && director.Lifecycle.HasActiveEncounters
                 && combatManager.IsCombatActive
             )
             {
-                director.EvaluatePartyRegions(livingParty.Length, occupiedRooms);
+                director.EvaluatePartyRegions(livingPartyBuffer.Count, occupiedRooms);
             }
         }
 
@@ -328,8 +340,9 @@ namespace Game.Combat.Encounters
             IReadOnlyDictionary<ActionController, int> currentRoomByParty
         )
         {
-            foreach (ActionController partyMember in livingParty)
+            for (int index = 0; index < livingParty.Count; index++)
             {
+                ActionController partyMember = livingParty[index];
                 if (currentRoomByParty.TryGetValue(partyMember, out int currentRoom))
                     previousRoomByParty[partyMember] = currentRoom;
                 else

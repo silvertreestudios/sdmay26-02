@@ -19,6 +19,8 @@ namespace Game.Combat.Encounters
         private readonly Dictionary<string, EncounterGroup> groupsByEncounterId;
         private readonly Dictionary<int, EncounterGroup> groupsByRoomId;
         private readonly Dictionary<string, CreatureEntry> creaturesByInstanceId;
+        private readonly DungeonEncounterGroupView[] encounterViews;
+        private readonly IReadOnlyList<DungeonEncounterGroupView> readOnlyEncounterViews;
 
         /// <summary>Creates pristine lifecycle state from immutable generated encounter plans.</summary>
         /// <param name="plans">Unique room encounter plans for one floor.</param>
@@ -33,10 +35,12 @@ namespace Game.Combat.Encounters
 
             DungeonEncounterPlan[] copied = plans.ToArray();
             ValidatePlans(copied);
-            orderedGroups = copied
+            DungeonEncounterPlan[] orderedPlans = copied
                 .OrderBy(plan => plan.Id, StringComparer.Ordinal)
-                .Select(CreateInitialGroup)
                 .ToArray();
+            orderedGroups = new EncounterGroup[orderedPlans.Length];
+            for (int index = 0; index < orderedPlans.Length; index++)
+                orderedGroups[index] = CreateInitialGroup(orderedPlans[index], index);
             groupsByEncounterId = orderedGroups.ToDictionary(
                 group => group.Plan.Id,
                 StringComparer.Ordinal
@@ -45,15 +49,27 @@ namespace Game.Combat.Encounters
             creaturesByInstanceId = orderedGroups
                 .SelectMany(group => group.Creatures)
                 .ToDictionary(creature => creature.InstanceId, StringComparer.Ordinal);
+            encounterViews = orderedGroups.Select(CreateView).ToArray();
+            readOnlyEncounterViews = Array.AsReadOnly(encounterViews);
         }
 
-        /// <summary>Gets immutable views of all groups ordered by stable encounter ID.</summary>
-        public IReadOnlyList<DungeonEncounterGroupView> Encounters =>
-            Array.AsReadOnly(orderedGroups.Select(CreateView).ToArray());
+        /// <summary>Gets cached immutable views of all groups ordered by stable encounter ID.</summary>
+        /// <remarks>Only the view for a group changed by a lifecycle transition is replaced.</remarks>
+        public IReadOnlyList<DungeonEncounterGroupView> Encounters => readOnlyEncounterViews;
 
         /// <summary>Gets whether at least one group participates in the current combat.</summary>
-        public bool HasActiveEncounters =>
-            orderedGroups.Any(group => group.State == DungeonEncounterGroupState.Active);
+        public bool HasActiveEncounters
+        {
+            get
+            {
+                foreach (EncounterGroup group in orderedGroups)
+                {
+                    if (group.State == DungeonEncounterGroupState.Active)
+                        return true;
+                }
+                return false;
+            }
+        }
 
         /// <summary>Gets active encounter IDs ordered deterministically.</summary>
         public IReadOnlyList<string> ActiveEncounterIds =>
@@ -86,7 +102,7 @@ namespace Game.Combat.Encounters
                 throw new ArgumentException("An encounter ID is required.", nameof(encounterId));
             if (!groupsByEncounterId.TryGetValue(encounterId, out EncounterGroup group))
                 throw new KeyNotFoundException($"Encounter '{encounterId}' is not registered.");
-            return CreateView(group);
+            return encounterViews[group.Index];
         }
 
         /// <summary>Gets one encounter by its unique positive room ID.</summary>
@@ -100,7 +116,7 @@ namespace Game.Combat.Encounters
                 throw new ArgumentOutOfRangeException(nameof(roomId));
             if (!groupsByRoomId.TryGetValue(roomId, out EncounterGroup group))
                 throw new KeyNotFoundException($"Room {roomId} has no encounter plan.");
-            return CreateView(group);
+            return encounterViews[group.Index];
         }
 
         /// <summary>
@@ -156,8 +172,12 @@ namespace Game.Combat.Encounters
                     );
             }
 
+            DungeonEncounterGroupView encounterView =
+                changedToActive || completedImmediately
+                    ? RefreshEncounterView(group)
+                    : encounterViews[group.Index];
             return new DungeonRoomEntryResult(
-                CreateView(group),
+                encounterView,
                 transition,
                 changedToActive && !hadActiveEncounters,
                 changedToActive && hadActiveEncounters,
@@ -188,35 +208,66 @@ namespace Game.Combat.Encounters
             if (livingPcRoomIds == null)
                 throw new ArgumentNullException(nameof(livingPcRoomIds));
 
-            int[] occupiedRooms = livingPcRoomIds.ToArray();
-            if (occupiedRooms.Any(roomId => roomId <= 0))
-                throw new ArgumentException(
-                    "Occupied room IDs must be positive.",
-                    nameof(livingPcRoomIds)
-                );
+            HashSet<int> occupied;
+            if (livingPcRoomIds is HashSet<int> suppliedSet)
+            {
+                occupied = suppliedSet;
+                foreach (int roomId in occupied)
+                {
+                    if (roomId <= 0)
+                        throw new ArgumentException(
+                            "Occupied room IDs must be positive.",
+                            nameof(livingPcRoomIds)
+                        );
+                }
+            }
+            else
+            {
+                HashSet<int> copiedRooms = new();
+                foreach (int roomId in livingPcRoomIds)
+                {
+                    if (roomId <= 0)
+                        throw new ArgumentException(
+                            "Occupied room IDs must be positive.",
+                            nameof(livingPcRoomIds)
+                        );
+                    copiedRooms.Add(roomId);
+                }
+                occupied = copiedRooms;
+            }
 
-            EncounterGroup[] active = orderedGroups
-                .Where(group => group.State == DungeonEncounterGroupState.Active)
-                .ToArray();
-            if (active.Length == 0)
+            int activeCount = 0;
+            foreach (EncounterGroup group in orderedGroups)
+            {
+                if (group.State != DungeonEncounterGroupState.Active)
+                    continue;
+                activeCount++;
+                if (occupied.Contains(group.Plan.RoomId))
+                {
+                    return new DungeonEncounterSuspensionResult(
+                        DungeonEncounterSuspensionTransition.RemainedActive,
+                        Array.Empty<string>()
+                    );
+                }
+            }
+            if (activeCount == 0)
                 throw new InvalidOperationException(
                     "Cannot suspend combat when no encounter group is active."
                 );
 
-            HashSet<int> occupied = new(occupiedRooms);
-            if (active.Any(group => occupied.Contains(group.Plan.RoomId)))
+            string[] suspendedEncounterIds = new string[activeCount];
+            int suspendedIndex = 0;
+            foreach (EncounterGroup group in orderedGroups)
             {
-                return new DungeonEncounterSuspensionResult(
-                    DungeonEncounterSuspensionTransition.RemainedActive,
-                    Array.Empty<string>()
-                );
-            }
-
-            foreach (EncounterGroup group in active)
+                if (group.State != DungeonEncounterGroupState.Active)
+                    continue;
                 group.State = DungeonEncounterGroupState.Suspended;
+                suspendedEncounterIds[suspendedIndex++] = group.Plan.Id;
+                RefreshEncounterView(group);
+            }
             return new DungeonEncounterSuspensionResult(
                 DungeonEncounterSuspensionTransition.Suspended,
-                active.Select(group => group.Plan.Id)
+                suspendedEncounterIds
             );
         }
 
@@ -266,6 +317,7 @@ namespace Game.Combat.Encounters
             bool groupCleared = remaining == 0;
             if (groupCleared)
                 group.State = DungeonEncounterGroupState.Cleared;
+            RefreshEncounterView(group);
             bool currentCombatCompleted =
                 participatedInCurrentCombat && groupCleared && !HasActiveEncounters;
             return new DungeonCreatureDefeatResult(
@@ -306,7 +358,10 @@ namespace Game.Combat.Encounters
                 .Where(group => group.State == DungeonEncounterGroupState.Active)
                 .ToArray();
             foreach (EncounterGroup group in active)
+            {
                 group.State = DungeonEncounterGroupState.Suspended;
+                RefreshEncounterView(group);
+            }
             return Array.AsReadOnly(active.Select(group => group.Plan.Id).ToArray());
         }
 
@@ -376,13 +431,14 @@ namespace Game.Combat.Encounters
                 );
         }
 
-        private static EncounterGroup CreateInitialGroup(DungeonEncounterPlan plan)
+        private static EncounterGroup CreateInitialGroup(DungeonEncounterPlan plan, int groupIndex)
         {
             EncounterGroup group = new(
                 plan,
                 plan.IsResolved
                     ? DungeonEncounterGroupState.Cleared
-                    : DungeonEncounterGroupState.Dormant
+                    : DungeonEncounterGroupState.Dormant,
+                groupIndex
             );
             for (int index = 0; index < plan.CreatureIds.Count; index++)
             {
@@ -414,6 +470,13 @@ namespace Game.Combat.Encounters
 
         private static int LivingCreatureCount(EncounterGroup group) =>
             group.Creatures.Count(creature => !creature.IsDefeated);
+
+        private DungeonEncounterGroupView RefreshEncounterView(EncounterGroup group)
+        {
+            DungeonEncounterGroupView refreshed = CreateView(group);
+            encounterViews[group.Index] = refreshed;
+            return refreshed;
+        }
 
         private void ApplySnapshot(DungeonEncounterLifecycleSnapshot snapshot)
         {
@@ -454,6 +517,7 @@ namespace Game.Combat.Encounters
                 group.State = groupSnapshot.State;
                 foreach (CreatureEntry creature in group.Creatures)
                     creature.IsDefeated = defeated.Contains(creature.InstanceId);
+                RefreshEncounterView(group);
             }
         }
 
@@ -518,15 +582,21 @@ namespace Game.Combat.Encounters
 
         private sealed class EncounterGroup
         {
-            internal EncounterGroup(DungeonEncounterPlan plan, DungeonEncounterGroupState state)
+            internal EncounterGroup(
+                DungeonEncounterPlan plan,
+                DungeonEncounterGroupState state,
+                int index
+            )
             {
                 Plan = plan;
                 State = state;
+                Index = index;
             }
 
             internal DungeonEncounterPlan Plan { get; }
             internal List<CreatureEntry> Creatures { get; } = new();
             internal DungeonEncounterGroupState State { get; set; }
+            internal int Index { get; }
         }
 
         private sealed class CreatureEntry

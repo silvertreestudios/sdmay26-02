@@ -37,6 +37,35 @@ public sealed class DungeonEncounterStateMachineTests
         Assert.That(machine.HasActiveEncounters, Is.False);
     }
 
+    /// <summary>Verifies encounter snapshots are reused and only changed groups are refreshed.</summary>
+    [Test]
+    public void EncounterViewsAreCachedAndRefreshedAfterLifecycleChanges()
+    {
+        DungeonEncounterStateMachine machine = new(
+            new[] { Plan("encounter-1", 1, "goblin", "kobold") }
+        );
+        IReadOnlyList<DungeonEncounterGroupView> encounters = machine.Encounters;
+        DungeonEncounterGroupView dormant = encounters[0];
+
+        Assert.That(machine.Encounters, Is.SameAs(encounters));
+        Assert.That(machine.GetEncounter("encounter-1"), Is.SameAs(dormant));
+
+        DungeonRoomEntryResult activation = machine.EnterRoom(1);
+        DungeonEncounterGroupView active = encounters[0];
+
+        Assert.That(machine.Encounters, Is.SameAs(encounters));
+        Assert.That(active, Is.Not.SameAs(dormant));
+        Assert.That(active, Is.SameAs(activation.Encounter));
+        Assert.That(active.State, Is.EqualTo(DungeonEncounterGroupState.Active));
+        Assert.That(active.LivingCreatures, Is.SameAs(active.LivingCreatures));
+
+        machine.MarkCreatureDefeated(active.Creatures[0].InstanceId);
+
+        Assert.That(encounters[0], Is.Not.SameAs(active));
+        Assert.That(encounters[0].LivingCreatures, Has.Count.EqualTo(1));
+        Assert.That(machine.GetRoomEncounter(1), Is.SameAs(encounters[0]));
+    }
+
     /// <summary>Verifies first activation and repeated-entry no-op behavior.</summary>
     [Test]
     public void FirstRoomEntryStartsCombatAndRepeatedEntryIsExplicitNoOp()

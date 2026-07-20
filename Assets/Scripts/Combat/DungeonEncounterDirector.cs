@@ -21,10 +21,12 @@ namespace Game.Combat.Encounters
         private readonly CombatManagerInterface combatManager;
         private readonly DungeonEncounterMaterializer materializer;
         private readonly Transform encounterRoot;
+        private readonly DungeonRoom[] rooms;
         private readonly IReadOnlyDictionary<int, DungeonRoom> roomsById;
         private readonly Dictionary<string, DungeonEncounterMaterialization> materializations = new(
             StringComparer.Ordinal
         );
+        private readonly HashSet<int> effectiveOccupiedRooms = new();
         private bool isDisposed;
 
         /// <summary>Creates a director for one floor's lifecycle state and runtime dependencies.</summary>
@@ -77,6 +79,7 @@ namespace Game.Combat.Encounters
                 throw new ArgumentException("Dungeon rooms cannot contain null.", nameof(rooms));
             if (copiedRooms.Select(room => room.Id).Distinct().Count() != copiedRooms.Length)
                 throw new ArgumentException("Dungeon room IDs must be unique.", nameof(rooms));
+            this.rooms = copiedRooms;
             roomsById = copiedRooms.ToDictionary(room => room.Id);
             if (
                 lifecycle.Encounters.Any(encounter => !roomsById.ContainsKey(encounter.Plan.RoomId))
@@ -97,14 +100,15 @@ namespace Game.Combat.Encounters
 
             // Persisted groups have already been materialized in an earlier session. Restore their
             // living scene objects immediately, including survivors displaced outside the source room.
-            foreach (
-                DungeonEncounterGroupView encounter in lifecycle.Encounters.Where(encounter =>
+            foreach (DungeonEncounterGroupView encounter in lifecycle.Encounters)
+            {
+                if (
                     encounter.State == DungeonEncounterGroupState.Suspended
                     && encounter.LivingCreatures.Count > 0
                 )
-            )
-            {
-                AddMaterialization(encounter);
+                {
+                    AddMaterialization(encounter);
+                }
             }
         }
 
@@ -214,9 +218,18 @@ namespace Game.Combat.Encounters
                 throw new InvalidOperationException(
                     "Party regions can only be evaluated while dungeon combat is active."
                 );
-            IEnumerable<int> effectiveOccupiedRooms = livingPcRoomIds.Concat(
-                GetActiveEncounterRoomIdsRequiringCombat()
-            );
+            effectiveOccupiedRooms.Clear();
+            if (livingPcRoomIds is HashSet<int> suppliedSet)
+            {
+                foreach (int roomId in suppliedSet)
+                    effectiveOccupiedRooms.Add(roomId);
+            }
+            else
+            {
+                foreach (int roomId in livingPcRoomIds)
+                    effectiveOccupiedRooms.Add(roomId);
+            }
+            AddActiveEncounterRoomsRequiringCombat(effectiveOccupiedRooms);
             DungeonEncounterSuspensionResult result = lifecycle.SuspendIfPartyOutsideActiveRegions(
                 livingPcCount,
                 effectiveOccupiedRooms
@@ -231,19 +244,18 @@ namespace Game.Combat.Encounters
         // Restored survivors can occupy a different room or an unroomed corridor. Resume their
         // suspended encounter when a party member reaches that room, or becomes adjacent where no
         // room boundary exists, so the survivor cannot remain an inert blocking grid occupant.
-        internal void ResumeReachedSuspendedEncounters(IEnumerable<Vector3> livingPartyPositions)
+        internal void ResumeReachedSuspendedEncounters(IReadOnlyList<Vector3> livingPartyPositions)
         {
             ThrowIfDisposed();
             if (livingPartyPositions == null)
                 throw new ArgumentNullException(nameof(livingPartyPositions));
-            Vector3[] positions = livingPartyPositions.ToArray();
 
-            foreach (
-                DungeonEncounterGroupView encounter in lifecycle.Encounters.Where(encounter =>
-                    encounter.State == DungeonEncounterGroupState.Suspended
-                )
-            )
+            IReadOnlyList<DungeonEncounterGroupView> encounters = lifecycle.Encounters;
+            for (int encounterIndex = 0; encounterIndex < encounters.Count; encounterIndex++)
             {
+                DungeonEncounterGroupView encounter = encounters[encounterIndex];
+                if (encounter.State != DungeonEncounterGroupState.Suspended)
+                    continue;
                 if (!materializations.TryGetValue(encounter.Plan.Id, out var materialization))
                 {
                     throw new InvalidOperationException(
@@ -251,25 +263,40 @@ namespace Game.Combat.Encounters
                     );
                 }
 
-                bool reached = materialization.Controllers.Any(enemy =>
-                    CanParticipate(enemy)
-                    && positions.Any(position =>
-                        OccupiesReachedRegion(position, enemy.transform.position)
-                    )
-                );
+                bool reached = false;
+                for (
+                    int enemyIndex = 0;
+                    enemyIndex < materialization.Controllers.Count;
+                    enemyIndex++
+                )
+                {
+                    ActionController enemy = materialization.Controllers[enemyIndex];
+                    if (!CanParticipate(enemy))
+                        continue;
+                    for (int partyIndex = 0; partyIndex < livingPartyPositions.Count; partyIndex++)
+                    {
+                        Vector3 partyPosition = livingPartyPositions[partyIndex];
+                        if (!OccupiesReachedRegion(partyPosition, enemy.transform.position))
+                            continue;
+                        reached = true;
+                        break;
+                    }
+                    if (reached)
+                        break;
+                }
                 if (reached)
                     EnterRoom(encounter.Plan.RoomId);
             }
         }
 
-        private IEnumerable<int> GetActiveEncounterRoomIdsRequiringCombat()
+        private void AddActiveEncounterRoomsRequiringCombat(ISet<int> occupiedRoomIds)
         {
-            foreach (
-                DungeonEncounterGroupView encounter in lifecycle.Encounters.Where(encounter =>
-                    encounter.State == DungeonEncounterGroupState.Active
-                )
-            )
+            IReadOnlyList<DungeonEncounterGroupView> encounters = lifecycle.Encounters;
+            for (int encounterIndex = 0; encounterIndex < encounters.Count; encounterIndex++)
             {
+                DungeonEncounterGroupView encounter = encounters[encounterIndex];
+                if (encounter.State != DungeonEncounterGroupState.Active)
+                    continue;
                 if (!materializations.TryGetValue(encounter.Plan.Id, out var materialization))
                 {
                     throw new InvalidOperationException(
@@ -278,19 +305,25 @@ namespace Game.Combat.Encounters
                 }
 
                 DungeonRoom room = roomsById[encounter.Plan.RoomId];
-                if (
-                    materialization.Controllers.Any(controller =>
-                        CanParticipate(controller)
-                        && (
-                            controller.IsTakingAction
-                            || !Contains(room, controller.transform.position)
-                        )
-                    )
+                for (
+                    int controllerIndex = 0;
+                    controllerIndex < materialization.Controllers.Count;
+                    controllerIndex++
                 )
                 {
+                    ActionController controller = materialization.Controllers[controllerIndex];
+                    if (
+                        !CanParticipate(controller)
+                        || !controller.IsTakingAction
+                            && Contains(room, controller.transform.position)
+                    )
+                    {
+                        continue;
+                    }
                     // A moving or displaced enemy remains a live grid occupant. Keep its encounter
                     // active so movement can finish and the party can continue targeting it.
-                    yield return encounter.Plan.RoomId;
+                    occupiedRoomIds.Add(encounter.Plan.RoomId);
+                    break;
                 }
             }
         }
@@ -307,17 +340,17 @@ namespace Game.Combat.Encounters
 
         private bool OccupiesReachedRegion(Vector3 partyPosition, Vector3 enemyPosition)
         {
-            if (
-                roomsById.Values.Any(room =>
-                    Contains(room, partyPosition) && Contains(room, enemyPosition)
-                )
-            )
+            foreach (DungeonRoom room in rooms)
             {
-                return true;
+                if (Contains(room, partyPosition) && Contains(room, enemyPosition))
+                    return true;
             }
 
-            if (roomsById.Values.Any(room => Contains(room, enemyPosition)))
-                return false;
+            foreach (DungeonRoom room in rooms)
+            {
+                if (Contains(room, enemyPosition))
+                    return false;
+            }
 
             int partyX = Mathf.RoundToInt(partyPosition.x);
             int partyZ = Mathf.RoundToInt(partyPosition.z);

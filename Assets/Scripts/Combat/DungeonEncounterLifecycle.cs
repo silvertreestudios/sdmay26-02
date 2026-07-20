@@ -94,6 +94,9 @@ namespace Game.Combat.Encounters
             Plan = plan;
             State = state;
             Creatures = Array.AsReadOnly(creatures.ToArray());
+            LivingCreatures = Array.AsReadOnly(
+                Creatures.Where(creature => !creature.IsDefeated).ToArray()
+            );
         }
 
         /// <summary>Gets the immutable generation plan that defines this group.</summary>
@@ -106,8 +109,7 @@ namespace Game.Combat.Encounters
         public IReadOnlyList<DungeonEncounterCreatureView> Creatures { get; }
 
         /// <summary>Gets the living creature instances in deterministic plan order.</summary>
-        public IReadOnlyList<DungeonEncounterCreatureView> LivingCreatures =>
-            Array.AsReadOnly(Creatures.Where(creature => !creature.IsDefeated).ToArray());
+        public IReadOnlyList<DungeonEncounterCreatureView> LivingCreatures { get; }
     }
 
     /// <summary>Reports the complete lifecycle effect of a living PC entering a planned room.</summary>
