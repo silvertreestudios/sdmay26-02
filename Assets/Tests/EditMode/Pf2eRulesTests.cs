@@ -81,6 +81,21 @@ public class Pf2eRulesTests
     }
 
     [Test]
+    public void ValerosImportsCompleteCurrentAndMaximumHealth()
+    {
+        GameObject valeros = CreatureJsonConverter.CreateFromFile(
+            "DataFiles/iconics/valeros-level-1"
+        );
+        created.Add(valeros);
+
+        CreatureComponent creature = valeros.GetComponent<CreatureComponent>();
+
+        Assert.That(creature.hp, Is.EqualTo(20));
+        Assert.That(creature.maxHp, Is.EqualTo(20));
+        Assert.That(creature.tempHp, Is.Zero);
+    }
+
+    [Test]
     public void ZombiePassiveSlowAppliesAtCombatStart()
     {
         GameObject zombie = CreatureJsonConverter.CreateFromFile(

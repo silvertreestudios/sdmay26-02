@@ -1,8 +1,12 @@
+using System;
+using System.Reflection;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using NUnit.Framework;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 public sealed class UnityHealthRulesBridgeTests
 {
@@ -85,5 +89,97 @@ public sealed class UnityHealthRulesBridgeTests
         {
             Object.DestroyImmediate(creatureObject);
         }
+    }
+
+    [Test]
+    public void BridgePropagatesCompletedDispatcherFailure()
+    {
+        GameObject creatureObject = new GameObject("creature");
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            creature.InitializeHealth(10, 10);
+            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
+            InvalidOperationException expected = new InvalidOperationException(
+                "completed observer failure"
+            );
+            GetDispatcher(bridge)
+                .RegisterFactObserver<HealthFact>(new CompletedFailureObserver(expected));
+
+            InvalidOperationException actual = Assert.Throws<InvalidOperationException>(() =>
+                bridge.ApplyFinalDamage(
+                    bridge.GetCreatureId(creature),
+                    1,
+                    RuleSource.FromSlug("test-damage")
+                )
+            );
+
+            Assert.That(actual, Is.SameAs(expected));
+        }
+        finally
+        {
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    [Test]
+    public void BridgeRejectsIncompleteDispatcherWork()
+    {
+        GameObject creatureObject = new GameObject("creature");
+        IncompleteObserver observer = new IncompleteObserver();
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            creature.InitializeHealth(10, 10);
+            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
+            GetDispatcher(bridge).RegisterFactObserver<HealthFact>(observer);
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                bridge.ApplyFinalDamage(
+                    bridge.GetCreatureId(creature),
+                    1,
+                    RuleSource.FromSlug("test-damage")
+                )
+            );
+
+            StringAssert.Contains("must complete synchronously", error.Message);
+        }
+        finally
+        {
+            observer.Complete();
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    private static RuleDispatcher GetDispatcher(UnityHealthRulesBridge bridge)
+    {
+        FieldInfo field = typeof(UnityHealthRulesBridge).GetField(
+            "dispatcher",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (RuleDispatcher)field.GetValue(bridge);
+    }
+
+    private sealed class CompletedFailureObserver : IFactObserver<HealthFact>
+    {
+        private readonly Exception failure;
+
+        public CompletedFailureObserver(Exception failure) => this.failure = failure;
+
+        public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot currentSnapshot) =>
+            new ValueTask(Task.FromException(failure));
+    }
+
+    private sealed class IncompleteObserver : IFactObserver<HealthFact>
+    {
+        private readonly TaskCompletionSource<bool> completion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot currentSnapshot) =>
+            new ValueTask(completion.Task);
+
+        public void Complete() => completion.TrySetResult(true);
     }
 }

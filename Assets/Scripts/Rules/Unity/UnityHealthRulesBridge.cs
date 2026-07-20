@@ -180,7 +180,7 @@ namespace Game.Rules.Unity
             // completed ValueTask. If that invariant changes, fail immediately instead of
             // blocking Unity's thread or allowing gameplay to continue before projection.
             ValueTask<OpResult<TResult>> pending = dispatcher.Dispatch(operation);
-            if (!pending.IsCompletedSuccessfully)
+            if (!pending.IsCompleted)
             {
                 throw new InvalidOperationException(
                     "Unity health requests must complete synchronously; an asynchronous observer "
@@ -188,7 +188,9 @@ namespace Game.Rules.Unity
                 );
             }
 
-            OpResult<TResult> result = pending.Result;
+            // GetResult cannot block after IsCompleted and preserves a completed dispatcher
+            // failure or cancellation instead of replacing it with the async-observer assertion.
+            OpResult<TResult> result = pending.GetAwaiter().GetResult();
             if (result is ResolvedOpResult<TResult> resolved)
                 return resolved.Value;
             if (result is InvalidOpResult<TResult> invalid)
