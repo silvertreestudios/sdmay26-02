@@ -124,6 +124,9 @@ namespace Game.Rules.Runtime
         public ActiveEffectStatus RemovedStatus { get; }
 
         /// <summary>Initializes one committed effect-removal record.</summary>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="removedStatus"/> is not a defined lifecycle status.
+        /// </exception>
         public ActiveEffectRemovedFact(
             ActiveEffectId effectId,
             RuleDefinitionId definitionId,
@@ -133,6 +136,8 @@ namespace Game.Rules.Runtime
         )
             : base(effectId, definitionId)
         {
+            if (!Enum.IsDefined(typeof(ActiveEffectStatus), removedStatus))
+                throw new ArgumentOutOfRangeException(nameof(removedStatus));
             BindingId = ActiveEffectOperationValidation.RequireBinding(bindingId);
             RemovedVersion = removedVersion;
             RemovedStatus = removedStatus;

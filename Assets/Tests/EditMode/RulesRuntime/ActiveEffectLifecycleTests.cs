@@ -95,6 +95,20 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void RemovalFactRejectsUndefinedLifecycleStatus()
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                new ActiveEffectRemovedFact(
+                    EffectId,
+                    DefinitionId,
+                    BindingId,
+                    EffectStateVersion.Initial,
+                    (ActiveEffectStatus)99
+                )
+            );
+        }
+
+        [Test]
         public void UpdateUsesExactStateTypeAndOptimisticVersionWithoutMutatingOldSnapshot()
         {
             RuleRegistry registry = CreateRegistry();
