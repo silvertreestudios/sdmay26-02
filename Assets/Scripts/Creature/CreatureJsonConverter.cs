@@ -272,9 +272,10 @@ namespace Game.Creature
             target.level = dto.system.details != null ? dto.system.details.level : target.level;
 
             // Attributes
-            target.hp = dto.system.attributes?.hp?.value ?? target.hp;
-            target.maxHp = dto.system.attributes?.hp?.max ?? target.maxHp;
-            target.tempHp = dto.system.attributes?.hp?.temp ?? target.tempHp;
+            int maximumHp = dto.system.attributes?.hp?.max ?? target.maxHp;
+            int currentHp = dto.system.attributes?.hp?.value ?? target.hp;
+            int temporaryHp = dto.system.attributes?.hp?.temp ?? target.tempHp;
+            target.InitializeHealth(currentHp, maximumHp, temporaryHp);
 
             if (dto.system.attributes?.ac > 0)
                 target.ac = dto.system.attributes.ac;

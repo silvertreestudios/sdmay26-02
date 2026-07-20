@@ -250,7 +250,7 @@ namespace TestsCombat
             CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
             attackerCreature.attackBonus = 7;
             targetCreature.ac = 100;
-            targetCreature.hp = 100;
+            targetCreature.InitializeHealth(100, targetCreature.maxHp);
 
             StrikeProfile profile = new StrikeProfile(
                 new List<Dice> { new Dice(1, 6, "piercing") },
@@ -452,8 +452,7 @@ namespace TestsCombat
             GameObject creature = new GameObject(name);
             CreatureComponent component = creature.AddComponent<CreatureComponent>();
             creature.AddComponent<TestActionController>();
-            component.hp = hp;
-            component.maxHp = hp;
+            component.InitializeHealth(hp, hp);
             component.ac = 10;
             component.attackBonus = 10;
             component.weaknesses = new List<DamageValue>();

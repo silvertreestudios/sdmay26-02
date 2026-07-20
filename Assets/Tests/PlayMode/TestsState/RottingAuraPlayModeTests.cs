@@ -317,7 +317,9 @@ namespace TestsState
             OnNextTurn.AddListener(actor =>
             {
                 if (actor == defeatedActor)
-                    defeatedActor.GetComponent<CreatureComponent>().TakeDamage(1u);
+                    defeatedActor
+                        .GetComponent<CreatureComponent>()
+                        .ApplyFinalDamage(1, Game.Rules.Runtime.RuleSource.FromSlug("test-damage"));
             });
 
             yield return null;
@@ -354,8 +356,7 @@ namespace TestsState
             cleanup.Add(obj);
             CreatureComponent creature = obj.AddComponent<CreatureComponent>();
             creature.name = name;
-            creature.hp = hp;
-            creature.maxHp = maxHp;
+            creature.InitializeHealth(hp, maxHp);
             creature.traits = new List<string>();
             creature.weaknesses = new List<DamageValue>();
             creature.resistances = new List<DamageValue>();

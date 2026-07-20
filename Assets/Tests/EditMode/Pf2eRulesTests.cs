@@ -264,11 +264,14 @@ public class Pf2eRulesTests
         Assert.That(rage.UseRage(creature.gameObject), Is.True);
 
         Assert.That(creature.tempHp, Is.EqualTo(2));
+        Assert.That(creature.Health.Temporary, Is.EqualTo(2));
+        Assert.That(creature.Health.TemporarySource.Slug, Is.EqualTo("rage"));
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
         Assert.That(actionController.IsTakingAction, Is.False);
 
         rage.EndRage(creature.gameObject);
         Assert.That(creature.tempHp, Is.EqualTo(0));
+        Assert.That(creature.Health.Temporary, Is.Zero);
         Assert.That(creature.HasTempHpImmunity("rage"), Is.True);
 
         Assert.That(rage.UseRage(creature.gameObject), Is.True);
@@ -493,8 +496,7 @@ public class Pf2eRulesTests
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
         creature.ac = 15;
-        creature.hp = 10;
-        creature.maxHp = 10;
+        creature.InitializeHealth(10, 10);
         return creature;
     }
 

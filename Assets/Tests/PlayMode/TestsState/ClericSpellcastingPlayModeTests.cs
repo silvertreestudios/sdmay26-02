@@ -133,8 +133,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         clericObject = new GameObject("Self-Defeating Animated Caster");
         CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
         cleric.level = 1;
-        cleric.hp = 1;
-        cleric.maxHp = 1;
+        cleric.InitializeHealth(1, 1);
         cleric.wisMod = 4;
         cleric.Build = new CharacterBuild { ClassName = "Cleric" };
         cleric.Prepared = Pf2eCharacterPreparer.Prepare(cleric, cleric.Build);
@@ -250,7 +249,10 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
             CastSpellResult result
         )
         {
-            context.CasterCreature.TakeDamage(1u);
+            context.CasterCreature.ApplyFinalDamage(
+                1,
+                Game.Rules.Runtime.RuleSource.FromSlug("test-spell")
+            );
             result.Targets.Add(context.Caster);
             return true;
         }

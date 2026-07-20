@@ -41,13 +41,65 @@ namespace Game.Rules.Runtime
         public override int GetHashCode() => HashCode.Combine(Id, Player);
     }
 
+    /// <summary>
+    /// Stores one creature's immutable current, maximum, temporary, and temporary-source health
+    /// state for authoritative rules snapshots.
+    /// </summary>
     public readonly struct HealthState : IEquatable<HealthState>
     {
+        private readonly RuleSource[] temporaryHitPointImmunities;
+
+        /// <summary>Gets current Hit Points.</summary>
         public int Current { get; }
+
+        /// <summary>Gets maximum Hit Points.</summary>
         public int Maximum { get; }
+
+        /// <summary>Gets temporary Hit Points.</summary>
         public int Temporary { get; }
 
-        public HealthState(int current, int maximum, int temporary = 0)
+        /// <summary>Gets the rule source that owns the current temporary-HP pool.</summary>
+        public RuleSource TemporarySource { get; }
+
+        /// <summary>
+        /// Gets the rule sources that cannot currently grant temporary Hit Points.
+        /// </summary>
+        public IReadOnlyList<RuleSource> TemporaryHitPointImmunities =>
+            Array.AsReadOnly(temporaryHitPointImmunities ?? Array.Empty<RuleSource>());
+
+        /// <summary>
+        /// Initializes one creature's complete authoritative health state.
+        /// </summary>
+        /// <param name="current">The current Hit Points, from zero through <paramref name="maximum"/>.</param>
+        /// <param name="maximum">The creature's maximum Hit Points.</param>
+        /// <param name="temporary">The current temporary Hit Points.</param>
+        /// <param name="temporarySource">
+        /// The source that owns <paramref name="temporary"/>, or the empty source for imported
+        /// temporary Hit Points whose original source is unavailable.
+        /// </param>
+        public HealthState(
+            int current,
+            int maximum,
+            int temporary = 0,
+            RuleSource temporarySource = default
+        )
+            : this(current, maximum, temporary, temporarySource, Array.Empty<RuleSource>()) { }
+
+        /// <summary>
+        /// Initializes authoritative health with source-specific temporary-HP immunities.
+        /// </summary>
+        /// <param name="current">The current Hit Points, from zero through <paramref name="maximum"/>.</param>
+        /// <param name="maximum">The creature's maximum Hit Points.</param>
+        /// <param name="temporary">The current temporary Hit Points.</param>
+        /// <param name="temporarySource">The source that owns <paramref name="temporary"/>.</param>
+        /// <param name="temporaryHitPointImmunities">Sources blocked from granting temporary Hit Points.</param>
+        public HealthState(
+            int current,
+            int maximum,
+            int temporary,
+            RuleSource temporarySource,
+            IEnumerable<RuleSource> temporaryHitPointImmunities
+        )
         {
             if (maximum < 0)
                 throw new ArgumentOutOfRangeException(nameof(maximum));
@@ -55,18 +107,50 @@ namespace Game.Rules.Runtime
                 throw new ArgumentOutOfRangeException(nameof(current));
             if (temporary < 0)
                 throw new ArgumentOutOfRangeException(nameof(temporary));
+            if (temporary == 0 && !temporarySource.IsEmpty)
+                throw new ArgumentException(
+                    "Health without temporary Hit Points cannot retain a temporary-HP source.",
+                    nameof(temporarySource)
+                );
+
+            if (temporaryHitPointImmunities == null)
+                throw new ArgumentNullException(nameof(temporaryHitPointImmunities));
+            RuleSource[] copiedImmunities = temporaryHitPointImmunities.Distinct().ToArray();
+            if (copiedImmunities.Any(source => source.IsEmpty))
+                throw new ArgumentException(
+                    "Temporary Hit Point immunities cannot contain an empty rule source.",
+                    nameof(temporaryHitPointImmunities)
+                );
 
             Current = current;
             Maximum = maximum;
             Temporary = temporary;
+            TemporarySource = temporarySource;
+            this.temporaryHitPointImmunities = copiedImmunities;
         }
 
         public bool Equals(HealthState other) =>
-            Current == other.Current && Maximum == other.Maximum && Temporary == other.Temporary;
+            Current == other.Current
+            && Maximum == other.Maximum
+            && Temporary == other.Temporary
+            && TemporarySource == other.TemporarySource
+            && (temporaryHitPointImmunities ?? Array.Empty<RuleSource>()).SequenceEqual(
+                other.temporaryHitPointImmunities ?? Array.Empty<RuleSource>()
+            );
 
         public override bool Equals(object obj) => obj is HealthState other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine(Current, Maximum, Temporary);
+        public override int GetHashCode() =>
+            HashCode.Combine(Current, Maximum, Temporary, TemporarySource);
+
+        /// <summary>
+        /// Checks whether a source is blocked from granting temporary Hit Points.
+        /// </summary>
+        /// <param name="source">The non-empty source to inspect.</param>
+        /// <returns><see langword="true"/> when the immunity is present.</returns>
+        public bool HasTemporaryHitPointImmunity(RuleSource source) =>
+            !source.IsEmpty
+            && (temporaryHitPointImmunities ?? Array.Empty<RuleSource>()).Contains(source);
 
         public static bool operator ==(HealthState left, HealthState right) => left.Equals(right);
 

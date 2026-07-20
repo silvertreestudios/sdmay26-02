@@ -440,21 +440,33 @@ public sealed class KayKitDungeonExamplePlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator RemovingDefeatedEnemyTeamCompletesEncounterAsPlayerVictory()
+    public IEnumerator DispatchedLethalDamageCompletesEncounterAsPlayerVictoryOnce()
     {
         CombatManagerInterface manager = Object.FindFirstObjectByType<CombatManager>();
         Assert.That(manager, Is.Not.Null);
 
         bool? playerVictory = null;
-        UnityAction<bool> outcomeListener = result => playerVictory = result;
+        int outcomeCount = 0;
+        UnityAction<bool> outcomeListener = result =>
+        {
+            playerVictory = result;
+            outcomeCount++;
+        };
         OnCombatOutcome.AddListener(outcomeListener);
         try
         {
             foreach (ActionController enemy in CombatantsForTeam("Enemies"))
-                manager.Remove(enemy);
+            {
+                CreatureComponent creature = enemy.GetComponent<CreatureComponent>();
+                creature.ApplyFinalDamage(
+                    creature.hp + creature.tempHp,
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-lethal-damage")
+                );
+            }
 
             Assert.That(manager.CheckForEndOfGame(), Is.True);
             Assert.That(playerVictory, Is.True);
+            Assert.That(outcomeCount, Is.EqualTo(1));
             Assert.That(
                 manager
                     .GetCombatants()

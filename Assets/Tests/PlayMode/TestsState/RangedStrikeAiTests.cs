@@ -73,7 +73,7 @@ namespace TestsState
             Assert.AreEqual(2u, controller.ActionPoints);
             Assert.AreEqual(1u, controller.StrikePenalty);
             Assert.AreEqual(0, enemy.GetComponent<CreatureComponent>().GetAmmoQuantity("arrows"));
-            Assert.Less(selectedTargetCreature.hp, 100);
+            Assert.Less(selectedTargetCreature.tempHp, 100);
         }
 
         [UnityTest]
@@ -128,7 +128,7 @@ namespace TestsState
             Assert.AreEqual(2u, controller.ActionPoints);
             Assert.AreEqual(1u, controller.StrikePenalty);
             Assert.AreEqual(0, player.GetComponent<CreatureComponent>().GetAmmoQuantity("arrows"));
-            Assert.Less(targetCreature.hp, 100);
+            Assert.Less(targetCreature.tempHp, 100);
         }
 
         [UnityTest]
@@ -179,7 +179,7 @@ namespace TestsState
             Assert.AreEqual(3u, controller.ActionPoints);
             Assert.AreEqual(0u, controller.StrikePenalty);
             Assert.AreEqual(1, player.GetComponent<CreatureComponent>().GetAmmoQuantity("arrows"));
-            Assert.AreEqual(100, targetCreature.hp);
+            Assert.AreEqual(100, targetCreature.tempHp);
         }
 
         [UnityTest]
@@ -304,8 +304,10 @@ namespace TestsState
         {
             Assert.IsNotNull(target);
             CreatureComponent creature = target.GetComponent<CreatureComponent>();
-            creature.maxHp = 100;
-            creature.hp = 100;
+            creature.GrantSourceTemporaryHitPoints(
+                Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                100
+            );
             creature.ac = 1;
             return creature;
         }

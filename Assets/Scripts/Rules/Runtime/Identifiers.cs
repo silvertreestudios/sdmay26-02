@@ -35,6 +35,47 @@ namespace Game.Rules.Runtime
         public static bool operator !=(CreatureId left, CreatureId right) => !left.Equals(right);
     }
 
+    /// <summary>
+    /// Identifies one Unity-originated health request within an encounter.
+    /// </summary>
+    /// <remarks>
+    /// The encounter composition root allocates this stable value independently of object names
+    /// and Unity instance IDs so Facts remain deterministic and Unity-free.
+    /// </remarks>
+    public readonly struct HealthChangeOriginId : IEquatable<HealthChangeOriginId>
+    {
+        /// <summary>Gets the stable serialized value.</summary>
+        public string Value { get; }
+
+        /// <summary>Gets whether this value is the default, unallocated identifier.</summary>
+        public bool IsEmpty => string.IsNullOrEmpty(Value);
+
+        /// <summary>Initializes an allocated health-change origin identifier.</summary>
+        /// <param name="value">A non-empty encounter-stable value.</param>
+        public HealthChangeOriginId(string value) => Value = StableId.Require(value, nameof(value));
+
+        /// <inheritdoc/>
+        public bool Equals(HealthChangeOriginId other) =>
+            string.Equals(Value, other.Value, StringComparison.Ordinal);
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) =>
+            obj is HealthChangeOriginId other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() =>
+            StringComparer.Ordinal.GetHashCode(Value ?? string.Empty);
+
+        /// <inheritdoc/>
+        public override string ToString() => Value ?? string.Empty;
+
+        public static bool operator ==(HealthChangeOriginId left, HealthChangeOriginId right) =>
+            left.Equals(right);
+
+        public static bool operator !=(HealthChangeOriginId left, HealthChangeOriginId right) =>
+            !left.Equals(right);
+    }
+
     public readonly struct PlayerId : IEquatable<PlayerId>
     {
         public string Value { get; }

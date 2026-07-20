@@ -209,14 +209,14 @@ public class Pf2eClericSpellcastingTests
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally");
-        ally.hp = 3;
-        ally.maxHp = 20;
+        ally.InitializeHealth(3, 20);
         UnityEngine.Random.InitState(12);
 
         CastSpellResult result = Cast("heal", cleric, 2, ally.gameObject);
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.hp, Is.GreaterThan(3));
+        Assert.That(ally.Health.Current, Is.EqualTo(ally.hp));
         Assert.That(cleric.Prepared.Spellcasting.Pools["font-heal"].UsesRemaining, Is.EqualTo(3));
     }
 
@@ -230,8 +230,7 @@ public class Pf2eClericSpellcastingTests
         CreatureComponent target = CreateCreature("Target");
         target.transform.position = new Vector3(6, 0, 0);
         target.ac = 12;
-        target.hp = 100;
-        target.maxHp = 100;
+        target.InitializeHealth(100, 100);
         UnityEngine.Random.InitState(3);
         InstallTestCombatLog();
 
@@ -288,8 +287,7 @@ public class Pf2eClericSpellcastingTests
         created.Add(go);
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
-        creature.hp = 10;
-        creature.maxHp = 10;
+        creature.InitializeHealth(10, 10);
         return creature;
     }
 

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules.Runtime;
 using GridPublic;
 using UnityEngine;
 
@@ -274,7 +275,8 @@ namespace Game.Combat.Spells
                     affected.Creature,
                     new Dice(1, 8, "sonic"),
                     result,
-                    applyDeafenedOnCriticalFailure: true
+                    applyDeafenedOnCriticalFailure: true,
+                    source: RuleSource.FromSlug(Slug)
                 );
             return true;
         }
@@ -424,12 +426,13 @@ namespace Game.Combat.Spells
                         target,
                         new DamageValue("vitality", amount),
                         result,
-                        applyDeafenedOnCriticalFailure: false
+                        applyDeafenedOnCriticalFailure: false,
+                        source: RuleSource.FromSlug(Slug)
                     );
                 else if (SpellcastingRuntime.IsFriendly(context.Caster, target))
                 {
-                    creature.Heal(amount);
-                    result.Amount += amount;
+                    HealingOutcome healing = creature.Heal(amount, RuleSource.FromSlug(Slug));
+                    result.Amount += healing.Applied;
                 }
             }
             return result.Targets.Count > 0;

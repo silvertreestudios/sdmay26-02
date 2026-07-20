@@ -46,8 +46,7 @@ public class Pf2eBarbarianSmokeTests
         CreatureComponent enemyCreature = enemy.AddComponent<CreatureComponent>();
         enemyCreature.name = "Enemy";
         enemyCreature.level = 1;
-        enemyCreature.hp = 10;
-        enemyCreature.maxHp = 10;
+        enemyCreature.InitializeHealth(10, 10);
         enemy.AddComponent<Conditions>();
         enemy.AddComponent<TestActionController>();
         Team enemyTeam = enemy.AddComponent<Team>();
@@ -88,8 +87,7 @@ public class Pf2eBarbarianSmokeTests
         CreatureComponent enemyCreature = enemy.AddComponent<CreatureComponent>();
         enemyCreature.name = "Enemy";
         enemyCreature.level = 1;
-        enemyCreature.hp = 10;
-        enemyCreature.maxHp = 10;
+        enemyCreature.InitializeHealth(10, 10);
         enemy.AddComponent<Conditions>();
         enemy.AddComponent<TestActionController>();
         Team enemyTeam = enemy.AddComponent<Team>();

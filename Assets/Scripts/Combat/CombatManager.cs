@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
@@ -12,6 +13,7 @@ public class CombatManager : CombatManagerInterface
     protected List<ActionController> Combatants = new();
     protected List<TurnStep> TurnQueue = new();
     protected ActionController TurnTaker = null;
+    private UnityHealthRulesBridge healthRules;
 
     // Events
     // See CombatEvents.cs for a list of events triggered by this class
@@ -76,6 +78,9 @@ public class CombatManager : CombatManagerInterface
     [ContextMenu("StartCombat")]
     public override void StartCombat()
     {
+        healthRules = UnityHealthRulesBridge.Create(
+            Combatants.ConvertAll(combatant => combatant.GetComponent<CreatureComponent>())
+        );
         RollInitiative();
         Pf2eRulesEngine.ApplyCombatStartRules(Combatants);
         OnCombatStart.Invoke();
