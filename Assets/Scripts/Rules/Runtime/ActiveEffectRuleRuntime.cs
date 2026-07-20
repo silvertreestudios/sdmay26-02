@@ -14,15 +14,15 @@ namespace Game.Rules.Runtime
         /// </summary>
         /// <param name="builder">The dispatcher builder being composed.</param>
         /// <param name="registry">
-        /// The immutable registry used both for runtime extensions and exact effect-state validation.
+        /// The immutable registry used for runtime extensions and creation-time definition validation.
         /// </param>
         /// <returns>The supplied builder for fluent composition.</returns>
         /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
         /// <remarks>
         /// All four operations are reducer registrations and therefore nested-only. Feature handlers
         /// authorize their use; presentation and encounter-clock code may only request work through
-        /// those workflows. This method also attaches the same registry to the dispatcher so type
-        /// validation cannot drift from active middleware and Fact-listener definitions.
+        /// those workflows. This method also attaches the same registry to the dispatcher so an
+        /// effect cannot create a binding for a definition unavailable to runtime extensions.
         /// </remarks>
         public static RuleDispatcherBuilder UseActiveEffectRules(
             this RuleDispatcherBuilder builder,
@@ -41,7 +41,7 @@ namespace Game.Rules.Runtime
                     LifecycleSource
                 )
                 .RegisterReducer<UpdateActiveEffectStateOp, ActiveEffectStateUpdateOutcome>(
-                    new UpdateActiveEffectStateReducer(registry),
+                    new UpdateActiveEffectStateReducer(),
                     LifecycleSource
                 )
                 .RegisterReducer<ExpireActiveEffectOp, ActiveEffectExpirationOutcome>(

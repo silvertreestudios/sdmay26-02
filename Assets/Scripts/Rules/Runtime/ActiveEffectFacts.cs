@@ -35,7 +35,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the initial effect-state version.</summary>
         public EffectStateVersion Version { get; }
 
-        /// <summary>Gets the exact definition-owned state type.</summary>
+        /// <summary>Gets the exact state type established by the effect instance.</summary>
         public Type StateType { get; }
 
         /// <summary>Gets the effect's declared duration metadata.</summary>
@@ -64,7 +64,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the newly committed version.</summary>
         public EffectStateVersion CurrentVersion { get; }
 
-        /// <summary>Gets the exact state type accepted by the definition.</summary>
+        /// <summary>Gets the exact state type preserved by the effect instance.</summary>
         public Type StateType { get; }
 
         /// <summary>Initializes one committed typed-state update record.</summary>

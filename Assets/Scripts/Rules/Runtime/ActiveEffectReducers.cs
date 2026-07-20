@@ -99,23 +99,10 @@ namespace Game.Rules.Runtime
                     $"Active binding {binding.Id.Value} already exists."
                 );
             }
-            if (!registry.TryGetDefinition(effect.DefinitionId, out RuleDefinition definition))
+            if (!registry.TryGetDefinition(effect.DefinitionId, out _))
             {
                 return ReductionResult<ActiveEffectCreationOutcome>.Reject(
                     $"Rule definition {effect.DefinitionId.Value} is unknown."
-                );
-            }
-            if (!definition.SupportsActiveEffects)
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    $"Rule definition {effect.DefinitionId.Value} does not declare effect state."
-                );
-            }
-            if (!definition.AcceptsEffectState(effect.State))
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    $"Rule definition {effect.DefinitionId.Value} requires "
-                        + $"{definition.EffectStateType.Name}, not {effect.State.GetType().Name}."
                 );
             }
             if (effect.EffectStateVersion != EffectStateVersion.Initial)
@@ -160,11 +147,6 @@ namespace Game.Rules.Runtime
     internal sealed class UpdateActiveEffectStateReducer
         : IOpReducer<UpdateActiveEffectStateOp, ActiveEffectStateUpdateOutcome>
     {
-        private readonly RuleRegistry registry;
-
-        public UpdateActiveEffectStateReducer(RuleRegistry registry) =>
-            this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
-
         public ReductionResult<ActiveEffectStateUpdateOutcome> Reduce(
             ReductionContext<UpdateActiveEffectStateOp> context,
             RulesStateDraft state,
@@ -184,19 +166,11 @@ namespace Game.Rules.Runtime
             {
                 return ReductionResult<ActiveEffectStateUpdateOutcome>.Reject(rejection);
             }
-            if (!registry.TryGetDefinition(effect.DefinitionId, out RuleDefinition definition))
+            Type currentStateType = effect.State.GetType();
+            if (currentStateType != context.Op.State.GetType())
             {
                 return ReductionResult<ActiveEffectStateUpdateOutcome>.Reject(
-                    $"Rule definition {effect.DefinitionId.Value} is unknown."
-                );
-            }
-            if (!definition.AcceptsEffectState(context.Op.State))
-            {
-                string required = definition.SupportsActiveEffects
-                    ? definition.EffectStateType.Name
-                    : "no active-effect state";
-                return ReductionResult<ActiveEffectStateUpdateOutcome>.Reject(
-                    $"Rule definition {effect.DefinitionId.Value} requires {required}, "
+                    $"Active effect {effect.Id.Value} requires {currentStateType.Name}, "
                         + $"not {context.Op.State.GetType().Name}."
                 );
             }

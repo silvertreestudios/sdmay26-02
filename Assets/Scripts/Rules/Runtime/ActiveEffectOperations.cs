@@ -69,7 +69,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the version that must still be current.</summary>
         public EffectStateVersion ExpectedVersion { get; }
 
-        /// <summary>Gets the new immutable definition-owned state.</summary>
+        /// <summary>Gets the new immutable state, which must preserve the instance's exact type.</summary>
         public IEffectState State { get; }
 
         /// <inheritdoc/>

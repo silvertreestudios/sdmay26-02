@@ -3,11 +3,12 @@ using System;
 namespace Game.Rules.Runtime
 {
     /// <summary>
-    /// Marks an immutable, definition-owned active-effect state value.
+    /// Marks an immutable state value owned by one active-effect instance.
     /// </summary>
     /// <remarks>
     /// Implementations must be immutable because committed snapshots retain and share the value.
-    /// A <see cref="RuleDefinition"/> declares the one exact implementation type it accepts.
+    /// The first committed value establishes the instance's exact state type. Later optimistic
+    /// replacements must use that same concrete type.
     /// </remarks>
     public interface IEffectState { }
 
@@ -166,7 +167,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the stable effect identity.</summary>
         public ActiveEffectId Id { get; }
 
-        /// <summary>Gets the static definition that declares the accepted state type.</summary>
+        /// <summary>Gets the static definition that contributes this effect's rule extensions.</summary>
         public RuleDefinitionId DefinitionId { get; }
 
         /// <summary>Gets the creature that originated the effect.</summary>
@@ -181,7 +182,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the optimistic-concurrency token for the current lifecycle state.</summary>
         public EffectStateVersion EffectStateVersion { get; }
 
-        /// <summary>Gets the immutable definition-owned state value.</summary>
+        /// <summary>Gets the immutable instance-owned state value.</summary>
         public IEffectState State { get; }
 
         /// <summary>Gets whether this instance is active or retained after expiration.</summary>
@@ -193,7 +194,7 @@ namespace Game.Rules.Runtime
         /// <param name="sourceCreature">The creature that originated the effect.</param>
         /// <param name="source">The stable rules provenance.</param>
         /// <param name="duration">The duration metadata interpreted by encounter timing.</param>
-        /// <param name="state">The immutable definition-owned state value.</param>
+        /// <param name="state">The immutable state value whose exact type this instance preserves.</param>
         /// <param name="effectStateVersion">The current optimistic-concurrency token.</param>
         /// <param name="status">Whether the instance is active or expired.</param>
         /// <exception cref="ArgumentException">A required ID or source is empty.</exception>
@@ -239,7 +240,7 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Reads the state as the exact type declared by the effect's definition.
+        /// Reads the state as the exact type established by this effect instance.
         /// </summary>
         /// <typeparam name="TState">The expected exact effect-state type.</typeparam>
         /// <returns>The immutable typed state held by this snapshot value.</returns>

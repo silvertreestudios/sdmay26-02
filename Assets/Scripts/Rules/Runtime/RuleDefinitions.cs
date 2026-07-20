@@ -17,13 +17,11 @@ namespace Game.Rules.Runtime
     {
         internal RuleDefinition(
             RuleDefinitionId id,
-            Type effectStateType,
             IReadOnlyList<MiddlewareRegistration> middleware,
             IReadOnlyList<FactListenerRegistration> factListeners
         )
         {
             Id = id;
-            EffectStateType = effectStateType;
             Middleware = middleware;
             FactListeners = factListeners;
         }
@@ -32,34 +30,6 @@ namespace Game.Rules.Runtime
         /// Gets the stable ID referenced by active bindings.
         /// </summary>
         public RuleDefinitionId Id { get; }
-
-        /// <summary>
-        /// Gets the exact immutable state type accepted by active instances of this definition.
-        /// </summary>
-        /// <remarks>
-        /// A <see langword="null"/> value means this definition contributes only stateless bindings
-        /// and cannot back an <see cref="ActiveEffectInstance"/>. This is a genuine domain absence:
-        /// feats and other permanent rules may participate without instance state.
-        /// </remarks>
-        public Type EffectStateType { get; }
-
-        /// <summary>
-        /// Gets whether the definition can back a stateful active-effect instance.
-        /// </summary>
-        public bool SupportsActiveEffects => EffectStateType != null;
-
-        /// <summary>
-        /// Determines whether a state value has the exact type declared by this definition.
-        /// </summary>
-        /// <param name="state">The required immutable effect-state value.</param>
-        /// <returns><see langword="true"/> only for an exact declared-type match.</returns>
-        /// <exception cref="ArgumentNullException"><paramref name="state"/> is <see langword="null"/>.</exception>
-        public bool AcceptsEffectState(IEffectState state)
-        {
-            if (state == null)
-                throw new ArgumentNullException(nameof(state));
-            return EffectStateType == state.GetType();
-        }
 
         /// <summary>
         /// Gets the definition's immutable middleware registrations.
@@ -81,7 +51,6 @@ namespace Game.Rules.Runtime
             new List<MiddlewareRegistration>();
         private readonly List<FactListenerRegistration> factListeners =
             new List<FactListenerRegistration>();
-        private Type effectStateType;
         private long registrationOrder;
 
         internal RuleDefinitionBuilder(RuleDefinitionId id)
@@ -95,36 +64,6 @@ namespace Game.Rules.Runtime
         /// Gets the stable ID assigned to the definition under construction.
         /// </summary>
         public RuleDefinitionId Id { get; }
-
-        /// <summary>
-        /// Declares the exact immutable state type accepted by active instances of this definition.
-        /// </summary>
-        /// <typeparam name="TState">The definition-owned immutable state value type.</typeparam>
-        /// <returns>This definition builder so registrations can be chained.</returns>
-        /// <exception cref="InvalidOperationException">
-        /// A state type was already declared, or <typeparamref name="TState"/> is not concrete.
-        /// </exception>
-        public RuleDefinitionBuilder EffectState<TState>()
-            where TState : IEffectState
-        {
-            if (effectStateType != null)
-            {
-                throw new InvalidOperationException(
-                    $"Definition {Id.Value} already declares effect state {effectStateType.Name}."
-                );
-            }
-
-            Type declaredType = typeof(TState);
-            if (declaredType.IsInterface || declaredType.IsAbstract)
-            {
-                throw new InvalidOperationException(
-                    $"Definition {Id.Value} requires a concrete effect state type, not {declaredType.Name}."
-                );
-            }
-
-            effectStateType = declaredType;
-            return this;
-        }
 
         /// <summary>
         /// Adds one typed middleware extension to this definition.
@@ -220,7 +159,6 @@ namespace Game.Rules.Runtime
             FactListenerRegistration[] listenerCopy = factListeners.ToArray();
             return new RuleDefinition(
                 Id,
-                effectStateType,
                 Array.AsReadOnly(middlewareCopy),
                 Array.AsReadOnly(listenerCopy)
             );

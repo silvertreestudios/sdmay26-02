@@ -15,33 +15,6 @@ namespace Game.Rules.Runtime.Tests
         private static readonly RuleSource Source = RuleSource.FromSlug("test-aura-source");
 
         [Test]
-        public void DefinitionDeclaresOneExactEffectStateType()
-        {
-            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
-            RuleDefinitionBuilder definition = registryBuilder.Define(DefinitionId);
-            definition.EffectState<AuraEffectState>();
-            RuleDefinition built = registryBuilder.Build().Definitions[0];
-
-            Assert.That(built.SupportsActiveEffects, Is.True);
-            Assert.That(built.EffectStateType, Is.EqualTo(typeof(AuraEffectState)));
-            Assert.That(built.AcceptsEffectState(new AuraEffectState(1)), Is.True);
-            Assert.That(built.AcceptsEffectState(new OtherEffectState()), Is.False);
-            Assert.Throws<InvalidOperationException>(() =>
-                definition.EffectState<OtherEffectState>()
-            );
-            Assert.Throws<InvalidOperationException>(() =>
-                new RuleRegistryBuilder()
-                    .Define(new RuleDefinitionId("interface-state"))
-                    .EffectState<IEffectState>()
-            );
-            Assert.Throws<InvalidOperationException>(() =>
-                new RuleRegistryBuilder()
-                    .Define(new RuleDefinitionId("abstract-state"))
-                    .EffectState<AbstractEffectState>()
-            );
-        }
-
-        [Test]
         public void CreateAtomicallyCommitsTypedEffectBindingAndFact()
         {
             RuleRegistry registry = CreateRegistry();
@@ -75,7 +48,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void CreateRejectsWrongStateTypeWithoutPartialBindingWrite()
+        public void CreateEstablishesExactStateTypeOnTheInstance()
         {
             RuleRegistry registry = CreateRegistry();
             InMemoryRulesStore store = new InMemoryRulesStore();
@@ -86,8 +59,37 @@ namespace Game.Rules.Runtime.Tests
                 new CreateActiveEffectReducer(registry)
             );
 
+            Assert.That(result.IsAccepted, Is.True);
+            Assert.That(result.DidCommit, Is.True);
+            Assert.That(
+                result.Snapshot.ActiveEffects[EffectId].GetState<OtherEffectState>(),
+                Is.SameAs(effect.State)
+            );
+            ActiveEffectCreatedFact fact = (ActiveEffectCreatedFact)result.Facts.Single();
+            Assert.That(fact.StateType, Is.EqualTo(typeof(OtherEffectState)));
+        }
+
+        [Test]
+        public void CreateRejectsUnknownDefinitionWithoutPartialBindingWrite()
+        {
+            RuleDefinitionId unknownDefinition = new RuleDefinitionId("unknown-effect");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                EffectId,
+                unknownDefinition,
+                SourceCreature,
+                Source,
+                EffectDuration.OneMinute,
+                new AuraEffectState(1)
+            );
+            InMemoryRulesStore store = new InMemoryRulesStore();
+
+            ReductionResult<ActiveEffectCreationOutcome> result = store.Reduce(
+                Context(new CreateActiveEffectOp(effect, CreateBinding(effect))),
+                new CreateActiveEffectReducer(CreateRegistry())
+            );
+
             Assert.That(result.IsRejected, Is.True);
-            Assert.That(result.RejectionReason, Does.Contain(nameof(AuraEffectState)));
+            Assert.That(result.RejectionReason, Does.Contain("unknown"));
             Assert.That(result.DidCommit, Is.False);
             Assert.That(result.Snapshot.ActiveEffects, Is.Empty);
             Assert.That(result.Snapshot.RuleBindings, Is.Empty);
@@ -111,7 +113,6 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public void UpdateUsesExactStateTypeAndOptimisticVersionWithoutMutatingOldSnapshot()
         {
-            RuleRegistry registry = CreateRegistry();
             ActiveEffectInstance original = CreateEffect(new AuraEffectState(1));
             InMemoryRulesStore store = CreateSeededStore(original);
             RulesSnapshot oldSnapshot = store.Snapshot;
@@ -125,7 +126,7 @@ namespace Game.Rules.Runtime.Tests
                         Source
                     )
                 ),
-                new UpdateActiveEffectStateReducer(registry)
+                new UpdateActiveEffectStateReducer()
             );
 
             Assert.That(updated.IsAccepted, Is.True);
@@ -151,7 +152,7 @@ namespace Game.Rules.Runtime.Tests
                         Source
                     )
                 ),
-                new UpdateActiveEffectStateReducer(registry)
+                new UpdateActiveEffectStateReducer()
             );
 
             Assert.That(stale.IsRejected, Is.True);
@@ -167,10 +168,9 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public void UpdateRejectsUnknownWrongTypeAndExpiredEffectsAsTypedResults()
         {
-            RuleRegistry registry = CreateRegistry();
             ActiveEffectInstance active = CreateEffect(new AuraEffectState(1));
             InMemoryRulesStore store = CreateSeededStore(active);
-            UpdateActiveEffectStateReducer reducer = new UpdateActiveEffectStateReducer(registry);
+            UpdateActiveEffectStateReducer reducer = new UpdateActiveEffectStateReducer();
 
             ReductionResult<ActiveEffectStateUpdateOutcome> unknown = store.Reduce(
                 Context(
@@ -362,7 +362,7 @@ namespace Game.Rules.Runtime.Tests
         private static RuleRegistry CreateRegistry()
         {
             RuleRegistryBuilder builder = new RuleRegistryBuilder();
-            builder.Define(DefinitionId).EffectState<AuraEffectState>();
+            builder.Define(DefinitionId);
             return builder.Build();
         }
 
@@ -415,8 +415,6 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class OtherEffectState : IEffectState { }
-
-        private abstract class AbstractEffectState : IEffectState { }
 
         private sealed class UpdateWorkflowOp : IRuleOp<OpResult<ActiveEffectStateUpdateOutcome>>
         {
