@@ -4,16 +4,16 @@ using System.Threading.Tasks;
 namespace Game.Rules.Runtime
 {
     /// <summary>
-    /// Describes one Unity-free typed choice without prescribing how a player, AI, replay, or test
-    /// supplies its answer.
+    /// Describes one Unity-free typed choice required before an action can create its root
+    /// operation, without prescribing how a player, AI, replay, or test supplies the answer.
     /// </summary>
     /// <typeparam name="TSelection">The complete value produced by this request.</typeparam>
-    public abstract class SelectionRequest<TSelection>
+    public abstract class ActionSelectionRequest<TSelection>
     {
         /// <summary>
         /// Initializes the common request contract for a feature-defined immutable request.
         /// </summary>
-        protected SelectionRequest() { }
+        protected ActionSelectionRequest() { }
 
         /// <summary>
         /// Determines whether a completed answer belongs to the immutable choices represented by
@@ -32,14 +32,14 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Resolves any typed selection request through a presentation, planner, replay, or test
-    /// boundary.
+    /// Resolves any typed action selection request through a presentation, planner, replay, or
+    /// test boundary.
     /// </summary>
     /// <remarks>
-    /// Feature work introduces concrete <see cref="SelectionRequest{TSelection}"/> types only when
-    /// their real interaction is implemented. This generic contract therefore remains stable as
-    /// new actions require different choices. Resolvers return plain Unity-free values and do not
-    /// dispatch operations or mutate rules state.
+    /// Feature work introduces concrete <see cref="ActionSelectionRequest{TSelection}"/> types only
+    /// when their real interaction is implemented. This generic contract therefore remains stable
+    /// as new actions require different choices. Resolvers return plain Unity-free values and do
+    /// not dispatch operations or mutate rules state.
     /// </remarks>
     public interface ISelectionResolver
     {
@@ -51,7 +51,7 @@ namespace Game.Rules.Runtime
         /// </param>
         /// <returns>A completed, cancelled, or invalid outcome.</returns>
         ValueTask<SelectionOutcome<TSelection>> Select<TSelection>(
-            SelectionRequest<TSelection> request,
+            ActionSelectionRequest<TSelection> request,
             CancellationToken cancellationToken
         );
     }

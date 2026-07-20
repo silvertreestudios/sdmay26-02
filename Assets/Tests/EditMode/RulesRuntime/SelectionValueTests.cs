@@ -48,7 +48,7 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public void GenericRequestDelegatesValidationToConcreteContract()
         {
-            TestSelectionRequest<int> request = new TestSelectionRequest<int>(
+            TestActionSelectionRequest<int> request = new TestActionSelectionRequest<int>(
                 "positive-value",
                 value => value > 0
             );

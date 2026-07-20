@@ -26,7 +26,7 @@ namespace Game.Rules.Runtime.Tests
         public int Remaining => outcomes.Count;
 
         public ValueTask<SelectionOutcome<TSelection>> Select<TSelection>(
-            SelectionRequest<TSelection> request,
+            ActionSelectionRequest<TSelection> request,
             CancellationToken cancellationToken
         )
         {
@@ -55,11 +55,12 @@ namespace Game.Rules.Runtime.Tests
     /// Supplies a named test-only validation predicate for the generic request contract.
     /// </summary>
     /// <typeparam name="TSelection">The value validated by the request.</typeparam>
-    internal sealed class TestSelectionRequest<TSelection> : SelectionRequest<TSelection>
+    internal sealed class TestActionSelectionRequest<TSelection>
+        : ActionSelectionRequest<TSelection>
     {
         private readonly Func<TSelection, bool> accepts;
 
-        public TestSelectionRequest(string name, Func<TSelection, bool> accepts)
+        public TestActionSelectionRequest(string name, Func<TSelection, bool> accepts)
         {
             if (string.IsNullOrWhiteSpace(name))
                 throw new ArgumentException("A test request name is required.", nameof(name));

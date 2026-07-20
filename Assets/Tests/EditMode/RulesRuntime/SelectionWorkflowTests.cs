@@ -39,14 +39,15 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task OrderedChoicesRunInSequence()
         {
-            TestSelectionRequest<int> firstRequest = new TestSelectionRequest<int>(
+            TestActionSelectionRequest<int> firstRequest = new TestActionSelectionRequest<int>(
                 "positive-number",
                 value => value > 0
             );
-            TestSelectionRequest<string> secondRequest = new TestSelectionRequest<string>(
-                "matching-label",
-                value => value == "chosen"
-            );
+            TestActionSelectionRequest<string> secondRequest =
+                new TestActionSelectionRequest<string>(
+                    "matching-label",
+                    value => value == "chosen"
+                );
             ScriptedSelectionResolver resolver = new ScriptedSelectionResolver(
                 SelectionOutcome<int>.Completed(3),
                 SelectionOutcome<string>.Completed("chosen")
@@ -71,7 +72,7 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task SelectProjectsCompletedValue()
         {
-            TestSelectionRequest<int> request = new TestSelectionRequest<int>(
+            TestActionSelectionRequest<int> request = new TestActionSelectionRequest<int>(
                 "projection-input",
                 value => value == 4
             );
@@ -93,11 +94,12 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task CancellationShortCircuitsDependentSelection()
         {
-            TestSelectionRequest<CreatureId> firstRequest = new TestSelectionRequest<CreatureId>(
-                "cancel-first",
-                value => value == Target
-            );
-            TestSelectionRequest<bool> secondRequest = new TestSelectionRequest<bool>(
+            TestActionSelectionRequest<CreatureId> firstRequest =
+                new TestActionSelectionRequest<CreatureId>(
+                    "cancel-first",
+                    value => value == Target
+                );
+            TestActionSelectionRequest<bool> secondRequest = new TestActionSelectionRequest<bool>(
                 "never-run",
                 _ => true
             );
@@ -125,11 +127,12 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task OutOfRequestValueBecomesInvalidAndSkipsDependentSelection()
         {
-            TestSelectionRequest<CreatureId> firstRequest = new TestSelectionRequest<CreatureId>(
-                "restricted-target",
-                value => value == Target
-            );
-            TestSelectionRequest<bool> secondRequest = new TestSelectionRequest<bool>(
+            TestActionSelectionRequest<CreatureId> firstRequest =
+                new TestActionSelectionRequest<CreatureId>(
+                    "restricted-target",
+                    value => value == Target
+                );
+            TestActionSelectionRequest<bool> secondRequest = new TestActionSelectionRequest<bool>(
                 "never-run",
                 _ => true
             );
@@ -161,11 +164,11 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task InvalidOutcomeShortCircuitsDependentSelection()
         {
-            TestSelectionRequest<int> firstRequest = new TestSelectionRequest<int>(
+            TestActionSelectionRequest<int> firstRequest = new TestActionSelectionRequest<int>(
                 "invalid-first",
                 _ => true
             );
-            TestSelectionRequest<bool> secondRequest = new TestSelectionRequest<bool>(
+            TestActionSelectionRequest<bool> secondRequest = new TestActionSelectionRequest<bool>(
                 "never-run",
                 _ => true
             );
@@ -193,11 +196,11 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task CancellationTokenDiscardsLateResultAndSkipsDependentSelection()
         {
-            TestSelectionRequest<int> firstRequest = new TestSelectionRequest<int>(
+            TestActionSelectionRequest<int> firstRequest = new TestActionSelectionRequest<int>(
                 "pending-first",
                 value => value == 1
             );
-            TestSelectionRequest<bool> secondRequest = new TestSelectionRequest<bool>(
+            TestActionSelectionRequest<bool> secondRequest = new TestActionSelectionRequest<bool>(
                 "never-run",
                 _ => true
             );
@@ -234,7 +237,7 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task PreCancelledWorkflowDoesNotInvokeResolver()
         {
-            TestSelectionRequest<int> request = new TestSelectionRequest<int>(
+            TestActionSelectionRequest<int> request = new TestActionSelectionRequest<int>(
                 "pre-cancelled",
                 _ => true
             );
@@ -279,7 +282,7 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public void MissingResolverOutcomeThrows()
         {
-            TestSelectionRequest<int> request = new TestSelectionRequest<int>(
+            TestActionSelectionRequest<int> request = new TestActionSelectionRequest<int>(
                 "missing-outcome",
                 _ => true
             );
@@ -327,7 +330,7 @@ namespace Game.Rules.Runtime.Tests
                 CreatureId actor
             ) =>
                 SelectionWorkflow.From(
-                    new TestSelectionRequest<CreatureId>(
+                    new TestActionSelectionRequest<CreatureId>(
                         "test-one-click-target",
                         selection => selection == target
                     )

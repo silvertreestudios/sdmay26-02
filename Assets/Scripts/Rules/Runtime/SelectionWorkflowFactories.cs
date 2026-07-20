@@ -10,11 +10,11 @@ namespace Game.Rules.Runtime
         /// <param name="request">The required immutable request resolved by the workflow boundary.</param>
         /// <returns>
         /// A workflow that verifies a completed resolver answer against
-        /// <see cref="SelectionRequest{TSelection}.Accepts"/>.
+        /// <see cref="ActionSelectionRequest{TSelection}.Accepts"/>.
         /// </returns>
         /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
         public static SelectionWorkflow<TSelection> From<TSelection>(
-            SelectionRequest<TSelection> request
+            ActionSelectionRequest<TSelection> request
         )
         {
             if (request == null)
