@@ -125,6 +125,29 @@ namespace Game.Rules.Runtime
             return this;
         }
 
+        internal RuleDispatcherBuilder RegisterEngineReducer<TOp, TResult>(
+            IOpReducer<TOp, TResult> reducer,
+            RuleSource source
+        )
+            where TOp : IRuleOp<TResult>
+        {
+            if (reducer == null)
+                throw new ArgumentNullException(nameof(reducer));
+            if (source.IsEmpty)
+                throw new ArgumentException(
+                    "An engine reducer registration requires a rule source.",
+                    nameof(source)
+                );
+            Add(
+                new ReducerRegistration<TOp, TResult>(
+                    reducer,
+                    source,
+                    ResolverMiddlewarePolicy.Disabled
+                )
+            );
+            return this;
+        }
+
         /// <summary>
         /// Configures the mandatory action lifecycle with definition-backed profiles and the
         /// identity profile resolver.
