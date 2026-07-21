@@ -172,6 +172,26 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
+    /// Verifies a party controller destroyed after initialization does not prevent a surviving
+    /// member from becoming the exploration leader.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator LeaderSelectionIgnoresDestroyedPartyReference()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(2, 0, 1), new Vector3Int(1, 0, 1) }
+        );
+        ActionController survivingMember = fixture.Party[1].Controller;
+
+        Object.DestroyImmediate(fixture.Party[0].GameObject);
+
+        Assert.That(fixture.Runtime.CanSelectExplorationLeader(survivingMember), Is.True);
+        Assert.That(fixture.Presentation.TrySelect(survivingMember), Is.True);
+        Assert.That(survivingMember.IsInDungeonExploration, Is.True);
+        yield break;
+    }
+
+    /// <summary>
     /// Verifies a follower whose exit event rejects movement remains in place and prevents every
     /// downstream follower from moving into an invalid partial chain.
     /// </summary>

@@ -443,7 +443,7 @@ namespace Game.Combat.Encounters
             && !combatManager.IsCombatActive
             && party.Contains(candidate)
             && CanObserve(candidate)
-            && party.All(member => member != null && !member.IsTakingAction);
+            && party.All(member => member == null || !member.IsTakingAction);
 
         private void Initialize(
             DungeonLevelDocument document,
