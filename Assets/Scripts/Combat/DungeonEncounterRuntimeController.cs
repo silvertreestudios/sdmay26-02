@@ -218,7 +218,11 @@ namespace Game.Combat.Encounters
         /// </returns>
         /// <remarks>
         /// Opening is free for any adjacent living party member during exploration and costs the
-        /// current living PC exactly one action in combat. Generated doors are open-only in V1.
+        /// current living PC exactly one action in combat. The actor's normal action-in-progress
+        /// reservation serializes competing interaction requests while an authoritative action
+        /// spend waits behind another rules root. The cost commits before Unity door state changes,
+        /// so a rejected spend cannot partially change visuals, navigation, persistence, or events.
+        /// Generated doors are open-only in V1.
         /// </remarks>
         public async ValueTask<bool> TryOpenDoorAsync(DungeonCell doorCell)
         {
@@ -266,13 +270,24 @@ namespace Game.Combat.Encounters
                     actor.ActionPoints
                 )
             );
-            if (!decision.IsAllowed || !door.TryOpen())
+            if (!decision.IsAllowed)
                 return false;
 
-            await actor.SpendActionsAsync(decision.ActionCost);
-            openDoorIds.Add(door.StableId);
-            DoorOpened(door.StableId);
-            return true;
+            actor.IsTakingAction = true;
+            try
+            {
+                await actor.SpendActionsAsync(decision.ActionCost);
+                if (!door.TryOpen())
+                    return false;
+
+                openDoorIds.Add(door.StableId);
+                DoorOpened(door.StableId);
+                return true;
+            }
+            finally
+            {
+                actor.IsTakingAction = false;
+            }
         }
 
         /// <summary>Attempts to select one living party member as the exploration leader.</summary>
