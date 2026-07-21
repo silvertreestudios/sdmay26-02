@@ -43,6 +43,10 @@ namespace Game.Rules.Runtime
         /// <param name="encounter">The new encounter identity.</param>
         /// <param name="protagonistTeam">The player/protagonist team.</param>
         /// <param name="participants">Unique creatures in deterministic registration order.</param>
+        /// <exception cref="ArgumentException">
+        /// An identity is empty, the participant roster is invalid, or no participant belongs to
+        /// <paramref name="protagonistTeam"/>.
+        /// </exception>
         public StartEncounterOp(
             EncounterId encounter,
             PlayerId protagonistTeam,
@@ -51,9 +55,17 @@ namespace Game.Rules.Runtime
         {
             if (encounter.IsEmpty || protagonistTeam.IsEmpty)
                 throw new ArgumentException("Encounter and protagonist team IDs are required.");
+            IReadOnlyList<EncounterParticipant> copied = EncounterOperationValues.CopyParticipants(
+                participants
+            );
+            if (!copied.Any(participant => participant.Team == protagonistTeam))
+                throw new ArgumentException(
+                    "At least one encounter participant must belong to the protagonist team.",
+                    nameof(participants)
+                );
             Encounter = encounter;
             ProtagonistTeam = protagonistTeam;
-            Participants = EncounterOperationValues.CopyParticipants(participants);
+            Participants = copied;
         }
     }
 

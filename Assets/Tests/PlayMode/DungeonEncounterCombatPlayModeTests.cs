@@ -209,7 +209,13 @@ public sealed class DungeonEncounterCombatPlayModeTests
         PrepareBarbarian(player.Creature);
         player.Creature.passives.Add("Zombie-Fist");
         PreparedCharacter preparedBefore = player.Creature.Prepared;
+        HealthState healthBefore = player.Creature.Health;
         int actionsBefore = player.Controller.GetActions().Count;
+        uint actionPointsBefore = player.Controller.ActionPoints;
+        uint strikePenaltyBefore = player.Controller.StrikePenalty;
+        bool reactedBefore = player.Controller.Reacted;
+        bool turnAuthorityBefore = player.Controller.HasTurnAuthority;
+        bool reservationBefore = player.Controller.IsTakingAction;
         BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: true);
         RuleDispatcher failedDispatcher = null;
         UnityEncounterRulesBridge failedBridge = null;
@@ -222,7 +228,28 @@ public sealed class DungeonEncounterCombatPlayModeTests
             failedDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
         };
         Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        bool inactiveObserved = false;
+        bool inactiveSawRestoredState = false;
+        Action<bool> observeRollback = active =>
+        {
+            if (active)
+                return;
+            inactiveObserved = true;
+            inactiveSawRestoredState =
+                ReferenceEquals(player.Creature.Prepared, preparedBefore)
+                && !player.Creature.Prepared.HasActiveEffect("rage")
+                && player.Creature.Health == healthBefore
+                && !player.Creature.HasTempHpImmunity("rage")
+                && player.Controller.GetActions().Count == actionsBefore
+                && player.Controller.ActionPoints == actionPointsBefore
+                && player.Controller.StrikePenalty == strikePenaltyBefore
+                && player.Controller.Reacted == reactedBefore
+                && player.Controller.HasTurnAuthority == turnAuthorityBefore
+                && player.Controller.IsTakingAction == reservationBefore
+                && GetCreatureEncounterBridge(player.Creature) == null;
+        };
         manager.CombatActivityChanged += installFailureAtActivation;
+        manager.CombatActivityChanged += observeRollback;
         OnCombatStart.AddListener(observeDurableStart);
 
         try
@@ -258,6 +285,12 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Assert.That(player.Controller.GetActions(), Has.Count.EqualTo(actionsBefore));
             Assert.That(GetCreatureEncounterBridge(player.Creature), Is.Null);
             Assert.That(durableStartNotifications, Is.Zero);
+            Assert.That(inactiveObserved, Is.True);
+            Assert.That(
+                inactiveSawRestoredState,
+                Is.True,
+                "Inactive observers must see the restored checkpoint and released failed bridge."
+            );
             Assert.Throws<InvalidOperationException>(() =>
                 failedBridge.GetCreatureId(player.Creature)
             );
@@ -269,6 +302,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         finally
         {
             manager.CombatActivityChanged -= installFailureAtActivation;
+            manager.CombatActivityChanged -= observeRollback;
             OnCombatStart.RemoveListener(observeDurableStart);
             blocker.Release();
             failedDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);

@@ -161,7 +161,9 @@ namespace Game.Rules.Unity
 
         /// <summary>Creates one bridge with the production random roll service.</summary>
         /// <param name="encounterControllers">Unique controllers seeded into this composition.</param>
-        /// <param name="protagonistTeamName">The display name used to locate the player team.</param>
+        /// <param name="protagonistTeamName">
+        /// The exact trimmed display name used to locate the player team with ordinal matching.
+        /// </param>
         /// <returns>A bridge whose components project the shared initial health snapshot.</returns>
         public static UnityEncounterRulesBridge Create(
             IEnumerable<ActionController> encounterControllers,
@@ -170,7 +172,9 @@ namespace Game.Rules.Unity
 
         /// <summary>Creates one bridge with an explicit roll service for deterministic composition.</summary>
         /// <param name="encounterControllers">Unique controllers seeded into this composition.</param>
-        /// <param name="protagonistTeamName">The display name used to locate the player team.</param>
+        /// <param name="protagonistTeamName">
+        /// The exact trimmed display name used to locate the player team with ordinal matching.
+        /// </param>
         /// <param name="rolls">The initiative roll service shared by the dispatcher.</param>
         /// <returns>A bridge ready to start one authoritative encounter.</returns>
         public static UnityEncounterRulesBridge Create(
@@ -914,17 +918,8 @@ namespace Game.Rules.Unity
                 : team.Name.Trim();
         }
 
-        private bool TryFindTeam(string displayName, out PlayerId id)
-        {
-            foreach (KeyValuePair<string, PlayerId> pair in teamIds)
-                if (string.Equals(pair.Key, displayName, StringComparison.OrdinalIgnoreCase))
-                {
-                    id = pair.Value;
-                    return true;
-                }
-            id = default;
-            return false;
-        }
+        private bool TryFindTeam(string displayName, out PlayerId id) =>
+            teamIds.TryGetValue(displayName, out id);
 
         private HealthChangeOriginId AllocateOrigin(RuleSource source)
         {

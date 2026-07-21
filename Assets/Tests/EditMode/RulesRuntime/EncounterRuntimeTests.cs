@@ -17,6 +17,81 @@ namespace Game.Rules.Runtime.Tests
         private static readonly RuleSource Source = RuleSource.FromSlug("encounter-test");
 
         [Test]
+        public void StartRequestRequiresProtagonistMembershipAfterRosterCopy()
+        {
+            ArgumentException missing = Assert.Throws<ArgumentException>(() =>
+                new StartEncounterOp(
+                    Encounter,
+                    Players,
+                    new[] { new EncounterParticipant(Enemy, Enemies, 0) }
+                )
+            );
+
+            Assert.That(missing.ParamName, Is.EqualTo("participants"));
+            Assert.That(missing.Message, Does.Contain("protagonist team"));
+            Assert.DoesNotThrow(() =>
+                new StartEncounterOp(
+                    Encounter,
+                    Players,
+                    new[]
+                    {
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0),
+                    }
+                )
+            );
+            Assert.DoesNotThrow(() =>
+                new StartEncounterOp(
+                    Encounter,
+                    Players,
+                    new[] { new EncounterParticipant(Hero, Players, 0) }
+                )
+            );
+        }
+
+        [Test]
+        public async Task CommitStartReducerRejectsRosterWithoutDesignatedProtagonist()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService());
+            InitiativeEntry[] roster = { Entry(Enemy, Enemies, 10, 0) };
+
+            OpResult<EncounterStartOutcome> result = await dispatcher.Dispatch(
+                new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
+            );
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<EncounterStartOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<EncounterStartOutcome>)result).Reason,
+                Does.Contain("designated protagonist team")
+            );
+            Assert.That(dispatcher.Snapshot.Encounters.Contains(Encounter), Is.False);
+        }
+
+        [Test]
+        public async Task StartAcceptsMixedAndSingleProtagonistTeamRosters()
+        {
+            RuleDispatcher mixedDispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
+            RuleDispatcher singleDispatcher = CreateDispatcher(new ScriptedRollService(20));
+
+            EncounterState mixed = Resolved(
+                await mixedDispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            ).Value.State;
+            EncounterState single = Resolved(
+                await singleDispatcher.Dispatch(Start(new EncounterParticipant(Hero, Players, 0)))
+            ).Value.State;
+
+            Assert.That(mixed.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(mixed.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
+            Assert.That(single.Phase, Is.EqualTo(EncounterPhase.Ended));
+            Assert.That(single.Outcome, Is.EqualTo(EncounterOutcome.PlayerVictory));
+        }
+
+        [Test]
         public async Task StartRollsThroughContextAndRetainsRegistrationOrderTies()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(12, 10));

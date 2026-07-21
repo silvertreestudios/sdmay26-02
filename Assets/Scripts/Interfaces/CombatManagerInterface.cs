@@ -42,7 +42,10 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// </summary>
     /// <remarks>
     /// The generation identifies the exact rejected startup. Dungeon lifecycle owners must ignore
-    /// notifications for older generations so a delayed failure cannot revert a later retry.
+    /// notifications for older generations so a delayed failure cannot revert a later retry. The
+    /// failed bridge, controller state, and startup checkpoint are restored before this event; the
+    /// manager publishes <see cref="CombatActivityChanged"/> with <see langword="false"/> only after
+    /// exact-generation dungeon compensation completes.
     /// </remarks>
     public abstract event Action<long> DungeonCombatStartupAborted;
 

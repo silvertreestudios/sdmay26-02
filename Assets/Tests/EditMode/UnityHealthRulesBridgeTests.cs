@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Game.Creature;
@@ -104,6 +105,69 @@ public sealed class UnityEncounterRulesBridgeTests
         {
             Object.DestroyImmediate(firstObject);
             Object.DestroyImmediate(secondObject);
+        }
+    }
+
+    [Test]
+    public async Task ProtagonistLookupUsesOrdinalIdentityForCaseVariantTeams()
+    {
+        GameObject lowerCaseObject = new GameObject("lower-case opposition");
+        GameObject protagonistObject = new GameObject("exact-case protagonist");
+        GameObject logObject = new GameObject("case-variant team combat log");
+        try
+        {
+            logObject.AddComponent<TestCombatLog>();
+            CreatureComponent lowerCase = lowerCaseObject.AddComponent<CreatureComponent>();
+            CreatureComponent protagonist = protagonistObject.AddComponent<CreatureComponent>();
+            lowerCase.InitializeHealthBeforeEncounter(10, 10);
+            protagonist.InitializeHealthBeforeEncounter(10, 10);
+            TestActionController lowerCaseController = PrepareController(
+                lowerCaseObject,
+                "players"
+            );
+            TestActionController protagonistController = PrepareController(
+                protagonistObject,
+                "Players"
+            );
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { lowerCaseController, protagonistController },
+                "Players",
+                new ScriptedRollService(20, 10)
+            );
+
+            EncounterState started = (
+                await bridge.StartEncounter(
+                    new ActionController[] { lowerCaseController, protagonistController }
+                )
+            ).State;
+            CreatureId lowerCaseId = bridge.GetCreatureId(lowerCase);
+            CreatureId protagonistId = bridge.GetCreatureId(protagonist);
+            PlayerId lowerCaseTeam = started
+                .Roster.Single(entry => entry.Creature == lowerCaseId)
+                .Team;
+            PlayerId exactCaseTeam = started
+                .Roster.Single(entry => entry.Creature == protagonistId)
+                .Team;
+
+            Assert.That(lowerCaseTeam, Is.Not.EqualTo(exactCaseTeam));
+            Assert.That(started.ProtagonistTeam, Is.EqualTo(exactCaseTeam));
+            Assert.That(bridge.GetTeamDisplayName(started.ProtagonistTeam), Is.EqualTo("Players"));
+
+            await protagonist.ApplyFinalDamageAsync(
+                protagonist.hp,
+                RuleSource.FromSlug("case-variant-protagonist-defeat")
+            );
+
+            EncounterState ended = bridge.Snapshot.Encounters[bridge.EncounterId];
+            Assert.That(ended.Phase, Is.EqualTo(EncounterPhase.Ended));
+            Assert.That(ended.Outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+            Assert.That(bridge.GetHealth(lowerCaseId).Current, Is.Positive);
+        }
+        finally
+        {
+            Object.DestroyImmediate(lowerCaseObject);
+            Object.DestroyImmediate(protagonistObject);
+            Object.DestroyImmediate(logObject);
         }
     }
 

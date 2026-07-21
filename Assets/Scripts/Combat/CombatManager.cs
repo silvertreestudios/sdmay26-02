@@ -827,25 +827,27 @@ public class CombatManager : CombatManagerInterface
     {
         if (!ReferenceEquals(encounterRules, startingBridge))
             return;
-        if (wasDungeonDirected)
-            NotifyDungeonCombatStartupAborted(startingGeneration);
+        PrepareCombatStateStop(cancelInFlightActions: false);
         try
         {
-            StopCombatState(cancelInFlightActions: false);
+            startingBridge.DiscardStartupPresentationBuffer();
+            startingBridge.ReleaseHostOwnership();
         }
         finally
         {
-            try
-            {
-                startingBridge.DiscardStartupPresentationBuffer();
-                startingBridge.ReleaseHostOwnership();
-            }
-            finally
-            {
-                encounterRules = null;
-                startupCheckpoint.Restore();
-            }
+            encounterRules = null;
+            startupCheckpoint.Restore();
         }
+        // Keep the old generation logically active until its exact dungeon owner has compensated
+        // every activation. This prevents a callback-triggered retry from being touched by the
+        // remainder of the old abort while still restoring all host state before any inactive view.
+        if (wasDungeonDirected)
+            NotifyDungeonCombatStartupAborted(startingGeneration);
+        CommitCombatStateStop();
+        // Rejected startup joins are inactive-facing lifecycle completions. Publish them only after
+        // the failed checkpoint and exact dungeon activation transaction have both been restored.
+        SettlePendingDungeonReinforcementRequests();
+        PublishCombatInactive();
     }
 
     private void NotifyDungeonCombatStartupAborted(long generation)
@@ -938,12 +940,20 @@ public class CombatManager : CombatManagerInterface
 
     private void StopCombatState(bool cancelInFlightActions)
     {
+        // Preserve normal end/suspension ordering: pending join owners settle before the manager
+        // clears its active lifecycle, followed by the single inactive publication.
+        startupCombatants = Array.Empty<ActionController>();
+        SettlePendingDungeonReinforcementRequests();
+        PrepareCombatStateStop(cancelInFlightActions);
+        CommitCombatStateStop();
+        PublishCombatInactive();
+    }
+
+    private void PrepareCombatStateStop(bool cancelInFlightActions)
+    {
         // Pre-durable activity observers must never retain their selected-only projection after a
         // failed event, normal encounter cleanup, or a later exploration transition.
         startupCombatants = Array.Empty<ActionController>();
-        // A closed host cannot accept a still-queued join. Settle each lifecycle owner from the
-        // root-owned acceptance marker before inactive publication permits exploration or retry.
-        SettlePendingDungeonReinforcementRequests();
         ClearPendingEncounterCompletion();
         if (encounterRules != null)
         {
@@ -958,9 +968,17 @@ public class CombatManager : CombatManagerInterface
         }
         activeCombatants.Clear();
         pendingTurnEnd = null;
+    }
+
+    private void CommitCombatStateStop()
+    {
         combatActive = false;
         encounterReady = false;
         dungeonDirectedCombat = false;
+    }
+
+    private void PublishCombatInactive()
+    {
         CombatActivityChanged.Invoke(false);
     }
 

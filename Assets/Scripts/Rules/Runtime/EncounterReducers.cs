@@ -149,6 +149,10 @@ namespace Game.Rules.Runtime
                 return ReductionResult<EncounterStartOutcome>.Reject(
                     $"Encounter {context.Op.Encounter.Value} already exists."
                 );
+            if (!context.Op.Roster.Any(entry => entry.Team == context.Op.ProtagonistTeam))
+                return ReductionResult<EncounterStartOutcome>.Reject(
+                    "An encounter roster must contain its designated protagonist team."
+                );
             if (
                 context.Op.Roster.Select(entry => entry.Creature).Distinct().Count()
                 != context.Op.Roster.Count
