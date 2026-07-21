@@ -218,6 +218,9 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
                 );
         }
 
+        public bool IsSelectionValid(SpellCastContext context, SpellTargetSelection selection) =>
+            true;
+
         public ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
@@ -246,6 +249,9 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         {
             yield break;
         }
+
+        public bool IsSelectionValid(SpellCastContext context, SpellTargetSelection selection) =>
+            true;
 
         public async ValueTask<bool> Cast(
             SpellCastContext context,

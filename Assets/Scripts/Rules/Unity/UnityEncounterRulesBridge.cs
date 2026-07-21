@@ -593,7 +593,11 @@ namespace Game.Rules.Unity
                 EncounterState encounter = context.Snapshot.Encounters[context.Encounter];
                 ActionController actor = owner.GetController(context.Actor);
                 ActionController[] combatants = encounter
-                    .Roster.Select(entry => owner.GetController(entry.Creature))
+                    .Roster.Where(entry =>
+                        context.Snapshot.Health.TryGet(entry.Creature, out HealthState health)
+                        && health.Current > 0
+                    )
+                    .Select(entry => owner.GetController(entry.Creature))
                     .ToArray();
                 await CreatureAuraResolver.ApplyTurnStartAurasAwaited(
                     actor,

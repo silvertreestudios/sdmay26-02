@@ -19,8 +19,18 @@ public abstract class MultiFrameEntityAction : EntityAction
 
     private IEnumerator MFInvokeWithEndCheck(GameObject target)
     {
-        yield return MFInvoke(target);
-        CombatManager.GetInstance().CheckForEndOfGame();
+        ActionController owner = target.GetComponent<ActionController>();
+        try
+        {
+            yield return MFInvoke(target);
+        }
+        finally
+        {
+            // Completion owns this flag even when awaited rule work faults after the action began.
+            // Dungeon exploration presentation waits on it after encounter completion.
+            owner.IsTakingAction = false;
+            CombatManager.GetInstance().CheckForEndOfGame();
+        }
     }
 
     protected abstract IEnumerator MFInvoke(GameObject target);

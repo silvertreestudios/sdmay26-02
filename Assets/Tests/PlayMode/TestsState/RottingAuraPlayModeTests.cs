@@ -257,6 +257,95 @@ namespace TestsState
         }
 
         [UnityTest]
+        public IEnumerator DefeatedAuraOwnerRemainingActiveDoesNotDamageLaterActor()
+        {
+            yield return base.Setup();
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            Assert.That(grid, Is.Not.Null);
+            Tile[,] tiles = grid.GetTiles();
+            FindOpenLineOfThreeCells(
+                tiles,
+                out Vector3Int auraCell,
+                out Vector3Int currentCell,
+                out Vector3Int laterCell
+            );
+            CombatManager manager = Object.FindFirstObjectByType<CombatManager>();
+
+            GameObject auraOwner = CreatureJsonConverter.CreateFromFile(
+                "DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura"
+            );
+            cleanup.Add(auraOwner);
+            auraOwner.name = "defeated active aura owner";
+            TestActionController auraController = auraOwner.AddComponent<TestActionController>();
+            AddTeam(auraOwner, "Enemies");
+            MoveCombatant(tiles, auraOwner, auraCell);
+            GameObject visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                "Assets/KayKit/Prefabs/Animated/RangerAnimated.prefab"
+            );
+            GameObject visual = Object.Instantiate(visualPrefab, auraOwner.transform);
+            CreaturePresentation presentation = auraOwner.AddComponent<CreaturePresentation>();
+            presentation.Bind(
+                visual.GetComponent<CreatureAnimationController>(),
+                visual.GetComponent<CreatureEquipmentVisuals>()
+            );
+
+            GameObject current = CreateTarget("current player", 20, 20);
+            TestActionController currentController = current.GetComponent<TestActionController>();
+            AddTeam(current, "Players");
+            MoveCombatant(tiles, current, currentCell);
+
+            GameObject later = CreateTarget("later wounded player", 12, 20);
+            TestActionController laterController = later.GetComponent<TestActionController>();
+            AddTeam(later, "Players");
+            MoveCombatant(tiles, later, laterCell);
+
+            GameObject livingEnemy = CreateTarget("living opposition", 10, 10);
+            TestActionController livingEnemyController =
+                livingEnemy.GetComponent<TestActionController>();
+            AddTeam(livingEnemy, "Enemies");
+
+            current.GetComponent<CreatureComponent>().initiative = 1000;
+            later.GetComponent<CreatureComponent>().initiative = 500;
+            auraOwner.GetComponent<CreatureComponent>().initiative = 0;
+            livingEnemy.GetComponent<CreatureComponent>().initiative = -1000;
+            yield return StartControlledCombat(
+                manager,
+                new List<ActionController>
+                {
+                    currentController,
+                    laterController,
+                    auraController,
+                    livingEnemyController,
+                }
+            );
+            yield return WaitForActor(manager, current);
+            CreatureComponent auraCreature = auraOwner.GetComponent<CreatureComponent>();
+
+            yield return CoroutineRunner.Await(
+                auraCreature.ApplyFinalDamageAsync(
+                    auraCreature.hp,
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-defeated-aura-source")
+                )
+            );
+
+            Assert.That(
+                auraOwner.activeSelf,
+                Is.True,
+                "Death presentation should still be active."
+            );
+            Assert.That(auraCreature.hp, Is.Zero);
+            int hpBeforeLaterTurn = later.GetComponent<CreatureComponent>().hp;
+            manager.EndCurrentTurn(currentController);
+            yield return WaitForActor(manager, later);
+
+            Assert.That(
+                later.GetComponent<CreatureComponent>().hp,
+                Is.EqualTo(hpBeforeLaterTurn),
+                "A zero-HP aura source must not contribute while its death animation remains active."
+            );
+        }
+
+        [UnityTest]
         public IEnumerator CombatManagerSkipsAndDoesNotRequeueActorDefeatedDuringTurnStart()
         {
             yield return base.Setup();
@@ -348,8 +437,8 @@ namespace TestsState
 
             Assert.That(
                 manager.GetCombatants(),
-                Has.Member(defeatedActor),
-                "Defeated slots remain immutable timing boundaries in the encounter roster."
+                Has.No.Member(defeatedActor),
+                "Gameplay targeting must exclude defeated immutable timing slots."
             );
         }
 

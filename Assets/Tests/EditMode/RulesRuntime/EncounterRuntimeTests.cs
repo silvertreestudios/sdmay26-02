@@ -220,15 +220,81 @@ namespace Game.Rules.Runtime.Tests
                 )
             );
 
-            Resolved(result);
+            EncounterState returned = Resolved(result).Value.State;
             EncounterState state = dispatcher.Snapshot.Encounters[Encounter];
             Assert.That(adapter.Calls, Is.EqualTo(1));
             Assert.That(afterLethal.Actors, Is.Empty);
             Assert.That(dispatcher.Snapshot.Health[Hero].Current, Is.Zero);
             Assert.That(state.Phase, Is.EqualTo(EncounterPhase.Ended));
             Assert.That(state.Outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+            Assert.That(returned, Is.SameAs(state));
             Assert.That(began.Calls, Is.Zero);
             Assert.That(ended.Calls, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task StartReturnsSettledStateAfterLethalAdapterAdvancesToLivingAlly()
+        {
+            LethalTurnStartAdapter lethal = new LethalTurnStartAdapter(Hero);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 15, 10),
+                turnStartAdapters: new[] { lethal }
+            );
+
+            EncounterState returned = Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Reinforcement, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            ).Value.State;
+            EncounterState settled = dispatcher.Snapshot.Encounters[Encounter];
+
+            Assert.That(lethal.Calls, Is.EqualTo(1));
+            Assert.That(returned, Is.SameAs(settled));
+            Assert.That(returned.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(returned.CurrentTurn.Value.Actor, Is.EqualTo(Reinforcement));
+            Assert.That(returned.Round, Is.EqualTo(RoundNumber.First));
+            Assert.That(
+                returned.Roster.Select(entry => entry.Creature),
+                Is.EqualTo(new[] { Hero, Reinforcement, Enemy })
+            );
+        }
+
+        [Test]
+        public async Task EndTurnReturnsSettledStateAfterLethalAdapterAdvancesAgain()
+        {
+            LethalTurnStartAdapter lethal = new LethalTurnStartAdapter(Reinforcement);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 15, 10),
+                turnStartAdapters: new[] { lethal }
+            );
+            EncounterState heroTurn = Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Reinforcement, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            ).Value.State;
+
+            EncounterState returned = Resolved(
+                await dispatcher.Dispatch(new EndTurnOp(heroTurn.CurrentTurn.Value))
+            ).Value.State;
+            EncounterState settled = dispatcher.Snapshot.Encounters[Encounter];
+
+            Assert.That(lethal.Calls, Is.EqualTo(1));
+            Assert.That(returned, Is.SameAs(settled));
+            Assert.That(returned.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(returned.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
+            Assert.That(returned.Round, Is.EqualTo(RoundNumber.First));
+            Assert.That(
+                returned.Roster.Select(entry => entry.Creature),
+                Is.EqualTo(new[] { Hero, Reinforcement, Enemy })
+            );
         }
 
         [Test]

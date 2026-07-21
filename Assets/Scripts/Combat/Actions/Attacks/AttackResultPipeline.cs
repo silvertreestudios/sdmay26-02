@@ -181,7 +181,9 @@ internal sealed class MultipleAttackAndRangePenaltyAdjustment : StrikeAdjustment
     public override void Apply(StrikeResolutionContext context)
     {
         uint strikePenaltyCount =
-            context.AttackerObject.GetComponent<ActionController>()?.StrikePenalty ?? 0;
+            context.MultipleAttackCountOverride
+            ?? context.AttackerObject.GetComponent<ActionController>()?.StrikePenalty
+            ?? 0;
         context.MultipleAttackPenalty = CalculateMultipleAttackPenalty(context, strikePenaltyCount);
         context.RangePenalty = context.TargetingResult?.RangePenalty ?? 0;
 

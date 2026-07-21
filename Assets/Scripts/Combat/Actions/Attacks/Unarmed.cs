@@ -52,6 +52,12 @@ namespace Game.Strikes
             // null target value equates to canceled action
             if (target.Value != null && target.Value.Target != null)
             {
+                uint attackCount = ac == null ? 0 : ac.StrikePenalty;
+                if (ac != null)
+                {
+                    yield return CoroutineRunner.Await(PayCostAsync(ac));
+                    yield return CoroutineRunner.Await(ac.IncrementMultipleAttackPenaltyAsync());
+                }
                 CombatLog
                     .GetInstance()
                     .Log(
@@ -73,17 +79,11 @@ namespace Game.Strikes
                             Target = target.Value.Target,
                             Profile = Profile,
                             TargetingResult = target.Value,
+                            MultipleAttackCountOverride = attackCount,
                         }
                     )
                 );
-                if (ac)
-                {
-                    yield return CoroutineRunner.Await(PayCostAsync(ac));
-                    yield return CoroutineRunner.Await(ac.IncrementMultipleAttackPenaltyAsync());
-                }
             }
-            if (ac)
-                ac.IsTakingAction = false;
         }
 
         // adds default unarmed strike to creature, called from action controller awake()

@@ -54,6 +54,11 @@ namespace Game.Combat.Spells
         public bool SpendActions { get; }
         public ISpellDefinition Definition { get; }
 
+        /// <summary>
+        /// Gets the turn attack count captured before an attack spell commits its MAP increment.
+        /// </summary>
+        public uint? MultipleAttackCountOverride { get; internal set; }
+
         public SpellCastContext(
             GameObject caster,
             PreparedSpell spell,
@@ -126,7 +131,7 @@ namespace Game.Combat.Spells
             return CastAsync(context, new SpellTargetSelection(targets, area));
         }
 
-        /// <summary>Executes a validated cast context and awaits effects before costs and MAP.</summary>
+        /// <summary>Validates selection, commits costs and MAP, then awaits spell effects.</summary>
         /// <param name="context">The cast context and registered spell definition.</param>
         /// <param name="selection">The completed target selection.</param>
         /// <returns>The settled cast result.</returns>
@@ -156,31 +161,45 @@ namespace Game.Combat.Spells
             if (!state.CanCast(context.Spell))
                 return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
 
-            if (
-                !await context.Definition.Cast(
-                    context,
-                    selection ?? SpellTargetSelection.None,
-                    result
-                )
-            )
+            SpellTargetSelection selected = selection ?? SpellTargetSelection.None;
+            if (!context.Definition.IsSelectionValid(context, selected))
                 return Fail(result, "Spell target is invalid.", controller);
-            if (!state.Spend(context.Spell))
-                return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
-            if (controller != null && context.SpendActions)
+
+            bool appliesMap = context.Definition.AppliesMultipleAttackPenalty(context);
+            uint attackCount = controller == null ? 0 : controller.StrikePenalty;
+            try
             {
-                await controller.SpendActionsAsync(context.ActionCost);
-                if (context.Definition.AppliesMultipleAttackPenalty(context))
+                if (controller != null && context.SpendActions)
+                    await controller.SpendActionsAsync(context.ActionCost);
+                if (!state.Spend(context.Spell))
+                    throw new InvalidOperationException(
+                        "A validated spell slot became unavailable before commitment."
+                    );
+                if (controller != null && context.SpendActions && appliesMap)
+                {
+                    context.MultipleAttackCountOverride = attackCount;
                     await controller.IncrementMultipleAttackPenaltyAsync();
-                controller.IsTakingAction = false;
+                }
+
+                if (!await context.Definition.Cast(context, selected, result))
+                    throw new InvalidOperationException(
+                        "A spell rejected a selection after validating and committing its costs."
+                    );
+                result.Success = true;
+                if (!creature.IsDefeated)
+                    context
+                        .Caster.GetComponent<CreaturePresentation>()
+                        ?.PlayAttack(AnimationStyle.Magic);
+                CombatLogInterface log =
+                    UnityEngine.Object.FindFirstObjectByType<CombatLogInterface>();
+                log?.Log("- " + context.Caster.name + " casts " + context.Spell.Name + ".");
+                return result;
             }
-            result.Success = true;
-            if (!creature.IsDefeated)
-                context
-                    .Caster.GetComponent<CreaturePresentation>()
-                    ?.PlayAttack(AnimationStyle.Magic);
-            CombatLogInterface log = UnityEngine.Object.FindFirstObjectByType<CombatLogInterface>();
-            log?.Log("- " + context.Caster.name + " casts " + context.Spell.Name + ".");
-            return result;
+            finally
+            {
+                if (controller != null && context.SpendActions)
+                    controller.IsTakingAction = false;
+            }
         }
 
         public static int SpellAttackModifier(CreatureComponent caster)

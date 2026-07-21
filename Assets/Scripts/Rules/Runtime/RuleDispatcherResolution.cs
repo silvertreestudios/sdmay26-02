@@ -48,6 +48,13 @@ namespace Game.Rules.Runtime
             {
                 await NotifyFactListeners(rootId, SnapshotCommittedFacts(resolution, rootId));
             }
+            if (
+                result is ResolvedOpResult<TResult> resolved
+                && resolved.Value is ISettledOperationResult<TResult> settled
+            )
+            {
+                return OpResult<TResult>.Resolved(settled.Settle(Snapshot)).WithFacts(result.Facts);
+            }
             return result;
         }
 

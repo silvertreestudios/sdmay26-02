@@ -226,18 +226,33 @@ public class Pf2eClericSpellcastingTests
         CreatureComponent cleric = CreatePreparedCleric();
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
         controller.ActionPoints = 3;
+        controller.StrikePenalty = 1;
         controller.IsTakingAction = true;
         CreatureComponent target = CreateCreature("Target", 100, 100);
         target.transform.position = new Vector3(6, 0, 0);
         target.ac = 12;
         UnityEngine.Random.InitState(3);
         InstallTestCombatLog();
+        StrikeResolutionContext observed = null;
+        UnityEngine.Events.UnityAction<StrikeResolutionContext> listener = context =>
+            observed = context;
+        OnStrikePreparedEvent.AddListener(listener);
 
-        CastSpellResult result = await CastAsync("divine-lance", cleric, 2, target.gameObject);
+        CastSpellResult result;
+        try
+        {
+            result = await CastAsync("divine-lance", cleric, 2, target.gameObject);
+        }
+        finally
+        {
+            OnStrikePreparedEvent.RemoveListener(listener);
+        }
 
         Assert.That(result.Success, Is.True);
         Assert.That(controller.ActionPoints, Is.EqualTo(1));
-        Assert.That(controller.StrikePenalty, Is.EqualTo(1));
+        Assert.That(controller.StrikePenalty, Is.EqualTo(2));
+        Assert.That(observed, Is.Not.Null);
+        Assert.That(observed.MultipleAttackPenalty, Is.EqualTo(5));
     }
 
     private void InstallTestCombatLog()

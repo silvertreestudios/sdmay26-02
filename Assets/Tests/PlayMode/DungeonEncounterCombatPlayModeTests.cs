@@ -4,8 +4,12 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Threading.Tasks;
 using Game.Combat.Encounters;
+using Game.Combat.Spells;
 using Game.Creature;
+using Game.Creature.Rules;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
+using Game.Strikes;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
@@ -31,6 +35,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
         UnityEngine.Random.InitState(158);
 
         Create("TestCombatLog").AddComponent<TestCombatLog>();
+        TeamRules teamRules = Create("TeamRules").AddComponent<TeamRules>();
+        teamRules.AddFriendlyTeam("Players");
+        teamRules.AddHostileTeam("Enemies");
         manager = Create("CombatManager").AddComponent<CombatManager>();
     }
 
@@ -128,7 +135,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Assert.That(grid.DestroyedTokens, Contains.Item(enemy.GameObject));
             Assert.That(enemy.Controller.enabled, Is.False);
             Assert.That(enemy.GameObject.activeSelf, Is.False);
-            Assert.That(manager.GetCombatants(), Has.Member(enemy.GameObject));
+            Assert.That(manager.GetCombatants(), Has.No.Member(enemy.GameObject));
         }
         finally
         {
@@ -196,6 +203,105 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         Assert.That(manager.WhosTurn(), Is.SameAs(reinforcement.GameObject));
         Assert.That(reinforcement.Controller.StartTurnCount, Is.EqualTo(1));
+    }
+
+    /// <summary>Verifies a lethal final-opponent weapon Strike commits before its effect ends combat.</summary>
+    [UnityTest]
+    public IEnumerator LethalWeaponStrikeCommitsCostAndAlwaysCompletesActionLifecycle()
+    {
+        CombatantFixture player = CreateCombatant("Weapon Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Weapon Enemy", "Enemies", 0);
+        player.Creature.attackBonus = 100;
+        enemy.Creature.ac = -100;
+        enemy.Creature.InitializeHealthBeforeEncounter(1, 1);
+        EquipmentWeapon weapon = new()
+        {
+            name = "Lifecycle Test Sword",
+            damage = new Dice(1, 1, "slashing"),
+            traits = new List<string>(),
+        };
+        StrikeWeapon strike = new(1, weapon, player.GameObject);
+
+        yield return AssertLethalActionLifecycle(
+            player,
+            enemy,
+            strike,
+            expectedActionCost: 1,
+            configureGridTarget: true
+        );
+    }
+
+    /// <summary>Verifies a lethal final-opponent unarmed Strike commits before damage.</summary>
+    [UnityTest]
+    public IEnumerator LethalUnarmedStrikeCommitsCostAndAlwaysCompletesActionLifecycle()
+    {
+        CombatantFixture player = CreateCombatant("Unarmed Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Unarmed Enemy", "Enemies", 0);
+        player.Creature.attackBonus = 100;
+        enemy.Creature.ac = -100;
+        enemy.Creature.InitializeHealthBeforeEncounter(1, 1);
+        Unarmed strike = new(
+            1,
+            new List<Dice> { new Dice(1, 1, "bludgeoning") },
+            new List<DamageValue>()
+        );
+
+        yield return AssertLethalActionLifecycle(
+            player,
+            enemy,
+            strike,
+            expectedActionCost: 1,
+            configureGridTarget: true
+        );
+    }
+
+    /// <summary>Verifies a lethal attack spell commits actions and MAP before damage.</summary>
+    [UnityTest]
+    public IEnumerator LethalSpellCommitsCostAndAlwaysCompletesActionLifecycle()
+    {
+        CombatantFixture player = CreateCombatant("Spell Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Spell Enemy", "Enemies", 0);
+        player.Creature.level = 20;
+        player.Creature.wisMod = 20;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        enemy.Creature.ac = -100;
+        enemy.Creature.InitializeHealthBeforeEncounter(1, 1);
+        enemy.GameObject.transform.position = new Vector3(1, 0, 0);
+        PreparedSpell spell = player.Creature.Prepared.Spellcasting.GetSpell("divine-lance");
+        Assert.That(spell, Is.Not.Null);
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        RecordingFactObserver<LegacyActionsSpentFact> actions = new();
+        RecordingFactObserver<LegacyMapIncrementedFact> map = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(actions);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(map);
+        int completionCalls = 0;
+        manager.DungeonCombatEnded += _ => completionCalls++;
+        player.Controller.IsTakingAction = true;
+        CoroutineResult<CastSpellResult> cast = new();
+
+        yield return CoroutineRunner.Await(
+            SpellcastingRuntime.CastAsync(player.GameObject, spell, 2, new[] { enemy.GameObject }),
+            cast
+        );
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive && !player.Controller.IsTakingAction,
+            "Lethal spell completion left combat or action presentation deferred."
+        );
+
+        Assert.That(cast.Value.Success, Is.True);
+        Assert.That(actions.Facts, Has.Count.EqualTo(1));
+        Assert.That(actions.Facts[0].Amount, Is.EqualTo(2));
+        Assert.That(map.Facts, Has.Count.EqualTo(1));
+        Assert.That(map.Facts[0].AttackCount, Is.EqualTo(1));
+        Assert.That(completionCalls, Is.EqualTo(1));
+        Assert.That(player.Controller.IsTakingAction, Is.False);
     }
 
     /// <summary>Verifies suspension resets turn economy without changing durable creature state.</summary>
@@ -388,6 +494,75 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(manager.WhosTurn(), expected == null ? Is.Not.Null : Is.SameAs(expected));
     }
 
+    private IEnumerator AssertLethalActionLifecycle(
+        CombatantFixture player,
+        CombatantFixture enemy,
+        EntityAction action,
+        int expectedActionCost,
+        bool configureGridTarget
+    )
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Lifecycle Test GridAPI").AddComponent<TestGridAPI>();
+        if (configureGridTarget)
+            grid.StrikeTarget = enemy.GameObject;
+        singletonField.SetValue(null, grid);
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+            RuleDispatcher dispatcher = GetEncounterDispatcher();
+            RecordingFactObserver<LegacyActionsSpentFact> actions = new();
+            RecordingFactObserver<LegacyMapIncrementedFact> map = new();
+            dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(actions);
+            dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(map);
+            int completionCalls = 0;
+            manager.DungeonCombatEnded += _ => completionCalls++;
+
+            // A prior fixture's delayed OnDestroy can clear the generic singleton after this
+            // helper creates its replacement. Publish the selected grid at the invocation edge.
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(action);
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive && !player.Controller.IsTakingAction,
+                "Lethal Strike completion left combat or action presentation deferred."
+            );
+
+            Assert.That(actions.Facts, Has.Count.EqualTo(1));
+            Assert.That(actions.Facts[0].Amount, Is.EqualTo(expectedActionCost));
+            Assert.That(map.Facts, Has.Count.EqualTo(1));
+            Assert.That(map.Facts[0].AttackCount, Is.EqualTo(1));
+            Assert.That(completionCalls, Is.EqualTo(1));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
+    private RuleDispatcher GetEncounterDispatcher()
+    {
+        FieldInfo bridgeField = typeof(CombatManager).GetField(
+            "encounterRules",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        UnityEncounterRulesBridge bridge =
+            bridgeField.GetValue(manager) as UnityEncounterRulesBridge;
+        Assert.That(bridge, Is.Not.Null);
+        FieldInfo dispatcherField = typeof(UnityEncounterRulesBridge).GetField(
+            "dispatcher",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        RuleDispatcher dispatcher = dispatcherField.GetValue(bridge) as RuleDispatcher;
+        Assert.That(dispatcher, Is.Not.Null);
+        return dispatcher;
+    }
+
     private static IEnumerator WaitForCondition(Func<bool> condition, string timeoutMessage)
     {
         float deadline = Time.realtimeSinceStartup + 5f;
@@ -420,6 +595,13 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
     private static void DestroyExistingRuntime()
     {
+        foreach (
+            GridAPI grid in UnityEngine.Object.FindObjectsByType<GridAPI>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None
+            )
+        )
+            UnityEngine.Object.DestroyImmediate(grid.gameObject);
         foreach (
             GameManager gameManager in UnityEngine.Object.FindObjectsByType<GameManager>(
                 FindObjectsInactive.Include,
@@ -548,6 +730,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
     private sealed class TestGridAPI : GridAPI
     {
         public List<GameObject> DestroyedTokens { get; } = new();
+        public GameObject StrikeTarget { get; set; }
 
         public override IEnumerator Stride(GameObject character)
         {
@@ -560,6 +743,17 @@ public sealed class DungeonEncounterCombatPlayModeTests
             CoroutineResult<StrikeTargetResult> target
         )
         {
+            if (StrikeTarget != null)
+            {
+                target.Value = new StrikeTargetResult
+                {
+                    Target = StrikeTarget,
+                    DistanceFeet = 5,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                    Cover = StrikeCover.None,
+                    RangePenalty = 0,
+                };
+            }
             yield break;
         }
 
@@ -576,6 +770,20 @@ public sealed class DungeonEncounterCombatPlayModeTests
         {
             DestroyedTokens.Add(token);
             return true;
+        }
+    }
+
+    private sealed class RecordingFactObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        private readonly List<TFact> facts = new();
+
+        public IReadOnlyList<TFact> Facts => facts;
+
+        public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+        {
+            facts.Add(fact);
+            return default;
         }
     }
 }

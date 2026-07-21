@@ -58,12 +58,13 @@ public class CombatManager : CombatManagerInterface
                 out EncounterState encounter
             )
         )
-            return Combatants
-                .Where(value => value != null)
-                .Select(value => value.gameObject)
-                .ToList();
+            return Combatants.Where(CanParticipate).Select(value => value.gameObject).ToList();
         List<GameObject> ordered = encounter
-            .Roster.Select(entry => encounterRules.GetController(entry.Creature).gameObject)
+            .Roster.Where(entry =>
+                encounterRules.Snapshot.Health.TryGet(entry.Creature, out HealthState health)
+                && health.Current > 0
+            )
+            .Select(entry => encounterRules.GetController(entry.Creature).gameObject)
             .ToList();
         if (encounter.CurrentTurn.HasValue)
         {

@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using Game.Creature;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Strikes;
 using GridPrivate;
@@ -34,6 +35,50 @@ namespace TestsState
 
             Assert.IsInstanceOf<StrikeWeapon>(selected);
             Assert.AreEqual("Shortbow", selected.ActionName);
+        }
+
+        [UnityTest]
+        public IEnumerator EnemyIgnoresDefeatedTargetWhenLivingHostileRemains()
+        {
+            yield return base.Setup();
+            yield return null;
+
+            CombatManager manager = Object.FindFirstObjectByType<CombatManager>();
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            Assert.That(manager, Is.Not.Null);
+            Assert.That(grid, Is.Not.Null);
+            List<GameObject> playerTargets = manager
+                .GetCombatants()
+                .FindAll(combatant => combatant.GetComponent<PlayerActionController>() != null);
+            Assert.That(playerTargets, Has.Count.GreaterThanOrEqualTo(2));
+            GameObject defeatedTarget = playerTargets[0];
+            GameObject livingTarget = playerTargets[1];
+
+            GameObject enemy = CreateRangedEnemy(
+                "defeated-target-filter-ai",
+                CreateShortbow(),
+                1,
+                100
+            );
+            PlaceOnClearLine(grid.GetTiles(), enemy, livingTarget);
+            CreatureComponent defeatedCreature = defeatedTarget.GetComponent<CreatureComponent>();
+            yield return CoroutineRunner.Await(
+                defeatedCreature.ApplyFinalDamageAsync(
+                    defeatedCreature.hp + defeatedCreature.tempHp,
+                    RuleSource.FromSlug("test-ai-defeated-target")
+                )
+            );
+
+            Assert.That(manager.GetCombatants(), Has.No.Member(defeatedTarget));
+            Assert.That(manager.GetCombatants(), Has.Member(livingTarget));
+            MindlessController controller = enemy.GetComponent<MindlessController>();
+            controller.StartTurn();
+            controller.StopAllCoroutines();
+            EntityAction selected = controller.MindlessDecision();
+
+            Assert.That(selected, Is.TypeOf<StrikeWeapon>());
+            Assert.That(manager.GetCombatants(), Has.Member(controller.BestTarget));
+            Assert.That(controller.BestTarget, Is.Not.SameAs(defeatedTarget));
         }
 
         [UnityTest]

@@ -137,6 +137,7 @@ namespace TestsState
                 () =>
                     gridBase.Fsm.CurrentState is StateIdle
                     && player.GetComponent<PlayerActionController>().ActionPoints == 2
+                    && !player.GetComponent<PlayerActionController>().IsTakingAction
             );
 
             // check that we have transitioned to idle after an execution of strike

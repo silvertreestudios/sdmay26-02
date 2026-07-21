@@ -209,7 +209,7 @@ namespace Game.Strikes
 
             if (target.Value != null && target.Value.Target != null)
             {
-                if (cc != null && !cc.ConsumeAmmoFor(Weapon))
+                if (cc != null && (!cc.HasAmmoFor(Weapon) || !cc.IsWeaponLoaded(Weapon)))
                 {
                     CombatLog
                         .GetInstance()
@@ -218,6 +218,17 @@ namespace Game.Strikes
                         ac.IsTakingAction = false;
                     yield break;
                 }
+
+                uint attackCount = ac == null ? 0 : ac.StrikePenalty;
+                if (ac != null)
+                {
+                    yield return CoroutineRunner.Await(PayCostAsync(ac));
+                    yield return CoroutineRunner.Await(ac.IncrementMultipleAttackPenaltyAsync());
+                }
+                if (cc != null && !cc.ConsumeAmmoFor(Weapon))
+                    throw new System.InvalidOperationException(
+                        "Validated Strike ammunition became unavailable before its effect."
+                    );
 
                 CombatLog
                     .GetInstance()
@@ -241,18 +252,12 @@ namespace Game.Strikes
                             Target = target.Value.Target,
                             Profile = Profile,
                             TargetingResult = target.Value,
+                            MultipleAttackCountOverride = attackCount,
                         }
                     )
                 );
                 cc?.MarkWeaponFired(Weapon);
-                if (ac)
-                {
-                    yield return CoroutineRunner.Await(PayCostAsync(ac));
-                    yield return CoroutineRunner.Await(ac.IncrementMultipleAttackPenaltyAsync());
-                }
             }
-            if (ac)
-                ac.IsTakingAction = false;
         }
     }
 
