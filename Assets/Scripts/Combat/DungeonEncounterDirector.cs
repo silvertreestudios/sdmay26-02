@@ -27,6 +27,7 @@ namespace Game.Combat.Encounters
             StringComparer.Ordinal
         );
         private readonly HashSet<int> effectiveOccupiedRooms = new();
+        private PendingStartupActivation pendingStartupActivation;
         private bool isDisposed;
 
         /// <summary>Creates a director for one floor's lifecycle state and runtime dependencies.</summary>
@@ -110,6 +111,7 @@ namespace Game.Combat.Encounters
                     AddMaterialization(encounter);
                 }
             }
+            combatManager.DungeonCombatStartupAborted += OnDungeonCombatStartupAborted;
         }
 
         /// <summary>Raised after one materialized encounter creature is permanently defeated.</summary>
@@ -182,7 +184,28 @@ namespace Game.Combat.Encounters
                     throw new InvalidOperationException(
                         "The encounter lifecycle requested a new combat while combat is already active."
                     );
-                combatManager.StartDungeonCombat(livingParty.Concat(livingEnemies).ToArray());
+                PendingStartupActivation activation = new(result.Encounter.Plan.Id, before.State);
+                pendingStartupActivation = activation;
+                try
+                {
+                    long generation = combatManager.StartDungeonCombat(
+                        livingParty.Concat(livingEnemies).ToArray()
+                    );
+                    if (ReferenceEquals(pendingStartupActivation, activation))
+                        activation.Generation = generation;
+                }
+                catch
+                {
+                    if (ReferenceEquals(pendingStartupActivation, activation))
+                    {
+                        lifecycle.RestoreActivationAfterStartupAbort(
+                            activation.EncounterId,
+                            activation.PreviousState
+                        );
+                        pendingStartupActivation = null;
+                    }
+                    throw;
+                }
             }
             else
             {
@@ -372,6 +395,7 @@ namespace Game.Combat.Encounters
         {
             if (isDisposed)
                 return;
+            combatManager.DungeonCombatStartupAborted -= OnDungeonCombatStartupAborted;
             foreach (DungeonEncounterMaterialization materialization in materializations.Values)
             {
                 foreach (DungeonEncounterMember member in materialization.Members)
@@ -381,6 +405,21 @@ namespace Game.Combat.Encounters
                 }
             }
             isDisposed = true;
+        }
+
+        private void OnDungeonCombatStartupAborted(long generation)
+        {
+            if (isDisposed || pendingStartupActivation == null)
+                return;
+            PendingStartupActivation activation = pendingStartupActivation;
+            if (activation.Generation.HasValue && activation.Generation.Value != generation)
+                return;
+
+            lifecycle.RestoreActivationAfterStartupAbort(
+                activation.EncounterId,
+                activation.PreviousState
+            );
+            pendingStartupActivation = null;
         }
 
         private void AddMaterialization(DungeonEncounterGroupView encounter)
@@ -421,5 +460,21 @@ namespace Game.Combat.Encounters
 
         private static bool CanParticipate(ActionController controller) =>
             controller != null && controller.gameObject.activeSelf && controller.isActiveAndEnabled;
+
+        private sealed class PendingStartupActivation
+        {
+            internal PendingStartupActivation(
+                string encounterId,
+                DungeonEncounterGroupState previousState
+            )
+            {
+                EncounterId = encounterId;
+                PreviousState = previousState;
+            }
+
+            internal string EncounterId { get; }
+            internal DungeonEncounterGroupState PreviousState { get; }
+            internal long? Generation { get; set; }
+        }
     }
 }

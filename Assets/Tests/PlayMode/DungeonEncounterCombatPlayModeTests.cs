@@ -13,6 +13,7 @@ using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Strikes;
+using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
@@ -282,6 +283,167 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
         Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
         Assert.That(player.Controller.GetActions().OfType<Unarmed>(), Has.Count.EqualTo(1));
+    }
+
+    /// <summary>
+    /// Verifies failed first-turn rules discard every buffered Unity presentation side effect.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator FirstTurnAuraFailureDiscardsStartupPresentationAndRetriesCleanly()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        Assert.That(singletonField, Is.Not.Null);
+        object previousGrid = singletonField.GetValue(null);
+        StartupTestGridAPI grid = Create("Startup Transaction Grid")
+            .AddComponent<StartupTestGridAPI>();
+        singletonField.SetValue(null, grid);
+
+        CombatantFixture player = CreateCombatant("Startup Aura Player", "Players", 200);
+        CombatantFixture auraSource = CreateCombatant("Startup Aura Source", "Enemies", 100);
+        player.GameObject.transform.position = new Vector3(2f, 0f, 2f);
+        auraSource.GameObject.transform.position = new Vector3(3f, 0f, 2f);
+        player.Creature.InitializeHealthBeforeEncounter(1, 10);
+        auraSource.Creature.auras.Add(
+            new CreatureAura
+            {
+                name = "Rotting Aura",
+                slug = RottingAuraRule.RuleSlug,
+                radiusFeet = 10,
+                traits = new List<string> { "aura", "disease", "void" },
+            }
+        );
+        Token playerToken = player.GameObject.AddComponent<Token>();
+        auraSource.GameObject.AddComponent<Token>();
+        GameObject colliderOwner = Create("Startup Aura Player Collider");
+        colliderOwner.transform.SetParent(player.GameObject.transform);
+        BoxCollider targetCollider = colliderOwner.AddComponent<BoxCollider>();
+        ConditionSource preservedCondition = new();
+        player.Conditions.Add("Off-Guard", preservedCondition);
+        SpellEffectController spellEffects = SpellEffectController.GetOrAdd(player.GameObject);
+        spellEffects.AddOrRefresh(new ShieldSpellEffect(player.GameObject));
+
+        int deathPresentations = 0;
+        int turnPresentations = 0;
+        UnityAction<GameObject> observeDeath = defeated =>
+        {
+            if (defeated == player.GameObject)
+                deathPresentations++;
+        };
+        UnityAction<GameObject> observeTurn = actor =>
+        {
+            if (actor == player.GameObject)
+                turnPresentations++;
+        };
+        OnDeath.AddListener(observeDeath);
+        OnNextTurn.AddListener(observeTurn);
+
+        BlockingFactObserver<DamageAppliedFact> blocker = new(
+            failAfterRelease: true,
+            "deliberate startup aura observer failure"
+        );
+        UnityEncounterRulesBridge failedBridge = null;
+        RuleDispatcher failedDispatcher = null;
+        UnityAction installFailure = () =>
+        {
+            failedBridge = GetEncounterBridge();
+            failedDispatcher = GetEncounterDispatcher();
+            failedDispatcher.RegisterFactObserver<DamageAppliedFact>(blocker);
+        };
+        OnCombatStart.AddListener(installFailure);
+        bool firstAttemptCompleted = false;
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, auraSource.Controller });
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "Rotting Aura did not reach the awaited startup health observer."
+            );
+
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(player.Creature.hp, Is.EqualTo(1));
+            Assert.That(player.Creature.IsDefeated, Is.False);
+            Assert.That(player.GameObject.activeSelf, Is.True);
+            Assert.That(player.Controller.enabled, Is.True);
+            Assert.That(targetCollider.enabled, Is.True);
+            Assert.That(playerToken.IsRegistered, Is.True);
+            Assert.That(grid.Contains(player.GameObject), Is.True);
+            Assert.That(grid.DestroyedTokens, Is.Empty);
+            Assert.That(spellEffects.HasEffect<ShieldSpellEffect>(), Is.True);
+            Assert.That(player.Conditions.Contains("Off-Guard", preservedCondition), Is.True);
+            Assert.That(deathPresentations, Is.Zero);
+            Assert.That(turnPresentations, Is.Zero);
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate startup aura observer failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The failed first-turn transaction did not roll startup back."
+            );
+
+            Assert.That(player.Creature.hp, Is.EqualTo(1));
+            Assert.That(player.Creature.IsDefeated, Is.False);
+            Assert.That(player.GameObject.activeSelf, Is.True);
+            Assert.That(player.Controller.enabled, Is.True);
+            Assert.That(targetCollider.enabled, Is.True);
+            Assert.That(playerToken.IsRegistered, Is.True);
+            Assert.That(grid.Contains(player.GameObject), Is.True);
+            Assert.That(grid.DestroyedTokens, Is.Empty);
+            Assert.That(spellEffects.HasEffect<ShieldSpellEffect>(), Is.True);
+            Assert.That(player.Conditions.Contains("Off-Guard", preservedCondition), Is.True);
+            Assert.That(deathPresentations, Is.Zero);
+            Assert.That(turnPresentations, Is.Zero);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(GetPendingEncounterCompletion(), Is.Null);
+            Assert.That(GetCreatureEncounterBridge(player.Creature), Is.Null);
+            firstAttemptCompleted = true;
+        }
+        finally
+        {
+            blocker.Release();
+            OnCombatStart.RemoveListener(installFailure);
+            failedDispatcher?.UnregisterFactObserver<DamageAppliedFact>(blocker);
+            if (!firstAttemptCompleted)
+            {
+                OnDeath.RemoveListener(observeDeath);
+                OnNextTurn.RemoveListener(observeTurn);
+                singletonField.SetValue(null, previousGrid);
+            }
+        }
+
+        try
+        {
+            auraSource.Creature.auras.Clear();
+            manager.StartDungeonCombat(new[] { player.Controller, auraSource.Controller });
+            yield return WaitForTurn(player.GameObject);
+
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(player.Creature.hp, Is.EqualTo(1));
+            Assert.That(player.Creature.IsDefeated, Is.False);
+            Assert.That(player.GameObject.activeSelf, Is.True);
+            Assert.That(player.Controller.enabled, Is.True);
+            Assert.That(targetCollider.enabled, Is.True);
+            Assert.That(playerToken.IsRegistered, Is.True);
+            Assert.That(grid.Contains(player.GameObject), Is.True);
+            Assert.That(spellEffects.HasEffect<ShieldSpellEffect>(), Is.False);
+            Assert.That(player.Conditions.Contains("Off-Guard", preservedCondition), Is.True);
+            Assert.That(deathPresentations, Is.Zero);
+            Assert.That(turnPresentations, Is.EqualTo(1));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(GetEncounterBridge(), Is.Not.SameAs(failedBridge));
+        }
+        finally
+        {
+            OnDeath.RemoveListener(observeDeath);
+            OnNextTurn.RemoveListener(observeTurn);
+            singletonField.SetValue(null, previousGrid);
+        }
     }
 
     /// <summary>Verifies rollback never recreates an exploration reservation that already settled.</summary>
@@ -4192,6 +4354,75 @@ public sealed class DungeonEncounterCombatPlayModeTests
         {
             DestroyedTokens.Add(token);
             return true;
+        }
+    }
+
+    private sealed class StartupTestGridAPI : GridAPI, GridAPIPrivate
+    {
+        private readonly Tile[,] tiles = CreateTiles(8, 8);
+
+        public List<GameObject> DestroyedTokens { get; } = new();
+
+        public bool Contains(GameObject token) =>
+            tiles.Cast<Tile>().Any(tile => tile.Occupants.Contains(token));
+
+        public Tile[,] GetTiles() => tiles;
+
+        public bool[,] GetLineOfSightBlocks() => new bool[tiles.GetLength(0), tiles.GetLength(1)];
+
+        public IPathfinder GetPathfinder() => null;
+
+        public bool AddToken(GameObject token)
+        {
+            Vector3Int position = Vector3Int.RoundToInt(token.transform.position);
+            if (!GridTargeting.IsInBounds(tiles, position))
+                return false;
+            Tile tile = tiles[position.x, position.z];
+            if (!tile.Occupants.Contains(token))
+                tile.Occupants.Add(token);
+            return true;
+        }
+
+        public override bool DestroyToken(GameObject token)
+        {
+            DestroyedTokens.Add(token);
+            foreach (Tile tile in tiles)
+                tile.Occupants.Remove(token);
+            return true;
+        }
+
+        public override IEnumerator Stride(GameObject character)
+        {
+            yield break;
+        }
+
+        public override IEnumerator GetStrikeTarget(
+            GameObject attacker,
+            StrikeTargetRequest request,
+            CoroutineResult<StrikeTargetResult> target
+        )
+        {
+            yield break;
+        }
+
+        public override IEnumerator GetAreaTarget(
+            AreaTargetSource source,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> target
+        )
+        {
+            yield break;
+        }
+
+        private static Tile[,] CreateTiles(int width, int height)
+        {
+            Tile[,] created = new Tile[width, height];
+            for (int x = 0; x < width; x++)
+            {
+                for (int z = 0; z < height; z++)
+                    created[x, z] = new Tile();
+            }
+            return created;
         }
     }
 

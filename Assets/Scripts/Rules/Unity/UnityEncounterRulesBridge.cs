@@ -74,6 +74,7 @@ namespace Game.Rules.Unity
         // phase drain parent presentation before descendants without touching unrelated roots.
         private readonly Dictionary<OpId, List<OpId>> presentationChildrenByRoot = new();
         private readonly HashSet<OpId> settledPresentationRoots = new();
+        private StartupPresentationTransaction startupPresentationTransaction;
         private readonly RuleDispatcher dispatcher;
         private readonly BridgeRootSettlementObserver rootSettlementObserver;
         private readonly BridgeFactObserver factObserver;
@@ -351,6 +352,48 @@ namespace Game.Rules.Unity
             return new EncounterStartOutcome(Snapshot.Encounters[encounterId]);
         }
 
+        // Initial combat hooks and the complete first-turn causal tree form one host transaction.
+        // Dispatcher commits remain authoritative, but their Unity callbacks cannot escape before
+        // CombatManager accepts startup and its checkpoint becomes durable.
+        internal void BeginStartupPresentationTransaction()
+        {
+            if (startupPresentationTransaction != null)
+                throw new InvalidOperationException(
+                    "Only one startup presentation transaction may be active."
+                );
+            startupPresentationTransaction = new StartupPresentationTransaction();
+        }
+
+        internal async ValueTask CommitStartupPresentationTransactionAsync()
+        {
+            StartupPresentationTransaction transaction =
+                startupPresentationTransaction
+                ?? throw new InvalidOperationException(
+                    "No startup presentation transaction is active."
+                );
+            startupPresentationTransaction = null;
+            try
+            {
+                while (transaction.Work.Count > 0)
+                    await transaction.Work.Dequeue().Invoke();
+            }
+            finally
+            {
+                foreach (OpId rootId in transaction.Roots)
+                    DiscardPresentationTree(rootId);
+            }
+        }
+
+        internal void DiscardStartupPresentationTransaction()
+        {
+            StartupPresentationTransaction transaction = startupPresentationTransaction;
+            startupPresentationTransaction = null;
+            if (transaction == null)
+                return;
+            foreach (OpId rootId in transaction.Roots)
+                DiscardPresentationTree(rootId);
+        }
+
         /// <summary>Adds reinforcements to this store without rebuilding existing state.</summary>
         /// <param name="additions">Unique controllers not already in the immutable roster.</param>
         /// <returns>
@@ -608,6 +651,7 @@ namespace Game.Rules.Unity
             dispatcher.UnregisterFactObserver<EncounterEndedFact>(factObserver);
             dispatcher.UnregisterRootSettlementObserver(rootSettlementObserver);
             dispatcher.UnregisterCausalTreeSettlementObserver(rootSettlementObserver);
+            DiscardStartupPresentationTransaction();
             presentationByRoot.Clear();
             presentationChildrenByRoot.Clear();
             settledPresentationRoots.Clear();
@@ -905,6 +949,16 @@ namespace Game.Rules.Unity
             root.Enqueue(callback);
         }
 
+        private ValueTask PresentOrBufferStartupCallback(Func<ValueTask> callback)
+        {
+            if (callback == null)
+                throw new ArgumentNullException(nameof(callback));
+            if (startupPresentationTransaction == null)
+                return callback();
+            startupPresentationTransaction.Work.Enqueue(callback);
+            return default;
+        }
+
         private async ValueTask DrainPresentationAsync(OpId rootId)
         {
             List<Exception> failures = null;
@@ -975,6 +1029,17 @@ namespace Game.Rules.Unity
             );
         }
 
+        private ValueTask DrainOrBufferSettledPresentationTreeAsync(OpId rootId)
+        {
+            if (startupPresentationTransaction == null)
+                return DrainSettledPresentationTreeAsync(rootId);
+            startupPresentationTransaction.AddRoot(rootId);
+            startupPresentationTransaction.Work.Enqueue(() =>
+                DrainSettledPresentationTreeAsync(rootId)
+            );
+            return default;
+        }
+
         private async ValueTask DrainPresentationTreeAsync(OpId rootId, List<Exception> failures)
         {
             try
@@ -1005,6 +1070,18 @@ namespace Game.Rules.Unity
                 await DrainPresentationTreeAsync(child, failures);
             }
 
+            presentationChildrenByRoot.Remove(rootId);
+            settledPresentationRoots.Remove(rootId);
+        }
+
+        private void DiscardPresentationTree(OpId rootId)
+        {
+            if (presentationChildrenByRoot.TryGetValue(rootId, out List<OpId> children))
+            {
+                foreach (OpId child in children.ToArray())
+                    DiscardPresentationTree(child);
+            }
+            presentationByRoot.Remove(rootId);
             presentationChildrenByRoot.Remove(rootId);
             settledPresentationRoots.Remove(rootId);
         }
@@ -1086,7 +1163,7 @@ namespace Game.Rules.Unity
 
             /// <inheritdoc/>
             public ValueTask OnCausalTreeSettled(OpId rootId, RulesSnapshot snapshot) =>
-                owner.DrainSettledPresentationTreeAsync(rootId);
+                owner.DrainOrBufferSettledPresentationTreeAsync(rootId);
         }
 
         private sealed class SpellExpiryTurnStartAdapter : IEncounterTurnStartAdapter
@@ -1096,15 +1173,19 @@ namespace Game.Rules.Unity
             public SpellExpiryTurnStartAdapter(UnityEncounterRulesBridge owner) =>
                 this.owner = owner;
 
-            public ValueTask<TurnStartContribution> Apply(
+            public async ValueTask<TurnStartContribution> Apply(
                 EncounterTurnStartContext context,
                 TurnStartContribution current
             )
             {
-                SpellEffectController.ExpireAtStartOfTurn(
-                    owner.GetController(context.Actor).gameObject
-                );
-                return new ValueTask<TurnStartContribution>(current);
+                await owner.PresentOrBufferStartupCallback(() =>
+                {
+                    SpellEffectController.ExpireAtStartOfTurn(
+                        owner.GetController(context.Actor).gameObject
+                    );
+                    return default;
+                });
+                return current;
             }
         }
 
@@ -1151,9 +1232,27 @@ namespace Game.Rules.Unity
                         CreatureId targetId = owner.GetCreatureId(target);
                         return context.Snapshot.Health.TryGet(targetId, out HealthState health)
                             && health.Current > 0;
-                    }
+                    },
+                    result =>
+                        owner.PresentOrBufferStartupCallback(() =>
+                        {
+                            RottingAuraRule.Present(result);
+                            return default;
+                        })
                 );
                 return current;
+            }
+        }
+
+        private sealed class StartupPresentationTransaction
+        {
+            internal Queue<Func<ValueTask>> Work { get; } = new();
+            internal List<OpId> Roots { get; } = new();
+
+            internal void AddRoot(OpId rootId)
+            {
+                if (!Roots.Contains(rootId))
+                    Roots.Add(rootId);
             }
         }
 

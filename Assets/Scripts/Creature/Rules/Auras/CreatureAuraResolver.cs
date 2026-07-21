@@ -29,6 +29,11 @@ namespace Game.Creature.Rules
                 tiles,
                 (target, damage, source) => target.ApplyFinalDamageAsync(damage, source),
                 target => target != null && target.hp > 0,
+                result =>
+                {
+                    RottingAuraRule.Present(result);
+                    return default;
+                },
                 diceRoller
             );
 
@@ -41,6 +46,7 @@ namespace Game.Creature.Rules
             Tile[,] tiles,
             Func<CreatureComponent, int, RuleSource, ValueTask<DamageOutcome>> applyDamage,
             Func<CreatureComponent, bool> canReceiveAura,
+            Func<CreatureAuraEffectResult, ValueTask> presentResult,
             IPf2eDiceRoller diceRoller = null
         )
         {
@@ -48,6 +54,8 @@ namespace Game.Creature.Rules
                 throw new ArgumentNullException(nameof(applyDamage));
             if (canReceiveAura == null)
                 throw new ArgumentNullException(nameof(canReceiveAura));
+            if (presentResult == null)
+                throw new ArgumentNullException(nameof(presentResult));
             List<CreatureAuraEffectResult> results = new();
             if (acting == null || combatants == null || tiles == null)
                 return results;
@@ -88,7 +96,7 @@ namespace Game.Creature.Rules
                         Math.Max(0, result.AppliedDamage),
                         RuleSource.FromSlug(RottingAuraRule.RuleSlug)
                     );
-                    RottingAuraRule.Present(result);
+                    await presentResult(result);
                     results.Add(result);
                     continue;
                 }

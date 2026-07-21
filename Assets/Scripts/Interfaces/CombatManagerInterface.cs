@@ -7,6 +7,15 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// <summary>Raised whenever initiative starts or returns to dungeon exploration.</summary>
     public abstract event Action<bool> CombatActivityChanged;
 
+    /// <summary>
+    /// Raised when a dungeon combat startup rolls back before its first turn becomes usable.
+    /// </summary>
+    /// <remarks>
+    /// The generation identifies the exact rejected startup. Dungeon lifecycle owners must ignore
+    /// notifications for older generations so a delayed failure cannot revert a later retry.
+    /// </remarks>
+    public abstract event Action<long> DungeonCombatStartupAborted;
+
     /// <summary>Gets whether the manager currently owns an active initiative round.</summary>
     public abstract bool IsCombatActive { get; }
 
@@ -17,7 +26,8 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// Starts a dungeon-directed combat using only the supplied registered participants.
     /// </summary>
     /// <param name="participants">The living party and active encounter creatures.</param>
-    public abstract void StartDungeonCombat(IReadOnlyList<ActionController> participants);
+    /// <returns>The monotonically increasing generation that owns this startup request.</returns>
+    public abstract long StartDungeonCombat(IReadOnlyList<ActionController> participants);
 
     /// <summary>
     /// Inserts newly activated dungeon creatures into the current initiative lifecycle.

@@ -2,14 +2,18 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
@@ -108,6 +112,96 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         Assert.That(
             director.Lifecycle.GetRoomEncounter(2).State,
             Is.EqualTo(DungeonEncounterGroupState.Dormant)
+        );
+    }
+
+    /// <summary>
+    /// Verifies an asynchronous startup abort restores only its exact room activation and permits
+    /// the ordinary room-entry flow to retry.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator AsyncStartupAbortReconcilesDirectorAndIgnoresStaleGeneration()
+    {
+        BlockingFactObserver<TurnBeganFact> blocker = new("deliberate director startup failure");
+        UnityEncounterRulesBridge failedBridge = null;
+        RuleDispatcher failedDispatcher = null;
+        UnityAction installFailure = () =>
+        {
+            failedBridge = GetEncounterBridge();
+            failedDispatcher = GetEncounterDispatcher(failedBridge);
+            failedDispatcher.RegisterFactObserver<TurnBeganFact>(blocker);
+        };
+        OnCombatStart.AddListener(installFailure);
+        int inactivePublications = 0;
+        bool lifecycleWasReconciledAtInactivePublication = false;
+        Action<bool> observeActivity = active =>
+        {
+            if (active)
+                return;
+            inactivePublications++;
+            lifecycleWasReconciledAtInactivePublication = !director.Lifecycle.HasActiveEncounters;
+        };
+        manager.CombatActivityChanged += observeActivity;
+        long failedGeneration = 0;
+
+        try
+        {
+            DungeonRoomEntryResult first = director.EnterRoom(1);
+            failedGeneration = GetEncounterGeneration();
+
+            Assert.That(first.Transition, Is.EqualTo(DungeonRoomEntryTransition.FirstActivation));
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(1).State,
+                Is.EqualTo(DungeonEncounterGroupState.Active)
+            );
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The first-turn observer did not pause dungeon startup."
+            );
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate director startup failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () =>
+                    !manager.IsCombatActive
+                    && director.Lifecycle.GetRoomEncounter(1).State
+                        == DungeonEncounterGroupState.Dormant,
+                "The failed startup did not reconcile manager and room lifecycle state."
+            );
+            Assert.That(inactivePublications, Is.EqualTo(1));
+            Assert.That(lifecycleWasReconciledAtInactivePublication, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            OnCombatStart.RemoveListener(installFailure);
+            manager.CombatActivityChanged -= observeActivity;
+            failedDispatcher?.UnregisterFactObserver<TurnBeganFact>(blocker);
+        }
+
+        DungeonRoomEntryResult retry = director.EnterRoom(1);
+        yield return WaitForTurn();
+
+        Assert.That(retry.Transition, Is.EqualTo(DungeonRoomEntryTransition.FirstActivation));
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            director.Lifecycle.GetRoomEncounter(1).State,
+            Is.EqualTo(DungeonEncounterGroupState.Active)
+        );
+        Assert.That(GetEncounterBridge(), Is.Not.SameAs(failedBridge));
+        Assert.That(GetEncounterGeneration(), Is.GreaterThan(failedGeneration));
+
+        NotifyStartupAbort(failedGeneration);
+
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            director.Lifecycle.GetRoomEncounter(1).State,
+            Is.EqualTo(DungeonEncounterGroupState.Active),
+            "A stale startup notification must not revert a successful retry."
         );
     }
 
@@ -394,6 +488,54 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         );
     }
 
+    private static IEnumerator WaitForCondition(Func<bool> condition, string timeoutMessage)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (!condition() && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(condition(), Is.True, timeoutMessage);
+    }
+
+    private UnityEncounterRulesBridge GetEncounterBridge()
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "encounterRules",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return field.GetValue(manager) as UnityEncounterRulesBridge;
+    }
+
+    private static RuleDispatcher GetEncounterDispatcher(UnityEncounterRulesBridge bridge)
+    {
+        FieldInfo field = typeof(UnityEncounterRulesBridge).GetField(
+            "dispatcher",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (RuleDispatcher)field.GetValue(bridge);
+    }
+
+    private long GetEncounterGeneration()
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "encounterGeneration",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (long)field.GetValue(manager);
+    }
+
+    private void NotifyStartupAbort(long generation)
+    {
+        MethodInfo method = typeof(CombatManager).GetMethod(
+            "NotifyDungeonCombatStartupAborted",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(method, Is.Not.Null);
+        method.Invoke(manager, new object[] { generation });
+    }
+
     private DungeonEncounterMember Member(string instanceId) =>
         Members().Single(member => string.Equals(member.InstanceId, instanceId));
 
@@ -571,5 +713,31 @@ public sealed class DungeonEncounterDirectorPlayModeTests
 
         /// <inheritdoc/>
         public override List<string> GetMessages() => new(Messages);
+    }
+
+    private sealed class BlockingFactObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        private readonly string failureMessage;
+        private readonly TaskCompletionSource<bool> started = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private readonly TaskCompletionSource<bool> release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        internal BlockingFactObserver(string failureMessage) =>
+            this.failureMessage = failureMessage;
+
+        internal Task Started => started.Task;
+
+        internal void Release() => release.TrySetResult(true);
+
+        public async ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+        {
+            started.TrySetResult(true);
+            await release.Task;
+            throw new InvalidOperationException(failureMessage);
+        }
     }
 }

@@ -28,6 +28,9 @@ public class CombatManager : CombatManagerInterface
     /// <summary>Raised with the committed protagonist-relative dungeon outcome.</summary>
     public event Action<EncounterOutcome> DungeonCombatEnded = delegate { };
     public override event Action<bool> CombatActivityChanged = delegate { };
+
+    /// <inheritdoc/>
+    public override event Action<long> DungeonCombatStartupAborted = delegate { };
     public override bool IsCombatActive => combatActive;
 
     public override void AddCombatant(ActionController combatant)
@@ -96,9 +99,10 @@ public class CombatManager : CombatManagerInterface
 
     [ContextMenu("StartCombat")]
     public override void StartCombat() =>
-        BeginCombat(Combatants.Where(CanParticipate).ToArray(), false);
+        _ = BeginCombat(Combatants.Where(CanParticipate).ToArray(), false);
 
-    public override void StartDungeonCombat(IReadOnlyList<ActionController> participants) =>
+    /// <inheritdoc/>
+    public override long StartDungeonCombat(IReadOnlyList<ActionController> participants) =>
         BeginCombat(participants, true);
 
     public override void AddDungeonReinforcements(IReadOnlyList<ActionController> reinforcements)
@@ -170,7 +174,7 @@ public class CombatManager : CombatManagerInterface
         RequestTurnEnd(encounterRules.CurrentTurn.Value);
     }
 
-    private void BeginCombat(IReadOnlyList<ActionController> participants, bool dungeonDirected)
+    private long BeginCombat(IReadOnlyList<ActionController> participants, bool dungeonDirected)
     {
         if (participants == null)
             throw new ArgumentNullException(nameof(participants));
@@ -199,6 +203,7 @@ public class CombatManager : CombatManagerInterface
         try
         {
             startingBridge = UnityEncounterRulesBridge.Create(selected, protagonistTeam);
+            startingBridge.BeginStartupPresentationTransaction();
         }
         catch
         {
@@ -228,7 +233,12 @@ public class CombatManager : CombatManagerInterface
         }
         catch
         {
-            AbortCombatStartup(startingBridge, startupCheckpoint);
+            AbortCombatStartup(
+                startingBridge,
+                startingGeneration,
+                dungeonDirected,
+                startupCheckpoint
+            );
             throw;
         }
         finally
@@ -238,6 +248,7 @@ public class CombatManager : CombatManagerInterface
         StartCoroutine(
             BeginEncounterRules(selected, startingBridge, startingGeneration, startupCheckpoint)
         );
+        return startingGeneration;
     }
 
     private IEnumerator BeginEncounterRules(
@@ -261,6 +272,12 @@ public class CombatManager : CombatManagerInterface
             if (!IsCurrentLifecycle(startingBridge, startingGeneration))
                 yield break;
 
+            yield return CoroutineRunner.Await(
+                startingBridge.CommitStartupPresentationTransactionAsync()
+            );
+            if (!IsCurrentLifecycle(startingBridge, startingGeneration))
+                yield break;
+
             encounterReady = true;
             LogInitiative(
                 "Initiative Order",
@@ -279,7 +296,12 @@ public class CombatManager : CombatManagerInterface
             // Roll back only the bridge that owns this startup so a later successful retry cannot
             // be torn down by an obsolete continuation.
             if (!completed && IsCurrentLifecycle(startingBridge, startingGeneration))
-                AbortCombatStartup(startingBridge, startupCheckpoint);
+                AbortCombatStartup(
+                    startingBridge,
+                    startingGeneration,
+                    dungeonDirectedCombat,
+                    startupCheckpoint
+                );
             else if (!completed)
                 startupCheckpoint.Commit();
         }
@@ -704,11 +726,15 @@ public class CombatManager : CombatManagerInterface
 
     private void AbortCombatStartup(
         UnityEncounterRulesBridge startingBridge,
+        long startingGeneration,
+        bool wasDungeonDirected,
         CombatStartupCheckpoint startupCheckpoint
     )
     {
         if (!ReferenceEquals(encounterRules, startingBridge))
             return;
+        if (wasDungeonDirected)
+            NotifyDungeonCombatStartupAborted(startingGeneration);
         try
         {
             StopCombatState(cancelInFlightActions: false);
@@ -717,12 +743,31 @@ public class CombatManager : CombatManagerInterface
         {
             try
             {
+                startingBridge.DiscardStartupPresentationTransaction();
                 startingBridge.ReleaseHostOwnership();
             }
             finally
             {
                 encounterRules = null;
                 startupCheckpoint.Restore();
+            }
+        }
+    }
+
+    private void NotifyDungeonCombatStartupAborted(long generation)
+    {
+        foreach (Action<long> callback in DungeonCombatStartupAborted.GetInvocationList())
+        {
+            try
+            {
+                callback(generation);
+            }
+            catch (Exception exception)
+            {
+                // Startup rollback must remain complete even if a lifecycle owner has a bug. The
+                // original startup fault continues through its coroutine while this secondary
+                // notification fault remains visible in the Unity log.
+                Debug.LogException(exception);
             }
         }
     }

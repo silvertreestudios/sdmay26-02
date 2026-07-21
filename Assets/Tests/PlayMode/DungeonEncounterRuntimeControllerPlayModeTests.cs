@@ -313,11 +313,18 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
             )
         );
 
-        Assert.That(manager.IsCombatActive, Is.False);
+        Assert.That(
+            manager.IsCombatActive,
+            Is.True,
+            "Committed outcome presentation must wait for the exact in-flight reservation."
+        );
         Assert.That(player.IsInDungeonExploration, Is.False);
 
         player.IsTakingAction = false;
-        yield return null;
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive,
+            "Timed out waiting for host completion after releasing the action reservation."
+        );
         Assert.That(manager.CheckForEndOfGame(), Is.True);
 
         Assert.That(manager.IsCombatActive, Is.False);
