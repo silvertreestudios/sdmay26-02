@@ -87,11 +87,7 @@ namespace Game.Combat.Spells
                     context.CastAsync(SpellTargetSelection.ForTarget(target.Value.Target))
                 );
             else
-                SpellcastingRuntime.Fail(
-                    new CastSpellResult(),
-                    "Spell target is invalid.",
-                    context.ActionController
-                );
+                SpellcastingRuntime.Fail(new CastSpellResult(), "Spell target is invalid.");
         }
 
         protected static IEnumerator SelectAreaAndCast(
@@ -106,11 +102,7 @@ namespace Game.Combat.Spells
                     context.CastAsync(SpellTargetSelection.ForArea(area.Value))
                 );
             else
-                SpellcastingRuntime.Fail(
-                    new CastSpellResult(),
-                    "Spell target is invalid.",
-                    context.ActionController
-                );
+                SpellcastingRuntime.Fail(new CastSpellResult(), "Spell target is invalid.");
         }
 
         protected static GameObject FirstTarget(SpellTargetSelection selection)

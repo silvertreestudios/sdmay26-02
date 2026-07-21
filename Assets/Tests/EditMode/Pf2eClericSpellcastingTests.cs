@@ -102,7 +102,6 @@ public class Pf2eClericSpellcastingTests
         CreatureComponent cleric = CreatePreparedCleric();
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
         controller.ActionPoints = 3;
-        controller.IsTakingAction = true;
 
         await CastAsync("shield", cleric, 1);
 
@@ -227,7 +226,6 @@ public class Pf2eClericSpellcastingTests
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
         controller.ActionPoints = 3;
         controller.StrikePenalty = 1;
-        controller.IsTakingAction = true;
         CreatureComponent target = CreateCreature("Target", 100, 100);
         target.transform.position = new Vector3(6, 0, 0);
         target.ac = 12;

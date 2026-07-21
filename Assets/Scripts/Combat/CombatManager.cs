@@ -59,7 +59,8 @@ public class CombatManager : CombatManagerInterface
                 .Select(value => value.gameObject)
                 .ToList();
         if (
-            encounterRules == null
+            !combatActive
+            || encounterRules == null
             || !encounterRules.Snapshot.Encounters.TryGet(
                 encounterRules.EncounterId,
                 out EncounterState encounter

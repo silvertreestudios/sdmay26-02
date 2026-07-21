@@ -68,6 +68,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
         CombatantFixture player = CreateCombatant("Player", "Players", 200);
         CombatantFixture activeEnemy = CreateCombatant("Active Enemy", "Enemies", 100);
         CombatantFixture dormantEnemy = CreateCombatant("Dormant Enemy", "Enemies", 1000);
+        player.GameObject.transform.position = new Vector3(1f, 0f, 0f);
+        activeEnemy.GameObject.transform.position = new Vector3(2f, 0f, 0f);
+        dormantEnemy.GameObject.transform.position = new Vector3(3f, 0f, 0f);
         List<GameObject> synchronousStartRoster = null;
         UnityAction captureStartRoster = () => synchronousStartRoster = manager.GetCombatants();
         OnCombatStart.AddListener(captureStartRoster);
@@ -88,9 +91,46 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 manager.GetCombatants(),
                 Is.EquivalentTo(new[] { player.GameObject, activeEnemy.GameObject })
             );
+            Assert.That(
+                manager.getPoistions(),
+                Is.EqualTo(
+                    new[]
+                    {
+                        player.GameObject.transform.position,
+                        activeEnemy.GameObject.transform.position,
+                    }
+                )
+            );
             Assert.That(manager.WhosTurn(), Is.Not.SameAs(dormantEnemy.GameObject));
             Assert.That(dormantEnemy.Controller.StartTurnCount, Is.Zero);
             Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
+
+            yield return CoroutineRunner.Await(
+                activeEnemy.Creature.ApplyFinalDamageAsync(
+                    activeEnemy.Creature.hp,
+                    RuleSource.FromSlug("test-selected-subset-end")
+                )
+            );
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The selected-subset encounter did not finish."
+            );
+
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, dormantEnemy.GameObject }),
+                "A closed encounter must restore every living registered exploration actor."
+            );
+            Assert.That(
+                manager.getPoistions(),
+                Is.EqualTo(
+                    new[]
+                    {
+                        player.GameObject.transform.position,
+                        dormantEnemy.GameObject.transform.position,
+                    }
+                )
+            );
         }
         finally
         {
@@ -125,6 +165,17 @@ public sealed class DungeonEncounterCombatPlayModeTests
                     new[] { player.GameObject, activeEnemy.GameObject, dormantEnemy.GameObject }
                 ),
                 "Without an encounter, gameplay must return to the ordinary living registration view."
+            );
+            Assert.That(
+                manager.getPoistions(),
+                Is.EqualTo(
+                    new[]
+                    {
+                        player.GameObject.transform.position,
+                        activeEnemy.GameObject.transform.position,
+                        dormantEnemy.GameObject.transform.position,
+                    }
+                )
             );
         }
         finally
@@ -1087,7 +1138,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
         dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(map);
         int completionCalls = 0;
         manager.DungeonCombatEnded += _ => completionCalls++;
-        player.Controller.IsTakingAction = true;
         CoroutineResult<CastSpellResult> cast = new();
 
         yield return CoroutineRunner.Await(
@@ -1106,6 +1156,91 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(map.Facts[0].AttackCount, Is.EqualTo(1));
         Assert.That(completionCalls, Is.EqualTo(1));
         Assert.That(player.Controller.IsTakingAction, Is.False);
+    }
+
+    /// <summary>Verifies direct casts reserve their final slot before an awaited action spend.</summary>
+    [UnityTest]
+    public IEnumerator ConcurrentDirectCastsSpendOneActionSlotAndEffect()
+    {
+        CombatantFixture player = CreateCombatant("Concurrent Spell Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Concurrent Spell Enemy", "Enemies", 100);
+        player.Creature.level = 1;
+        player.Creature.wisMod = 4;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+        PreparedSpell spell = spellcasting.GetSpell("infuse-vitality");
+        SpellSlotPool pool = spellcasting.Pools["rank-1-infuse-vitality"];
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<LegacyActionsSpentFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        Task<CastSpellResult> first = null;
+
+        try
+        {
+            first = SpellcastingRuntime
+                .CastAsync(player.GameObject, spell, 1, new[] { player.GameObject })
+                .AsTask();
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The first cast did not pause while its action spend was settling."
+            );
+
+            CoroutineResult<CastSpellResult> rejected = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    player.GameObject,
+                    spell,
+                    1,
+                    new[] { player.GameObject }
+                ),
+                rejected
+            );
+
+            Assert.That(rejected.Value.Success, Is.False);
+            Assert.That(rejected.Value.Message, Does.Contain("already casting"));
+            Assert.That(rejected.Value.Targets, Is.Empty);
+            Assert.That(rejected.Value.Rolls, Is.Empty);
+            Assert.That(first.IsCompleted, Is.False);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(pool.UsesRemaining, Is.EqualTo(1));
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+
+            blocker.Release();
+            CoroutineResult<CastSpellResult> accepted = new();
+            yield return CoroutineRunner.Await(new ValueTask<CastSpellResult>(first), accepted);
+
+            SpellEffectController effects = player.GameObject.GetComponent<SpellEffectController>();
+            Assert.That(accepted.Value.Success, Is.True);
+            Assert.That(accepted.Value.Targets, Is.EqualTo(new[] { player.GameObject }));
+            Assert.That(accepted.Value.Rolls, Is.Empty);
+            Assert.That(spends.Facts, Has.Count.EqualTo(1));
+            Assert.That(spends.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(pool.UsesRemaining, Is.Zero);
+            Assert.That(effects, Is.Not.Null);
+            Assert.That(
+                effects.Effects.Count(effect => effect is InfuseVitalitySpellEffect),
+                Is.EqualTo(1)
+            );
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            _ = first?.Exception;
+        }
     }
 
     /// <summary>Verifies a queued reload cannot publish after an earlier queued turn end wins.</summary>
@@ -1275,7 +1410,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
             },
         };
 
-        player.Controller.IsTakingAction = true;
         CoroutineResult<CastSpellResult> heal = new();
         yield return CoroutineRunner.Await(
             SpellcastingRuntime.CastAsync(
@@ -1301,7 +1435,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(player.Controller.IsTakingAction, Is.False);
         Assert.That(spends.Facts, Is.Empty);
 
-        player.Controller.IsTakingAction = true;
         CoroutineResult<CastSpellResult> hymn = new();
         yield return CoroutineRunner.Await(
             SpellcastingRuntime.CastAsync(
@@ -1539,14 +1672,22 @@ public sealed class DungeonEncounterCombatPlayModeTests
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+        CombatantFixture dormant = CreateCombatant("Suspended Dormant", "Enemies", -100);
         Vector3 preservedPosition = new(4f, 0f, 7f);
         ConditionSource preservedSource = new();
         player.GameObject.transform.position = preservedPosition;
+        enemy.GameObject.transform.position = new Vector3(5f, 0f, 7f);
+        dormant.GameObject.transform.position = new Vector3(9f, 0f, 7f);
         player.Creature.InitializeHealthBeforeEncounter(7, 10);
         player.Conditions.Add("Off-Guard", preservedSource);
 
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
         yield return WaitForTurn();
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EqualTo(new[] { player.GameObject, enemy.GameObject })
+        );
+        Assert.That(manager.getPoistions(), Has.No.Member(dormant.GameObject.transform.position));
         player.Controller.IsTakingAction = true;
         enemy.Controller.IsTakingAction = true;
 
@@ -1563,6 +1704,21 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(player.Creature.hp, Is.EqualTo(7));
         Assert.That(player.GameObject.transform.position, Is.EqualTo(preservedPosition));
         Assert.That(player.Conditions.Contains("Off-Guard", preservedSource), Is.True);
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EqualTo(new[] { player.GameObject, enemy.GameObject, dormant.GameObject })
+        );
+        Assert.That(
+            manager.getPoistions(),
+            Is.EqualTo(
+                new[]
+                {
+                    player.GameObject.transform.position,
+                    enemy.GameObject.transform.position,
+                    dormant.GameObject.transform.position,
+                }
+            )
+        );
     }
 
     /// <summary>Verifies dungeon victory uses its dedicated event instead of legacy completion events.</summary>

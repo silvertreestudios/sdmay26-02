@@ -96,7 +96,8 @@ namespace Game.Combat.Spells
                 spell,
                 variantActionCost,
                 spendActions: true,
-                definition
+                definition,
+                actionReservationAlreadyOwned: true
             );
             yield return definition.SelectAndCast(context);
         }

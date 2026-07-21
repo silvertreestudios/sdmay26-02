@@ -56,6 +56,7 @@ namespace Game.Combat.Spells
         public uint ActionCost { get; }
         public bool SpendActions { get; }
         public ISpellDefinition Definition { get; }
+        internal bool ActionReservationAlreadyOwned { get; }
 
         /// <summary>
         /// Gets the turn attack count captured before an attack spell commits its MAP increment.
@@ -69,12 +70,30 @@ namespace Game.Combat.Spells
             bool spendActions,
             ISpellDefinition definition
         )
+            : this(
+                caster,
+                spell,
+                actionCost,
+                spendActions,
+                definition,
+                actionReservationAlreadyOwned: false
+            ) { }
+
+        internal SpellCastContext(
+            GameObject caster,
+            PreparedSpell spell,
+            uint actionCost,
+            bool spendActions,
+            ISpellDefinition definition,
+            bool actionReservationAlreadyOwned
+        )
         {
             Caster = caster;
             Spell = spell;
             ActionCost = actionCost;
             SpendActions = spendActions;
             Definition = definition;
+            ActionReservationAlreadyOwned = actionReservationAlreadyOwned;
         }
 
         public ActionController ActionController =>
@@ -125,8 +144,7 @@ namespace Game.Combat.Spells
                         new CastSpellResult(),
                         spell == null
                             ? "Spell is not prepared."
-                            : spell.Name + " is not implemented.",
-                        caster != null ? caster.GetComponent<ActionController>() : null
+                            : spell.Name + " is not implemented."
                     )
                 );
 
@@ -156,31 +174,42 @@ namespace Game.Combat.Spells
                 || state == null
                 || context.Spell == null
             )
-                return Fail(result, "Caster is not ready to cast spells.", controller);
-            if (
-                context.ActionCost > 0
-                && controller != null
-                && context.SpendActions
-                && controller.ActionPoints < context.ActionCost
-            )
-                return Fail(result, "Not enough actions.", controller);
-            if (!state.CanCast(context.Spell))
-                return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
+                return Fail(result, "Caster is not ready to cast spells.");
+            if (!state.TryReserveCast())
+                return Fail(result, "The caster is already casting a spell.");
 
-            SpellTargetSelection selected = selection ?? SpellTargetSelection.None;
-            if (!context.Definition.IsSelectionValid(context, selected))
-                return Fail(result, "Spell target is invalid.", controller);
-            if (!HasValidActiveEncounterTargets(context, selected))
-                return Fail(
-                    result,
-                    "Spell target is outside the caster's active encounter.",
-                    controller
-                );
-
-            bool appliesMap = context.Definition.AppliesMultipleAttackPenalty(context);
-            uint attackCount = controller == null ? 0 : controller.StrikePenalty;
+            bool releaseActionReservation = false;
             try
             {
+                if (
+                    controller != null
+                    && controller.IsTakingAction
+                    && !context.ActionReservationAlreadyOwned
+                )
+                    return Fail(result, "The caster is already taking an action.");
+                if (controller != null)
+                {
+                    controller.IsTakingAction = true;
+                    releaseActionReservation = true;
+                }
+                if (
+                    context.ActionCost > 0
+                    && controller != null
+                    && context.SpendActions
+                    && controller.ActionPoints < context.ActionCost
+                )
+                    return Fail(result, "Not enough actions.");
+                if (!state.CanCast(context.Spell))
+                    return Fail(result, context.Spell.Name + " has no remaining slot.");
+
+                SpellTargetSelection selected = selection ?? SpellTargetSelection.None;
+                if (!context.Definition.IsSelectionValid(context, selected))
+                    return Fail(result, "Spell target is invalid.");
+                if (!HasValidActiveEncounterTargets(context, selected))
+                    return Fail(result, "Spell target is outside the caster's active encounter.");
+
+                bool appliesMap = context.Definition.AppliesMultipleAttackPenalty(context);
+                uint attackCount = controller == null ? 0 : controller.StrikePenalty;
                 if (controller != null && context.SpendActions)
                     await controller.SpendActionsAsync(context.ActionCost);
                 if (!state.Spend(context.Spell))
@@ -209,7 +238,8 @@ namespace Game.Combat.Spells
             }
             finally
             {
-                if (controller != null && context.SpendActions)
+                state.ReleaseCast();
+                if (releaseActionReservation)
                     controller.IsTakingAction = false;
             }
         }
@@ -475,16 +505,19 @@ namespace Game.Combat.Spells
             };
         }
 
-        public static CastSpellResult Fail(
-            CastSpellResult result,
-            string message,
-            ActionController controller
-        )
+        /// <summary>Records a normal spell validation or targeting failure.</summary>
+        /// <param name="result">The cast result that should describe the failure.</param>
+        /// <param name="message">The player-facing reason the cast did not proceed.</param>
+        /// <returns>The supplied result marked unsuccessful.</returns>
+        /// <remarks>
+        /// This helper does not release action or cast reservations. The lifecycle that acquired
+        /// a reservation must release it after all selection or cast work has finished; otherwise
+        /// one rejected concurrent caller could clear another cast's reservation.
+        /// </remarks>
+        public static CastSpellResult Fail(CastSpellResult result, string message)
         {
             result.Success = false;
             result.Message = message;
-            if (controller != null)
-                controller.IsTakingAction = false;
             return result;
         }
     }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Game.Creature.Rules;
 
 namespace Game.Combat.Spells
@@ -77,6 +78,7 @@ namespace Game.Combat.Spells
             StringComparer.OrdinalIgnoreCase
         );
         private readonly List<PreparedSpell> spells = new();
+        private int castReservation;
 
         public string Tradition { get; set; } = "divine";
         public string Ability { get; set; } = "wis";
@@ -131,5 +133,13 @@ namespace Game.Combat.Spells
                 return true;
             return pools.TryGetValue(spell.SlotPoolId, out SpellSlotPool pool) && pool.Spend();
         }
+
+        // Slot validation and spending are intentionally not independently synchronized. The
+        // complete cast owns this reservation from before validation through its final awaited
+        // effect so two direct callers cannot both pay actions against the same last slot.
+        internal bool TryReserveCast() =>
+            Interlocked.CompareExchange(ref castReservation, 1, 0) == 0;
+
+        internal void ReleaseCast() => Volatile.Write(ref castReservation, 0);
     }
 }

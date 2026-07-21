@@ -211,11 +211,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
             if (shouldCast)
                 yield return CoroutineRunner.Await(context.CastAsync(SpellTargetSelection.None));
             else
-                SpellcastingRuntime.Fail(
-                    new CastSpellResult(),
-                    "Spell targeting was cancelled.",
-                    context.ActionController
-                );
+                SpellcastingRuntime.Fail(new CastSpellResult(), "Spell targeting was cancelled.");
         }
 
         public bool IsSelectionValid(SpellCastContext context, SpellTargetSelection selection) =>
