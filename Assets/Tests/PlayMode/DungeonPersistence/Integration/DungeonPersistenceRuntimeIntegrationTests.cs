@@ -7,6 +7,7 @@ using Game.Creature;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence;
 using Game.DungeonPersistence.Actors;
+using Game.DungeonPersistence.Autosave;
 using Game.DungeonPersistence.Floors;
 using Game.DungeonPersistence.Repository;
 using GridPublic;
@@ -189,6 +190,24 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
                 $"Encounter-scoped turn state leaked into actor '{actor.Key}'."
             );
         }
+    }
+
+    /// <summary>
+    /// Verifies autosave defers while a configured party reference is Unity-destroyed instead of
+    /// converting the transient lifecycle state into a failed capture.
+    /// </summary>
+    [Test]
+    public void AutosaveStabilityDefersForDestroyedPartyReference()
+    {
+        LoadedFixture fixture = CreateLoadedFixture(canonicalEnemyTokens: true);
+        DungeonRuntimeAutosaveCaptureSource source = new(
+            fixture.Plan.CurrentFloor.StaticFloorJson,
+            fixture.Runtime
+        );
+
+        Object.DestroyImmediate(fixture.Party[0].gameObject);
+
+        Assert.That(source.AreActorsStable, Is.False);
     }
 
     /// <summary>Verifies actor preflight rejects an enemy whose canonical restore token was lost.</summary>

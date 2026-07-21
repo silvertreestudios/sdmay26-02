@@ -95,9 +95,7 @@ namespace Game.DungeonPersistence.Autosave
                     return false;
                 IReadOnlyList<ActionController> party = runtime.CapturePartyControllers();
                 if (party.Any(controller => controller == null))
-                    throw new InvalidOperationException(
-                        "The configured dungeon party lost a materialized actor."
-                    );
+                    return false;
                 return !party.Any(controller => controller.IsTakingAction)
                     && !runtime
                         .CaptureMaterializedCreatures()
