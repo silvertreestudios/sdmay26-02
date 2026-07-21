@@ -82,6 +82,61 @@ namespace TestsState
         }
 
         [UnityTest]
+        public IEnumerator EnemyIgnoresDisabledTargetWhenLivingHostileRemains()
+        {
+            yield return base.Setup();
+            yield return null;
+
+            CombatManager manager = Object.FindFirstObjectByType<CombatManager>();
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            Assert.That(manager, Is.Not.Null);
+            Assert.That(grid, Is.Not.Null);
+            List<GameObject> playerTargets = manager
+                .GetCombatants()
+                .FindAll(combatant => combatant.GetComponent<PlayerActionController>() != null);
+            Assert.That(playerTargets, Has.Count.GreaterThanOrEqualTo(2));
+            GameObject current = manager.WhosTurn();
+            GameObject disabledTarget =
+                playerTargets.Find(target => target != current) ?? playerTargets[0];
+            GameObject livingTarget = playerTargets.Find(target => target != disabledTarget);
+            Assert.That(livingTarget, Is.Not.Null);
+            ActionController disabledController = disabledTarget.GetComponent<ActionController>();
+
+            try
+            {
+                disabledController.enabled = false;
+                Assert.That(manager.GetCombatants(), Has.No.Member(disabledTarget));
+                Assert.That(manager.GetCombatants(), Has.Member(livingTarget));
+
+                GameObject enemy = CreateRangedEnemy(
+                    "disabled-target-filter-ai",
+                    CreateShortbow(),
+                    1,
+                    100
+                );
+                PlaceOnClearLine(grid.GetTiles(), enemy, livingTarget);
+                MindlessController controller = enemy.GetComponent<MindlessController>();
+                controller.StartTurn();
+                controller.StopAllCoroutines();
+                EntityAction selected = controller.MindlessDecision();
+
+                Assert.That(selected, Is.TypeOf<StrikeWeapon>());
+                Assert.That(controller.BestTarget, Is.SameAs(livingTarget));
+                Assert.That(controller.BestTarget, Is.Not.SameAs(disabledTarget));
+            }
+            finally
+            {
+                disabledController.enabled = true;
+            }
+
+            Assert.That(
+                manager.GetCombatants(),
+                Has.Member(disabledTarget),
+                "A living retained member must return to AI projections when enabled."
+            );
+        }
+
+        [UnityTest]
         public IEnumerator ResetEncounterTurnStateCancelsPendingAiTurnSequence()
         {
             yield return base.Setup();

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -72,15 +73,21 @@ public class CombatManager : CombatManagerInterface
                 encounterRules.Snapshot.Health.TryGet(entry.Creature, out HealthState health)
                 && health.Current > 0
             )
-            .Select(entry => encounterRules.GetController(entry.Creature).gameObject)
+            .Select(entry => encounterRules.GetController(entry.Creature))
+            .Where(CanParticipate)
+            .Select(controller => controller.gameObject)
             .ToList();
         if (encounter.CurrentTurn.HasValue)
         {
-            GameObject current = encounterRules
-                .GetController(encounter.CurrentTurn.Value.Actor)
-                .gameObject;
-            if (ordered.Remove(current))
-                ordered.Insert(0, current);
+            ActionController currentController = encounterRules.GetController(
+                encounter.CurrentTurn.Value.Actor
+            );
+            if (CanParticipate(currentController))
+            {
+                GameObject current = currentController.gameObject;
+                if (ordered.Remove(current))
+                    ordered.Insert(0, current);
+            }
         }
         return ordered;
     }
@@ -421,28 +428,73 @@ public class CombatManager : CombatManagerInterface
             outcome == EncounterOutcome.PlayerVictory
                 ? ProtagonistTeamDisplayName()
                 : OpposingTeamDisplayName();
+        List<Exception> failures = new();
         try
         {
             await Pf2eRulesEngine.EndEncounterAsync(endingCombatants);
         }
-        finally
+        catch (Exception exception)
         {
-            // EncounterEnded is already authoritative before this presentation callback begins.
-            // Host shutdown must therefore occur even when a nested cleanup dispatch or observer
-            // fails; the original exception continues out after the finally completes.
-            FinalizeCombatState(endingBridge, cancelInFlightActions: false);
+            failures.Add(exception);
         }
+
+        // EncounterEnded is already authoritative before this presentation callback begins. Host
+        // shutdown and result publication are therefore completion work, not contingent cleanup:
+        // every channel must run once even when an earlier cleanup or observer callback fails.
+        TryComplete(
+            () => FinalizeCombatState(endingBridge, cancelInFlightActions: false),
+            failures
+        );
         if (wasDungeonDirected)
         {
-            DungeonCombatEnded.Invoke(outcome);
+            InvokeEach(DungeonCombatEnded, outcome, failures);
             if (outcome == EncounterOutcome.PlayerDefeat)
-                OnCombatOutcome.Invoke(false);
+                TryComplete(() => OnCombatOutcome.Invoke(false), failures);
         }
         else
         {
-            OnCombatEnd.Invoke(winningTeam);
-            OnCombatOutcome.Invoke(outcome == EncounterOutcome.PlayerVictory);
+            TryComplete(() => OnCombatEnd.Invoke(winningTeam), failures);
+            TryComplete(
+                () => OnCombatOutcome.Invoke(outcome == EncounterOutcome.PlayerVictory),
+                failures
+            );
         }
+
+        ThrowCompletionFailures(failures);
+    }
+
+    private static void TryComplete(Action callback, ICollection<Exception> failures)
+    {
+        try
+        {
+            callback();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+    }
+
+    private static void InvokeEach(
+        Action<EncounterOutcome> callbacks,
+        EncounterOutcome outcome,
+        ICollection<Exception> failures
+    )
+    {
+        foreach (Action<EncounterOutcome> callback in callbacks.GetInvocationList())
+            TryComplete(() => callback(outcome), failures);
+    }
+
+    private static void ThrowCompletionFailures(IReadOnlyList<Exception> failures)
+    {
+        if (failures.Count == 0)
+            return;
+        if (failures.Count == 1)
+            ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        throw new AggregateException(
+            "Encounter completion failed while settling cleanup or notifications.",
+            failures
+        );
     }
 
     private string OpposingTeamDisplayName()
@@ -558,7 +610,7 @@ public class CombatManager : CombatManagerInterface
         && controller.isActiveAndEnabled
         && controller.GetComponent<CreatureComponent>().Health.Current > 0;
 
-    /// <summary>Gets positions used to frame the living combatants in the camera.</summary>
+    /// <summary>Gets positions used to frame living, participating combatants in the camera.</summary>
     /// <returns>
     /// Positions in the same deterministic gameplay order as <see cref="GetCombatants"/>.
     /// Defeated encounter entries remain in the authoritative roster but are not camera targets.
@@ -600,6 +652,7 @@ public class CombatManager : CombatManagerInterface
             private readonly CreatureComponent creature;
             private readonly CreatureEncounterState creatureState;
             private readonly Conditions conditions;
+            private readonly bool hadConditions;
             private readonly IReadOnlyDictionary<
                 string,
                 IReadOnlyList<ConditionSource>
@@ -612,15 +665,27 @@ public class CombatManager : CombatManagerInterface
                 creature = controller.GetComponent<CreatureComponent>();
                 creatureState = creature.CaptureEncounterStartupState();
                 conditions = controller.GetComponent<Conditions>();
+                hadConditions = conditions != null;
                 conditionState = conditions?.CaptureEncounterStartupState();
             }
 
             internal void Restore()
             {
                 creature.RestoreEncounterStartupState(creatureState);
-                if (conditions != null)
-                    conditions.RestoreEncounterStartupState(conditionState);
                 controller.RestoreEncounterStartupState(actionState);
+                if (hadConditions)
+                    conditions.RestoreEncounterStartupState(conditionState);
+                else
+                {
+                    Conditions createdConditions = controller.GetComponent<Conditions>();
+                    if (createdConditions != null)
+                    {
+                        // This component is owned entirely by the failed transaction. Delayed
+                        // destruction would let an immediate retry discover its stale conditions
+                        // before Unity's end-of-frame cleanup.
+                        UnityEngine.Object.DestroyImmediate(createdConditions);
+                    }
+                }
             }
         }
     }

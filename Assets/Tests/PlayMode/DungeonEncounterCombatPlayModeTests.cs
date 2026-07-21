@@ -408,6 +408,80 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    /// <summary>
+    /// Verifies disabled participants retain timing slots without leaking into gameplay projections.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator DisabledRetainedParticipant_IsSkippedAndRejoinsGameplayProjection()
+    {
+        CombatantFixture current = CreateCombatant("Projection Current", "Players", 300);
+        CombatantFixture skipped = CreateCombatant("Projection Disabled", "Enemies", 200);
+        CombatantFixture next = CreateCombatant("Projection Next", "Players", 100);
+        current.GameObject.transform.position = new Vector3(1f, 0f, 1f);
+        skipped.GameObject.transform.position = new Vector3(20f, 0f, 20f);
+        next.GameObject.transform.position = new Vector3(2f, 0f, 2f);
+
+        manager.StartDungeonCombat(
+            new[] { current.Controller, skipped.Controller, next.Controller }
+        );
+        yield return WaitForTurn(current.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        CreatureId skippedId = bridge.GetCreatureId(skipped.Creature);
+        RecordingFactObserver<TurnEndedFact> ended = new();
+        GetEncounterDispatcher().RegisterFactObserver<TurnEndedFact>(ended);
+
+        skipped.Controller.enabled = false;
+        Assert.That(
+            bridge.Snapshot.Encounters[bridge.EncounterId].Roster.Select(entry => entry.Creature),
+            Has.Member(skippedId),
+            "Participation changes must not remove immutable initiative slots."
+        );
+        Assert.That(manager.GetCombatants(), Has.No.Member(skipped.GameObject));
+        Assert.That(manager.getPoistions(), Has.No.Member(skipped.GameObject.transform.position));
+        Assert.That(
+            manager
+                .GetCombatants()
+                .Where(combatant => combatant.GetComponent<Team>().Name == "Enemies"),
+            Is.Empty,
+            "The gameplay projection consumed by MindlessController must exclude disabled targets."
+        );
+
+        skipped.Controller.enabled = true;
+        skipped.GameObject.SetActive(false);
+        Assert.That(manager.GetCombatants(), Has.No.Member(skipped.GameObject));
+        Assert.That(manager.getPoistions(), Has.No.Member(skipped.GameObject.transform.position));
+        skipped.GameObject.SetActive(true);
+        skipped.Controller.enabled = false;
+
+        current.Controller.EndTurn();
+        yield return WaitForTurn(next.GameObject);
+
+        Assert.That(skipped.Controller.StartTurnCount, Is.Zero);
+        Assert.That(
+            ended.Facts.Count(fact => fact.Turn.Actor == skippedId),
+            Is.EqualTo(1),
+            "The disabled actor's exact committed timing boundary must close once."
+        );
+
+        skipped.Controller.enabled = true;
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EqualTo(new[] { next.GameObject, current.GameObject, skipped.GameObject }),
+            "A living participant must rejoin in deterministic gameplay order when enabled."
+        );
+        Assert.That(
+            manager.getPoistions(),
+            Is.EqualTo(
+                new[]
+                {
+                    next.GameObject.transform.position,
+                    current.GameObject.transform.position,
+                    skipped.GameObject.transform.position,
+                }
+            )
+        );
+    }
+
     /// <summary>Verifies an occupied dispatcher cannot accept duplicate work for a pending turn end.</summary>
     [UnityTest]
     public IEnumerator PendingEndTurn_ReservesActorAndAdvancesExactlyOnce()
@@ -1675,12 +1749,27 @@ public sealed class DungeonEncounterCombatPlayModeTests
         CombatantFixture dormant = CreateCombatant("Faulted End Cleanup Dormant", "Enemies", -100);
         PrepareBarbarian(player.Creature);
         int inactiveEvents = 0;
+        int dungeonEndCalls = 0;
+        int throwingNotificationCalls = 0;
+        EncounterOutcome? publishedOutcome = null;
         Action<bool> observeActivity = active =>
         {
             if (!active)
                 inactiveEvents++;
         };
+        Action<EncounterOutcome> recordOutcome = outcome =>
+        {
+            dungeonEndCalls++;
+            publishedOutcome = outcome;
+        };
+        Action<EncounterOutcome> failOutcomeNotification = _ =>
+        {
+            throwingNotificationCalls++;
+            throw new InvalidOperationException("deliberate outcome notification failure");
+        };
         manager.CombatActivityChanged += observeActivity;
+        manager.DungeonCombatEnded += recordOutcome;
+        manager.DungeonCombatEnded += failOutcomeNotification;
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
         yield return WaitForTurn(player.GameObject);
         UnityEncounterRulesBridge bridge = GetEncounterBridge();
@@ -1718,13 +1807,26 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 "The faulted encounter-end cleanup did not settle."
             );
             Assert.That(lethal.IsFaulted, Is.True);
-            StringAssert.Contains("deliberate Rage Fact failure", lethal.Exception.ToString());
+            Exception[] failures = lethal.Exception.Flatten().InnerExceptions.ToArray();
+            Assert.That(failures, Has.Length.EqualTo(2));
+            Assert.That(
+                failures[0].Message,
+                Does.Contain("deliberate Rage Fact failure"),
+                "The cleanup fault must remain the primary reported failure."
+            );
+            Assert.That(
+                failures[1].Message,
+                Does.Contain("deliberate outcome notification failure")
+            );
             yield return WaitForCondition(
                 () => !manager.IsCombatActive,
                 "The committed encounter end did not finalize its Unity host after cleanup failed."
             );
 
             Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(dungeonEndCalls, Is.EqualTo(1));
+            Assert.That(throwingNotificationCalls, Is.EqualTo(1));
+            Assert.That(publishedOutcome, Is.EqualTo(EncounterOutcome.PlayerVictory));
             Assert.That(manager.WhosTurn(), Is.Null);
             Assert.That(GetPublishedActiveCombatants(), Is.Empty);
             AssertTransientTurnStateCleared(player.Controller);
@@ -1748,6 +1850,105 @@ public sealed class DungeonEncounterCombatPlayModeTests
             if (observerRegistered)
                 dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
             manager.CombatActivityChanged -= observeActivity;
+            manager.DungeonCombatEnded -= recordOutcome;
+            manager.DungeonCombatEnded -= failOutcomeNotification;
+            _ = lethal?.Exception;
+        }
+    }
+
+    /// <summary>Verifies legacy outcome channels survive a committed cleanup failure.</summary>
+    [UnityTest]
+    public IEnumerator LegacyEndCleanupFailureStillPublishesWinnerAndAllowsRestart()
+    {
+        CombatantFixture player = CreateCombatant("Legacy Fault Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Legacy Fault Enemy", "Enemies", 100);
+        PrepareBarbarian(player.Creature);
+        int inactiveEvents = 0;
+        int dungeonEndCalls = 0;
+        int legacyEndCalls = 0;
+        int legacyOutcomeCalls = 0;
+        string winner = string.Empty;
+        bool? playersWon = null;
+        Action<bool> observeActivity = active =>
+        {
+            if (!active)
+                inactiveEvents++;
+        };
+        Action<EncounterOutcome> observeDungeonEnd = _ => dungeonEndCalls++;
+        UnityAction<string> observeLegacyEnd = value =>
+        {
+            legacyEndCalls++;
+            winner = value;
+        };
+        UnityAction<bool> observeLegacyOutcome = value =>
+        {
+            legacyOutcomeCalls++;
+            playersWon = value;
+        };
+        manager.CombatActivityChanged += observeActivity;
+        manager.DungeonCombatEnded += observeDungeonEnd;
+        OnCombatEnd.AddListener(observeLegacyEnd);
+        OnCombatOutcome.AddListener(observeLegacyOutcome);
+        manager.StartCombat();
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsRemovedFact> blocker = new(failAfterRelease: true);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+        bool observerRegistered = true;
+        Task lethal = null;
+
+        try
+        {
+            lethal = enemy
+                .Creature.ApplyFinalDamageAsync(
+                    enemy.Creature.hp,
+                    RuleSource.FromSlug("test-legacy-faulted-end-cleanup")
+                )
+                .AsTask();
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "Legacy cleanup did not reach its temporary-HP Fact."
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => lethal.IsCompleted,
+                "The legacy cleanup failure did not settle."
+            );
+
+            Assert.That(lethal.IsFaulted, Is.True);
+            StringAssert.Contains("deliberate Rage Fact failure", lethal.Exception.ToString());
+            Assert.That(manager.IsCombatActive, Is.False);
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(dungeonEndCalls, Is.Zero);
+            Assert.That(legacyEndCalls, Is.EqualTo(1));
+            Assert.That(winner, Is.EqualTo("Players"));
+            Assert.That(legacyOutcomeCalls, Is.EqualTo(1));
+            Assert.That(playersWon, Is.True);
+
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            observerRegistered = false;
+            CombatantFixture retryEnemy = CreateCombatant(
+                "Legacy Fault Retry Enemy",
+                "Enemies",
+                100
+            );
+            manager.StartCombat();
+            yield return WaitForTurn(player.GameObject);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(manager.GetCombatants(), Has.Member(retryEnemy.GameObject));
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(legacyEndCalls, Is.EqualTo(1));
+            Assert.That(legacyOutcomeCalls, Is.EqualTo(1));
+        }
+        finally
+        {
+            blocker.Release();
+            if (observerRegistered)
+                dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            manager.CombatActivityChanged -= observeActivity;
+            manager.DungeonCombatEnded -= observeDungeonEnd;
+            OnCombatEnd.RemoveListener(observeLegacyEnd);
+            OnCombatOutcome.RemoveListener(observeLegacyOutcome);
             _ = lethal?.Exception;
         }
     }
@@ -1842,6 +2043,98 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
             manager.CombatActivityChanged -= observeActivity;
         }
+    }
+
+    /// <summary>
+    /// Verifies failed startup removes transaction-created condition state and listeners.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator StartupFailureAfterSlowRestoresMissingConditionsAndRetriesOnce()
+    {
+        CombatantFixture player = CreateCombatant(
+            "Failed Slow Startup Player",
+            "Players",
+            200,
+            addConditions: false
+        );
+        CombatantFixture enemy = CreateCombatant("Failed Slow Startup Enemy", "Enemies", 100);
+        PrepareBarbarian(player.Creature);
+        player.Creature.passives.Add("Slow");
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: true);
+        RuleDispatcher failedDispatcher = null;
+        UnityAction installFailure = () =>
+        {
+            failedDispatcher = GetEncounterDispatcher();
+            failedDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        };
+        OnCombatStart.AddListener(installFailure);
+
+        try
+        {
+            Assert.That(player.GameObject.GetComponent<Conditions>(), Is.Null);
+            Assert.That(
+                GetManagedListenerCount(player.Controller, "managedActionResetListeners"),
+                Is.Zero
+            );
+            Assert.That(
+                GetManagedListenerCount(player.Controller, "managedReactionListeners"),
+                Is.Zero
+            );
+
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "Slow startup did not reach the later awaited Rage Fact."
+            );
+            Conditions provisional = player.GameObject.GetComponent<Conditions>();
+            Assert.That(provisional, Is.Not.Null);
+            Assert.That(provisional.Contains("Slowed"), Is.True);
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate Rage Fact failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "Failed Slow startup did not roll back."
+            );
+
+            Assert.That(
+                player.GameObject.GetComponent<Conditions>(),
+                Is.Null,
+                "A component created inside the failed startup transaction must be removed."
+            );
+            Assert.That(
+                GetManagedListenerCount(player.Controller, "managedActionResetListeners"),
+                Is.Zero
+            );
+            Assert.That(
+                GetManagedListenerCount(player.Controller, "managedReactionListeners"),
+                Is.Zero
+            );
+        }
+        finally
+        {
+            OnCombatStart.RemoveListener(installFailure);
+            blocker.Release();
+            failedDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        }
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        Conditions restored = player.GameObject.GetComponent<Conditions>();
+        Assert.That(restored, Is.Not.Null);
+        Assert.That(restored.Contains("Slowed"), Is.True);
+        Assert.That(
+            GetManagedListenerCount(player.Controller, "managedActionResetListeners"),
+            Is.EqualTo(1)
+        );
+        Assert.That(
+            GetManagedListenerCount(player.Controller, "managedReactionListeners"),
+            Is.EqualTo(1)
+        );
+        Assert.That(player.Controller.ActionPoints, Is.EqualTo(2));
     }
 
     /// <summary>Verifies suspension resets turn economy without changing durable creature state.</summary>
@@ -2274,14 +2567,29 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(condition(), Is.True, timeoutMessage);
     }
 
-    private CombatantFixture CreateCombatant(string name, string teamName, int initiative)
+    private static int GetManagedListenerCount(ActionController controller, string fieldName)
+    {
+        FieldInfo field = typeof(ActionController).GetField(
+            fieldName,
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return ((ICollection)field.GetValue(controller)).Count;
+    }
+
+    private CombatantFixture CreateCombatant(
+        string name,
+        string teamName,
+        int initiative,
+        bool addConditions = true
+    )
     {
         GameObject gameObject = Create(name);
         CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
         creature.name = name;
         creature.initiative = initiative;
         creature.InitializeHealthBeforeEncounter(10, 10);
-        Conditions conditions = gameObject.AddComponent<Conditions>();
+        Conditions conditions = addConditions ? gameObject.AddComponent<Conditions>() : null;
         TestActionController controller = gameObject.AddComponent<TestActionController>();
         Team team = gameObject.AddComponent<Team>();
         team.Name = teamName;
