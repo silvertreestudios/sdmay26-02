@@ -42,7 +42,5 @@ public class Stride : MultiFrameEntityAction
             if (ac && !startedInExploration)
                 PayCost(ac);
         }
-        if (ac)
-            ac.IsTakingAction = false;
     }
 }

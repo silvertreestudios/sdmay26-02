@@ -94,10 +94,100 @@ namespace Game.Creature.Rules
 
             ActivePf2eEffect active = new(item?.Name ?? slug, slug, item?.Slug ?? slug);
             ActiveEffects.Add(active);
-            RollOptions.Add($"self:effect:{slug}");
-            if (item != null)
-                RollOptions.Add($"self:effect:{item.Slug}");
+            AddEffectRollOptions(active);
             return active;
+        }
+
+        /// <summary>
+        /// Atomically replaces active prepared effects and rebuilds their predicate roll options.
+        /// </summary>
+        /// <param name="effects">The complete active-effect set from validated persistence state.</param>
+        public void RestoreActiveEffects(IEnumerable<ActivePf2eEffect> effects)
+        {
+            if (effects == null)
+                throw new ArgumentNullException(nameof(effects));
+            ActivePf2eEffect[] copied = effects.ToArray();
+            if (copied.Any(effect => effect == null))
+                throw new ArgumentException(
+                    "Restored prepared effects cannot contain null.",
+                    nameof(effects)
+                );
+            if (
+                copied
+                    .Select(effect => effect.Slug + "\n" + effect.SourceSlug)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count() != copied.Length
+            )
+                throw new ArgumentException(
+                    "Restored prepared-effect identities must be unique.",
+                    nameof(effects)
+                );
+
+            foreach (ActivePf2eEffect existing in ActiveEffects)
+            {
+                RollOptions.Remove($"self:effect:{existing.Slug}");
+                RollOptions.Remove($"self:effect:{existing.SourceSlug}");
+            }
+            ActiveEffects.Clear();
+            foreach (ActivePf2eEffect effect in copied)
+            {
+                ActiveEffects.Add(effect);
+                AddEffectRollOptions(effect);
+            }
+        }
+
+        /// <summary>
+        /// Atomically restores the mutable prepared-rule state persisted for a dungeon run.
+        /// Catalog-derived modifiers and owned items remain untouched.
+        /// </summary>
+        /// <param name="rollOptions">The complete active roll-option set.</param>
+        /// <param name="effects">The complete active prepared-effect set.</param>
+        public void RestorePersistentRuleState(
+            IEnumerable<string> rollOptions,
+            IEnumerable<ActivePf2eEffect> effects
+        )
+        {
+            if (rollOptions == null)
+                throw new ArgumentNullException(nameof(rollOptions));
+            if (effects == null)
+                throw new ArgumentNullException(nameof(effects));
+
+            string[] copiedRollOptions = rollOptions.ToArray();
+            ActivePf2eEffect[] copiedEffects = effects.ToArray();
+            if (copiedRollOptions.Any(string.IsNullOrWhiteSpace))
+                throw new ArgumentException(
+                    "Restored roll options cannot be blank.",
+                    nameof(rollOptions)
+                );
+            if (
+                copiedRollOptions.Distinct(StringComparer.OrdinalIgnoreCase).Count()
+                != copiedRollOptions.Length
+            )
+                throw new ArgumentException(
+                    "Restored roll options must be unique.",
+                    nameof(rollOptions)
+                );
+            if (copiedEffects.Any(effect => effect == null))
+                throw new ArgumentException(
+                    "Restored prepared effects cannot contain null.",
+                    nameof(effects)
+                );
+            if (
+                copiedEffects
+                    .Select(effect => effect.Slug + "\n" + effect.SourceSlug)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count() != copiedEffects.Length
+            )
+                throw new ArgumentException(
+                    "Restored prepared-effect identities must be unique.",
+                    nameof(effects)
+                );
+
+            RollOptions.Clear();
+            foreach (string rollOption in copiedRollOptions)
+                RollOptions.Add(rollOption);
+            ActiveEffects.Clear();
+            ActiveEffects.AddRange(copiedEffects);
         }
 
         /// <summary>
@@ -143,6 +233,12 @@ namespace Game.Creature.Rules
             if (item.Type == "action")
                 RollOptions.Add($"action:{item.Slug}");
         }
+
+        private void AddEffectRollOptions(ActivePf2eEffect effect)
+        {
+            RollOptions.Add($"self:effect:{effect.Slug}");
+            RollOptions.Add($"self:effect:{effect.SourceSlug}");
+        }
     }
 
     /// <summary>
@@ -175,16 +271,45 @@ namespace Game.Creature.Rules
         public string SourceSlug { get; }
 
         /// <summary>
+        /// Gets the stable prepared-effect identity after its first persistence capture or restore.
+        /// </summary>
+        public string PersistentInstanceId { get; private set; }
+
+        /// <summary>
         /// Creates an active effect entry with both runtime and source identifiers.
         /// </summary>
         /// <param name="name">The display name of the active effect.</param>
         /// <param name="slug">The runtime effect slug used for rule checks.</param>
         /// <param name="sourceSlug">The source item slug used for cleanup and predicate options.</param>
-        public ActivePf2eEffect(string name, string slug, string sourceSlug)
+        /// <param name="persistentInstanceId">
+        /// Stable restored instance identity, or empty for a newly activated effect.
+        /// </param>
+        public ActivePf2eEffect(
+            string name,
+            string slug,
+            string sourceSlug,
+            string persistentInstanceId = ""
+        )
         {
             Name = name;
             Slug = slug;
             SourceSlug = sourceSlug;
+            PersistentInstanceId = persistentInstanceId?.Trim() ?? string.Empty;
+        }
+
+        internal void EnsurePersistenceIdentity(string instanceId)
+        {
+            string normalized = instanceId?.Trim() ?? string.Empty;
+            if (normalized.Length == 0)
+                throw new ArgumentException(
+                    "A prepared-effect persistence identity is required.",
+                    nameof(instanceId)
+                );
+            if (PersistentInstanceId.Length > 0 && PersistentInstanceId != normalized)
+                throw new InvalidOperationException(
+                    "A prepared-effect persistence identity cannot be replaced."
+                );
+            PersistentInstanceId = normalized;
         }
     }
 

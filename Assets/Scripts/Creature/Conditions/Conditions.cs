@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Linq;
+using Game.DungeonPersistence.Actors;
 using Game.Rules;
 using UnityEngine;
 
@@ -7,12 +9,18 @@ using UnityEngine;
 /// </summary>
 public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
 {
-    protected Dictionary<string, List<ConditionSource>> AppliedConditions = new();
+    protected Dictionary<string, List<ConditionPersistenceApplication>> AppliedConditions = new();
 
     /// <summary>
     /// Active condition names used by UI and condition modifier mapping; source details remain internal to this component.
     /// </summary>
     public IReadOnlyCollection<string> ActiveConditionNames => AppliedConditions.Keys;
+
+    /// <summary>
+    /// Gets whether this fresh component can receive a complete persistent replacement without
+    /// orphaning reverse links held by existing condition sources.
+    /// </summary>
+    public bool CanRestorePersistentState => AppliedConditions.Count == 0;
 
     /// <summary>
     /// Adds a condition from a specific source, preserving multiple sources for the same condition.
@@ -21,14 +29,37 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     /// <param name="source">The source responsible for applying the condition.</param>
     public void Add(string condition, ConditionSource source)
     {
+        AddPersistent(condition, 0, source);
+    }
+
+    /// <summary>Adds one source-aware valued condition application.</summary>
+    /// <param name="condition">The condition name or definition ID.</param>
+    /// <param name="value">The non-negative valued-condition amount.</param>
+    /// <param name="source">The applying source, or null for an intrinsic condition.</param>
+    /// <param name="applicationId">
+    /// Stable restored application identity, or an empty string for a new live application.
+    /// </param>
+    public void AddPersistent(
+        string condition,
+        int value,
+        ConditionSource source,
+        string applicationId = ""
+    )
+    {
         if (string.IsNullOrWhiteSpace(condition))
             return;
+        if (value < 0)
+            throw new System.ArgumentOutOfRangeException(nameof(value));
 
-        List<ConditionSource> sources;
-        if (!AppliedConditions.TryGetValue(condition, out sources))
-            AppliedConditions.Add(condition, new List<ConditionSource>() { source });
+        List<ConditionPersistenceApplication> applications;
+        ConditionPersistenceApplication application = new(condition, value, source, applicationId);
+        if (!AppliedConditions.TryGetValue(application.ConditionId, out applications))
+            AppliedConditions.Add(
+                application.ConditionId,
+                new List<ConditionPersistenceApplication> { application }
+            );
         else
-            sources.Add(source);
+            applications.Add(application);
     }
 
     /// <summary>
@@ -39,8 +70,9 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     /// <returns>True when that source currently applies the condition.</returns>
     public bool Contains(string condition, ConditionSource source)
     {
-        List<ConditionSource> sources;
-        return AppliedConditions.TryGetValue(condition, out sources) && sources.Contains(source);
+        List<ConditionPersistenceApplication> applications;
+        return AppliedConditions.TryGetValue(condition, out applications)
+            && applications.Any(application => application.Source == source);
     }
 
     /// <summary>
@@ -62,6 +94,58 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
         return new List<string>(AppliedConditions.Keys);
     }
 
+    /// <summary>Captures every condition application, including duplicate shared sources.</summary>
+    /// <returns>
+    /// A copied sequence ordered by condition ID while preserving same-condition application order.
+    /// </returns>
+    public IReadOnlyList<ConditionPersistenceApplication> CapturePersistentState()
+    {
+        List<ConditionPersistenceApplication> captured = new();
+        foreach (
+            KeyValuePair<
+                string,
+                List<ConditionPersistenceApplication>
+            > pair in AppliedConditions.OrderBy(pair => pair.Key, System.StringComparer.Ordinal)
+        )
+        {
+            captured.AddRange(pair.Value);
+        }
+        return captured.AsReadOnly();
+    }
+
+    /// <summary>
+    /// Restores a complete source-aware condition set onto a fresh component and re-establishes
+    /// shared-source removal links.
+    /// </summary>
+    /// <param name="applications">The fully validated applications to restore.</param>
+    /// <exception cref="System.InvalidOperationException">The component already has conditions.</exception>
+    public void RestorePersistentState(IEnumerable<ConditionPersistenceApplication> applications)
+    {
+        if (!CanRestorePersistentState)
+            throw new System.InvalidOperationException(
+                "Persistent conditions can only be restored onto a fresh component."
+            );
+        if (applications == null)
+            throw new System.ArgumentNullException(nameof(applications));
+        ConditionPersistenceApplication[] copied = applications.ToArray();
+        if (copied.Any(application => application == null))
+            throw new System.ArgumentException(
+                "Persistent conditions cannot contain null.",
+                nameof(applications)
+            );
+
+        foreach (ConditionPersistenceApplication application in copied)
+        {
+            AddPersistent(
+                application.ConditionId,
+                application.Value,
+                application.Source,
+                application.ApplicationId
+            );
+            application.Source?.TrackRestoredApplication(application.ConditionId, this);
+        }
+    }
+
     /// <summary>
     /// Removes one source from a condition and clears the condition when no sources remain.
     /// </summary>
@@ -69,11 +153,13 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     /// <param name="source">The source being removed.</param>
     public void Remove(string condition, ConditionSource source)
     {
-        List<ConditionSource> sources;
-        if (AppliedConditions.TryGetValue(condition, out sources))
+        List<ConditionPersistenceApplication> applications;
+        if (AppliedConditions.TryGetValue(condition, out applications))
         {
-            sources.Remove(source);
-            if (sources.Count < 1)
+            int index = applications.FindIndex(application => application.Source == source);
+            if (index >= 0)
+                applications.RemoveAt(index);
+            if (applications.Count < 1)
                 AppliedConditions.Remove(condition);
         }
     }

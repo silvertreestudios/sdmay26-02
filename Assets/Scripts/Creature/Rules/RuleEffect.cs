@@ -6,7 +6,6 @@ namespace Game.Creature.Rules
     public enum RuleEffectType
     {
         SpendActions,
-        SetTakingActionFalse,
         GainSourceTempHp,
         RemoveSourceTempHp,
         AddTempHpImmunity,
@@ -43,15 +42,6 @@ namespace Game.Creature.Rules
         public static RuleEffect SpendActions(uint actionCost)
         {
             return new RuleEffect(RuleEffectType.SpendActions, actionCost: actionCost);
-        }
-
-        /// <summary>
-        /// Creates an effect that clears the Unity action-in-progress flag after a rule resolves.
-        /// </summary>
-        /// <returns>A generic action-state cleanup effect.</returns>
-        public static RuleEffect SetTakingActionFalse()
-        {
-            return new RuleEffect(RuleEffectType.SetTakingActionFalse);
         }
 
         /// <summary>

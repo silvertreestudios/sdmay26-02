@@ -173,6 +173,7 @@ GameObject:
   - component: {fileID: 8104092470783750296}
   - component: {fileID: 8690248463442255981}
   - component: {fileID: 2655864268557234763}
+  - component: {fileID: 8909128330386928144}
   m_Layer: 6
   m_Name: Lena
   m_TagString: Untagged
@@ -478,6 +479,21 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e584dabbf74fd34cbc33e771cfdd988, type: 3}
   m_Name: 
   m_EditorClassIdentifier: MainGameAssembly::Game.KayKit.CreaturePresentation
+--- !u!114 &8909128330386928144
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3791866971907940300}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a0b5d98d5173a27468478bfef87ced58, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: MainGameAssembly::Game.DungeonPersistence.Actors.DungeonPartyMemberIdentity
+  rosterSlotId: party-slot-lena
+  actorInstanceId: party-actor-lena
+  creatureContentId: player-character-lena
 --- !u!1 &3836261064009643872
 GameObject:
   m_ObjectHideFlags: 0

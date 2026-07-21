@@ -380,6 +380,7 @@ GameObject:
   - component: {fileID: 6193526884997599345}
   - component: {fileID: 1156536375740639874}
   - component: {fileID: 7360939350077297076}
+  - component: {fileID: 3405823496776297277}
   m_Layer: 6
   m_Name: Torgrim
   m_TagString: Untagged
@@ -647,3 +648,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e584dabbf74fd34cbc33e771cfdd988, type: 3}
   m_Name: 
   m_EditorClassIdentifier: MainGameAssembly::Game.KayKit.CreaturePresentation
+--- !u!114 &3405823496776297277
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9206694334430352647}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a0b5d98d5173a27468478bfef87ced58, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: MainGameAssembly::Game.DungeonPersistence.Actors.DungeonPartyMemberIdentity
+  rosterSlotId: party-slot-torgrim
+  actorInstanceId: party-actor-torgrim
+  creatureContentId: player-character-torgrim

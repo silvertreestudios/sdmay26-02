@@ -3,6 +3,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Game.Combat.Encounters;
+using Game.DungeonPersistence;
+using Game.DungeonPersistence.Autosave;
+using Game.DungeonPersistence.Repository;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
@@ -102,30 +105,32 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
                 throw new InvalidOperationException(
                     "A JSON dungeon with planned encounters requires an active HUDController."
                 );
-            DungeonEncounterRuntimeController runtime =
-                runtimeRoot.AddComponent<DungeonEncounterRuntimeController>();
             DungeonEncounterCreatureCatalog encounterCatalog =
                 DungeonEncounterCreatureCatalog.LoadDefaultOrThrow();
-            if (validation.JsonMap.LevelDocument.RuntimeState == null)
-            {
-                runtime.InitializePristine(
+            DungeonRunPersistenceBootstrapResult bootstrap =
+                DungeonRunPersistenceBootstrap.Initialize(
+                    map,
                     validation.JsonMap.LevelDocument,
                     encounterCatalog,
                     combatManager,
                     party,
-                    hud
+                    hud,
+                    DungeonAutosaveProductionRepositoryFactory.Create(),
+                    runtimeRoot
                 );
-            }
-            else
+            foreach (var diagnostic in bootstrap.Diagnostics)
             {
-                runtime.InitializePersisted(
-                    validation.JsonMap.LevelDocument,
-                    encounterCatalog,
-                    combatManager,
-                    party,
-                    hud
-                );
+                string message =
+                    $"Dungeon persistence [{diagnostic.Code}] {diagnostic.Path}: {diagnostic.Message}";
+                if (diagnostic.Severity == DungeonSaveDiagnosticSeverity.Warning)
+                    Debug.LogWarning(message, map);
+                else
+                    Debug.LogError(message, map);
             }
+            if (!bootstrap.IsSuccess)
+                throw new InvalidOperationException(
+                    "The generated dungeon could not initialize its persistent run."
+                );
         }
         catch
         {

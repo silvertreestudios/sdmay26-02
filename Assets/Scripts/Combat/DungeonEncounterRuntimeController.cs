@@ -11,6 +11,22 @@ using UnityEngine;
 
 namespace Game.Combat.Encounters
 {
+    /// <summary>Classifies a committed generated-floor mutation that requires an autosave.</summary>
+    public enum DungeonPersistentStateChangeKind
+    {
+        /// <summary>A generated door became permanently open.</summary>
+        DoorOpened,
+
+        /// <summary>An encounter activated, joined combat, suspended, resumed, or cleared.</summary>
+        EncounterLifecycle,
+
+        /// <summary>A stable encounter creature became permanently defeated.</summary>
+        CreatureDefeated,
+
+        /// <summary>The player selected a different living exploration leader.</summary>
+        ExplorationLeaderChanged,
+    }
+
     /// <summary>Displays movement-only controls while a party explores between encounters.</summary>
     public interface IDungeonExplorationPresentation
     {
@@ -81,6 +97,9 @@ namespace Game.Combat.Encounters
 
         /// <summary>Raised after a generated door opens and its navigation state is committed.</summary>
         public event Action<string> DoorOpened = delegate { };
+
+        /// <summary>Raised after any persistent generated-floor mutation is fully committed.</summary>
+        public event Action<DungeonPersistentStateChangeKind> PersistentStateChanged = delegate { };
 
         /// <summary>Initializes pristine encounter state for a newly generated floor.</summary>
         /// <param name="document">The validated source document retained by the active map.</param>
@@ -189,6 +208,119 @@ namespace Game.Combat.Encounters
             return director.CaptureSnapshot();
         }
 
+        /// <summary>Captures the complete configured party roster in follower order.</summary>
+        /// <returns>
+        /// A copied sequence containing living and defeated controllers in the order supplied at
+        /// initialization.
+        /// </returns>
+        /// <remarks>
+        /// The controllers are live Unity objects and must be consumed immediately by an actor
+        /// persistence adapter. Defeated members remain present so a save never silently shrinks
+        /// the roster.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">The controller is not initialized.</exception>
+        public IReadOnlyList<ActionController> CapturePartyControllers()
+        {
+            if (!IsInitialized)
+                throw new InvalidOperationException(
+                    "The dungeon encounter runtime is not initialized."
+                );
+            return Array.AsReadOnly(party.ToArray());
+        }
+
+        /// <summary>Attempts to capture the current living exploration leader.</summary>
+        /// <param name="leader">
+        /// The selected living party controller on success, falling back to the first living roster
+        /// member if the prior leader was defeated; otherwise the default value when no member lives.
+        /// </param>
+        /// <returns><see langword="true"/> only when a living leader is available.</returns>
+        /// <exception cref="InvalidOperationException">The controller is not initialized.</exception>
+        public bool TryCaptureExplorationLeader(out ActionController leader)
+        {
+            if (!IsInitialized)
+                throw new InvalidOperationException(
+                    "The dungeon encounter runtime is not initialized."
+                );
+            ActionController captured = CanObserve(selectedLeader)
+                ? selectedLeader
+                : party.FirstOrDefault(CanObserve);
+            if (captured != null)
+            {
+                leader = captured;
+                return true;
+            }
+
+            leader = default;
+            return false;
+        }
+
+        /// <summary>
+        /// Captures stable identities and immediate Unity handles for every materialized enemy.
+        /// </summary>
+        /// <returns>
+        /// Living and defeated actors ordered by stable instance ID; dormant encounters are absent.
+        /// </returns>
+        /// <remarks>
+        /// Persistence adapters must consume returned controllers immediately. This boundary keeps
+        /// JSON contracts out of combat code while preserving plan-derived identity.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">The controller is not initialized.</exception>
+        public IReadOnlyList<DungeonEncounterCreatureCapture> CaptureMaterializedCreatures()
+        {
+            if (!IsInitialized)
+                throw new InvalidOperationException(
+                    "The dungeon encounter runtime is not initialized."
+                );
+            return director.CaptureMaterializedCreatures();
+        }
+
+        /// <summary>
+        /// Captures a complete persistence-facing runtime state for the active generated floor.
+        /// </summary>
+        /// <param name="captureCreatureState">
+        /// Serializes the child-owned mutable state for each living materialized enemy.
+        /// </param>
+        /// <returns>
+        /// Door, encounter lifecycle, defeated-instance, and living-creature state in deterministic
+        /// stable-ID order.
+        /// </returns>
+        /// <remarks>
+        /// Combat initiative and turn economy are deliberately absent. Restored active encounters
+        /// therefore normalize to suspended exploration state and reroll initiative when reached.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="captureCreatureState"/> is absent.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">The controller is not initialized.</exception>
+        public DungeonRuntimeState CaptureRuntimeState(
+            Func<ActionController, string> captureCreatureState
+        )
+        {
+            if (!IsInitialized)
+                throw new InvalidOperationException(
+                    "The dungeon encounter runtime is not initialized."
+                );
+            if (captureCreatureState == null)
+                throw new ArgumentNullException(nameof(captureCreatureState));
+
+            DungeonEncounterLifecycleSnapshot lifecycle = director.CaptureSnapshot();
+            string[] resolved = lifecycle
+                .Groups.Where(group => group.State == DungeonEncounterGroupState.Cleared)
+                .Select(group => group.EncounterId)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray();
+            string[] defeated = lifecycle
+                .Groups.SelectMany(group => group.DefeatedCreatureInstanceIds)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray();
+            return new DungeonRuntimeState(
+                CaptureOpenDoorIds(),
+                resolved,
+                defeated,
+                director.CaptureLivingCreatureStates(captureCreatureState)
+            );
+        }
+
         /// <summary>Captures all currently open generated-door IDs in deterministic order.</summary>
         /// <returns>A copied stable-ID sequence suitable for the floor-state persistence contract.</returns>
         /// <exception cref="InvalidOperationException">The controller is not initialized.</exception>
@@ -270,6 +402,7 @@ namespace Game.Combat.Encounters
             actor.ActionPoints -= decision.ActionCost;
             openDoorIds.Add(door.StableId);
             DoorOpened(door.StableId);
+            PersistentStateChanged(DungeonPersistentStateChangeKind.DoorOpened);
             return true;
         }
 
@@ -282,25 +415,35 @@ namespace Game.Combat.Encounters
         /// </returns>
         public bool TrySelectExplorationLeader(ActionController candidate)
         {
-            if (
-                !IsInitialized
-                || combatManager.IsCombatActive
-                || !party.Contains(candidate)
-                || !CanObserve(candidate)
-                || party.Any(member => member != null && member.IsTakingAction)
-            )
-            {
+            if (!CanSelectExplorationLeader(candidate))
                 return false;
-            }
 
+            bool leaderChanged = selectedLeader != candidate;
             foreach (ActionController partyMember in party)
             {
                 if (partyMember != null)
                     partyMember.SetDungeonExploration(partyMember == candidate);
             }
             selectedLeader = candidate;
+            if (leaderChanged)
+                PersistentStateChanged(DungeonPersistentStateChangeKind.ExplorationLeaderChanged);
             return true;
         }
+
+        /// <summary>
+        /// Gets whether leader selection can succeed now without mutating exploration state.
+        /// </summary>
+        /// <param name="candidate">The living configured party member to validate.</param>
+        /// <returns>
+        /// <see langword="true"/> only while exploration is stable, combat is inactive, and the
+        /// candidate can currently lead.
+        /// </returns>
+        public bool CanSelectExplorationLeader(ActionController candidate) =>
+            IsInitialized
+            && !combatManager.IsCombatActive
+            && party.Contains(candidate)
+            && CanObserve(candidate)
+            && party.All(member => member != null && !member.IsTakingAction);
 
         private void Initialize(
             DungeonLevelDocument document,
@@ -360,6 +503,8 @@ namespace Game.Combat.Encounters
             combatManager = manager;
             explorationPresentation = presenter;
             director = createdDirector;
+            director.CreatureDefeated += OnCreatureDefeated;
+            director.EncounterLifecycleChanged += OnEncounterLifecycleChanged;
             BindGeneratedDoors(document);
             combatManager.CombatActivityChanged += OnCombatActivityChanged;
             IsInitialized = true;
@@ -456,6 +601,11 @@ namespace Game.Combat.Encounters
                 gridInput.CellClicked -= OnGridCellClicked;
             if (grid != null)
                 grid.UnbindExplorationStrideCoordinator(this);
+            if (director != null)
+            {
+                director.CreatureDefeated -= OnCreatureDefeated;
+                director.EncounterLifecycleChanged -= OnEncounterLifecycleChanged;
+            }
             foreach (ActionController partyMember in party)
             {
                 if (partyMember != null)
@@ -463,6 +613,16 @@ namespace Game.Combat.Encounters
             }
             director?.Dispose();
             IsInitialized = false;
+        }
+
+        private void OnCreatureDefeated(DungeonCreatureDefeatResult result)
+        {
+            PersistentStateChanged(DungeonPersistentStateChangeKind.CreatureDefeated);
+        }
+
+        private void OnEncounterLifecycleChanged(string encounterId)
+        {
+            PersistentStateChanged(DungeonPersistentStateChangeKind.EncounterLifecycle);
         }
 
         private void BindGeneratedDoors(DungeonLevelDocument document)

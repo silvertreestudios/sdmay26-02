@@ -12,7 +12,30 @@ public abstract class ActionController : MonoBehaviour
     protected List<EntityAction> Movements = new();
     protected List<EntityAction> Reactions = new();
     protected bool IsTurn = false;
-    public bool IsTakingAction { get; set; } = false;
+    private bool actionCompletionPending;
+
+    /// <summary>Gets or sets whether this controller has action work in progress.</summary>
+    /// <remarks>
+    /// <see cref="TakeAction"/> marks this state busy. Action implementations leave it busy until
+    /// their shared <see cref="EntityAction"/> or <see cref="MultiFrameEntityAction"/> pipeline
+    /// calls <see cref="CompleteAction"/> after final persistent and encounter mutations.
+    /// </remarks>
+    public bool IsTakingAction { get; set; }
+
+    /// <summary>Completes the current action and publishes its stable runtime boundary once.</summary>
+    /// <remarks>
+    /// Action base classes call this only after all action and encounter-resolution work finishes.
+    /// Calling it again while already idle is a no-op, preventing duplicate completion signals.
+    /// </remarks>
+    public void CompleteAction()
+    {
+        if (!actionCompletionPending && !IsTakingAction)
+            return;
+
+        actionCompletionPending = false;
+        IsTakingAction = false;
+        OnActorActionCompleted.Invoke(gameObject);
+    }
 
     /// <summary>Gets whether this controller currently has movement-only exploration authority.</summary>
     public bool IsInDungeonExploration { get; private set; }
@@ -53,15 +76,18 @@ public abstract class ActionController : MonoBehaviour
     /// </summary>
     /// <remarks>
     /// Dungeon retreat and encounter restoration use this boundary so a fresh initiative round
-    /// cannot retain actions, reactions, or multiple-attack penalty from the prior round.
+    /// cannot retain actions, reactions, or multiple-attack penalty from the prior round. An action
+    /// pipeline that is still unwinding remains busy until <see cref="CompleteAction"/> publishes
+    /// its stable boundary; this prevents combat-end state from being saved mid-action.
     /// </remarks>
     public virtual void ResetEncounterTurnState()
     {
         IsTurn = false;
-        IsTakingAction = false;
         ActionPoints = 0;
         Reacted = false;
         StrikePenalty = 0;
+        if (!actionCompletionPending)
+            IsTakingAction = false;
     }
 
     /// <summary>Enables or disables movement-only authority between dungeon encounters.</summary>
@@ -120,8 +146,8 @@ public abstract class ActionController : MonoBehaviour
     /// <remarks>
     /// Concurrent actions are rejected. During dungeon exploration, only registered movement
     /// actions are allowed and action points are ignored; outside exploration, the controller must
-    /// own the combat turn and afford the action cost. The invoked action remains responsible for
-    /// clearing <see cref="IsTakingAction"/> when its synchronous or coroutine work completes.
+    /// own the combat turn and afford the action cost. The shared synchronous or coroutine action
+    /// pipeline calls <see cref="CompleteAction"/> after the invoked action finishes.
     /// </remarks>
     public void TakeAction(EntityAction action)
     {
@@ -144,6 +170,7 @@ public abstract class ActionController : MonoBehaviour
             return;
         }
 
+        actionCompletionPending = true;
         IsTakingAction = true;
         action.Invoke(this.gameObject);
     }

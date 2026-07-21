@@ -19,6 +19,7 @@ public class Pf2eClericSpellcastingTests
             if (go != null)
                 Object.DestroyImmediate(go);
         created.Clear();
+        OnActorActionCompleted.RemoveAllListeners();
         Pf2eItemCatalog.ResetForTests();
     }
 
@@ -102,11 +103,27 @@ public class Pf2eClericSpellcastingTests
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
         controller.ActionPoints = 3;
         controller.IsTakingAction = true;
+        int completionCount = 0;
+        int armorClassAtCompletion = 0;
+        OnActorActionCompleted.AddListener(completedActor =>
+        {
+            if (completedActor != cleric.gameObject)
+                return;
+            completionCount++;
+            armorClassAtCompletion = cleric.ResolveArmorClass().Total;
+        });
 
         Cast("shield", cleric, 1);
+        controller.CompleteAction();
 
         Assert.That(cleric.ResolveArmorClass().Total, Is.EqualTo(12));
         Assert.That(controller.ActionPoints, Is.EqualTo(2));
+        Assert.That(completionCount, Is.EqualTo(1));
+        Assert.That(
+            armorClassAtCompletion,
+            Is.EqualTo(12),
+            "An immediate self spell must publish completion after its persistent effect applies."
+        );
 
         controller.StartTurn();
 

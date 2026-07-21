@@ -30,3 +30,14 @@ public class OnActionConfirm : StaticUnityEvent<OnActionConfirm> { }
 
 /// <summary>UI Triggered upon action completion </summary>
 public class OnActionComplete : StaticUnityEvent<OnActionComplete> { }
+
+/// <summary>
+/// Triggered after an actor's action has finished all synchronous or coroutine work and the actor
+/// has returned to a stable, non-busy state.
+/// </summary>
+/// <remarks>
+/// Unlike <see cref="OnActionComplete"/>, this event is an action-runtime boundary rather than an
+/// FSM or UI-selection boundary. It therefore covers targeted actions, immediate actions, and
+/// self-targeted rules uniformly.
+/// </remarks>
+public class OnActorActionCompleted : StaticUnityEvent<OnActorActionCompleted, GameObject> { }

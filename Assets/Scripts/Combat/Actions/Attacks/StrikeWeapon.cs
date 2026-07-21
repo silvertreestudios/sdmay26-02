@@ -197,8 +197,6 @@ namespace Game.Strikes
                 CombatLog
                     .GetInstance()
                     .Log("- " + attacker.name + " cannot fire " + weaponName + ".");
-                if (ac)
-                    ac.IsTakingAction = false;
                 yield break;
             }
 
@@ -214,8 +212,6 @@ namespace Game.Strikes
                     CombatLog
                         .GetInstance()
                         .Log("- " + attacker.name + " has no ammunition for " + weaponName + ".");
-                    if (ac)
-                        ac.IsTakingAction = false;
                     yield break;
                 }
 
@@ -249,8 +245,6 @@ namespace Game.Strikes
                     ac.StrikePenalty += 1;
                 }
             }
-            if (ac)
-                ac.IsTakingAction = false;
         }
     }
 
@@ -290,8 +284,6 @@ namespace Game.Strikes
                 CombatLog.GetInstance().Log("- " + target.name + " reloads " + Weapon.name + ".");
                 PayCost(ac);
             }
-            if (ac)
-                ac.IsTakingAction = false;
             base.Invoke(target);
         }
     }

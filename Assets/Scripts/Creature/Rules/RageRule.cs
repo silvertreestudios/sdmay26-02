@@ -92,11 +92,7 @@ namespace Game.Creature.Rules
             Pf2eItem rageEffect = catalog.Resolve(effectUuid) ?? catalog.Resolve("Effect: Rage");
             prepared.AddActiveEffect(rageEffect, RageSource);
 
-            List<RuleEffect> effects = new()
-            {
-                RuleEffect.SpendActions(request.ActionCost),
-                RuleEffect.SetTakingActionFalse(),
-            };
+            List<RuleEffect> effects = new() { RuleEffect.SpendActions(request.ActionCost) };
 
             int tempHp = Math.Max(0, creature.Level + creature.ConstitutionModifier);
             if (!creature.HasTempHpImmunity(RageSource) && tempHp > 0)

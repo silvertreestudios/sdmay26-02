@@ -34,10 +34,6 @@ namespace Game.Creature.Rules
                         if (actionController != null)
                             actionController.ActionPoints -= effect.ActionCost;
                         break;
-                    case RuleEffectType.SetTakingActionFalse:
-                        if (actionController != null)
-                            actionController.IsTakingAction = false;
-                        break;
                     case RuleEffectType.GainSourceTempHp:
                         creature?.GrantSourceTemporaryHitPoints(
                             RuleSource.FromSlug(effect.Source),
