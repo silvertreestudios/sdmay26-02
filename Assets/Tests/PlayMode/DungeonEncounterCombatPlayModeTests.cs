@@ -131,7 +131,84 @@ public sealed class DungeonEncounterCombatPlayModeTests
         {
             OnCombatStart.RemoveListener(failStart);
         }
-        yield return null;
+
+        manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        Assert.That(manager.IsCombatActive, Is.True, "A failed startup must not block a retry.");
+    }
+
+    /// <summary>Verifies legacy all-registered combat deterministically supports arbitrary teams.</summary>
+    [UnityTest]
+    public IEnumerator StartCombatWithoutPlayersTeamUsesFirstSelectedTeamAsProtagonists()
+    {
+        CombatantFixture teamA = CreateCombatant("Legacy Team A", "TeamA", 200);
+        CombatantFixture teamB = CreateCombatant("Legacy Team B", "TeamB", 100);
+
+        manager.StartCombat();
+        yield return WaitForTurn(teamA.GameObject);
+
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        EncounterState encounter = bridge.Snapshot.Encounters[bridge.EncounterId];
+        Assert.That(bridge.GetTeamDisplayName(encounter.ProtagonistTeam), Is.EqualTo("TeamA"));
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EqualTo(new[] { teamA.GameObject, teamB.GameObject })
+        );
+    }
+
+    /// <summary>Verifies an awaited startup hook fault fully rolls back and permits a restart.</summary>
+    [UnityTest]
+    public IEnumerator AsynchronousStartHookFailureLeavesCombatInactiveAndRestartable()
+    {
+        CombatantFixture player = CreateCombatant("Failed Async Start Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Failed Async Start Enemy", "Enemies", 100);
+        PrepareBarbarian(player.Creature);
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: true);
+        RuleDispatcher failedDispatcher = null;
+        UnityAction installFailure = () =>
+        {
+            failedDispatcher = GetEncounterDispatcher();
+            failedDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        };
+        OnCombatStart.AddListener(installFailure);
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The startup hook did not reach its awaited health Fact."
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate Rage Fact failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The failed asynchronous startup did not roll combat state back."
+            );
+
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+            Assert.That(GetStartupCombatants(), Is.Empty);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, enemy.GameObject })
+            );
+        }
+        finally
+        {
+            OnCombatStart.RemoveListener(installFailure);
+            blocker.Release();
+            failedDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        }
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        Assert.That(manager.IsCombatActive, Is.True);
     }
 
     /// <summary>
@@ -692,8 +769,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Assert.That(reinforcement.Controller.StartTurnCount, Is.Zero);
             Assert.That(
                 GetPublishedActiveCombatants(),
-                Has.No.Member(reinforcement.Controller),
-                "Manager publication must wait for every reinforcement start hook."
+                Has.Member(reinforcement.Controller),
+                "A durably accepted reinforcement must be in host cleanup before hooks await."
             );
 
             initializationBlocker.Release();
@@ -713,6 +790,77 @@ public sealed class DungeonEncounterCombatPlayModeTests
             OnNextTurn.RemoveListener(observeTurn);
             dispatcher.UnregisterFactObserver<HealthFact>(rootBlocker);
             dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(initializationBlocker);
+            _ = ending?.Exception;
+        }
+    }
+
+    /// <summary>Verifies a faulting join initializer cannot split rules and manager membership.</summary>
+    [UnityTest]
+    public IEnumerator AcceptedJoinInitializerFailureKeepsRulesAndManagerRosterReconciled()
+    {
+        CombatantFixture current = CreateCombatant("Faulted Join Current", "Players", 300);
+        CombatantFixture reinforcement = CreateCombatant(
+            "Faulted Join Reinforcement",
+            "Enemies",
+            200
+        );
+        CombatantFixture later = CreateCombatant("Faulted Join Later", "Enemies", 0);
+        PrepareBarbarian(reinforcement.Creature);
+        manager.StartDungeonCombat(new[] { current.Controller, later.Controller });
+        yield return WaitForTurn(current.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: true);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        Task<EncounterAdvanceOutcome> ending = null;
+
+        try
+        {
+            manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The accepted reinforcement initializer did not await its health Fact."
+            );
+
+            CreatureId reinforcementId = bridge.GetCreatureId(reinforcement.Controller);
+            Assert.That(bridge.GetController(reinforcementId), Is.SameAs(reinforcement.Controller));
+            Assert.That(
+                bridge
+                    .Snapshot.Encounters[bridge.EncounterId]
+                    .Roster.Select(entry => entry.Creature),
+                Has.Member(reinforcementId)
+            );
+            Assert.That(GetPublishedActiveCombatants(), Has.Member(reinforcement.Controller));
+            Assert.That(reinforcement.Controller.StartTurnCount, Is.Zero);
+
+            ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate Rage Fact failure")
+            );
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return WaitForTurn(reinforcement.GameObject);
+
+            Assert.That(reinforcement.Controller.StartTurnCount, Is.EqualTo(1));
+            Assert.That(manager.GetCombatants(), Has.Member(reinforcement.GameObject));
+
+            yield return CoroutineRunner.Await(
+                current.Creature.ApplyFinalDamageAsync(
+                    current.Creature.hp,
+                    RuleSource.FromSlug("test-faulted-join-cleanup")
+                )
+            );
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "Encounter cleanup did not settle after the faulted accepted join."
+            );
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
             _ = ending?.Exception;
         }
     }
@@ -812,6 +960,82 @@ public sealed class DungeonEncounterCombatPlayModeTests
             expectedActionCost: 1,
             configureGridTarget: true
         );
+    }
+
+    /// <summary>Verifies both Strike paths reject non-roster targets before any resource or roll.</summary>
+    [UnityTest]
+    public IEnumerator WeaponAndUnarmedStrikeRejectOutsideEncounterBeforeCostsMapOrRolls()
+    {
+        CombatantFixture player = CreateCombatant("Membership Strike Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Membership Strike Enemy", "Enemies", 100);
+        CombatantFixture outsider = CreateCombatant("Membership Strike Outsider", "Enemies", 0);
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Membership Strike GridAPI").AddComponent<TestGridAPI>();
+        grid.StrikeTarget = outsider.GameObject;
+        singletonField.SetValue(null, grid);
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+            RuleDispatcher dispatcher = GetEncounterDispatcher();
+            RecordingFactObserver<LegacyActionsSpentFact> actions = new();
+            RecordingFactObserver<LegacyMapIncrementedFact> maps = new();
+            dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(actions);
+            dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+            int startingHealth = outsider.Creature.hp;
+            UnityEngine.Random.State beforeWeapon = UnityEngine.Random.state;
+            EquipmentWeapon weapon = new()
+            {
+                name = "Membership Test Sword",
+                damage = new Dice(1, 6, "slashing"),
+                traits = new List<string>(),
+            };
+
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(new StrikeWeapon(1, weapon, player.GameObject));
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The rejected off-roster weapon Strike did not release its reservation."
+            );
+
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(actions.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(outsider.Creature.hp, Is.EqualTo(startingHealth));
+            Assert.That(UnityEngine.Random.state, Is.EqualTo(beforeWeapon));
+
+            UnityEncounterRulesBridge.CreateHealthTestComposition(new[] { outsider.Creature });
+            UnityEngine.Random.State beforeUnarmed = UnityEngine.Random.state;
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(
+                new Unarmed(
+                    1,
+                    new List<Dice> { new Dice(1, 6, "bludgeoning") },
+                    new List<DamageValue>()
+                )
+            );
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The rejected differently attached unarmed Strike did not release its reservation."
+            );
+
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(actions.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(outsider.Creature.hp, Is.EqualTo(startingHealth));
+            Assert.That(UnityEngine.Random.state, Is.EqualTo(beforeUnarmed));
+        }
+        finally
+        {
+            singletonField.SetValue(null, previousGrid);
+        }
     }
 
     /// <summary>Verifies a lethal attack spell commits actions and MAP before damage.</summary>

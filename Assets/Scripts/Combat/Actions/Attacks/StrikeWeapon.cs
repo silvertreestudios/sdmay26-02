@@ -209,6 +209,18 @@ namespace Game.Strikes
 
             if (target.Value != null && target.Value.Target != null)
             {
+                if (!StrikeEncounterTargeting.IsValid(attacker, target.Value.Target))
+                {
+                    CombatLog
+                        .GetInstance()
+                        .Log(
+                            "- "
+                                + attacker.name
+                                + " cannot strike a creature outside its encounter."
+                        );
+                    yield break;
+                }
+
                 if (cc != null && (!cc.HasAmmoFor(Weapon) || !cc.IsWeaponLoaded(Weapon)))
                 {
                     CombatLog

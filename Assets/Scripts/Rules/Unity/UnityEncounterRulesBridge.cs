@@ -930,8 +930,11 @@ namespace Game.Rules.Unity
                     return;
 
                 owner.PublishAcceptedJoin(reservedIdentities, reservedTeams, plannedControllerIds);
-                await Pf2eRulesEngine.ApplyCombatStartRulesAsync(controllers);
+                // Reducer acceptance and Unity identity/host publication are one root-owned
+                // boundary. Initialization may await or fail, but a durably joined future turn
+                // owner must already be resolvable and included in host cleanup.
                 publishAcceptedControllers();
+                await Pf2eRulesEngine.ApplyCombatStartRulesAsync(controllers);
             }
         }
 

@@ -236,7 +236,10 @@ namespace Game.Rules.Runtime.Tests
                 new RulesStateSeed()
                     .SeedActiveEffect(effect)
                     .SeedRuleBinding(binding)
-                    .SeedFrequency(BindingId, new FrequencyState(3, 1))
+                    .SeedFrequency(
+                        BindingId,
+                        new FrequencyState(new EncounterId("frequency-encounter"), 3, 1)
+                    )
             );
 
             ReductionResult<ActiveEffectExpirationOutcome> expired = store.Reduce(

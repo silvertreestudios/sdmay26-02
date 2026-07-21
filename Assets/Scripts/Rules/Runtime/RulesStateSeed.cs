@@ -216,6 +216,10 @@ namespace Game.Rules.Runtime
             return this;
         }
 
+        /// <summary>Seeds one binding's encounter-qualified frequency marker.</summary>
+        /// <param name="binding">The active binding whose use is recorded.</param>
+        /// <param name="value">The encounter, round, and use count to seed.</param>
+        /// <returns>This seed so initial state can be composed fluently.</returns>
         public RulesStateSeed SeedFrequency(BindingId binding, FrequencyState value)
         {
             if (binding.IsEmpty)

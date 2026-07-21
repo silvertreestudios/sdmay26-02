@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using Game.Creature;
 using Game.KayKit;
+using Game.Rules.Unity;
 using GridPublic;
 using UnityEngine;
 
@@ -52,6 +53,18 @@ namespace Game.Strikes
             // null target value equates to canceled action
             if (target.Value != null && target.Value.Target != null)
             {
+                if (!StrikeEncounterTargeting.IsValid(attacker, target.Value.Target))
+                {
+                    CombatLog
+                        .GetInstance()
+                        .Log(
+                            "- "
+                                + attacker.name
+                                + " cannot strike a creature outside its encounter."
+                        );
+                    yield break;
+                }
+
                 uint attackCount = ac == null ? 0 : ac.StrikePenalty;
                 if (ac != null)
                 {
@@ -96,6 +109,40 @@ namespace Game.Strikes
             creature.GetComponent<ActionController>()?.AddAction(unarmedStrike);
             creature.GetComponent<CreatureComponent>()?.actions.Add("Unarmed Strike");
             Debug.Log("Unarmed strike added to " + creature.name);
+        }
+    }
+
+    /// <summary>
+    /// Enforces authoritative encounter membership after target selection but before a Strike
+    /// commits any action, MAP, ammunition, roll, animation, or health work.
+    /// </summary>
+    internal static class StrikeEncounterTargeting
+    {
+        internal static bool IsValid(GameObject attacker, GameObject target)
+        {
+            CreatureComponent attackerCreature =
+                attacker == null ? null : attacker.GetComponent<CreatureComponent>();
+            CreatureComponent targetCreature =
+                target == null ? null : target.GetComponent<CreatureComponent>();
+            if (attackerCreature == null || targetCreature == null)
+                return false;
+
+            // Standalone preparation and legacy strike fixtures have no active encounter and keep
+            // their existing behavior. Once the attacker is in an active encounter, both ends of
+            // the Strike must resolve through that exact bridge and immutable roster.
+            if (
+                !attackerCreature.TryGetEncounterRulesBridge(
+                    out UnityEncounterRulesBridge attackerBridge
+                ) || !attackerBridge.HasActiveEncounter
+            )
+                return true;
+
+            return targetCreature.TryGetEncounterRulesBridge(
+                    out UnityEncounterRulesBridge targetBridge
+                )
+                && object.ReferenceEquals(attackerBridge, targetBridge)
+                && attackerBridge.IsActiveEncounterParticipant(attackerCreature)
+                && attackerBridge.IsActiveEncounterParticipant(targetCreature);
         }
     }
 }

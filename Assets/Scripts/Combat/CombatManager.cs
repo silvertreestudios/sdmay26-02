@@ -176,6 +176,15 @@ public class CombatManager : CombatManagerInterface
             throw new InvalidOperationException(
                 "Every participant must be a living registered controller."
             );
+        // A PlayerActionController is the strongest legacy signal for protagonist ownership.
+        // Older test scenes and AI-only harnesses do not always provide one, so retain their
+        // historical selected-roster semantics by using the first participant's team.
+        string protagonistTeam = ResolveProtagonistTeamDisplayName(selected);
+        UnityEncounterRulesBridge startingBridge = UnityEncounterRulesBridge.Create(
+            selected,
+            protagonistTeam
+        );
+
         activeCombatants.Clear();
         activeCombatants.AddRange(selected);
         dungeonDirectedCombat = dungeonDirected;
@@ -183,7 +192,7 @@ public class CombatManager : CombatManagerInterface
         encounterReady = false;
         foreach (ActionController controller in activeCombatants)
             controller.ResetEncounterTurnState();
-        encounterRules = UnityEncounterRulesBridge.Create(selected, "Players");
+        encounterRules = startingBridge;
         encounterRules.TurnBegan += OnTurnBeganCommitted;
         encounterRules.TurnEnded += OnTurnEndedCommitted;
         encounterRules.EncounterEnded += OnEncounterEndedCommitted;
@@ -195,30 +204,54 @@ public class CombatManager : CombatManagerInterface
         }
         catch
         {
-            StopCombatState(cancelInFlightActions: true);
+            AbortCombatStartup(startingBridge);
             throw;
         }
         finally
         {
             startupCombatants = Array.Empty<ActionController>();
         }
-        StartCoroutine(BeginEncounterRules(selected));
+        StartCoroutine(BeginEncounterRules(selected, startingBridge));
     }
 
-    private IEnumerator BeginEncounterRules(ActionController[] selected)
+    private IEnumerator BeginEncounterRules(
+        ActionController[] selected,
+        UnityEncounterRulesBridge startingBridge
+    )
     {
-        yield return CoroutineRunner.Await(
-            Pf2eRulesEngine.ApplyCombatStartRulesAsync(activeCombatants)
-        );
-        CoroutineResult<EncounterStartOutcome> started = new();
-        yield return CoroutineRunner.Await(encounterRules.StartEncounter(selected), started);
-        encounterReady = true;
-        LogInitiative(
-            "Initiative Order",
-            started
-                .Value.State.Roster.Select(entry => encounterRules.GetController(entry.Creature))
-                .ToArray()
-        );
+        bool completed = false;
+        try
+        {
+            yield return CoroutineRunner.Await(
+                Pf2eRulesEngine.ApplyCombatStartRulesAsync(selected)
+            );
+            if (!combatActive || !ReferenceEquals(encounterRules, startingBridge))
+                yield break;
+
+            CoroutineResult<EncounterStartOutcome> started = new();
+            yield return CoroutineRunner.Await(startingBridge.StartEncounter(selected), started);
+            if (!combatActive || !ReferenceEquals(encounterRules, startingBridge))
+                yield break;
+
+            encounterReady = true;
+            LogInitiative(
+                "Initiative Order",
+                started
+                    .Value.State.Roster.Select(entry =>
+                        startingBridge.GetController(entry.Creature)
+                    )
+                    .ToArray()
+            );
+            completed = true;
+        }
+        finally
+        {
+            // CoroutineRunner rethrows the original awaited failure after this finally executes.
+            // Roll back only the bridge that owns this startup so a later successful retry cannot
+            // be torn down by an obsolete continuation.
+            if (!completed && combatActive && ReferenceEquals(encounterRules, startingBridge))
+                AbortCombatStartup(startingBridge);
+        }
     }
 
     private IEnumerator AddDungeonReinforcementsRoutine(ActionController[] additions)
@@ -357,7 +390,9 @@ public class CombatManager : CombatManagerInterface
     {
         bool wasDungeonDirected = dungeonDirectedCombat;
         string winningTeam =
-            outcome == EncounterOutcome.PlayerVictory ? "Players" : OpposingTeamDisplayName();
+            outcome == EncounterOutcome.PlayerVictory
+                ? ProtagonistTeamDisplayName()
+                : OpposingTeamDisplayName();
         await Pf2eRulesEngine.EndEncounterAsync(activeCombatants);
         StopCombatState(cancelInFlightActions: false);
         if (wasDungeonDirected)
@@ -389,6 +424,39 @@ public class CombatManager : CombatManagerInterface
             : encounterRules.GetTeamDisplayName(opposition.Team);
     }
 
+    private string ProtagonistTeamDisplayName()
+    {
+        EncounterState encounter = encounterRules.Snapshot.Encounters[encounterRules.EncounterId];
+        return encounterRules.GetTeamDisplayName(encounter.ProtagonistTeam);
+    }
+
+    private static string ResolveProtagonistTeamDisplayName(
+        IReadOnlyList<ActionController> selected
+    )
+    {
+        ActionController protagonist =
+            selected.FirstOrDefault(controller => controller is PlayerActionController)
+            ?? selected[0];
+        Team team = protagonist.GetComponent<Team>();
+        return team == null || string.IsNullOrWhiteSpace(team.Name)
+            ? "Unassigned"
+            : team.Name.Trim();
+    }
+
+    private void AbortCombatStartup(UnityEncounterRulesBridge startingBridge)
+    {
+        if (!ReferenceEquals(encounterRules, startingBridge))
+            return;
+        try
+        {
+            StopCombatState(cancelInFlightActions: true);
+        }
+        finally
+        {
+            encounterRules = null;
+        }
+    }
+
     private void StopCombatState(bool cancelInFlightActions)
     {
         // Synchronous startup observers must never retain their selected-only projection after a
@@ -406,6 +474,7 @@ public class CombatManager : CombatManagerInterface
                 controller.ResetEncounterTurnState();
         }
         activeCombatants.Clear();
+        pendingTurnEnd = null;
         combatActive = false;
         encounterReady = false;
         dungeonDirectedCombat = false;

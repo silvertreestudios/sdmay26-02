@@ -217,33 +217,43 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            EncounterState encounter = state
+            EncounterState[] actorEncounters = state
                 .Encounters.Select(pair => pair.Value)
-                .FirstOrDefault(value => value.Phase == EncounterPhase.Active);
-            if (encounter == null)
+                .Where(value =>
+                    value.Phase == EncounterPhase.Active
+                    && value.Roster.Any(entry => entry.Creature == op.Actor)
+                )
+                .ToArray();
+            if (actorEncounters.Length != 1)
                 return ActionValidationResult.Invalid(
-                    "A once-per-round cost requires an active encounter."
+                    "A once-per-round cost requires exactly one active encounter for the actor."
                 );
+            EncounterState encounter = actorEncounters[0];
 
-            FrequencyState current = state.Frequencies.TryGet(
-                cost.Binding,
-                out FrequencyState existing
-            )
-                ? existing
-                : new FrequencyState(0, 0);
-            int currentRoundUses = current.Round == encounter.Round.Value ? current.Uses : 0;
+            bool hasCurrent = state.Frequencies.TryGet(cost.Binding, out FrequencyState existing);
+            int currentRoundUses =
+                hasCurrent
+                && existing.Encounter == encounter.Id
+                && existing.Round == encounter.Round.Value
+                    ? existing.Uses
+                    : 0;
             if (currentRoundUses >= 1)
                 return ActionValidationResult.Invalid(
                     "The once-per-round use has already been spent."
                 );
 
-            FrequencyState spent = new FrequencyState(encounter.Round.Value, currentRoundUses + 1);
+            FrequencyState spent = new FrequencyState(
+                encounter.Id,
+                encounter.Round.Value,
+                currentRoundUses + 1
+            );
             state.Frequencies.Set(cost.Binding, spent);
             facts.Stage(
                 new BindingFrequencySpentFact(
                     op.ActionOpId,
                     op.Actor,
                     cost.Binding,
+                    spent.Encounter,
                     spent.Round,
                     spent.Uses
                 )
