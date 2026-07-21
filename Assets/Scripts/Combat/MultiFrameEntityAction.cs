@@ -34,7 +34,10 @@ public abstract class MultiFrameEntityAction : EntityAction
             throw new System.InvalidOperationException(
                 "A multi-frame action requires its caller's exact active reservation."
             );
-        owner.StartCoroutine(MFInvokeWithEndCheck(target, reservation));
+        // The actor may deactivate itself while committed damage and encounter presentation settle.
+        // Host the reservation-owning wrapper on the scene lifecycle runner so Unity cannot stop
+        // its finally together with the defeated actor and strand encounter host completion.
+        CoroutineRunner.Run(MFInvokeWithEndCheck(target, reservation));
     }
 
     private IEnumerator MFInvokeWithEndCheck(GameObject target, ActionReservationToken reservation)

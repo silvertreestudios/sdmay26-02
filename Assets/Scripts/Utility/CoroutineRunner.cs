@@ -9,6 +9,12 @@ public class CoroutineResult<T>
     public T Value;
 }
 
+/// <summary>Hosts coroutines whose lifetime must be independent of a gameplay actor.</summary>
+/// <remarks>
+/// Runtime scenes provide this component on scene infrastructure. Use it for lifecycle wrappers
+/// that must finish when an acting creature is disabled or deactivated; scene transitions still
+/// cancel the hosted work through normal Unity object destruction.
+/// </remarks>
 public class CoroutineRunner : SingletonMonoBehaviour<CoroutineRunner>
 {
     /// <summary>Yields until an awaited rules mutation has completely settled.</summary>
@@ -46,11 +52,19 @@ public class CoroutineRunner : SingletonMonoBehaviour<CoroutineRunner>
         ThrowIfFailed(task);
     }
 
+    /// <summary>Starts a coroutine on the scene-level lifecycle host.</summary>
+    /// <param name="routine">The complete routine whose owner may not be a gameplay actor.</param>
+    /// <returns>The Unity coroutine scheduled on the configured runner.</returns>
     public static Coroutine Run(IEnumerator routine)
     {
         return GetInstance().StartCoroutine(routine);
     }
 
+    /// <summary>Starts a parameterized coroutine on the scene-level lifecycle host.</summary>
+    /// <typeparam name="T">The input type passed to the coroutine factory.</typeparam>
+    /// <param name="routine">A factory for the complete hosted routine.</param>
+    /// <param name="data">The input supplied to <paramref name="routine"/>.</param>
+    /// <returns>The Unity coroutine scheduled on the configured runner.</returns>
     public static Coroutine Run<T>(Func<T, IEnumerator> routine, T data)
     {
         return GetInstance().StartCoroutine(routine(data));

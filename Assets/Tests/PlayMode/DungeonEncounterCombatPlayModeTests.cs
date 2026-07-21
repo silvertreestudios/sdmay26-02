@@ -38,6 +38,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         UnityEngine.Random.InitState(158);
 
         Create("TestCombatLog").AddComponent<TestCombatLog>();
+        Create("Stable Action Coroutine Runner").AddComponent<CoroutineRunner>();
         TeamRules teamRules = Create("TeamRules").AddComponent<TeamRules>();
         teamRules.AddFriendlyTeam("Players");
         teamRules.AddHostileTeam("Enemies");
@@ -1812,6 +1813,170 @@ public sealed class DungeonEncounterCombatPlayModeTests
             definition.Release();
             manager.CombatActivityChanged -= observeActivity;
             OnCombatEnd.RemoveListener(observeEnd);
+            OnCombatOutcome.RemoveListener(observeOutcome);
+        }
+    }
+
+    /// <summary>Verifies self-defeat cannot stop the reservation-owning spell coroutine.</summary>
+    [UnityTest]
+    public IEnumerator SelfLethalSpellActionSettlesOnStableHostAfterActorDeactivation()
+    {
+        CombatantFixture player = CreateCombatant("Self-Lethal Spell Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Self-Lethal Spell Enemy", "Enemies", 100);
+        player.Creature.InitializeHealthBeforeEncounter(1, 1);
+        player.Creature.level = 1;
+        player.Creature.wisMod = 4;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        PreparedSpell spell = player.Creature.Prepared.Spellcasting.GetSpell("light");
+        PausedLethalSpellDefinition definition = new(player.GameObject);
+        CastSpellAction action = new(spell, 1, definition);
+        TestCombatLog log = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+        int inactiveCalls = 0;
+        int dungeonEndCalls = 0;
+        int outcomeCalls = 0;
+        bool settledAtInactive = false;
+        Action<bool> observeActivity = active =>
+        {
+            if (active)
+                return;
+            inactiveCalls++;
+            settledAtInactive =
+                definition.CastBodyFinished
+                && !player.Controller.IsTakingAction
+                && log.GetMessages().Any(message => message.Contains(" casts " + spell.Name + "."));
+        };
+        Action<EncounterOutcome> observeDungeonEnd = _ => dungeonEndCalls++;
+        UnityAction<bool> observeOutcome = _ => outcomeCalls++;
+        manager.CombatActivityChanged += observeActivity;
+        manager.DungeonCombatEnded += observeDungeonEnd;
+        OnCombatOutcome.AddListener(observeOutcome);
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        RecordingFactObserver<LegacyActionsSpentFact> actions = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(actions);
+
+        try
+        {
+            player.Controller.TakeAction(action);
+            yield return WaitForCondition(
+                () => definition.DamageSettled,
+                "The self-lethal spell did not settle its committed damage."
+            );
+
+            Assert.That(player.Creature.IsDefeated, Is.True);
+            Assert.That(player.GameObject.activeSelf, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(definition.CastBodyFinished, Is.False);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveCalls, Is.Zero);
+            Assert.That(dungeonEndCalls, Is.Zero);
+            Assert.That(outcomeCalls, Is.Zero);
+            Assert.That(GetPendingEncounterCompletion(), Is.Not.Null);
+
+            definition.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "Self-lethal spell completion remained stranded after actor deactivation."
+            );
+
+            Assert.That(definition.CastBodyFinished, Is.True);
+            Assert.That(actions.Facts, Has.Count.EqualTo(1));
+            Assert.That(actions.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(settledAtInactive, Is.True);
+            Assert.That(inactiveCalls, Is.EqualTo(1));
+            Assert.That(dungeonEndCalls, Is.EqualTo(1));
+            Assert.That(outcomeCalls, Is.EqualTo(1));
+            Assert.That(GetPendingEncounterCompletion(), Is.Null);
+            Assert.That(
+                UnityEngine.Object.FindObjectsByType<CoroutineRunner>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None
+                ),
+                Has.Length.EqualTo(1)
+            );
+        }
+        finally
+        {
+            definition.Release();
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(actions);
+            manager.CombatActivityChanged -= observeActivity;
+            manager.DungeonCombatEnded -= observeDungeonEnd;
+            OnCombatOutcome.RemoveListener(observeOutcome);
+        }
+    }
+
+    /// <summary>Verifies a post-defeat action fault remains visible without stranding completion.</summary>
+    [UnityTest]
+    public IEnumerator SelfLethalSpellFaultReleasesReservationAndFinalizesEncounter()
+    {
+        CombatantFixture player = CreateCombatant("Faulting Self-Lethal Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Faulting Self-Lethal Enemy", "Enemies", 100);
+        player.Creature.InitializeHealthBeforeEncounter(1, 1);
+        player.Creature.level = 1;
+        player.Creature.wisMod = 4;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        PreparedSpell spell = player.Creature.Prepared.Spellcasting.GetSpell("light");
+        FaultingSelfLethalSpellDefinition definition = new(player.GameObject);
+        CastSpellAction action = new(spell, 1, definition);
+        int inactiveCalls = 0;
+        int dungeonEndCalls = 0;
+        int outcomeCalls = 0;
+        Action<bool> observeActivity = active => inactiveCalls += active ? 0 : 1;
+        Action<EncounterOutcome> observeDungeonEnd = _ => dungeonEndCalls++;
+        UnityAction<bool> observeOutcome = _ => outcomeCalls++;
+        manager.CombatActivityChanged += observeActivity;
+        manager.DungeonCombatEnded += observeDungeonEnd;
+        OnCombatOutcome.AddListener(observeOutcome);
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        RecordingFactObserver<LegacyActionsSpentFact> actions = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(actions);
+
+        try
+        {
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate post-defeat spell failure")
+            );
+            player.Controller.TakeAction(action);
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "A visible post-defeat spell fault stranded encounter completion."
+            );
+
+            Assert.That(definition.DamageSettled, Is.True);
+            Assert.That(player.Creature.IsDefeated, Is.True);
+            Assert.That(player.GameObject.activeSelf, Is.False);
+            Assert.That(actions.Facts, Has.Count.EqualTo(1));
+            Assert.That(actions.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(inactiveCalls, Is.EqualTo(1));
+            Assert.That(dungeonEndCalls, Is.EqualTo(1));
+            Assert.That(outcomeCalls, Is.EqualTo(1));
+            Assert.That(GetPendingEncounterCompletion(), Is.Null);
+            Assert.That(
+                UnityEngine.Object.FindFirstObjectByType<TestCombatLog>().GetMessages(),
+                Has.None.Contains(" casts " + spell.Name + ".")
+            );
+        }
+        finally
+        {
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(actions);
+            manager.CombatActivityChanged -= observeActivity;
+            manager.DungeonCombatEnded -= observeDungeonEnd;
             OnCombatOutcome.RemoveListener(observeOutcome);
         }
     }
@@ -3617,6 +3782,16 @@ public sealed class DungeonEncounterCombatPlayModeTests
         return (IReadOnlyList<ActionController>)field.GetValue(manager);
     }
 
+    private object GetPendingEncounterCompletion()
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "pendingEncounterCompletion",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return field.GetValue(manager);
+    }
+
     private static IEnumerator WaitForCondition(Func<bool> condition, string timeoutMessage)
     {
         float deadline = Time.realtimeSinceStartup + 5f;
@@ -3690,6 +3865,13 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
     private static void DestroyExistingRuntime()
     {
+        foreach (
+            CoroutineRunner runner in UnityEngine.Object.FindObjectsByType<CoroutineRunner>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None
+            )
+        )
+            UnityEngine.Object.DestroyImmediate(runner.gameObject);
         foreach (
             GridAPI grid in UnityEngine.Object.FindObjectsByType<GridAPI>(
                 FindObjectsInactive.Include,
@@ -3897,6 +4079,43 @@ public sealed class DungeonEncounterCombatPlayModeTests
         public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
 
         internal void Release() => release.TrySetResult(true);
+    }
+
+    private sealed class FaultingSelfLethalSpellDefinition : ISpellDefinition
+    {
+        private readonly GameObject target;
+
+        internal FaultingSelfLethalSpellDefinition(GameObject target) => this.target = target;
+
+        public string Slug => "light";
+        internal bool DamageSettled { get; private set; }
+
+        public IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => new[] { 1u };
+
+        public IEnumerator SelectAndCast(SpellCastContext context)
+        {
+            yield return CoroutineRunner.Await(
+                context.CastAsync(SpellTargetSelection.ForTarget(target))
+            );
+        }
+
+        public bool IsSelectionValid(SpellCastContext context, SpellTargetSelection selection) =>
+            selection.Targets.Count == 1 && selection.Targets[0] == target;
+
+        public async ValueTask<bool> Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
+        {
+            await target
+                .GetComponent<CreatureComponent>()
+                .ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-faulting-self-lethal-spell"));
+            DamageSettled = true;
+            throw new InvalidOperationException("deliberate post-defeat spell failure");
+        }
+
+        public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
     }
 
     private sealed class TestCombatLog : CombatLogInterface
