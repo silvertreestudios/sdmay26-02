@@ -81,6 +81,61 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
     }
 
+    /// <summary>
+    /// Verifies camera framing excludes defeated timing slots without removing their rules identity.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator DefeatedRetainedParticipant_IsExcludedFromOrderedCameraPositions()
+    {
+        CombatantFixture player = CreateCombatant("Camera Player", "Players", 300);
+        CombatantFixture defeatedEnemy = CreateCombatant("Defeated Camera Enemy", "Enemies", 200);
+        CombatantFixture livingEnemy = CreateCombatant("Living Camera Enemy", "Enemies", 100);
+        player.GameObject.transform.position = new Vector3(1f, 0f, 2f);
+        defeatedEnemy.GameObject.transform.position = new Vector3(50f, 0f, 60f);
+        livingEnemy.GameObject.transform.position = new Vector3(3f, 0f, 4f);
+
+        manager.StartDungeonCombat(
+            new[] { player.Controller, defeatedEnemy.Controller, livingEnemy.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        CreatureId playerId = bridge.GetCreatureId(player.Creature);
+        CreatureId defeatedId = bridge.GetCreatureId(defeatedEnemy.Creature);
+        CreatureId livingId = bridge.GetCreatureId(livingEnemy.Creature);
+
+        yield return CoroutineRunner.Await(
+            defeatedEnemy.Creature.ApplyFinalDamageAsync(
+                defeatedEnemy.Creature.hp,
+                RuleSource.FromSlug("test-camera-defeat")
+            )
+        );
+
+        EncounterState encounter = bridge.Snapshot.Encounters[bridge.EncounterId];
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            encounter.Roster.Select(entry => entry.Creature),
+            Is.EqualTo(new[] { playerId, defeatedId, livingId }),
+            "Defeat must retain the immutable initiative timing slot."
+        );
+        Assert.That(bridge.GetController(defeatedId), Is.SameAs(defeatedEnemy.Controller));
+        Assert.That(defeatedEnemy.GameObject.activeSelf, Is.False);
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EqualTo(new[] { player.GameObject, livingEnemy.GameObject })
+        );
+        Assert.That(
+            manager.getPoistions(),
+            Is.EqualTo(
+                new[]
+                {
+                    player.GameObject.transform.position,
+                    livingEnemy.GameObject.transform.position,
+                }
+            ),
+            "Camera inputs must preserve living gameplay order and exclude defeated positions."
+        );
+    }
+
     /// <summary>Verifies an active encounter roster cannot be mutated outside its reducer.</summary>
     [UnityTest]
     public IEnumerator Remove_CurrentTurnOwnerIsIgnoredUntilEncounterEnds()

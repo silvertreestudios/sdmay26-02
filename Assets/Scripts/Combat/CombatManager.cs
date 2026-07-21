@@ -345,9 +345,11 @@ public class CombatManager : CombatManagerInterface
         && controller.isActiveAndEnabled
         && controller.GetComponent<CreatureComponent>().Health.Current > 0;
 
+    /// <summary>Gets positions used to frame the living combatants in the camera.</summary>
+    /// <returns>
+    /// Positions in the same deterministic gameplay order as <see cref="GetCombatants"/>.
+    /// Defeated encounter entries remain in the authoritative roster but are not camera targets.
+    /// </returns>
     public Vector3[] getPoistions() =>
-        (combatActive ? activeCombatants : Combatants)
-            .Where(value => value != null)
-            .Select(value => value.transform.position)
-            .ToArray();
+        GetCombatants().Select(value => value.transform.position).ToArray();
 }
