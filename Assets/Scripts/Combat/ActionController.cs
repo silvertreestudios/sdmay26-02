@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Game.Combat.Spells;
@@ -18,6 +19,8 @@ public abstract class ActionController : MonoBehaviour
     private bool hasStandaloneTurnAuthority;
     private UnityEncounterRulesBridge encounterRules;
     private CreatureId encounterCreatureId;
+    private bool isTakingAction;
+    private long actionReservationGeneration;
 
     [SerializeField]
     private uint actionPoints;
@@ -25,7 +28,36 @@ public abstract class ActionController : MonoBehaviour
     private uint strikePenalty;
     private readonly List<UnityAction<Ref<uint>>> managedActionResetListeners = new();
     private readonly List<UnityAction<List<EntityAction>>> managedReactionListeners = new();
-    public bool IsTakingAction { get; set; } = false;
+
+    /// <summary>Gets or sets whether an action lifecycle currently reserves this controller.</summary>
+    /// <remarks>
+    /// Each false-to-true transition creates an exact reservation generation. Encounter host
+    /// completion uses the matching settlement notification so a lethal action can finish all of
+    /// its post-damage work before Unity publishes the committed outcome.
+    /// </remarks>
+    public bool IsTakingAction
+    {
+        get => isTakingAction;
+        set
+        {
+            if (isTakingAction == value)
+                return;
+            if (value)
+            {
+                actionReservationGeneration = checked(actionReservationGeneration + 1);
+                isTakingAction = true;
+                return;
+            }
+
+            long settledGeneration = actionReservationGeneration;
+            isTakingAction = false;
+            ActionReservationSettled.Invoke(this, settledGeneration);
+        }
+    }
+
+    // This is deliberately internal: only the encounter host may defer committed completion on an
+    // exact Unity action reservation. Rules state remains reducer-owned.
+    internal event Action<ActionController, long> ActionReservationSettled = delegate { };
 
     /// <summary>Gets whether this controller currently has movement-only exploration authority.</summary>
     public bool IsInDungeonExploration { get; private set; }
@@ -126,7 +158,16 @@ public abstract class ActionController : MonoBehaviour
     /// </remarks>
     public virtual void ResetEncounterTurnState()
     {
-        IsTakingAction = false;
+        ResetEncounterTurnState(preserveActionReservation: false);
+    }
+
+    // TurnEnded can commit while the action that caused it still has post-damage work. The host
+    // clears reducer-projected turn resources immediately but leaves that exact Unity reservation
+    // for its owning action lifecycle to release.
+    internal void ResetEncounterTurnState(bool preserveActionReservation)
+    {
+        if (!preserveActionReservation)
+            IsTakingAction = false;
         if (!HasAuthoritativeActionState)
         {
             hasStandaloneTurnAuthority = false;
@@ -234,6 +275,12 @@ public abstract class ActionController : MonoBehaviour
             ? throw new System.ArgumentException("A creature ID is required.", nameof(creatureId))
             : creatureId;
         hasStandaloneTurnAuthority = false;
+    }
+
+    internal bool TryGetCurrentActionReservation(out long generation)
+    {
+        generation = actionReservationGeneration;
+        return isTakingAction;
     }
 
     // Startup hooks may add actions and managed rule listeners before their awaited work fails.

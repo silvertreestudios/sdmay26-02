@@ -27,9 +27,9 @@ public abstract class MultiFrameEntityAction : EntityAction
         finally
         {
             // Completion owns this flag even when awaited rule work faults after the action began.
-            // Dungeon exploration presentation waits on it after encounter completion.
+            // Encounter outcome presentation observes this exact terminal release, so no action
+            // work may follow it in the outer lifecycle.
             owner.IsTakingAction = false;
-            CombatManager.GetInstance().CheckForEndOfGame();
         }
     }
 

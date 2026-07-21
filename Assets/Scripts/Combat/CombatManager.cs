@@ -22,6 +22,8 @@ public class CombatManager : CombatManagerInterface
     private bool dungeonDirectedCombat;
     private UnityEncounterRulesBridge encounterRules;
     private TurnIdentity? pendingTurnEnd;
+    private long encounterGeneration;
+    private PendingEncounterCompletion pendingEncounterCompletion;
 
     /// <summary>Raised with the committed protagonist-relative dungeon outcome.</summary>
     public event Action<EncounterOutcome> DungeonCombatEnded = delegate { };
@@ -103,7 +105,7 @@ public class CombatManager : CombatManagerInterface
     {
         if (reinforcements == null)
             throw new ArgumentNullException(nameof(reinforcements));
-        if (!combatActive || !dungeonDirectedCombat)
+        if (!combatActive || !dungeonDirectedCombat || pendingEncounterCompletion != null)
             throw new InvalidOperationException(
                 "Dungeon reinforcements require an active dungeon-directed combat."
             );
@@ -120,16 +122,20 @@ public class CombatManager : CombatManagerInterface
             throw new InvalidOperationException(
                 "Every reinforcement must be a new living registered controller."
             );
-        StartCoroutine(AddDungeonReinforcementsRoutine(additions));
+        UnityEncounterRulesBridge requestingBridge = encounterRules;
+        long requestingGeneration = encounterGeneration;
+        StartCoroutine(
+            AddDungeonReinforcementsRoutine(additions, requestingBridge, requestingGeneration)
+        );
     }
 
     public override void SuspendDungeonCombat()
     {
-        if (!combatActive || !dungeonDirectedCombat)
+        if (!combatActive || !dungeonDirectedCombat || pendingEncounterCompletion != null)
             throw new InvalidOperationException(
                 "Only an active dungeon-directed combat can be suspended."
             );
-        StartCoroutine(SuspendDungeonCombatRoutine());
+        StartCoroutine(SuspendDungeonCombatRoutine(encounterRules, encounterGeneration));
     }
 
     public override bool CheckForEndOfGame()
@@ -200,6 +206,9 @@ public class CombatManager : CombatManagerInterface
             throw;
         }
 
+        encounterGeneration = checked(encounterGeneration + 1);
+        long startingGeneration = encounterGeneration;
+
         activeCombatants.Clear();
         activeCombatants.AddRange(selected);
         dungeonDirectedCombat = dungeonDirected;
@@ -226,12 +235,15 @@ public class CombatManager : CombatManagerInterface
         {
             startupCombatants = Array.Empty<ActionController>();
         }
-        StartCoroutine(BeginEncounterRules(selected, startingBridge, startupCheckpoint));
+        StartCoroutine(
+            BeginEncounterRules(selected, startingBridge, startingGeneration, startupCheckpoint)
+        );
     }
 
     private IEnumerator BeginEncounterRules(
         ActionController[] selected,
         UnityEncounterRulesBridge startingBridge,
+        long startingGeneration,
         CombatStartupCheckpoint startupCheckpoint
     )
     {
@@ -241,12 +253,12 @@ public class CombatManager : CombatManagerInterface
             yield return CoroutineRunner.Await(
                 Pf2eRulesEngine.ApplyCombatStartRulesAsync(selected)
             );
-            if (!combatActive || !ReferenceEquals(encounterRules, startingBridge))
+            if (!IsCurrentLifecycle(startingBridge, startingGeneration))
                 yield break;
 
             CoroutineResult<EncounterStartOutcome> started = new();
             yield return CoroutineRunner.Await(startingBridge.StartEncounter(selected), started);
-            if (!combatActive || !ReferenceEquals(encounterRules, startingBridge))
+            if (!IsCurrentLifecycle(startingBridge, startingGeneration))
                 yield break;
 
             encounterReady = true;
@@ -266,31 +278,33 @@ public class CombatManager : CombatManagerInterface
             // CoroutineRunner rethrows the original awaited failure after this finally executes.
             // Roll back only the bridge that owns this startup so a later successful retry cannot
             // be torn down by an obsolete continuation.
-            if (!completed && combatActive && ReferenceEquals(encounterRules, startingBridge))
+            if (!completed && IsCurrentLifecycle(startingBridge, startingGeneration))
                 AbortCombatStartup(startingBridge, startupCheckpoint);
             else if (!completed)
                 startupCheckpoint.Commit();
         }
     }
 
-    private IEnumerator AddDungeonReinforcementsRoutine(ActionController[] additions)
+    private IEnumerator AddDungeonReinforcementsRoutine(
+        ActionController[] additions,
+        UnityEncounterRulesBridge joiningBridge,
+        long joiningGeneration
+    )
     {
-        while (combatActive && !encounterReady)
+        while (IsCurrentLifecycle(joiningBridge, joiningGeneration) && !encounterReady)
             yield return null;
-        if (!combatActive)
+        if (!IsCurrentLifecycle(joiningBridge, joiningGeneration) || !encounterReady)
             yield break;
-        UnityEncounterRulesBridge joiningBridge = encounterRules;
         CoroutineResult<EncounterJoinOutcome> joined = new();
         yield return CoroutineRunner.Await(
             joiningBridge.JoinEncounter(
                 additions,
-                () => PublishAcceptedReinforcements(joiningBridge, additions)
+                () => PublishAcceptedReinforcements(joiningBridge, joiningGeneration, additions)
             ),
             joined
         );
         if (
-            !combatActive
-            || !ReferenceEquals(encounterRules, joiningBridge)
+            !IsCurrentLifecycle(joiningBridge, joiningGeneration)
             || !joiningBridge.HasActiveEncounter
         )
             yield break;
@@ -304,12 +318,12 @@ public class CombatManager : CombatManagerInterface
 
     private void PublishAcceptedReinforcements(
         UnityEncounterRulesBridge joiningBridge,
+        long joiningGeneration,
         IReadOnlyList<ActionController> additions
     )
     {
         if (
-            !combatActive
-            || !ReferenceEquals(encounterRules, joiningBridge)
+            !IsCurrentLifecycle(joiningBridge, joiningGeneration)
             || !joiningBridge.HasActiveEncounter
         )
             return;
@@ -318,24 +332,33 @@ public class CombatManager : CombatManagerInterface
                 activeCombatants.Add(addition);
     }
 
-    private IEnumerator SuspendDungeonCombatRoutine()
+    private IEnumerator SuspendDungeonCombatRoutine(
+        UnityEncounterRulesBridge suspendingBridge,
+        long suspendingGeneration
+    )
     {
-        while (combatActive && !encounterReady)
+        while (IsCurrentLifecycle(suspendingBridge, suspendingGeneration) && !encounterReady)
             yield return null;
-        if (!combatActive)
+        if (!IsCurrentLifecycle(suspendingBridge, suspendingGeneration) || !encounterReady)
             yield break;
-        UnityEncounterRulesBridge suspendingBridge = encounterRules;
         ActionController[] suspendingCombatants = activeCombatants.ToArray();
         yield return CoroutineRunner.Await(
-            CompleteDungeonSuspensionAsync(suspendingBridge, suspendingCombatants)
+            CompleteDungeonSuspensionAsync(
+                suspendingBridge,
+                suspendingGeneration,
+                suspendingCombatants
+            )
         );
     }
 
     private async ValueTask CompleteDungeonSuspensionAsync(
         UnityEncounterRulesBridge suspendingBridge,
+        long suspendingGeneration,
         ActionController[] suspendingCombatants
     )
     {
+        if (!IsCurrentLifecycle(suspendingBridge, suspendingGeneration))
+            return;
         List<Exception> failures = new();
         try
         {
@@ -345,6 +368,9 @@ public class CombatManager : CombatManagerInterface
         {
             failures.Add(exception);
         }
+
+        if (!IsCurrentLifecycle(suspendingBridge, suspendingGeneration))
+            return;
 
         bool suspensionCommitted =
             suspendingBridge.Snapshot.Encounters.TryGet(
@@ -368,6 +394,8 @@ public class CombatManager : CombatManagerInterface
         {
             failures.Add(exception);
         }
+        if (!IsCurrentLifecycle(suspendingBridge, suspendingGeneration))
+            return;
         TryComplete(
             () => FinalizeCombatState(suspendingBridge, cancelInFlightActions: true),
             failures
@@ -389,22 +417,26 @@ public class CombatManager : CombatManagerInterface
             return;
         if (!CanParticipate(actor))
         {
-            StartCoroutine(CloseUnpresentableTurn(turn));
+            StartCoroutine(CloseUnpresentableTurn(encounterRules, encounterGeneration, turn));
             return;
         }
         actor.StartTurn();
     }
 
-    private IEnumerator CloseUnpresentableTurn(TurnIdentity turn)
+    private IEnumerator CloseUnpresentableTurn(
+        UnityEncounterRulesBridge turnBridge,
+        long turnGeneration,
+        TurnIdentity turn
+    )
     {
         // Return from the presentation callback before starting another dispatcher root. The
         // exact identity check then makes this scheduled cleanup harmless if another path already
         // closed the turn while presentation was settling.
         yield return null;
         if (
-            !combatActive
-            || !encounterRules.CurrentTurn.HasValue
-            || encounterRules.CurrentTurn.Value != turn
+            !IsCurrentLifecycle(turnBridge, turnGeneration)
+            || !turnBridge.CurrentTurn.HasValue
+            || turnBridge.CurrentTurn.Value != turn
         )
             yield break;
         RequestTurnEnd(turn);
@@ -428,66 +460,148 @@ public class CombatManager : CombatManagerInterface
         // can yield. Repeated end requests and actions must not queue behind the same stale turn.
         pendingTurnEnd = turn;
         actor.IsTakingAction = true;
-        StartCoroutine(EndReservedTurn(turn, actor));
+        StartCoroutine(EndReservedTurn(encounterRules, encounterGeneration, turn, actor));
     }
 
-    private IEnumerator EndReservedTurn(TurnIdentity turn, ActionController actor)
+    private IEnumerator EndReservedTurn(
+        UnityEncounterRulesBridge turnBridge,
+        long turnGeneration,
+        TurnIdentity turn,
+        ActionController actor
+    )
     {
         try
         {
-            yield return CoroutineRunner.Await(encounterRules.EndTurn(turn));
+            yield return CoroutineRunner.Await(turnBridge.EndTurn(turn));
         }
         finally
         {
-            if (pendingTurnEnd.HasValue && pendingTurnEnd.Value == turn)
+            if (
+                IsCurrentLifecycle(turnBridge, turnGeneration)
+                && pendingTurnEnd.HasValue
+                && pendingTurnEnd.Value == turn
+            )
+            {
                 pendingTurnEnd = null;
-            actor.IsTakingAction = false;
+                actor.IsTakingAction = false;
+            }
         }
     }
 
     private void OnTurnEndedCommitted(TurnIdentity turn)
     {
         ActionController actor = encounterRules.GetController(turn.Actor);
-        actor.ResetEncounterTurnState();
+        actor.ResetEncounterTurnState(preserveActionReservation: true);
     }
 
-    private async ValueTask OnEncounterEndedCommitted(EncounterOutcome outcome)
+    private ValueTask OnEncounterEndedCommitted(EncounterOutcome outcome)
     {
+        if (pendingEncounterCompletion != null)
+            throw new InvalidOperationException(
+                "Only one committed encounter completion may await action settlement."
+            );
         UnityEncounterRulesBridge endingBridge = encounterRules;
+        long endingGeneration = encounterGeneration;
         ActionController[] endingCombatants = activeCombatants.ToArray();
         bool wasDungeonDirected = dungeonDirectedCombat;
         string winningTeam =
             outcome == EncounterOutcome.PlayerVictory
                 ? ProtagonistTeamDisplayName()
                 : OpposingTeamDisplayName();
+        PendingEncounterCompletion completion = new(
+            endingBridge,
+            endingGeneration,
+            endingCombatants,
+            wasDungeonDirected,
+            winningTeam,
+            outcome
+        );
+        foreach (ActionController controller in endingCombatants)
+        {
+            if (!controller.TryGetCurrentActionReservation(out long reservationGeneration))
+                continue;
+            completion.Reservations.Add(controller, reservationGeneration);
+            controller.ActionReservationSettled += OnActionReservationSettled;
+        }
+
+        if (completion.Reservations.Count == 0)
+            return CompleteEncounterHostAsync(completion);
+        pendingEncounterCompletion = completion;
+        return default;
+    }
+
+    private void OnActionReservationSettled(ActionController controller, long generation)
+    {
+        PendingEncounterCompletion completion = pendingEncounterCompletion;
+        if (
+            completion == null
+            || !completion.Reservations.TryGetValue(controller, out long expectedGeneration)
+            || expectedGeneration != generation
+        )
+            return;
+        controller.ActionReservationSettled -= OnActionReservationSettled;
+        completion.Reservations.Remove(controller);
+        if (completion.Reservations.Count != 0 || completion.Started)
+            return;
+        completion.Started = true;
+        StartCoroutine(CompleteEncounterAfterActionSettlement(completion));
+    }
+
+    private IEnumerator CompleteEncounterAfterActionSettlement(
+        PendingEncounterCompletion completion
+    )
+    {
+        // The reservation notification is the final observable mutation in each owning action,
+        // but it fires from inside that finalizer. Yield once so the coroutine/async caller can
+        // unwind before host callbacks may rebind or destroy its Unity objects. The exact bridge
+        // generation makes this scheduled continuation inert after any lifecycle replacement.
+        yield return null;
+        if (
+            !ReferenceEquals(pendingEncounterCompletion, completion)
+            || !IsCurrentLifecycle(completion.Bridge, completion.Generation)
+        )
+            yield break;
+        yield return CoroutineRunner.Await(CompleteEncounterHostAsync(completion));
+    }
+
+    private async ValueTask CompleteEncounterHostAsync(PendingEncounterCompletion completion)
+    {
+        if (!IsCurrentLifecycle(completion.Bridge, completion.Generation))
+            return;
         List<Exception> failures = new();
         try
         {
-            await Pf2eRulesEngine.EndEncounterAsync(endingCombatants);
+            await Pf2eRulesEngine.EndEncounterAsync(completion.Combatants);
         }
         catch (Exception exception)
         {
             failures.Add(exception);
         }
 
+        if (!IsCurrentLifecycle(completion.Bridge, completion.Generation))
+        {
+            ThrowCompletionFailures(failures);
+            return;
+        }
+
         // EncounterEnded is already authoritative before this presentation callback begins. Host
         // shutdown and result publication are therefore completion work, not contingent cleanup:
         // every channel must run once even when an earlier cleanup or observer callback fails.
         TryComplete(
-            () => FinalizeCombatState(endingBridge, cancelInFlightActions: false),
+            () => FinalizeCombatState(completion.Bridge, cancelInFlightActions: false),
             failures
         );
-        if (wasDungeonDirected)
+        if (completion.WasDungeonDirected)
         {
-            InvokeEach(DungeonCombatEnded, outcome, failures);
-            if (outcome == EncounterOutcome.PlayerDefeat)
+            InvokeEach(DungeonCombatEnded, completion.Outcome, failures);
+            if (completion.Outcome == EncounterOutcome.PlayerDefeat)
                 TryComplete(() => OnCombatOutcome.Invoke(false), failures);
         }
         else
         {
-            TryComplete(() => OnCombatEnd.Invoke(winningTeam), failures);
+            TryComplete(() => OnCombatEnd.Invoke(completion.WinningTeam), failures);
             TryComplete(
-                () => OnCombatOutcome.Invoke(outcome == EncounterOutcome.PlayerVictory),
+                () => OnCombatOutcome.Invoke(completion.Outcome == EncounterOutcome.PlayerVictory),
                 failures
             );
         }
@@ -594,6 +708,7 @@ public class CombatManager : CombatManagerInterface
         // Synchronous startup observers must never retain their selected-only projection after a
         // failed event, normal encounter cleanup, or a later exploration transition.
         startupCombatants = Array.Empty<ActionController>();
+        ClearPendingEncounterCompletion();
         if (encounterRules != null)
         {
             encounterRules.TurnBegan -= OnTurnBeganCommitted;
@@ -623,6 +738,20 @@ public class CombatManager : CombatManagerInterface
         StopCombatState(cancelInFlightActions);
     }
 
+    private bool IsCurrentLifecycle(UnityEncounterRulesBridge bridge, long generation) =>
+        combatActive
+        && generation == encounterGeneration
+        && ReferenceEquals(encounterRules, bridge);
+
+    private void ClearPendingEncounterCompletion()
+    {
+        if (pendingEncounterCompletion == null)
+            return;
+        foreach (ActionController controller in pendingEncounterCompletion.Reservations.Keys)
+            controller.ActionReservationSettled -= OnActionReservationSettled;
+        pendingEncounterCompletion = null;
+    }
+
     private void LogInitiative(string heading, IReadOnlyList<ActionController> order)
     {
         string log = heading + ":\n";
@@ -649,6 +778,35 @@ public class CombatManager : CombatManagerInterface
     /// </returns>
     public Vector3[] getPoistions() =>
         GetCombatants().Select(value => value.transform.position).ToArray();
+
+    private sealed class PendingEncounterCompletion
+    {
+        internal PendingEncounterCompletion(
+            UnityEncounterRulesBridge bridge,
+            long generation,
+            ActionController[] combatants,
+            bool wasDungeonDirected,
+            string winningTeam,
+            EncounterOutcome outcome
+        )
+        {
+            Bridge = bridge;
+            Generation = generation;
+            Combatants = combatants;
+            WasDungeonDirected = wasDungeonDirected;
+            WinningTeam = winningTeam;
+            Outcome = outcome;
+        }
+
+        internal UnityEncounterRulesBridge Bridge { get; }
+        internal long Generation { get; }
+        internal ActionController[] Combatants { get; }
+        internal bool WasDungeonDirected { get; }
+        internal string WinningTeam { get; }
+        internal EncounterOutcome Outcome { get; }
+        internal Dictionary<ActionController, long> Reservations { get; } = new();
+        internal bool Started { get; set; }
+    }
 
     private sealed class CombatStartupCheckpoint
     {

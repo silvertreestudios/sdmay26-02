@@ -180,6 +180,11 @@ namespace Game.Combat.Spells
                 || context.Spell == null
             )
                 return Fail(result, "Caster is not ready to cast spells.");
+            if (
+                creature.TryGetEncounterRulesBridge(out UnityEncounterRulesBridge attachedBridge)
+                && !attachedBridge.HasActiveEncounter
+            )
+                return Fail(result, "The caster's encounter is no longer active.");
             if (!state.TryReserveCast())
                 return Fail(result, "The caster is already casting a spell.");
 
