@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
@@ -12,9 +14,9 @@ using UnityEngine;
 public class CombatManager : CombatManagerInterface
 {
     protected readonly List<ActionController> Combatants = new();
-    protected ActionController TurnTaker;
     private readonly List<ActionController> activeCombatants = new();
     private bool combatActive;
+    private bool encounterReady;
     private bool dungeonDirectedCombat;
     private UnityEncounterRulesBridge encounterRules;
 
@@ -40,7 +42,12 @@ public class CombatManager : CombatManagerInterface
         Combatants.Remove(combatant);
     }
 
-    public override GameObject WhosTurn() => TurnTaker == null ? null : TurnTaker.gameObject;
+    public override GameObject WhosTurn()
+    {
+        if (encounterRules?.CurrentTurn is not TurnIdentity turn)
+            return null;
+        return encounterRules.GetController(turn.Actor).gameObject;
+    }
 
     public override List<GameObject> GetCombatants()
     {
@@ -58,8 +65,14 @@ public class CombatManager : CombatManagerInterface
         List<GameObject> ordered = encounter
             .Roster.Select(entry => encounterRules.GetController(entry.Creature).gameObject)
             .ToList();
-        if (TurnTaker != null && ordered.Remove(TurnTaker.gameObject))
-            ordered.Insert(0, TurnTaker.gameObject);
+        if (encounter.CurrentTurn.HasValue)
+        {
+            GameObject current = encounterRules
+                .GetController(encounter.CurrentTurn.Value.Actor)
+                .gameObject;
+            if (ordered.Remove(current))
+                ordered.Insert(0, current);
+        }
         return ordered;
     }
 
@@ -70,9 +83,7 @@ public class CombatManager : CombatManagerInterface
     public override void StartDungeonCombat(IReadOnlyList<ActionController> participants) =>
         BeginCombat(participants, true);
 
-    public override async void AddDungeonReinforcements(
-        IReadOnlyList<ActionController> reinforcements
-    )
+    public override void AddDungeonReinforcements(IReadOnlyList<ActionController> reinforcements)
     {
         if (reinforcements == null)
             throw new ArgumentNullException(nameof(reinforcements));
@@ -93,21 +104,16 @@ public class CombatManager : CombatManagerInterface
             throw new InvalidOperationException(
                 "Every reinforcement must be a new living registered controller."
             );
-        await encounterRules.JoinEncounter(additions);
-        activeCombatants.AddRange(additions);
-        Pf2eRulesEngine.ApplyCombatStartRules(additions);
-        LogInitiative("Reinforcements", additions);
+        StartCoroutine(AddDungeonReinforcementsRoutine(additions));
     }
 
-    public override async void SuspendDungeonCombat()
+    public override void SuspendDungeonCombat()
     {
         if (!combatActive || !dungeonDirectedCombat)
             throw new InvalidOperationException(
                 "Only an active dungeon-directed combat can be suspended."
             );
-        await encounterRules.SuspendEncounter();
-        Pf2eRulesEngine.EndEncounter(activeCombatants);
-        StopCombatState(cancelInFlightActions: true);
+        StartCoroutine(SuspendDungeonCombatRoutine());
     }
 
     public override bool CheckForEndOfGame()
@@ -123,13 +129,15 @@ public class CombatManager : CombatManagerInterface
         return encounter.Phase == EncounterPhase.Ended;
     }
 
-    public override async void NextTurn()
+    public override void NextTurn()
     {
         if (combatActive && encounterRules.CurrentTurn.HasValue)
-            await encounterRules.EndTurn(encounterRules.CurrentTurn.Value);
+            StartCoroutine(
+                CoroutineRunner.Await(encounterRules.EndTurn(encounterRules.CurrentTurn.Value))
+            );
     }
 
-    public override async void EndCurrentTurn(ActionController actor)
+    public override void EndCurrentTurn(ActionController actor)
     {
         if (actor == null)
             throw new ArgumentNullException(nameof(actor));
@@ -139,7 +147,9 @@ public class CombatManager : CombatManagerInterface
             || encounterRules.CurrentTurn.Value.Actor != encounterRules.GetCreatureId(actor)
         )
             return;
-        await encounterRules.EndTurn(encounterRules.CurrentTurn.Value);
+        StartCoroutine(
+            CoroutineRunner.Await(encounterRules.EndTurn(encounterRules.CurrentTurn.Value))
+        );
     }
 
     private void BeginCombat(IReadOnlyList<ActionController> participants, bool dungeonDirected)
@@ -166,28 +176,55 @@ public class CombatManager : CombatManagerInterface
         activeCombatants.AddRange(selected);
         dungeonDirectedCombat = dungeonDirected;
         combatActive = true;
-        TurnTaker = null;
+        encounterReady = false;
         foreach (ActionController controller in activeCombatants)
             controller.ResetEncounterTurnState();
-        encounterRules = UnityEncounterRulesBridge.Create(Combatants, "Players");
+        encounterRules = UnityEncounterRulesBridge.Create(selected, "Players");
         encounterRules.TurnBegan += OnTurnBeganCommitted;
         encounterRules.TurnEnded += OnTurnEndedCommitted;
         encounterRules.EncounterEnded += OnEncounterEndedCommitted;
-        Pf2eRulesEngine.ApplyCombatStartRules(activeCombatants);
         CombatActivityChanged.Invoke(true);
         OnCombatStart.Invoke();
-        BeginEncounterRules(selected);
+        StartCoroutine(BeginEncounterRules(selected));
     }
 
-    private async void BeginEncounterRules(ActionController[] selected)
+    private IEnumerator BeginEncounterRules(ActionController[] selected)
     {
-        EncounterStartOutcome started = await encounterRules.StartEncounter(selected);
+        yield return CoroutineRunner.Await(
+            Pf2eRulesEngine.ApplyCombatStartRulesAsync(activeCombatants)
+        );
+        CoroutineResult<EncounterStartOutcome> started = new();
+        yield return CoroutineRunner.Await(encounterRules.StartEncounter(selected), started);
+        encounterReady = true;
         LogInitiative(
             "Initiative Order",
             started
-                .State.Roster.Select(entry => encounterRules.GetController(entry.Creature))
+                .Value.State.Roster.Select(entry => encounterRules.GetController(entry.Creature))
                 .ToArray()
         );
+    }
+
+    private IEnumerator AddDungeonReinforcementsRoutine(ActionController[] additions)
+    {
+        while (combatActive && !encounterReady)
+            yield return null;
+        if (!combatActive)
+            yield break;
+        yield return CoroutineRunner.Await(encounterRules.JoinEncounter(additions));
+        activeCombatants.AddRange(additions);
+        yield return CoroutineRunner.Await(Pf2eRulesEngine.ApplyCombatStartRulesAsync(additions));
+        LogInitiative("Reinforcements", additions);
+    }
+
+    private IEnumerator SuspendDungeonCombatRoutine()
+    {
+        while (combatActive && !encounterReady)
+            yield return null;
+        if (!combatActive)
+            yield break;
+        yield return CoroutineRunner.Await(encounterRules.SuspendEncounter());
+        yield return CoroutineRunner.Await(Pf2eRulesEngine.EndEncounterAsync(activeCombatants));
+        StopCombatState(cancelInFlightActions: true);
     }
 
     private void OnTurnBeganCommitted(TurnIdentity turn)
@@ -195,7 +232,6 @@ public class CombatManager : CombatManagerInterface
         if (!combatActive)
             return;
         ActionController actor = encounterRules.GetController(turn.Actor);
-        TurnTaker = actor;
         OnNextTurn.Invoke(actor.gameObject);
         if (
             !combatActive
@@ -204,18 +240,6 @@ public class CombatManager : CombatManagerInterface
             || !CanParticipate(actor)
         )
             return;
-        ApplyTurnStartAuras(actor);
-        if (
-            !combatActive
-            || !encounterRules.CurrentTurn.HasValue
-            || encounterRules.CurrentTurn.Value != turn
-            || !CanParticipate(actor)
-        )
-            return;
-        uint desired = actor.CalculateTurnStartActions();
-        uint available = actor.ActionPoints;
-        if (desired < available)
-            encounterRules.SpendActions(turn.Actor, checked((int)(available - desired)));
         if (CanParticipate(actor))
             actor.StartTurn();
     }
@@ -224,16 +248,14 @@ public class CombatManager : CombatManagerInterface
     {
         ActionController actor = encounterRules.GetController(turn.Actor);
         actor.ResetEncounterTurnState();
-        if (TurnTaker == actor)
-            TurnTaker = null;
     }
 
-    private void OnEncounterEndedCommitted(EncounterOutcome outcome)
+    private async ValueTask OnEncounterEndedCommitted(EncounterOutcome outcome)
     {
         bool wasDungeonDirected = dungeonDirectedCombat;
         string winningTeam =
             outcome == EncounterOutcome.PlayerVictory ? "Players" : OpposingTeamDisplayName();
-        Pf2eRulesEngine.EndEncounter(activeCombatants);
+        await Pf2eRulesEngine.EndEncounterAsync(activeCombatants);
         StopCombatState(cancelInFlightActions: false);
         if (wasDungeonDirected)
         {
@@ -273,8 +295,8 @@ public class CombatManager : CombatManagerInterface
                 controller.ResetEncounterTurnState();
         }
         activeCombatants.Clear();
-        TurnTaker = null;
         combatActive = false;
+        encounterReady = false;
         dungeonDirectedCombat = false;
         CombatActivityChanged.Invoke(false);
     }
@@ -297,17 +319,6 @@ public class CombatManager : CombatManagerInterface
         && controller.gameObject.activeSelf
         && controller.isActiveAndEnabled
         && controller.GetComponent<CreatureComponent>().Health.Current > 0;
-
-    private void ApplyTurnStartAuras(ActionController acting)
-    {
-        GridAPI grid = UnityEngine.Object.FindFirstObjectByType<GridAPI>();
-        if (grid is GridAPIPrivate gridPrivate)
-            CreatureAuraResolver.ApplyTurnStartAuras(
-                acting,
-                activeCombatants,
-                gridPrivate.GetTiles()
-            );
-    }
 
     public Vector3[] getPoistions() =>
         (combatActive ? activeCombatants : Combatants)

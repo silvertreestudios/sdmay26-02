@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.AbilityActions;
 using Game.Combat.Rules;
 using Game.Creature;
@@ -35,20 +36,22 @@ namespace Game.Creature.Rules
         /// Runs encounter-cleanup rule hooks for each combatant; action-specific details stay in their own rule classes.
         /// </summary>
         /// <param name="combatants">The combatants leaving encounter state.</param>
-        public static void EndEncounter(IEnumerable<ActionController> combatants)
+        public static async ValueTask EndEncounterAsync(IEnumerable<ActionController> combatants)
         {
             if (combatants == null)
                 return;
 
             foreach (ActionController controller in combatants)
-                new Rage(0).EndRage(controller?.gameObject);
+                await new Rage(0).EndRageAsync(controller?.gameObject);
         }
 
         /// <summary>
         /// Applies combat-start rule hooks such as auto-starting Rage for matching prepared character options.
         /// </summary>
         /// <param name="combatants">The combatants entering encounter state.</param>
-        public static void ApplyCombatStartRules(IEnumerable<ActionController> combatants)
+        public static async ValueTask ApplyCombatStartRulesAsync(
+            IEnumerable<ActionController> combatants
+        )
         {
             if (combatants == null)
                 return;
@@ -63,7 +66,7 @@ namespace Game.Creature.Rules
 
                 PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
                 if (prepared.HasOwnedItem("quick-tempered"))
-                    new Rage(0).UseRage(controller.gameObject);
+                    await new Rage(0).UseRageAsync(controller.gameObject);
             }
         }
 
@@ -78,6 +81,8 @@ namespace Game.Creature.Rules
             foreach (string passive in creature.passives)
             {
                 if (string.IsNullOrWhiteSpace(passive))
+                    continue;
+                if (string.Equals(passive, "quick-tempered", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 Ability ability = DefinedAbilities.TryGet(passive);

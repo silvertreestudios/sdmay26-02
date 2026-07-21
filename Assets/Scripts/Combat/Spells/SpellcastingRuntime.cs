@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
@@ -74,8 +75,11 @@ namespace Game.Combat.Spells
             Caster != null ? Caster.GetComponent<CreatureComponent>() : null;
         public SpellcastingState Spellcasting => CasterCreature?.Prepared?.Spellcasting;
 
-        public CastSpellResult Cast(SpellTargetSelection selection) =>
-            SpellcastingRuntime.Cast(this, selection);
+        /// <summary>Applies one completed selection through this cast's awaited runtime context.</summary>
+        /// <param name="selection">The selected direct targets or area.</param>
+        /// <returns>The settled cast result.</returns>
+        public ValueTask<CastSpellResult> CastAsync(SpellTargetSelection selection) =>
+            SpellcastingRuntime.CastAsync(this, selection);
     }
 
     public static class SpellcastingRuntime
@@ -90,7 +94,15 @@ namespace Game.Combat.Spells
             };
         }
 
-        public static CastSpellResult Cast(
+        /// <summary>Builds and executes one prepared spell cast through its registered definition.</summary>
+        /// <param name="caster">The casting creature.</param>
+        /// <param name="spell">The prepared spell entry being consumed or invoked.</param>
+        /// <param name="actionCost">The selected action-cost variant.</param>
+        /// <param name="targets">Optional already-selected direct targets.</param>
+        /// <param name="area">Optional already-selected area result.</param>
+        /// <param name="spendActions">Whether the cast pays encounter actions on success.</param>
+        /// <returns>The settled cast result, including validation failures.</returns>
+        public static ValueTask<CastSpellResult> CastAsync(
             GameObject caster,
             PreparedSpell spell,
             uint actionCost,
@@ -100,17 +112,28 @@ namespace Game.Combat.Spells
         )
         {
             if (!SpellRegistry.TryGet(spell?.Slug, out ISpellDefinition definition))
-                return Fail(
-                    new CastSpellResult(),
-                    spell == null ? "Spell is not prepared." : spell.Name + " is not implemented.",
-                    caster != null ? caster.GetComponent<ActionController>() : null
+                return new ValueTask<CastSpellResult>(
+                    Fail(
+                        new CastSpellResult(),
+                        spell == null
+                            ? "Spell is not prepared."
+                            : spell.Name + " is not implemented.",
+                        caster != null ? caster.GetComponent<ActionController>() : null
+                    )
                 );
 
             SpellCastContext context = new(caster, spell, actionCost, spendActions, definition);
-            return Cast(context, new SpellTargetSelection(targets, area));
+            return CastAsync(context, new SpellTargetSelection(targets, area));
         }
 
-        public static CastSpellResult Cast(SpellCastContext context, SpellTargetSelection selection)
+        /// <summary>Executes a validated cast context and awaits effects before costs and MAP.</summary>
+        /// <param name="context">The cast context and registered spell definition.</param>
+        /// <param name="selection">The completed target selection.</param>
+        /// <returns>The settled cast result.</returns>
+        public static async ValueTask<CastSpellResult> CastAsync(
+            SpellCastContext context,
+            SpellTargetSelection selection
+        )
         {
             CastSpellResult result = new();
             CreatureComponent creature = context.CasterCreature;
@@ -133,15 +156,21 @@ namespace Game.Combat.Spells
             if (!state.CanCast(context.Spell))
                 return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
 
-            if (!context.Definition.Cast(context, selection ?? SpellTargetSelection.None, result))
+            if (
+                !await context.Definition.Cast(
+                    context,
+                    selection ?? SpellTargetSelection.None,
+                    result
+                )
+            )
                 return Fail(result, "Spell target is invalid.", controller);
             if (!state.Spend(context.Spell))
                 return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
             if (controller != null && context.SpendActions)
             {
-                controller.SpendActions(context.ActionCost);
+                await controller.SpendActionsAsync(context.ActionCost);
                 if (context.Definition.AppliesMultipleAttackPenalty(context))
-                    controller.IncrementMultipleAttackPenalty();
+                    await controller.IncrementMultipleAttackPenaltyAsync();
                 controller.IsTakingAction = false;
             }
             result.Success = true;
@@ -220,7 +249,15 @@ namespace Game.Combat.Spells
             return targets;
         }
 
-        public static void ApplyBasicFortitudeDamage(
+        /// <summary>Rolls damage, resolves a basic Fortitude save, and awaits applied damage.</summary>
+        /// <param name="caster">The creature providing the spell DC.</param>
+        /// <param name="target">The creature attempting the save.</param>
+        /// <param name="dice">The spell's damage dice.</param>
+        /// <param name="result">The cast result receiving rolls, targets, and applied amount.</param>
+        /// <param name="applyDeafenedOnCriticalFailure">Whether critical failure adds Deafened.</param>
+        /// <param name="source">The stable rule source for health provenance.</param>
+        /// <returns>A task-like value that completes after damage and conditions settle.</returns>
+        public static async ValueTask ApplyBasicFortitudeDamageAsync(
             GameObject caster,
             GameObject target,
             Dice dice,
@@ -234,7 +271,7 @@ namespace Game.Combat.Spells
                 new List<DamageValue>()
             );
             DamageRoller.FinalizeDamageResolution(damage);
-            ApplyBasicFortitudeDamage(
+            await ApplyBasicFortitudeDamageAsync(
                 caster,
                 target,
                 new DamageValue(dice.damageType, damage.TotalDamage),
@@ -244,7 +281,15 @@ namespace Game.Combat.Spells
             );
         }
 
-        public static void ApplyBasicFortitudeDamage(
+        /// <summary>Resolves fixed damage through a basic Fortitude save and awaits application.</summary>
+        /// <param name="caster">The creature providing the spell DC.</param>
+        /// <param name="target">The creature attempting the save.</param>
+        /// <param name="damage">The already-rolled typed damage.</param>
+        /// <param name="result">The cast result receiving rolls, targets, and applied amount.</param>
+        /// <param name="applyDeafenedOnCriticalFailure">Whether critical failure adds Deafened.</param>
+        /// <param name="source">The stable rule source for health provenance.</param>
+        /// <returns>A task-like value that completes after damage and conditions settle.</returns>
+        public static async ValueTask ApplyBasicFortitudeDamageAsync(
             GameObject caster,
             GameObject target,
             DamageValue damage,
@@ -261,7 +306,7 @@ namespace Game.Combat.Spells
             result.Rolls.Add(save);
             int amount = BasicSaveDamage(damage.DamageAmount, save.degree);
             if (amount > 0)
-                targetCreature.ApplyFinalDamage(amount, source);
+                await targetCreature.ApplyFinalDamageAsync(amount, source);
             if (applyDeafenedOnCriticalFailure && save.degree == DegreeOfSuccess.CriticalFail)
                 (target.GetComponent<Conditions>() ?? target.AddComponent<Conditions>()).Add(
                     "Deafened",

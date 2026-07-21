@@ -154,7 +154,9 @@ namespace TestsUI
             foreach (uint actionPoints in actionPointStates)
             {
                 if (previousActionPoints > actionPoints)
-                    actionController.SpendActions(previousActionPoints - actionPoints);
+                    yield return CoroutineRunner.Await(
+                        actionController.SpendActionsAsync(previousActionPoints - actionPoints)
+                    );
                 previousActionPoints = actionPoints;
 
                 yield return WaitUntilWithTimeout(
@@ -238,7 +240,9 @@ namespace TestsUI
                 1,
                 "The UI fixture player must survive test damage."
             );
-            creature.ApplyFinalDamage(1, RuleSource.FromSlug("test-exploration-ui-damage"));
+            yield return CoroutineRunner.Await(
+                creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-exploration-ui-damage"))
+            );
             string expectedHealth =
                 $"{creature.hp + creature.tempHp}/{creature.maxHp + creature.tempHp}";
             yield return WaitUntilWithTimeout(
@@ -468,7 +472,9 @@ namespace TestsUI
             ActionController actionController = player.GetComponent<ActionController>();
             Assert.IsNotNull(actionController, "Current player has no ActionController.");
 
-            actionController.SpendActions(actionController.ActionPoints);
+            yield return CoroutineRunner.Await(
+                actionController.SpendActionsAsync(actionController.ActionPoints)
+            );
             yield return null;
 
             Assert.AreEqual(

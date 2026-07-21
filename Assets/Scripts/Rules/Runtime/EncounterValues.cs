@@ -7,15 +7,23 @@ namespace Game.Rules.Runtime
     /// <summary>Identifies the committed lifecycle phase of an encounter.</summary>
     public enum EncounterPhase
     {
+        /// <summary>The encounter may advance turns and accept rules work.</summary>
         Active,
+
+        /// <summary>The encounter stopped without choosing an outcome.</summary>
         Suspended,
+
+        /// <summary>The encounter committed one final player-relative outcome.</summary>
         Ended,
     }
 
     /// <summary>Identifies the protagonist-relative result of a completed encounter.</summary>
     public enum EncounterOutcome
     {
+        /// <summary>At least one protagonist lives and no living opposition remains.</summary>
         PlayerVictory,
+
+        /// <summary>No protagonist lives, including when no creature on any team lives.</summary>
         PlayerDefeat,
     }
 
@@ -26,6 +34,7 @@ namespace Game.Rules.Runtime
         public int Value { get; }
 
         /// <summary>Initializes a positive round number.</summary>
+        /// <param name="value">The positive one-based round.</param>
         public RoundNumber(int value)
         {
             if (value <= 0)
@@ -54,8 +63,10 @@ namespace Game.Rules.Runtime
         /// <inheritdoc/>
         public override string ToString() => Value.ToString();
 
+        /// <summary>Compares two round numbers by their one-based value.</summary>
         public static bool operator ==(RoundNumber left, RoundNumber right) => left.Equals(right);
 
+        /// <summary>Compares two round numbers by their one-based value.</summary>
         public static bool operator !=(RoundNumber left, RoundNumber right) => !left.Equals(right);
     }
 
@@ -72,6 +83,9 @@ namespace Game.Rules.Runtime
         public int InitiativeModifier { get; }
 
         /// <summary>Initializes a validated participant registration.</summary>
+        /// <param name="creature">The stable creature identity.</param>
+        /// <param name="team">The creature's collision-safe team identity.</param>
+        /// <param name="initiativeModifier">The modifier captured before initiative is rolled.</param>
         public EncounterParticipant(CreatureId creature, PlayerId team, int initiativeModifier)
         {
             if (creature.IsEmpty)
@@ -94,6 +108,8 @@ namespace Game.Rules.Runtime
         public HealthState InitialHealth { get; }
 
         /// <summary>Creates a complete same-store reinforcement registration.</summary>
+        /// <param name="participant">The reinforcement's identity and initiative inputs.</param>
+        /// <param name="initialHealth">The health to seed if the creature is new to the store.</param>
         public EncounterJoinParticipant(EncounterParticipant participant, HealthState initialHealth)
         {
             Participant = participant ?? throw new ArgumentNullException(nameof(participant));
@@ -126,6 +142,12 @@ namespace Game.Rules.Runtime
         public RoundNumber EligibleFromRound { get; }
 
         /// <summary>Creates a validated immutable initiative entry.</summary>
+        /// <param name="creature">The creature occupying the slot.</param>
+        /// <param name="team">The creature's captured team.</param>
+        /// <param name="naturalRoll">The injected natural d20 result from 1 through 20.</param>
+        /// <param name="modifier">The captured initiative modifier.</param>
+        /// <param name="registrationOrder">The zero-based deterministic tie breaker.</param>
+        /// <param name="eligibleFromRound">The first round in which the slot may take a turn.</param>
         public InitiativeEntry(
             CreatureId creature,
             PlayerId team,
@@ -194,6 +216,11 @@ namespace Game.Rules.Runtime
         public int RosterIndex { get; }
 
         /// <summary>Creates a complete exact turn identity.</summary>
+        /// <param name="encounter">The encounter that owns the turn.</param>
+        /// <param name="turn">The positive encounter-local turn sequence.</param>
+        /// <param name="actor">The creature granted turn authority.</param>
+        /// <param name="round">The round in which authority was granted.</param>
+        /// <param name="rosterIndex">The actor's roster index when the turn began.</param>
         public TurnIdentity(
             EncounterId encounter,
             TurnId turn,
@@ -230,8 +257,10 @@ namespace Game.Rules.Runtime
         public override int GetHashCode() =>
             HashCode.Combine(Encounter, Turn, Actor, Round, RosterIndex);
 
+        /// <summary>Compares every exact-turn identity component.</summary>
         public static bool operator ==(TurnIdentity left, TurnIdentity right) => left.Equals(right);
 
+        /// <summary>Compares every exact-turn identity component.</summary>
         public static bool operator !=(TurnIdentity left, TurnIdentity right) =>
             !left.Equals(right);
     }
@@ -269,6 +298,15 @@ namespace Game.Rules.Runtime
         public EncounterOutcome? Outcome { get; }
 
         /// <summary>Creates a validated immutable encounter snapshot.</summary>
+        /// <param name="id">The stable encounter identity.</param>
+        /// <param name="phase">The committed lifecycle phase.</param>
+        /// <param name="protagonistTeam">The team used for player-relative outcomes.</param>
+        /// <param name="round">The current positive round.</param>
+        /// <param name="roster">The immutable roster, including defeated entries.</param>
+        /// <param name="cursor">The reached roster index, or -1 before the first boundary.</param>
+        /// <param name="currentTurn">The exact open turn, when one exists.</param>
+        /// <param name="nextTurnSequence">The next positive turn sequence.</param>
+        /// <param name="outcome">The committed result for an ended encounter.</param>
         public EncounterState(
             EncounterId id,
             EncounterPhase phase,
@@ -383,6 +421,13 @@ namespace Game.Rules.Runtime
         public long CreationOrder { get; }
 
         /// <summary>Creates a validated active-effect timing schedule.</summary>
+        /// <param name="effect">The scheduled effect instance.</param>
+        /// <param name="encounter">The encounter supplying initiative boundaries.</param>
+        /// <param name="binding">The binding disabled when automatic expiry commits.</param>
+        /// <param name="sourceCreature">The creature whose future boundaries count down.</param>
+        /// <param name="remainingBoundaries">The non-negative boundaries remaining.</param>
+        /// <param name="expiresWithEncounter">Whether encounter completion expires the effect.</param>
+        /// <param name="creationOrder">The deterministic simultaneous-expiry order.</param>
         public ActiveEffectTimingState(
             ActiveEffectId effect,
             EncounterId encounter,

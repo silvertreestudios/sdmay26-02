@@ -65,19 +65,21 @@ namespace Game.Strikes
                 attacker
                     .GetComponent<CreaturePresentation>()
                     ?.PlayAttack(AnimationStyle.Unarmed, target.Value.Target.transform.position);
-                StrikeResolutionPipeline.Resolve(
-                    new StrikeResolutionRequest
-                    {
-                        Attacker = attacker,
-                        Target = target.Value.Target,
-                        Profile = Profile,
-                        TargetingResult = target.Value,
-                    }
+                yield return CoroutineRunner.Await(
+                    StrikeResolutionPipeline.ResolveAsync(
+                        new StrikeResolutionRequest
+                        {
+                            Attacker = attacker,
+                            Target = target.Value.Target,
+                            Profile = Profile,
+                            TargetingResult = target.Value,
+                        }
+                    )
                 );
                 if (ac)
                 {
-                    PayCost(ac);
-                    ac.IncrementMultipleAttackPenalty();
+                    yield return CoroutineRunner.Await(PayCostAsync(ac));
+                    yield return CoroutineRunner.Await(ac.IncrementMultipleAttackPenaltyAsync());
                 }
             }
             if (ac)

@@ -23,6 +23,7 @@ namespace Game.Rules.Runtime
         public bool IsEmpty => string.IsNullOrEmpty(Value);
 
         /// <summary>Initializes a non-empty encounter identifier.</summary>
+        /// <param name="value">The stable encounter value.</param>
         public EncounterId(string value) => Value = StableId.Require(value, nameof(value));
 
         /// <inheritdoc/>
@@ -39,8 +40,10 @@ namespace Game.Rules.Runtime
         /// <inheritdoc/>
         public override string ToString() => Value ?? string.Empty;
 
+        /// <summary>Compares two encounter identifiers by stable value.</summary>
         public static bool operator ==(EncounterId left, EncounterId right) => left.Equals(right);
 
+        /// <summary>Compares two encounter identifiers by stable value.</summary>
         public static bool operator !=(EncounterId left, EncounterId right) => !left.Equals(right);
     }
 
@@ -54,6 +57,7 @@ namespace Game.Rules.Runtime
         public bool IsEmpty => Value == 0;
 
         /// <summary>Initializes a positive turn identifier.</summary>
+        /// <param name="value">The positive encounter-local sequence.</param>
         public TurnId(long value)
         {
             if (value <= 0)
@@ -76,8 +80,10 @@ namespace Game.Rules.Runtime
         /// <inheritdoc/>
         public override string ToString() => Value.ToString();
 
+        /// <summary>Compares two turn identifiers by encounter-local sequence.</summary>
         public static bool operator ==(TurnId left, TurnId right) => left.Equals(right);
 
+        /// <summary>Compares two turn identifiers by encounter-local sequence.</summary>
         public static bool operator !=(TurnId left, TurnId right) => !left.Equals(right);
     }
 
@@ -137,9 +143,11 @@ namespace Game.Rules.Runtime
         /// <inheritdoc/>
         public override string ToString() => Value ?? string.Empty;
 
+        /// <summary>Compares two health-origin identifiers by stable value.</summary>
         public static bool operator ==(HealthChangeOriginId left, HealthChangeOriginId right) =>
             left.Equals(right);
 
+        /// <summary>Compares two health-origin identifiers by stable value.</summary>
         public static bool operator !=(HealthChangeOriginId left, HealthChangeOriginId right) =>
             !left.Equals(right);
     }

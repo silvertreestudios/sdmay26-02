@@ -301,6 +301,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         );
 
         Ref<bool> step = ExecuteExplorationStep(fixture, fixture.Party[0], new Vector3Int(4, 0, 2));
+        yield return WaitForTurn();
 
         Assert.That(step.Value, Is.False);
         Assert.That(manager.IsCombatActive, Is.True);
@@ -356,13 +357,26 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         fixture.Runtime.DoorOpened += opened.Add;
         uint actionPoints = fixture.Party[0].Controller.ActionPoints;
 
-        Assert.That(fixture.Runtime.TryOpenDoor(zDoor.Cell), Is.True);
+        CoroutineResult<bool> openedDoor = new CoroutineResult<bool>();
+        yield return CoroutineRunner.Await(
+            fixture.Runtime.TryOpenDoorAsync(zDoor.Cell),
+            openedDoor
+        );
+        Assert.That(openedDoor.Value, Is.True);
         AssertDoorOpen(fixture, zDoor.Cell);
         Assert.That(fixture.Party[0].Controller.ActionPoints, Is.EqualTo(actionPoints));
-        Assert.That(fixture.Runtime.TryOpenDoor(zDoor.Cell), Is.False);
+        yield return CoroutineRunner.Await(
+            fixture.Runtime.TryOpenDoorAsync(zDoor.Cell),
+            openedDoor
+        );
+        Assert.That(openedDoor.Value, Is.False);
         Assert.That(opened, Is.EqualTo(new[] { zDoor.Id }));
 
-        Assert.That(fixture.Runtime.TryOpenDoor(aDoor.Cell), Is.True);
+        yield return CoroutineRunner.Await(
+            fixture.Runtime.TryOpenDoorAsync(aDoor.Cell),
+            openedDoor
+        );
+        Assert.That(openedDoor.Value, Is.True);
         AssertDoorOpen(fixture, aDoor.Cell);
         Assert.That(fixture.Party[0].Controller.ActionPoints, Is.EqualTo(actionPoints));
         Assert.That(opened, Is.EqualTo(new[] { zDoor.Id, aDoor.Id }));
@@ -392,7 +406,12 @@ public sealed class DungeonExplorationRuntimePlayModeTests
 
         Assert.That(fixture.Party[0].Controller.IsInDungeonExploration, Is.True);
         Assert.That(fixture.Party[1].Controller.IsInDungeonExploration, Is.False);
-        Assert.That(fixture.Runtime.TryOpenDoor(followerDoor.Cell), Is.True);
+        CoroutineResult<bool> openedDoor = new CoroutineResult<bool>();
+        yield return CoroutineRunner.Await(
+            fixture.Runtime.TryOpenDoorAsync(followerDoor.Cell),
+            openedDoor
+        );
+        Assert.That(openedDoor.Value, Is.True);
 
         AssertDoorOpen(fixture, followerDoor.Cell);
         Assert.That(fixture.Party[0].Controller.ActionPoints, Is.EqualTo(leaderActions));
@@ -431,25 +450,41 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         manager.StartDungeonCombat(
             fixture.Party.Select(member => member.Controller).Append(enemy.Controller).ToArray()
         );
+        yield return WaitForTurn();
         Combatant current = fixture.Party[0];
 
         Assert.That(manager.WhosTurn(), Is.SameAs(current.GameObject));
         Assert.That(current.Controller.ActionPoints, Is.EqualTo(3u));
-        Assert.That(fixture.Runtime.TryOpenDoor(currentDoor.Cell), Is.True);
+        CoroutineResult<bool> openedDoor = new CoroutineResult<bool>();
+        yield return CoroutineRunner.Await(
+            fixture.Runtime.TryOpenDoorAsync(currentDoor.Cell),
+            openedDoor
+        );
+        Assert.That(openedDoor.Value, Is.True);
         Assert.That(current.Controller.ActionPoints, Is.EqualTo(2u));
         AssertDoorOpen(fixture, currentDoor.Cell);
 
+        yield return CoroutineRunner.Await(
+            fixture.Runtime.TryOpenDoorAsync(noncurrentDoor.Cell),
+            openedDoor
+        );
         Assert.That(
-            fixture.Runtime.TryOpenDoor(noncurrentDoor.Cell),
+            openedDoor.Value,
             Is.False,
             "A door adjacent only to a noncurrent PC cannot be opened during another PC's turn."
         );
         Assert.That(fixture.Doors[noncurrentDoor.Cell].Controller.IsOpen, Is.False);
         Assert.That(current.Controller.ActionPoints, Is.EqualTo(2u));
 
-        current.Creature.ApplyFinalDamage(100, RuleSource.FromSlug("test-dead-door-actor"));
+        yield return CoroutineRunner.Await(
+            current.Creature.ApplyFinalDamageAsync(100, RuleSource.FromSlug("test-dead-door-actor"))
+        );
         Assert.That(current.Creature.IsDefeated, Is.True);
-        Assert.That(fixture.Runtime.TryOpenDoor(deadActorDoor.Cell), Is.False);
+        yield return CoroutineRunner.Await(
+            fixture.Runtime.TryOpenDoorAsync(deadActorDoor.Cell),
+            openedDoor
+        );
+        Assert.That(openedDoor.Value, Is.False);
         Assert.That(fixture.Doors[deadActorDoor.Cell].Controller.IsOpen, Is.False);
         yield break;
     }
@@ -495,6 +530,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             int remainingFrames = 30;
             while (player.Controller.IsTakingAction && remainingFrames-- > 0)
                 yield return null;
+            yield return WaitForTurn();
 
             Assert.That(player.Controller.IsTakingAction, Is.False);
             Assert.That(grid.StrideCallCount, Is.EqualTo(1));
@@ -817,6 +853,14 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         return rows;
     }
 
+    private IEnumerator WaitForTurn()
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (manager.WhosTurn() == null && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(manager.WhosTurn(), Is.Not.Null);
+    }
+
     private T Track<T>(T value)
         where T : Object
     {
@@ -1035,7 +1079,10 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             uint strikePenalty
         )
         {
-            IsTurn = hasTurnAuthority;
+            if (hasTurnAuthority)
+                base.StartTurn();
+            else
+                base.ResetEncounterTurnState();
             ActionPoints = actionPoints;
             Reacted = reacted;
             StrikePenalty = strikePenalty;

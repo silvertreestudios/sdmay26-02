@@ -233,20 +233,22 @@ namespace Game.Strikes
                 attacker
                     .GetComponent<CreaturePresentation>()
                     ?.PlayAttack(Weapon, target.Value.Target.transform.position);
-                StrikeResolutionPipeline.Resolve(
-                    new StrikeResolutionRequest
-                    {
-                        Attacker = attacker,
-                        Target = target.Value.Target,
-                        Profile = Profile,
-                        TargetingResult = target.Value,
-                    }
+                yield return CoroutineRunner.Await(
+                    StrikeResolutionPipeline.ResolveAsync(
+                        new StrikeResolutionRequest
+                        {
+                            Attacker = attacker,
+                            Target = target.Value.Target,
+                            Profile = Profile,
+                            TargetingResult = target.Value,
+                        }
+                    )
                 );
                 cc?.MarkWeaponFired(Weapon);
                 if (ac)
                 {
-                    PayCost(ac);
-                    ac.IncrementMultipleAttackPenalty();
+                    yield return CoroutineRunner.Await(PayCostAsync(ac));
+                    yield return CoroutineRunner.Await(ac.IncrementMultipleAttackPenaltyAsync());
                 }
             }
             if (ac)
@@ -255,7 +257,7 @@ namespace Game.Strikes
     }
 
     [System.Serializable]
-    public class ReloadWeaponAction : EntityAction
+    public class ReloadWeaponAction : MultiFrameEntityAction
     {
         private readonly EquipmentWeapon Weapon;
 
@@ -281,18 +283,17 @@ namespace Game.Strikes
                 );
         }
 
-        public override void Invoke(GameObject target)
+        protected override IEnumerator MFInvoke(GameObject target)
         {
             ActionController ac = target.GetComponent<ActionController>();
             CreatureComponent cc = target.GetComponent<CreatureComponent>();
             if (cc != null && cc.ReloadWeapon(Weapon))
             {
                 CombatLog.GetInstance().Log("- " + target.name + " reloads " + Weapon.name + ".");
-                PayCost(ac);
+                yield return CoroutineRunner.Await(PayCostAsync(ac));
             }
             if (ac)
                 ac.IsTakingAction = false;
-            base.Invoke(target);
         }
     }
 }

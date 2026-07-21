@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -96,14 +97,14 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void ShieldAddsCircumstanceAcAndExpiresOnCasterNextTurn()
+    public async Task ShieldAddsCircumstanceAcAndExpiresOnCasterNextTurn()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
         controller.ActionPoints = 3;
         controller.IsTakingAction = true;
 
-        Cast("shield", cleric, 1);
+        await CastAsync("shield", cleric, 1);
 
         Assert.That(cleric.ResolveArmorClass().Total, Is.EqualTo(12));
         Assert.That(controller.ActionPoints, Is.EqualTo(2));
@@ -114,12 +115,12 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void GuidanceAppliesOnceThenRecordsEncounterImmunity()
+    public async Task GuidanceAppliesOnceThenRecordsEncounterImmunity()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally");
 
-        CastSpellResult result = Cast("guidance", cleric, 1, ally.gameObject);
+        CastSpellResult result = await CastAsync("guidance", cleric, 1, ally.gameObject);
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(1));
@@ -129,7 +130,7 @@ public class Pf2eClericSpellcastingTests
             Is.True
         );
 
-        CastSpellResult second = SpellcastingRuntime.Cast(
+        CastSpellResult second = await SpellcastingRuntime.CastAsync(
             cleric.gameObject,
             cleric.Prepared.Spellcasting.GetSpell("guidance"),
             1,
@@ -140,13 +141,13 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void BlessGrantsStatusAttackBonusAndConsumesPreparedSlot()
+    public async Task BlessGrantsStatusAttackBonusAndConsumesPreparedSlot()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally");
         ally.transform.position = new Vector3(2, 0, 0);
 
-        CastSpellResult result = Cast("bless", cleric, 2, ally.gameObject);
+        CastSpellResult result = await CastAsync("bless", cleric, 2, ally.gameObject);
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(1));
@@ -157,12 +158,12 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void InfuseVitalityAddsVitalityDamageToWeaponAndUnarmedStrikes()
+    public async Task InfuseVitalityAddsVitalityDamageToWeaponAndUnarmedStrikes()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally");
 
-        CastSpellResult result = Cast("infuse-vitality", cleric, 1, ally.gameObject);
+        CastSpellResult result = await CastAsync("infuse-vitality", cleric, 1, ally.gameObject);
 
         Assert.That(result.Success, Is.True);
         CreatureComponent target = CreateCreature("Target");
@@ -205,13 +206,13 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void HealUsesFontPoolAndCanHealLivingTargets()
+    public async Task HealUsesFontPoolAndCanHealLivingTargets()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally", 3, 20);
         UnityEngine.Random.InitState(12);
 
-        CastSpellResult result = Cast("heal", cleric, 2, ally.gameObject);
+        CastSpellResult result = await CastAsync("heal", cleric, 2, ally.gameObject);
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.hp, Is.GreaterThan(3));
@@ -220,7 +221,7 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void DivineLanceUsesSpellAttackAndMultipleAttackPenalty()
+    public async Task DivineLanceUsesSpellAttackAndMultipleAttackPenalty()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
@@ -232,7 +233,7 @@ public class Pf2eClericSpellcastingTests
         UnityEngine.Random.InitState(3);
         InstallTestCombatLog();
 
-        CastSpellResult result = Cast("divine-lance", cleric, 2, target.gameObject);
+        CastSpellResult result = await CastAsync("divine-lance", cleric, 2, target.gameObject);
 
         Assert.That(result.Success, Is.True);
         Assert.That(controller.ActionPoints, Is.EqualTo(1));
@@ -251,7 +252,7 @@ public class Pf2eClericSpellcastingTests
         field.SetValue(null, log);
     }
 
-    private CastSpellResult Cast(
+    private async ValueTask<CastSpellResult> CastAsync(
         string slug,
         CreatureComponent caster,
         uint actionCost,
@@ -259,7 +260,7 @@ public class Pf2eClericSpellcastingTests
     )
     {
         PreparedSpell spell = caster.Prepared.Spellcasting.GetSpell(slug);
-        return SpellcastingRuntime.Cast(
+        return await SpellcastingRuntime.CastAsync(
             caster.gameObject,
             spell,
             actionCost,

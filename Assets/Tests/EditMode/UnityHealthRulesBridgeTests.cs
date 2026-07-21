@@ -40,7 +40,7 @@ public sealed class UnityEncounterRulesBridgeTests
             creature.InitializeHealthBeforeEncounter(10, 10);
 
             InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
-                creature.ApplyFinalDamage(1, RuleSource.FromSlug("test-damage"))
+                creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-damage"))
             );
 
             StringAssert.Contains("require an encounter health bridge", error.Message);
@@ -53,7 +53,7 @@ public sealed class UnityEncounterRulesBridgeTests
     }
 
     [Test]
-    public void BridgeOwnsHealthAndProjectsCommittedFactsBackToComponents()
+    public async Task BridgeOwnsHealthAndProjectsCommittedFactsBackToComponents()
     {
         GameObject firstObject = new GameObject("first");
         GameObject secondObject = new GameObject("second");
@@ -72,12 +72,12 @@ public sealed class UnityEncounterRulesBridgeTests
 
             CreatureId firstId = bridge.GetCreatureId(first);
             CreatureId secondId = bridge.GetCreatureId(second);
-            DamageOutcome damage = bridge.ApplyFinalDamage(
+            DamageOutcome damage = await bridge.ApplyFinalDamageAsync(
                 firstId,
                 4,
                 RuleSource.FromSlug("test-strike")
             );
-            HealingOutcome healing = bridge.ApplyHealing(
+            HealingOutcome healing = await bridge.ApplyHealingAsync(
                 firstId,
                 2,
                 RuleSource.FromSlug("test-heal")
@@ -107,7 +107,7 @@ public sealed class UnityEncounterRulesBridgeTests
     }
 
     [Test]
-    public void BridgeProjectsSourceTemporaryHitPointStateAndImmunity()
+    public async Task BridgeProjectsSourceTemporaryHitPointStateAndImmunity()
     {
         GameObject creatureObject = new GameObject("creature");
         try
@@ -122,14 +122,12 @@ public sealed class UnityEncounterRulesBridgeTests
             CreatureId id = bridge.GetCreatureId(creature);
             RuleSource rage = RuleSource.FromSlug("rage");
 
-            creature.GrantSourceTemporaryHitPoints(rage, 4);
-            creature.ApplyFinalDamage(1, RuleSource.FromSlug("test-damage"));
-            creature.RemoveSourceTemporaryHitPoints(rage);
-            creature.AddTemporaryHitPointImmunity(rage);
-            TemporaryHitPointsGrantOutcome blocked = creature.GrantSourceTemporaryHitPoints(
-                rage,
-                5
-            );
+            await creature.GrantSourceTemporaryHitPointsAsync(rage, 4);
+            await creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-damage"));
+            await creature.RemoveSourceTemporaryHitPointsAsync(rage);
+            await creature.AddTemporaryHitPointImmunityAsync(rage);
+            TemporaryHitPointsGrantOutcome blocked =
+                await creature.GrantSourceTemporaryHitPointsAsync(rage, 5);
 
             Assert.That(blocked.Immune, Is.True);
             Assert.That(creature.tempHp, Is.Zero);
@@ -161,12 +159,13 @@ public sealed class UnityEncounterRulesBridgeTests
             GetDispatcher(bridge)
                 .RegisterFactObserver<HealthFact>(new CompletedFailureObserver(expected));
 
-            InvalidOperationException actual = Assert.Throws<InvalidOperationException>(() =>
-                bridge.ApplyFinalDamage(
-                    bridge.GetCreatureId(creature),
-                    1,
-                    RuleSource.FromSlug("test-damage")
-                )
+            InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await bridge.ApplyFinalDamageAsync(
+                        bridge.GetCreatureId(creature),
+                        1,
+                        RuleSource.FromSlug("test-damage")
+                    )
             );
 
             Assert.That(actual, Is.SameAs(expected));
@@ -178,7 +177,7 @@ public sealed class UnityEncounterRulesBridgeTests
     }
 
     [Test]
-    public void BridgeRejectsIncompleteDispatcherWork()
+    public async Task AwaitedPortsSerializeIncompleteObserversAndDrainPresentation()
     {
         GameObject creatureObject = new GameObject("creature");
         IncompleteObserver observer = new IncompleteObserver();
@@ -193,20 +192,89 @@ public sealed class UnityEncounterRulesBridgeTests
             );
             GetDispatcher(bridge).RegisterFactObserver<HealthFact>(observer);
 
-            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
-                bridge.ApplyFinalDamage(
-                    bridge.GetCreatureId(creature),
-                    1,
-                    RuleSource.FromSlug("test-damage")
-                )
+            CreatureId creatureId = bridge.GetCreatureId(creature);
+            ValueTask<DamageOutcome> pending = bridge.ApplyFinalDamageAsync(
+                creatureId,
+                2,
+                RuleSource.FromSlug("test-damage")
+            );
+            long versionAfterDamageCommit = bridge.Snapshot.Version;
+            ValueTask<HealingOutcome> queued = bridge.ApplyHealingAsync(
+                creatureId,
+                1,
+                RuleSource.FromSlug("test-healing")
             );
 
-            StringAssert.Contains("must be awaited", error.Message);
+            Assert.That(pending.IsCompleted, Is.False);
+            Assert.That(queued.IsCompleted, Is.False);
+            Assert.That(bridge.Snapshot.Version, Is.EqualTo(versionAfterDamageCommit));
+            Assert.That(bridge.Snapshot.Health[creatureId].Current, Is.EqualTo(8));
+            Assert.That(GetProjectedCurrentHealth(creature), Is.EqualTo(10));
+            observer.Complete();
+            await pending;
+            await queued;
+            Assert.That(bridge.Snapshot.Health[creatureId].Current, Is.EqualTo(9));
+            Assert.That(GetProjectedCurrentHealth(creature), Is.EqualTo(9));
         }
         finally
         {
             observer.Complete();
             Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    [Test]
+    public async Task RejectedJoinLeavesRulesStateIdentityMapsAndAttachmentsUnchanged()
+    {
+        GameObject heroObject = new GameObject("hero");
+        GameObject enemyObject = new GameObject("enemy");
+        GameObject reinforcementObject = new GameObject("reinforcement");
+        try
+        {
+            CreatureComponent hero = heroObject.AddComponent<CreatureComponent>();
+            CreatureComponent enemy = enemyObject.AddComponent<CreatureComponent>();
+            CreatureComponent reinforcement = reinforcementObject.AddComponent<CreatureComponent>();
+            hero.InitializeHealthBeforeEncounter(10, 10);
+            enemy.InitializeHealthBeforeEncounter(10, 10);
+            reinforcement.InitializeHealthBeforeEncounter(8, 8);
+            TestActionController heroController = PrepareController(heroObject, "Players");
+            TestActionController enemyController = PrepareController(enemyObject, "Enemies");
+            TestActionController reinforcementController = PrepareController(
+                reinforcementObject,
+                "Enemies"
+            );
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { heroController, enemyController },
+                "Players",
+                new ScriptedRollService(20, 10, 15, 5)
+            );
+            await bridge.StartEncounter(new ActionController[] { heroController, enemyController });
+            EncounterState before = bridge.Snapshot.Encounters[bridge.EncounterId];
+            long version = bridge.Snapshot.Version;
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await bridge.JoinEncounter(
+                    new ActionController[] { reinforcementController, heroController }
+                )
+            );
+
+            Assert.That(bridge.Snapshot.Version, Is.EqualTo(version));
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Roster,
+                Is.EqualTo(before.Roster)
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.GetCreatureId(reinforcementController)
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                reinforcement.ApplyFinalDamageAsync(1, RuleSource.FromSlug("rejected-join"))
+            );
+        }
+        finally
+        {
+            Object.DestroyImmediate(heroObject);
+            Object.DestroyImmediate(enemyObject);
+            Object.DestroyImmediate(reinforcementObject);
         }
     }
 
@@ -220,10 +288,23 @@ public sealed class UnityEncounterRulesBridgeTests
         return (RuleDispatcher)field.GetValue(bridge);
     }
 
-    private static TestActionController PrepareController(GameObject obj)
+    private static int GetProjectedCurrentHealth(CreatureComponent creature)
+    {
+        FieldInfo field = typeof(CreatureComponent).GetField(
+            "_hp",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (int)field.GetValue(creature);
+    }
+
+    private static TestActionController PrepareController(GameObject obj) =>
+        PrepareController(obj, "Players");
+
+    private static TestActionController PrepareController(GameObject obj, string teamName)
     {
         Team team = obj.AddComponent<Team>();
-        team.Name = "Players";
+        team.Name = teamName;
         return obj.AddComponent<TestActionController>();
     }
 

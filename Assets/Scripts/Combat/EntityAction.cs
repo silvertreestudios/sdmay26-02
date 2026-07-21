@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using UnityEngine;
 
 public abstract class EntityAction
@@ -11,10 +12,14 @@ public abstract class EntityAction
         this.ActionCost = cost;
     }
 
-    protected void PayCost(ActionController ac)
+    /// <summary>Awaits this action's authoritative cost unless exploration makes it free.</summary>
+    /// <param name="ac">The controller paying through its attached encounter store.</param>
+    /// <returns>The complete action-spend root, or a completed value during exploration.</returns>
+    protected ValueTask PayCostAsync(ActionController ac)
     {
         if (ac != null && !ac.IsInDungeonExploration)
-            ac.SpendActions(ActionCost);
+            return ac.SpendActionsAsync(ActionCost);
+        return default;
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
@@ -111,12 +112,14 @@ public sealed class DungeonEncounterDirectorPlayModeTests
     }
 
     /// <summary>Verifies a second entered room materializes and joins the running fight.</summary>
-    [Test]
-    public void ChainedRoomEntryAddsReinforcements()
+    [UnityTest]
+    public IEnumerator ChainedRoomEntryAddsReinforcements()
     {
         director.EnterRoom(1);
+        yield return WaitForTurn();
 
         DungeonRoomEntryResult result = director.EnterRoom(2);
+        yield return WaitForCombatants(4);
 
         Assert.That(result.Transition, Is.EqualTo(DungeonRoomEntryTransition.Reinforcement));
         Assert.That(manager.IsCombatActive, Is.True);
@@ -172,17 +175,20 @@ public sealed class DungeonEncounterDirectorPlayModeTests
     /// Verifies retreat and return preserve durable survivor state while resetting turn state and
     /// rolling a fresh initiative order.
     /// </summary>
-    [Test]
-    public void RetreatAndResumePreservePartialCasualtiesAndDurableState()
+    [UnityTest]
+    public IEnumerator RetreatAndResumePreservePartialCasualtiesAndDurableState()
     {
         director.EnterRoom(1);
+        yield return WaitForTurn();
         DungeonEncounterMember defeated = Member("encounter-a/creature-0000");
         DungeonEncounterMember survivor = Member("encounter-a/creature-0001");
-        Defeat(defeated);
+        yield return CoroutineRunner.Await(DefeatAsync(defeated));
         CreatureComponent survivorCreature = survivor.GetComponent<CreatureComponent>();
         DirectorTestActionController survivorController =
             survivor.GetComponent<DirectorTestActionController>();
-        survivorCreature.ApplyFinalDamage(6, RuleSource.FromSlug("test-survivor-damage"));
+        yield return CoroutineRunner.Await(
+            survivorCreature.ApplyFinalDamageAsync(6, RuleSource.FromSlug("test-survivor-damage"))
+        );
         survivor.transform.position = new Vector3(4f, 0f, 3f);
         survivorController.IsTakingAction = false;
 
@@ -190,6 +196,7 @@ public sealed class DungeonEncounterDirectorPlayModeTests
             1,
             Array.Empty<int>()
         );
+        yield return WaitForCombatInactive();
 
         Assert.That(
             suspension.Transition,
@@ -202,6 +209,9 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         Assert.That(survivorController.IsTakingAction, Is.False);
 
         DungeonRoomEntryResult resumed = director.EnterRoom(1);
+        yield return WaitForTurn();
+        yield return WaitForCombatants(2);
+        yield return WaitForInitiativeLogs(2);
 
         Assert.That(resumed.Transition, Is.EqualTo(DungeonRoomEntryTransition.Resume));
         Assert.That(manager.IsCombatActive, Is.True);
@@ -263,16 +273,20 @@ public sealed class DungeonEncounterDirectorPlayModeTests
     }
 
     /// <summary>Verifies a targetable suspended enemy can die during another resumed fight.</summary>
-    [Test]
-    public void SuspendedMaterializedEnemyDefeatPersistsWithoutInterruptingActiveGroup()
+    [UnityTest]
+    public IEnumerator SuspendedMaterializedEnemyDefeatPersistsWithoutInterruptingActiveGroup()
     {
         director.EnterRoom(1);
+        yield return WaitForTurn();
         director.EnterRoom(2);
+        yield return WaitForCombatants(4);
         director.EvaluatePartyRegions(1, Array.Empty<int>());
+        yield return WaitForCombatInactive();
         director.EnterRoom(1);
+        yield return WaitForTurn();
         DungeonEncounterMember suspended = Member("encounter-b/creature-0000");
 
-        Assert.DoesNotThrow(() => Defeat(suspended));
+        yield return CoroutineRunner.Await(DefeatAsync(suspended));
 
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(
@@ -289,27 +303,29 @@ public sealed class DungeonEncounterDirectorPlayModeTests
     }
 
     /// <summary>Verifies only clearing every active group returns the game to exploration.</summary>
-    [Test]
-    public void FinalActiveGroupVictoryClearsGroupsAndEndsCombat()
+    [UnityTest]
+    public IEnumerator FinalActiveGroupVictoryClearsGroupsAndEndsCombat()
     {
         director.EnterRoom(1);
+        yield return WaitForTurn();
         director.EnterRoom(2);
+        yield return WaitForCombatants(4);
 
-        Defeat(Member("encounter-a/creature-0000"));
+        yield return CoroutineRunner.Await(DefeatAsync(Member("encounter-a/creature-0000")));
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(
             director.Lifecycle.GetEncounter("encounter-a").State,
             Is.EqualTo(DungeonEncounterGroupState.Active)
         );
 
-        Defeat(Member("encounter-a/creature-0001"));
+        yield return CoroutineRunner.Await(DefeatAsync(Member("encounter-a/creature-0001")));
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(
             director.Lifecycle.GetEncounter("encounter-a").State,
             Is.EqualTo(DungeonEncounterGroupState.Cleared)
         );
 
-        Defeat(Member("encounter-b/creature-0000"));
+        yield return CoroutineRunner.Await(DefeatAsync(Member("encounter-b/creature-0000")));
 
         Assert.That(manager.IsCombatActive, Is.False);
         Assert.That(
@@ -322,12 +338,59 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         );
     }
 
-    private void Defeat(DungeonEncounterMember member)
+    private async ValueTask DefeatAsync(DungeonEncounterMember member)
     {
         CreatureComponent creature = member.GetComponent<CreatureComponent>();
-        creature.ApplyFinalDamage(
+        await creature.ApplyFinalDamageAsync(
             creature.hp + creature.tempHp,
             RuleSource.FromSlug("test-defeat")
+        );
+    }
+
+    private IEnumerator WaitForTurn()
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (manager.WhosTurn() == null && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(manager.WhosTurn(), Is.Not.Null);
+    }
+
+    private IEnumerator WaitForCombatants(int expected)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (manager.GetCombatants().Count != expected && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(
+            manager.GetCombatants(),
+            Has.Count.EqualTo(expected),
+            "Timed out waiting for the reducer-owned encounter roster to commit."
+        );
+    }
+
+    private IEnumerator WaitForInitiativeLogs(int expected)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (
+            combatLog.Messages.Count(message => message.StartsWith("Initiative Order")) != expected
+            && Time.realtimeSinceStartup < deadline
+        )
+            yield return null;
+        Assert.That(
+            combatLog.Messages.Count(message => message.StartsWith("Initiative Order")),
+            Is.EqualTo(expected),
+            "Timed out waiting for the resumed encounter initiative presentation."
+        );
+    }
+
+    private IEnumerator WaitForCombatInactive()
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (manager.IsCombatActive && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(
+            manager.IsCombatActive,
+            Is.False,
+            "Timed out waiting for the encounter to suspend or end."
         );
     }
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Threading.Tasks;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.Rules.Runtime;
@@ -51,14 +52,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies dungeon combat excludes registered controllers outside its explicit roster.</summary>
-    [Test]
-    public void StartDungeonCombat_UsesOnlyExplicitRegisteredParticipants()
+    [UnityTest]
+    public IEnumerator StartDungeonCombat_UsesOnlyExplicitRegisteredParticipants()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 200);
         CombatantFixture activeEnemy = CreateCombatant("Active Enemy", "Enemies", 100);
         CombatantFixture dormantEnemy = CreateCombatant("Dormant Enemy", "Enemies", 1000);
 
         manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
+        yield return WaitForTurn();
 
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(
@@ -71,13 +73,14 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies an active encounter roster cannot be mutated outside its reducer.</summary>
-    [Test]
-    public void Remove_CurrentTurnOwnerIsIgnoredUntilEncounterEnds()
+    [UnityTest]
+    public IEnumerator Remove_CurrentTurnOwnerIsIgnoredUntilEncounterEnds()
     {
         CombatantFixture current = CreateCombatant("Current", "Players", 100);
         CombatantFixture next = CreateCombatant("Next", "Enemies", 50);
         CombatantFixture ally = CreateCombatant("Ally", "Players", 0);
         manager.StartDungeonCombat(new[] { current.Controller, next.Controller, ally.Controller });
+        yield return WaitForTurn(current.GameObject);
         Assert.That(manager.WhosTurn(), Is.SameAs(current.GameObject));
 
         manager.Remove(current.Controller);
@@ -90,14 +93,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(next.Controller.StartTurnCount, Is.Zero);
 
         current.Controller.EndTurn();
+        yield return WaitForTurn(next.GameObject);
 
         Assert.That(manager.WhosTurn(), Is.SameAs(next.GameObject));
         Assert.That(next.Controller.StartTurnCount, Is.EqualTo(1));
     }
 
     /// <summary>Verifies malformed encounter identity cannot interrupt committed defeat cleanup.</summary>
-    [Test]
-    public void LethalDamage_UnconfiguredEncounterMemberStillCompletesDefeatPresentation()
+    [UnityTest]
+    public IEnumerator LethalDamage_UnconfiguredEncounterMemberStillCompletesDefeatPresentation()
     {
         FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
             "Instance",
@@ -113,9 +117,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
             CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
             DungeonEncounterMember member = enemy.GameObject.AddComponent<DungeonEncounterMember>();
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn();
 
-            Assert.DoesNotThrow(() =>
-                enemy.Creature.ApplyFinalDamage(10, RuleSource.FromSlug("test-lethal-damage"))
+            yield return CoroutineRunner.Await(
+                enemy.Creature.ApplyFinalDamageAsync(10, RuleSource.FromSlug("test-lethal-damage"))
             );
 
             Assert.That(member.IsConfigured, Is.False);
@@ -132,8 +137,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies a reinforcement before the current initiative waits for the next round.</summary>
-    [Test]
-    public void AddDungeonReinforcements_HigherInitiativeWaitsUntilNextRound()
+    [UnityTest]
+    public IEnumerator AddDungeonReinforcements_HigherInitiativeWaitsUntilNextRound()
     {
         CombatantFixture current = CreateCombatant("Current", "Players", 100);
         CombatantFixture later = CreateCombatant("Later", "Enemies", 0);
@@ -143,19 +148,28 @@ public sealed class DungeonEncounterCombatPlayModeTests
             200
         );
         manager.StartDungeonCombat(new[] { current.Controller, later.Controller });
+        yield return WaitForTurn(current.GameObject);
         Assert.That(manager.WhosTurn(), Is.SameAs(current.GameObject));
-        current.Creature.ApplyFinalDamage(2, RuleSource.FromSlug("test-current-damage"));
+        yield return CoroutineRunner.Await(
+            current.Creature.ApplyFinalDamageAsync(2, RuleSource.FromSlug("test-current-damage"))
+        );
 
         manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+        yield return WaitForCondition(
+            () => manager.GetCombatants().Count == 3,
+            "Timed out waiting for the reinforcement roster commit."
+        );
 
         Assert.That(
             current.Creature.hp,
             Is.EqualTo(8),
             "Rebuilding health ownership for reinforcements must preserve current combatant state."
         );
-        reinforcement.Creature.ApplyFinalDamage(
-            1,
-            RuleSource.FromSlug("test-reinforcement-damage")
+        yield return CoroutineRunner.Await(
+            reinforcement.Creature.ApplyFinalDamageAsync(
+                1,
+                RuleSource.FromSlug("test-reinforcement-damage")
+            )
         );
         Assert.That(
             reinforcement.Creature.hp,
@@ -172,19 +186,21 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(reinforcement.Controller.HasTurnAuthority, Is.False);
 
         current.Controller.EndTurn();
+        yield return WaitForTurn(later.GameObject);
 
         Assert.That(manager.WhosTurn(), Is.SameAs(later.GameObject));
         Assert.That(reinforcement.Controller.StartTurnCount, Is.Zero);
 
         later.Controller.EndTurn();
+        yield return WaitForTurn(reinforcement.GameObject);
 
         Assert.That(manager.WhosTurn(), Is.SameAs(reinforcement.GameObject));
         Assert.That(reinforcement.Controller.StartTurnCount, Is.EqualTo(1));
     }
 
     /// <summary>Verifies suspension resets turn economy without changing durable creature state.</summary>
-    [Test]
-    public void SuspendDungeonCombat_ClearsTurnStateAndPreservesCreatureState()
+    [UnityTest]
+    public IEnumerator SuspendDungeonCombat_ClearsTurnStateAndPreservesCreatureState()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
@@ -195,10 +211,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
         player.Conditions.Add("Off-Guard", preservedSource);
 
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn();
         player.Controller.IsTakingAction = true;
         enemy.Controller.IsTakingAction = true;
 
         manager.SuspendDungeonCombat();
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive,
+            "Timed out waiting for encounter suspension."
+        );
 
         Assert.That(manager.IsCombatActive, Is.False);
         Assert.That(manager.WhosTurn(), Is.Null);
@@ -210,8 +231,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies dungeon victory uses its dedicated event instead of legacy completion events.</summary>
-    [Test]
-    public void DungeonVictory_EmitsOnlyDungeonCompletionEvent()
+    [UnityTest]
+    public IEnumerator DungeonVictory_EmitsOnlyDungeonCompletionEvent()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
@@ -233,7 +254,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
         try
         {
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-            enemy.Creature.ApplyFinalDamage(10, RuleSource.FromSlug("test-victory"));
+            yield return WaitForTurn();
+            yield return CoroutineRunner.Await(
+                enemy.Creature.ApplyFinalDamageAsync(10, RuleSource.FromSlug("test-victory"))
+            );
 
             Assert.That(manager.CheckForEndOfGame(), Is.True);
 
@@ -252,8 +276,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies dungeon party defeat also reaches the normal loss presentation channel.</summary>
-    [Test]
-    public void DungeonDefeatEmitsDungeonCompletionAndNormalLossOutcome()
+    [UnityTest]
+    public IEnumerator DungeonDefeatEmitsDungeonCompletionAndNormalLossOutcome()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
@@ -276,7 +300,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
         try
         {
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-            player.Creature.ApplyFinalDamage(10, RuleSource.FromSlug("test-defeat"));
+            yield return WaitForTurn();
+            yield return CoroutineRunner.Await(
+                player.Creature.ApplyFinalDamageAsync(10, RuleSource.FromSlug("test-defeat"))
+            );
 
             Assert.That(manager.CheckForEndOfGame(), Is.True);
             Assert.That(dungeonEndCalls, Is.EqualTo(1));
@@ -291,8 +318,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies exploration permits only repeatable movement without spending actions.</summary>
-    [Test]
-    public void DungeonExplorationAllowsOnlyRepeatableMovementActions()
+    [UnityTest]
+    public IEnumerator DungeonExplorationAllowsOnlyRepeatableMovementActions()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         int movementCalls = 0;
@@ -307,7 +334,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
         player.Controller.SetDungeonExploration(true);
 
         player.Controller.TakeAction(movement);
+        yield return WaitForCondition(
+            () => !player.Controller.IsTakingAction,
+            "Timed out waiting for the first exploration action."
+        );
         player.Controller.TakeAction(movement);
+        yield return WaitForCondition(
+            () => !player.Controller.IsTakingAction,
+            "Timed out waiting for the repeated exploration action."
+        );
         player.Controller.TakeAction(attack);
 
         Assert.That(movementCalls, Is.EqualTo(2));
@@ -323,14 +358,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies legacy combat still activates every registered controller.</summary>
-    [Test]
-    public void LegacyStartCombat_ActivatesEveryRegisteredController()
+    [UnityTest]
+    public IEnumerator LegacyStartCombat_ActivatesEveryRegisteredController()
     {
         CombatantFixture first = CreateCombatant("First", "Players", 300);
         CombatantFixture second = CreateCombatant("Second", "Enemies", 200);
         CombatantFixture third = CreateCombatant("Third", "Enemies", 100);
 
         manager.StartCombat();
+        yield return WaitForTurn(first.GameObject);
 
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(
@@ -339,6 +375,25 @@ public sealed class DungeonEncounterCombatPlayModeTests
         );
         Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
         Assert.That(first.Controller.StartTurnCount, Is.EqualTo(1));
+    }
+
+    private IEnumerator WaitForTurn(GameObject expected = null)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (
+            (manager.WhosTurn() == null || (expected != null && manager.WhosTurn() != expected))
+            && Time.realtimeSinceStartup < deadline
+        )
+            yield return null;
+        Assert.That(manager.WhosTurn(), expected == null ? Is.Not.Null : Is.SameAs(expected));
+    }
+
+    private static IEnumerator WaitForCondition(Func<bool> condition, string timeoutMessage)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (!condition() && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(condition(), Is.True, timeoutMessage);
     }
 
     private CombatantFixture CreateCombatant(string name, string teamName, int initiative)
@@ -432,16 +487,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         public override void EndTurn()
         {
-            if (!IsTurn)
+            if (!HasTurnAuthority)
                 return;
 
-            IsTurn = false;
             IsTakingAction = false;
             CombatManagerInterface.GetInstance().NextTurn();
         }
     }
 
-    private sealed class TestEntityAction : EntityAction
+    private sealed class TestEntityAction : MultiFrameEntityAction
     {
         private readonly Action invocation;
 
@@ -455,11 +509,11 @@ public sealed class DungeonEncounterCombatPlayModeTests
         public override string ActionName { get; }
 
         /// <inheritdoc/>
-        public override void Invoke(GameObject target)
+        protected override IEnumerator MFInvoke(GameObject target)
         {
             ActionController controller = target.GetComponent<ActionController>();
             invocation();
-            PayCost(controller);
+            yield return CoroutineRunner.Await(PayCostAsync(controller));
             controller.IsTakingAction = false;
         }
     }

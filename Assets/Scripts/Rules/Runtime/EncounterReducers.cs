@@ -141,9 +141,14 @@ namespace Game.Rules.Runtime
                     return ReductionResult<EncounterJoinOutcome>.Reject(
                         $"Creature {entry.Creature.Value} is already in the roster."
                     );
+                if (!context.Op.InitialHealth.ContainsKey(entry.Creature))
+                    return ReductionResult<EncounterJoinOutcome>.Reject(
+                        $"Creature {entry.Creature.Value} has no captured initial health."
+                    );
+            }
+            foreach (InitiativeEntry entry in context.Op.Additions)
                 if (!state.Health.Contains(entry.Creature))
                     state.Health.Set(entry.Creature, context.Op.InitialHealth[entry.Creature]);
-            }
             InitiativeEntry[] roster = encounter
                 .Roster.Concat(context.Op.Additions)
                 .OrderByDescending(entry => entry.Total)
@@ -338,7 +343,6 @@ namespace Game.Rules.Runtime
                 new ActionEconomyState(0, economy.ReactionAvailable)
             );
             state.MultipleAttackPenalty.Set(requested.Actor, new MultipleAttackPenaltyState(0));
-            state.MovementBudgets.Remove(requested.Actor);
             EncounterState updated = encounter.Replace(clearCurrentTurn: true);
             state.Encounters.Set(updated.Id, updated);
             facts.Stage(new TurnEndedFact(requested));

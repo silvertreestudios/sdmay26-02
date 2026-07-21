@@ -17,6 +17,9 @@ namespace Game.Rules.Runtime
             new BindingId($"encounter-outcome:{encounter.Value}");
 
         /// <summary>Adds the encounter-owned Observation listener to a shared registry builder.</summary>
+        /// <param name="builder">The registry builder used by the shared dispatcher.</param>
+        /// <returns>The same builder so registry composition can continue.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="builder"/> is null.</exception>
         public static RuleRegistryBuilder AddOutcomeRule(this RuleRegistryBuilder builder)
         {
             if (builder == null)
@@ -28,10 +31,36 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>Registers encounter handlers and reducer-owned transitions on one dispatcher.</summary>
-        public static RuleDispatcherBuilder UseEncounterRules(this RuleDispatcherBuilder builder)
+        /// <param name="builder">The shared dispatcher builder.</param>
+        /// <returns>The same builder with encounter rules and no transitional start adapters.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="builder"/> is null.</exception>
+        public static RuleDispatcherBuilder UseEncounterRules(this RuleDispatcherBuilder builder) =>
+            UseEncounterRules(builder, Array.Empty<IEncounterTurnStartAdapter>());
+
+        /// <summary>
+        /// Registers encounter transitions plus ordered adapters for unmigrated turn-start behavior.
+        /// </summary>
+        /// <param name="builder">The shared dispatcher builder that owns all encounter rules.</param>
+        /// <param name="turnStartAdapters">
+        /// The spell, aura, and action-contribution adapters to await in exact registration order.
+        /// </param>
+        /// <returns>The same builder so composition can continue.</returns>
+        /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
+        public static RuleDispatcherBuilder UseEncounterRules(
+            this RuleDispatcherBuilder builder,
+            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters
+        )
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
+            IEncounterTurnStartAdapter[] copied =
+                turnStartAdapters?.ToArray()
+                ?? throw new ArgumentNullException(nameof(turnStartAdapters));
+            if (copied.Any(adapter => adapter == null))
+                throw new ArgumentException(
+                    "Turn-start adapters cannot contain null entries.",
+                    nameof(turnStartAdapters)
+                );
             return builder
                 .RegisterHandler<StartEncounterOp, EncounterStartOutcome>(
                     new StartEncounterHandler()
@@ -49,7 +78,7 @@ namespace Game.Rules.Runtime
                     new EvaluateEncounterOutcomeHandler()
                 )
                 .RegisterHandler<TurnStartingOp, TurnStartContribution>(
-                    new TurnStartingHandler(),
+                    new TurnStartingHandler(copied),
                     InvocationPolicy.NestedOnly
                 )
                 .RegisterHandler<TurnEndingOp, TurnEndContribution>(
@@ -296,6 +325,14 @@ namespace Game.Rules.Runtime
                 }
                 if (boundary.Entry.EligibleFromRound.CompareTo(boundary.State.Round) > 0)
                     continue;
+                if (
+                    !context.Snapshot.Health.TryGet(
+                        boundary.Entry.Creature,
+                        out HealthState boundaryHealth
+                    )
+                    || boundaryHealth.Current <= 0
+                )
+                    continue;
                 TurnStartContribution contribution = EncounterHandlerResults.Require(
                     await context.Dispatch(
                         new TurnStartingOp(frame.Op.Encounter, boundary.Entry.Creature)
@@ -306,20 +343,16 @@ namespace Game.Rules.Runtime
                     context.Snapshot,
                     frame.Op.Encounter
                 );
-                EncounterOutcome? outcome = EncounterRuleRuntime.Evaluate(context.Snapshot, latest);
-                if (outcome.HasValue)
-                {
-                    EncounterEndOutcome ended = EncounterHandlerResults.Require(
-                        await context.Dispatch(new EndEncounterOp(latest.Id, outcome.Value)),
-                        "turn-start outcome"
-                    );
-                    return new EncounterAdvanceOutcome(ended.State);
-                }
                 if (
                     !context.Snapshot.Health.TryGet(boundary.Entry.Creature, out HealthState health)
                     || health.Current <= 0
                 )
-                    continue;
+                {
+                    // The hook's zero-HP Fact still belongs to this outer root. Return without a
+                    // turn so its Reaction listeners settle before the encounter-owned
+                    // Observation listener decides the outcome or advances beyond this slot.
+                    return new EncounterAdvanceOutcome(latest);
+                }
                 return EncounterHandlerResults.Require(
                     await context.Dispatch(
                         new CommitTurnBeginOp(
@@ -357,6 +390,10 @@ namespace Game.Rules.Runtime
             EncounterHandlerResults.Require(
                 await context.Dispatch(new TurnEndingOp(frame.Op.Turn)),
                 "turn-end hook"
+            );
+            EncounterHandlerResults.Require(
+                await context.Dispatch(new ResetMovementBudgetOp(frame.Op.Turn.Actor)),
+                "turn-end movement reset"
             );
             EncounterHandlerResults.Require(
                 await context.Dispatch(new CommitTurnEndOp(frame.Op.Turn)),
@@ -453,15 +490,6 @@ namespace Game.Rules.Runtime
             );
             if (encounter.Phase != EncounterPhase.Active)
                 return new EncounterEvaluationOutcome(encounter);
-            EncounterOutcome? outcome = EncounterRuleRuntime.Evaluate(context.Snapshot, encounter);
-            if (outcome.HasValue)
-            {
-                EncounterEndOutcome ended = EncounterHandlerResults.Require(
-                    await context.Dispatch(new EndEncounterOp(encounter.Id, outcome.Value)),
-                    "evaluated encounter end"
-                );
-                return new EncounterEvaluationOutcome(ended.State);
-            }
             if (
                 encounter.CurrentTurn.HasValue
                 && (
@@ -474,13 +502,26 @@ namespace Game.Rules.Runtime
             )
             {
                 TurnIdentity defeated = encounter.CurrentTurn.Value;
-                EncounterHandlerResults.Require(
-                    await context.Dispatch(new CommitTurnEndOp(defeated)),
-                    "defeated turn close"
+                EncounterAdvanceOutcome advanced = EncounterHandlerResults.Require(
+                    await context.Dispatch(new EndTurnOp(defeated)),
+                    "defeated turn end"
                 );
+                return new EncounterEvaluationOutcome(advanced.State);
+            }
+            EncounterOutcome? outcome = EncounterRuleRuntime.Evaluate(context.Snapshot, encounter);
+            if (outcome.HasValue)
+            {
+                EncounterEndOutcome ended = EncounterHandlerResults.Require(
+                    await context.Dispatch(new EndEncounterOp(encounter.Id, outcome.Value)),
+                    "evaluated encounter end"
+                );
+                return new EncounterEvaluationOutcome(ended.State);
+            }
+            if (!encounter.CurrentTurn.HasValue && encounter.Cursor >= 0)
+            {
                 EncounterAdvanceOutcome advanced = EncounterHandlerResults.Require(
                     await context.Dispatch(new AdvanceEncounterOp(encounter.Id)),
-                    "defeated turn advance"
+                    "unstarted boundary advance"
                 );
                 return new EncounterEvaluationOutcome(advanced.State);
             }
@@ -490,10 +531,33 @@ namespace Game.Rules.Runtime
 
     internal sealed class TurnStartingHandler : IOpHandler<TurnStartingOp, TurnStartContribution>
     {
-        public ValueTask<TurnStartContribution> Handle(
+        private readonly IReadOnlyList<IEncounterTurnStartAdapter> adapters;
+
+        public TurnStartingHandler(IEnumerable<IEncounterTurnStartAdapter> adapters) =>
+            this.adapters = Array.AsReadOnly(adapters.ToArray());
+
+        public async ValueTask<TurnStartContribution> Handle(
             OpFrame<TurnStartingOp> frame,
             OpHandlerContext context
-        ) => new ValueTask<TurnStartContribution>(TurnStartContribution.Standard);
+        )
+        {
+            TurnStartContribution contribution = TurnStartContribution.Standard;
+            EncounterTurnStartContext adapterContext = new EncounterTurnStartContext(
+                frame.Op.Encounter,
+                frame.Op.Actor,
+                context
+            );
+            foreach (IEncounterTurnStartAdapter adapter in adapters)
+            {
+                contribution = await adapter.Apply(adapterContext, contribution);
+                if (
+                    !context.Snapshot.Health.TryGet(frame.Op.Actor, out HealthState health)
+                    || health.Current <= 0
+                )
+                    break;
+            }
+            return contribution;
+        }
     }
 
     internal sealed class TurnEndingHandler : IOpHandler<TurnEndingOp, TurnEndContribution>
@@ -542,15 +606,6 @@ namespace Game.Rules.Runtime
             if (encounter == null)
                 return;
             await context.Dispatch(new EvaluateEncounterOutcomeOp(encounter.Id));
-            if (
-                context.Snapshot.Encounters.TryGet(encounter.Id, out EncounterState refreshed)
-                && refreshed.Phase == EncounterPhase.Active
-                && refreshed.CurrentTurn.HasValue
-                && refreshed.CurrentTurn.Value.Actor == fact.Creature
-                && context.Snapshot.Health.TryGet(fact.Creature, out HealthState health)
-                && health.Current == 0
-            )
-                await context.Dispatch(new EndTurnOp(refreshed.CurrentTurn.Value));
         }
     }
 }

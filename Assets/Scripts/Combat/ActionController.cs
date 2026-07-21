@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Rules.Runtime;
@@ -13,7 +14,7 @@ public abstract class ActionController : MonoBehaviour
     protected List<EntityAction> Actions = new();
     protected List<EntityAction> Movements = new();
     protected List<EntityAction> Reactions = new();
-    protected bool IsTurn = false;
+    private bool hasStandaloneTurnAuthority;
     private UnityEncounterRulesBridge encounterRules;
     private CreatureId encounterCreatureId;
 
@@ -27,12 +28,19 @@ public abstract class ActionController : MonoBehaviour
     public bool IsInDungeonExploration { get; private set; }
 
     /// <summary>Gets whether combat initiative currently grants this controller turn authority.</summary>
+    /// <remarks>
+    /// Before encounter attachment, direct controller fixtures may establish standalone authority
+    /// through <see cref="StartTurn"/>. Attached controllers always project the reducer-owned turn.
+    /// </remarks>
     public bool HasTurnAuthority =>
         encounterRules == null
-            ? IsTurn
+            ? hasStandaloneTurnAuthority
             : encounterRules.CurrentTurn.HasValue
                 && encounterRules.CurrentTurn.Value.Actor == encounterCreatureId;
 
+    /// <summary>
+    /// Gets reducer-owned actions while attached, or the serialized setup value before attachment.
+    /// </summary>
     public uint ActionPoints
     {
         get =>
@@ -45,6 +53,10 @@ public abstract class ActionController : MonoBehaviour
             actionPoints = value;
         }
     }
+
+    /// <summary>
+    /// Gets the inverse of authoritative reaction availability while attached, or setup state before attachment.
+    /// </summary>
     public bool Reacted
     {
         get =>
@@ -57,6 +69,10 @@ public abstract class ActionController : MonoBehaviour
             reacted = value;
         }
     }
+
+    /// <summary>
+    /// Gets reducer-owned turn attack count while attached, or the setup value before attachment.
+    /// </summary>
     public uint StrikePenalty
     {
         get =>
@@ -84,16 +100,17 @@ public abstract class ActionController : MonoBehaviour
     /// </summary>
     public virtual void StartTurn()
     {
-        IsTurn = true;
         if (!HasAuthoritativeActionState)
         {
+            hasStandaloneTurnAuthority = true;
             Ref<uint> contribution = new(3);
             ResetActionPointsEvent.Invoke(contribution);
             actionPoints = contribution.Value;
             reacted = false;
             strikePenalty = 0;
         }
-        SpellEffectController.ExpireAtStartOfTurn(gameObject);
+        if (!HasAuthoritativeActionState)
+            SpellEffectController.ExpireAtStartOfTurn(gameObject);
     }
 
     /// <summary>
@@ -106,10 +123,10 @@ public abstract class ActionController : MonoBehaviour
     /// </remarks>
     public virtual void ResetEncounterTurnState()
     {
-        IsTurn = false;
         IsTakingAction = false;
         if (!HasAuthoritativeActionState)
         {
+            hasStandaloneTurnAuthority = false;
             actionPoints = 0;
             reacted = false;
             strikePenalty = 0;
@@ -132,6 +149,7 @@ public abstract class ActionController : MonoBehaviour
         IsInDungeonExploration = enabled;
     }
 
+    /// <summary>Requests completion of this controller's exact authoritative turn.</summary>
     public abstract void EndTurn();
 
     /// <summary>
@@ -212,6 +230,7 @@ public abstract class ActionController : MonoBehaviour
         encounterCreatureId = creatureId.IsEmpty
             ? throw new System.ArgumentException("A creature ID is required.", nameof(creatureId))
             : creatureId;
+        hasStandaloneTurnAuthority = false;
     }
 
     internal uint CalculateTurnStartActions()
@@ -221,7 +240,9 @@ public abstract class ActionController : MonoBehaviour
         return contribution.Value;
     }
 
-    public void SpendActions(uint amount)
+    /// <summary>Spends actions through the shared store, or setup state before attachment.</summary>
+    /// <param name="amount">The non-negative action count to spend.</param>
+    public async ValueTask SpendActionsAsync(uint amount)
     {
         if (amount == 0)
             return;
@@ -231,17 +252,18 @@ public abstract class ActionController : MonoBehaviour
             actionPoints -= amount;
             return;
         }
-        encounterRules.SpendActions(encounterCreatureId, checked((int)amount));
+        await encounterRules.SpendActionsAsync(encounterCreatureId, checked((int)amount));
     }
 
-    public void IncrementMultipleAttackPenalty()
+    /// <summary>Increments turn-scoped MAP through the shared encounter store.</summary>
+    public async ValueTask IncrementMultipleAttackPenaltyAsync()
     {
         if (!HasAuthoritativeActionState)
         {
             strikePenalty++;
             return;
         }
-        encounterRules.IncrementMap(encounterCreatureId);
+        await encounterRules.IncrementMapAsync(encounterCreatureId);
     }
 
     private void RequirePreEncounterMutation()

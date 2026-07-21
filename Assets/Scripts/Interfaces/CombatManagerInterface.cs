@@ -43,6 +43,7 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     public abstract void NextTurn();
 
     /// <summary>Ends the exact active turn owned by the supplied controller.</summary>
+    /// <param name="actor">The controller expected to own the current turn.</param>
     public abstract void EndCurrentTurn(ActionController actor);
 
     /// <summary>Registers a controller without making a dormant creature initiative-eligible.</summary>

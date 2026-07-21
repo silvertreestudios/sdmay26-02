@@ -52,7 +52,13 @@ namespace TestsState
                 100
             );
             PlaceOnClearLine(grid.GetTiles(), enemy, target);
-            PrepareDurableTarget(target);
+            CreatureComponent durableTarget = PrepareDurableTarget(target);
+            yield return CoroutineRunner.Await(
+                durableTarget.GrantSourceTemporaryHitPointsAsync(
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                    100
+                )
+            );
 
             MindlessController controller = enemy.GetComponent<MindlessController>();
             FieldInfo turnSequenceField = typeof(MindlessController).GetField(
@@ -116,6 +122,12 @@ namespace TestsState
                 }
             );
             CreatureComponent selectedTargetCreature = PrepareDurableTarget(controller.BestTarget);
+            yield return CoroutineRunner.Await(
+                selectedTargetCreature.GrantSourceTemporaryHitPointsAsync(
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                    100
+                )
+            );
 
             UnityEngine.Random.State randomState = UnityEngine.Random.state;
             UnityEngine.Random.InitState(7602);
@@ -147,6 +159,12 @@ namespace TestsState
             yield return WaitForCurrentPlayerTurn(value => player = value);
             GameObject target = FindHostileTarget(player);
             CreatureComponent targetCreature = PrepareDurableTarget(target);
+            yield return CoroutineRunner.Await(
+                targetCreature.GrantSourceTemporaryHitPointsAsync(
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                    100
+                )
+            );
             SetupRangedAction(player, CreateShortbow(), 1, 100);
             PlaceOnClearLine(tiles, player, target);
             OnNextTurn.Invoke(player);
@@ -202,6 +220,12 @@ namespace TestsState
             yield return WaitForCurrentPlayerTurn(value => player = value);
             GameObject target = FindHostileTarget(player);
             CreatureComponent targetCreature = PrepareDurableTarget(target);
+            yield return CoroutineRunner.Await(
+                targetCreature.GrantSourceTemporaryHitPointsAsync(
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                    100
+                )
+            );
             SetupRangedAction(player, CreateShortbow(), 1, 100);
             FindEmptyStraightLine(tiles, 5, out Vector3Int playerCell, out Vector3Int targetCell);
             MoveCombatant(tiles, player, playerCell);
@@ -362,10 +386,6 @@ namespace TestsState
         {
             Assert.IsNotNull(target);
             CreatureComponent creature = target.GetComponent<CreatureComponent>();
-            creature.GrantSourceTemporaryHitPoints(
-                Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
-                100
-            );
             creature.ac = 1;
             return creature;
         }

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
@@ -15,7 +16,17 @@ namespace Game.Combat.Spells
         string Slug { get; }
         IReadOnlyList<uint> GetActionCosts(PreparedSpell spell);
         IEnumerator SelectAndCast(SpellCastContext context);
-        bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result);
+
+        /// <summary>Applies the selected spell effects and awaits every causal mutation.</summary>
+        /// <param name="context">The validated caster, prepared spell, and action cost.</param>
+        /// <param name="selection">The targets or area chosen by the selection coroutine.</param>
+        /// <param name="result">The shared result populated by the spell implementation.</param>
+        /// <returns>Whether spell-specific effects completed successfully.</returns>
+        ValueTask<bool> Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        );
         bool AppliesMultipleAttackPenalty(SpellCastContext context);
     }
 
@@ -29,7 +40,9 @@ namespace Game.Combat.Spells
         public virtual bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
 
         public abstract IEnumerator SelectAndCast(SpellCastContext context);
-        public abstract bool Cast(
+
+        /// <inheritdoc/>
+        public abstract ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
@@ -40,8 +53,7 @@ namespace Game.Combat.Spells
             SpellTargetSelection selection
         )
         {
-            context.Cast(selection);
-            yield break;
+            yield return CoroutineRunner.Await(context.CastAsync(selection));
         }
 
         protected static IEnumerator SelectFixedRangeTargetAndCast(
@@ -58,7 +70,9 @@ namespace Game.Combat.Spells
                     target
                 );
             if (target.Value != null && target.Value.Target != null)
-                context.Cast(SpellTargetSelection.ForTarget(target.Value.Target));
+                yield return CoroutineRunner.Await(
+                    context.CastAsync(SpellTargetSelection.ForTarget(target.Value.Target))
+                );
             else
                 SpellcastingRuntime.Fail(
                     new CastSpellResult(),
@@ -75,7 +89,9 @@ namespace Game.Combat.Spells
             CoroutineResult<AreaTargetResult> area = new();
             yield return GridAPI.GetInstance().GetAreaTarget(context.Caster, request, area);
             if (area.Value != null)
-                context.Cast(SpellTargetSelection.ForArea(area.Value));
+                yield return CoroutineRunner.Await(
+                    context.CastAsync(SpellTargetSelection.ForArea(area.Value))
+                );
             else
                 SpellcastingRuntime.Fail(
                     new CastSpellResult(),
@@ -126,7 +142,7 @@ namespace Game.Combat.Spells
         public override IEnumerator SelectAndCast(SpellCastContext context) =>
             CastNow(context, SpellTargetSelection.None);
 
-        public override bool Cast(
+        public override ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
@@ -136,7 +152,7 @@ namespace Game.Combat.Spells
                 .GetOrAdd(context.Caster)
                 .AddOrRefresh(new ShieldSpellEffect(context.Caster));
             result.Targets.Add(context.Caster);
-            return true;
+            return new ValueTask<bool>(true);
         }
     }
 
@@ -147,14 +163,14 @@ namespace Game.Combat.Spells
         public override IEnumerator SelectAndCast(SpellCastContext context) =>
             CastNow(context, SpellTargetSelection.None);
 
-        public override bool Cast(
+        public override ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
         )
         {
             result.Targets.Add(context.Caster);
-            return true;
+            return new ValueTask<bool>(true);
         }
     }
 
@@ -165,7 +181,7 @@ namespace Game.Combat.Spells
         public override IEnumerator SelectAndCast(SpellCastContext context) =>
             SelectFixedRangeTargetAndCast(context, 30);
 
-        public override bool Cast(
+        public override ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
@@ -176,13 +192,13 @@ namespace Game.Combat.Spells
                 !SpellcastingRuntime.IsFriendly(context.Caster, target)
                 || SpellcastingRuntime.DistanceFeet(context.Caster, target) > 30
             )
-                return false;
+                return new ValueTask<bool>(false);
             SpellEffectController controller = SpellEffectController.GetOrAdd(target);
             if (controller.HasEffect<GuidanceImmunitySpellEffect>())
-                return false;
+                return new ValueTask<bool>(false);
             controller.AddOrRefresh(new GuidanceSpellEffect(context.Caster));
             result.Targets.Add(target);
-            return true;
+            return new ValueTask<bool>(true);
         }
     }
 
@@ -195,7 +211,7 @@ namespace Game.Combat.Spells
         public override IEnumerator SelectAndCast(SpellCastContext context) =>
             SelectFixedRangeTargetAndCast(context, 60);
 
-        public override bool Cast(
+        public override async ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
@@ -231,7 +247,7 @@ namespace Game.Combat.Spells
                 Cover = StrikeCover.None,
                 RangePenalty = 0,
             };
-            StrikeResolutionPipeline.Resolve(
+            await StrikeResolutionPipeline.ResolveAsync(
                 new StrikeResolutionRequest
                 {
                     Attacker = context.Caster,
@@ -257,7 +273,7 @@ namespace Game.Combat.Spells
             );
         }
 
-        public override bool Cast(
+        public override async ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
@@ -270,7 +286,7 @@ namespace Game.Combat.Spells
                     creature.IsAffected
                 )
             )
-                SpellcastingRuntime.ApplyBasicFortitudeDamage(
+                await SpellcastingRuntime.ApplyBasicFortitudeDamageAsync(
                     context.Caster,
                     affected.Creature,
                     new Dice(1, 8, "sonic"),
@@ -296,7 +312,7 @@ namespace Game.Combat.Spells
             );
         }
 
-        public override bool Cast(
+        public override ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
@@ -320,7 +336,7 @@ namespace Game.Combat.Spells
                     result.Targets.Add(target);
                 }
             }
-            return result.Targets.Count > 0;
+            return new ValueTask<bool>(result.Targets.Count > 0);
         }
     }
 
@@ -331,7 +347,7 @@ namespace Game.Combat.Spells
         public override IEnumerator SelectAndCast(SpellCastContext context) =>
             SelectFixedRangeTargetAndCast(context, 30);
 
-        public override bool Cast(
+        public override ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
@@ -342,7 +358,7 @@ namespace Game.Combat.Spells
                 || selection.Targets.Count == 0
                 || selection.Targets.Count > context.ActionCost
             )
-                return false;
+                return new ValueTask<bool>(false);
             HashSet<GameObject> unique = new();
             foreach (GameObject target in selection.Targets)
             {
@@ -352,7 +368,7 @@ namespace Game.Combat.Spells
                     || !SpellcastingRuntime.IsFriendly(context.Caster, target)
                     || SpellcastingRuntime.DistanceFeet(context.Caster, target) > 30
                 )
-                    return false;
+                    return new ValueTask<bool>(false);
             }
             foreach (GameObject target in unique)
             {
@@ -361,7 +377,7 @@ namespace Game.Combat.Spells
                     .AddOrRefresh(new InfuseVitalitySpellEffect(context.Caster));
                 result.Targets.Add(target);
             }
-            return true;
+            return new ValueTask<bool>(true);
         }
     }
 
@@ -384,7 +400,7 @@ namespace Game.Combat.Spells
             return SelectFixedRangeTargetAndCast(context, context.ActionCost == 1 ? 5 : 30);
         }
 
-        public override bool Cast(
+        public override async ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
@@ -421,7 +437,7 @@ namespace Game.Combat.Spells
                     + (context.ActionCost == 2 && !SpellcastingRuntime.IsUndead(creature) ? 8 : 0);
                 result.Targets.Add(target);
                 if (SpellcastingRuntime.IsUndead(creature))
-                    SpellcastingRuntime.ApplyBasicFortitudeDamage(
+                    await SpellcastingRuntime.ApplyBasicFortitudeDamageAsync(
                         context.Caster,
                         target,
                         new DamageValue("vitality", amount),
@@ -431,7 +447,10 @@ namespace Game.Combat.Spells
                     );
                 else if (SpellcastingRuntime.IsFriendly(context.Caster, target))
                 {
-                    HealingOutcome healing = creature.Heal(amount, RuleSource.FromSlug(Slug));
+                    HealingOutcome healing = await creature.HealAsync(
+                        amount,
+                        RuleSource.FromSlug(Slug)
+                    );
                     result.Amount += healing.Applied;
                 }
             }

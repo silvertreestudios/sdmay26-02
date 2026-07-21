@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using Game.AbilityActions;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -198,7 +199,7 @@ namespace TestsCombat
         }
 
         [Test]
-        public void MultipleAttackPenaltyUsesAgileValues()
+        public async Task MultipleAttackPenaltyUsesAgileValues()
         {
             // PF2e source: https://2e.aonprd.com/Rules.aspx?ID=2288
             GameObject logObject = new GameObject("test-combat-log");
@@ -220,15 +221,30 @@ namespace TestsCombat
             };
 
             controller.StrikePenalty = 0;
-            Assert.AreEqual(0, ResolveForContext(attacker, target, normal).MultipleAttackPenalty);
+            Assert.AreEqual(
+                0,
+                (await ResolveForContextAsync(attacker, target, normal)).MultipleAttackPenalty
+            );
             controller.StrikePenalty = 1;
-            Assert.AreEqual(5, ResolveForContext(attacker, target, normal).MultipleAttackPenalty);
+            Assert.AreEqual(
+                5,
+                (await ResolveForContextAsync(attacker, target, normal)).MultipleAttackPenalty
+            );
             controller.StrikePenalty = 2;
-            Assert.AreEqual(10, ResolveForContext(attacker, target, normal).MultipleAttackPenalty);
+            Assert.AreEqual(
+                10,
+                (await ResolveForContextAsync(attacker, target, normal)).MultipleAttackPenalty
+            );
             controller.StrikePenalty = 1;
-            Assert.AreEqual(4, ResolveForContext(attacker, target, agile).MultipleAttackPenalty);
+            Assert.AreEqual(
+                4,
+                (await ResolveForContextAsync(attacker, target, agile)).MultipleAttackPenalty
+            );
             controller.StrikePenalty = 2;
-            Assert.AreEqual(8, ResolveForContext(attacker, target, agile).MultipleAttackPenalty);
+            Assert.AreEqual(
+                8,
+                (await ResolveForContextAsync(attacker, target, agile)).MultipleAttackPenalty
+            );
 
             UnityEngine.Object.DestroyImmediate(attacker);
             UnityEngine.Object.DestroyImmediate(target);
@@ -236,7 +252,7 @@ namespace TestsCombat
         }
 
         [Test]
-        public void StrikeAttackLogIncludesMapRangePenaltyAndCoverAc()
+        public async Task StrikeAttackLogIncludesMapRangePenaltyAndCoverAc()
         {
             // PF2e sources:
             // Attack rolls, MAP, and range penalty: https://2e.aonprd.com/Rules.aspx?ID=2288
@@ -255,7 +271,7 @@ namespace TestsCombat
                 new List<Dice> { new Dice(1, 6, "piercing") },
                 new List<DamageValue>()
             );
-            StrikeResolutionPipeline.Resolve(
+            await StrikeResolutionPipeline.ResolveAsync(
                 new StrikeResolutionRequest
                 {
                     Attacker = attacker,
@@ -391,7 +407,7 @@ namespace TestsCombat
         }
 
         [Test]
-        public void RageDamageIgnoresProjectileStrikeWithoutMeleeFlatDamage()
+        public async Task RageDamageIgnoresProjectileStrikeWithoutMeleeFlatDamage()
         {
             // PF2e source for Rage applying additional damage only to melee Strikes: https://2e.aonprd.com/Actions.aspx?ID=2802
             GameObject creatureObject = new GameObject("raging archer");
@@ -415,7 +431,7 @@ namespace TestsCombat
                     ClassFeatName = "Raging Intimidation",
                 };
                 creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
-                Assert.IsTrue(new Rage(0).UseRage(creatureObject));
+                Assert.IsTrue(await new Rage(0).UseRageAsync(creatureObject));
 
                 StrikeProfile projectileStrike = new StrikeProfile(
                     new List<Dice> { new Dice(1, 6, "piercing") },
@@ -471,14 +487,14 @@ namespace TestsCombat
             return creature;
         }
 
-        private static StrikeResolutionContext ResolveForContext(
+        private static async ValueTask<StrikeResolutionContext> ResolveForContextAsync(
             GameObject attacker,
             GameObject target,
             StrikeProfile profile
         )
         {
-            return StrikeResolutionPipeline
-                .Resolve(
+            return (
+                await StrikeResolutionPipeline.ResolveAsync(
                     new StrikeResolutionRequest
                     {
                         Attacker = attacker,
@@ -492,7 +508,7 @@ namespace TestsCombat
                         },
                     }
                 )
-                .Context;
+            ).Context;
         }
 
         private static Tile[,] BuildTiles(int width, int height)

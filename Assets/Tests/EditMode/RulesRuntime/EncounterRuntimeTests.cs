@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -55,7 +56,19 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task ExactEndTurnResetsActionsMapAndMovementThenWrapsRoundOnce()
         {
-            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
+            MovementBudgetState budget = new MovementBudgetState(
+                new MovementBudgetId(new OpId(99)),
+                Hero,
+                new GridDistance(15),
+                DiagonalMovementPhase.NextCostsTenFeet
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                BaseSeed().SeedMovementBudget(Hero, budget)
+            );
+            CountingFactObserver<MovementBudgetResetFact> movementResets =
+                new CountingFactObserver<MovementBudgetResetFact>();
+            dispatcher.RegisterFactObserver<MovementBudgetResetFact>(movementResets);
             EncounterState started = Resolved(
                 await dispatcher.Dispatch(
                     Start(
@@ -82,23 +95,20 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(dispatcher.Snapshot.MultipleAttackPenalty[Hero].AttackCount, Is.Zero);
             Assert.That(dispatcher.Snapshot.MovementBudgets.Contains(Hero), Is.False);
+            Assert.That(movementResets.Calls, Is.EqualTo(1));
         }
 
         [Test]
-        public void StaleAndDuplicateTurnEndRejectWithoutCommit()
+        public async Task StaleAndDuplicateTurnEndRejectWithoutCommit()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
             EncounterState started = Resolved(
-                dispatcher
-                    .Dispatch(
-                        Start(
-                            new EncounterParticipant(Hero, Players, 0),
-                            new EncounterParticipant(Enemy, Enemies, 0)
-                        )
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
                     )
-                    .AsTask()
-                    .GetAwaiter()
-                    .GetResult()
+                )
             ).Value.State;
             TurnIdentity stale = new TurnIdentity(
                 Encounter,
@@ -113,13 +123,7 @@ namespace Game.Rules.Runtime.Tests
                 await dispatcher.Dispatch(new EndTurnOp(stale))
             );
             Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(version));
-            Resolved(
-                dispatcher
-                    .Dispatch(new EndTurnOp(started.CurrentTurn.Value))
-                    .AsTask()
-                    .GetAwaiter()
-                    .GetResult()
-            );
+            Resolved(await dispatcher.Dispatch(new EndTurnOp(started.CurrentTurn.Value)));
             long after = dispatcher.Snapshot.Version;
             Assert.ThrowsAsync<InvalidOperationException>(async () =>
                 await dispatcher.Dispatch(new EndTurnOp(started.CurrentTurn.Value))
@@ -132,7 +136,12 @@ namespace Game.Rules.Runtime.Tests
         {
             RulesStateSeed seed = BaseSeed();
             seed.SeedHealth(Enemy, new HealthState(0, 10));
-            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 15, 10), seed);
+            RecordingTurnStartAdapter adapter = new RecordingTurnStartAdapter("hook");
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 15, 10),
+                seed,
+                turnStartAdapters: new[] { adapter }
+            );
 
             EncounterState heroTurn = Resolved(
                 await dispatcher.Dispatch(
@@ -154,6 +163,168 @@ namespace Game.Rules.Runtime.Tests
                     .Facts.OfType<InitiativeBoundaryReachedFact>()
                     .Select(fact => fact.Creature),
                 Is.EqualTo(new[] { Enemy, Reinforcement })
+            );
+            Assert.That(adapter.Actors, Is.EqualTo(new[] { Hero, Reinforcement }));
+        }
+
+        [Test]
+        public async Task OrderedStartAdaptersSetFinalActionsBeforeTurnBeganFact()
+        {
+            List<string> order = new List<string>();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                turnStartAdapters: new IEncounterTurnStartAdapter[]
+                {
+                    new RecordingTurnStartAdapter("spell", order),
+                    new RecordingTurnStartAdapter("aura", order),
+                    new RecordingTurnStartAdapter("slowed", order, 2),
+                }
+            );
+            TurnBeganSnapshotObserver observer = new TurnBeganSnapshotObserver(order);
+            dispatcher.RegisterFactObserver<TurnBeganFact>(observer);
+
+            await dispatcher.Dispatch(
+                Start(
+                    new EncounterParticipant(Hero, Players, 0),
+                    new EncounterParticipant(Enemy, Enemies, 0)
+                )
+            );
+
+            Assert.That(order, Is.EqualTo(new[] { "spell", "aura", "slowed", "fact" }));
+            Assert.That(observer.ActionsAtFact, Is.EqualTo(2));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Hero],
+                Is.EqualTo(new ActionEconomyState(2, true))
+            );
+        }
+
+        [Test]
+        public async Task TurnStartDamageDefeatEndsEncounterBeforeTurnPresentationFact()
+        {
+            LethalTurnStartAdapter adapter = new LethalTurnStartAdapter(Hero);
+            RecordingTurnStartAdapter afterLethal = new RecordingTurnStartAdapter("after-lethal");
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                turnStartAdapters: new IEncounterTurnStartAdapter[] { adapter, afterLethal }
+            );
+            CountingFactObserver<EncounterEndedFact> ended =
+                new CountingFactObserver<EncounterEndedFact>();
+            CountingFactObserver<TurnBeganFact> began = new CountingFactObserver<TurnBeganFact>();
+            dispatcher.RegisterFactObserver<EncounterEndedFact>(ended);
+            dispatcher.RegisterFactObserver<TurnBeganFact>(began);
+
+            OpResult<EncounterStartOutcome> result = await dispatcher.Dispatch(
+                Start(
+                    new EncounterParticipant(Hero, Players, 0),
+                    new EncounterParticipant(Enemy, Enemies, 0)
+                )
+            );
+
+            Resolved(result);
+            EncounterState state = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(adapter.Calls, Is.EqualTo(1));
+            Assert.That(afterLethal.Actors, Is.Empty);
+            Assert.That(dispatcher.Snapshot.Health[Hero].Current, Is.Zero);
+            Assert.That(state.Phase, Is.EqualTo(EncounterPhase.Ended));
+            Assert.That(state.Outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+            Assert.That(began.Calls, Is.Zero);
+            Assert.That(ended.Calls, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task TurnStartDefeatReactionSettlesBeforeOutcomeAndSkipsRescuedActor()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("turn-start-rescue-reaction");
+            RescueListener rescue = new RescueListener();
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition).FactListener(RuleLifecyclePhase.Reaction, rescue);
+            RulesStateSeed seed = BaseSeed()
+                .SeedRuleBinding(
+                    new ActiveRuleBinding(
+                        new BindingId("turn-start-rescue-binding"),
+                        definition,
+                        Hero,
+                        null,
+                        Source,
+                        1
+                    )
+                );
+            LethalTurnStartAdapter lethal = new LethalTurnStartAdapter(Hero);
+            RecordingTurnStartAdapter afterLethal = new RecordingTurnStartAdapter("after-lethal");
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                seed,
+                registryBuilder.Build(),
+                turnStartAdapters: new IEncounterTurnStartAdapter[] { lethal, afterLethal }
+            );
+            TurnBeganActorsObserver began = new TurnBeganActorsObserver();
+            dispatcher.RegisterFactObserver<TurnBeganFact>(began);
+
+            await dispatcher.Dispatch(
+                Start(
+                    new EncounterParticipant(Hero, Players, 0),
+                    new EncounterParticipant(Enemy, Enemies, 0)
+                )
+            );
+
+            EncounterState state = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(lethal.Calls, Is.EqualTo(1));
+            Assert.That(rescue.Calls, Is.EqualTo(1));
+            Assert.That(dispatcher.Snapshot.Health[Hero].Current, Is.EqualTo(1));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Hero],
+                Is.EqualTo(new ActionEconomyState(0, false))
+            );
+            Assert.That(state.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(state.Outcome, Is.Null);
+            Assert.That(state.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
+            Assert.That(afterLethal.Actors, Is.EqualTo(new[] { Enemy }));
+            Assert.That(began.Actors, Is.EqualTo(new[] { Enemy }));
+        }
+
+        [Test]
+        public async Task DefeatedActiveActorClosesThroughFullEndTurnLifecycleOnce()
+        {
+            MovementBudgetState budget = new MovementBudgetState(
+                new MovementBudgetId(new OpId(99)),
+                Hero,
+                new GridDistance(10),
+                DiagonalMovementPhase.NextCostsFiveFeet
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                BaseSeed().SeedMovementBudget(Hero, budget)
+            );
+            CountingFactObserver<MovementBudgetResetFact> movementResets =
+                new CountingFactObserver<MovementBudgetResetFact>();
+            CountingFactObserver<TurnEndedFact> turnsEnded =
+                new CountingFactObserver<TurnEndedFact>();
+            dispatcher.RegisterFactObserver<MovementBudgetResetFact>(movementResets);
+            dispatcher.RegisterFactObserver<TurnEndedFact>(turnsEnded);
+            await dispatcher.Dispatch(
+                Start(
+                    new EncounterParticipant(Hero, Players, 0),
+                    new EncounterParticipant(Enemy, Enemies, 0)
+                )
+            );
+
+            await dispatcher.Dispatch(
+                new ApplyDamageOp(Hero, 10, new HealthChangeOriginId("forced-turn-close"), Source)
+            );
+
+            EncounterState state = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(state.Phase, Is.EqualTo(EncounterPhase.Ended));
+            Assert.That(state.Outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+            Assert.That(dispatcher.Snapshot.MovementBudgets.Contains(Hero), Is.False);
+            Assert.That(movementResets.Calls, Is.EqualTo(1));
+            Assert.That(turnsEnded.Calls, Is.EqualTo(1));
+            Assert.That(
+                dispatcher.Trace.OrderedFrames.Count(frame => frame.OpType == typeof(EndTurnOp)),
+                Is.EqualTo(1)
+            );
+            Assert.That(
+                dispatcher.Trace.OrderedFrames.Count(frame => frame.OpType == typeof(TurnEndingOp)),
+                Is.EqualTo(1)
             );
         }
 
@@ -348,7 +519,8 @@ namespace Game.Rules.Runtime.Tests
             IRollService rolls,
             RulesStateSeed seed = null,
             RuleRegistry registry = null,
-            bool includeEffectWorkflow = false
+            bool includeEffectWorkflow = false,
+            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters = null
         )
         {
             RuleRegistry selected = registry ?? new RuleRegistryBuilder().AddOutcomeRule().Build();
@@ -359,7 +531,8 @@ namespace Game.Rules.Runtime.Tests
                 .UseRuleRegistry(selected)
                 .UseHealthRules()
                 .UseActiveEffectRules(selected)
-                .UseEncounterRules();
+                .UseMovementBudgetResetRules()
+                .UseEncounterRules(turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>());
             if (includeEffectWorkflow)
                 builder.RegisterHandler<CreateEffectWorkflowOp, ActiveEffectCreationOutcome>(
                     new CreateEffectWorkflowHandler()
@@ -391,6 +564,107 @@ namespace Game.Rules.Runtime.Tests
                         Source
                     )
                 );
+            }
+        }
+
+        private sealed class RecordingTurnStartAdapter : IEncounterTurnStartAdapter
+        {
+            private readonly string label;
+            private readonly IList<string> order;
+            private readonly int? actions;
+            private readonly List<CreatureId> actors = new List<CreatureId>();
+
+            public RecordingTurnStartAdapter(
+                string label,
+                IList<string> order = null,
+                int? actions = null
+            )
+            {
+                this.label = label;
+                this.order = order;
+                this.actions = actions;
+            }
+
+            public IReadOnlyList<CreatureId> Actors => actors;
+
+            public ValueTask<TurnStartContribution> Apply(
+                EncounterTurnStartContext context,
+                TurnStartContribution current
+            )
+            {
+                actors.Add(context.Actor);
+                order?.Add(label);
+                return new ValueTask<TurnStartContribution>(
+                    actions.HasValue ? new TurnStartContribution(actions.Value) : current
+                );
+            }
+        }
+
+        private sealed class LethalTurnStartAdapter : IEncounterTurnStartAdapter
+        {
+            private readonly CreatureId target;
+
+            public LethalTurnStartAdapter(CreatureId target) => this.target = target;
+
+            public int Calls { get; private set; }
+
+            public async ValueTask<TurnStartContribution> Apply(
+                EncounterTurnStartContext context,
+                TurnStartContribution current
+            )
+            {
+                if (context.Actor != target)
+                    return current;
+                Calls++;
+                HealthState health = context.Snapshot.Health[context.Actor];
+                await context.ApplyFinalDamage(
+                    context.Actor,
+                    health.Current + health.Temporary,
+                    new HealthChangeOriginId("lethal-turn-start"),
+                    Source
+                );
+                return current;
+            }
+        }
+
+        private sealed class CountingFactObserver<TFact> : IFactObserver<TFact>
+            where TFact : RuleFact
+        {
+            public int Calls { get; private set; }
+
+            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+            {
+                Calls++;
+                return default;
+            }
+        }
+
+        private sealed class TurnBeganActorsObserver : IFactObserver<TurnBeganFact>
+        {
+            private readonly List<CreatureId> actors = new List<CreatureId>();
+
+            public IReadOnlyList<CreatureId> Actors => actors;
+
+            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            {
+                actors.Add(fact.Turn.Actor);
+                return default;
+            }
+        }
+
+        private sealed class TurnBeganSnapshotObserver : IFactObserver<TurnBeganFact>
+        {
+            private readonly IList<string> order;
+
+            public TurnBeganSnapshotObserver(IList<string> order) => this.order = order;
+
+            public int ActionsAtFact { get; private set; } = -1;
+
+            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            {
+                ActionsAtFact = snapshot.ActionEconomy[fact.Turn.Actor].ActionsRemaining;
+                order.Add("fact");
+                return default;
             }
         }
 

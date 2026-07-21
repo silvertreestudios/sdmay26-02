@@ -55,7 +55,7 @@ public class Pf2eBarbarianSmokeTests
         manager.AddCombatant(torgrim.GetComponent<ActionController>());
         manager.AddCombatant(enemy.GetComponent<ActionController>());
         manager.StartCombat();
-        yield return null;
+        yield return WaitForTurn(manager);
 
         CreatureComponent torgrimCreature = torgrim.GetComponent<CreatureComponent>();
         Assert.That(torgrimCreature.Prepared.HasOwnedItem("quick-tempered"), Is.True);
@@ -96,7 +96,7 @@ public class Pf2eBarbarianSmokeTests
         manager.AddCombatant(lena.GetComponent<ActionController>());
         manager.AddCombatant(enemy.GetComponent<ActionController>());
         manager.StartCombat();
-        yield return null;
+        yield return WaitForTurn(manager);
 
         CreatureComponent lenaCreature = lena.GetComponent<CreatureComponent>();
         Assert.That(lenaCreature.Prepared.HasOwnedItem("rogue"), Is.True);
@@ -110,6 +110,18 @@ public class Pf2eBarbarianSmokeTests
         GameObject go = new(name);
         created.Add(go);
         return go;
+    }
+
+    private static IEnumerator WaitForTurn(CombatManager manager)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (manager.WhosTurn() == null && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(
+            manager.WhosTurn(),
+            Is.Not.Null,
+            "Timed out waiting for combat-start rules and initiative to settle."
+        );
     }
 
     private sealed class TestActionController : ActionController

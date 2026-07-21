@@ -464,9 +464,11 @@ public sealed class KayKitDungeonExamplePlayModeTests
             foreach (ActionController enemy in CombatantsForTeam("Enemies"))
             {
                 CreatureComponent creature = enemy.GetComponent<CreatureComponent>();
-                creature.ApplyFinalDamage(
-                    creature.hp + creature.tempHp,
-                    Game.Rules.Runtime.RuleSource.FromSlug("test-lethal-damage")
+                yield return CoroutineRunner.Await(
+                    creature.ApplyFinalDamageAsync(
+                        creature.hp + creature.tempHp,
+                        Game.Rules.Runtime.RuleSource.FromSlug("test-lethal-damage")
+                    )
                 );
             }
 

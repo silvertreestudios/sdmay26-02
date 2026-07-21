@@ -16,9 +16,10 @@ namespace TestsState
     public class RottingAuraPlayModeTests : PlayModeBase
     {
         private readonly List<GameObject> cleanup = new();
+        private bool controlledCombatStarted;
 
-        [TearDown]
-        public void TearDown()
+        [UnityTearDown]
+        public IEnumerator TearDown()
         {
             foreach (
                 HUDController hud in Object.FindObjectsByType<HUDController>(
@@ -28,8 +29,21 @@ namespace TestsState
                 hud.enabled = false;
 
             CombatManager manager = Object.FindFirstObjectByType<CombatManager>();
-            if (manager != null && manager.IsCombatActive)
-                manager.SuspendDungeonCombat();
+            if (manager != null)
+            {
+                if (controlledCombatStarted && manager.IsCombatActive)
+                {
+                    manager.SuspendDungeonCombat();
+                    float deadline = Time.realtimeSinceStartup + 5f;
+                    while (manager.IsCombatActive && Time.realtimeSinceStartup < deadline)
+                        yield return null;
+                    Assert.That(manager.IsCombatActive, Is.False);
+                }
+                else
+                {
+                    manager.StopAllCoroutines();
+                }
+            }
 
             foreach (GameObject obj in cleanup)
             {
@@ -40,6 +54,8 @@ namespace TestsState
             OnCombatStart.RemoveAllListeners();
             OnCombatEnd.RemoveAllListeners();
             OnNextTurn.RemoveAllListeners();
+            controlledCombatStarted = false;
+            yield return null;
         }
 
         [UnityTest]
@@ -79,12 +95,18 @@ namespace TestsState
             Assert.That(auraVisuals.CurrentParticleRadii, Has.Count.EqualTo(1));
             Assert.That(auraVisuals.CurrentParticleRadii[0], Is.EqualTo(2f).Within(0.001f));
 
-            List<CreatureAuraEffectResult> results = CreatureAuraResolver.ApplyTurnStartAuras(
-                targetController,
-                new[] { zombieController, targetController },
-                tiles,
-                new FixedDiceRoller(4)
+            CoroutineResult<List<CreatureAuraEffectResult>> applied =
+                new CoroutineResult<List<CreatureAuraEffectResult>>();
+            yield return CoroutineRunner.Await(
+                CreatureAuraResolver.ApplyTurnStartAurasAsync(
+                    targetController,
+                    new[] { zombieController, targetController },
+                    tiles,
+                    new FixedDiceRoller(4)
+                ),
+                applied
             );
+            List<CreatureAuraEffectResult> results = applied.Value;
 
             Assert.AreEqual(1, results.Count);
             Assert.AreEqual(4, results[0].AppliedDamage);
@@ -124,7 +146,7 @@ namespace TestsState
 
             target.GetComponent<CreatureComponent>().initiative = 1000;
             zombie.GetComponent<CreatureComponent>().initiative = -1000;
-            StartControlledCombat(
+            yield return StartControlledCombat(
                 manager,
                 new List<ActionController> { targetController, zombieController }
             );
@@ -142,6 +164,7 @@ namespace TestsState
             int hpAfterCombatantTurn = targetCreature.hp;
 
             manager.EndCurrentTurn(targetController);
+            yield return WaitForActor(manager, zombie);
             Assert.That(
                 targetCreature.hp,
                 Is.EqualTo(hpAfterCombatantTurn),
@@ -196,7 +219,7 @@ namespace TestsState
             firstTargetCreature.initiative = 1000;
             secondTargetCreature.initiative = 500;
             zombie.GetComponent<CreatureComponent>().initiative = -1000;
-            StartControlledCombat(
+            yield return StartControlledCombat(
                 manager,
                 new List<ActionController>
                 {
@@ -219,6 +242,7 @@ namespace TestsState
             int firstTargetHpAfterOwnTurn = firstTargetCreature.hp;
 
             manager.EndCurrentTurn(firstTargetController);
+            yield return WaitForActor(manager, secondTarget);
 
             Assert.That(
                 firstTargetCreature.hp,
@@ -282,23 +306,19 @@ namespace TestsState
             AddTeam(survivor, "Players");
             MoveCombatant(tiles, survivor, survivorCell);
 
-            GameObject hostile = CreateTarget("hostile actor", 10, 10);
-            TestActionController hostileController = hostile.GetComponent<TestActionController>();
+            GameObject hostile = CreatureJsonConverter.CreateFromFile(
+                "DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura"
+            );
+            cleanup.Add(hostile);
+            hostile.name = "hostile aura actor";
+            TestActionController hostileController = hostile.AddComponent<TestActionController>();
             AddTeam(hostile, "Enemies");
             MoveCombatant(tiles, hostile, hostileCell);
-
-            OnNextTurn.AddListener(actor =>
-            {
-                if (actor == defeatedActor)
-                    defeatedActor
-                        .GetComponent<CreatureComponent>()
-                        .ApplyFinalDamage(1, Game.Rules.Runtime.RuleSource.FromSlug("test-damage"));
-            });
 
             defeatedActor.GetComponent<CreatureComponent>().initiative = 1000;
             survivor.GetComponent<CreatureComponent>().initiative = 500;
             hostile.GetComponent<CreatureComponent>().initiative = -1000;
-            StartControlledCombat(
+            yield return StartControlledCombat(
                 manager,
                 new List<ActionController>
                 {
@@ -307,7 +327,7 @@ namespace TestsState
                     hostileController,
                 }
             );
-            yield return null;
+            yield return WaitForActor(manager, survivor);
 
             Assert.That(
                 defeatedActor.activeSelf,
@@ -435,11 +455,26 @@ namespace TestsState
             team.Name = teamName;
         }
 
-        private static void StartControlledCombat(
+        private IEnumerator StartControlledCombat(
             CombatManager manager,
             List<ActionController> combatants
         )
         {
+            foreach (
+                GameManager gameManager in Object.FindObjectsByType<GameManager>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None
+                )
+            )
+            {
+                gameManager.StopAllCoroutines();
+                gameManager.enabled = false;
+            }
+            Assert.That(
+                manager.IsCombatActive,
+                Is.False,
+                "The scene GameManager bootstrap must be suppressed before controlled combat starts."
+            );
             foreach (GameObject existing in manager.GetCombatants().ToArray())
             {
                 ActionController controller = existing.GetComponent<ActionController>();
@@ -449,6 +484,23 @@ namespace TestsState
             foreach (ActionController controller in combatants)
                 manager.AddCombatant(controller);
             manager.StartDungeonCombat(combatants);
+            controlledCombatStarted = true;
+            float startDeadline = Time.realtimeSinceStartup + 5f;
+            while (manager.WhosTurn() == null && Time.realtimeSinceStartup < startDeadline)
+                yield return null;
+            Assert.That(manager.WhosTurn(), Is.Not.Null);
+        }
+
+        private static IEnumerator WaitForActor(CombatManager manager, GameObject expected)
+        {
+            float deadline = Time.realtimeSinceStartup + 5f;
+            while (manager.WhosTurn() != expected && Time.realtimeSinceStartup < deadline)
+                yield return null;
+            Assert.That(
+                manager.WhosTurn(),
+                Is.SameAs(expected),
+                $"Timed out waiting for {expected.name} to receive the committed turn."
+            );
         }
 
         private sealed class FixedDiceRoller : IPf2eDiceRoller

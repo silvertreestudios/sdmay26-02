@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Combat.Exploration;
 using Game.Creature;
 using Game.DungeonGeneration;
@@ -219,7 +220,7 @@ namespace Game.Combat.Encounters
         /// Opening is free for any adjacent living party member during exploration and costs the
         /// current living PC exactly one action in combat. Generated doors are open-only in V1.
         /// </remarks>
-        public bool TryOpenDoor(DungeonCell doorCell)
+        public async ValueTask<bool> TryOpenDoorAsync(DungeonCell doorCell)
         {
             if (
                 !IsInitialized || !doorsByCell.TryGetValue(doorCell, out DungeonDoorController door)
@@ -268,7 +269,7 @@ namespace Game.Combat.Encounters
             if (!decision.IsAllowed || !door.TryOpen())
                 return false;
 
-            actor.SpendActions(decision.ActionCost);
+            await actor.SpendActionsAsync(decision.ActionCost);
             openDoorIds.Add(door.StableId);
             DoorOpened(door.StableId);
             return true;
@@ -538,7 +539,9 @@ namespace Game.Combat.Encounters
 
         private void OnGridCellClicked(Vector3Int cell)
         {
-            TryOpenDoor(new DungeonCell(cell.x, cell.z));
+            StartCoroutine(
+                CoroutineRunner.Await(TryOpenDoorAsync(new DungeonCell(cell.x, cell.z)))
+            );
         }
 
         bool IExplorationStrideCoordinator.Handles(GameObject character) =>

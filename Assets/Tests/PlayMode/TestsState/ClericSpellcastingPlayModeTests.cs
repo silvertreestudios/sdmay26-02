@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -164,7 +165,9 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
             new SelfDefeatingSpellDefinition()
         );
 
-        CastSpellResult result = context.Cast(SpellTargetSelection.None);
+        CoroutineResult<CastSpellResult> completed = new CoroutineResult<CastSpellResult>();
+        yield return CoroutineRunner.Await(context.CastAsync(SpellTargetSelection.None), completed);
+        CastSpellResult result = completed.Value;
 
         Assert.That(result.Success, Is.True);
         Assert.That(
@@ -206,7 +209,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
                 yield return null;
 
             if (shouldCast)
-                context.Cast(SpellTargetSelection.None);
+                yield return CoroutineRunner.Await(context.CastAsync(SpellTargetSelection.None));
             else
                 SpellcastingRuntime.Fail(
                     new CastSpellResult(),
@@ -215,14 +218,14 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
                 );
         }
 
-        public bool Cast(
+        public ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
         )
         {
             result.Targets.Add(context.Caster);
-            return true;
+            return new ValueTask<bool>(true);
         }
 
         public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
@@ -244,13 +247,13 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
             yield break;
         }
 
-        public bool Cast(
+        public async ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
         )
         {
-            context.CasterCreature.ApplyFinalDamage(
+            await context.CasterCreature.ApplyFinalDamageAsync(
                 1,
                 Game.Rules.Runtime.RuleSource.FromSlug("test-spell")
             );

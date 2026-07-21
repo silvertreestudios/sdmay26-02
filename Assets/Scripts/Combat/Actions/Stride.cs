@@ -40,7 +40,7 @@ public class Stride : MultiFrameEntityAction
         if (!canceled)
         {
             if (ac && !startedInExploration)
-                PayCost(ac);
+                yield return CoroutineRunner.Await(PayCostAsync(ac));
         }
         if (ac)
             ac.IsTakingAction = false;

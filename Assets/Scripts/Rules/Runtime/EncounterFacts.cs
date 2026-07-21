@@ -7,6 +7,7 @@ namespace Game.Rules.Runtime
         public EncounterState Encounter { get; }
 
         /// <summary>Creates a fact for the committed encounter.</summary>
+        /// <param name="encounter">The immutable state committed by encounter start.</param>
         public EncounterStartedFact(EncounterState encounter) => Encounter = encounter;
     }
 
@@ -17,6 +18,7 @@ namespace Game.Rules.Runtime
         public EncounterState Encounter { get; }
 
         /// <summary>Creates a fact for the replaced roster.</summary>
+        /// <param name="encounter">The encounter state containing all accepted additions.</param>
         public EncounterJoinedFact(EncounterState encounter) => Encounter = encounter;
     }
 
@@ -33,6 +35,9 @@ namespace Game.Rules.Runtime
         public CreatureId Creature { get; }
 
         /// <summary>Creates a fact for one committed initiative boundary.</summary>
+        /// <param name="encounter">The encounter whose cursor advanced.</param>
+        /// <param name="round">The round after any wrap was committed.</param>
+        /// <param name="creature">The creature occupying the reached immutable slot.</param>
         public InitiativeBoundaryReachedFact(
             EncounterId encounter,
             RoundNumber round,
@@ -52,6 +57,7 @@ namespace Game.Rules.Runtime
         public TurnIdentity Turn { get; }
 
         /// <summary>Creates a fact for the exact turn.</summary>
+        /// <param name="turn">The exact turn granted final resources.</param>
         public TurnBeganFact(TurnIdentity turn) => Turn = turn;
     }
 
@@ -62,6 +68,7 @@ namespace Game.Rules.Runtime
         public TurnIdentity Turn { get; }
 
         /// <summary>Creates a fact for the exact completed turn.</summary>
+        /// <param name="turn">The exact turn whose scoped resources were cleared.</param>
         public TurnEndedFact(TurnIdentity turn) => Turn = turn;
     }
 
@@ -72,6 +79,7 @@ namespace Game.Rules.Runtime
         public EncounterId Encounter { get; }
 
         /// <summary>Creates a suspension fact.</summary>
+        /// <param name="encounter">The encounter that stopped without an outcome.</param>
         public EncounterSuspendedFact(EncounterId encounter) => Encounter = encounter;
     }
 
@@ -85,6 +93,8 @@ namespace Game.Rules.Runtime
         public EncounterOutcome Outcome { get; }
 
         /// <summary>Creates an encounter outcome fact.</summary>
+        /// <param name="encounter">The encounter that ended.</param>
+        /// <param name="outcome">The committed player-relative result.</param>
         public EncounterEndedFact(EncounterId encounter, EncounterOutcome outcome)
         {
             Encounter = encounter;
@@ -105,6 +115,9 @@ namespace Game.Rules.Runtime
         public int Remaining { get; }
 
         /// <summary>Creates a fact for one committed legacy action spend.</summary>
+        /// <param name="actor">The creature that spent actions.</param>
+        /// <param name="amount">The positive action cost.</param>
+        /// <param name="remaining">The committed remaining actions.</param>
         public LegacyActionsSpentFact(CreatureId actor, int amount, int remaining)
         {
             Actor = actor;
@@ -123,6 +136,8 @@ namespace Game.Rules.Runtime
         public int AttackCount { get; }
 
         /// <summary>Creates a fact for one committed legacy MAP increment.</summary>
+        /// <param name="actor">The creature completing the attack.</param>
+        /// <param name="attackCount">The committed turn-scoped attack count.</param>
         public LegacyMapIncrementedFact(CreatureId actor, int attackCount)
         {
             Actor = actor;

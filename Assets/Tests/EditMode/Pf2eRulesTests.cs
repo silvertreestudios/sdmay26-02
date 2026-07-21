@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.AbilityActions;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -96,7 +97,7 @@ public class Pf2eRulesTests
     }
 
     [Test]
-    public void ZombiePassiveSlowAppliesAtCombatStart()
+    public async Task ZombiePassiveSlowAppliesAtCombatStart()
     {
         GameObject zombie = CreatureJsonConverter.CreateFromFile(
             "DataFiles/pathfinder-monster-core/zombie-shambler"
@@ -106,7 +107,7 @@ public class Pf2eRulesTests
 
         Assert.That(zombie.GetComponent<CreatureComponent>().passives, Does.Contain("Slow"));
 
-        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
+        await Pf2eRulesEngine.ApplyCombatStartRulesAsync(new[] { actionController });
 
         Assert.That(zombie.GetComponent<Conditions>().Contains("Slowed"), Is.True);
         Ref<uint> turnActions = new(3);
@@ -115,7 +116,7 @@ public class Pf2eRulesTests
     }
 
     [Test]
-    public void ZombiePassiveSlowDoesNotStackWhenCombatStartRulesRunAgain()
+    public async Task ZombiePassiveSlowDoesNotStackWhenCombatStartRulesRunAgain()
     {
         GameObject zombie = CreatureJsonConverter.CreateFromFile(
             "DataFiles/pathfinder-monster-core/zombie-shambler"
@@ -123,8 +124,8 @@ public class Pf2eRulesTests
         created.Add(zombie);
         TestActionController actionController = zombie.AddComponent<TestActionController>();
 
-        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
-        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
+        await Pf2eRulesEngine.ApplyCombatStartRulesAsync(new[] { actionController });
+        await Pf2eRulesEngine.ApplyCombatStartRulesAsync(new[] { actionController });
 
         Ref<uint> turnActions = new(3);
         actionController.ResetActionPointsEvent.Invoke(turnActions);
@@ -269,7 +270,7 @@ public class Pf2eRulesTests
     }
 
     [Test]
-    public void RageUnityActionAppliesRuleEffectsToUnityComponents()
+    public async Task RageUnityActionAppliesRuleEffectsToUnityComponents()
     {
         CreatureComponent creature = CreatePreparedBarbarian();
         TestActionController actionController =
@@ -278,7 +279,7 @@ public class Pf2eRulesTests
         actionController.IsTakingAction = true;
 
         Rage rage = new(1);
-        Assert.That(rage.UseRage(creature.gameObject), Is.True);
+        Assert.That(await rage.UseRageAsync(creature.gameObject), Is.True);
 
         Assert.That(creature.tempHp, Is.EqualTo(2));
         Assert.That(creature.Health.Temporary, Is.EqualTo(2));
@@ -286,20 +287,20 @@ public class Pf2eRulesTests
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
         Assert.That(actionController.IsTakingAction, Is.False);
 
-        rage.EndRage(creature.gameObject);
+        await rage.EndRageAsync(creature.gameObject);
         Assert.That(creature.tempHp, Is.EqualTo(0));
         Assert.That(creature.Health.Temporary, Is.Zero);
         Assert.That(creature.HasTempHpImmunity("rage"), Is.True);
 
-        Assert.That(rage.UseRage(creature.gameObject), Is.True);
+        Assert.That(await rage.UseRageAsync(creature.gameObject), Is.True);
         Assert.That(creature.tempHp, Is.EqualTo(0));
     }
 
     [Test]
-    public void RageDamageUsesRuleModifiersAndFuryInstinctAdjustments()
+    public async Task RageDamageUsesRuleModifiersAndFuryInstinctAdjustments()
     {
         CreatureComponent creature = CreatePreparedBarbarian();
-        Assert.That(new Rage(0).UseRage(creature.gameObject), Is.True);
+        Assert.That(await new Rage(0).UseRageAsync(creature.gameObject), Is.True);
 
         StrikeProfile greataxe = new(
             new List<Dice> { new Dice(1, 12, "Slashing") },
@@ -316,7 +317,7 @@ public class Pf2eRulesTests
         StrikeResolutionContext agileContext = PrepareStrike(creature, agile);
         Assert.That(agileContext.FlatDamages.Last().DamageAmount, Is.EqualTo(1));
 
-        new Rage(0).EndRage(creature.gameObject);
+        await new Rage(0).EndRageAsync(creature.gameObject);
         StrikeProfile notRaging = new(
             new List<Dice> { new Dice(1, 12, "Slashing") },
             new List<DamageValue> { new DamageValue("Slashing", 4) }
@@ -326,7 +327,7 @@ public class Pf2eRulesTests
     }
 
     [Test]
-    public void RagingIntimidationItemAlterationAddsRageTraitOnlyWhileRaging()
+    public async Task RagingIntimidationItemAlterationAddsRageTraitOnlyWhileRaging()
     {
         CreatureComponent creature = CreatePreparedBarbarian();
 
@@ -338,7 +339,7 @@ public class Pf2eRulesTests
         );
         Assert.That(beforeRage, Does.Not.Contain("rage"));
 
-        Assert.That(new Rage(0).UseRage(creature.gameObject), Is.True);
+        Assert.That(await new Rage(0).UseRageAsync(creature.gameObject), Is.True);
         List<string> duringRage = Pf2eRulesEngine.GetAlteredTraits(
             creature.Prepared,
             "action",

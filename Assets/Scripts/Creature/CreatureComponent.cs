@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Combat.Encounters;
 using Game.Combat.Spells;
 using Game.Creature;
@@ -1056,15 +1057,21 @@ namespace Game.Creature
             _tempHp = validated.Temporary;
         }
 
-        /// <summary>Commits already-final damage through the authoritative health dispatcher.</summary>
+        /// <summary>
+        /// Commits already-final damage and awaits the complete health and encounter causal root.
+        /// </summary>
         /// <param name="amount">Damage remaining after all upstream damage calculations.</param>
         /// <param name="source">The existing rules source responsible for the damage.</param>
         /// <returns>The exact temporary- and current-HP amounts committed.</returns>
-        public DamageOutcome ApplyFinalDamage(int amount, RuleSource source) =>
-            RequireHealthRules().ApplyFinalDamage(healthCreatureId, amount, source);
+        public ValueTask<DamageOutcome> ApplyFinalDamageAsync(int amount, RuleSource source) =>
+            RequireHealthRules().ApplyFinalDamageAsync(healthCreatureId, amount, source);
 
-        //helper function to signal to CombatManager when a player is defeated, so they can be removed from the turn queue and combat
-        //this function also clears the character's position from the grid memory and deactivates their game object
+        /// <summary>Presents a committed zero-HP transition without changing the rules roster.</summary>
+        /// <remarks>
+        /// The authoritative encounter retains this creature's initiative entry as an effect-timing
+        /// boundary. Presentation marks the component defeated, clears its occupied grid cell, and
+        /// deactivates the GameObject only after the outer rules dispatch has fully settled.
+        /// </remarks>
         internal void PresentCommittedDefeat()
         {
             if (defeated)
@@ -1111,8 +1118,8 @@ namespace Game.Creature
         /// <param name="healAmount">The non-negative healing requested.</param>
         /// <param name="source">The existing rules source responsible for the healing.</param>
         /// <returns>The amount committed after maximum-HP clamping.</returns>
-        public HealingOutcome Heal(int healAmount, RuleSource source) =>
-            RequireHealthRules().ApplyHealing(healthCreatureId, healAmount, source);
+        public ValueTask<HealingOutcome> HealAsync(int healAmount, RuleSource source) =>
+            RequireHealthRules().ApplyHealingAsync(healthCreatureId, healAmount, source);
 
         /// <summary>
         /// Grants non-stacking temporary Hit Points owned by one rule source.
@@ -1120,24 +1127,26 @@ namespace Game.Creature
         /// <param name="source">The rule source that owns the resulting pool.</param>
         /// <param name="amount">The non-negative pool offered by the source.</param>
         /// <returns>Whether the offer replaced the current pool or was blocked.</returns>
-        public TemporaryHitPointsGrantOutcome GrantSourceTemporaryHitPoints(
+        public ValueTask<TemporaryHitPointsGrantOutcome> GrantSourceTemporaryHitPointsAsync(
             RuleSource source,
             int amount
-        ) => RequireHealthRules().GrantTemporaryHitPoints(healthCreatureId, amount, source);
+        ) => RequireHealthRules().GrantTemporaryHitPointsAsync(healthCreatureId, amount, source);
 
         /// <summary>Removes temporary Hit Points still owned by one rule source.</summary>
         /// <param name="source">The source whose remaining pool may be removed.</param>
         /// <returns>The amount removed, or zero when another source owns the pool.</returns>
-        public TemporaryHitPointsRemovalOutcome RemoveSourceTemporaryHitPoints(RuleSource source) =>
-            RequireHealthRules().RemoveTemporaryHitPoints(healthCreatureId, source);
+        public ValueTask<TemporaryHitPointsRemovalOutcome> RemoveSourceTemporaryHitPointsAsync(
+            RuleSource source
+        ) => RequireHealthRules().RemoveTemporaryHitPointsAsync(healthCreatureId, source);
 
         /// <summary>
         /// Records that a source cannot grant temporary Hit Points again until game flow resets the immunity set.
         /// </summary>
         /// <param name="source">The source to block from later grants.</param>
         /// <returns>Whether a new immunity was committed.</returns>
-        public TemporaryHitPointImmunityOutcome AddTemporaryHitPointImmunity(RuleSource source) =>
-            RequireHealthRules().AddTemporaryHitPointImmunity(healthCreatureId, source);
+        public ValueTask<TemporaryHitPointImmunityOutcome> AddTemporaryHitPointImmunityAsync(
+            RuleSource source
+        ) => RequireHealthRules().AddTemporaryHitPointImmunityAsync(healthCreatureId, source);
 
         /// <summary>
         /// Checks whether a source is currently blocked from granting temporary Hit Points.

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Threading.Tasks;
 using Game.Creature.Rules;
 using UnityEngine;
 
@@ -24,7 +25,7 @@ namespace Game.AbilityActions
         /// </summary>
         /// <param name="actor">The Unity actor attempting to Rage.</param>
         /// <returns>True when Rage was applied.</returns>
-        public bool UseRage(GameObject actor)
+        public async ValueTask<bool> UseRageAsync(GameObject actor)
         {
             Debug.Log(actor + " is attempting to use Rage");
             RageRuleResult result = RageRule.Apply(
@@ -34,7 +35,7 @@ namespace Game.AbilityActions
                     ActionCost = ActionCost,
                 }
             );
-            UnityRuleEffectApplier.Apply(actor, result.Effects);
+            await UnityRuleEffectApplier.ApplyAsync(actor, result.Effects);
             if (!result.Applied)
                 Debug.Log(actor + " cannot Rage");
             return result.Applied;
@@ -60,16 +61,15 @@ namespace Game.AbilityActions
         /// Ends Rage for an actor and applies cleanup effects returned by the pure Rage rule.
         /// </summary>
         /// <param name="actor">The Unity actor whose Rage should end.</param>
-        public void EndRage(GameObject actor)
+        public async ValueTask EndRageAsync(GameObject actor)
         {
             RageRuleResult result = RageRule.End(UnityCreatureRulesAdapter.From(actor));
-            UnityRuleEffectApplier.Apply(actor, result.Effects);
+            await UnityRuleEffectApplier.ApplyAsync(actor, result.Effects);
         }
 
         protected override IEnumerator MFInvoke(GameObject actor)
         {
-            UseRage(actor);
-            yield break;
+            yield return CoroutineRunner.Await(UseRageAsync(actor));
         }
     }
 }
