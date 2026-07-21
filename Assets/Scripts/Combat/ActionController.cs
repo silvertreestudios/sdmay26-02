@@ -147,7 +147,9 @@ public abstract class ActionController : MonoBehaviour
     /// Concurrent actions are rejected. During dungeon exploration, only registered movement
     /// actions are allowed and action points are ignored; outside exploration, the controller must
     /// own the combat turn and afford the action cost. The shared synchronous or coroutine action
-    /// pipeline calls <see cref="CompleteAction"/> after the invoked action finishes.
+    /// pipeline calls <see cref="CompleteAction"/> after the invoked action finishes. If invocation
+    /// fails synchronously, the controller returns to idle without publishing a successful action
+    /// boundary, then propagates the exception to the caller.
     /// </remarks>
     public void TakeAction(EntityAction action)
     {
@@ -172,7 +174,16 @@ public abstract class ActionController : MonoBehaviour
 
         actionCompletionPending = true;
         IsTakingAction = true;
-        action.Invoke(this.gameObject);
+        try
+        {
+            action.Invoke(this.gameObject);
+        }
+        catch
+        {
+            actionCompletionPending = false;
+            IsTakingAction = false;
+            throw;
+        }
     }
 
     public uint GetInitiative()

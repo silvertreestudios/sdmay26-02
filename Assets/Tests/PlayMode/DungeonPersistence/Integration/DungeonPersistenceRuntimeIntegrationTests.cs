@@ -212,6 +212,55 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
     }
 
     /// <summary>
+    /// Verifies synchronous invocation failure releases controller busy state without publishing a
+    /// successful completion boundary and does not prevent a later action.
+    /// </summary>
+    [Test]
+    public void ImmediateActionFailureReleasesControllerForNextAction()
+    {
+        RuntimeTestActionController controller = CreatePartyMember(
+            "Failing immediate-action actor",
+            Vector3Int.zero,
+            configureIdentity: false,
+            "",
+            "",
+            ""
+        );
+        controller.SeedTransientState(
+            hasTurnAuthority: true,
+            actionPoints: 3,
+            reacted: false,
+            strikePenalty: 0
+        );
+        int completionCount = 0;
+        void RecordCompletion(GameObject actor)
+        {
+            if (actor == controller.gameObject)
+                completionCount++;
+        }
+
+        OnActorActionCompleted.AddListener(RecordCompletion);
+        try
+        {
+            InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+                controller.TakeAction(new ThrowingImmediateAction())
+            );
+
+            Assert.That(failure.Message, Is.EqualTo("Synthetic immediate-action failure"));
+            Assert.That(controller.IsTakingAction, Is.False);
+            Assert.That(completionCount, Is.Zero);
+
+            Assert.DoesNotThrow(() => controller.TakeAction(new NoOpEntityAction()));
+            Assert.That(controller.IsTakingAction, Is.False);
+            Assert.That(completionCount, Is.EqualTo(1));
+        }
+        finally
+        {
+            OnActorActionCompleted.RemoveListener(RecordCompletion);
+        }
+    }
+
+    /// <summary>
     /// Verifies an exceptional multi-frame action still clears busy state and publishes its stable
     /// completion boundary exactly once.
     /// </summary>
@@ -783,6 +832,18 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
             : base(0) { }
 
         public override string ActionName => "No-op immediate test action";
+    }
+
+    private sealed class ThrowingImmediateAction : EntityAction
+    {
+        internal ThrowingImmediateAction()
+            : base(0) { }
+
+        public override string ActionName => "Throwing immediate test action";
+
+        /// <inheritdoc/>
+        public override void Invoke(GameObject target) =>
+            throw new InvalidOperationException("Synthetic immediate-action failure");
     }
 
     private sealed class RuntimeTestActionController : ActionController
