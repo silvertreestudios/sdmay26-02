@@ -61,6 +61,26 @@ namespace Tests.EditMode.DungeonPersistence.Repository
         }
 
         [Test]
+        public void RunDiagnosticsIdentifyIndexedFloorDocument()
+        {
+            JObject run = JObject.Parse(
+                DungeonSaveJsonCodec.SerializeRun(DungeonSaveTestFactory.CreateRun())
+            );
+            ((JObject)((JArray)run["floors"])[1])["documentVersion"] = 99;
+
+            DungeonSaveParseResult<DungeonRunSave> result = DungeonSaveJsonCodec.ParseRun(
+                run.ToString()
+            );
+
+            Assert.That(result.IsSuccess, Is.False);
+            Assert.That(
+                result.Diagnostics[0].Code,
+                Is.EqualTo(DungeonSaveDiagnosticCode.IncompatibleVersion)
+            );
+            Assert.That(result.Diagnostics[0].Path, Is.EqualTo("run.floors[1].documentVersion"));
+        }
+
+        [Test]
         public void StandaloneCreatureTokenIsVersionedStrictAndDeterministic()
         {
             DungeonCreatureSaveState expected = DungeonSaveTestFactory

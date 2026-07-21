@@ -256,6 +256,31 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
         }
     }
 
+    /// <summary>Verifies immediate action teardown ignores an already destroyed target.</summary>
+    [Test]
+    public void ImmediateActionIgnoresDestroyedTarget()
+    {
+        GameObject target = Track(new GameObject("Destroyed immediate-action target"));
+        Object.DestroyImmediate(target);
+
+        Assert.DoesNotThrow(() => new NoOpEntityAction().Invoke(target));
+    }
+
+    /// <summary>Verifies multi-frame action teardown ignores an already destroyed target.</summary>
+    [UnityTest]
+    public IEnumerator MultiFrameActionIgnoresDestroyedTarget()
+    {
+        if (!CoroutineRunner.TryGetInstance(out _))
+            Track(new GameObject("Persistence coroutine runner")).AddComponent<CoroutineRunner>();
+        GameObject target = Track(new GameObject("Destroyed multi-frame action target"));
+        Object.DestroyImmediate(target);
+
+        new EmptyMultiFrameAction().Invoke(target);
+        yield return null;
+
+        LogAssert.NoUnexpectedReceived();
+    }
+
     /// <summary>Verifies actor preflight rejects an enemy whose canonical restore token was lost.</summary>
     [Test]
     public void LoadPreflightRejectsMaterializedEnemyWithoutCanonicalToken()
@@ -737,6 +762,27 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
 
         protected override IEnumerator MFInvoke(GameObject target) =>
             throw new InvalidOperationException("Synthetic multi-frame failure");
+    }
+
+    private sealed class EmptyMultiFrameAction : MultiFrameEntityAction
+    {
+        internal EmptyMultiFrameAction()
+            : base(0) { }
+
+        public override string ActionName => "Empty multi-frame test action";
+
+        protected override IEnumerator MFInvoke(GameObject target)
+        {
+            yield break;
+        }
+    }
+
+    private sealed class NoOpEntityAction : EntityAction
+    {
+        internal NoOpEntityAction()
+            : base(0) { }
+
+        public override string ActionName => "No-op immediate test action";
     }
 
     private sealed class RuntimeTestActionController : ActionController

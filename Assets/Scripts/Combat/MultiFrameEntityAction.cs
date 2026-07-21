@@ -13,7 +13,8 @@ public abstract class MultiFrameEntityAction : EntityAction
 
     private IEnumerator MFInvokeWithEndCheck(GameObject target)
     {
-        ActionController controller = target.GetComponent<ActionController>();
+        ActionController controller =
+            target != null ? target.GetComponent<ActionController>() : null;
         try
         {
             yield return CoroutineRunner.Run(MFInvoke(target));

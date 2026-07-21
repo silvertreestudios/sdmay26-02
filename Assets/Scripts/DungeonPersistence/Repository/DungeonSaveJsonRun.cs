@@ -18,11 +18,7 @@ namespace Game.DungeonPersistence.Repository
             ValidateProperties(source, path, "manifest", "floors");
             DungeonRunSave save = new(
                 ReadManifest(RequiredObject(source, "manifest", path)),
-                ReadObjects(
-                    RequiredArray(source, "floors", path),
-                    path + ".floors",
-                    (floor, _) => ReadFloor(floor)
-                )
+                ReadObjects(RequiredArray(source, "floors", path), path + ".floors", ReadFloor)
             );
             DungeonRunSaveValidator.RequireValid(save);
             return save;
@@ -153,9 +149,11 @@ namespace Game.DungeonPersistence.Repository
                 ),
             };
 
-        internal static DungeonFloorSaveState ReadFloor(JObject source)
+        internal static DungeonFloorSaveState ReadFloor(JObject source) =>
+            ReadFloor(source, "floor");
+
+        private static DungeonFloorSaveState ReadFloor(JObject source, string path)
         {
-            const string path = "floor";
             ValidateProperties(
                 source,
                 path,
