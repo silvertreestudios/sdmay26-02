@@ -13,9 +13,16 @@ public abstract class MultiFrameEntityAction : EntityAction
 
     private IEnumerator MFInvokeWithEndCheck(GameObject target)
     {
-        yield return CoroutineRunner.Run(MFInvoke(target));
-        CombatManager.GetInstance().CheckForEndOfGame();
-        target.GetComponent<ActionController>()?.CompleteAction();
+        ActionController controller = target.GetComponent<ActionController>();
+        try
+        {
+            yield return CoroutineRunner.Run(MFInvoke(target));
+            CombatManager.GetInstance().CheckForEndOfGame();
+        }
+        finally
+        {
+            controller?.CompleteAction();
+        }
     }
 
     protected abstract IEnumerator MFInvoke(GameObject target);

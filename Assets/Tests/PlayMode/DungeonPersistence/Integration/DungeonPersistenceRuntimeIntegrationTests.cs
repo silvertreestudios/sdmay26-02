@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
@@ -208,6 +209,51 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
         Object.DestroyImmediate(fixture.Party[0].gameObject);
 
         Assert.That(source.AreActorsStable, Is.False);
+    }
+
+    /// <summary>
+    /// Verifies an exceptional multi-frame action still clears busy state and publishes its stable
+    /// completion boundary exactly once.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator MultiFrameActionFailureStillPublishesCompletion()
+    {
+        if (!CoroutineRunner.TryGetInstance(out _))
+            Track(new GameObject("Persistence coroutine runner")).AddComponent<CoroutineRunner>();
+        RuntimeTestActionController controller = CreatePartyMember(
+            "Failing action actor",
+            Vector3Int.zero,
+            configureIdentity: false,
+            "",
+            "",
+            ""
+        );
+        int completionCount = 0;
+        void RecordCompletion(GameObject actor)
+        {
+            if (actor == controller.gameObject)
+                completionCount++;
+        }
+
+        OnActorActionCompleted.AddListener(RecordCompletion);
+        try
+        {
+            controller.IsTakingAction = true;
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: Synthetic multi-frame failure")
+            );
+
+            new ThrowingMultiFrameAction().Invoke(controller.gameObject);
+            yield return null;
+
+            Assert.That(controller.IsTakingAction, Is.False);
+            Assert.That(completionCount, Is.EqualTo(1));
+        }
+        finally
+        {
+            OnActorActionCompleted.RemoveListener(RecordCompletion);
+        }
     }
 
     /// <summary>Verifies actor preflight rejects an enemy whose canonical restore token was lost.</summary>
@@ -680,6 +726,17 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
         internal DungeonEncounterRuntimeController Runtime { get; }
 
         internal IReadOnlyList<RuntimeTestActionController> Party { get; }
+    }
+
+    private sealed class ThrowingMultiFrameAction : MultiFrameEntityAction
+    {
+        internal ThrowingMultiFrameAction()
+            : base(0) { }
+
+        public override string ActionName => "Throwing multi-frame test action";
+
+        protected override IEnumerator MFInvoke(GameObject target) =>
+            throw new InvalidOperationException("Synthetic multi-frame failure");
     }
 
     private sealed class RuntimeTestActionController : ActionController
