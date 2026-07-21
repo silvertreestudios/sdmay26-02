@@ -14,10 +14,30 @@ public abstract class MultiFrameEntityAction : EntityAction
                 "A multi-frame action requires an ActionController owner.",
                 nameof(target)
             );
-        owner.StartCoroutine(MFInvokeWithEndCheck(target));
+        if (!owner.TryReserveAction(out ActionReservationToken reservation))
+            return;
+        try
+        {
+            InvokeReserved(target, reservation);
+        }
+        catch
+        {
+            owner.ReleaseActionReservation(reservation);
+            throw;
+        }
     }
 
-    private IEnumerator MFInvokeWithEndCheck(GameObject target)
+    internal void InvokeReserved(GameObject target, ActionReservationToken reservation)
+    {
+        ActionController owner = target == null ? null : target.GetComponent<ActionController>();
+        if (owner == null || !owner.OwnsActionReservation(reservation))
+            throw new System.InvalidOperationException(
+                "A multi-frame action requires its caller's exact active reservation."
+            );
+        owner.StartCoroutine(MFInvokeWithEndCheck(target, reservation));
+    }
+
+    private IEnumerator MFInvokeWithEndCheck(GameObject target, ActionReservationToken reservation)
     {
         ActionController owner = target.GetComponent<ActionController>();
         try
@@ -29,7 +49,7 @@ public abstract class MultiFrameEntityAction : EntityAction
             // Completion owns this flag even when awaited rule work faults after the action began.
             // Encounter outcome presentation observes this exact terminal release, so no action
             // work may follow it in the outer lifecycle.
-            owner.IsTakingAction = false;
+            owner.ReleaseActionReservation(reservation);
         }
     }
 

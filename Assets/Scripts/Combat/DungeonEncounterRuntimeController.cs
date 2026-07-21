@@ -273,7 +273,8 @@ namespace Game.Combat.Encounters
             if (!decision.IsAllowed)
                 return false;
 
-            actor.IsTakingAction = true;
+            if (!actor.TryReserveAction(out ActionReservationToken reservation))
+                return false;
             try
             {
                 await actor.SpendActionsAsync(decision.ActionCost);
@@ -286,7 +287,7 @@ namespace Game.Combat.Encounters
             }
             finally
             {
-                actor.IsTakingAction = false;
+                actor.ReleaseActionReservation(reservation);
             }
         }
 

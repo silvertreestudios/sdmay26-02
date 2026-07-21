@@ -56,7 +56,7 @@ namespace Game.Combat.Spells
         public uint ActionCost { get; }
         public bool SpendActions { get; }
         public ISpellDefinition Definition { get; }
-        internal bool ActionReservationAlreadyOwned { get; }
+        internal ActionReservationToken OwnedActionReservation { get; }
 
         /// <summary>
         /// Gets the turn attack count captured before an attack spell commits its MAP increment.
@@ -76,7 +76,7 @@ namespace Game.Combat.Spells
                 actionCost,
                 spendActions,
                 definition,
-                actionReservationAlreadyOwned: false
+                ownedActionReservation: default
             ) { }
 
         internal SpellCastContext(
@@ -85,7 +85,7 @@ namespace Game.Combat.Spells
             uint actionCost,
             bool spendActions,
             ISpellDefinition definition,
-            bool actionReservationAlreadyOwned
+            ActionReservationToken ownedActionReservation
         )
         {
             Caster = caster;
@@ -93,7 +93,7 @@ namespace Game.Combat.Spells
             ActionCost = actionCost;
             SpendActions = spendActions;
             Definition = definition;
-            ActionReservationAlreadyOwned = actionReservationAlreadyOwned;
+            OwnedActionReservation = ownedActionReservation;
         }
 
         public ActionController ActionController =>
@@ -189,20 +189,20 @@ namespace Game.Combat.Spells
                 return Fail(result, "The caster is already casting a spell.");
 
             bool releaseActionReservation = false;
+            ActionReservationToken actionReservation = default;
             try
             {
                 if (controller != null)
                 {
-                    if (context.ActionReservationAlreadyOwned)
+                    if (context.OwnedActionReservation.IsValid)
                     {
-                        if (!controller.IsTakingAction)
+                        if (!controller.OwnsActionReservation(context.OwnedActionReservation))
                             return Fail(result, "The spell action no longer owns its reservation.");
                     }
                     else
                     {
-                        if (controller.IsTakingAction)
+                        if (!controller.TryReserveAction(out actionReservation))
                             return Fail(result, "The caster is already taking an action.");
-                        controller.IsTakingAction = true;
                         releaseActionReservation = true;
                     }
                 }
@@ -256,7 +256,7 @@ namespace Game.Combat.Spells
                 // An enclosing CastSpellAction owns its reservation through the outer coroutine's
                 // finally. Only direct casts acquire and release the flag in this runtime.
                 if (releaseActionReservation)
-                    controller.IsTakingAction = false;
+                    controller.ReleaseActionReservation(actionReservation);
             }
         }
 

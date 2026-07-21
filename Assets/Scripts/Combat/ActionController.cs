@@ -33,31 +33,30 @@ public abstract class ActionController : MonoBehaviour
     /// <remarks>
     /// Each false-to-true transition creates an exact reservation generation. Encounter host
     /// completion uses the matching settlement notification so a lethal action can finish all of
-    /// its post-damage work before Unity publishes the committed outcome.
+    /// its post-damage work before Unity publishes the committed outcome. Setting this property to
+    /// <see langword="false"/> is an explicit compatibility cancellation boundary. Async action
+    /// implementations must use their scoped reservation token so an older finalizer cannot cancel
+    /// a newer owner.
     /// </remarks>
     public bool IsTakingAction
     {
         get => isTakingAction;
         set
         {
-            if (isTakingAction == value)
-                return;
             if (value)
             {
-                actionReservationGeneration = checked(actionReservationGeneration + 1);
-                isTakingAction = true;
+                TryReserveAction(out _);
                 return;
             }
 
-            long settledGeneration = actionReservationGeneration;
-            isTakingAction = false;
-            ActionReservationSettled.Invoke(this, settledGeneration);
+            CancelActionReservation();
         }
     }
 
     // This is deliberately internal: only the encounter host may defer committed completion on an
     // exact Unity action reservation. Rules state remains reducer-owned.
-    internal event Action<ActionController, long> ActionReservationSettled = delegate { };
+    internal event Action<ActionController, ActionReservationToken> ActionReservationSettled =
+        delegate { };
 
     /// <summary>Gets whether this controller currently has movement-only exploration authority.</summary>
     public bool IsInDungeonExploration { get; private set; }
@@ -167,7 +166,7 @@ public abstract class ActionController : MonoBehaviour
     internal void ResetEncounterTurnState(bool preserveActionReservation)
     {
         if (!preserveActionReservation)
-            IsTakingAction = false;
+            CancelActionReservation();
         if (!HasAuthoritativeActionState)
         {
             hasStandaloneTurnAuthority = false;
@@ -234,8 +233,9 @@ public abstract class ActionController : MonoBehaviour
     /// <remarks>
     /// Concurrent actions are rejected. During dungeon exploration, only registered movement
     /// actions are allowed and action points are ignored; outside exploration, the controller must
-    /// own the combat turn and afford the action cost. The invoked action remains responsible for
-    /// clearing <see cref="IsTakingAction"/> when its synchronous or coroutine work completes.
+    /// own the combat turn and afford the action cost. Multi-frame actions retain the exact
+    /// reservation acquired here until their outer coroutine settles, so an obsolete finalizer
+    /// cannot clear a newer action.
     /// </remarks>
     public void TakeAction(EntityAction action)
     {
@@ -258,8 +258,20 @@ public abstract class ActionController : MonoBehaviour
             return;
         }
 
-        IsTakingAction = true;
-        action.Invoke(this.gameObject);
+        if (!TryReserveAction(out ActionReservationToken reservation))
+            return;
+        try
+        {
+            if (action is MultiFrameEntityAction multiFrameAction)
+                multiFrameAction.InvokeReserved(gameObject, reservation);
+            else
+                action.Invoke(gameObject);
+        }
+        catch
+        {
+            ReleaseActionReservation(reservation);
+            throw;
+        }
     }
 
     /// <summary>Gets the captured modifier used by the rules runtime's injected d20 roll.</summary>
@@ -277,10 +289,44 @@ public abstract class ActionController : MonoBehaviour
         hasStandaloneTurnAuthority = false;
     }
 
-    internal bool TryGetCurrentActionReservation(out long generation)
+    internal bool TryReserveAction(out ActionReservationToken reservation)
     {
-        generation = actionReservationGeneration;
+        if (isTakingAction)
+        {
+            reservation = default;
+            return false;
+        }
+
+        actionReservationGeneration = checked(actionReservationGeneration + 1);
+        isTakingAction = true;
+        reservation = new ActionReservationToken(actionReservationGeneration);
+        return true;
+    }
+
+    internal bool TryGetCurrentActionReservation(out ActionReservationToken reservation)
+    {
+        reservation = isTakingAction
+            ? new ActionReservationToken(actionReservationGeneration)
+            : default;
         return isTakingAction;
+    }
+
+    internal bool OwnsActionReservation(ActionReservationToken reservation) =>
+        isTakingAction && reservation.Generation == actionReservationGeneration;
+
+    internal void ReleaseActionReservation(ActionReservationToken reservation)
+    {
+        if (!OwnsActionReservation(reservation))
+            return;
+        isTakingAction = false;
+        ActionReservationSettled.Invoke(this, reservation);
+    }
+
+    private void CancelActionReservation()
+    {
+        if (!TryGetCurrentActionReservation(out ActionReservationToken reservation))
+            return;
+        ReleaseActionReservation(reservation);
     }
 
     // Startup hooks may add actions and managed rule listeners before their awaited work fails.
@@ -297,7 +343,9 @@ public abstract class ActionController : MonoBehaviour
             actionPoints,
             reacted,
             strikePenalty,
-            IsTakingAction,
+            TryGetCurrentActionReservation(out ActionReservationToken reservation)
+                ? reservation
+                : default,
             IsInDungeonExploration,
             enabled,
             managedActionResetListeners.Count,
@@ -335,7 +383,12 @@ public abstract class ActionController : MonoBehaviour
         actionPoints = state.ActionPoints;
         reacted = state.Reacted;
         strikePenalty = state.StrikePenalty;
-        IsTakingAction = state.IsTakingAction;
+        // A startup memento may preserve only the exact reservation that was live when capture
+        // occurred. If that owner settled while startup awaited, restoring a raw busy flag would
+        // manufacture an ownerless reservation. A different current token belongs to failed
+        // startup work and is canceled instead of being overwritten by a stale outer finalizer.
+        if (!state.ActionReservation.IsValid || !OwnsActionReservation(state.ActionReservation))
+            CancelActionReservation();
         IsInDungeonExploration = state.IsInDungeonExploration;
         enabled = state.Enabled;
     }
@@ -432,7 +485,7 @@ internal sealed class ActionControllerEncounterState
         uint actionPoints,
         bool reacted,
         uint strikePenalty,
-        bool isTakingAction,
+        ActionReservationToken actionReservation,
         bool isInDungeonExploration,
         bool enabled,
         int managedActionResetListenerCount,
@@ -449,7 +502,7 @@ internal sealed class ActionControllerEncounterState
         ActionPoints = actionPoints;
         Reacted = reacted;
         StrikePenalty = strikePenalty;
-        IsTakingAction = isTakingAction;
+        ActionReservation = actionReservation;
         IsInDungeonExploration = isInDungeonExploration;
         Enabled = enabled;
         ManagedActionResetListenerCount = managedActionResetListenerCount;
@@ -466,9 +519,30 @@ internal sealed class ActionControllerEncounterState
     internal uint ActionPoints { get; }
     internal bool Reacted { get; }
     internal uint StrikePenalty { get; }
-    internal bool IsTakingAction { get; }
+    internal ActionReservationToken ActionReservation { get; }
     internal bool IsInDungeonExploration { get; }
     internal bool Enabled { get; }
     internal int ManagedActionResetListenerCount { get; }
     internal int ManagedReactionListenerCount { get; }
+}
+
+internal readonly struct ActionReservationToken : IEquatable<ActionReservationToken>
+{
+    internal ActionReservationToken(long generation) => Generation = generation;
+
+    internal long Generation { get; }
+
+    internal bool IsValid => Generation > 0;
+
+    public bool Equals(ActionReservationToken other) => Generation == other.Generation;
+
+    public override bool Equals(object obj) => obj is ActionReservationToken other && Equals(other);
+
+    public override int GetHashCode() => Generation.GetHashCode();
+
+    public static bool operator ==(ActionReservationToken left, ActionReservationToken right) =>
+        left.Equals(right);
+
+    public static bool operator !=(ActionReservationToken left, ActionReservationToken right) =>
+        !left.Equals(right);
 }

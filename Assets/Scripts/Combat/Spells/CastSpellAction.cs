@@ -85,6 +85,14 @@ namespace Game.Combat.Spells
         {
             if (definition == null)
                 yield break;
+            ActionController controller = caster.GetComponent<ActionController>();
+            if (
+                controller == null
+                || !controller.TryGetCurrentActionReservation(
+                    out ActionReservationToken reservation
+                )
+            )
+                yield break;
 
             SpellCastContext context = new(
                 caster,
@@ -92,7 +100,7 @@ namespace Game.Combat.Spells
                 variantActionCost,
                 spendActions: true,
                 definition,
-                actionReservationAlreadyOwned: true
+                ownedActionReservation: reservation
             );
             yield return definition.SelectAndCast(context);
         }

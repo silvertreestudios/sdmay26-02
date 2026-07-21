@@ -283,6 +283,169 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(player.Controller.GetActions().OfType<Unarmed>(), Has.Count.EqualTo(1));
     }
 
+    /// <summary>Verifies rollback never recreates an exploration reservation that already settled.</summary>
+    [UnityTest]
+    public IEnumerator StartupFailureAfterExplorationStrideSettlesLeavesNoReservation()
+    {
+        CombatantFixture player = CreateCombatant("Settled Startup Stride Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Settled Startup Stride Enemy", "Enemies", 100);
+        PrepareBarbarian(player.Creature);
+        Stride stride = new(1);
+        player.Controller.AddTestMovement(stride);
+        player.Controller.SetDungeonExploration(true);
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(
+            failAfterRelease: true,
+            "deliberate settled-Stride startup failure"
+        );
+        RuleDispatcher dispatcher = null;
+        UnityAction installFailure = () =>
+        {
+            dispatcher = GetEncounterDispatcher();
+            dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        };
+        OnCombatStart.AddListener(installFailure);
+
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Settled Startup Stride Grid").AddComponent<TestGridAPI>();
+        bool releaseStride = false;
+        IEnumerator StartCombatAndWait(GameObject _)
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            while (!releaseStride)
+                yield return null;
+        }
+        grid.StrideRoutine = StartCombatAndWait;
+        singletonField.SetValue(null, grid);
+
+        try
+        {
+            player.Controller.TakeAction(stride);
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted && grid.StrideCalls == 1,
+                "Exploration Stride did not pause the startup transaction."
+            );
+
+            releaseStride = true;
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The exploration Stride did not settle before startup rollback."
+            );
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate settled-Stride startup failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The failed startup did not restore exploration."
+            );
+
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(player.Controller.IsInDungeonExploration, Is.True);
+            grid.StrideRoutine = null;
+            player.Controller.TakeAction(stride);
+            yield return WaitForCondition(
+                () => grid.StrideCalls == 2 && !player.Controller.IsTakingAction,
+                "An ownerless restored reservation blocked the next exploration action."
+            );
+        }
+        finally
+        {
+            releaseStride = true;
+            blocker.Release();
+            OnCombatStart.RemoveListener(installFailure);
+            dispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
+    /// <summary>Verifies rollback preserves only the still-live exploration action owner.</summary>
+    [UnityTest]
+    public IEnumerator StartupFailureWhileExplorationStrideIsLivePreservesExactOwner()
+    {
+        CombatantFixture player = CreateCombatant("Live Startup Stride Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Live Startup Stride Enemy", "Enemies", 100);
+        PrepareBarbarian(player.Creature);
+        Stride stride = new(1);
+        player.Controller.AddTestMovement(stride);
+        player.Controller.SetDungeonExploration(true);
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(
+            failAfterRelease: true,
+            "deliberate live-Stride startup failure"
+        );
+        RuleDispatcher dispatcher = null;
+        UnityAction installFailure = () =>
+        {
+            dispatcher = GetEncounterDispatcher();
+            dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        };
+        OnCombatStart.AddListener(installFailure);
+
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Live Startup Stride Grid").AddComponent<TestGridAPI>();
+        bool releaseStride = false;
+        IEnumerator StartCombatAndWait(GameObject _)
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            while (!releaseStride)
+                yield return null;
+        }
+        grid.StrideRoutine = StartCombatAndWait;
+        singletonField.SetValue(null, grid);
+
+        try
+        {
+            player.Controller.TakeAction(stride);
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted && grid.StrideCalls == 1,
+                "Exploration Stride did not remain live during startup."
+            );
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate live-Stride startup failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The failed startup did not restore its still-running Stride."
+            );
+
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.IsInDungeonExploration, Is.True);
+            player.Controller.TakeAction(stride);
+            yield return null;
+            Assert.That(grid.StrideCalls, Is.EqualTo(1), "A live owner must block a competitor.");
+
+            releaseStride = true;
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The original Stride owner did not release its exact reservation."
+            );
+            grid.StrideRoutine = null;
+            player.Controller.TakeAction(stride);
+            yield return WaitForCondition(
+                () => grid.StrideCalls == 2 && !player.Controller.IsTakingAction,
+                "The original finalizer interfered with the next exploration action."
+            );
+        }
+        finally
+        {
+            releaseStride = true;
+            blocker.Release();
+            OnCombatStart.RemoveListener(installFailure);
+            dispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
     /// <summary>Verifies delayed lifecycle requests cannot cross a failed-start generation.</summary>
     [UnityTest]
     public IEnumerator FailedStartupCancelsStaleReinforcementAndSuspensionRequests()
@@ -2556,6 +2719,153 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    /// <summary>Verifies suspension cleanup includes a reinforcement accepted ahead of it.</summary>
+    [UnityTest]
+    public IEnumerator QueuedJoinBeforeSuspensionCleansAcceptedQuickTemperedReinforcement()
+    {
+        CombatantFixture player = CreateCombatant("Queued Suspension Player", "Players", 300);
+        CombatantFixture enemy = CreateCombatant("Queued Suspension Enemy", "Enemies", 100);
+        CombatantFixture reinforcement = CreateCombatant(
+            "Queued Suspension Reinforcement",
+            "Enemies",
+            200
+        );
+        PrepareBarbarian(reinforcement.Creature);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        Task occupied = player
+            .Creature.ApplyFinalDamageAsync(
+                1,
+                RuleSource.FromSlug("test-queued-join-suspension-blocker")
+            )
+            .AsTask();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The dispatcher root did not pause queued join and suspension work."
+            );
+            manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+            manager.SuspendDungeonCombat();
+            yield return null;
+
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.GetCreatureId(reinforcement.Controller)
+            );
+            Assert.That(GetPublishedActiveCombatants(), Has.No.Member(reinforcement.Controller));
+
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "Suspension did not settle after the preceding reinforcement join."
+            );
+            yield return CoroutineRunner.Await(new ValueTask(occupied));
+
+            EncounterState suspended = bridge.Snapshot.Encounters[bridge.EncounterId];
+            Assert.That(suspended.Phase, Is.EqualTo(EncounterPhase.Suspended));
+            Assert.That(
+                suspended.Roster.Select(entry => bridge.GetController(entry.Creature)),
+                Is.EqualTo(new[] { player.Controller, reinforcement.Controller, enemy.Controller })
+            );
+            Assert.That(
+                bridge.GetController(bridge.GetCreatureId(reinforcement.Controller)),
+                Is.SameAs(reinforcement.Controller)
+            );
+            Assert.That(reinforcement.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(reinforcement.Creature.Health.Temporary, Is.Zero);
+            Assert.That(reinforcement.Creature.HasTempHpImmunity("rage"), Is.True);
+            AssertTransientTurnStateCleared(reinforcement.Controller);
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, enemy.GameObject, reinforcement.GameObject })
+            );
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            _ = occupied.Exception;
+        }
+    }
+
+    /// <summary>Verifies a join rejected behind suspension is neither published nor cleaned.</summary>
+    [UnityTest]
+    public IEnumerator QueuedJoinRejectedAfterSuspensionPublishesNoController()
+    {
+        CombatantFixture player = CreateCombatant("Rejected Suspension Player", "Players", 300);
+        CombatantFixture enemy = CreateCombatant("Rejected Suspension Enemy", "Enemies", 100);
+        CombatantFixture rejected = CreateCombatant(
+            "Rejected Suspension Reinforcement",
+            "Enemies",
+            200
+        );
+        PrepareBarbarian(rejected.Creature);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        Task occupied = player
+            .Creature.ApplyFinalDamageAsync(
+                1,
+                RuleSource.FromSlug("test-rejected-join-suspension-blocker")
+            )
+            .AsTask();
+        Task suspension = null;
+        Task<EncounterJoinOutcome> rejectedJoin = null;
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The dispatcher root did not pause the rejected join scenario."
+            );
+            suspension = CompleteDungeonSuspensionAsync(bridge);
+            rejectedJoin = bridge.JoinEncounter(new[] { rejected.Controller }).AsTask();
+            blocker.Release();
+            yield return WaitForCondition(
+                () => suspension.IsCompleted && rejectedJoin.IsCompleted,
+                "Queued suspension and rejected join did not settle."
+            );
+            yield return CoroutineRunner.Await(new ValueTask(occupied));
+
+            Assert.That(suspension.IsCompletedSuccessfully, Is.True);
+            Assert.That(rejectedJoin.IsFaulted, Is.True);
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Phase,
+                Is.EqualTo(EncounterPhase.Suspended)
+            );
+            Assert.That(
+                bridge
+                    .Snapshot.Encounters[bridge.EncounterId]
+                    .Roster.Select(entry => bridge.GetController(entry.Creature)),
+                Is.EqualTo(new[] { player.Controller, enemy.Controller })
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.GetCreatureId(rejected.Controller)
+            );
+            Assert.That(GetCreatureEncounterBridge(rejected.Creature), Is.Null);
+            Assert.That(rejected.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(rejected.Creature.Health.Temporary, Is.Zero);
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            _ = occupied.Exception;
+            _ = suspension?.Exception;
+            _ = rejectedJoin?.Exception;
+        }
+    }
+
     /// <summary>Verifies a committed suspension fault still runs complete ordered cleanup.</summary>
     [UnityTest]
     public IEnumerator PostCommitSuspensionFaultStillCleansAndPreservesPrimaryFailure()
@@ -2585,10 +2895,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         );
         dispatcher.RegisterFactObserver<EncounterSuspendedFact>(suspensionFailure);
         dispatcher.RegisterFactObserver<TemporaryHitPointsRemovedFact>(cleanupFailure);
-        Task suspension = CompleteDungeonSuspensionAsync(
-            bridge,
-            GetPublishedActiveCombatants().ToArray()
-        );
+        Task suspension = CompleteDungeonSuspensionAsync(bridge);
 
         try
         {
@@ -3248,10 +3555,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         return bridge;
     }
 
-    private Task CompleteDungeonSuspensionAsync(
-        UnityEncounterRulesBridge bridge,
-        ActionController[] combatants
-    )
+    private Task CompleteDungeonSuspensionAsync(UnityEncounterRulesBridge bridge)
     {
         MethodInfo method = typeof(CombatManager).GetMethod(
             "CompleteDungeonSuspensionAsync",
@@ -3259,11 +3563,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         );
         Assert.That(method, Is.Not.Null);
         return (
-            (ValueTask)
-                method.Invoke(
-                    manager,
-                    new object[] { bridge, GetEncounterGeneration(), combatants }
-                )
+            (ValueTask)method.Invoke(manager, new object[] { bridge, GetEncounterGeneration() })
         ).AsTask();
     }
 
@@ -3491,7 +3791,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
             ActionController controller = target.GetComponent<ActionController>();
             invocation();
             yield return CoroutineRunner.Await(PayCostAsync(controller));
-            controller.IsTakingAction = false;
         }
     }
 
@@ -3631,10 +3930,14 @@ public sealed class DungeonEncounterCombatPlayModeTests
     {
         public List<GameObject> DestroyedTokens { get; } = new();
         public GameObject StrikeTarget { get; set; }
+        public Func<GameObject, IEnumerator> StrideRoutine { get; set; }
+        public int StrideCalls { get; private set; }
 
         public override IEnumerator Stride(GameObject character)
         {
-            yield break;
+            StrideCalls++;
+            if (StrideRoutine != null)
+                yield return StrideRoutine(character);
         }
 
         public override IEnumerator GetStrikeTarget(

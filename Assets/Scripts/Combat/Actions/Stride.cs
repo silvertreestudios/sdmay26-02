@@ -42,7 +42,5 @@ public class Stride : MultiFrameEntityAction
             if (ac && !startedInExploration)
                 yield return CoroutineRunner.Await(PayCostAsync(ac));
         }
-        if (ac)
-            ac.IsTakingAction = false;
     }
 }

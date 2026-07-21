@@ -197,8 +197,6 @@ namespace Game.Strikes
                 CombatLog
                     .GetInstance()
                     .Log("- " + attacker.name + " cannot fire " + weaponName + ".");
-                if (ac)
-                    ac.IsTakingAction = false;
                 yield break;
             }
 
@@ -226,8 +224,6 @@ namespace Game.Strikes
                     CombatLog
                         .GetInstance()
                         .Log("- " + attacker.name + " has no ammunition for " + weaponName + ".");
-                    if (ac)
-                        ac.IsTakingAction = false;
                     yield break;
                 }
 

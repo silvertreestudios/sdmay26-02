@@ -215,7 +215,7 @@ public class CombatManager : CombatManagerInterface
         combatActive = true;
         encounterReady = false;
         foreach (ActionController controller in activeCombatants)
-            controller.ResetEncounterTurnState();
+            controller.ResetEncounterTurnState(preserveActionReservation: true);
         encounterRules = startingBridge;
         encounterRules.TurnBegan += OnTurnBeganCommitted;
         encounterRules.TurnEnded += OnTurnEndedCommitted;
@@ -341,20 +341,14 @@ public class CombatManager : CombatManagerInterface
             yield return null;
         if (!IsCurrentLifecycle(suspendingBridge, suspendingGeneration) || !encounterReady)
             yield break;
-        ActionController[] suspendingCombatants = activeCombatants.ToArray();
         yield return CoroutineRunner.Await(
-            CompleteDungeonSuspensionAsync(
-                suspendingBridge,
-                suspendingGeneration,
-                suspendingCombatants
-            )
+            CompleteDungeonSuspensionAsync(suspendingBridge, suspendingGeneration)
         );
     }
 
     private async ValueTask CompleteDungeonSuspensionAsync(
         UnityEncounterRulesBridge suspendingBridge,
-        long suspendingGeneration,
-        ActionController[] suspendingCombatants
+        long suspendingGeneration
     )
     {
         if (!IsCurrentLifecycle(suspendingBridge, suspendingGeneration))
@@ -386,6 +380,10 @@ public class CombatManager : CombatManagerInterface
 
         // A post-commit observer can fail the suspension task even though the encounter is already
         // durably closed. Cleanup and exact-host finalization remain mandatory in that case.
+        ActionController[] suspendingCombatants = ResolveSuspensionCleanupCombatants(
+            suspendingBridge,
+            encounter
+        );
         try
         {
             await Pf2eRulesEngine.EndEncounterAsync(suspendingCombatants);
@@ -401,6 +399,19 @@ public class CombatManager : CombatManagerInterface
             failures
         );
         ThrowCompletionFailures(failures);
+    }
+
+    private ActionController[] ResolveSuspensionCleanupCombatants(
+        UnityEncounterRulesBridge suspendingBridge,
+        EncounterState suspendedEncounter
+    )
+    {
+        HashSet<ActionController> acceptedControllers = new(activeCombatants);
+        return suspendedEncounter
+            .Roster.Select(entry => suspendingBridge.GetController(entry.Creature))
+            .Where(acceptedControllers.Contains)
+            .Distinct()
+            .ToArray();
     }
 
     private void OnTurnBeganCommitted(TurnIdentity turn)
@@ -459,15 +470,22 @@ public class CombatManager : CombatManagerInterface
         // Reserve both the exact reducer turn and the Unity action surface before the dispatcher
         // can yield. Repeated end requests and actions must not queue behind the same stale turn.
         pendingTurnEnd = turn;
-        actor.IsTakingAction = true;
-        StartCoroutine(EndReservedTurn(encounterRules, encounterGeneration, turn, actor));
+        if (!actor.TryReserveAction(out ActionReservationToken reservation))
+        {
+            pendingTurnEnd = null;
+            return;
+        }
+        StartCoroutine(
+            EndReservedTurn(encounterRules, encounterGeneration, turn, actor, reservation)
+        );
     }
 
     private IEnumerator EndReservedTurn(
         UnityEncounterRulesBridge turnBridge,
         long turnGeneration,
         TurnIdentity turn,
-        ActionController actor
+        ActionController actor,
+        ActionReservationToken reservation
     )
     {
         try
@@ -483,7 +501,7 @@ public class CombatManager : CombatManagerInterface
             )
             {
                 pendingTurnEnd = null;
-                actor.IsTakingAction = false;
+                actor.ReleaseActionReservation(reservation);
             }
         }
     }
@@ -518,9 +536,9 @@ public class CombatManager : CombatManagerInterface
         );
         foreach (ActionController controller in endingCombatants)
         {
-            if (!controller.TryGetCurrentActionReservation(out long reservationGeneration))
+            if (!controller.TryGetCurrentActionReservation(out ActionReservationToken reservation))
                 continue;
-            completion.Reservations.Add(controller, reservationGeneration);
+            completion.Reservations.Add(controller, reservation);
             controller.ActionReservationSettled += OnActionReservationSettled;
         }
 
@@ -530,13 +548,19 @@ public class CombatManager : CombatManagerInterface
         return default;
     }
 
-    private void OnActionReservationSettled(ActionController controller, long generation)
+    private void OnActionReservationSettled(
+        ActionController controller,
+        ActionReservationToken reservation
+    )
     {
         PendingEncounterCompletion completion = pendingEncounterCompletion;
         if (
             completion == null
-            || !completion.Reservations.TryGetValue(controller, out long expectedGeneration)
-            || expectedGeneration != generation
+            || !completion.Reservations.TryGetValue(
+                controller,
+                out ActionReservationToken expectedReservation
+            )
+            || expectedReservation != reservation
         )
             return;
         controller.ActionReservationSettled -= OnActionReservationSettled;
@@ -687,7 +711,7 @@ public class CombatManager : CombatManagerInterface
             return;
         try
         {
-            StopCombatState(cancelInFlightActions: true);
+            StopCombatState(cancelInFlightActions: false);
         }
         finally
         {
@@ -804,7 +828,7 @@ public class CombatManager : CombatManagerInterface
         internal bool WasDungeonDirected { get; }
         internal string WinningTeam { get; }
         internal EncounterOutcome Outcome { get; }
-        internal Dictionary<ActionController, long> Reservations { get; } = new();
+        internal Dictionary<ActionController, ActionReservationToken> Reservations { get; } = new();
         internal bool Started { get; set; }
     }
 

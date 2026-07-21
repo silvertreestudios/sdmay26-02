@@ -41,11 +41,9 @@ namespace Game.AbilityActions
         public async ValueTask<bool> UseRageAsync(GameObject actor)
         {
             ActionController actionController = actor?.GetComponent<ActionController>();
-            if (actionController != null && actionController.IsTakingAction)
+            ActionReservationToken reservation = default;
+            if (actionController != null && !actionController.TryReserveAction(out reservation))
                 return false;
-
-            if (actionController != null)
-                actionController.IsTakingAction = true;
             try
             {
                 return await ApplyRageAsync(actor);
@@ -53,7 +51,7 @@ namespace Game.AbilityActions
             finally
             {
                 if (actionController != null)
-                    actionController.IsTakingAction = false;
+                    actionController.ReleaseActionReservation(reservation);
             }
         }
 
@@ -74,6 +72,12 @@ namespace Game.AbilityActions
                 Debug.Log(actor + " cannot Rage");
             return result.Applied;
         }
+
+        // Combat-start initialization already runs inside the encounter's serialized startup or
+        // join root. It must not replace an exploration action reservation that legitimately spans
+        // startup; the host checkpoint preserves that exact owner until its outer action settles.
+        internal ValueTask<bool> ApplyCombatStartRageAsync(GameObject actor) =>
+            ApplyRageAsync(actor);
 
         /// <summary>
         /// Checks whether the actor can currently Rage without mutating Unity or prepared rule state.

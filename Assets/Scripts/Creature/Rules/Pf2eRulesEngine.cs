@@ -94,7 +94,7 @@ namespace Game.Creature.Rules
 
                 PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
                 if (prepared.HasOwnedItem("quick-tempered"))
-                    await new Rage(0).UseRageAsync(controller.gameObject);
+                    await new Rage(0).ApplyCombatStartRageAsync(controller.gameObject);
             }
         }
 
