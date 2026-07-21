@@ -30,7 +30,14 @@ namespace Game.DungeonPersistence.Actors
             IEnumerable<DungeonActorRestoreTarget> targets
         )
         {
+            if (targets == null)
+                throw new ArgumentNullException(nameof(targets));
             DungeonActorRestoreTarget[] copied = targets.ToArray();
+            if (copied.Any(target => target == null))
+                throw new ArgumentException(
+                    "Restore targets cannot contain null.",
+                    nameof(targets)
+                );
             GridBase activeGrid = ResolveActiveGrid();
             if (activeGrid == null)
             {
