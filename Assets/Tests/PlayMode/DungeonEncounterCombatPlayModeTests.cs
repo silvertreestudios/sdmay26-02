@@ -1644,56 +1644,99 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
-    /// <summary>Verifies a faulting join initializer cannot split rules and manager membership.</summary>
+    /// <summary>Verifies one accepted initializer failure cannot suppress later controllers.</summary>
     [UnityTest]
-    public IEnumerator AcceptedJoinInitializerFailureKeepsRulesAndManagerRosterReconciled()
+    public IEnumerator AcceptedJoinInitializesEveryControllerBeforeReportingEarlierFailure()
     {
         CombatantFixture current = CreateCombatant("Faulted Join Current", "Players", 300);
-        CombatantFixture reinforcement = CreateCombatant(
-            "Faulted Join Reinforcement",
+        CombatantFixture faulting = CreateCombatant(
+            "Faulted Join First Reinforcement",
             "Enemies",
             200
         );
-        CombatantFixture later = CreateCombatant("Faulted Join Later", "Enemies", 0);
-        PrepareBarbarian(reinforcement.Creature);
-        manager.StartDungeonCombat(new[] { current.Controller, later.Controller });
+        CombatantFixture initializedLater = CreateCombatant(
+            "Faulted Join Later Reinforcement",
+            "Enemies",
+            100
+        );
+        CombatantFixture existingLater = CreateCombatant("Faulted Join Existing", "Enemies", 0);
+        PrepareBarbarian(faulting.Creature);
+        PrepareBarbarian(initializedLater.Creature);
+        manager.StartDungeonCombat(new[] { current.Controller, existingLater.Controller });
         yield return WaitForTurn(current.GameObject);
         UnityEncounterRulesBridge bridge = GetEncounterBridge();
         RuleDispatcher dispatcher = GetEncounterDispatcher();
-        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: true);
-        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        RecordingFactObserver<TemporaryHitPointsGrantedFact> grants = new();
+        SelectedFactFailureObserver<TemporaryHitPointsGrantedFact> failFirst = new(
+            fact => fact.Creature == bridge.GetCreatureId(faulting.Controller),
+            "deliberate first accepted initializer failure"
+        );
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(grants);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(failFirst);
+        List<DungeonReinforcementRequestStatus> completions = new();
+        Action<DungeonReinforcementRequest, DungeonReinforcementRequestStatus> observeCompletion = (
+            _,
+            status
+        ) => completions.Add(status);
+        manager.DungeonReinforcementRequestCompleted += observeCompletion;
         Task<EncounterAdvanceOutcome> ending = null;
 
         try
         {
-            manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: deliberate first accepted initializer failure"
+                )
+            );
+            manager.AddDungeonReinforcements(
+                new[] { faulting.Controller, initializedLater.Controller }
+            );
             yield return WaitForCondition(
-                () => blocker.Started.IsCompleted,
-                "The accepted reinforcement initializer did not await its health Fact."
+                () =>
+                    initializedLater.Creature.Health.Temporary == 2
+                    && completions.Contains(DungeonReinforcementRequestStatus.Accepted),
+                "The later accepted reinforcement did not initialize after the earlier failure."
             );
 
-            CreatureId reinforcementId = bridge.GetCreatureId(reinforcement.Controller);
-            Assert.That(bridge.GetController(reinforcementId), Is.SameAs(reinforcement.Controller));
+            CreatureId faultingId = bridge.GetCreatureId(faulting.Controller);
+            CreatureId initializedLaterId = bridge.GetCreatureId(initializedLater.Controller);
+            Assert.That(bridge.GetController(faultingId), Is.SameAs(faulting.Controller));
+            Assert.That(
+                bridge.GetController(initializedLaterId),
+                Is.SameAs(initializedLater.Controller)
+            );
             Assert.That(
                 bridge
                     .Snapshot.Encounters[bridge.EncounterId]
                     .Roster.Select(entry => entry.Creature),
-                Has.Member(reinforcementId)
+                Is.SupersetOf(new[] { faultingId, initializedLaterId })
             );
-            Assert.That(GetPublishedActiveCombatants(), Has.Member(reinforcement.Controller));
-            Assert.That(reinforcement.Controller.StartTurnCount, Is.Zero);
+            Assert.That(GetPublishedActiveCombatants(), Has.Member(faulting.Controller));
+            Assert.That(GetPublishedActiveCombatants(), Has.Member(initializedLater.Controller));
+            Assert.That(faulting.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(initializedLater.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(faulting.Creature.Health.Temporary, Is.EqualTo(2));
+            Assert.That(initializedLater.Creature.Health.Temporary, Is.EqualTo(2));
+            Assert.That(grants.Facts.Count(fact => fact.Creature == faultingId), Is.EqualTo(1));
+            Assert.That(
+                grants.Facts.Count(fact => fact.Creature == initializedLaterId),
+                Is.EqualTo(1)
+            );
+            Assert.That(failFirst.Calls, Is.EqualTo(1));
+            Assert.That(
+                completions,
+                Is.EqualTo(new[] { DungeonReinforcementRequestStatus.Accepted }),
+                "An initializer failure cannot falsely reject a durably accepted join."
+            );
 
             ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
-            LogAssert.Expect(
-                LogType.Exception,
-                new Regex("InvalidOperationException: deliberate Rage Fact failure")
-            );
-            blocker.Release();
             yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
-            yield return WaitForTurn(reinforcement.GameObject);
+            yield return WaitForTurn(faulting.GameObject);
 
-            Assert.That(reinforcement.Controller.StartTurnCount, Is.EqualTo(1));
-            Assert.That(manager.GetCombatants(), Has.Member(reinforcement.GameObject));
+            Assert.That(faulting.Controller.StartTurnCount, Is.EqualTo(1));
+            Assert.That(manager.GetCombatants(), Has.Member(faulting.GameObject));
+            Assert.That(manager.GetCombatants(), Has.Member(initializedLater.GameObject));
 
             yield return CoroutineRunner.Await(
                 current.Creature.ApplyFinalDamageAsync(
@@ -1705,12 +1748,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 () => !manager.IsCombatActive,
                 "Encounter cleanup did not settle after the faulted accepted join."
             );
+            Assert.That(faulting.Creature.Health.Temporary, Is.Zero);
+            Assert.That(initializedLater.Creature.Health.Temporary, Is.Zero);
             Assert.That(GetPublishedActiveCombatants(), Is.Empty);
         }
         finally
         {
-            blocker.Release();
-            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            manager.DungeonReinforcementRequestCompleted -= observeCompletion;
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(grants);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(failFirst);
             _ = ending?.Exception;
         }
     }
@@ -2735,7 +2781,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
             );
 
             Assert.That(rage.IsFaulted, Is.True);
-            StringAssert.Contains("insufficient authoritative actions", rage.Exception.ToString());
+            StringAssert.Contains("does not own an active current turn", rage.Exception.ToString());
             Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
             Assert.That(player.Creature.Prepared.HasActiveEffect("effect-rage"), Is.False);
             Assert.That(player.Creature.Health.Temporary, Is.Zero);
@@ -2809,6 +2855,92 @@ public sealed class DungeonEncounterCombatPlayModeTests
             dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
             _ = rage.Exception;
         }
+    }
+
+    /// <summary>
+    /// Verifies zero-cost manual Rage requires current authority and rejects closed encounters
+    /// without spending, publishing Rage state, or leaking its reservation.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator ZeroCostManualRageRequiresAuthorityAndRejectsClosedEncounters()
+    {
+        CombatantFixture player = CreateCombatant("Zero-Cost Rage Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Zero-Cost Rage Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        PrepareBarbarian(player.Creature);
+        PrepareBarbarian(enemy.Creature);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+
+        try
+        {
+            CoroutineResult<bool> offTurn = new();
+            yield return CoroutineRunner.Await(new Rage(0).UseRageAsync(enemy.GameObject), offTurn);
+            Assert.That(offTurn.Value, Is.False);
+            Assert.That(enemy.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(enemy.Creature.Health.Temporary, Is.Zero);
+            Assert.That(enemy.Controller.IsTakingAction, Is.False);
+
+            CoroutineResult<bool> authorized = new();
+            yield return CoroutineRunner.Await(
+                new Rage(0).UseRageAsync(player.GameObject),
+                authorized
+            );
+            Assert.That(authorized.Value, Is.True);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(spends.Facts, Is.Empty, "Zero-cost validation must not emit a spend Fact.");
+
+            manager.SuspendDungeonCombat();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The zero-cost Rage encounter did not suspend."
+            );
+            CoroutineResult<bool> suspended = new();
+            yield return CoroutineRunner.Await(
+                new Rage(0).UseRageAsync(enemy.GameObject),
+                suspended
+            );
+            Assert.That(suspended.Value, Is.False);
+            Assert.That(enemy.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(enemy.Creature.Health.Temporary, Is.Zero);
+            Assert.That(enemy.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+        }
+
+        CombatantFixture endedPlayer = CreateCombatant(
+            "Ended Zero-Cost Rage Player",
+            "Players",
+            200
+        );
+        CombatantFixture endedEnemy = CreateCombatant("Ended Zero-Cost Rage Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { endedPlayer.Controller, endedEnemy.Controller });
+        yield return WaitForTurn(endedPlayer.GameObject);
+        yield return CoroutineRunner.Await(
+            endedEnemy.Creature.ApplyFinalDamageAsync(
+                endedEnemy.Creature.hp,
+                RuleSource.FromSlug("test-ended-zero-cost-rage")
+            )
+        );
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive,
+            "The zero-cost Rage encounter did not end."
+        );
+        PrepareBarbarian(endedPlayer.Creature);
+
+        CoroutineResult<bool> ended = new();
+        yield return CoroutineRunner.Await(new Rage(0).UseRageAsync(endedPlayer.GameObject), ended);
+        Assert.That(ended.Value, Is.False);
+        Assert.That(endedPlayer.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+        Assert.That(endedPlayer.Creature.Health.Temporary, Is.Zero);
+        Assert.That(endedPlayer.Controller.IsTakingAction, Is.False);
     }
 
     /// <summary>Verifies area-spell outcome presentation waits for every target's health change.</summary>

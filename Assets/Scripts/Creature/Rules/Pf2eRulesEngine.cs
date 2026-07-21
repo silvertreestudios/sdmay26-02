@@ -77,6 +77,14 @@ namespace Game.Creature.Rules
         /// Applies combat-start rule hooks such as auto-starting Rage for matching prepared character options.
         /// </summary>
         /// <param name="combatants">The combatants entering encounter state.</param>
+        /// <remarks>
+        /// Every supplied controller is attempted once in order. A failure from one controller
+        /// cannot suppress initialization of later accepted participants; failures are reported
+        /// only after the complete batch settles.
+        /// </remarks>
+        /// <exception cref="AggregateException">
+        /// More than one controller reports an initialization failure.
+        /// </exception>
         public static async ValueTask ApplyCombatStartRulesAsync(
             IEnumerable<ActionController> combatants
         )
@@ -84,18 +92,34 @@ namespace Game.Creature.Rules
             if (combatants == null)
                 return;
 
+            List<Exception> failures = new();
             foreach (ActionController controller in combatants)
             {
-                CreatureComponent creature = controller?.GetComponent<CreatureComponent>();
-                if (creature == null)
-                    continue;
+                try
+                {
+                    CreatureComponent creature = controller?.GetComponent<CreatureComponent>();
+                    if (creature == null)
+                        continue;
 
-                ApplyImportedPassiveAbilities(controller, creature);
+                    ApplyImportedPassiveAbilities(controller, creature);
 
-                PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
-                if (prepared.HasOwnedItem("quick-tempered"))
-                    await new Rage(0).ApplyCombatStartRageAsync(controller.gameObject);
+                    PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
+                    if (prepared.HasOwnedItem("quick-tempered"))
+                        await new Rage(0).ApplyCombatStartRageAsync(controller.gameObject);
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
             }
+
+            if (failures.Count == 1)
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1)
+                throw new AggregateException(
+                    "Multiple combatants failed combat-start initialization.",
+                    failures
+                );
         }
 
         private static void ApplyImportedPassiveAbilities(

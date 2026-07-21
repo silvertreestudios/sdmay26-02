@@ -29,7 +29,8 @@ namespace Game.AbilityActions
         /// <param name="actor">The Unity actor attempting to Rage.</param>
         /// <returns>
         /// <see langword="true"/> when Rage was applied; otherwise <see langword="false"/> when
-        /// its prerequisites fail or another action already owns the actor's reservation.
+        /// its prerequisites fail, the actor lacks turn authority, the encounter is closed, or
+        /// another action already owns the actor's reservation.
         /// </returns>
         /// <remarks>
         /// Direct callers whose actor has an <see cref="ActionController"/> receive the same action
@@ -46,7 +47,7 @@ namespace Game.AbilityActions
                 return false;
             try
             {
-                return await ApplyRageAsync(actor);
+                return await ApplyRageAsync(actor, requireActionAuthority: true);
             }
             finally
             {
@@ -55,9 +56,18 @@ namespace Game.AbilityActions
             }
         }
 
-        private async ValueTask<bool> ApplyRageAsync(GameObject actor)
+        private async ValueTask<bool> ApplyRageAsync(GameObject actor, bool requireActionAuthority)
         {
             Debug.Log(actor + " is attempting to use Rage");
+            ActionController actionController = actor?.GetComponent<ActionController>();
+            if (
+                requireActionAuthority
+                && (actionController == null || !actionController.HasTurnAuthority)
+            )
+            {
+                Debug.Log(actor + " cannot Rage without current turn authority");
+                return false;
+            }
             RageRequest request = new() { Creature = UnityCreatureRulesAdapter.From(actor) };
             if (!RageRule.CanApply(request))
             {
@@ -65,7 +75,8 @@ namespace Game.AbilityActions
                 return false;
             }
 
-            await PayCostAsync(actor?.GetComponent<ActionController>());
+            if (requireActionAuthority)
+                await PayCostAsync(actionController);
             RageRuleResult result = RageRule.Apply(request);
             await UnityRuleEffectApplier.ApplyAsync(actor, result.Effects);
             if (!result.Applied)
@@ -77,7 +88,7 @@ namespace Game.AbilityActions
         // join root. It must not replace an exploration action reservation that legitimately spans
         // startup; the host checkpoint preserves that exact owner until its outer action settles.
         internal ValueTask<bool> ApplyCombatStartRageAsync(GameObject actor) =>
-            ApplyRageAsync(actor);
+            ApplyRageAsync(actor, requireActionAuthority: false);
 
         /// <summary>
         /// Checks whether the actor can currently Rage without mutating Unity or prepared rule state.
@@ -130,7 +141,7 @@ namespace Game.AbilityActions
         {
             // ActionController.TakeAction and MultiFrameEntityAction own this invocation's single
             // reservation. Calling the core avoids releasing it before the outer action finally.
-            yield return CoroutineRunner.Await(ApplyRageAsync(actor));
+            yield return CoroutineRunner.Await(ApplyRageAsync(actor, requireActionAuthority: true));
         }
     }
 }

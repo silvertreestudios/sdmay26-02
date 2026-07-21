@@ -269,23 +269,23 @@ namespace Game.Rules.Runtime
         internal TurnEndingOp(TurnIdentity turn) => Turn = turn;
     }
 
-    /// <summary>Requests a temporary same-store action spend for unmigrated Unity actions.</summary>
+    /// <summary>Requests same-store turn authorization and an optional legacy action spend.</summary>
     public sealed class SpendLegacyActionsOp : IRuleOp<LegacyActionSpendOutcome>
     {
         /// <summary>Gets the creature whose reducer-owned actions are spent.</summary>
         public CreatureId Actor { get; }
 
-        /// <summary>Gets the positive action cost.</summary>
+        /// <summary>Gets the non-negative action cost; zero validates authority without mutation.</summary>
         public int Amount { get; }
 
-        /// <summary>Creates a temporary same-store action-spend request.</summary>
+        /// <summary>Creates a temporary same-store action authorization/spend request.</summary>
         /// <param name="actor">The creature paying the action cost.</param>
-        /// <param name="amount">The positive number of actions to spend.</param>
+        /// <param name="amount">The non-negative number of actions to spend.</param>
         public SpendLegacyActionsOp(CreatureId actor, int amount)
         {
             if (actor.IsEmpty)
                 throw new ArgumentException("An actor is required.", nameof(actor));
-            if (amount <= 0)
+            if (amount < 0)
                 throw new ArgumentOutOfRangeException(nameof(amount));
             Actor = actor;
             Amount = amount;
@@ -431,7 +431,7 @@ namespace Game.Rules.Runtime
         public static TurnEndContribution Complete => default;
     }
 
-    /// <summary>Returns remaining actions after a temporary legacy spend.</summary>
+    /// <summary>Returns remaining actions after same-store authorization and any requested spend.</summary>
     public readonly struct LegacyActionSpendOutcome
     {
         /// <summary>Gets the actor's committed action count.</summary>

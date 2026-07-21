@@ -99,6 +99,46 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task ZeroCostActionAuthorizationRequiresExactTurnWithoutSpendMutation()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
+            CountingFactObserver<LegacyActionsSpentFact> spends =
+                new CountingFactObserver<LegacyActionsSpentFact>();
+            dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+            EncounterState started = Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            ).Value.State;
+
+            LegacyActionSpendOutcome authorized = Resolved(
+                await dispatcher.Dispatch(new SpendLegacyActionsOp(Hero, 0))
+            ).Value;
+
+            Assert.That(authorized.Remaining, Is.EqualTo(3));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Hero],
+                Is.EqualTo(new ActionEconomyState(3, true))
+            );
+            Assert.That(spends.Calls, Is.Zero);
+
+            EncounterState advanced = Resolved(
+                await dispatcher.Dispatch(new EndTurnOp(started.CurrentTurn.Value))
+            ).Value.State;
+            InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(new SpendLegacyActionsOp(Hero, 0))
+            );
+
+            Assert.That(rejected.Message, Does.Contain("does not own an active current turn"));
+            Assert.That(advanced.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
+            Assert.That(spends.Calls, Is.Zero);
+        }
+
+        [Test]
         public async Task QueuedMapAfterExactTurnLossRejectsWithoutRecreatingPenalty()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));

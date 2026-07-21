@@ -14,15 +14,28 @@ using UnityEngine;
 public class Pf2eClericSpellcastingTests
 {
     private readonly List<GameObject> created = new();
+    private UnityEngine.Random.State randomState;
 
+    /// <summary>Captures Unity's process-global random state before each deterministic fixture.</summary>
+    [SetUp]
+    public void SetUp() => randomState = UnityEngine.Random.state;
+
+    /// <summary>Destroys fixture objects and restores Unity's random state even after failures.</summary>
     [TearDown]
     public void TearDown()
     {
-        foreach (GameObject go in created)
-            if (go != null)
-                Object.DestroyImmediate(go);
-        created.Clear();
-        Pf2eItemCatalog.ResetForTests();
+        try
+        {
+            foreach (GameObject go in created)
+                if (go != null)
+                    Object.DestroyImmediate(go);
+            created.Clear();
+            Pf2eItemCatalog.ResetForTests();
+        }
+        finally
+        {
+            UnityEngine.Random.state = randomState;
+        }
     }
 
     [Test]

@@ -524,12 +524,25 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
+            bool ownsActiveTurn = state.Encounters.Any(pair =>
+                pair.Value.Phase == EncounterPhase.Active
+                && pair.Value.CurrentTurn.HasValue
+                && pair.Value.CurrentTurn.Value.Actor == context.Op.Actor
+            );
+            if (!ownsActiveTurn)
+                return ReductionResult<LegacyActionSpendOutcome>.Reject(
+                    "The actor does not own an active current turn."
+                );
             if (
                 !state.ActionEconomy.TryGet(context.Op.Actor, out ActionEconomyState economy)
                 || economy.ActionsRemaining < context.Op.Amount
             )
                 return ReductionResult<LegacyActionSpendOutcome>.Reject(
                     "The actor has insufficient authoritative actions."
+                );
+            if (context.Op.Amount == 0)
+                return ReductionResult<LegacyActionSpendOutcome>.Accept(
+                    new LegacyActionSpendOutcome(economy.ActionsRemaining)
                 );
             int remaining = economy.ActionsRemaining - context.Op.Amount;
             state.ActionEconomy.Set(

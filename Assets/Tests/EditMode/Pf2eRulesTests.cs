@@ -270,6 +270,7 @@ public class Pf2eRulesTests
         TestActionController actionController =
             creature.gameObject.AddComponent<TestActionController>();
         actionController.ActionPoints = 3;
+        actionController.StartTurn();
 
         Rage rage = new(1);
         Assert.That(await rage.UseRageAsync(creature.gameObject), Is.True);
@@ -293,6 +294,9 @@ public class Pf2eRulesTests
     public async Task RageDamageUsesRuleModifiersAndFuryInstinctAdjustments()
     {
         CreatureComponent creature = CreatePreparedBarbarian();
+        TestActionController actionController =
+            creature.gameObject.AddComponent<TestActionController>();
+        actionController.StartTurn();
         Assert.That(await new Rage(0).UseRageAsync(creature.gameObject), Is.True);
 
         StrikeProfile greataxe = new(
@@ -323,6 +327,9 @@ public class Pf2eRulesTests
     public async Task RagingIntimidationItemAlterationAddsRageTraitOnlyWhileRaging()
     {
         CreatureComponent creature = CreatePreparedBarbarian();
+        TestActionController actionController =
+            creature.gameObject.AddComponent<TestActionController>();
+        actionController.StartTurn();
 
         List<string> beforeRage = Pf2eRulesEngine.GetAlteredTraits(
             creature.Prepared,

@@ -846,9 +846,12 @@ namespace Game.Rules.Unity
                 new AddTemporaryHitPointImmunityOp(target, AllocateOrigin(source), source)
             );
 
-        /// <summary>Awaits an action spend through the transitional same-store port.</summary>
+        /// <summary>Awaits exact-turn authorization and an optional same-store action spend.</summary>
         /// <param name="actor">The registered actor paying the cost.</param>
-        /// <param name="amount">The positive number of actions to spend.</param>
+        /// <param name="amount">
+        /// The non-negative number of actions to spend. Zero validates current-turn authority
+        /// without changing action state or emitting a spend Fact.
+        /// </param>
         /// <returns>The actor's committed remaining actions.</returns>
         public ValueTask<LegacyActionSpendOutcome> SpendActionsAsync(
             CreatureId actor,

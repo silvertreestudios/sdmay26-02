@@ -426,16 +426,19 @@ public abstract class ActionController : MonoBehaviour
         return contribution.Value;
     }
 
-    /// <summary>Spends actions through the shared store, or setup state before attachment.</summary>
-    /// <param name="amount">The non-negative action count to spend.</param>
+    /// <summary>
+    /// Validates current-turn authority through the shared store and spends the requested actions,
+    /// or updates setup state before encounter attachment.
+    /// </summary>
+    /// <param name="amount">
+    /// The non-negative action count to spend. Zero performs authority validation without mutation.
+    /// </param>
     public async ValueTask SpendActionsAsync(uint amount)
     {
-        if (amount == 0)
-            return;
-
         if (!HasAuthoritativeActionState)
         {
-            actionPoints -= amount;
+            if (amount > 0)
+                actionPoints -= amount;
             return;
         }
         await encounterRules.SpendActionsAsync(encounterCreatureId, checked((int)amount));

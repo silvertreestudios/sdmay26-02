@@ -407,7 +407,7 @@ namespace TestsCombat
         }
 
         [Test]
-        public async Task RageDamageIgnoresProjectileStrikeWithoutMeleeFlatDamage()
+        public void RageDamageIgnoresProjectileStrikeWithoutMeleeFlatDamage()
         {
             // PF2e source for Rage applying additional damage only to melee Strikes: https://2e.aonprd.com/Actions.aspx?ID=2802
             GameObject creatureObject = new GameObject("raging archer");
@@ -431,7 +431,16 @@ namespace TestsCombat
                     ClassFeatName = "Raging Intimidation",
                 };
                 creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
-                Assert.IsTrue(await new Rage(0).UseRageAsync(creatureObject));
+                Assert.IsTrue(
+                    RageRule
+                        .Apply(
+                            new RageRequest
+                            {
+                                Creature = UnityCreatureRulesAdapter.From(creatureObject),
+                            }
+                        )
+                        .Applied
+                );
 
                 StrikeProfile projectileStrike = new StrikeProfile(
                     new List<Dice> { new Dice(1, 6, "piercing") },
