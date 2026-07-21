@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
@@ -19,6 +20,9 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(builder));
 
             return builder
+                .RegisterHandler<ApplyHealthBatchOp, HealthBatchOutcome>(
+                    new ApplyHealthBatchHandler()
+                )
                 .RegisterHandler<ApplyDamageOp, DamageOutcome>(new ApplyDamageHandler())
                 .RegisterReducer<CommitDamageOp, DamageOutcome>(
                     new CommitDamageReducer(),
@@ -50,6 +54,62 @@ namespace Game.Rules.Runtime
                     CommitTemporaryHitPointImmunityOp,
                     TemporaryHitPointImmunityOutcome
                 >(new CommitTemporaryHitPointImmunityReducer(), HealthReducerSource);
+        }
+    }
+
+    internal sealed class ApplyHealthBatchHandler
+        : IOpHandler<ApplyHealthBatchOp, HealthBatchOutcome>
+    {
+        public async ValueTask<HealthBatchOutcome> Handle(
+            OpFrame<ApplyHealthBatchOp> frame,
+            OpHandlerContext context
+        )
+        {
+            foreach (HealthBatchChange change in frame.Op.Changes)
+            {
+                if (!context.Snapshot.Health.Contains(change.Target))
+                    throw new InvalidOperationException(
+                        $"Creature {change.Target.Value} has no authoritative health state."
+                    );
+            }
+
+            List<HealthBatchChangeOutcome> outcomes = new List<HealthBatchChangeOutcome>(
+                frame.Op.Changes.Count
+            );
+            foreach (HealthBatchChange change in frame.Op.Changes)
+            {
+                int applied;
+                if (change.Kind == HealthBatchChangeKind.Damage)
+                {
+                    DamageOutcome damage = await HealthHandlerResult.RequireResolved(
+                        context.Dispatch(
+                            new ApplyDamageOp(
+                                change.Target,
+                                change.Amount,
+                                change.Origin,
+                                change.Source
+                            )
+                        )
+                    );
+                    applied = damage.Applied;
+                }
+                else
+                {
+                    HealingOutcome healing = await HealthHandlerResult.RequireResolved(
+                        context.Dispatch(
+                            new ApplyHealingOp(
+                                change.Target,
+                                change.Amount,
+                                change.Origin,
+                                change.Source
+                            )
+                        )
+                    );
+                    applied = healing.Applied;
+                }
+                outcomes.Add(new HealthBatchChangeOutcome(change, applied));
+            }
+            return new HealthBatchOutcome(outcomes);
         }
     }
 

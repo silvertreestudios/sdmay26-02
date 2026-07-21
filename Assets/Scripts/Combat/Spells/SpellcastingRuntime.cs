@@ -5,9 +5,12 @@ using System.Threading.Tasks;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
+using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
+using HealthBatchChangeKind = Game.Rules.Runtime.HealthBatchChangeKind;
+using HealthBatchOutcome = Game.Rules.Runtime.HealthBatchOutcome;
 using RuleSource = Game.Rules.Runtime.RuleSource;
 
 namespace Game.Combat.Spells
@@ -317,6 +320,58 @@ namespace Game.Combat.Spells
             RuleSource source
         )
         {
+            List<UnityHealthBatchChange> changes = new();
+            QueueBasicFortitudeDamage(
+                caster,
+                target,
+                damage,
+                result,
+                applyDeafenedOnCriticalFailure,
+                source,
+                changes
+            );
+            if (changes.Count > 0)
+                await ApplyFinalHealthBatchAsync(changes);
+        }
+
+        internal static void QueueBasicFortitudeDamage(
+            GameObject caster,
+            GameObject target,
+            Dice dice,
+            CastSpellResult result,
+            bool applyDeafenedOnCriticalFailure,
+            RuleSource source,
+            ICollection<UnityHealthBatchChange> changes
+        )
+        {
+            DamageRollResolution damage = DamageRoller.StartDamageResolution(
+                new List<Dice> { dice },
+                new List<DamageValue>()
+            );
+            DamageRoller.FinalizeDamageResolution(damage);
+            QueueBasicFortitudeDamage(
+                caster,
+                target,
+                new DamageValue(dice.damageType, damage.TotalDamage),
+                result,
+                applyDeafenedOnCriticalFailure,
+                source,
+                changes
+            );
+        }
+
+        internal static void QueueBasicFortitudeDamage(
+            GameObject caster,
+            GameObject target,
+            DamageValue damage,
+            CastSpellResult result,
+            bool applyDeafenedOnCriticalFailure,
+            RuleSource source,
+            ICollection<UnityHealthBatchChange> changes
+        )
+        {
+            if (changes == null)
+                throw new ArgumentNullException(nameof(changes));
             CreatureComponent casterCreature = caster.GetComponent<CreatureComponent>();
             CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
             int dc = casterCreature.Prepared.Spellcasting.SpellDc;
@@ -325,7 +380,16 @@ namespace Game.Combat.Spells
             result.Rolls.Add(save);
             int amount = BasicSaveDamage(damage.DamageAmount, save.degree);
             if (amount > 0)
-                await targetCreature.ApplyFinalDamageAsync(amount, source);
+            {
+                changes.Add(
+                    new UnityHealthBatchChange(
+                        HealthBatchChangeKind.Damage,
+                        targetCreature,
+                        amount,
+                        source
+                    )
+                );
+            }
             if (applyDeafenedOnCriticalFailure && save.degree == DegreeOfSuccess.CriticalFail)
                 (target.GetComponent<Conditions>() ?? target.AddComponent<Conditions>()).Add(
                     "Deafened",
@@ -333,6 +397,21 @@ namespace Game.Combat.Spells
                 );
             result.Targets.Add(target);
             result.Amount += amount;
+        }
+
+        internal static ValueTask<HealthBatchOutcome> ApplyFinalHealthBatchAsync(
+            IReadOnlyList<UnityHealthBatchChange> changes
+        )
+        {
+            if (changes == null)
+                throw new ArgumentNullException(nameof(changes));
+            if (changes.Count == 0)
+                throw new ArgumentException(
+                    "A completed spell health batch cannot be empty.",
+                    nameof(changes)
+                );
+            UnityEncounterRulesBridge bridge = changes[0].Target.GetEncounterRulesBridge();
+            return bridge.ApplyFinalHealthBatchAsync(changes);
         }
 
         public static bool IsUndead(CreatureComponent creature)

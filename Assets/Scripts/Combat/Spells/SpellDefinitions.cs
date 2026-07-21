@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using GridPublic;
 using UnityEngine;
 
@@ -341,19 +342,23 @@ namespace Game.Combat.Spells
         {
             if (selection?.Area == null)
                 return false;
+            List<UnityHealthBatchChange> changes = new();
             foreach (
                 AreaAffectedCreature affected in selection.Area.Creatures.Where(creature =>
                     creature.IsAffected
                 )
             )
-                await SpellcastingRuntime.ApplyBasicFortitudeDamageAsync(
+                SpellcastingRuntime.QueueBasicFortitudeDamage(
                     context.Caster,
                     affected.Creature,
                     new Dice(1, 8, "sonic"),
                     result,
                     applyDeafenedOnCriticalFailure: true,
-                    source: RuleSource.FromSlug(Slug)
+                    source: RuleSource.FromSlug(Slug),
+                    changes: changes
                 );
+            if (changes.Count > 0)
+                await SpellcastingRuntime.ApplyFinalHealthBatchAsync(changes);
             return true;
         }
     }
@@ -525,6 +530,7 @@ namespace Game.Combat.Spells
             List<GameObject> selected = SelectedTargets(context, selection);
             if (selected.Count == 0)
                 return false;
+            List<UnityHealthBatchChange> changes = new();
             foreach (GameObject target in selected.Distinct())
             {
                 if (
@@ -545,21 +551,36 @@ namespace Game.Combat.Spells
                     + (context.ActionCost == 2 && !SpellcastingRuntime.IsUndead(creature) ? 8 : 0);
                 result.Targets.Add(target);
                 if (SpellcastingRuntime.IsUndead(creature))
-                    await SpellcastingRuntime.ApplyBasicFortitudeDamageAsync(
+                    SpellcastingRuntime.QueueBasicFortitudeDamage(
                         context.Caster,
                         target,
                         new DamageValue("vitality", amount),
                         result,
                         applyDeafenedOnCriticalFailure: false,
-                        source: RuleSource.FromSlug(Slug)
+                        source: RuleSource.FromSlug(Slug),
+                        changes: changes
                     );
                 else if (SpellcastingRuntime.IsFriendly(context.Caster, target))
                 {
-                    HealingOutcome healing = await creature.HealAsync(
-                        amount,
-                        RuleSource.FromSlug(Slug)
+                    changes.Add(
+                        new UnityHealthBatchChange(
+                            HealthBatchChangeKind.Healing,
+                            creature,
+                            amount,
+                            RuleSource.FromSlug(Slug)
+                        )
                     );
-                    result.Amount += healing.Applied;
+                }
+            }
+            if (changes.Count > 0)
+            {
+                HealthBatchOutcome health = await SpellcastingRuntime.ApplyFinalHealthBatchAsync(
+                    changes
+                );
+                for (int index = 0; index < changes.Count; index++)
+                {
+                    if (changes[index].Kind == HealthBatchChangeKind.Healing)
+                        result.Amount += health.Changes[index].Applied;
                 }
             }
             return result.Targets.Count > 0;

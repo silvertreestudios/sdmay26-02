@@ -464,6 +464,69 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task HealthBatchOutcomeWaitsForAllTargetsAndIgnoresProcessingOrder()
+        {
+            foreach (bool reverse in new[] { false, true })
+            {
+                RuleDispatcher dispatcher = CreateDispatcher(
+                    new ScriptedRollService(20, 10),
+                    BaseSeed()
+                        .SeedHealth(Hero, new HealthState(1, 10))
+                        .SeedHealth(Enemy, new HealthState(1, 10))
+                );
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                );
+                BatchOutcomeObserver observer = new BatchOutcomeObserver(Hero, Enemy);
+                dispatcher.RegisterFactObserver<CreatureReducedToZeroFact>(observer);
+                dispatcher.RegisterFactObserver<EncounterEndedFact>(observer);
+                HealthBatchChange hero = new HealthBatchChange(
+                    HealthBatchChangeKind.Damage,
+                    Hero,
+                    1,
+                    new HealthChangeOriginId($"batch-hero-{reverse}"),
+                    Source
+                );
+                HealthBatchChange enemy = new HealthBatchChange(
+                    HealthBatchChangeKind.Damage,
+                    Enemy,
+                    1,
+                    new HealthChangeOriginId($"batch-enemy-{reverse}"),
+                    Source
+                );
+                HealthBatchChange[] changes = reverse
+                    ? new[] { enemy, hero }
+                    : new[] { hero, enemy };
+
+                HealthBatchOutcome batch = Resolved(
+                    await dispatcher.Dispatch(new ApplyHealthBatchOp(changes))
+                ).Value;
+
+                EncounterState settled = dispatcher.Snapshot.Encounters[Encounter];
+                Assert.That(batch.Changes.Select(change => change.Change), Is.EqualTo(changes));
+                Assert.That(
+                    batch.Changes.Select(change => change.Applied),
+                    Is.EqualTo(new[] { 1, 1 })
+                );
+                Assert.That(dispatcher.Snapshot.Health[Hero].Current, Is.Zero);
+                Assert.That(dispatcher.Snapshot.Health[Enemy].Current, Is.Zero);
+                Assert.That(settled.Phase, Is.EqualTo(EncounterPhase.Ended));
+                Assert.That(settled.Outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+                Assert.That(
+                    observer.Order.Take(2).All(value => value.StartsWith("zero:")),
+                    Is.True
+                );
+                Assert.That(observer.Order.Last(), Is.EqualTo("ended"));
+                Assert.That(observer.HeroAtOutcome, Is.Zero);
+                Assert.That(observer.EnemyAtOutcome, Is.Zero);
+                Assert.That(observer.EndCalls, Is.EqualTo(1));
+            }
+        }
+
+        [Test]
         public async Task ReactionCausalHealingSettlesBeforeOutcomeObservation()
         {
             RuleDefinitionId definition = new RuleDefinitionId("rescue-reaction");
@@ -839,6 +902,41 @@ namespace Game.Rules.Runtime.Tests
 
             public ValueTask OnFactCommitted(EncounterEndedFact fact, RulesSnapshot snapshot)
             {
+                order.Add("ended");
+                return default;
+            }
+        }
+
+        private sealed class BatchOutcomeObserver
+            : IFactObserver<CreatureReducedToZeroFact>,
+                IFactObserver<EncounterEndedFact>
+        {
+            private readonly CreatureId hero;
+            private readonly CreatureId enemy;
+            private readonly List<string> order = new List<string>();
+
+            public BatchOutcomeObserver(CreatureId hero, CreatureId enemy)
+            {
+                this.hero = hero;
+                this.enemy = enemy;
+            }
+
+            public IReadOnlyList<string> Order => order;
+            public int HeroAtOutcome { get; private set; } = -1;
+            public int EnemyAtOutcome { get; private set; } = -1;
+            public int EndCalls { get; private set; }
+
+            public ValueTask OnFactCommitted(CreatureReducedToZeroFact fact, RulesSnapshot snapshot)
+            {
+                order.Add($"zero:{fact.Creature.Value}");
+                return default;
+            }
+
+            public ValueTask OnFactCommitted(EncounterEndedFact fact, RulesSnapshot snapshot)
+            {
+                EndCalls++;
+                HeroAtOutcome = snapshot.Health[hero].Current;
+                EnemyAtOutcome = snapshot.Health[enemy].Current;
                 order.Add("ended");
                 return default;
             }

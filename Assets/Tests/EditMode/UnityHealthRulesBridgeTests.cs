@@ -224,6 +224,65 @@ public sealed class UnityEncounterRulesBridgeTests
     }
 
     [Test]
+    public async Task ReactionHealedCreatureRemainsActiveAndSkipsDefeatPresentation()
+    {
+        GameObject heroObject = new GameObject("reaction-healed hero");
+        GameObject enemyObject = new GameObject("living enemy");
+        try
+        {
+            CreatureComponent hero = heroObject.AddComponent<CreatureComponent>();
+            CreatureComponent enemy = enemyObject.AddComponent<CreatureComponent>();
+            hero.InitializeHealthBeforeEncounter(1, 10);
+            enemy.InitializeHealthBeforeEncounter(10, 10);
+            TestActionController heroController = PrepareController(heroObject, "Players");
+            TestActionController enemyController = PrepareController(enemyObject, "Enemies");
+            RuleSource source = RuleSource.FromSlug("reaction-heal-test");
+            RuleDefinitionId rescueDefinition = new RuleDefinitionId("reaction-heal");
+            RescueListener rescue = new RescueListener(source);
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder
+                .Define(rescueDefinition)
+                .FactListener(RuleLifecyclePhase.Reaction, rescue);
+            RuleRegistry registry = registryBuilder.Build();
+            ActiveRuleBinding rescueBinding = new ActiveRuleBinding(
+                new BindingId("reaction-heal-binding"),
+                rescueDefinition,
+                new CreatureId("encounter-creature-1"),
+                null,
+                source,
+                1
+            );
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.CreateWithRuleComposition(
+                new ActionController[] { heroController, enemyController },
+                "Players",
+                new ScriptedRollService(20, 10),
+                registry,
+                new[] { rescueBinding }
+            );
+            await bridge.StartEncounter(new ActionController[] { heroController, enemyController });
+
+            await hero.ApplyFinalDamageAsync(1, source);
+
+            CreatureId heroId = bridge.GetCreatureId(hero);
+            EncounterState encounter = bridge.Snapshot.Encounters[bridge.EncounterId];
+            Assert.That(rescue.Calls, Is.EqualTo(1));
+            Assert.That(bridge.Snapshot.Health[heroId].Current, Is.EqualTo(1));
+            Assert.That(hero.Health, Is.EqualTo(bridge.Snapshot.Health[heroId]));
+            Assert.That(GetProjectedCurrentHealth(hero), Is.EqualTo(1));
+            Assert.That(hero.IsDefeated, Is.False);
+            Assert.That(heroObject.activeSelf, Is.True);
+            Assert.That(heroController.enabled, Is.True);
+            Assert.That(encounter.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(encounter.Outcome, Is.Null);
+        }
+        finally
+        {
+            Object.DestroyImmediate(heroObject);
+            Object.DestroyImmediate(enemyObject);
+        }
+    }
+
+    [Test]
     public async Task RejectedJoinLeavesRulesStateIdentityMapsAndAttachmentsUnchanged()
     {
         GameObject heroObject = new GameObject("hero");
@@ -333,5 +392,27 @@ public sealed class UnityEncounterRulesBridgeTests
             new ValueTask(completion.Task);
 
         public void Complete() => completion.TrySetResult(true);
+    }
+
+    private sealed class RescueListener : IRuleFactListener<CreatureReducedToZeroFact>
+    {
+        private readonly RuleSource source;
+
+        public RescueListener(RuleSource source) => this.source = source;
+
+        public int Calls { get; private set; }
+
+        public async ValueTask OnFactCommitted(CreatureReducedToZeroFact fact, FactContext context)
+        {
+            Calls++;
+            await context.Dispatch(
+                new ApplyHealingOp(
+                    fact.Creature,
+                    1,
+                    new HealthChangeOriginId("reaction-heal"),
+                    source
+                )
+            );
+        }
     }
 }

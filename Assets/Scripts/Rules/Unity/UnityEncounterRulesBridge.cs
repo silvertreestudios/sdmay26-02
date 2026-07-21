@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
@@ -10,8 +11,40 @@ using GridPrivate;
 using GridPublic;
 using UnityEngine;
 
+[assembly: InternalsVisibleTo("EditModeAssembly")]
+
 namespace Game.Rules.Unity
 {
+    /// <summary>
+    /// Carries one Unity creature health change until the bridge assigns stable rules identities.
+    /// </summary>
+    internal sealed class UnityHealthBatchChange
+    {
+        internal UnityHealthBatchChange(
+            HealthBatchChangeKind kind,
+            CreatureComponent target,
+            int amount,
+            RuleSource source
+        )
+        {
+            if (kind != HealthBatchChangeKind.Damage && kind != HealthBatchChangeKind.Healing)
+                throw new ArgumentOutOfRangeException(nameof(kind));
+            if (amount < 0)
+                throw new ArgumentOutOfRangeException(nameof(amount));
+            Kind = kind;
+            Target = target ?? throw new ArgumentNullException(nameof(target));
+            Amount = amount;
+            Source = source.IsEmpty
+                ? throw new ArgumentException("A health rule source is required.", nameof(source))
+                : source;
+        }
+
+        internal HealthBatchChangeKind Kind { get; }
+        internal CreatureComponent Target { get; }
+        internal int Amount { get; }
+        internal RuleSource Source { get; }
+    }
+
     /// <summary>Owns the single authoritative rules store and dispatcher for one Unity encounter.</summary>
     public sealed class UnityEncounterRulesBridge
     {
@@ -33,7 +66,9 @@ namespace Game.Rules.Unity
             IReadOnlyList<ActionController> encounterControllers,
             string protagonistTeamName,
             IRollService rolls,
-            bool requireProtagonistTeam
+            bool requireProtagonistTeam,
+            RuleRegistry registry,
+            IEnumerable<ActiveRuleBinding> initialBindings
         )
         {
             RulesStateSeed seed = new RulesStateSeed();
@@ -45,6 +80,16 @@ namespace Game.Rules.Unity
                 creatures.Add(id, creature);
                 seed.SeedHealth(id, creature.GetHealthInitializationState());
             }
+            ActiveRuleBinding[] copiedBindings =
+                initialBindings?.ToArray()
+                ?? throw new ArgumentNullException(nameof(initialBindings));
+            if (copiedBindings.Any(binding => binding == null))
+                throw new ArgumentException(
+                    "Initial rule bindings cannot contain null entries.",
+                    nameof(initialBindings)
+                );
+            foreach (ActiveRuleBinding binding in copiedBindings)
+                seed.SeedRuleBinding(binding);
             foreach (ActionController controller in encounterControllers)
             {
                 CreatureComponent creature = controller.GetComponent<CreatureComponent>();
@@ -63,7 +108,6 @@ namespace Game.Rules.Unity
                     nameof(protagonistTeamName)
                 );
             encounterId = new EncounterId("unity-encounter-1");
-            RuleRegistry registry = new RuleRegistryBuilder().AddOutcomeRule().Build();
             IEncounterTurnStartAdapter[] turnStartAdapters =
             {
                 new SpellExpiryTurnStartAdapter(this),
@@ -107,6 +151,36 @@ namespace Game.Rules.Unity
             IEnumerable<ActionController> encounterControllers,
             string protagonistTeamName,
             IRollService rolls
+        ) =>
+            CreateConfigured(
+                encounterControllers,
+                protagonistTeamName,
+                rolls,
+                new RuleRegistryBuilder().AddOutcomeRule().Build(),
+                Array.Empty<ActiveRuleBinding>()
+            );
+
+        internal static UnityEncounterRulesBridge CreateWithRuleComposition(
+            IEnumerable<ActionController> encounterControllers,
+            string protagonistTeamName,
+            IRollService rolls,
+            RuleRegistry registry,
+            IEnumerable<ActiveRuleBinding> initialBindings
+        ) =>
+            CreateConfigured(
+                encounterControllers,
+                protagonistTeamName,
+                rolls,
+                registry,
+                initialBindings
+            );
+
+        private static UnityEncounterRulesBridge CreateConfigured(
+            IEnumerable<ActionController> encounterControllers,
+            string protagonistTeamName,
+            IRollService rolls,
+            RuleRegistry registry,
+            IEnumerable<ActiveRuleBinding> initialBindings
         )
         {
             ActionController[] copied =
@@ -128,12 +202,18 @@ namespace Game.Rules.Unity
                 );
             if (rolls == null)
                 throw new ArgumentNullException(nameof(rolls));
+            if (registry == null)
+                throw new ArgumentNullException(nameof(registry));
+            if (initialBindings == null)
+                throw new ArgumentNullException(nameof(initialBindings));
             return new UnityEncounterRulesBridge(
                 copied.Select(controller => controller.GetComponent<CreatureComponent>()).ToArray(),
                 copied,
                 protagonistTeamName.Trim(),
                 rolls,
-                requireProtagonistTeam: true
+                requireProtagonistTeam: true,
+                registry: registry,
+                initialBindings: initialBindings
             );
         }
 
@@ -168,7 +248,9 @@ namespace Game.Rules.Unity
                 Array.Empty<ActionController>(),
                 string.Empty,
                 new RandomRollService(),
-                requireProtagonistTeam: false
+                requireProtagonistTeam: false,
+                registry: new RuleRegistryBuilder().AddOutcomeRule().Build(),
+                initialBindings: Array.Empty<ActiveRuleBinding>()
             );
         }
 
@@ -410,6 +492,36 @@ namespace Game.Rules.Unity
             int healing,
             RuleSource source
         ) => DispatchAsync(new ApplyHealingOp(target, healing, AllocateOrigin(source), source));
+
+        internal ValueTask<HealthBatchOutcome> ApplyFinalHealthBatchAsync(
+            IEnumerable<UnityHealthBatchChange> changes
+        )
+        {
+            UnityHealthBatchChange[] copied =
+                changes?.ToArray() ?? throw new ArgumentNullException(nameof(changes));
+            if (copied.Length == 0 || copied.Any(change => change == null))
+                throw new ArgumentException(
+                    "A Unity health batch requires at least one non-null change.",
+                    nameof(changes)
+                );
+            HealthBatchChange[] rulesChanges = copied
+                .Select(change =>
+                {
+                    if (!creatureIds.TryGetValue(change.Target, out CreatureId target))
+                        throw new InvalidOperationException(
+                            "Every health-batch target must belong to this encounter bridge."
+                        );
+                    return new HealthBatchChange(
+                        change.Kind,
+                        target,
+                        change.Amount,
+                        AllocateOrigin(change.Source),
+                        change.Source
+                    );
+                })
+                .ToArray();
+            return DispatchAsync(new ApplyHealthBatchOp(rulesChanges));
+        }
 
         /// <summary>Commits source-owned temporary Hit Points.</summary>
         /// <param name="target">The registered creature receiving the pool.</param>
@@ -679,6 +791,15 @@ namespace Game.Rules.Unity
                 )
                     owner.presentation.Enqueue(() =>
                     {
+                        if (
+                            !owner.Snapshot.Health.TryGet(
+                                fact.Creature,
+                                out HealthState settledHealth
+                            )
+                            || settledHealth.Current > 0
+                        )
+                            return default;
+                        creature.ProjectCommittedHealth(settledHealth);
                         creature.PresentCommittedDefeat();
                         return default;
                     });

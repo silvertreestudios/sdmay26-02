@@ -1173,6 +1173,8 @@ namespace Game.Creature
             return new HealthState(_hp, _maxHp, _tempHp);
         }
 
+        internal UnityEncounterRulesBridge GetEncounterRulesBridge() => RequireHealthRules();
+
         internal void AttachEncounterRules(UnityEncounterRulesBridge bridge, CreatureId creatureId)
         {
             if (bridge == null)

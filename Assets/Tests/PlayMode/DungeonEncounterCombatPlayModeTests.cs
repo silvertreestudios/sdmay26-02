@@ -397,6 +397,92 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(player.Controller.IsTakingAction, Is.False);
     }
 
+    /// <summary>Verifies area-spell outcome presentation waits for every target's health change.</summary>
+    [UnityTest]
+    public IEnumerator LethalAreaSpellSettlesAllTargetsBeforePresentingDeterministicDefeat()
+    {
+        CombatantFixture player = CreateCombatant("Area Spell Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Area Spell Enemy", "Enemies", 0);
+        player.Creature.InitializeHealthBeforeEncounter(1, 1);
+        enemy.Creature.InitializeHealthBeforeEncounter(1, 1);
+        player.Creature.level = 20;
+        player.Creature.wisMod = 20;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        CreatureId playerId = bridge.GetCreatureId(player.Creature);
+        CreatureId enemyId = bridge.GetCreatureId(enemy.Creature);
+        int outcomeCalls = 0;
+        int playerHealthAtOutcome = -1;
+        int enemyHealthAtOutcome = -1;
+        EncounterOutcome? presentedOutcome = null;
+        Func<EncounterOutcome, ValueTask> recordOutcome = outcome =>
+        {
+            outcomeCalls++;
+            playerHealthAtOutcome = bridge.Snapshot.Health[playerId].Current;
+            enemyHealthAtOutcome = bridge.Snapshot.Health[enemyId].Current;
+            presentedOutcome = outcome;
+            return default;
+        };
+        bridge.EncounterEnded += recordOutcome;
+        PreparedSpell hymn = player.Creature.Prepared.Spellcasting.GetSpell("haunting-hymn");
+        AreaTargetResult area = new AreaTargetResult
+        {
+            Creatures = new List<AreaAffectedCreature>
+            {
+                new AreaAffectedCreature
+                {
+                    Creature = player.GameObject,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                },
+                new AreaAffectedCreature
+                {
+                    Creature = enemy.GameObject,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                },
+            },
+        };
+        CoroutineResult<CastSpellResult> completed = new CoroutineResult<CastSpellResult>();
+        try
+        {
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    player.GameObject,
+                    hymn,
+                    2,
+                    Array.Empty<GameObject>(),
+                    area,
+                    spendActions: true
+                ),
+                completed
+            );
+        }
+        finally
+        {
+            bridge.EncounterEnded -= recordOutcome;
+        }
+
+        Assert.That(completed.Value.Success, Is.True);
+        Assert.That(
+            completed.Value.Targets.Distinct(),
+            Is.EquivalentTo(new[] { player.GameObject, enemy.GameObject })
+        );
+        Assert.That(outcomeCalls, Is.EqualTo(1));
+        Assert.That(playerHealthAtOutcome, Is.Zero);
+        Assert.That(enemyHealthAtOutcome, Is.Zero);
+        Assert.That(presentedOutcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+        Assert.That(
+            bridge.Snapshot.Encounters[bridge.EncounterId].Outcome,
+            Is.EqualTo(EncounterOutcome.PlayerDefeat)
+        );
+        Assert.That(Enum.GetNames(typeof(EncounterOutcome)), Does.Not.Contain("Draw"));
+    }
+
     /// <summary>Verifies suspension resets turn economy without changing durable creature state.</summary>
     [UnityTest]
     public IEnumerator SuspendDungeonCombat_ClearsTurnStateAndPreservesCreatureState()
