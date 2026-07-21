@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Game.DungeonGeneration;
 using Game.DungeonPersistence.Repository;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -15,20 +16,17 @@ namespace Tests.EditMode.DungeonPersistence.Repository
             DungeonRunSave expected = DungeonSaveTestFactory.CreateRun();
 
             string json = DungeonSaveJsonCodec.SerializeRun(expected);
-            DungeonSaveParseResult<DungeonRunSave> result = DungeonSaveJsonCodec.ParseRun(json);
+            DungeonSaveResult<DungeonRunSave> result = DungeonSaveJsonCodec.ParseRun(json);
 
-            Assert.That(result, Is.TypeOf<DungeonSaveParseSuccess<DungeonRunSave>>());
-            DungeonRunSave actual = ((DungeonSaveParseSuccess<DungeonRunSave>)result).Value;
+            Assert.That(result.IsSuccess, Is.True);
+            DungeonRunSave actual = result.Value;
             Assert.That(DungeonSaveJsonCodec.SerializeRun(actual), Is.EqualTo(json));
             Assert.That(actual.Floors.Select(floor => floor.Depth), Is.EqualTo(new[] { 0, 1 }));
             Assert.That(
                 actual.Manifest.GeneratedFloors.Select(floor => floor.RelativePath),
                 Is.EqualTo(new[] { "floors/depth-0000.json", "floors/depth-0001.json" })
             );
-            Assert.That(
-                actual.Floors[0].StaticFloorJson,
-                Is.EqualTo(expected.Floors[0].StaticFloorJson)
-            );
+            Assert.That(actual.Floors[0].DocumentJson, Is.EqualTo(expected.Floors[0].DocumentJson));
 
             DungeonCreatureSaveState leader = actual.Manifest.Party.Members[0].Creature;
             Assert.That(leader.Health.CurrentHitPoints, Is.EqualTo(18));
@@ -38,23 +36,33 @@ namespace Tests.EditMode.DungeonPersistence.Repository
                 leader.Conditions.Select(item => item.ApplicationId),
                 Is.EqualTo(new[] { "condition-application-a", "condition-application-b" })
             );
-            Assert.That(leader.TimedEffects[0].StateJson, Is.EqualTo("{\"a\":1,\"z\":2}"));
+            Assert.That(leader.TimedEffects[0].StateJson, Is.EqualTo("{}"));
             Assert.That(
                 leader.PreparedRules.RollOptions,
                 Is.EqualTo(new[] { "class:cleric", "self:effect:bless" })
             );
             Assert.That(leader.PreparedRules.SpellPools[0].RemainingUses, Is.Zero);
             Assert.That(leader.Equipment.Items[1].IsLoaded, Is.False);
-            Assert.That(actual.Floors[0].Doors[0].IsOpen, Is.True);
+            DungeonLevelDocument firstFloor = actual.Floors[0].ParseDocument();
+            Assert.That(firstFloor.Doors[0].IsOpen, Is.True);
             Assert.That(
-                actual.Floors[0].Encounters[0].Status,
-                Is.EqualTo(DungeonEncounterSaveStatus.Active)
+                firstFloor.RuntimeState.ResolvedEncounterIds,
+                Does.Contain("encounter-cleared")
             );
-            Assert.That(actual.Floors[0].Creatures[1].Creature.IsDefeated, Is.True);
             Assert.That(
-                actual.Floors[0].Creatures.Select(creature => creature.Creature.InstanceId),
+                firstFloor.RuntimeState.DefeatedCreatureIds,
+                Does.Contain(DungeonCreatureInstanceIdentity.Create("encounter-cleared", 0))
+            );
+            Assert.That(
+                actual
+                    .Floors[0]
+                    .ParseDocument()
+                    .RuntimeState.Creatures.Select(creature => creature.InstanceId),
                 Is.EqualTo(
-                    actual.Floors[1].Creatures.Select(creature => creature.Creature.InstanceId)
+                    actual
+                        .Floors[1]
+                        .ParseDocument()
+                        .RuntimeState.Creatures.Select(creature => creature.InstanceId)
                 ),
                 "Plan-derived enemy IDs are scoped by depth and may repeat across floors."
             );
@@ -68,7 +76,7 @@ namespace Tests.EditMode.DungeonPersistence.Repository
             );
             ((JObject)((JArray)run["floors"])[1])["documentVersion"] = 99;
 
-            DungeonSaveParseResult<DungeonRunSave> result = DungeonSaveJsonCodec.ParseRun(
+            DungeonSaveResult<DungeonRunSave> result = DungeonSaveJsonCodec.ParseRun(
                 run.ToString()
             );
 
@@ -89,18 +97,17 @@ namespace Tests.EditMode.DungeonPersistence.Repository
                 .Creature;
 
             string json = DungeonSaveJsonCodec.SerializeCreature(expected);
-            DungeonSaveParseResult<DungeonCreatureSaveState> parsed =
-                DungeonSaveJsonCodec.ParseCreature(json);
+            DungeonSaveResult<DungeonCreatureSaveState> parsed = DungeonSaveJsonCodec.ParseCreature(
+                json
+            );
 
-            Assert.That(parsed, Is.TypeOf<DungeonSaveParseSuccess<DungeonCreatureSaveState>>());
-            DungeonCreatureSaveState actual = (
-                (DungeonSaveParseSuccess<DungeonCreatureSaveState>)parsed
-            ).Value;
+            Assert.That(parsed.IsSuccess, Is.True);
+            DungeonCreatureSaveState actual = parsed.Value;
             Assert.That(DungeonSaveJsonCodec.SerializeCreature(actual), Is.EqualTo(json));
 
             JObject incompatible = JObject.Parse(json);
             incompatible["documentVersion"] = 99;
-            DungeonSaveParseResult<DungeonCreatureSaveState> incompatibleResult =
+            DungeonSaveResult<DungeonCreatureSaveState> incompatibleResult =
                 DungeonSaveJsonCodec.ParseCreature(incompatible.ToString());
             Assert.That(incompatibleResult.IsSuccess, Is.False);
             Assert.That(
@@ -110,7 +117,7 @@ namespace Tests.EditMode.DungeonPersistence.Repository
 
             JObject unknown = JObject.Parse(json);
             ((JObject)unknown["creature"])["initiative"] = 12;
-            DungeonSaveParseResult<DungeonCreatureSaveState> unknownResult =
+            DungeonSaveResult<DungeonCreatureSaveState> unknownResult =
                 DungeonSaveJsonCodec.ParseCreature(unknown.ToString());
             Assert.That(unknownResult.IsSuccess, Is.False);
             Assert.That(

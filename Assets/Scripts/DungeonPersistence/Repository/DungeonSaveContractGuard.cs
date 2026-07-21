@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Game.DungeonGeneration;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -48,52 +47,6 @@ namespace Game.DungeonPersistence.Repository
                     exception
                 );
             }
-        }
-
-        internal static string CanonicalStaticFloorJson(string value, string parameterName)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-                throw new ArgumentException("Static floor JSON is required.", parameterName);
-            JObject root;
-            try
-            {
-                root = JObject.Parse(
-                    value,
-                    new JsonLoadSettings
-                    {
-                        DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error,
-                        LineInfoHandling = LineInfoHandling.Ignore,
-                    }
-                );
-            }
-            catch (JsonException exception)
-            {
-                throw new ArgumentException(
-                    "Static floor JSON is invalid.",
-                    parameterName,
-                    exception
-                );
-            }
-            if (root.Property("runtimeState") != null)
-            {
-                throw new ArgumentException(
-                    "Static floor JSON cannot contain mutable runtimeState.",
-                    parameterName
-                );
-            }
-            DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(value);
-            if (!parsed.IsSuccess)
-            {
-                string message =
-                    parsed.Diagnostics.Count > 0
-                        ? parsed.Diagnostics[0].Message
-                        : "The dungeon generator document is invalid.";
-                throw new ArgumentException(
-                    "Static floor JSON is invalid: " + message,
-                    parameterName
-                );
-            }
-            return DungeonLevelJsonSerializer.Serialize(parsed.Document);
         }
 
         private static JToken CanonicalToken(JToken source)

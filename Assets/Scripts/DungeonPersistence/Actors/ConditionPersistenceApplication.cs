@@ -6,7 +6,7 @@ namespace Game.DungeonPersistence.Actors
     /// Exposes one live condition application to persistence without exposing the condition
     /// component's mutable dictionary.
     /// </summary>
-    public sealed class ConditionPersistenceApplication
+    internal sealed class ConditionPersistenceApplication
     {
         /// <summary>Creates one immutable live condition application.</summary>
         /// <param name="conditionId">The non-blank condition name or definition ID.</param>

@@ -12,7 +12,7 @@ namespace Game.DungeonPersistence.Actors
     /// Applies a fully prevalidated group restore. All actors must be materialized before this plan
     /// is created so cross-actor spell sources can resolve by stable identity.
     /// </summary>
-    public sealed class DungeonActorRestorePlan
+    internal sealed class DungeonActorRestorePlan
     {
         private readonly IReadOnlyList<DungeonActorStateAdapter.ActorRestorePlan> actors;
         private readonly DungeonActorGridRestorePlan gridPlan;
@@ -49,7 +49,7 @@ namespace Game.DungeonPersistence.Actors
         }
     }
 
-    public static partial class DungeonActorStateAdapter
+    internal static partial class DungeonActorStateAdapter
     {
         internal sealed class ActorRestorePlan
         {

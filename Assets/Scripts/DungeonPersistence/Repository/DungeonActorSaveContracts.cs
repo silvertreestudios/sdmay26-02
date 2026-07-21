@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json;
 
 namespace Game.DungeonPersistence.Repository
 {
     /// <summary>Represents an integer grid coordinate without depending on a live Unity object.</summary>
-    public readonly struct DungeonSaveCell : IEquatable<DungeonSaveCell>
+    [JsonObject(ItemRequired = Required.Always)]
+    internal readonly struct DungeonSaveCell : IEquatable<DungeonSaveCell>
     {
         /// <summary>Creates a saved horizontal grid coordinate.</summary>
         /// <param name="x">The horizontal X coordinate.</param>
@@ -41,7 +43,8 @@ namespace Game.DungeonPersistence.Repository
     }
 
     /// <summary>Records one source-aware condition application.</summary>
-    public sealed class DungeonConditionSaveState
+    [JsonObject(ItemRequired = Required.Always)]
+    internal sealed class DungeonConditionSaveState
     {
         /// <summary>Creates a condition application that can coexist with other sources.</summary>
         /// <param name="applicationId">The stable identity of this distinct application.</param>
@@ -87,7 +90,8 @@ namespace Game.DungeonPersistence.Repository
     /// canonically omitted because they no longer contribute restorable state. The payload is owned by the
     /// registered discriminator codec; persistence deliberately does not serialize Unity objects.
     /// </summary>
-    public sealed class DungeonTimedEffectSaveState
+    [JsonObject(ItemRequired = Required.Always)]
+    internal sealed class DungeonTimedEffectSaveState
     {
         /// <summary>Creates a durable timed-effect binding record.</summary>
         /// <param name="instanceId">The stable effect instance identifier.</param>
@@ -173,7 +177,8 @@ namespace Game.DungeonPersistence.Repository
     /// Records authoritative health, including temporary-HP ownership and immunities required to
     /// restore later rule behavior exactly.
     /// </summary>
-    public sealed class DungeonHealthSaveState
+    [JsonObject(ItemRequired = Required.Always)]
+    internal sealed class DungeonHealthSaveState
     {
         /// <summary>Creates a complete health record.</summary>
         /// <param name="currentHitPoints">Current nonnegative Hit Points.</param>

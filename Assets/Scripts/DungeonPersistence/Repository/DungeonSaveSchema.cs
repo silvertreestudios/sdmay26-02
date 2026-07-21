@@ -4,7 +4,7 @@ namespace Game.DungeonPersistence.Repository
     /// Defines the only persistence schema versions understood by this development build.
     /// Versions are explicit so incompatible data is rejected before any Unity scene is mutated.
     /// </summary>
-    public static class DungeonSaveSchema
+    internal static class DungeonSaveSchema
     {
         /// <summary>Gets the current run-manifest document version.</summary>
         public const int RunManifestVersion = 1;

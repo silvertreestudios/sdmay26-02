@@ -15,7 +15,7 @@ namespace Game.DungeonPersistence.Autosave
     /// Production uses <see cref="DungeonRuntimeAutosaveCaptureSource"/>. The interface also keeps
     /// tests and non-Unity composition roots isolated from scene objects and filesystem locations.
     /// </remarks>
-    public interface IDungeonAutosaveCaptureSource
+    internal interface IDungeonAutosaveCaptureSource
     {
         /// <summary>Raised only after a durable generated-floor mutation has completed.</summary>
         event Action<DungeonPersistentStateChangeKind> PersistentStateChanged;
@@ -37,13 +37,13 @@ namespace Game.DungeonPersistence.Autosave
     }
 
     /// <summary>Adapts one initialized generated-floor runtime to the autosave scheduler.</summary>
-    public sealed class DungeonRuntimeAutosaveCaptureSource : IDungeonAutosaveCaptureSource
+    internal sealed class DungeonRuntimeAutosaveCaptureSource : IDungeonAutosaveCaptureSource
     {
         private readonly DungeonEncounterRuntimeController runtime;
         private readonly string staticFloorJson;
 
         /// <summary>Creates a capture source for one initialized runtime and immutable topology.</summary>
-        /// <param name="staticFloorJson">Validated pristine generator JSON without runtime state.</param>
+        /// <param name="staticFloorJson">Validated generator JSON, with or without runtime state.</param>
         /// <param name="runtime">The initialized party, door, and encounter runtime.</param>
         public DungeonRuntimeAutosaveCaptureSource(
             string staticFloorJson,
@@ -66,13 +66,26 @@ namespace Game.DungeonPersistence.Autosave
                     nameof(staticFloorJson)
                 );
             }
-            if (parsed.Document.RuntimeState != null)
-                throw new ArgumentException(
-                    "The autosave capture source requires pristine static floor JSON.",
-                    nameof(staticFloorJson)
-                );
-
-            this.staticFloorJson = DungeonLevelJsonSerializer.Serialize(parsed.Document);
+            DungeonLevelDocument document = parsed.Document;
+            DungeonLevelDocument pristine = new(
+                document.Generation,
+                document.Rows,
+                document.Rooms,
+                document.Doors.Select(door => new DungeonDoor(door.Id, door.Cell, false)),
+                document.Stairs,
+                document.StartCell,
+                document.SafeCells,
+                document.Objects,
+                document.EncounterPlans.Select(plan => new DungeonEncounterPlan(
+                    plan.Id,
+                    plan.RoomId,
+                    plan.Threat,
+                    plan.Budget,
+                    plan.SpawnCells,
+                    plan.CreatureIds
+                ))
+            );
+            this.staticFloorJson = DungeonLevelJsonSerializer.Serialize(pristine);
             Depth = parsed.Document.Generation.Depth;
         }
 

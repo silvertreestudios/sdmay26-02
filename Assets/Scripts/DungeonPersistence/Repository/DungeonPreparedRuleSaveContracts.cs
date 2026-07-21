@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace Game.DungeonPersistence.Repository
 {
@@ -7,7 +8,8 @@ namespace Game.DungeonPersistence.Repository
     /// Records one active prepared PF2e effect. Time-based expiration belongs to the matching
     /// <see cref="DungeonTimedEffectSaveState"/> so this record only preserves prepared membership.
     /// </summary>
-    public sealed class DungeonPreparedEffectSaveState
+    [JsonObject(ItemRequired = Required.Always)]
+    internal sealed class DungeonPreparedEffectSaveState
     {
         /// <summary>Creates an active prepared-effect record.</summary>
         /// <param name="effectId">The stable prepared-effect identity.</param>
@@ -41,7 +43,8 @@ namespace Game.DungeonPersistence.Repository
     }
 
     /// <summary>Records one spell-slot or spell-resource pool's meaningful use state.</summary>
-    public sealed class DungeonSpellPoolSaveState
+    [JsonObject(ItemRequired = Required.Always)]
+    internal sealed class DungeonSpellPoolSaveState
     {
         /// <summary>Creates a spell-resource pool record.</summary>
         /// <param name="poolId">The stable pool identity.</param>
@@ -72,7 +75,8 @@ namespace Game.DungeonPersistence.Repository
     /// Records prepared rule state that is mutated during a run rather than regenerated from the
     /// character build alone.
     /// </summary>
-    public sealed class DungeonPreparedRuleSaveState
+    [JsonObject(ItemRequired = Required.Always)]
+    internal sealed class DungeonPreparedRuleSaveState
     {
         /// <summary>Creates a deterministic prepared-rule snapshot.</summary>
         /// <param name="rollOptions">Every active prepared roll option.</param>

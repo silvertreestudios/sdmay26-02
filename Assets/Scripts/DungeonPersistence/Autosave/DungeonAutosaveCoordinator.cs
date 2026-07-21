@@ -17,11 +17,16 @@ namespace Game.DungeonPersistence.Autosave
     /// and removes every subscription while disabled or destroyed.
     /// </remarks>
     [DisallowMultipleComponent]
-    public sealed class DungeonAutosaveCoordinator : MonoBehaviour
+    internal sealed class DungeonAutosaveCoordinator : MonoBehaviour
     {
         private readonly SortedSet<DungeonAutosaveTriggerKind> pendingTriggers = new();
-        private DungeonRunAutosaveSession session;
+        private readonly SortedDictionary<int, DungeonFloorSaveState> committedFloors = new();
+        private IDungeonSaveRepository repository;
         private IDungeonAutosaveCaptureSource captureSource;
+        private DungeonRunSave committedSave;
+        private int startingSeed;
+        private string generatorVersion = string.Empty;
+        private bool hasCommittedSave;
         private bool captureAsNewFloor;
         private bool subscriptionsActive;
         private bool reportedCurrentDeferral;
@@ -42,6 +47,15 @@ namespace Game.DungeonPersistence.Autosave
         public DungeonAutosaveAttemptResult LastResult { get; private set; } =
             DungeonAutosaveAttemptResult.NotAttempted();
 
+        internal bool HasCommittedSave => hasCommittedSave;
+
+        internal DungeonRunSave CommittedSave =>
+            hasCommittedSave
+                ? committedSave
+                : throw new InvalidOperationException(
+                    "A new dungeon run has not committed its first generated floor."
+                );
+
         /// <summary>
         /// Initializes a newly generated floor and immediately requests its first atomic save.
         /// </summary>
@@ -49,12 +63,16 @@ namespace Game.DungeonPersistence.Autosave
         /// <param name="staticFloorJson">The new floor's pristine deterministic generator JSON.</param>
         /// <param name="runtime">The fully initialized generated-floor runtime.</param>
         public void InitializeNewFloor(
-            DungeonRunAutosaveSession session,
+            int runSeed,
+            string algorithm,
+            IDungeonSaveRepository repository,
             string staticFloorJson,
             DungeonEncounterRuntimeController runtime
         ) =>
             InitializeNewFloor(
-                session,
+                runSeed,
+                algorithm,
+                repository,
                 new DungeonRuntimeAutosaveCaptureSource(staticFloorJson, runtime)
             );
 
@@ -66,11 +84,20 @@ namespace Game.DungeonPersistence.Autosave
         /// <param name="captureSource">The explicit isolated runtime capture boundary.</param>
         /// <remarks>This overload allows tests and alternate composition roots to avoid scene globals.</remarks>
         public void InitializeNewFloor(
-            DungeonRunAutosaveSession session,
+            int runSeed,
+            string algorithm,
+            IDungeonSaveRepository repository,
             IDungeonAutosaveCaptureSource captureSource
         )
         {
-            Initialize(session, captureSource, isNewFloor: true);
+            Initialize(
+                runSeed,
+                algorithm,
+                repository,
+                Array.Empty<DungeonFloorSaveState>(),
+                captureSource,
+                isNewFloor: true
+            );
             RequestAndTry(DungeonAutosaveTriggerKind.FloorGenerated);
         }
 
@@ -78,14 +105,16 @@ namespace Game.DungeonPersistence.Autosave
         /// <param name="session">A session restored from one complete repository load.</param>
         /// <param name="runtime">The fully restored generated-floor runtime.</param>
         public void InitializeRestoredFloor(
-            DungeonRunAutosaveSession session,
+            DungeonRunSave save,
+            IDungeonSaveRepository repository,
             DungeonEncounterRuntimeController runtime
         )
         {
-            DungeonFloorSaveState floor = RequireCurrentCommittedFloor(session);
+            DungeonFloorSaveState floor = RequireCurrentFloor(save);
             InitializeRestoredFloor(
-                session,
-                new DungeonRuntimeAutosaveCaptureSource(floor.StaticFloorJson, runtime)
+                save,
+                repository,
+                new DungeonRuntimeAutosaveCaptureSource(floor.DocumentJson, runtime)
             );
         }
 
@@ -97,11 +126,12 @@ namespace Game.DungeonPersistence.Autosave
         /// restored floor while retaining defeated actor records from the committed state.
         /// </remarks>
         public void InitializeRestoredFloor(
-            DungeonRunAutosaveSession session,
+            DungeonRunSave save,
+            IDungeonSaveRepository repository,
             IDungeonAutosaveCaptureSource captureSource
         )
         {
-            DungeonFloorSaveState floor = RequireCurrentCommittedFloor(session);
+            DungeonFloorSaveState floor = RequireCurrentFloor(save);
             if (captureSource == null)
                 throw new ArgumentNullException(nameof(captureSource));
             if (floor.Depth != captureSource.Depth)
@@ -109,7 +139,16 @@ namespace Game.DungeonPersistence.Autosave
                     "The restored capture source must match the run's current depth.",
                     nameof(captureSource)
                 );
-            Initialize(session, captureSource, isNewFloor: false);
+            Initialize(
+                save.Manifest.StartingSeed,
+                save.Manifest.GeneratorVersion,
+                repository,
+                save.Floors,
+                captureSource,
+                isNewFloor: false
+            );
+            committedSave = save;
+            hasCommittedSave = true;
         }
 
         /// <summary>
@@ -152,7 +191,10 @@ namespace Game.DungeonPersistence.Autosave
         }
 
         private void Initialize(
-            DungeonRunAutosaveSession runSession,
+            int runSeed,
+            string algorithm,
+            IDungeonSaveRepository saveRepository,
+            IEnumerable<DungeonFloorSaveState> floors,
             IDungeonAutosaveCaptureSource source,
             bool isNewFloor
         )
@@ -161,12 +203,19 @@ namespace Game.DungeonPersistence.Autosave
                 throw new InvalidOperationException(
                     "A dungeon autosave coordinator can only be initialized once."
                 );
-            session = runSession ?? throw new ArgumentNullException(nameof(runSession));
+            if (string.IsNullOrWhiteSpace(algorithm))
+                throw new ArgumentException(
+                    "A stable generator version is required.",
+                    nameof(algorithm)
+                );
+            repository = saveRepository ?? throw new ArgumentNullException(nameof(saveRepository));
             captureSource = source ?? throw new ArgumentNullException(nameof(source));
+            startingSeed = runSeed;
+            generatorVersion = algorithm;
+            foreach (DungeonFloorSaveState floor in floors)
+                committedFloors.Add(floor.Depth, floor);
 
-            bool depthAlreadyCommitted =
-                session.HasCommittedSave
-                && session.CommittedSave.Floors.Any(floor => floor.Depth == source.Depth);
+            bool depthAlreadyCommitted = committedFloors.ContainsKey(source.Depth);
             if (isNewFloor && depthAlreadyCommitted)
                 throw new ArgumentException(
                     "A newly generated floor cannot replace an already committed depth.",
@@ -224,7 +273,7 @@ namespace Game.DungeonPersistence.Autosave
             {
                 capture = captureAsNewFloor
                     ? captureSource.CaptureNew()
-                    : captureSource.CaptureExisting(session.RequireFloor(captureSource.Depth));
+                    : captureSource.CaptureExisting(committedFloors[captureSource.Depth]);
             }
             catch (Exception exception)
             {
@@ -232,10 +281,10 @@ namespace Game.DungeonPersistence.Autosave
                 return Publish(DungeonAutosaveAttemptResult.CaptureFailed(triggers, exception));
             }
 
-            DungeonSaveWriteResult write;
+            DungeonSaveResult<bool> write;
             try
             {
-                write = session.CommitCurrentFloor(capture);
+                write = CommitCurrentFloor(capture);
             }
             catch (Exception exception)
             {
@@ -274,18 +323,40 @@ namespace Game.DungeonPersistence.Autosave
                 );
         }
 
-        private static DungeonFloorSaveState RequireCurrentCommittedFloor(
-            DungeonRunAutosaveSession session
-        )
+        private DungeonSaveResult<bool> CommitCurrentFloor(DungeonCurrentFloorCapture capture)
         {
-            if (session == null)
-                throw new ArgumentNullException(nameof(session));
-            if (!session.HasCommittedSave)
-                throw new ArgumentException(
-                    "A restored floor requires a completely loaded committed save.",
-                    nameof(session)
-                );
-            return session.RequireFloor(session.CommittedSave.Manifest.CurrentDepth);
+            SortedDictionary<int, DungeonFloorSaveState> candidateFloors = new(committedFloors)
+            {
+                [capture.Floor.Depth] = capture.Floor,
+            };
+            DungeonRunSave candidate = new(
+                new DungeonRunSaveManifest(
+                    DungeonSaveSchema.RunManifestVersion,
+                    startingSeed,
+                    generatorVersion,
+                    capture.Floor.Depth,
+                    capture.Party,
+                    candidateFloors.Keys.Select(DungeonFloorSaveReference.Current)
+                ),
+                candidateFloors.Values
+            );
+            DungeonSaveResult<bool> result = repository.Save(candidate);
+            if (!result.IsSuccess)
+                return result;
+
+            committedFloors.Clear();
+            foreach (KeyValuePair<int, DungeonFloorSaveState> floor in candidateFloors)
+                committedFloors.Add(floor.Key, floor.Value);
+            committedSave = candidate;
+            hasCommittedSave = true;
+            return result;
+        }
+
+        private static DungeonFloorSaveState RequireCurrentFloor(DungeonRunSave save)
+        {
+            if (save == null)
+                throw new ArgumentNullException(nameof(save));
+            return save.Floors.Single(floor => floor.Depth == save.Manifest.CurrentDepth);
         }
 
         private void Subscribe()

@@ -9,18 +9,19 @@ using UnityEngine;
 /// </summary>
 public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
 {
-    protected Dictionary<string, List<ConditionPersistenceApplication>> AppliedConditions = new();
+    private readonly Dictionary<string, List<ConditionPersistenceApplication>> appliedConditions =
+        new();
 
     /// <summary>
     /// Active condition names used by UI and condition modifier mapping; source details remain internal to this component.
     /// </summary>
-    public IReadOnlyCollection<string> ActiveConditionNames => AppliedConditions.Keys;
+    public IReadOnlyCollection<string> ActiveConditionNames => appliedConditions.Keys;
 
     /// <summary>
     /// Gets whether this fresh component can receive a complete persistent replacement without
     /// orphaning reverse links held by existing condition sources.
     /// </summary>
-    public bool CanRestorePersistentState => AppliedConditions.Count == 0;
+    internal bool CanRestorePersistentState => appliedConditions.Count == 0;
 
     /// <summary>
     /// Adds a condition from a specific source, preserving multiple sources for the same condition.
@@ -53,8 +54,8 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
 
         List<ConditionPersistenceApplication> applications;
         ConditionPersistenceApplication application = new(condition, value, source, applicationId);
-        if (!AppliedConditions.TryGetValue(application.ConditionId, out applications))
-            AppliedConditions.Add(
+        if (!appliedConditions.TryGetValue(application.ConditionId, out applications))
+            appliedConditions.Add(
                 application.ConditionId,
                 new List<ConditionPersistenceApplication> { application }
             );
@@ -73,7 +74,7 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
         string conditionId = NormalizeConditionId(condition);
         List<ConditionPersistenceApplication> applications;
         return conditionId.Length > 0
-            && AppliedConditions.TryGetValue(conditionId, out applications)
+            && appliedConditions.TryGetValue(conditionId, out applications)
             && applications.Any(application => application.Source == source);
     }
 
@@ -85,7 +86,7 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     public bool Contains(string condition)
     {
         string conditionId = NormalizeConditionId(condition);
-        return conditionId.Length > 0 && AppliedConditions.TryGetValue(conditionId, out _);
+        return conditionId.Length > 0 && appliedConditions.TryGetValue(conditionId, out _);
     }
 
     /// <summary>
@@ -94,21 +95,21 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     /// <returns>The active condition names without their source details.</returns>
     public IReadOnlyCollection<string> GetConditionNames()
     {
-        return new List<string>(AppliedConditions.Keys);
+        return new List<string>(appliedConditions.Keys);
     }
 
     /// <summary>Captures every condition application, including duplicate shared sources.</summary>
     /// <returns>
     /// A copied sequence ordered by condition ID while preserving same-condition application order.
     /// </returns>
-    public IReadOnlyList<ConditionPersistenceApplication> CapturePersistentState()
+    internal IReadOnlyList<ConditionPersistenceApplication> CapturePersistentState()
     {
         List<ConditionPersistenceApplication> captured = new();
         foreach (
             KeyValuePair<
                 string,
                 List<ConditionPersistenceApplication>
-            > pair in AppliedConditions.OrderBy(pair => pair.Key, System.StringComparer.Ordinal)
+            > pair in appliedConditions.OrderBy(pair => pair.Key, System.StringComparer.Ordinal)
         )
         {
             captured.AddRange(pair.Value);
@@ -122,7 +123,7 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     /// </summary>
     /// <param name="applications">The fully validated applications to restore.</param>
     /// <exception cref="System.InvalidOperationException">The component already has conditions.</exception>
-    public void RestorePersistentState(IEnumerable<ConditionPersistenceApplication> applications)
+    internal void RestorePersistentState(IEnumerable<ConditionPersistenceApplication> applications)
     {
         if (!CanRestorePersistentState)
             throw new System.InvalidOperationException(
@@ -160,13 +161,13 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
         if (conditionId.Length == 0)
             return;
         List<ConditionPersistenceApplication> applications;
-        if (AppliedConditions.TryGetValue(conditionId, out applications))
+        if (appliedConditions.TryGetValue(conditionId, out applications))
         {
             int index = applications.FindIndex(application => application.Source == source);
             if (index >= 0)
                 applications.RemoveAt(index);
             if (applications.Count < 1)
-                AppliedConditions.Remove(conditionId);
+                appliedConditions.Remove(conditionId);
         }
     }
 

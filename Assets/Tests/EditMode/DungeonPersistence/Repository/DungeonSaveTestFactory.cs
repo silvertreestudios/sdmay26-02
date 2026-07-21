@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence.Repository;
 
@@ -60,46 +61,55 @@ namespace Tests.EditMode.DungeonPersistence.Repository
         {
             string activeId = EncounterId(depth, "active");
             string clearedId = EncounterId(depth, "cleared");
+            DungeonLevelDocument source = CreateStaticFloor(depth);
+            DungeonCreatureSaveState living = CreateCreature(
+                DungeonCreatureInstanceIdentity.Create(activeId, 0),
+                "kobold-warrior",
+                new DungeonSaveCell(2, 2),
+                7,
+                12,
+                richState: false
+            );
+            DungeonRuntimeState runtime = new(
+                doorOpen ? new[] { DoorId(depth) } : Array.Empty<string>(),
+                new[] { clearedId },
+                new[] { DungeonCreatureInstanceIdentity.Create(clearedId, 0) },
+                new[]
+                {
+                    new DungeonCreatureRuntimeState(
+                        living.InstanceId,
+                        living.CreatureContentId,
+                        activeId,
+                        new DungeonCell(living.Cell.X, living.Cell.Z),
+                        living.Health.CurrentHitPoints,
+                        DungeonSaveJsonCodec.SerializeCreature(living)
+                    ),
+                }
+            );
+            DungeonLevelDocument complete = new(
+                source.Generation,
+                source.Rows,
+                source.Rooms,
+                source.Doors.Select(door => new DungeonDoor(door.Id, door.Cell, doorOpen)),
+                source.Stairs,
+                source.StartCell,
+                source.SafeCells,
+                source.Objects,
+                source.EncounterPlans.Select(plan => new DungeonEncounterPlan(
+                    plan.Id,
+                    plan.RoomId,
+                    plan.Threat,
+                    plan.Budget,
+                    plan.SpawnCells,
+                    plan.CreatureIds,
+                    plan.Id == clearedId
+                )),
+                runtime
+            );
             return new DungeonFloorSaveState(
                 DungeonSaveSchema.FloorStateVersion,
                 depth,
-                CreateStaticFloorJson(depth),
-                new[] { new DungeonDoorSaveState(DoorId(depth), doorOpen) },
-                new[]
-                {
-                    new DungeonEncounterSaveState(
-                        activeId,
-                        depth == 0
-                            ? DungeonEncounterSaveStatus.Active
-                            : DungeonEncounterSaveStatus.Suspended
-                    ),
-                    new DungeonEncounterSaveState(clearedId, DungeonEncounterSaveStatus.Cleared),
-                },
-                new[]
-                {
-                    new DungeonEncounterCreatureSaveState(
-                        activeId,
-                        CreateCreature(
-                            DungeonCreatureInstanceIdentity.Create(activeId, 0),
-                            "kobold-warrior",
-                            new DungeonSaveCell(2, 2),
-                            7,
-                            12,
-                            richState: false
-                        )
-                    ),
-                    new DungeonEncounterCreatureSaveState(
-                        clearedId,
-                        CreateCreature(
-                            DungeonCreatureInstanceIdentity.Create(clearedId, 0),
-                            "kobold-scout",
-                            new DungeonSaveCell(6, 2),
-                            0,
-                            10,
-                            richState: false
-                        )
-                    ),
-                }
+                DungeonLevelJsonSerializer.Serialize(complete)
             );
         }
 
@@ -134,14 +144,14 @@ namespace Tests.EditMode.DungeonPersistence.Repository
                 {
                     new DungeonTimedEffectSaveState(
                         "timed-bless",
-                        "aura",
-                        "bless-state-v1",
+                        "bless",
+                        "legacy-spell-effect/v1",
                         "party-0000",
                         "party-0000",
                         instanceId,
                         3,
                         2,
-                        "{\"z\":2,\"a\":1}"
+                        "{}"
                     ),
                 }
                 : Array.Empty<DungeonTimedEffectSaveState>();
@@ -208,9 +218,9 @@ namespace Tests.EditMode.DungeonPersistence.Repository
             );
         }
 
-        private static string CreateStaticFloorJson(int depth)
+        private static DungeonLevelDocument CreateStaticFloor(int depth)
         {
-            DungeonLevelDocument document = new(
+            return new DungeonLevelDocument(
                 new DungeonGenerationMetadata(GeneratorVersion, Seed, depth, 0),
                 new[] { "#########", "#...#...#", "#...D...#", "#...#...#", "#########" },
                 new[] { new DungeonRoom(1, 1, 1, 3, 3), new DungeonRoom(2, 5, 1, 7, 3) },
@@ -239,7 +249,6 @@ namespace Tests.EditMode.DungeonPersistence.Repository
                     ),
                 }
             );
-            return DungeonLevelJsonSerializer.Serialize(document);
         }
 
         private static string DoorId(int depth) => "door";

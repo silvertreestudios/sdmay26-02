@@ -6,7 +6,7 @@ using Game.DungeonPersistence.Repository;
 namespace Game.DungeonPersistence.Autosave
 {
     /// <summary>Identifies the stable gameplay boundary that requested an autosave.</summary>
-    public enum DungeonAutosaveTriggerKind
+    internal enum DungeonAutosaveTriggerKind
     {
         /// <summary>A new deterministic floor finished generation and runtime initialization.</summary>
         FloorGenerated,
@@ -31,7 +31,7 @@ namespace Game.DungeonPersistence.Autosave
     }
 
     /// <summary>Classifies the result of the most recent coordinator attempt.</summary>
-    public enum DungeonAutosaveAttemptOutcome
+    internal enum DungeonAutosaveAttemptOutcome
     {
         /// <summary>No autosave has been requested since coordinator initialization.</summary>
         NotAttempted,
@@ -49,53 +49,15 @@ namespace Game.DungeonPersistence.Autosave
         WriteFailed,
     }
 
-    /// <summary>Provides stable coordinator-specific diagnostic categories.</summary>
-    public enum DungeonAutosaveCoordinatorDiagnosticCode
-    {
-        /// <summary>At least one actor was still applying an action.</summary>
-        ActorsBusy,
-
-        /// <summary>The live runtime could not produce one exact current-floor capture.</summary>
-        CaptureFailed,
-
-        /// <summary>The atomic session commit threw before returning a repository result.</summary>
-        CommitFailed,
-    }
-
-    /// <summary>Reports a coordinator failure or deferral independently of repository diagnostics.</summary>
-    public sealed class DungeonAutosaveCoordinatorDiagnostic
-    {
-        /// <summary>Creates one stable autosave-coordinator diagnostic.</summary>
-        /// <param name="code">The programmatic category for UI and telemetry.</param>
-        /// <param name="message">A concise actionable explanation.</param>
-        public DungeonAutosaveCoordinatorDiagnostic(
-            DungeonAutosaveCoordinatorDiagnosticCode code,
-            string message
-        )
-        {
-            if (!Enum.IsDefined(typeof(DungeonAutosaveCoordinatorDiagnosticCode), code))
-                throw new ArgumentOutOfRangeException(nameof(code));
-            Code = code;
-            Message = message ?? string.Empty;
-        }
-
-        /// <summary>Gets the programmatic diagnostic category.</summary>
-        public DungeonAutosaveCoordinatorDiagnosticCode Code { get; }
-
-        /// <summary>Gets the explanation suitable for logs or status UI.</summary>
-        public string Message { get; }
-    }
-
     /// <summary>
     /// Describes one save, deferral, or failure without exposing a partial save transaction.
     /// </summary>
-    public sealed class DungeonAutosaveAttemptResult
+    internal sealed class DungeonAutosaveAttemptResult
     {
         private DungeonAutosaveAttemptResult(
             DungeonAutosaveAttemptOutcome outcome,
             IEnumerable<DungeonAutosaveTriggerKind> triggers,
-            IEnumerable<DungeonAutosaveCoordinatorDiagnostic> coordinatorDiagnostics,
-            IEnumerable<DungeonSaveDiagnostic> repositoryDiagnostics
+            IEnumerable<DungeonSaveDiagnostic> diagnostics
         )
         {
             if (!Enum.IsDefined(typeof(DungeonAutosaveAttemptOutcome), outcome))
@@ -107,17 +69,8 @@ namespace Game.DungeonPersistence.Autosave
                     .OrderBy(trigger => trigger)
                     .ToArray()
             );
-            CoordinatorDiagnostics = Array.AsReadOnly(
-                (
-                    coordinatorDiagnostics
-                    ?? throw new ArgumentNullException(nameof(coordinatorDiagnostics))
-                ).ToArray()
-            );
-            RepositoryDiagnostics = Array.AsReadOnly(
-                (
-                    repositoryDiagnostics
-                    ?? throw new ArgumentNullException(nameof(repositoryDiagnostics))
-                ).ToArray()
+            Diagnostics = Array.AsReadOnly(
+                (diagnostics ?? throw new ArgumentNullException(nameof(diagnostics))).ToArray()
             );
         }
 
@@ -130,17 +83,13 @@ namespace Game.DungeonPersistence.Autosave
         /// <summary>Gets every coalesced gameplay boundary covered by this attempt.</summary>
         public IReadOnlyList<DungeonAutosaveTriggerKind> Triggers { get; }
 
-        /// <summary>Gets capture, scheduling, or unexpected commit diagnostics.</summary>
-        public IReadOnlyList<DungeonAutosaveCoordinatorDiagnostic> CoordinatorDiagnostics { get; }
-
-        /// <summary>Gets validation and I/O diagnostics returned by the atomic repository.</summary>
-        public IReadOnlyList<DungeonSaveDiagnostic> RepositoryDiagnostics { get; }
+        /// <summary>Gets capture, scheduling, validation, or I/O diagnostics.</summary>
+        public IReadOnlyList<DungeonSaveDiagnostic> Diagnostics { get; }
 
         internal static DungeonAutosaveAttemptResult NotAttempted() =>
             new(
                 DungeonAutosaveAttemptOutcome.NotAttempted,
                 Array.Empty<DungeonAutosaveTriggerKind>(),
-                Array.Empty<DungeonAutosaveCoordinatorDiagnostic>(),
                 Array.Empty<DungeonSaveDiagnostic>()
             );
 
@@ -152,12 +101,13 @@ namespace Game.DungeonPersistence.Autosave
                 triggers,
                 new[]
                 {
-                    new DungeonAutosaveCoordinatorDiagnostic(
-                        DungeonAutosaveCoordinatorDiagnosticCode.ActorsBusy,
+                    new DungeonSaveDiagnostic(
+                        DungeonSaveDiagnosticCode.InvalidSnapshot,
+                        DungeonSaveDiagnosticSeverity.Warning,
+                        "autosave",
                         "Autosave is queued until every actor action has completed."
                     ),
-                },
-                Array.Empty<DungeonSaveDiagnostic>()
+                }
             );
 
         internal static DungeonAutosaveAttemptResult CaptureFailed(
@@ -170,12 +120,10 @@ namespace Game.DungeonPersistence.Autosave
                 new[]
                 {
                     ExceptionDiagnostic(
-                        DungeonAutosaveCoordinatorDiagnosticCode.CaptureFailed,
                         "The current dungeon floor could not be captured",
                         exception
                     ),
-                },
-                Array.Empty<DungeonSaveDiagnostic>()
+                }
             );
 
         internal static DungeonAutosaveAttemptResult CommitFailed(
@@ -188,17 +136,15 @@ namespace Game.DungeonPersistence.Autosave
                 new[]
                 {
                     ExceptionDiagnostic(
-                        DungeonAutosaveCoordinatorDiagnosticCode.CommitFailed,
                         "The autosave transaction could not be committed",
                         exception
                     ),
-                },
-                Array.Empty<DungeonSaveDiagnostic>()
+                }
             );
 
         internal static DungeonAutosaveAttemptResult FromWrite(
             IEnumerable<DungeonAutosaveTriggerKind> triggers,
-            DungeonSaveWriteResult write
+            DungeonSaveResult<bool> write
         )
         {
             if (write == null)
@@ -208,21 +154,21 @@ namespace Game.DungeonPersistence.Autosave
                     ? DungeonAutosaveAttemptOutcome.Saved
                     : DungeonAutosaveAttemptOutcome.WriteFailed,
                 triggers,
-                Array.Empty<DungeonAutosaveCoordinatorDiagnostic>(),
                 write.Diagnostics
             );
         }
 
-        private static DungeonAutosaveCoordinatorDiagnostic ExceptionDiagnostic(
-            DungeonAutosaveCoordinatorDiagnosticCode code,
+        private static DungeonSaveDiagnostic ExceptionDiagnostic(
             string context,
             Exception exception
         )
         {
             if (exception == null)
                 throw new ArgumentNullException(nameof(exception));
-            return new DungeonAutosaveCoordinatorDiagnostic(
-                code,
+            return new DungeonSaveDiagnostic(
+                DungeonSaveDiagnosticCode.InvalidSnapshot,
+                DungeonSaveDiagnosticSeverity.Error,
+                "autosave",
                 $"{context}: {exception.GetType().Name}: {exception.Message}"
             );
         }

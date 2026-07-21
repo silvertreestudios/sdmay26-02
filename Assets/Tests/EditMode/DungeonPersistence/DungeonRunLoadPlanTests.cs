@@ -11,10 +11,10 @@ public sealed class DungeonRunLoadPlanTests
     {
         DungeonRunSave source = WithSupportedPartyState(DungeonSaveTestFactory.CreateRun());
 
-        DungeonRunLoadPreparationResult result = DungeonRunLoadPlan.Prepare(source);
+        DungeonSaveResult<DungeonRunLoadPlan> result = DungeonRunLoadPlan.Prepare(source);
 
-        Assert.That(result, Is.TypeOf<DungeonRunLoadPreparationSuccess>());
-        DungeonRunLoadPlan plan = ((DungeonRunLoadPreparationSuccess)result).Plan;
+        Assert.That(result.IsSuccess, Is.True);
+        DungeonRunLoadPlan plan = result.Value;
         Assert.That(plan.CurrentFloor.Depth, Is.EqualTo(source.Manifest.CurrentDepth));
         Assert.That(plan.PopulationDocument.RuntimeState, Is.Not.Null);
         Assert.That(plan.PopulationDocument.RuntimeState.OpenDoorIds, Is.EqualTo(new[] { "door" }));
@@ -32,15 +32,14 @@ public sealed class DungeonRunLoadPlanTests
     [Test]
     public void PrepareRejectsUnsupportedActorCodecBeforePopulationDocumentIsExposed()
     {
-        DungeonRunSave source = DungeonSaveTestFactory.CreateRun();
+        DungeonRunSave source = WithUnsupportedPartyState(DungeonSaveTestFactory.CreateRun());
 
-        DungeonRunLoadPreparationResult result = DungeonRunLoadPlan.Prepare(source);
+        DungeonSaveResult<DungeonRunLoadPlan> result = DungeonRunLoadPlan.Prepare(source);
 
-        Assert.That(result, Is.TypeOf<DungeonRunLoadPreparationFailure>());
         Assert.That(result.IsSuccess, Is.False);
         Assert.That(
             result.Diagnostics.Select(item => item.Code),
-            Does.Contain(DungeonSaveDiagnosticCode.IncompatibleVersion)
+            Does.Contain(DungeonSaveDiagnosticCode.InvalidSnapshot)
         );
         Assert.That(result.Diagnostics[0].Message, Does.Contain("unsupported kind").IgnoreCase);
     }
@@ -63,6 +62,55 @@ public sealed class DungeonRunLoadPlanTests
                 new DungeonPartyMemberSaveState(
                     source.Manifest.Party.Members[0].RosterSlotId,
                     leader
+                ),
+                source.Manifest.Party.Members[1],
+            }
+        );
+        DungeonRunSaveManifest manifest = new(
+            source.Manifest.DocumentVersion,
+            source.Manifest.StartingSeed,
+            source.Manifest.GeneratorVersion,
+            source.Manifest.CurrentDepth,
+            party,
+            source.Manifest.GeneratedFloors
+        );
+        return new DungeonRunSave(manifest, source.Floors);
+    }
+
+    private static DungeonRunSave WithUnsupportedPartyState(DungeonRunSave source)
+    {
+        DungeonCreatureSaveState oldLeader = source.Manifest.Party.Members[0].Creature;
+        DungeonCreatureSaveState invalidLeader = new(
+            oldLeader.InstanceId,
+            oldLeader.CreatureContentId,
+            oldLeader.Cell,
+            oldLeader.Health,
+            oldLeader.IsDefeated,
+            oldLeader.Conditions,
+            new[]
+            {
+                new DungeonTimedEffectSaveState(
+                    "unsupported-effect",
+                    "unsupported-kind",
+                    "legacy-spell-effect/v1",
+                    oldLeader.InstanceId,
+                    oldLeader.InstanceId,
+                    oldLeader.InstanceId,
+                    1,
+                    1,
+                    "{}"
+                ),
+            },
+            oldLeader.PreparedRules,
+            oldLeader.Equipment
+        );
+        DungeonPartySaveState party = new(
+            source.Manifest.Party.LeaderRosterSlotId,
+            new[]
+            {
+                new DungeonPartyMemberSaveState(
+                    source.Manifest.Party.Members[0].RosterSlotId,
+                    invalidLeader
                 ),
                 source.Manifest.Party.Members[1],
             }

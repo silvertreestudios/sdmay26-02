@@ -1,8 +1,8 @@
 using System;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using Game.DungeonPersistence.Repository;
-using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -21,7 +21,7 @@ namespace Tests.EditMode.DungeonPersistence.Repository
             testRoot = Path.Combine(
                 projectRoot,
                 ".agent-temp",
-                "ds-r",
+                "dungeon-save-tests",
                 Guid.NewGuid().ToString("N")
             );
             Directory.CreateDirectory(testRoot);
@@ -36,60 +36,49 @@ namespace Tests.EditMode.DungeonPersistence.Repository
         }
 
         [Test]
-        public void SaveAndLoadRoundTripsOneAtomicMultiFloorAutosave()
+        public void SaveAndLoadRoundTripsOneAtomicMultiFloorArchive()
         {
             DungeonRunSave expected = DungeonSaveTestFactory.CreateRun();
 
-            DungeonSaveWriteResult written = repository.Save(expected);
-            DungeonSaveLoadResult loaded = repository.Load();
+            DungeonSaveResult<bool> written = repository.Save(expected);
+            DungeonSaveResult<DungeonRunSave> loaded = repository.Load();
 
             Assert.That(written.IsSuccess, Is.True, Format(written.Diagnostics));
-            Assert.That(loaded, Is.TypeOf<DungeonSaveLoadSuccess>());
-            DungeonRunSave actual = ((DungeonSaveLoadSuccess)loaded).Save;
+            Assert.That(loaded.IsSuccess, Is.True);
+            DungeonRunSave actual = loaded.Value;
             Assert.That(
                 DungeonSaveJsonCodec.SerializeRun(actual),
                 Is.EqualTo(DungeonSaveJsonCodec.SerializeRun(expected))
             );
+
+            string archivePath = Path.Combine(testRoot, "autosave.zip");
+            Assert.That(File.Exists(archivePath), Is.True);
+            using ZipArchive archive = ZipFile.OpenRead(archivePath);
             Assert.That(
-                actual.Floors[0].StaticFloorJson,
-                Is.EqualTo(expected.Floors[0].StaticFloorJson)
+                archive.Entries.Select(entry => entry.FullName),
+                Is.EquivalentTo(
+                    new[] { "manifest.json", "floors/depth-0000.json", "floors/depth-0001.json" }
+                )
             );
-            Assert.That(File.Exists(Path.Combine(testRoot, "current.json")), Is.True);
         }
 
         [Test]
         public void MissingSaveReturnsStructuredDiagnosticWithoutCreatingFiles()
         {
-            DungeonSaveLoadResult result = repository.Load();
+            DungeonSaveResult<DungeonRunSave> result = repository.Load();
 
-            Assert.That(result, Is.TypeOf<DungeonSaveLoadFailure>());
-            Assert.That(result.Diagnostics.Count, Is.EqualTo(1));
+            Assert.That(result.IsSuccess, Is.False);
+            Assert.That(result.Diagnostics, Has.Count.EqualTo(1));
             Assert.That(
                 result.Diagnostics[0].Code,
                 Is.EqualTo(DungeonSaveDiagnosticCode.MissingSave)
             );
-            Assert.That(result.Diagnostics[0].Path, Is.EqualTo("current.json"));
+            Assert.That(result.Diagnostics[0].Path, Is.EqualTo("autosave.zip"));
             Assert.That(Directory.GetFileSystemEntries(testRoot), Is.Empty);
         }
 
         [Test]
-        public void CorruptOnlyGenerationReturnsStructuredDiagnosticAndNoPartialSave()
-        {
-            Assert.That(repository.Save(DungeonSaveTestFactory.CreateRun()).IsSuccess, Is.True);
-            string generation = CurrentGenerationPath(testRoot);
-            File.WriteAllText(Path.Combine(generation, "floors", "depth-0000.json"), "{not-json");
-
-            DungeonSaveLoadResult result = repository.Load();
-
-            Assert.That(result, Is.TypeOf<DungeonSaveLoadFailure>());
-            Assert.That(
-                result.Diagnostics[0].Code,
-                Is.EqualTo(DungeonSaveDiagnosticCode.CorruptSave)
-            );
-        }
-
-        [Test]
-        public void IncompatibleWriteLeavesPreviousValidAutosaveCurrent()
+        public void IncompatibleWriteLeavesPreviousAutosaveCurrent()
         {
             DungeonRunSave previous = DungeonSaveTestFactory.CreateRun(leaderHitPoints: 18);
             Assert.That(repository.Save(previous).IsSuccess, Is.True);
@@ -106,165 +95,53 @@ namespace Tests.EditMode.DungeonPersistence.Repository
                 previous.Floors
             );
 
-            DungeonSaveWriteResult rejected = repository.Save(incompatible);
-            DungeonRunSave loaded = ((DungeonSaveLoadSuccess)repository.Load()).Save;
+            DungeonSaveResult<bool> rejected = repository.Save(incompatible);
 
             Assert.That(rejected.IsSuccess, Is.False);
             Assert.That(
                 rejected.Diagnostics[0].Code,
                 Is.EqualTo(DungeonSaveDiagnosticCode.IncompatibleVersion)
             );
-            Assert.That(
-                DungeonSaveJsonCodec.SerializeRun(loaded),
-                Is.EqualTo(DungeonSaveJsonCodec.SerializeRun(previous))
-            );
+            AssertRunEquals(previous, LoadSuccess(repository));
         }
 
         [Test]
-        public void InvalidPlanCoverageLeavesPreviousValidAutosaveCurrent()
+        public void CorruptOnlyArchiveReturnsNoPartialSave()
         {
-            DungeonRunSave previous = DungeonSaveTestFactory.CreateRun();
-            Assert.That(repository.Save(previous).IsSuccess, Is.True);
-            DungeonFloorSaveState validFloor = previous.Floors[0];
-            DungeonEncounterCreatureSaveState validActive = validFloor.Creatures.Single(creature =>
-                creature.EncounterId == "encounter-active"
-            );
-            DungeonEncounterCreatureSaveState invalidActive = new(
-                "encounter-active",
-                DungeonSaveTestFactory.CreateCreature(
-                    "arbitrary-instance",
-                    validActive.Creature.CreatureContentId,
-                    validActive.Creature.Cell,
-                    validActive.Creature.Health.CurrentHitPoints,
-                    validActive.Creature.Health.MaximumHitPoints,
-                    richState: false
-                )
-            );
-            DungeonFloorSaveState invalidFloor = new(
-                validFloor.DocumentVersion,
-                validFloor.Depth,
-                validFloor.StaticFloorJson,
-                validFloor.Doors,
-                validFloor.Encounters,
-                validFloor.Creatures.Select(creature =>
-                    creature == validActive ? invalidActive : creature
-                )
-            );
-            DungeonRunSave invalid = new(
-                previous.Manifest,
-                previous.Floors.Select(floor =>
-                    floor.Depth == invalidFloor.Depth ? invalidFloor : floor
-                )
-            );
+            Assert.That(repository.Save(DungeonSaveTestFactory.CreateRun()).IsSuccess, Is.True);
+            File.WriteAllText(Path.Combine(testRoot, "autosave.zip"), "{not-an-archive");
 
-            DungeonSaveWriteResult rejected = repository.Save(invalid);
-            DungeonRunSave loaded = ((DungeonSaveLoadSuccess)repository.Load()).Save;
-
-            Assert.That(rejected.IsSuccess, Is.False);
-            Assert.That(
-                rejected.Diagnostics.Any(diagnostic =>
-                    diagnostic.Code == DungeonSaveDiagnosticCode.InvalidSnapshot
-                    && diagnostic.Message.Contains("plan-derived")
-                ),
-                Is.True,
-                Format(rejected.Diagnostics)
-            );
-            Assert.That(
-                DungeonSaveJsonCodec.SerializeRun(loaded),
-                Is.EqualTo(DungeonSaveJsonCodec.SerializeRun(previous))
-            );
-        }
-
-        [Test]
-        public void LivingActorCannotOccupyAClosedDoorCell()
-        {
-            DungeonRunSave valid = DungeonSaveTestFactory.CreateRun(firstDoorOpen: false);
-            DungeonFloorSaveState validFloor = valid.Floors[0];
-            DungeonEncounterCreatureSaveState validActive = validFloor.Creatures.Single(creature =>
-                creature.EncounterId == "encounter-active"
-            );
-            DungeonEncounterCreatureSaveState actorOnClosedDoor = new(
-                validActive.EncounterId,
-                DungeonSaveTestFactory.CreateCreature(
-                    validActive.Creature.InstanceId,
-                    validActive.Creature.CreatureContentId,
-                    new DungeonSaveCell(4, 2),
-                    validActive.Creature.Health.CurrentHitPoints,
-                    validActive.Creature.Health.MaximumHitPoints,
-                    richState: false
-                )
-            );
-            DungeonFloorSaveState invalidFloor = new(
-                validFloor.DocumentVersion,
-                validFloor.Depth,
-                validFloor.StaticFloorJson,
-                validFloor.Doors,
-                validFloor.Encounters,
-                validFloor.Creatures.Select(creature =>
-                    creature == validActive ? actorOnClosedDoor : creature
-                )
-            );
-            DungeonRunSave invalid = new(
-                valid.Manifest,
-                valid.Floors.Select(floor => floor.Depth == 0 ? invalidFloor : floor)
-            );
-
-            DungeonSaveWriteResult result = repository.Save(invalid);
+            DungeonSaveResult<DungeonRunSave> result = repository.Load();
 
             Assert.That(result.IsSuccess, Is.False);
             Assert.That(
-                result.Diagnostics.Any(diagnostic =>
-                    diagnostic.Message.Contains("walkable static-floor cell")
-                ),
-                Is.True,
-                Format(result.Diagnostics)
-            );
-            Assert.That(
-                repository.Load().Diagnostics[0].Code,
-                Is.EqualTo(DungeonSaveDiagnosticCode.MissingSave)
+                result.Diagnostics[0].Code,
+                Is.EqualTo(DungeonSaveDiagnosticCode.CorruptSave)
             );
         }
 
         [Test]
-        public void StagedButUncommittedTransactionIsIgnored()
+        public void AbandonedTemporaryArchiveIsIgnored()
         {
             DungeonRunSave expected = DungeonSaveTestFactory.CreateRun();
             Assert.That(repository.Save(expected).IsSuccess, Is.True);
-            string abandoned = Path.Combine(testRoot, ".staging", "interrupted", "generation");
-            Directory.CreateDirectory(abandoned);
-            File.WriteAllText(Path.Combine(abandoned, "manifest.json"), "{incomplete");
-            File.WriteAllText(Path.Combine(testRoot, "current-interrupted.next"), "{incomplete");
+            File.WriteAllText(Path.Combine(testRoot, "autosave-interrupted.tmp"), "{incomplete");
 
-            DungeonSaveLoadResult result = repository.Load();
-
-            Assert.That(result, Is.TypeOf<DungeonSaveLoadSuccess>());
-            Assert.That(
-                DungeonSaveJsonCodec.SerializeRun(((DungeonSaveLoadSuccess)result).Save),
-                Is.EqualTo(DungeonSaveJsonCodec.SerializeRun(expected))
-            );
+            AssertRunEquals(expected, LoadSuccess(repository));
         }
 
         [Test]
-        public void CorruptCurrentGenerationRecoversPriorCommittedGeneration()
+        public void CorruptCurrentArchiveRecoversPreviousCommittedArchive()
         {
-            DungeonRunSave first = DungeonSaveTestFactory.CreateRun(
-                leaderHitPoints: 18,
-                firstDoorOpen: true
-            );
-            DungeonRunSave second = DungeonSaveTestFactory.CreateRun(
-                leaderHitPoints: 17,
-                firstDoorOpen: false
-            );
+            DungeonRunSave first = DungeonSaveTestFactory.CreateRun(leaderHitPoints: 18);
+            DungeonRunSave second = DungeonSaveTestFactory.CreateRun(leaderHitPoints: 17);
             Assert.That(repository.Save(first).IsSuccess, Is.True);
             Assert.That(repository.Save(second).IsSuccess, Is.True);
-            File.WriteAllText(
-                Path.Combine(CurrentGenerationPath(testRoot), "manifest.json"),
-                "{corrupt"
-            );
+            File.WriteAllText(Path.Combine(testRoot, "autosave.zip"), "{corrupt");
 
-            DungeonSaveLoadResult result = repository.Load();
+            DungeonSaveResult<DungeonRunSave> result = repository.Load();
 
-            Assert.That(result, Is.TypeOf<DungeonSaveLoadSuccess>());
+            Assert.That(result.IsSuccess, Is.True);
             Assert.That(
                 result.Diagnostics.Any(diagnostic =>
                     diagnostic.Code == DungeonSaveDiagnosticCode.RecoveredPreviousGeneration
@@ -272,119 +149,62 @@ namespace Tests.EditMode.DungeonPersistence.Repository
                 ),
                 Is.True
             );
-            Assert.That(
-                DungeonSaveJsonCodec.SerializeRun(((DungeonSaveLoadSuccess)result).Save),
-                Is.EqualTo(DungeonSaveJsonCodec.SerializeRun(first))
-            );
+            AssertRunEquals(first, result.Value);
         }
 
         [Test]
-        public void SuccessfulCommitsRetainOnlyCurrentAndPreviousGenerations()
-        {
-            Assert.That(
-                repository.Save(DungeonSaveTestFactory.CreateRun(leaderHitPoints: 18)).IsSuccess,
-                Is.True
-            );
-            Assert.That(
-                repository.Save(DungeonSaveTestFactory.CreateRun(leaderHitPoints: 17)).IsSuccess,
-                Is.True
-            );
-            Assert.That(
-                repository.Save(DungeonSaveTestFactory.CreateRun(leaderHitPoints: 16)).IsSuccess,
-                Is.True
-            );
-
-            string[] retained = Directory.GetDirectories(Path.Combine(testRoot, "generations"));
-
-            Assert.That(retained, Has.Length.EqualTo(2));
-            Assert.That(
-                retained.Select(Path.GetFileName),
-                Is.EquivalentTo(
-                    new[]
-                    {
-                        PointerGenerationId(testRoot, "current.json"),
-                        PointerGenerationId(testRoot, "previous.json"),
-                    }
-                )
-            );
-        }
-
-        [Test]
-        public void SaveAfterRecoveryPreservesLastValidGenerationAsPrevious()
+        public void SaveAfterRecoveryDoesNotReplaceTheLastValidBackupWithCorruption()
         {
             DungeonRunSave first = DungeonSaveTestFactory.CreateRun(leaderHitPoints: 18);
             DungeonRunSave second = DungeonSaveTestFactory.CreateRun(leaderHitPoints: 17);
             DungeonRunSave third = DungeonSaveTestFactory.CreateRun(leaderHitPoints: 16);
             Assert.That(repository.Save(first).IsSuccess, Is.True);
             Assert.That(repository.Save(second).IsSuccess, Is.True);
-            File.WriteAllText(
-                Path.Combine(CurrentGenerationPath(testRoot), "manifest.json"),
-                "{corrupt"
-            );
-            Assert.That(repository.Load(), Is.TypeOf<DungeonSaveLoadSuccess>());
+            File.WriteAllText(Path.Combine(testRoot, "autosave.zip"), "{corrupt");
+            AssertRunEquals(first, LoadSuccess(repository));
 
-            DungeonSaveWriteResult result = repository.Save(third);
-            string currentId = PointerGenerationId(testRoot, "current.json");
-            string previousId = PointerGenerationId(testRoot, "previous.json");
+            Assert.That(repository.Save(third).IsSuccess, Is.True);
+            File.WriteAllText(Path.Combine(testRoot, "autosave.zip"), "{corrupt-again");
 
-            Assert.That(result.IsSuccess, Is.True, Format(result.Diagnostics));
-            Assert.That(currentId, Is.Not.EqualTo(previousId));
-            File.WriteAllText(
-                Path.Combine(testRoot, "generations", currentId, "manifest.json"),
-                "{corrupt"
-            );
-            DungeonSaveLoadSuccess recovered = repository.Load() as DungeonSaveLoadSuccess;
-            Assert.That(recovered, Is.Not.Null);
-            Assert.That(
-                DungeonSaveJsonCodec.SerializeRun(recovered.Save),
-                Is.EqualTo(DungeonSaveJsonCodec.SerializeRun(first))
-            );
+            AssertRunEquals(first, LoadSuccess(repository));
         }
 
         [Test]
-        public void EquivalentTransactionsProduceIdenticalGenerationPathsAndPayloads()
+        public void ArchiveWithUnindexedEntryIsRejected()
         {
-            string firstRoot = Path.Combine(testRoot, "first");
-            string secondRoot = Path.Combine(testRoot, "second");
-            FileSystemDungeonSaveRepository firstRepository = new(firstRoot);
-            FileSystemDungeonSaveRepository secondRepository = new(secondRoot);
+            DungeonRunSave expected = DungeonSaveTestFactory.CreateRun();
+            Assert.That(repository.Save(expected).IsSuccess, Is.True);
+            string path = Path.Combine(testRoot, "autosave.zip");
+            using (ZipArchive archive = ZipFile.Open(path, ZipArchiveMode.Update))
+            {
+                using StreamWriter writer = new(archive.CreateEntry("extra.json").Open());
+                writer.Write("{}");
+            }
 
-            Assert.That(
-                firstRepository.Save(DungeonSaveTestFactory.CreateRun()).IsSuccess,
-                Is.True
-            );
-            Assert.That(
-                secondRepository.Save(DungeonSaveTestFactory.CreateRun()).IsSuccess,
-                Is.True
-            );
-            string firstGeneration = CurrentGenerationPath(firstRoot);
-            string secondGeneration = CurrentGenerationPath(secondRoot);
+            DungeonSaveResult<DungeonRunSave> result = repository.Load();
 
+            Assert.That(result.IsSuccess, Is.False);
             Assert.That(
-                Path.GetFileName(firstGeneration),
-                Is.EqualTo(Path.GetFileName(secondGeneration))
-            );
-            Assert.That(
-                File.ReadAllText(Path.Combine(firstGeneration, "manifest.json")),
-                Is.EqualTo(File.ReadAllText(Path.Combine(secondGeneration, "manifest.json")))
-            );
-            Assert.That(
-                File.ReadAllText(Path.Combine(firstGeneration, "floors", "depth-0001.json")),
-                Is.EqualTo(
-                    File.ReadAllText(Path.Combine(secondGeneration, "floors", "depth-0001.json"))
-                )
+                result.Diagnostics.Any(diagnostic =>
+                    diagnostic.Code == DungeonSaveDiagnosticCode.CorruptSave
+                ),
+                Is.True
             );
         }
 
-        private static string CurrentGenerationPath(string root)
+        private static DungeonRunSave LoadSuccess(FileSystemDungeonSaveRepository target)
         {
-            return Path.Combine(root, "generations", PointerGenerationId(root, "current.json"));
+            DungeonSaveResult<DungeonRunSave> result = target.Load();
+            Assert.That(result.IsSuccess, Is.True, Format(result.Diagnostics));
+            return result.Value;
         }
 
-        private static string PointerGenerationId(string root, string fileName)
+        private static void AssertRunEquals(DungeonRunSave expected, DungeonRunSave actual)
         {
-            JObject pointer = JObject.Parse(File.ReadAllText(Path.Combine(root, fileName)));
-            return pointer["generationId"].Value<string>();
+            Assert.That(
+                DungeonSaveJsonCodec.SerializeRun(actual),
+                Is.EqualTo(DungeonSaveJsonCodec.SerializeRun(expected))
+            );
         }
 
         private static string Format(

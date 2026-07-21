@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json;
 
 namespace Game.DungeonPersistence.Repository
 {
     /// <summary>Captures one party or encounter creature independently of Unity scene serialization.</summary>
-    public sealed class DungeonCreatureSaveState
+    [JsonObject(ItemRequired = Required.Always)]
+    internal sealed class DungeonCreatureSaveState
     {
         /// <summary>Creates a complete meaningful creature record.</summary>
         /// <param name="instanceId">The stable party or encounter instance identifier.</param>
@@ -98,26 +100,44 @@ namespace Game.DungeonPersistence.Repository
     }
 
     /// <summary>Associates a party creature with its stable roster slot.</summary>
-    public sealed class DungeonPartyMemberSaveState
+    internal sealed class DungeonPartyMemberSaveState
     {
-        /// <summary>Creates a party member record.</summary>
+        /// <summary>Creates a party member record from a versioned actor-state token.</summary>
         /// <param name="rosterSlotId">The stable roster slot or character-save identifier.</param>
-        /// <param name="creature">The complete actor state.</param>
-        public DungeonPartyMemberSaveState(string rosterSlotId, DungeonCreatureSaveState creature)
+        /// <param name="actorStateJson">The complete versioned actor state.</param>
+        public DungeonPartyMemberSaveState(string rosterSlotId, string actorStateJson)
         {
             RosterSlotId = DungeonSaveContractGuard.RequiredId(rosterSlotId, nameof(rosterSlotId));
-            Creature = creature ?? throw new ArgumentNullException(nameof(creature));
+            DungeonSaveResult<DungeonCreatureSaveState> parsed = DungeonSaveJsonCodec.ParseCreature(
+                actorStateJson
+            );
+            if (!parsed.IsSuccess)
+                throw new ArgumentException(
+                    "Party actor state is incomplete or incompatible.",
+                    nameof(actorStateJson)
+                );
+            Creature = parsed.Value;
+            ActorStateJson = DungeonSaveJsonCodec.SerializeCreature(Creature);
         }
 
         /// <summary>Gets the stable roster slot or character-save identifier.</summary>
         public string RosterSlotId { get; }
 
-        /// <summary>Gets the complete actor state.</summary>
-        public DungeonCreatureSaveState Creature { get; }
+        /// <summary>Gets the canonical versioned actor-state token.</summary>
+        public string ActorStateJson { get; }
+
+        internal DungeonPartyMemberSaveState(string rosterSlotId, DungeonCreatureSaveState creature)
+        {
+            RosterSlotId = DungeonSaveContractGuard.RequiredId(rosterSlotId, nameof(rosterSlotId));
+            Creature = creature ?? throw new ArgumentNullException(nameof(creature));
+            ActorStateJson = DungeonSaveJsonCodec.SerializeCreature(creature);
+        }
+
+        internal DungeonCreatureSaveState Creature { get; }
     }
 
     /// <summary>Captures the ordered party roster and its selected exploration leader.</summary>
-    public sealed class DungeonPartySaveState
+    internal sealed class DungeonPartySaveState
     {
         /// <summary>Creates an immutable party record while preserving meaningful roster order.</summary>
         /// <param name="leaderRosterSlotId">The living exploration leader's roster slot, or an empty string only after a total-party defeat.</param>

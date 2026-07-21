@@ -57,18 +57,18 @@ namespace Tests.EditMode.DungeonPersistence.Autosave
             List<DungeonAutosaveAttemptResult> published = new();
             composition.Coordinator.AutosaveAttempted += published.Add;
 
-            composition.Coordinator.InitializeNewFloor(composition.Session, composition.Source);
+            composition.InitializeNew();
 
             Assert.That(composition.Source.NewCaptureCount, Is.EqualTo(1));
             Assert.That(composition.Source.ExistingCaptureCount, Is.Zero);
-            Assert.That(composition.Session.HasCommittedSave, Is.True);
+            Assert.That(composition.Coordinator.HasCommittedSave, Is.True);
             Assert.That(composition.Coordinator.LastResult.IsSuccess, Is.True);
             Assert.That(
                 composition.Coordinator.LastResult.Triggers,
                 Is.EqualTo(new[] { DungeonAutosaveTriggerKind.FloorGenerated })
             );
             Assert.That(published, Has.Count.EqualTo(1));
-            Assert.That(composition.Repository.Load(), Is.TypeOf<DungeonSaveLoadSuccess>());
+            Assert.That(composition.Repository.Load().IsSuccess, Is.True);
         }
 
         [Test]
@@ -77,11 +77,10 @@ namespace Tests.EditMode.DungeonPersistence.Autosave
             DungeonRunSave save = DungeonSaveTestFactory.CreateRun();
             FileSystemDungeonSaveRepository repository = new(testRoot);
             Assert.That(repository.Save(save).IsSuccess, Is.True);
-            DungeonRunAutosaveSession session = DungeonRunAutosaveSession.Restore(save, repository);
             FakeCaptureSource source = new(CaptureForDepth(save, depth: 0));
             DungeonAutosaveCoordinator coordinator = CreateCoordinator();
 
-            coordinator.InitializeRestoredFloor(session, source);
+            coordinator.InitializeRestoredFloor(save, repository, source);
 
             Assert.That(source.TotalCaptureCount, Is.Zero);
             Assert.That(
@@ -100,7 +99,7 @@ namespace Tests.EditMode.DungeonPersistence.Autosave
         public void BusyActorsCoalesceOrdinaryTriggersUntilStableBoundary()
         {
             TestComposition composition = CreateNewComposition();
-            composition.Coordinator.InitializeNewFloor(composition.Session, composition.Source);
+            composition.InitializeNew();
             composition.Source.AreActorsStable = false;
 
             composition.Source.RaisePersistentStateChanged(
@@ -155,7 +154,7 @@ namespace Tests.EditMode.DungeonPersistence.Autosave
         public void BusyToIdleActionBoundarySavesExactlyOnceAndIgnoresLegacyUiCompletion()
         {
             TestComposition composition = CreateNewComposition();
-            composition.Coordinator.InitializeNewFloor(composition.Session, composition.Source);
+            composition.InitializeNew();
             int initialCaptures = composition.Source.TotalCaptureCount;
             GameObject actor = new("action-boundary-actor");
             createdObjects.Add(actor);
@@ -181,8 +180,8 @@ namespace Tests.EditMode.DungeonPersistence.Autosave
         public void CaptureAndWriteFailuresPreservePriorCommittedSession()
         {
             TestComposition composition = CreateNewComposition();
-            composition.Coordinator.InitializeNewFloor(composition.Session, composition.Source);
-            DungeonRunSave prior = composition.Session.CommittedSave;
+            composition.InitializeNew();
+            DungeonRunSave prior = composition.Coordinator.CommittedSave;
             composition.Source.CaptureException = new InvalidOperationException(
                 "synthetic capture failure"
             );
@@ -195,38 +194,46 @@ namespace Tests.EditMode.DungeonPersistence.Autosave
                 composition.Coordinator.LastResult.Outcome,
                 Is.EqualTo(DungeonAutosaveAttemptOutcome.CaptureFailed)
             );
-            Assert.That(composition.Session.CommittedSave, Is.SameAs(prior));
+            Assert.That(composition.Coordinator.CommittedSave, Is.SameAs(prior));
             Assert.That(composition.Coordinator.HasPendingAutosave, Is.False);
 
             composition.Source.CaptureException = NoCaptureException.Instance;
-            string staging = Path.Combine(testRoot, ".staging");
-            if (Directory.Exists(staging))
-                Directory.Delete(staging, recursive: true);
-            File.WriteAllText(staging, "block staging directory creation");
-
-            composition.Source.RaisePersistentStateChanged(
-                DungeonPersistentStateChangeKind.DoorOpened
-            );
+            using (
+                FileStream lockedArchive = new(
+                    Path.Combine(testRoot, "autosave.zip"),
+                    FileMode.Open,
+                    FileAccess.ReadWrite,
+                    FileShare.None
+                )
+            )
+            {
+                composition.Source.RaisePersistentStateChanged(
+                    DungeonPersistentStateChangeKind.DoorOpened
+                );
+            }
 
             Assert.That(
                 composition.Coordinator.LastResult.Outcome,
                 Is.EqualTo(DungeonAutosaveAttemptOutcome.WriteFailed)
             );
             Assert.That(
-                composition.Coordinator.LastResult.RepositoryDiagnostics.Select(item => item.Code),
+                composition.Coordinator.LastResult.Diagnostics.Select(item => item.Code),
                 Does.Contain(DungeonSaveDiagnosticCode.IoFailure)
             );
-            Assert.That(composition.Session.CommittedSave, Is.SameAs(prior));
-            DungeonSaveLoadSuccess loaded = composition.Repository.Load() as DungeonSaveLoadSuccess;
-            Assert.That(loaded, Is.Not.Null);
-            Assert.That(loaded.Save.Manifest.CurrentDepth, Is.EqualTo(prior.Manifest.CurrentDepth));
+            Assert.That(composition.Coordinator.CommittedSave, Is.SameAs(prior));
+            DungeonSaveResult<DungeonRunSave> loaded = composition.Repository.Load();
+            Assert.That(loaded.IsSuccess, Is.True);
+            Assert.That(
+                loaded.Value.Manifest.CurrentDepth,
+                Is.EqualTo(prior.Manifest.CurrentDepth)
+            );
         }
 
         [Test]
         public void StairPauseAndOrderlyQuitEachAttemptCheckpoint()
         {
             TestComposition composition = CreateNewComposition();
-            composition.Coordinator.InitializeNewFloor(composition.Session, composition.Source);
+            composition.InitializeNew();
             int initialCaptures = composition.Source.TotalCaptureCount;
 
             DungeonAutosaveAttemptResult stair =
@@ -250,7 +257,7 @@ namespace Tests.EditMode.DungeonPersistence.Autosave
         public void DestroyRemovesRuntimeActionAndTurnSubscriptions()
         {
             TestComposition composition = CreateNewComposition();
-            composition.Coordinator.InitializeNewFloor(composition.Session, composition.Source);
+            composition.InitializeNew();
             int initialCaptures = composition.Source.TotalCaptureCount;
 
             UnityEngine.Object.DestroyImmediate(composition.Coordinator.gameObject);
@@ -291,13 +298,8 @@ namespace Tests.EditMode.DungeonPersistence.Autosave
         {
             DungeonRunSave save = DungeonSaveTestFactory.CreateRun();
             FileSystemDungeonSaveRepository repository = new(testRoot);
-            DungeonRunAutosaveSession session = DungeonRunAutosaveSession.CreateNew(
-                save.Manifest.StartingSeed,
-                save.Manifest.GeneratorVersion,
-                repository
-            );
             FakeCaptureSource source = new(CaptureForDepth(save, depth: 0));
-            return new TestComposition(CreateCoordinator(), session, repository, source);
+            return new TestComposition(CreateCoordinator(), save, repository, source);
         }
 
         private DungeonAutosaveCoordinator CreateCoordinator()
@@ -314,24 +316,32 @@ namespace Tests.EditMode.DungeonPersistence.Autosave
         {
             internal TestComposition(
                 DungeonAutosaveCoordinator coordinator,
-                DungeonRunAutosaveSession session,
+                DungeonRunSave run,
                 FileSystemDungeonSaveRepository repository,
                 FakeCaptureSource source
             )
             {
                 Coordinator = coordinator;
-                Session = session;
+                Run = run;
                 Repository = repository;
                 Source = source;
             }
 
             internal DungeonAutosaveCoordinator Coordinator { get; }
 
-            internal DungeonRunAutosaveSession Session { get; }
+            internal DungeonRunSave Run { get; }
 
             internal FileSystemDungeonSaveRepository Repository { get; }
 
             internal FakeCaptureSource Source { get; }
+
+            internal void InitializeNew() =>
+                Coordinator.InitializeNewFloor(
+                    Run.Manifest.StartingSeed,
+                    Run.Manifest.GeneratorVersion,
+                    Repository,
+                    Source
+                );
         }
 
         private sealed class FakeCaptureSource : IDungeonAutosaveCaptureSource

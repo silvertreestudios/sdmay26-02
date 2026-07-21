@@ -5,7 +5,7 @@ using Game.DungeonPersistence.Repository;
 
 namespace Game.DungeonPersistence.Actors
 {
-    public static partial class DungeonActorStateAdapter
+    internal static partial class DungeonActorStateAdapter
     {
         private static readonly HashSet<string> SupportedTimedEffectKinds = new(
             new[] { "shield", "guidance", "guidance-immunity", "bless", "infuse-vitality" },

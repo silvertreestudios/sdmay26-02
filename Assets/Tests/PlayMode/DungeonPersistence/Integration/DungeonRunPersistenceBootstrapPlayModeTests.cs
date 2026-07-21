@@ -117,19 +117,17 @@ public sealed class DungeonRunPersistenceBootstrapPlayModeTests
             runtimeRoot
         );
 
-        Assert.That(result, Is.TypeOf<DungeonRunPersistenceBootstrapSuccess>());
-        DungeonRunPersistenceBootstrapSuccess success =
-            (DungeonRunPersistenceBootstrapSuccess)result;
-        Assert.That(success.RestoredExistingRun, Is.False);
-        Assert.That(success.Runtime.IsInitialized, Is.True);
-        Assert.That(success.AutosaveCoordinator.LastResult.IsSuccess, Is.True);
-        Assert.That(success.Session.HasCommittedSave, Is.True);
-        DungeonSaveLoadSuccess load = repository.Load() as DungeonSaveLoadSuccess;
-        Assert.That(load, Is.Not.Null);
-        Assert.That(load.Save.Manifest.Party.Members, Has.Count.EqualTo(2));
-        Assert.That(load.Save.Manifest.Party.Members[0].RosterSlotId, Is.EqualTo("roster-alpha"));
-        Assert.That(load.Save.Manifest.Party.Members[1].RosterSlotId, Is.EqualTo("roster-beta"));
-        Assert.That(load.Save.Manifest.Party.LeaderRosterSlotId, Is.EqualTo("roster-alpha"));
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.That(result.RestoredExistingRun, Is.False);
+        Assert.That(result.Runtime.IsInitialized, Is.True);
+        Assert.That(result.AutosaveCoordinator.LastResult.IsSuccess, Is.True);
+        Assert.That(result.AutosaveCoordinator.HasCommittedSave, Is.True);
+        DungeonSaveResult<DungeonRunSave> load = repository.Load();
+        Assert.That(load.IsSuccess, Is.True);
+        Assert.That(load.Value.Manifest.Party.Members, Has.Count.EqualTo(2));
+        Assert.That(load.Value.Manifest.Party.Members[0].RosterSlotId, Is.EqualTo("roster-alpha"));
+        Assert.That(load.Value.Manifest.Party.Members[1].RosterSlotId, Is.EqualTo("roster-beta"));
+        Assert.That(load.Value.Manifest.Party.LeaderRosterSlotId, Is.EqualTo("roster-alpha"));
     }
 
     /// <summary>
@@ -183,7 +181,7 @@ public sealed class DungeonRunPersistenceBootstrapPlayModeTests
             repository,
             newRunRoot
         );
-        Assert.That(created, Is.TypeOf<DungeonRunPersistenceBootstrapSuccess>());
+        Assert.That(created.IsSuccess, Is.True);
         Object.DestroyImmediate(newRunRoot);
 
         DungeonLevelDocument shellDocument = ShellDocument();
@@ -212,8 +210,8 @@ public sealed class DungeonRunPersistenceBootstrapPlayModeTests
         );
 
         Assert.That(
-            restored,
-            Is.TypeOf<DungeonRunPersistenceBootstrapSuccess>(),
+            restored.IsSuccess,
+            Is.True,
             string.Join(
                 Environment.NewLine,
                 restored.Diagnostics.Select(diagnostic =>
@@ -221,11 +219,9 @@ public sealed class DungeonRunPersistenceBootstrapPlayModeTests
                 )
             )
         );
-        DungeonRunPersistenceBootstrapSuccess success =
-            (DungeonRunPersistenceBootstrapSuccess)restored;
-        Assert.That(success.RestoredExistingRun, Is.True);
+        Assert.That(restored.RestoredExistingRun, Is.True);
         Assert.That(
-            success.AutosaveCoordinator.LastResult.Outcome,
+            restored.AutosaveCoordinator.LastResult.Outcome,
             Is.EqualTo(Game.DungeonPersistence.Autosave.DungeonAutosaveAttemptOutcome.NotAttempted)
         );
         Assert.That(alpha.transform.position, Is.EqualTo(new Vector3(0f, 0.5f, 0f)));
@@ -233,7 +229,7 @@ public sealed class DungeonRunPersistenceBootstrapPlayModeTests
         Assert.That(grid.GetTiles()[0, 0].Occupants, Is.EqualTo(new[] { alpha.gameObject }));
         Assert.That(grid.GetTiles()[1, 0].Occupants, Is.EqualTo(new[] { beta.gameObject }));
         Assert.That(
-            success.Runtime.CapturePartyControllers(),
+            restored.Runtime.CapturePartyControllers(),
             Is.EqualTo(new ActionController[] { alpha, beta })
         );
     }
@@ -293,10 +289,12 @@ public sealed class DungeonRunPersistenceBootstrapPlayModeTests
                 repository,
                 newRunRoot
             ),
-            Is.TypeOf<DungeonRunPersistenceBootstrapSuccess>()
+            Has.Property("IsSuccess").True
         );
         Object.DestroyImmediate(newRunRoot);
-        DungeonRunSave saved = ((DungeonSaveLoadSuccess)repository.Load()).Save;
+        DungeonSaveResult<DungeonRunSave> loaded = repository.Load();
+        Assert.That(loaded.IsSuccess, Is.True);
+        DungeonRunSave saved = loaded.Value;
         Assert.That(repository.Save(WithIncompatiblePreparedState(saved)).IsSuccess, Is.True);
 
         TextAsset shellSource = Track(
@@ -323,7 +321,7 @@ public sealed class DungeonRunPersistenceBootstrapPlayModeTests
             failedRoot
         );
 
-        Assert.That(result, Is.TypeOf<DungeonRunPersistenceBootstrapFailure>());
+        Assert.That(result.IsSuccess, Is.False);
         Assert.That(
             result.Diagnostics,
             Has.None.Matches<DungeonSaveDiagnostic>(diagnostic =>

@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 
 namespace Game.DungeonPersistence.Repository
 {
     /// <summary>Identifies where one inventory entry is equipped.</summary>
-    public enum DungeonEquipmentSlot
+    [JsonConverter(typeof(StringEnumConverter))]
+    internal enum DungeonEquipmentSlot
     {
         /// <summary>The item is carried but not equipped.</summary>
         Carried,
@@ -20,7 +23,8 @@ namespace Game.DungeonPersistence.Repository
     }
 
     /// <summary>Records one inventory entry without duplicating catalog-derived item definitions.</summary>
-    public sealed class DungeonInventoryItemSaveState
+    [JsonObject(ItemRequired = Required.Always)]
+    internal sealed class DungeonInventoryItemSaveState
     {
         /// <summary>Creates a stable inventory-entry record.</summary>
         /// <param name="entryId">The stable per-actor item instance identifier.</param>
@@ -70,7 +74,8 @@ namespace Game.DungeonPersistence.Repository
     }
 
     /// <summary>Records one ammunition pool independently from catalog-derived definitions.</summary>
-    public sealed class DungeonAmmunitionSaveState
+    [JsonObject(ItemRequired = Required.Always)]
+    internal sealed class DungeonAmmunitionSaveState
     {
         /// <summary>Creates an ammunition pool.</summary>
         /// <param name="ammunitionId">The stable ammunition catalog identifier.</param>
@@ -94,7 +99,8 @@ namespace Game.DungeonPersistence.Repository
     }
 
     /// <summary>Records meaningful inventory, equipment, ammunition, and loading state.</summary>
-    public sealed class DungeonEquipmentSaveState
+    [JsonObject(ItemRequired = Required.Always)]
+    internal sealed class DungeonEquipmentSaveState
     {
         /// <summary>Creates an immutable, deterministically ordered equipment snapshot.</summary>
         /// <param name="items">Inventory entries with unique stable instance IDs.</param>

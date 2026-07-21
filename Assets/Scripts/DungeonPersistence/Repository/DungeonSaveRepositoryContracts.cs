@@ -74,76 +74,53 @@ namespace Game.DungeonPersistence.Repository
         public string Message { get; }
     }
 
-    /// <summary>Reports whether a complete transaction became the current autosave.</summary>
-    public sealed class DungeonSaveWriteResult
+    /// <summary>Represents one successful value or structured failure without result subclasses.</summary>
+    internal sealed class DungeonSaveResult<T>
     {
-        internal DungeonSaveWriteResult(
+        private readonly T value;
+
+        private DungeonSaveResult(
             bool isSuccess,
+            T value,
             IEnumerable<DungeonSaveDiagnostic> diagnostics
         )
         {
             IsSuccess = isSuccess;
+            this.value = value;
             Diagnostics = Array.AsReadOnly(
                 (diagnostics ?? throw new ArgumentNullException(nameof(diagnostics))).ToArray()
             );
         }
 
-        /// <summary>Gets whether the validated transaction became current atomically.</summary>
-        public bool IsSuccess { get; }
+        internal bool IsSuccess { get; }
 
-        /// <summary>Gets structured validation or I/O diagnostics.</summary>
-        public IReadOnlyList<DungeonSaveDiagnostic> Diagnostics { get; }
-    }
+        internal IReadOnlyList<DungeonSaveDiagnostic> Diagnostics { get; }
 
-    /// <summary>
-    /// Represents either a complete validated autosave or a failure. The base type intentionally
-    /// exposes no nullable or partially populated save value.
-    /// </summary>
-    public abstract class DungeonSaveLoadResult
-    {
-        private protected DungeonSaveLoadResult(
-            bool isSuccess,
+        internal T Value =>
+            IsSuccess
+                ? value
+                : throw new InvalidOperationException("A failed persistence result has no value.");
+
+        internal static DungeonSaveResult<T> Success(
+            T value,
             IEnumerable<DungeonSaveDiagnostic> diagnostics
         )
         {
-            IsSuccess = isSuccess;
-            Diagnostics = Array.AsReadOnly(
-                (diagnostics ?? throw new ArgumentNullException(nameof(diagnostics))).ToArray()
-            );
+            if (value is null)
+                throw new ArgumentNullException(nameof(value));
+            return new DungeonSaveResult<T>(true, value, diagnostics);
         }
 
-        /// <summary>Gets whether a complete validated autosave is available.</summary>
-        public bool IsSuccess { get; }
+        internal static DungeonSaveResult<T> Success(T value) =>
+            Success(value, Array.Empty<DungeonSaveDiagnostic>());
 
-        /// <summary>Gets blocking errors or recovery warnings.</summary>
-        public IReadOnlyList<DungeonSaveDiagnostic> Diagnostics { get; }
-    }
-
-    /// <summary>Represents a complete validated autosave, optionally recovered from the prior generation.</summary>
-    public sealed class DungeonSaveLoadSuccess : DungeonSaveLoadResult
-    {
-        internal DungeonSaveLoadSuccess(
-            DungeonRunSave save,
+        internal static DungeonSaveResult<T> Failure(
             IEnumerable<DungeonSaveDiagnostic> diagnostics
-        )
-            : base(true, diagnostics)
-        {
-            Save = save ?? throw new ArgumentNullException(nameof(save));
-        }
-
-        /// <summary>Gets the complete immutable autosave transaction.</summary>
-        public DungeonRunSave Save { get; }
-    }
-
-    /// <summary>Represents a load failure that exposes diagnostics but no partial save.</summary>
-    public sealed class DungeonSaveLoadFailure : DungeonSaveLoadResult
-    {
-        internal DungeonSaveLoadFailure(IEnumerable<DungeonSaveDiagnostic> diagnostics)
-            : base(false, diagnostics) { }
+        ) => new(false, default, diagnostics);
     }
 
     /// <summary>Stores and loads one atomic dungeon autosave independently of Unity scene state.</summary>
-    public interface IDungeonSaveRepository
+    internal interface IDungeonSaveRepository
     {
         /// <summary>
         /// Validates and publishes the complete manifest and every indexed floor as one transaction.
@@ -151,13 +128,13 @@ namespace Game.DungeonPersistence.Repository
         /// </summary>
         /// <param name="save">The complete immutable transaction to publish.</param>
         /// <returns>Success only after the atomic current-generation pointer is committed.</returns>
-        DungeonSaveWriteResult Save(DungeonRunSave save);
+        DungeonSaveResult<bool> Save(DungeonRunSave save);
 
         /// <summary>
         /// Loads and validates every document before exposing a save. A corrupt current generation
         /// may recover the prior committed generation with a warning.
         /// </summary>
         /// <returns>A complete save or structured diagnostics without partial state.</returns>
-        DungeonSaveLoadResult Load();
+        DungeonSaveResult<DungeonRunSave> Load();
     }
 }

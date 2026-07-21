@@ -115,7 +115,6 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
                     combatManager,
                     party,
                     hud,
-                    DungeonAutosaveProductionRepositoryFactory.Create(),
                     runtimeRoot
                 );
             foreach (var diagnostic in bootstrap.Diagnostics)

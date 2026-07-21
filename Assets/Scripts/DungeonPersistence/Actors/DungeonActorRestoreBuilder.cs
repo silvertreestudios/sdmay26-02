@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Game.DungeonPersistence.Actors
 {
-    public static partial class DungeonActorStateAdapter
+    internal static partial class DungeonActorStateAdapter
     {
         private static ActorRestorePlan BuildRestorePlan(
             DungeonActorRestoreTarget target,

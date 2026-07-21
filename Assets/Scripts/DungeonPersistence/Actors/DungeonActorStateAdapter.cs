@@ -5,10 +5,13 @@ using System.Runtime.CompilerServices;
 using Game.DungeonPersistence.Repository;
 using UnityEngine;
 
+[assembly: InternalsVisibleTo("EditModeAssembly")]
+[assembly: InternalsVisibleTo("PlayModeAssembly")]
+
 namespace Game.DungeonPersistence.Actors
 {
     /// <summary>Associates a live actor with the stable identities supplied by dungeon runtime.</summary>
-    public sealed class DungeonActorCaptureTarget
+    internal sealed class DungeonActorCaptureTarget
     {
         /// <summary>Creates one explicitly identified capture target.</summary>
         /// <param name="controller">The live actor controller.</param>
@@ -42,7 +45,7 @@ namespace Game.DungeonPersistence.Actors
     }
 
     /// <summary>Associates a newly materialized live actor with its durable state.</summary>
-    public sealed class DungeonActorRestoreTarget
+    internal sealed class DungeonActorRestoreTarget
     {
         /// <summary>Creates one restore target without deriving identity from its GameObject.</summary>
         /// <param name="controller">The newly materialized actor controller.</param>
@@ -71,7 +74,7 @@ namespace Game.DungeonPersistence.Actors
     /// Combat action points, reaction use, turn authority, and multiple-attack penalty are
     /// deliberately excluded because encounter composition owns those transient values.
     /// </summary>
-    public static partial class DungeonActorStateAdapter
+    internal static partial class DungeonActorStateAdapter
     {
         private const string LegacyEffectStateDiscriminator = "legacy-spell-effect/v1";
         private const string EmptyEffectStateJson = "{}";

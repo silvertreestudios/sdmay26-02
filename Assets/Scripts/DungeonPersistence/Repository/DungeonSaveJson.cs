@@ -1,4 +1,7 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Game.DungeonPersistence.Repository
@@ -55,14 +58,14 @@ namespace Game.DungeonPersistence.Repository
                 "party",
                 "generatedFloors"
             );
-            int documentVersion = RequiredInt(source, "documentVersion", path);
+            int version = RequiredInt(source, "documentVersion", path);
             RequireVersion(
-                documentVersion,
+                version,
                 DungeonSaveSchema.RunManifestVersion,
                 path + ".documentVersion"
             );
             return new DungeonRunSaveManifest(
-                documentVersion,
+                version,
                 RequiredInt(source, "startingSeed", path),
                 RequiredString(source, "generatorVersion", path),
                 RequiredInt(source, "currentDepth", path),
@@ -75,6 +78,29 @@ namespace Game.DungeonPersistence.Repository
             );
         }
 
+        internal static JObject FromFloor(DungeonFloorSaveState floor) =>
+            new()
+            {
+                ["documentVersion"] = floor.DocumentVersion,
+                ["depth"] = floor.Depth,
+                ["document"] = JObject.Parse(floor.DocumentJson),
+            };
+
+        internal static DungeonFloorSaveState ReadFloor(JObject source) =>
+            ReadFloor(source, "floor");
+
+        private static DungeonFloorSaveState ReadFloor(JObject source, string path)
+        {
+            ValidateProperties(source, path, "documentVersion", "depth", "document");
+            int version = RequiredInt(source, "documentVersion", path);
+            RequireVersion(version, DungeonSaveSchema.FloorStateVersion, path + ".documentVersion");
+            return new DungeonFloorSaveState(
+                version,
+                RequiredInt(source, "depth", path),
+                RequiredObject(source, "document", path).ToString(Formatting.None)
+            );
+        }
+
         private static JObject FromParty(DungeonPartySaveState party) =>
             new()
             {
@@ -83,7 +109,7 @@ namespace Game.DungeonPersistence.Repository
                     party.Members.Select(member => new JObject
                     {
                         ["rosterSlotId"] = member.RosterSlotId,
-                        ["creature"] = FromCreature(member.Creature),
+                        ["actorState"] = JObject.Parse(member.ActorStateJson),
                     })
                 ),
             };
@@ -103,10 +129,10 @@ namespace Game.DungeonPersistence.Repository
 
         private static DungeonPartyMemberSaveState ReadPartyMember(JObject source, string path)
         {
-            ValidateProperties(source, path, "rosterSlotId", "creature");
+            ValidateProperties(source, path, "rosterSlotId", "actorState");
             return new DungeonPartyMemberSaveState(
                 RequiredString(source, "rosterSlotId", path),
-                ReadCreature(RequiredObject(source, "creature", path), path + ".creature")
+                RequiredObject(source, "actorState", path).ToString(Formatting.None)
             );
         }
 
@@ -120,102 +146,75 @@ namespace Game.DungeonPersistence.Repository
             );
         }
 
-        internal static JObject FromFloor(DungeonFloorSaveState floor) =>
-            new()
-            {
-                ["documentVersion"] = floor.DocumentVersion,
-                ["depth"] = floor.Depth,
-                ["staticFloorJson"] = floor.StaticFloorJson,
-                ["doors"] = new JArray(
-                    floor.Doors.Select(door => new JObject
-                    {
-                        ["doorId"] = door.DoorId,
-                        ["isOpen"] = door.IsOpen,
-                    })
-                ),
-                ["encounters"] = new JArray(
-                    floor.Encounters.Select(encounter => new JObject
-                    {
-                        ["encounterId"] = encounter.EncounterId,
-                        ["status"] = EncounterStatus(encounter.Status),
-                    })
-                ),
-                ["creatures"] = new JArray(
-                    floor.Creatures.Select(creature => new JObject
-                    {
-                        ["encounterId"] = creature.EncounterId,
-                        ["creature"] = FromCreature(creature.Creature),
-                    })
-                ),
-            };
-
-        internal static DungeonFloorSaveState ReadFloor(JObject source) =>
-            ReadFloor(source, "floor");
-
-        private static DungeonFloorSaveState ReadFloor(JObject source, string path)
+        internal static void ValidateProperties(JObject source, string path, params string[] names)
         {
-            ValidateProperties(
-                source,
-                path,
-                "documentVersion",
-                "depth",
-                "staticFloorJson",
-                "doors",
-                "encounters",
-                "creatures"
-            );
-            int documentVersion = RequiredInt(source, "documentVersion", path);
-            RequireVersion(
-                documentVersion,
-                DungeonSaveSchema.FloorStateVersion,
-                path + ".documentVersion"
-            );
-            return new DungeonFloorSaveState(
-                documentVersion,
-                RequiredInt(source, "depth", path),
-                RequiredString(source, "staticFloorJson", path),
-                ReadObjects(RequiredArray(source, "doors", path), path + ".doors", ReadDoor),
-                ReadObjects(
-                    RequiredArray(source, "encounters", path),
-                    path + ".encounters",
-                    ReadEncounter
-                ),
-                ReadObjects(
-                    RequiredArray(source, "creatures", path),
-                    path + ".creatures",
-                    ReadEncounterCreature
-                )
-            );
+            HashSet<string> expected = new(names, StringComparer.Ordinal);
+            string unexpected = source
+                .Properties()
+                .Select(property => property.Name)
+                .FirstOrDefault(name => !expected.Contains(name));
+            if (unexpected != null)
+                throw new ArgumentException($"Unknown property '{path}.{unexpected}'.");
+            string missing = names.FirstOrDefault(name => source.Property(name) == null);
+            if (missing != null)
+                throw new ArgumentException($"Required property '{path}.{missing}' is missing.");
         }
 
-        private static DungeonDoorSaveState ReadDoor(JObject source, string path)
+        internal static JObject RequiredObject(JObject source, string name, string path)
         {
-            ValidateProperties(source, path, "doorId", "isOpen");
-            return new DungeonDoorSaveState(
-                RequiredString(source, "doorId", path),
-                RequiredBool(source, "isOpen", path)
-            );
+            if (source[name] is not JObject result)
+                throw new ArgumentException($"'{path}.{name}' must be an object.");
+            return result;
         }
 
-        private static DungeonEncounterSaveState ReadEncounter(JObject source, string path)
+        internal static JArray RequiredArray(JObject source, string name, string path)
         {
-            ValidateProperties(source, path, "encounterId", "status");
-            return new DungeonEncounterSaveState(
-                RequiredString(source, "encounterId", path),
-                ReadEncounterStatus(RequiredString(source, "status", path), path + ".status")
-            );
+            if (source[name] is not JArray result)
+                throw new ArgumentException($"'{path}.{name}' must be an array.");
+            return result;
         }
 
-        private static DungeonEncounterCreatureSaveState ReadEncounterCreature(
-            JObject source,
-            string path
+        internal static string RequiredString(JObject source, string name, string path)
+        {
+            JToken token = source[name];
+            if (token == null || token.Type != JTokenType.String)
+                throw new ArgumentException($"'{path}.{name}' must be a string.");
+            return token.Value<string>();
+        }
+
+        internal static int RequiredInt(JObject source, string name, string path)
+        {
+            JToken token = source[name];
+            if (token == null || token.Type != JTokenType.Integer)
+                throw new ArgumentException($"'{path}.{name}' must be an integer.");
+            return token.Value<int>();
+        }
+
+        internal static IReadOnlyList<T> ReadObjects<T>(
+            JArray source,
+            string path,
+            Func<JObject, string, T> read
         )
         {
-            ValidateProperties(source, path, "encounterId", "creature");
-            return new DungeonEncounterCreatureSaveState(
-                RequiredString(source, "encounterId", path),
-                ReadCreature(RequiredObject(source, "creature", path), path + ".creature")
-            );
+            List<T> result = new(source.Count);
+            for (int index = 0; index < source.Count; index++)
+            {
+                if (source[index] is not JObject item)
+                    throw new ArgumentException($"'{path}[{index}]' must be an object.");
+                result.Add(read(item, $"{path}[{index}]"));
+            }
+            return result;
+        }
+
+        internal static void RequireVersion(int actual, int expected, string path)
+        {
+            if (actual != expected)
+            {
+                throw new DungeonSaveJsonIncompatibleException(
+                    path,
+                    $"Document version {actual} is incompatible with required version {expected}."
+                );
+            }
         }
     }
 }

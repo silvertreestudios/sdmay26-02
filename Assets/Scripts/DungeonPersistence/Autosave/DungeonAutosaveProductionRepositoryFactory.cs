@@ -6,7 +6,7 @@ using UnityEngine;
 namespace Game.DungeonPersistence.Autosave
 {
     /// <summary>Builds the production dungeon autosave repository at one explicit persistent child.</summary>
-    public static class DungeonAutosaveProductionRepositoryFactory
+    internal static class DungeonAutosaveProductionRepositoryFactory
     {
         /// <summary>The dedicated child below Unity's application-specific persistent data path.</summary>
         public const string AutosaveDirectoryName = "dungeon-run-autosave";

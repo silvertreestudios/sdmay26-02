@@ -106,12 +106,9 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
         DungeonEncounterMember enemyMember = fixture
             .Runtime.GetComponentsInChildren<DungeonEncounterMember>(true)
             .Single();
-        DungeonEncounterCreatureSaveState expectedEnemy =
-            fixture.Plan.CurrentFloor.Creatures.Single(creature => !creature.Creature.IsDefeated);
-        Assert.That(
-            enemyMember.PersistentState,
-            Is.EqualTo(DungeonSaveJsonCodec.SerializeCreature(expectedEnemy.Creature))
-        );
+        DungeonCreatureRuntimeState expectedEnemy =
+            fixture.Plan.PopulationDocument.RuntimeState.Creatures.Single();
+        Assert.That(enemyMember.PersistentState, Is.EqualTo(expectedEnemy.State));
 
         Assert.That(
             fixture.Runtime.TryCaptureExplorationLeader(out ActionController initialLeader),
@@ -139,14 +136,14 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
             .ToArray();
         SeedTransientState(controllers, firstPattern: true);
         DungeonCurrentFloorCapture first = DungeonCurrentFloorCaptureService.CaptureExisting(
-            fixture.Plan.CurrentFloor.StaticFloorJson,
+            fixture.Plan.CurrentFloor.DocumentJson,
             fixture.Runtime,
             fixture.Plan.CurrentFloor
         );
 
         SeedTransientState(controllers, firstPattern: false);
         DungeonCurrentFloorCapture second = DungeonCurrentFloorCaptureService.CaptureExisting(
-            fixture.Plan.CurrentFloor.StaticFloorJson,
+            fixture.Plan.CurrentFloor.DocumentJson,
             fixture.Runtime,
             first.Floor
         );
@@ -165,20 +162,13 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
             Is.EqualTo(new[] { 7, 5 })
         );
 
-        DungeonEncounterCreatureSaveState living = first.Floor.Creatures.Single(creature =>
-            !creature.Creature.IsDefeated
-        );
-        DungeonEncounterCreatureSaveState defeated = first.Floor.Creatures.Single(creature =>
-            creature.Creature.IsDefeated
-        );
-        Assert.That(living.Creature.Cell, Is.EqualTo(new DungeonSaveCell(4, 4)));
-        Assert.That(living.Creature.Health.CurrentHitPoints, Is.EqualTo(4));
-        Assert.That(defeated.Creature.InstanceId, Is.EqualTo(CreatureInstanceId(1)));
-        Assert.That(defeated.Creature.Cell, Is.EqualTo(new DungeonSaveCell(5, 4)));
-        Assert.That(defeated.Creature.Health.CurrentHitPoints, Is.Zero);
+        DungeonLevelDocument capturedFloor = first.Floor.ParseDocument();
+        DungeonCreatureRuntimeState living = capturedFloor.RuntimeState.Creatures.Single();
+        Assert.That(living.Cell, Is.EqualTo(new DungeonCell(4, 4)));
+        Assert.That(living.HitPoints, Is.EqualTo(4));
         Assert.That(
-            first.Floor.Encounters.Single().Status,
-            Is.EqualTo(DungeonEncounterSaveStatus.Suspended)
+            capturedFloor.RuntimeState.DefeatedCreatureIds,
+            Does.Contain(CreatureInstanceId(1))
         );
 
         IReadOnlyDictionary<string, string> firstActors = CanonicalActorJson(first);
@@ -203,7 +193,7 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
     {
         LoadedFixture fixture = CreateLoadedFixture(canonicalEnemyTokens: true);
         DungeonRuntimeAutosaveCaptureSource source = new(
-            fixture.Plan.CurrentFloor.StaticFloorJson,
+            fixture.Plan.CurrentFloor.DocumentJson,
             fixture.Runtime
         );
 
@@ -482,9 +472,9 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
     )
     {
         DungeonRunSave save = CreateRunSave();
-        DungeonRunLoadPreparationResult preparation = DungeonRunLoadPlan.Prepare(save);
-        Assert.That(preparation, Is.TypeOf<DungeonRunLoadPreparationSuccess>());
-        DungeonRunLoadPlan plan = ((DungeonRunLoadPreparationSuccess)preparation).Plan;
+        DungeonSaveResult<DungeonRunLoadPlan> preparation = DungeonRunLoadPlan.Prepare(save);
+        Assert.That(preparation.IsSuccess, Is.True);
+        DungeonRunLoadPlan plan = preparation.Value;
 
         RuntimeTestActionController front = CreatePartyMember(
             "Front party member",
@@ -591,37 +581,46 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
                 ),
             }
         );
+        DungeonCreatureSaveState living = Actor(
+            CreatureInstanceId(0),
+            CreatureContentId,
+            new DungeonSaveCell(4, 4),
+            4,
+            9,
+            hasGoblinEquipment: true
+        );
+        DungeonRuntimeState runtime = new(
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            new[] { CreatureInstanceId(1) },
+            new[]
+            {
+                new DungeonCreatureRuntimeState(
+                    living.InstanceId,
+                    living.CreatureContentId,
+                    EncounterId,
+                    new DungeonCell(living.Cell.X, living.Cell.Z),
+                    living.Health.CurrentHitPoints,
+                    DungeonSaveJsonCodec.SerializeCreature(living)
+                ),
+            }
+        );
+        DungeonLevelDocument complete = new(
+            document.Generation,
+            document.Rows,
+            document.Rooms,
+            document.Doors,
+            document.Stairs,
+            document.StartCell,
+            document.SafeCells,
+            document.Objects,
+            document.EncounterPlans,
+            runtime
+        );
         DungeonFloorSaveState floor = new(
             DungeonSaveSchema.FloorStateVersion,
             0,
-            DungeonLevelJsonSerializer.Serialize(document),
-            Array.Empty<DungeonDoorSaveState>(),
-            new[] { new DungeonEncounterSaveState(EncounterId, DungeonEncounterSaveStatus.Active) },
-            new[]
-            {
-                new DungeonEncounterCreatureSaveState(
-                    EncounterId,
-                    Actor(
-                        CreatureInstanceId(0),
-                        CreatureContentId,
-                        new DungeonSaveCell(4, 4),
-                        4,
-                        9,
-                        hasGoblinEquipment: true
-                    )
-                ),
-                new DungeonEncounterCreatureSaveState(
-                    EncounterId,
-                    Actor(
-                        CreatureInstanceId(1),
-                        CreatureContentId,
-                        new DungeonSaveCell(5, 4),
-                        0,
-                        9,
-                        hasGoblinEquipment: true
-                    )
-                ),
-            }
+            DungeonLevelJsonSerializer.Serialize(complete)
         );
         DungeonRunSaveManifest manifest = new(
             DungeonSaveSchema.RunManifestVersion,
@@ -786,12 +785,25 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
     ) =>
         capture
             .Party.Members.Select(member => member.Creature)
-            .Concat(capture.Floor.Creatures.Select(creature => creature.Creature))
+            .Concat(
+                capture
+                    .Floor.ParseDocument()
+                    .RuntimeState.Creatures.Select(creature => ParseActor(creature.State))
+            )
             .ToDictionary(
                 actor => actor.InstanceId,
                 DungeonSaveJsonCodec.SerializeCreature,
                 StringComparer.Ordinal
             );
+
+    private static DungeonCreatureSaveState ParseActor(string state)
+    {
+        DungeonSaveResult<DungeonCreatureSaveState> parsed = DungeonSaveJsonCodec.ParseCreature(
+            state
+        );
+        Assert.That(parsed.IsSuccess, Is.True);
+        return parsed.Value;
+    }
 
     private static string CreatureInstanceId(int index) =>
         DungeonCreatureInstanceIdentity.Create(EncounterId, index);

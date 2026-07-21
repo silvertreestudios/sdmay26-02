@@ -16,14 +16,23 @@ namespace Game.DungeonPersistence
     /// Represents either a fully owned dungeon runtime plus autosave session or structured
     /// diagnostics that prevented gameplay from starting.
     /// </summary>
-    public abstract class DungeonRunPersistenceBootstrapResult
+    public sealed class DungeonRunPersistenceBootstrapResult
     {
-        private protected DungeonRunPersistenceBootstrapResult(
+        private readonly DungeonEncounterRuntimeController runtime;
+        private readonly DungeonAutosaveCoordinator autosaveCoordinator;
+
+        private DungeonRunPersistenceBootstrapResult(
             bool isSuccess,
+            bool restoredExistingRun,
+            DungeonEncounterRuntimeController runtime,
+            DungeonAutosaveCoordinator autosaveCoordinator,
             IEnumerable<DungeonSaveDiagnostic> diagnostics
         )
         {
             IsSuccess = isSuccess;
+            RestoredExistingRun = restoredExistingRun;
+            this.runtime = runtime;
+            this.autosaveCoordinator = autosaveCoordinator;
             Diagnostics = Array.AsReadOnly(
                 (diagnostics ?? throw new ArgumentNullException(nameof(diagnostics))).ToArray()
             );
@@ -34,47 +43,38 @@ namespace Game.DungeonPersistence
 
         /// <summary>Gets blocking errors or non-blocking repository recovery warnings.</summary>
         public IReadOnlyList<DungeonSaveDiagnostic> Diagnostics { get; }
-    }
-
-    /// <summary>Contains a fully initialized generated-floor runtime and autosave owner.</summary>
-    public sealed class DungeonRunPersistenceBootstrapSuccess : DungeonRunPersistenceBootstrapResult
-    {
-        internal DungeonRunPersistenceBootstrapSuccess(
-            bool restoredExistingRun,
-            DungeonEncounterRuntimeController runtime,
-            DungeonAutosaveCoordinator autosaveCoordinator,
-            DungeonRunAutosaveSession session,
-            IEnumerable<DungeonSaveDiagnostic> diagnostics
-        )
-            : base(true, diagnostics)
-        {
-            RestoredExistingRun = restoredExistingRun;
-            Runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
-            AutosaveCoordinator =
-                autosaveCoordinator ?? throw new ArgumentNullException(nameof(autosaveCoordinator));
-            Session = session ?? throw new ArgumentNullException(nameof(session));
-        }
 
         /// <summary>Gets whether gameplay resumed a committed run instead of creating one.</summary>
         public bool RestoredExistingRun { get; }
 
         /// <summary>Gets the initialized current-floor encounter runtime.</summary>
-        public DungeonEncounterRuntimeController Runtime { get; }
+        public DungeonEncounterRuntimeController Runtime => RequireSuccess(runtime);
 
-        /// <summary>Gets the current-floor autosave event owner.</summary>
-        public DungeonAutosaveCoordinator AutosaveCoordinator { get; }
+        internal DungeonAutosaveCoordinator AutosaveCoordinator =>
+            RequireSuccess(autosaveCoordinator);
 
-        /// <summary>Gets the multi-floor session retaining the last committed generation.</summary>
-        public DungeonRunAutosaveSession Session { get; }
-    }
-
-    /// <summary>Reports why the generated dungeon must remain outside gameplay.</summary>
-    public sealed class DungeonRunPersistenceBootstrapFailure : DungeonRunPersistenceBootstrapResult
-    {
-        internal DungeonRunPersistenceBootstrapFailure(
+        internal static DungeonRunPersistenceBootstrapResult Success(
+            bool restoredExistingRun,
+            DungeonEncounterRuntimeController runtime,
+            DungeonAutosaveCoordinator autosaveCoordinator,
             IEnumerable<DungeonSaveDiagnostic> diagnostics
-        )
-            : base(false, diagnostics) { }
+        ) =>
+            new(
+                true,
+                restoredExistingRun,
+                runtime ?? throw new ArgumentNullException(nameof(runtime)),
+                autosaveCoordinator ?? throw new ArgumentNullException(nameof(autosaveCoordinator)),
+                diagnostics
+            );
+
+        internal static DungeonRunPersistenceBootstrapResult Failure(
+            IEnumerable<DungeonSaveDiagnostic> diagnostics
+        ) => new(false, false, default, default, diagnostics);
+
+        private T RequireSuccess<T>(T value) =>
+            IsSuccess
+                ? value
+                : throw new InvalidOperationException("A failed bootstrap has no runtime value.");
     }
 
     /// <summary>
@@ -83,6 +83,27 @@ namespace Game.DungeonPersistence
     /// </summary>
     public static class DungeonRunPersistenceBootstrap
     {
+        /// <summary>Initializes a new run or restores the production autosave repository.</summary>
+        public static DungeonRunPersistenceBootstrapResult Initialize(
+            Map map,
+            DungeonLevelDocument initialDocument,
+            DungeonEncounterCreatureCatalog encounterCatalog,
+            CombatManagerInterface combatManager,
+            IEnumerable<ActionController> sceneParty,
+            IDungeonExplorationPresentation explorationPresentation,
+            GameObject runtimeRoot
+        ) =>
+            Initialize(
+                map,
+                initialDocument,
+                encounterCatalog,
+                combatManager,
+                sceneParty,
+                explorationPresentation,
+                DungeonAutosaveProductionRepositoryFactory.Create(),
+                runtimeRoot
+            );
+
         /// <summary>Initializes a new run or restores the repository's complete current run.</summary>
         /// <param name="map">The validated generated JSON map used as the scene shell.</param>
         /// <param name="initialDocument">The current build's validated generated document.</param>
@@ -93,7 +114,7 @@ namespace Game.DungeonPersistence
         /// <param name="repository">The explicit atomic repository.</param>
         /// <param name="runtimeRoot">The object that owns runtime and autosave components.</param>
         /// <returns>A complete gameplay runtime or structured diagnostics with no partial value.</returns>
-        public static DungeonRunPersistenceBootstrapResult Initialize(
+        internal static DungeonRunPersistenceBootstrapResult Initialize(
             Map map,
             DungeonLevelDocument initialDocument,
             DungeonEncounterCreatureCatalog encounterCatalog,
@@ -132,7 +153,7 @@ namespace Game.DungeonPersistence
                 return Failure("party", exception.Message);
             }
 
-            DungeonSaveLoadResult load;
+            DungeonSaveResult<DungeonRunSave> load;
             try
             {
                 load = repository.Load();
@@ -146,7 +167,7 @@ namespace Game.DungeonPersistence
                 );
             }
 
-            if (load is DungeonSaveLoadSuccess success)
+            if (load.IsSuccess)
             {
                 return Restore(
                     map,
@@ -157,7 +178,8 @@ namespace Game.DungeonPersistence
                     explorationPresentation,
                     repository,
                     runtimeRoot,
-                    success
+                    load.Value,
+                    load.Diagnostics
                 );
             }
 
@@ -183,7 +205,7 @@ namespace Game.DungeonPersistence
                 );
             }
 
-            return new DungeonRunPersistenceBootstrapFailure(load.Diagnostics);
+            return DungeonRunPersistenceBootstrapResult.Failure(load.Diagnostics);
         }
 
         private static DungeonRunPersistenceBootstrapResult CreateNew(
@@ -216,25 +238,21 @@ namespace Game.DungeonPersistence
                     orderedParty,
                     explorationPresentation
                 );
-                DungeonRunAutosaveSession session = DungeonRunAutosaveSession.CreateNew(
-                    document.Generation.RunSeed,
-                    document.Generation.Algorithm,
-                    repository
-                );
                 DungeonAutosaveCoordinator coordinator =
                     runtimeRoot.AddComponent<DungeonAutosaveCoordinator>();
                 coordinator.InitializeNewFloor(
-                    session,
+                    document.Generation.RunSeed,
+                    document.Generation.Algorithm,
+                    repository,
                     DungeonLevelJsonSerializer.Serialize(document),
                     runtime
                 );
                 if (!coordinator.LastResult.IsSuccess)
                     return AutosaveFailure(coordinator.LastResult);
-                return new DungeonRunPersistenceBootstrapSuccess(
+                return DungeonRunPersistenceBootstrapResult.Success(
                     false,
                     runtime,
                     coordinator,
-                    session,
                     Array.Empty<DungeonSaveDiagnostic>()
                 );
             }
@@ -256,12 +274,13 @@ namespace Game.DungeonPersistence
             IDungeonExplorationPresentation explorationPresentation,
             IDungeonSaveRepository repository,
             GameObject runtimeRoot,
-            DungeonSaveLoadSuccess load
+            DungeonRunSave save,
+            IReadOnlyList<DungeonSaveDiagnostic> loadDiagnostics
         )
         {
             if (
                 !string.Equals(
-                    load.Save.Manifest.GeneratorVersion,
+                    save.Manifest.GeneratorVersion,
                     initialDocument.Generation.Algorithm,
                     StringComparison.Ordinal
                 )
@@ -274,15 +293,15 @@ namespace Game.DungeonPersistence
                 );
             }
 
-            DungeonRunLoadPreparationResult preparation = DungeonRunLoadPlan.Prepare(load.Save);
-            if (preparation is DungeonRunLoadPreparationFailure)
-                return new DungeonRunPersistenceBootstrapFailure(preparation.Diagnostics);
-            DungeonRunLoadPlan plan = ((DungeonRunLoadPreparationSuccess)preparation).Plan;
+            DungeonSaveResult<DungeonRunLoadPlan> preparation = DungeonRunLoadPlan.Prepare(save);
+            if (!preparation.IsSuccess)
+                return DungeonRunPersistenceBootstrapResult.Failure(preparation.Diagnostics);
+            DungeonRunLoadPlan plan = preparation.Value;
 
             ActionController[] orderedParty;
             try
             {
-                orderedParty = OrderRestoredParty(configuredParty, load.Save.Manifest.Party);
+                orderedParty = OrderRestoredParty(configuredParty, save.Manifest.Party);
             }
             catch (InvalidOperationException exception)
             {
@@ -296,7 +315,7 @@ namespace Game.DungeonPersistence
             bool originallyUsedRuntimeJson = map.UsesRuntimeJsonSource;
             try
             {
-                partyStaging = PartyPopulationStaging.Stage(orderedParty, load.Save.Manifest.Party);
+                partyStaging = PartyPopulationStaging.Stage(orderedParty, save.Manifest.Party);
             }
             catch (InvalidOperationException exception)
             {
@@ -332,19 +351,14 @@ namespace Game.DungeonPersistence
                     explorationPresentation
                 );
                 plan.PreflightActors(runtime).Apply();
-                DungeonRunAutosaveSession session = DungeonRunAutosaveSession.Restore(
-                    load.Save,
-                    repository
-                );
                 DungeonAutosaveCoordinator coordinator =
                     runtimeRoot.AddComponent<DungeonAutosaveCoordinator>();
-                coordinator.InitializeRestoredFloor(session, runtime);
-                return new DungeonRunPersistenceBootstrapSuccess(
+                coordinator.InitializeRestoredFloor(save, repository, runtime);
+                return DungeonRunPersistenceBootstrapResult.Success(
                     true,
                     runtime,
                     coordinator,
-                    session,
-                    load.Diagnostics
+                    loadDiagnostics
                 );
             }
             catch (Exception exception)
@@ -367,7 +381,7 @@ namespace Game.DungeonPersistence
                 )
                     return Failure("runtime.restore", failureMessage);
 
-                return new DungeonRunPersistenceBootstrapFailure(
+                return DungeonRunPersistenceBootstrapResult.Failure(
                     new[]
                     {
                         Diagnostic("runtime.restore", failureMessage),
@@ -703,19 +717,11 @@ namespace Game.DungeonPersistence
             }
         }
 
-        private static DungeonRunPersistenceBootstrapFailure AutosaveFailure(
+        private static DungeonRunPersistenceBootstrapResult AutosaveFailure(
             DungeonAutosaveAttemptResult attempt
         )
         {
-            List<DungeonSaveDiagnostic> diagnostics = new(attempt.RepositoryDiagnostics);
-            diagnostics.AddRange(
-                attempt.CoordinatorDiagnostics.Select(diagnostic => new DungeonSaveDiagnostic(
-                    DungeonSaveDiagnosticCode.InvalidSnapshot,
-                    DungeonSaveDiagnosticSeverity.Error,
-                    "autosave",
-                    diagnostic.Message
-                ))
-            );
+            List<DungeonSaveDiagnostic> diagnostics = new(attempt.Diagnostics);
             if (diagnostics.Count == 0)
             {
                 diagnostics.Add(
@@ -727,14 +733,15 @@ namespace Game.DungeonPersistence
                     )
                 );
             }
-            return new DungeonRunPersistenceBootstrapFailure(diagnostics);
+            return DungeonRunPersistenceBootstrapResult.Failure(diagnostics);
         }
 
-        private static DungeonRunPersistenceBootstrapFailure Failure(
+        private static DungeonRunPersistenceBootstrapResult Failure(
             string path,
             string message,
             DungeonSaveDiagnosticCode code = DungeonSaveDiagnosticCode.InvalidSnapshot
-        ) => new(new[] { Diagnostic(path, message, code) });
+        ) =>
+            DungeonRunPersistenceBootstrapResult.Failure(new[] { Diagnostic(path, message, code) });
 
         private static DungeonSaveDiagnostic Diagnostic(
             string path,
