@@ -182,7 +182,7 @@ namespace Game.Combat.Spells
                 return Fail(result, "Caster is not ready to cast spells.");
             if (
                 creature.TryGetEncounterRulesBridge(out UnityEncounterRulesBridge attachedBridge)
-                && !attachedBridge.HasActiveEncounter
+                && !attachedBridge.AllowsNewActionLifecycle
             )
                 return Fail(result, "The caster's encounter is no longer active.");
             if (!state.TryReserveCast())
@@ -483,10 +483,11 @@ namespace Game.Combat.Spells
         )
         {
             CreatureComponent caster = context.CasterCreature;
-            if (
-                !caster.TryGetEncounterRulesBridge(out UnityEncounterRulesBridge bridge)
-                || !bridge.HasActiveEncounter
-            )
+            if (!caster.TryGetEncounterRulesBridge(out UnityEncounterRulesBridge bridge))
+                return true;
+            if (!bridge.AllowsNewActionLifecycle)
+                return false;
+            if (!bridge.HasActiveEncounter)
                 return true;
             if (!bridge.IsActiveEncounterParticipant(caster))
                 return false;

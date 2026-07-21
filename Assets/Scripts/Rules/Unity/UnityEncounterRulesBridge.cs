@@ -289,6 +289,25 @@ namespace Game.Rules.Unity
             Snapshot.Encounters.TryGet(encounterId, out EncounterState encounter)
             && encounter.Phase == EncounterPhase.Active;
 
+        /// <summary>
+        /// Gets whether new action-driven rules work may begin through this bridge.
+        /// </summary>
+        /// <remarks>
+        /// A health-only composition intentionally has no <see cref="EncounterState"/> and remains
+        /// usable by standalone spell and Strike fixtures. Once this bridge has committed an
+        /// encounter lifecycle, only its active phase permits new work; ended and suspended
+        /// encounters remain closed even while Unity host completion is still settling.
+        /// </remarks>
+        internal bool AllowsNewActionLifecycle
+        {
+            get
+            {
+                if (!Snapshot.Encounters.TryGet(encounterId, out EncounterState encounter))
+                    return true;
+                return encounter.Phase == EncounterPhase.Active;
+            }
+        }
+
         // Membership requires both this bridge's identity map and its immutable active roster. A
         // CreatureComponent attached to another encounter cannot pass by sharing a Unity scene.
         internal bool IsActiveEncounterParticipant(CreatureComponent creature)

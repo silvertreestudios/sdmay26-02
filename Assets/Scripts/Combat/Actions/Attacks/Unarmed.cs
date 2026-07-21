@@ -127,14 +127,18 @@ namespace Game.Strikes
             if (attackerCreature == null || targetCreature == null)
                 return false;
 
-            // Standalone preparation and legacy strike fixtures have no active encounter and keep
-            // their existing behavior. Once the attacker is in an active encounter, both ends of
-            // the Strike must resolve through that exact bridge and immutable roster.
+            // Standalone and health-only fixtures have no committed encounter lifecycle and keep
+            // their existing behavior. Once a lifecycle exists, closed phases reject new work and
+            // an active Strike must resolve both ends through this exact immutable roster.
             if (
                 !attackerCreature.TryGetEncounterRulesBridge(
                     out UnityEncounterRulesBridge attackerBridge
-                ) || !attackerBridge.HasActiveEncounter
+                )
             )
+                return true;
+            if (!attackerBridge.AllowsNewActionLifecycle)
+                return false;
+            if (!attackerBridge.HasActiveEncounter)
                 return true;
 
             return targetCreature.TryGetEncounterRulesBridge(

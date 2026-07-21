@@ -14,6 +14,7 @@ using UnityEngine.TestTools;
 public class ClericSpellcastingPlayModeTests : PlayModeBase
 {
     private GameObject clericObject;
+    private GameObject spellTargetObject;
     private ActionController clericController;
 
     [TearDown]
@@ -28,6 +29,8 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         if (clericObject != null)
             Object.Destroy(clericObject);
+        if (spellTargetObject != null)
+            Object.Destroy(spellTargetObject);
 
         Pf2eItemCatalog.ResetForTests();
     }
@@ -57,6 +60,91 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         Assert.That(controller.ActionPoints, Is.EqualTo(2));
         Assert.That(controller.IsTakingAction, Is.False);
+    }
+
+    [UnityTest]
+    public IEnumerator HealthOnlyCompositionAllowsCantripPreparedAndFontCasts()
+    {
+        clericObject = new GameObject("Health-Only PlayMode Cleric");
+        CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
+        cleric.InitializeHealthBeforeEncounter(10, 10);
+        cleric.level = 1;
+        cleric.wisMod = 4;
+        cleric.Build = new CharacterBuild { ClassName = "Cleric" };
+        cleric.Prepared = Pf2eCharacterPreparer.Prepare(cleric, cleric.Build);
+        clericObject.AddComponent<Conditions>();
+        clericObject.AddComponent<Team>().Name = "players";
+        PlayerActionController controller = clericObject.AddComponent<PlayerActionController>();
+        clericController = controller;
+
+        spellTargetObject = new GameObject("Health-Only PlayMode Ally");
+        CreatureComponent ally = spellTargetObject.AddComponent<CreatureComponent>();
+        ally.InitializeHealthBeforeEncounter(3, 20);
+        spellTargetObject.AddComponent<Conditions>();
+        Game.Rules.Unity.UnityEncounterRulesBridge.CreateHealthTestComposition(
+            new[] { cleric, ally }
+        );
+        UnityEngine.Random.State randomState = UnityEngine.Random.state;
+        UnityEngine.Random.InitState(12);
+
+        try
+        {
+            yield return null;
+
+            controller.StartTurn();
+            CoroutineResult<CastSpellResult> cantrip = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    clericObject,
+                    cleric.Prepared.Spellcasting.GetSpell("shield"),
+                    1
+                ),
+                cantrip
+            );
+            Assert.That(cantrip.Value.Success, Is.True);
+            Assert.That(controller.ActionPoints, Is.EqualTo(2));
+            Assert.That(controller.IsTakingAction, Is.False);
+
+            controller.StartTurn();
+            CoroutineResult<CastSpellResult> prepared = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    clericObject,
+                    cleric.Prepared.Spellcasting.GetSpell("bless"),
+                    2,
+                    new[] { spellTargetObject }
+                ),
+                prepared
+            );
+            Assert.That(prepared.Value.Success, Is.True);
+            Assert.That(controller.ActionPoints, Is.EqualTo(1));
+            Assert.That(cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining, Is.Zero);
+            Assert.That(controller.IsTakingAction, Is.False);
+
+            controller.StartTurn();
+            CoroutineResult<CastSpellResult> font = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    clericObject,
+                    cleric.Prepared.Spellcasting.GetSpell("heal"),
+                    2,
+                    new[] { spellTargetObject }
+                ),
+                font
+            );
+            Assert.That(font.Value.Success, Is.True);
+            Assert.That(controller.ActionPoints, Is.EqualTo(1));
+            Assert.That(
+                cleric.Prepared.Spellcasting.Pools["font-heal"].UsesRemaining,
+                Is.EqualTo(3)
+            );
+            Assert.That(ally.Health.Current, Is.GreaterThan(3));
+            Assert.That(controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            UnityEngine.Random.state = randomState;
+        }
     }
 
     [UnityTest]

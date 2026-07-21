@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
@@ -111,6 +113,85 @@ public class Pf2eClericSpellcastingTests
         controller.StartTurn();
 
         Assert.That(cleric.ResolveArmorClass().Total, Is.EqualTo(11));
+    }
+
+    [Test]
+    public async Task HealthOnlyCompositionAllowsCantripPreparedAndFontCasts()
+    {
+        CreatureComponent cleric = CreatePreparedCleric();
+        CreatureComponent ally = CreateCreature("Health-Only Ally", 3, 20);
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        controller.ActionPoints = 8;
+        UnityEncounterRulesBridge bridge = cleric.GetEncounterRulesBridge();
+        UnityEngine.Random.InitState(12);
+
+        Assert.That(bridge.HasActiveEncounter, Is.False);
+        Assert.That(bridge.AllowsNewActionLifecycle, Is.True);
+
+        CastSpellResult cantrip = await CastAsync("shield", cleric, 1);
+        CastSpellResult prepared = await CastAsync("bless", cleric, 2, ally.gameObject);
+        CastSpellResult font = await CastAsync("heal", cleric, 2, ally.gameObject);
+
+        Assert.That(cantrip.Success, Is.True);
+        Assert.That(prepared.Success, Is.True);
+        Assert.That(font.Success, Is.True);
+        Assert.That(controller.ActionPoints, Is.EqualTo(3));
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining, Is.Zero);
+        Assert.That(cleric.Prepared.Spellcasting.Pools["font-heal"].UsesRemaining, Is.EqualTo(3));
+        Assert.That(ally.Health.Current, Is.GreaterThan(3));
+    }
+
+    [TestCase(false, EncounterPhase.Ended)]
+    [TestCase(true, EncounterPhase.Suspended)]
+    public async Task CommittedClosedEncounterRejectsCastWithoutResourceOrReservationLeak(
+        bool suspend,
+        EncounterPhase expectedPhase
+    )
+    {
+        CreatureComponent cleric = CreatePreparedCleric();
+        CreatureComponent enemy = CreateCreature("Closed Encounter Enemy");
+        cleric.initiative = 100;
+        enemy.initiative = 0;
+        cleric.gameObject.AddComponent<Team>().Name = "Players";
+        enemy.gameObject.AddComponent<Team>().Name = "Enemies";
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        TestActionController enemyController =
+            enemy.gameObject.AddComponent<TestActionController>();
+        InstallTestCombatLog();
+        UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+            new ActionController[] { controller, enemyController },
+            "Players",
+            new ScriptedRollService(20, 1)
+        );
+        await bridge.StartEncounter(new ActionController[] { controller, enemyController });
+
+        Assert.That(bridge.AllowsNewActionLifecycle, Is.True);
+        if (suspend)
+            await bridge.SuspendEncounter();
+        else
+            await enemy.ApplyFinalDamageAsync(10, RuleSource.FromSlug("test-close-encounter"));
+
+        Assert.That(
+            bridge.Snapshot.Encounters[bridge.EncounterId].Phase,
+            Is.EqualTo(expectedPhase)
+        );
+        Assert.That(bridge.AllowsNewActionLifecycle, Is.False);
+        uint actionsBefore = controller.ActionPoints;
+        int slotBefore = cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining;
+        int attackBefore = cleric.ResolveAttackRoll().Total;
+
+        CastSpellResult result = await CastAsync("bless", cleric, 2, cleric.gameObject);
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.Message, Does.Contain("encounter is no longer active"));
+        Assert.That(controller.ActionPoints, Is.EqualTo(actionsBefore));
+        Assert.That(
+            cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining,
+            Is.EqualTo(slotBefore)
+        );
+        Assert.That(cleric.ResolveAttackRoll().Total, Is.EqualTo(attackBefore));
+        Assert.That(controller.IsTakingAction, Is.False);
     }
 
     [Test]
