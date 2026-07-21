@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
@@ -67,7 +68,7 @@ namespace Game.Rules.Unity
         private readonly Dictionary<string, int> pendingJoinTeamReferences = new(
             StringComparer.Ordinal
         );
-        private readonly Queue<Func<ValueTask>> presentation = new();
+        private readonly Dictionary<OpId, Queue<Func<ValueTask>>> presentationByRoot = new();
         private readonly RuleDispatcher dispatcher;
         private readonly EncounterId encounterId;
         private readonly PlayerId protagonistTeam;
@@ -135,6 +136,7 @@ namespace Game.Rules.Unity
                 .UseActiveEffectRules(registry)
                 .UseEncounterRules(turnStartAdapters)
                 .Build();
+            dispatcher.RegisterRootSettlementObserver(new BridgeRootSettlementObserver(this));
             BridgeFactObserver observer = new BridgeFactObserver(this);
             dispatcher.RegisterFactObserver<HealthFact>(observer);
             dispatcher.RegisterFactObserver<CreatureReducedToZeroFact>(observer);
@@ -323,11 +325,23 @@ namespace Game.Rules.Unity
 
         /// <summary>Adds reinforcements to this store without rebuilding existing state.</summary>
         /// <param name="additions">Unique controllers not already in the immutable roster.</param>
-        /// <returns>The accepted roster replacement after identity attachments commit.</returns>
-        public async ValueTask<EncounterJoinOutcome> JoinEncounter(
+        /// <returns>
+        /// The accepted roster replacement after identity attachments and combat-start hooks settle
+        /// inside the join root, before the additions become turn eligible.
+        /// </returns>
+        public ValueTask<EncounterJoinOutcome> JoinEncounter(
             IEnumerable<ActionController> additions
+        ) => JoinEncounter(additions, () => { });
+
+        // CombatManager supplies publication that must share the accepted join root. Keeping this
+        // overload internal prevents callers from manufacturing a second host lifecycle boundary.
+        internal async ValueTask<EncounterJoinOutcome> JoinEncounter(
+            IEnumerable<ActionController> additions,
+            Action publishAcceptedControllers
         )
         {
+            if (publishAcceptedControllers == null)
+                throw new ArgumentNullException(nameof(publishAcceptedControllers));
             ActionController[] copied =
                 additions?.ToArray() ?? throw new ArgumentNullException(nameof(additions));
             if (
@@ -418,39 +432,15 @@ namespace Game.Rules.Unity
                     reservedTeams.Add(display, id);
                 }
 
-                await DispatchAsync(new JoinEncounterOp(encounterId, participants));
-
-                foreach (KeyValuePair<string, PlayerId> team in reservedTeams)
-                {
-                    if (teamIds.TryGetValue(team.Key, out PlayerId committedTeam))
-                    {
-                        if (committedTeam != team.Value)
-                            throw new InvalidOperationException(
-                                "Committed reinforcement team identity conflicts with its reservation."
-                            );
-                        continue;
-                    }
-                    teamIds.Add(team.Key, team.Value);
-                    teamDisplayNames.Add(team.Value, team.Key);
-                }
-                foreach (
-                    KeyValuePair<ActionController, CreatureComponent> reserved in reservedIdentities
-                )
-                {
-                    CreatureId id = plannedControllerIds[reserved.Key];
-                    creatureIds.Add(reserved.Value, id);
-                    creatures.Add(id, reserved.Value);
-                    controllerIds.Add(reserved.Key, id);
-                    controllers.Add(id, reserved.Key);
-                }
-                foreach (
-                    KeyValuePair<ActionController, CreatureComponent> reserved in reservedIdentities
-                )
-                {
-                    CreatureId id = controllerIds[reserved.Key];
-                    reserved.Value.AttachEncounterRules(this, id);
-                    reserved.Key.AttachEncounterRules(this, id);
-                }
+                JoinRootResolutionObserver observer = new(
+                    this,
+                    copied,
+                    reservedIdentities,
+                    reservedTeams,
+                    plannedControllerIds,
+                    publishAcceptedControllers
+                );
+                await DispatchAsync(new JoinEncounterOp(encounterId, participants), observer);
                 return new EncounterJoinOutcome(Snapshot.Encounters[encounterId]);
             }
             finally
@@ -473,6 +463,45 @@ namespace Game.Rules.Unity
                     pendingJoinTeamReferences.Remove(display);
                     pendingJoinTeamIds.Remove(display);
                 }
+            }
+        }
+
+        private void PublishAcceptedJoin(
+            IReadOnlyList<KeyValuePair<ActionController, CreatureComponent>> reservedIdentities,
+            IReadOnlyDictionary<string, PlayerId> reservedTeams,
+            IReadOnlyDictionary<ActionController, CreatureId> plannedControllerIds
+        )
+        {
+            foreach (KeyValuePair<string, PlayerId> team in reservedTeams)
+            {
+                if (teamIds.TryGetValue(team.Key, out PlayerId committedTeam))
+                {
+                    if (committedTeam != team.Value)
+                        throw new InvalidOperationException(
+                            "Committed reinforcement team identity conflicts with its reservation."
+                        );
+                    continue;
+                }
+                teamIds.Add(team.Key, team.Value);
+                teamDisplayNames.Add(team.Value, team.Key);
+            }
+            foreach (
+                KeyValuePair<ActionController, CreatureComponent> reserved in reservedIdentities
+            )
+            {
+                CreatureId id = plannedControllerIds[reserved.Key];
+                creatureIds.Add(reserved.Value, id);
+                creatures.Add(id, reserved.Value);
+                controllerIds.Add(reserved.Key, id);
+                controllers.Add(id, reserved.Key);
+            }
+            foreach (
+                KeyValuePair<ActionController, CreatureComponent> reserved in reservedIdentities
+            )
+            {
+                CreatureId id = controllerIds[reserved.Key];
+                reserved.Value.AttachEncounterRules(this, id);
+                reserved.Key.AttachEncounterRules(this, id);
             }
         }
 
@@ -703,9 +732,12 @@ namespace Game.Rules.Unity
             int amount
         ) => DispatchAsync(new SpendLegacyActionsOp(actor, amount));
 
-        /// <summary>Awaits a MAP increment through the transitional same-store port.</summary>
-        /// <param name="actor">The registered actor completing an unmigrated attack.</param>
+        /// <summary>Awaits a turn-authorized MAP increment through the transitional same-store port.</summary>
+        /// <param name="actor">The registered actor that must still own the exact current turn.</param>
         /// <returns>The actor's committed turn-scoped attack count.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// The actor lost turn authority or the encounter ended before the queued request committed.
+        /// </exception>
         public ValueTask<LegacyMapOutcome> IncrementMapAsync(CreatureId actor) =>
             DispatchAsync(new IncrementLegacyMapOp(actor));
 
@@ -779,15 +811,21 @@ namespace Game.Rules.Unity
 
         private async ValueTask<TResult> DispatchAsync<TResult>(IRuleOp<TResult> operation)
         {
-            OpResult<TResult> result;
-            try
-            {
-                result = await dispatcher.Dispatch(operation);
-            }
-            finally
-            {
-                await DrainPresentationAsync();
-            }
+            OpResult<TResult> result = await dispatcher.Dispatch(operation);
+            return RequireResolved(result);
+        }
+
+        private async ValueTask<TResult> DispatchAsync<TResult>(
+            IRuleOp<TResult> operation,
+            IRootResolutionObserver<TResult> observer
+        )
+        {
+            OpResult<TResult> result = await dispatcher.Dispatch(operation, observer);
+            return RequireResolved(result);
+        }
+
+        private static TResult RequireResolved<TResult>(OpResult<TResult> result)
+        {
             if (result is ResolvedOpResult<TResult> resolved)
                 return resolved.Value;
             if (result is InvalidOpResult<TResult> invalid)
@@ -795,10 +833,54 @@ namespace Game.Rules.Unity
             throw new InvalidOperationException($"Encounter request returned {result.Status}.");
         }
 
-        private async ValueTask DrainPresentationAsync()
+        private void EnqueuePresentation(RuleFact fact, Func<ValueTask> callback)
         {
-            while (presentation.Count > 0)
-                await presentation.Dequeue().Invoke();
+            if (fact == null || !fact.IsStamped)
+                throw new ArgumentException(
+                    "Presentation requires a committed root-owned Fact.",
+                    nameof(fact)
+                );
+            if (callback == null)
+                throw new ArgumentNullException(nameof(callback));
+            if (!presentationByRoot.TryGetValue(fact.RootOpId, out Queue<Func<ValueTask>> root))
+            {
+                root = new Queue<Func<ValueTask>>();
+                presentationByRoot.Add(fact.RootOpId, root);
+            }
+            root.Enqueue(callback);
+        }
+
+        private async ValueTask DrainPresentationAsync(OpId rootId)
+        {
+            List<Exception> failures = null;
+            while (presentationByRoot.TryGetValue(rootId, out Queue<Func<ValueTask>> callbacks))
+            {
+                // Detach the exact root batch before invocation. A failure cannot leak its remaining
+                // callbacks into another root, and causal dispatch receives a distinct root queue.
+                presentationByRoot.Remove(rootId);
+                while (callbacks.Count > 0)
+                {
+                    try
+                    {
+                        await callbacks.Dequeue().Invoke();
+                    }
+                    catch (Exception exception)
+                    {
+                        if (failures == null)
+                            failures = new List<Exception>();
+                        failures.Add(exception);
+                    }
+                }
+            }
+
+            if (failures == null)
+                return;
+            if (failures.Count == 1)
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            throw new AggregateException(
+                $"Multiple presentation callbacks failed for root {rootId.Value}.",
+                failures
+            );
         }
 
         private async ValueTask InvokeEncounterEnded(EncounterOutcome outcome)
@@ -806,6 +888,63 @@ namespace Game.Rules.Unity
             Delegate[] handlers = EncounterEnded.GetInvocationList();
             foreach (Delegate handler in handlers)
                 await ((Func<EncounterOutcome, ValueTask>)handler)(outcome);
+        }
+
+        private sealed class JoinRootResolutionObserver
+            : IRootResolutionObserver<EncounterJoinOutcome>
+        {
+            private readonly UnityEncounterRulesBridge owner;
+            private readonly ActionController[] controllers;
+            private readonly IReadOnlyList<
+                KeyValuePair<ActionController, CreatureComponent>
+            > reservedIdentities;
+            private readonly IReadOnlyDictionary<string, PlayerId> reservedTeams;
+            private readonly IReadOnlyDictionary<ActionController, CreatureId> plannedControllerIds;
+            private readonly Action publishAcceptedControllers;
+
+            internal JoinRootResolutionObserver(
+                UnityEncounterRulesBridge owner,
+                ActionController[] controllers,
+                IReadOnlyList<KeyValuePair<ActionController, CreatureComponent>> reservedIdentities,
+                IReadOnlyDictionary<string, PlayerId> reservedTeams,
+                IReadOnlyDictionary<ActionController, CreatureId> plannedControllerIds,
+                Action publishAcceptedControllers
+            )
+            {
+                this.owner = owner;
+                this.controllers = controllers;
+                this.reservedIdentities = reservedIdentities;
+                this.reservedTeams = reservedTeams;
+                this.plannedControllerIds = plannedControllerIds;
+                this.publishAcceptedControllers = publishAcceptedControllers;
+            }
+
+            /// <inheritdoc/>
+            public async ValueTask OnRootResolved(
+                OpId rootId,
+                OpResult<EncounterJoinOutcome> result,
+                RulesSnapshot snapshot
+            )
+            {
+                if (!(result is ResolvedOpResult<EncounterJoinOutcome>))
+                    return;
+
+                owner.PublishAcceptedJoin(reservedIdentities, reservedTeams, plannedControllerIds);
+                await Pf2eRulesEngine.ApplyCombatStartRulesAsync(controllers);
+                publishAcceptedControllers();
+            }
+        }
+
+        private sealed class BridgeRootSettlementObserver : IRootSettlementObserver
+        {
+            private readonly UnityEncounterRulesBridge owner;
+
+            internal BridgeRootSettlementObserver(UnityEncounterRulesBridge owner) =>
+                this.owner = owner;
+
+            /// <inheritdoc/>
+            public ValueTask OnRootSettled(OpId rootId, RulesSnapshot snapshot) =>
+                owner.DrainPresentationAsync(rootId);
         }
 
         private sealed class SpellExpiryTurnStartAdapter : IEncounterTurnStartAdapter
@@ -912,13 +1051,16 @@ namespace Game.Rules.Unity
                 )
                 {
                     HealthState health = snapshot.Health[fact.Creature];
-                    owner.presentation.Enqueue(() =>
-                    {
-                        creature.ProjectCommittedHealth(health);
-                        if (fact is DamageAppliedFact && health.Current > 0)
-                            creature.PresentCommittedHit();
-                        return default;
-                    });
+                    owner.EnqueuePresentation(
+                        fact,
+                        () =>
+                        {
+                            creature.ProjectCommittedHealth(health);
+                            if (fact is DamageAppliedFact && health.Current > 0)
+                                creature.PresentCommittedHit();
+                            return default;
+                        }
+                    );
                 }
                 return default;
             }
@@ -929,46 +1071,55 @@ namespace Game.Rules.Unity
                     owner.creatures.TryGetValue(fact.Creature, out CreatureComponent creature)
                     && creature != null
                 )
-                    owner.presentation.Enqueue(() =>
-                    {
-                        if (
-                            !owner.Snapshot.Health.TryGet(
-                                fact.Creature,
-                                out HealthState settledHealth
+                    owner.EnqueuePresentation(
+                        fact,
+                        () =>
+                        {
+                            if (
+                                !owner.Snapshot.Health.TryGet(
+                                    fact.Creature,
+                                    out HealthState settledHealth
+                                )
+                                || settledHealth.Current > 0
                             )
-                            || settledHealth.Current > 0
-                        )
+                                return default;
+                            creature.ProjectCommittedHealth(settledHealth);
+                            creature.PresentCommittedDefeat();
                             return default;
-                        creature.ProjectCommittedHealth(settledHealth);
-                        creature.PresentCommittedDefeat();
-                        return default;
-                    });
+                        }
+                    );
                 return default;
             }
 
             public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
             {
-                owner.presentation.Enqueue(() =>
-                {
-                    owner.TurnBegan.Invoke(fact.Turn);
-                    return default;
-                });
+                owner.EnqueuePresentation(
+                    fact,
+                    () =>
+                    {
+                        owner.TurnBegan.Invoke(fact.Turn);
+                        return default;
+                    }
+                );
                 return default;
             }
 
             public ValueTask OnFactCommitted(TurnEndedFact fact, RulesSnapshot snapshot)
             {
-                owner.presentation.Enqueue(() =>
-                {
-                    owner.TurnEnded.Invoke(fact.Turn);
-                    return default;
-                });
+                owner.EnqueuePresentation(
+                    fact,
+                    () =>
+                    {
+                        owner.TurnEnded.Invoke(fact.Turn);
+                        return default;
+                    }
+                );
                 return default;
             }
 
             public ValueTask OnFactCommitted(EncounterEndedFact fact, RulesSnapshot snapshot)
             {
-                owner.presentation.Enqueue(() => owner.InvokeEncounterEnded(fact.Outcome));
+                owner.EnqueuePresentation(fact, () => owner.InvokeEncounterEnded(fact.Outcome));
                 return default;
             }
         }

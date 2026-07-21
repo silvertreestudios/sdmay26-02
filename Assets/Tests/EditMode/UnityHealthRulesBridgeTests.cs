@@ -169,6 +169,11 @@ public sealed class UnityEncounterRulesBridgeTests
             );
 
             Assert.That(actual, Is.SameAs(expected));
+            Assert.That(
+                GetProjectedCurrentHealth(creature),
+                Is.EqualTo(9),
+                "Committed presentation must drain for its exact failed root before ownership releases."
+            );
         }
         finally
         {
@@ -219,6 +224,53 @@ public sealed class UnityEncounterRulesBridgeTests
         finally
         {
             observer.Complete();
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    [Test]
+    public async Task OverlappingRootsDrainOnlyTheirOwnPresentationAfterListenersSettle()
+    {
+        GameObject creatureObject = new GameObject("root-scoped presentation creature");
+        SecondHealthFactObserver observer = new SecondHealthFactObserver();
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            TestActionController controller = PrepareController(creatureObject);
+            creature.InitializeHealthBeforeEncounter(10, 10);
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
+            GetDispatcher(bridge).RegisterFactObserver<HealthFact>(observer);
+            CreatureId id = bridge.GetCreatureId(creature);
+
+            Task<DamageOutcome> first = bridge
+                .ApplyFinalDamageAsync(id, 1, RuleSource.FromSlug("first-root"))
+                .AsTask();
+            Task<DamageOutcome> second = bridge
+                .ApplyFinalDamageAsync(id, 1, RuleSource.FromSlug("second-root"))
+                .AsTask();
+            await observer.SecondStarted;
+
+            Assert.That(bridge.Snapshot.Health[id].Current, Is.EqualTo(8));
+            Assert.That(
+                GetProjectedCurrentHealth(creature),
+                Is.EqualTo(9),
+                "The first caller must not drain presentation owned by the paused second root."
+            );
+            Assert.That(second.IsCompleted, Is.False);
+
+            observer.ReleaseSecond();
+            await first;
+            await second;
+
+            Assert.That(GetProjectedCurrentHealth(creature), Is.EqualTo(8));
+            Assert.That(observer.Calls, Is.EqualTo(2));
+        }
+        finally
+        {
+            observer.ReleaseSecond();
             Object.DestroyImmediate(creatureObject);
         }
     }
@@ -310,13 +362,16 @@ public sealed class UnityEncounterRulesBridgeTests
             await bridge.StartEncounter(new ActionController[] { heroController, enemyController });
             EncounterState before = bridge.Snapshot.Encounters[bridge.EncounterId];
             long version = bridge.Snapshot.Version;
+            int hostPublications = 0;
 
             Assert.ThrowsAsync<InvalidOperationException>(async () =>
                 await bridge.JoinEncounter(
-                    new ActionController[] { reinforcementController, heroController }
+                    new ActionController[] { reinforcementController, heroController },
+                    () => hostPublications++
                 )
             );
 
+            Assert.That(hostPublications, Is.Zero);
             Assert.That(bridge.Snapshot.Version, Is.EqualTo(version));
             Assert.That(
                 bridge.Snapshot.Encounters[bridge.EncounterId].Roster,
@@ -392,6 +447,30 @@ public sealed class UnityEncounterRulesBridgeTests
             new ValueTask(completion.Task);
 
         public void Complete() => completion.TrySetResult(true);
+    }
+
+    private sealed class SecondHealthFactObserver : IFactObserver<HealthFact>
+    {
+        private readonly TaskCompletionSource<bool> secondStarted = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private readonly TaskCompletionSource<bool> releaseSecond = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        public int Calls { get; private set; }
+        public Task SecondStarted => secondStarted.Task;
+
+        public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot currentSnapshot)
+        {
+            Calls++;
+            if (Calls != 2)
+                return default;
+            secondStarted.TrySetResult(true);
+            return new ValueTask(releaseSecond.Task);
+        }
+
+        public void ReleaseSecond() => releaseSecond.TrySetResult(true);
     }
 
     private sealed class RescueListener : IRuleFactListener<CreatureReducedToZeroFact>

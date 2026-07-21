@@ -11,50 +11,76 @@ namespace Game.Rules.Runtime
             IRegistration registration,
             RootResolution resolution,
             OpId rootId,
-            OpId? causeId
+            OpId? causeId,
+            IRootResolutionObserver<TResult> observer
         )
         {
             OpResult<TResult> result;
             try
             {
-                result = await DispatchCore(op, registration, resolution, rootId, null, causeId);
-            }
-            catch (Exception resolutionException)
-            {
-                IReadOnlyList<CommittedFactRecord> committedFacts = SnapshotCommittedFacts(
-                    resolution,
-                    rootId
-                );
-                if (committedFacts.Count == 0)
-                    throw;
-
                 try
                 {
-                    await NotifyFactListeners(rootId, committedFacts);
-                }
-                catch (Exception notificationException)
-                {
-                    throw new AggregateException(
-                        "Operation resolution and post-commit Fact notification both failed.",
-                        resolutionException,
-                        notificationException
+                    result = await DispatchCore(
+                        op,
+                        registration,
+                        resolution,
+                        rootId,
+                        null,
+                        causeId
+                    );
+                    await InvokeRootCallback(() =>
+                        observer.OnRootResolved(rootId, result, Snapshot)
                     );
                 }
+                catch (Exception resolutionException)
+                {
+                    IReadOnlyList<CommittedFactRecord> committedFacts = SnapshotCommittedFacts(
+                        resolution,
+                        rootId
+                    );
+                    if (committedFacts.Count == 0)
+                        throw;
 
+                    try
+                    {
+                        await NotifyFactListeners(rootId, committedFacts);
+                    }
+                    catch (Exception notificationException)
+                    {
+                        throw new AggregateException(
+                            "Operation resolution and post-commit Fact notification both failed.",
+                            resolutionException,
+                            notificationException
+                        );
+                    }
+
+                    throw;
+                }
+
+                if (result.Status != OpStatus.Invalid && result.Facts.Count > 0)
+                {
+                    await NotifyFactListeners(rootId, SnapshotCommittedFacts(resolution, rootId));
+                }
+                if (
+                    result is ResolvedOpResult<TResult> resolved
+                    && resolved.Value is ISettledOperationResult<TResult> settled
+                )
+                {
+                    result = OpResult<TResult>
+                        .Resolved(settled.Settle(Snapshot))
+                        .WithFacts(result.Facts);
+                }
+            }
+            catch (Exception primary)
+            {
+                await CallbackFailure.AwaitCleanupPreservingPrimary(
+                    primary,
+                    NotifyRootSettled(rootId)
+                );
                 throw;
             }
 
-            if (result.Status != OpStatus.Invalid && result.Facts.Count > 0)
-            {
-                await NotifyFactListeners(rootId, SnapshotCommittedFacts(resolution, rootId));
-            }
-            if (
-                result is ResolvedOpResult<TResult> resolved
-                && resolved.Value is ISettledOperationResult<TResult> settled
-            )
-            {
-                return OpResult<TResult>.Resolved(settled.Settle(Snapshot)).WithFacts(result.Facts);
-            }
+            await NotifyRootSettled(rootId);
             return result;
         }
 

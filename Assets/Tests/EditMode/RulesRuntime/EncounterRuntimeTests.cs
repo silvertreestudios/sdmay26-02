@@ -99,6 +99,118 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task QueuedMapAfterExactTurnLossRejectsWithoutRecreatingPenalty()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
+            EncounterState started = Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            ).Value.State;
+            BlockingFactObserver<LegacyActionsSpentFact> blocker =
+                new BlockingFactObserver<LegacyActionsSpentFact>();
+            CountingFactObserver<LegacyMapIncrementedFact> maps =
+                new CountingFactObserver<LegacyMapIncrementedFact>();
+            dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(blocker);
+            dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+
+            try
+            {
+                Task<OpResult<LegacyActionSpendOutcome>> spending = dispatcher
+                    .Dispatch(new SpendLegacyActionsOp(Hero, 1))
+                    .AsTask();
+                await blocker.Started;
+                Task<OpResult<EncounterAdvanceOutcome>> ending = dispatcher
+                    .Dispatch(new EndTurnOp(started.CurrentTurn.Value))
+                    .AsTask();
+                Task<OpResult<LegacyMapOutcome>> mapping = dispatcher
+                    .Dispatch(new IncrementLegacyMapOp(Hero))
+                    .AsTask();
+
+                blocker.Release();
+                Resolved(await spending);
+                EncounterState advanced = Resolved(await ending).Value.State;
+                InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
+                    async () =>
+                        await mapping
+                );
+
+                Assert.That(rejected.Message, Does.Contain("does not own an active current turn"));
+                Assert.That(advanced.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
+                Assert.That(dispatcher.Snapshot.MultipleAttackPenalty[Hero].AttackCount, Is.Zero);
+                Assert.That(maps.Calls, Is.Zero);
+            }
+            finally
+            {
+                blocker.Release();
+            }
+        }
+
+        [Test]
+        public async Task QueuedMapAfterEncounterEndRejectsWithoutRecreatingPenalty()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                BaseSeed().SeedHealth(Enemy, new HealthState(1, 10))
+            );
+            await dispatcher.Dispatch(
+                Start(
+                    new EncounterParticipant(Hero, Players, 0),
+                    new EncounterParticipant(Enemy, Enemies, 0)
+                )
+            );
+            BlockingFactObserver<HealthFact> blocker = new BlockingFactObserver<HealthFact>();
+            CountingFactObserver<LegacyMapIncrementedFact> maps =
+                new CountingFactObserver<LegacyMapIncrementedFact>();
+            dispatcher.RegisterFactObserver<HealthFact>(blocker);
+            dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+
+            try
+            {
+                Task<OpResult<DamageOutcome>> lethal = dispatcher
+                    .Dispatch(
+                        new ApplyDamageOp(
+                            Enemy,
+                            1,
+                            new HealthChangeOriginId("queued-map-lethal"),
+                            Source
+                        )
+                    )
+                    .AsTask();
+                await blocker.Started;
+                Task<OpResult<LegacyMapOutcome>> mapping = dispatcher
+                    .Dispatch(new IncrementLegacyMapOp(Hero))
+                    .AsTask();
+
+                blocker.Release();
+                Resolved(await lethal);
+                InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
+                    async () =>
+                        await mapping
+                );
+
+                Assert.That(rejected.Message, Does.Contain("does not own an active current turn"));
+                Assert.That(
+                    dispatcher.Snapshot.Encounters[Encounter].Phase,
+                    Is.EqualTo(EncounterPhase.Ended)
+                );
+                Assert.That(
+                    dispatcher.Snapshot.Encounters[Encounter].Outcome,
+                    Is.EqualTo(EncounterOutcome.PlayerVictory)
+                );
+                Assert.That(dispatcher.Snapshot.MultipleAttackPenalty[Hero].AttackCount, Is.Zero);
+                Assert.That(maps.Calls, Is.Zero);
+            }
+            finally
+            {
+                blocker.Release();
+            }
+        }
+
+        [Test]
         public async Task StaleAndDuplicateTurnEndRejectWithoutCommit()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
@@ -855,6 +967,27 @@ namespace Game.Rules.Runtime.Tests
                 Calls++;
                 return default;
             }
+        }
+
+        private sealed class BlockingFactObserver<TFact> : IFactObserver<TFact>
+            where TFact : RuleFact
+        {
+            private readonly TaskCompletionSource<bool> started = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+            private readonly TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+
+            public Task Started => started.Task;
+
+            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+            {
+                started.TrySetResult(true);
+                return new ValueTask(release.Task);
+            }
+
+            public void Release() => release.TrySetResult(true);
         }
 
         private sealed class TurnBeganActorsObserver : IFactObserver<TurnBeganFact>

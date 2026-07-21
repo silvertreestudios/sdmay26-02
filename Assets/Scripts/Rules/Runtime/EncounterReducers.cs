@@ -552,6 +552,16 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
+            bool ownsActiveTurn = state.Encounters.Any(pair =>
+                pair.Value.Phase == EncounterPhase.Active
+                && pair.Value.CurrentTurn.HasValue
+                && pair.Value.CurrentTurn.Value.Actor == context.Op.Actor
+            );
+            if (!ownsActiveTurn)
+                return ReductionResult<LegacyMapOutcome>.Reject(
+                    "The actor does not own an active current turn."
+                );
+
             int count = state.MultipleAttackPenalty.TryGet(
                 context.Op.Actor,
                 out MultipleAttackPenaltyState current

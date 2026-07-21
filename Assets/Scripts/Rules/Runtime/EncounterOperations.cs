@@ -292,14 +292,14 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Requests a temporary same-store MAP increment for an unmigrated attack.</summary>
+    /// <summary>Requests a turn-authorized same-store MAP increment for an unmigrated attack.</summary>
     public sealed class IncrementLegacyMapOp : IRuleOp<LegacyMapOutcome>
     {
         /// <summary>Gets the creature whose turn-scoped attack count is incremented.</summary>
         public CreatureId Actor { get; }
 
         /// <summary>Creates a temporary same-store MAP-increment request.</summary>
-        /// <param name="actor">The creature completing an unmigrated attack.</param>
+        /// <param name="actor">The creature that must own the exact active current turn.</param>
         public IncrementLegacyMapOp(CreatureId actor) =>
             Actor = actor.IsEmpty
                 ? throw new ArgumentException("An actor is required.", nameof(actor))

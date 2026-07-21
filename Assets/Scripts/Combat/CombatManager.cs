@@ -208,16 +208,43 @@ public class CombatManager : CombatManagerInterface
             yield return null;
         if (!combatActive)
             yield break;
+        UnityEncounterRulesBridge joiningBridge = encounterRules;
         CoroutineResult<EncounterJoinOutcome> joined = new();
-        yield return CoroutineRunner.Await(encounterRules.JoinEncounter(additions), joined);
-        activeCombatants.AddRange(additions);
-        yield return CoroutineRunner.Await(Pf2eRulesEngine.ApplyCombatStartRulesAsync(additions));
+        yield return CoroutineRunner.Await(
+            joiningBridge.JoinEncounter(
+                additions,
+                () => PublishAcceptedReinforcements(joiningBridge, additions)
+            ),
+            joined
+        );
+        if (
+            !combatActive
+            || !ReferenceEquals(encounterRules, joiningBridge)
+            || !joiningBridge.HasActiveEncounter
+        )
+            yield break;
         HashSet<ActionController> accepted = new(additions);
         ActionController[] acceptedOrder = joined
-            .Value.State.Roster.Select(entry => encounterRules.GetController(entry.Creature))
+            .Value.State.Roster.Select(entry => joiningBridge.GetController(entry.Creature))
             .Where(accepted.Contains)
             .ToArray();
         LogInitiative("Reinforcements", acceptedOrder);
+    }
+
+    private void PublishAcceptedReinforcements(
+        UnityEncounterRulesBridge joiningBridge,
+        IReadOnlyList<ActionController> additions
+    )
+    {
+        if (
+            !combatActive
+            || !ReferenceEquals(encounterRules, joiningBridge)
+            || !joiningBridge.HasActiveEncounter
+        )
+            return;
+        foreach (ActionController addition in additions)
+            if (!activeCombatants.Contains(addition))
+                activeCombatants.Add(addition);
     }
 
     private IEnumerator SuspendDungeonCombatRoutine()

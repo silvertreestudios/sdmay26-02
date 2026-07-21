@@ -266,6 +266,85 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    /// <summary>Verifies an attack cannot recreate MAP after a queued exact turn end wins.</summary>
+    [UnityTest]
+    public IEnumerator QueuedStrikeMapAfterTurnLossRejectsAndReleasesActionReservation()
+    {
+        CombatantFixture player = CreateCombatant("Stale MAP Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Stale MAP Enemy", "Enemies", 100);
+        CombatantFixture ally = CreateCombatant("Stale MAP Ally", "Players", 0);
+        player.Creature.attackBonus = 100;
+        enemy.Creature.ac = -100;
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Stale MAP GridAPI").AddComponent<TestGridAPI>();
+        grid.StrikeTarget = enemy.GameObject;
+        singletonField.SetValue(null, grid);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller, ally.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<LegacyActionsSpentFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<LegacyMapIncrementedFact> maps = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+        int enemyHealth = enemy.Creature.hp;
+        Task<EncounterAdvanceOutcome> ending = null;
+
+        try
+        {
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(
+                new Unarmed(
+                    1,
+                    new List<Dice> { new Dice(1, 1, "bludgeoning") },
+                    new List<DamageValue>()
+                )
+            );
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The action spend did not occupy the dispatcher before MAP."
+            );
+            ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: .*The actor does not own an active current turn\\."
+                )
+            );
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return WaitForTurn(enemy.GameObject);
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The rejected MAP left the attack reservation active."
+            );
+
+            Assert.That(spends.Facts, Has.Count.EqualTo(1));
+            Assert.That(spends.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(player.Controller.HasTurnAuthority, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(enemy.Creature.hp, Is.EqualTo(enemyHealth));
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(maps);
+            singletonField.SetValue(null, previousGrid);
+            _ = ending?.Exception;
+        }
+    }
+
     /// <summary>Verifies malformed encounter identity cannot interrupt committed defeat cleanup.</summary>
     [UnityTest]
     public IEnumerator LethalDamage_UnconfiguredEncounterMemberStillCompletesDefeatPresentation()
@@ -484,6 +563,152 @@ public sealed class DungeonEncounterCombatPlayModeTests
             blocker.Release();
             dispatcher.UnregisterFactObserver<TurnEndedFact>(blocker);
             _ = ending.Exception;
+        }
+    }
+
+    /// <summary>Verifies accepted reinforcement publication and initialization share the join root.</summary>
+    [UnityTest]
+    public IEnumerator QueuedJoinPublishesIdentityAndInitializationBeforeEligibleTurn()
+    {
+        CombatantFixture current = CreateCombatant("Join Boundary Current", "Players", 300);
+        CombatantFixture reinforcement = CreateCombatant(
+            "Join Boundary Reinforcement",
+            "Enemies",
+            200
+        );
+        CombatantFixture later = CreateCombatant("Join Boundary Later", "Enemies", 0);
+        PrepareBarbarian(reinforcement.Creature);
+        Assert.That(reinforcement.Creature.Prepared.HasOwnedItem("quick-tempered"), Is.True);
+        manager.StartDungeonCombat(new[] { current.Controller, later.Controller });
+        yield return WaitForTurn(current.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> rootBlocker = new(failAfterRelease: false);
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> initializationBlocker = new(
+            failAfterRelease: false
+        );
+        dispatcher.RegisterFactObserver<HealthFact>(rootBlocker);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(initializationBlocker);
+        Task occupied = current
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-join-root-blocker"))
+            .AsTask();
+        Task<EncounterAdvanceOutcome> ending = null;
+        int reinforcementTurnPresentations = 0;
+        bool initializedAtPresentation = false;
+        UnityAction<GameObject> observeTurn = actor =>
+        {
+            if (actor != reinforcement.GameObject)
+                return;
+            reinforcementTurnPresentations++;
+            initializedAtPresentation =
+                reinforcement.Creature.Prepared.HasActiveEffect("rage")
+                && reinforcement.Creature.Health.Temporary > 0;
+        };
+        OnNextTurn.AddListener(observeTurn);
+
+        try
+        {
+            yield return WaitForCondition(
+                () => rootBlocker.Started.IsCompleted,
+                "The health root did not occupy reinforcement serialization."
+            );
+            manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+            ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+            yield return null;
+
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.GetCreatureId(reinforcement.Controller)
+            );
+            Assert.That(GetPublishedActiveCombatants(), Has.No.Member(reinforcement.Controller));
+
+            rootBlocker.Release();
+            yield return WaitForCondition(
+                () => initializationBlocker.Started.IsCompleted,
+                "Quick-Tempered initialization did not begin inside the accepted join root."
+            );
+
+            CreatureId reinforcementId = bridge.GetCreatureId(reinforcement.Controller);
+            Assert.That(
+                bridge.GetController(reinforcementId),
+                Is.SameAs(reinforcement.Controller),
+                "Accepted identity publication must precede any causal initialization dispatch."
+            );
+            Assert.That(
+                bridge.CurrentTurn.Value.Actor,
+                Is.EqualTo(bridge.GetCreatureId(current.Controller))
+            );
+            Assert.That(reinforcement.Controller.StartTurnCount, Is.Zero);
+            Assert.That(
+                GetPublishedActiveCombatants(),
+                Has.No.Member(reinforcement.Controller),
+                "Manager publication must wait for every reinforcement start hook."
+            );
+
+            initializationBlocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(occupied));
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return WaitForTurn(reinforcement.GameObject);
+
+            Assert.That(reinforcementTurnPresentations, Is.EqualTo(1));
+            Assert.That(initializedAtPresentation, Is.True);
+            Assert.That(reinforcement.Controller.StartTurnCount, Is.EqualTo(1));
+            Assert.That(GetPublishedActiveCombatants(), Has.Member(reinforcement.Controller));
+        }
+        finally
+        {
+            rootBlocker.Release();
+            initializationBlocker.Release();
+            OnNextTurn.RemoveListener(observeTurn);
+            dispatcher.UnregisterFactObserver<HealthFact>(rootBlocker);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(initializationBlocker);
+            _ = ending?.Exception;
+        }
+    }
+
+    /// <summary>Verifies a completed join continuation cannot restore manager state after defeat.</summary>
+    [UnityTest]
+    public IEnumerator CombatEndingBehindJoinLeavesPublishedActiveCombatantsCleared()
+    {
+        CombatantFixture player = CreateCombatant("Ending Join Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Ending Join Enemy", "Enemies", 100);
+        CombatantFixture reinforcement = CreateCombatant("Ending Join Reinforcement", "Enemies", 0);
+        PrepareBarbarian(reinforcement.Creature);
+        player.Creature.InitializeHealthBeforeEncounter(1, 1);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: false);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        Task lethal = null;
+
+        try
+        {
+            manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The reinforcement start hook did not hold the accepted join root."
+            );
+            lethal = player
+                .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-ending-behind-join"))
+                .AsTask();
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(lethal));
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The queued lethal root did not settle the encounter."
+            );
+            yield return null;
+            yield return null;
+
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+            Assert.That(manager.IsCombatActive, Is.False);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            _ = lethal?.Exception;
         }
     }
 
@@ -1371,6 +1596,16 @@ public sealed class DungeonEncounterCombatPlayModeTests
             bridgeField.GetValue(manager) as UnityEncounterRulesBridge;
         Assert.That(bridge, Is.Not.Null);
         return bridge;
+    }
+
+    private IReadOnlyList<ActionController> GetPublishedActiveCombatants()
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "activeCombatants",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return ((IEnumerable<ActionController>)field.GetValue(manager)).ToArray();
     }
 
     private static IEnumerator WaitForCondition(Func<bool> condition, string timeoutMessage)
