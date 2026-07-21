@@ -158,6 +158,26 @@ public sealed class DungeonActorStateAdapterTests
     }
 
     [Test]
+    public void PreparedRuleRestoreNormalizesRollOptionWhitespaceBeforeIdentityValidation()
+    {
+        PreparedCharacter prepared = new(new CharacterBuild());
+
+        prepared.RestorePersistentRuleState(
+            new[] { "  custom:option  " },
+            Array.Empty<ActivePf2eEffect>()
+        );
+
+        Assert.That(prepared.RollOptions, Is.EqualTo(new[] { "custom:option" }));
+        Assert.Throws<ArgumentException>(() =>
+            prepared.RestorePersistentRuleState(
+                new[] { "custom:option", " custom:option " },
+                Array.Empty<ActivePf2eEffect>()
+            )
+        );
+        Assert.That(prepared.RollOptions, Is.EqualTo(new[] { "custom:option" }));
+    }
+
+    [Test]
     public void PreflightRestore_DoesNotMutateWhenContentCannotResolve()
     {
         TestActionController original = CreateActor("Original", 7, 12);

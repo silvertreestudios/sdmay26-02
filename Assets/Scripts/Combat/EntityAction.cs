@@ -27,6 +27,7 @@ public abstract class EntityAction
         ActionController controller =
             target != null ? target.GetComponent<ActionController>() : null;
         CombatManager.GetInstance().CheckForEndOfGame();
-        controller?.CompleteAction();
+        if (controller != null)
+            controller.CompleteAction();
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using Game.Combat.Encounters;
 using Game.Creature;
@@ -211,6 +212,31 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
         Assert.That(source.AreActorsStable, Is.False);
     }
 
+    /// <summary>Verifies startup exceptions retain structured bootstrap diagnostics.</summary>
+    [Test]
+    public void DungeonBootstrapFailureMessageIncludesStructuredDiagnostics()
+    {
+        DungeonSaveDiagnostic diagnostic = new(
+            DungeonSaveDiagnosticCode.CorruptSave,
+            DungeonSaveDiagnosticSeverity.Error,
+            "manifest.party",
+            "The party roster is invalid."
+        );
+        MethodInfo factory = typeof(GameManager).GetMethod(
+            "CreateDungeonPersistenceFailure",
+            BindingFlags.NonPublic | BindingFlags.Static
+        );
+
+        Assert.That(factory, Is.Not.Null);
+        InvalidOperationException error = (InvalidOperationException)
+            factory.Invoke(null, new object[] { new[] { diagnostic } });
+
+        Assert.That(error.Message, Does.Contain("could not initialize its persistent run"));
+        Assert.That(error.Message, Does.Contain("CorruptSave"));
+        Assert.That(error.Message, Does.Contain("manifest.party"));
+        Assert.That(error.Message, Does.Contain("The party roster is invalid."));
+    }
+
     /// <summary>
     /// Verifies synchronous invocation failure releases controller busy state without publishing a
     /// successful completion boundary and does not prevent a later action.
@@ -315,6 +341,22 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
         Assert.DoesNotThrow(() => new NoOpEntityAction().Invoke(target));
     }
 
+    /// <summary>
+    /// Verifies immediate action teardown does not access a controller destroyed while checking
+    /// the combat-end boundary.
+    /// </summary>
+    [Test]
+    public void ImmediateActionTeardownIgnoresControllerDestroyedByCombatEnd()
+    {
+        RuntimeTestActionController controller = Track(new GameObject("Immediate teardown actor"))
+            .AddComponent<RuntimeTestActionController>();
+        GameObject target = controller.gameObject;
+        ReplaceCombatManagerWithDestroying(controller);
+
+        Assert.DoesNotThrow(() => new NoOpEntityAction().Invoke(target));
+        Assert.That(controller == null, Is.True);
+    }
+
     /// <summary>Verifies multi-frame action teardown ignores an already destroyed target.</summary>
     [UnityTest]
     public IEnumerator MultiFrameActionIgnoresDestroyedTarget()
@@ -327,6 +369,27 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
         new EmptyMultiFrameAction().Invoke(target);
         yield return null;
 
+        LogAssert.NoUnexpectedReceived();
+    }
+
+    /// <summary>
+    /// Verifies coroutine action teardown does not access a controller destroyed while checking
+    /// the combat-end boundary.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator MultiFrameActionTeardownIgnoresControllerDestroyedByCombatEnd()
+    {
+        if (!CoroutineRunner.TryGetInstance(out _))
+            Track(new GameObject("Persistence coroutine runner")).AddComponent<CoroutineRunner>();
+        RuntimeTestActionController controller = Track(new GameObject("Multi-frame teardown actor"))
+            .AddComponent<RuntimeTestActionController>();
+        GameObject target = controller.gameObject;
+        ReplaceCombatManagerWithDestroying(controller);
+
+        new EmptyMultiFrameAction().Invoke(target);
+        yield return null;
+
+        Assert.That(controller == null, Is.True);
         LogAssert.NoUnexpectedReceived();
     }
 
@@ -733,6 +796,17 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
     private static string CreatureInstanceId(int index) =>
         DungeonCreatureInstanceIdentity.Create(EncounterId, index);
 
+    private void ReplaceCombatManagerWithDestroying(ActionController target)
+    {
+        Object.DestroyImmediate(manager.gameObject);
+        DestroyingCombatManager replacement = Track(
+                new GameObject("Persistence destroying combat manager")
+            )
+            .AddComponent<DestroyingCombatManager>();
+        replacement.DestroyOnNextCheck(target);
+        manager = replacement;
+    }
+
     private T Track<T>(T value)
         where T : Object
     {
@@ -878,6 +952,24 @@ public sealed class DungeonPersistenceRuntimeIntegrationTests
                 return;
             ResetEncounterTurnState();
             CombatManagerInterface.GetInstance().NextTurn();
+        }
+    }
+
+    private sealed class DestroyingCombatManager : CombatManager
+    {
+        private ActionController target;
+
+        internal void DestroyOnNextCheck(ActionController controller)
+        {
+            target = controller;
+        }
+
+        /// <inheritdoc/>
+        public override bool CheckForEndOfGame()
+        {
+            if (target != null)
+                Object.DestroyImmediate(target.gameObject);
+            return true;
         }
     }
 

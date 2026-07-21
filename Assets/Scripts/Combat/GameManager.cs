@@ -128,9 +128,7 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
                     Debug.LogError(message, map);
             }
             if (!bootstrap.IsSuccess)
-                throw new InvalidOperationException(
-                    "The generated dungeon could not initialize its persistent run."
-                );
+                throw CreateDungeonPersistenceFailure(bootstrap.Diagnostics);
         }
         catch
         {
@@ -138,6 +136,22 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             throw;
         }
         yield return null;
+    }
+
+    private static InvalidOperationException CreateDungeonPersistenceFailure(
+        IReadOnlyList<DungeonSaveDiagnostic> diagnostics
+    )
+    {
+        const string summary = "The generated dungeon could not initialize its persistent run.";
+        string details = string.Join(
+            Environment.NewLine,
+            diagnostics.Select(diagnostic =>
+                $"[{diagnostic.Code}] {diagnostic.Path}: {diagnostic.Message}"
+            )
+        );
+        return new InvalidOperationException(
+            details.Length == 0 ? summary : summary + Environment.NewLine + details
+        );
     }
 
     private void NextLevel(string winningTeam)

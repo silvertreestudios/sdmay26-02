@@ -22,7 +22,8 @@ public abstract class MultiFrameEntityAction : EntityAction
         }
         finally
         {
-            controller?.CompleteAction();
+            if (controller != null)
+                controller.CompleteAction();
         }
     }
 

@@ -140,7 +140,10 @@ namespace Game.Creature.Rules
         /// Atomically restores the mutable prepared-rule state persisted for a dungeon run.
         /// Catalog-derived modifiers and owned items remain untouched.
         /// </summary>
-        /// <param name="rollOptions">The complete active roll-option set.</param>
+        /// <param name="rollOptions">
+        /// The complete active roll-option set. Surrounding whitespace is removed before identity
+        /// validation and storage.
+        /// </param>
         /// <param name="effects">The complete active prepared-effect set.</param>
         public void RestorePersistentRuleState(
             IEnumerable<string> rollOptions,
@@ -152,7 +155,7 @@ namespace Game.Creature.Rules
             if (effects == null)
                 throw new ArgumentNullException(nameof(effects));
 
-            string[] copiedRollOptions = rollOptions.ToArray();
+            string[] copiedRollOptions = rollOptions.Select(option => option?.Trim()).ToArray();
             ActivePf2eEffect[] copiedEffects = effects.ToArray();
             if (copiedRollOptions.Any(string.IsNullOrWhiteSpace))
                 throw new ArgumentException(
