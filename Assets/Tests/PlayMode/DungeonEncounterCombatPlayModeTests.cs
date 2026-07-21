@@ -73,21 +73,30 @@ public sealed class DungeonEncounterCombatPlayModeTests
         player.GameObject.transform.position = new Vector3(1f, 0f, 0f);
         activeEnemy.GameObject.transform.position = new Vector3(2f, 0f, 0f);
         dormantEnemy.GameObject.transform.position = new Vector3(3f, 0f, 0f);
-        List<GameObject> synchronousStartRoster = null;
-        UnityAction captureStartRoster = () => synchronousStartRoster = manager.GetCombatants();
+        List<GameObject> durableStartRoster = null;
+        List<string> startupOrder = new();
+        UnityAction captureStartRoster = () =>
+        {
+            durableStartRoster = manager.GetCombatants();
+            startupOrder.Add("combat-start");
+        };
+        UnityAction<GameObject> captureFirstTurn = _ => startupOrder.Add("next-turn");
         OnCombatStart.AddListener(captureStartRoster);
+        OnNextTurn.AddListener(captureFirstTurn);
 
         try
         {
             manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
-            Assert.That(
-                synchronousStartRoster,
-                Is.EqualTo(new[] { player.GameObject, activeEnemy.GameObject }),
-                "Synchronous startup consumers must see only the explicit encounter subset."
-            );
+            Assert.That(durableStartRoster, Is.Null, "Startup is not durable at request return.");
             Assert.That(GetStartupCombatants(), Is.Empty);
             yield return WaitForTurn();
 
+            Assert.That(
+                durableStartRoster,
+                Is.EqualTo(new[] { player.GameObject, activeEnemy.GameObject }),
+                "Durable startup consumers must see only the explicit encounter subset."
+            );
+            Assert.That(startupOrder, Is.EqualTo(new[] { "combat-start", "next-turn" }));
             Assert.That(manager.IsCombatActive, Is.True);
             Assert.That(
                 manager.GetCombatants(),
@@ -137,57 +146,39 @@ public sealed class DungeonEncounterCombatPlayModeTests
         finally
         {
             OnCombatStart.RemoveListener(captureStartRoster);
+            OnNextTurn.RemoveListener(captureFirstTurn);
         }
     }
 
-    /// <summary>Verifies a failed synchronous startup event cannot retain its selected projection.</summary>
+    /// <summary>Verifies a durable startup notification fault does not strand first-turn presentation.</summary>
     [UnityTest]
-    public IEnumerator StartEventFailureClearsBootstrapRosterAndRestoresRegistrationView()
+    public IEnumerator DurableStartEventFailureKeepsAcceptedEncounterPresentable()
     {
         CombatantFixture player = CreateCombatant("Failed Start Player", "Players", 200);
         CombatantFixture activeEnemy = CreateCombatant("Failed Start Enemy", "Enemies", 100);
-        CombatantFixture dormantEnemy = CreateCombatant("Failed Start Dormant", "Enemies", 0);
         UnityAction failStart = () =>
-            throw new InvalidOperationException("deliberate synchronous startup failure");
+            throw new InvalidOperationException("deliberate durable startup notification failure");
         OnCombatStart.AddListener(failStart);
 
         try
         {
-            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
-                manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller })
-            );
-
-            Assert.That(error.Message, Does.Contain("deliberate synchronous startup failure"));
-            Assert.That(manager.IsCombatActive, Is.False);
-            Assert.That(GetStartupCombatants(), Is.Empty);
-            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
-            Assert.That(
-                manager.GetCombatants(),
-                Is.EqualTo(
-                    new[] { player.GameObject, activeEnemy.GameObject, dormantEnemy.GameObject }
-                ),
-                "Without an encounter, gameplay must return to the ordinary living registration view."
-            );
-            Assert.That(
-                manager.getPoistions(),
-                Is.EqualTo(
-                    new[]
-                    {
-                        player.GameObject.transform.position,
-                        activeEnemy.GameObject.transform.position,
-                        dormantEnemy.GameObject.transform.position,
-                    }
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: deliberate durable startup notification failure"
                 )
             );
+            manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(player.Controller.StartTurnCount, Is.EqualTo(1));
+            Assert.That(player.Controller.HasTurnAuthority, Is.True);
         }
         finally
         {
             OnCombatStart.RemoveListener(failStart);
         }
-
-        manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
-        yield return WaitForTurn(player.GameObject);
-        Assert.That(manager.IsCombatActive, Is.True, "A failed startup must not block a retry.");
     }
 
     /// <summary>Verifies legacy all-registered combat deterministically supports arbitrary teams.</summary>
@@ -222,13 +213,17 @@ public sealed class DungeonEncounterCombatPlayModeTests
         BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: true);
         RuleDispatcher failedDispatcher = null;
         UnityEncounterRulesBridge failedBridge = null;
+        int durableStartNotifications = 0;
+        UnityAction observeDurableStart = () => durableStartNotifications++;
         UnityAction installFailure = () =>
         {
             failedBridge = GetEncounterBridge();
             failedDispatcher = GetEncounterDispatcher();
             failedDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
         };
-        OnCombatStart.AddListener(installFailure);
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        manager.CombatActivityChanged += installFailureAtActivation;
+        OnCombatStart.AddListener(observeDurableStart);
 
         try
         {
@@ -238,6 +233,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 "The startup hook did not reach its awaited health Fact."
             );
             Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(durableStartNotifications, Is.Zero);
             Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
             Assert.That(player.Creature.Health.Temporary, Is.GreaterThan(0));
             Assert.That(player.Controller.GetActions().OfType<Unarmed>(), Has.Count.EqualTo(1));
@@ -261,6 +257,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Assert.That(player.Creature.HasTempHpImmunity("rage"), Is.False);
             Assert.That(player.Controller.GetActions(), Has.Count.EqualTo(actionsBefore));
             Assert.That(GetCreatureEncounterBridge(player.Creature), Is.Null);
+            Assert.That(durableStartNotifications, Is.Zero);
             Assert.Throws<InvalidOperationException>(() =>
                 failedBridge.GetCreatureId(player.Creature)
             );
@@ -271,18 +268,28 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
         finally
         {
-            OnCombatStart.RemoveListener(installFailure);
+            manager.CombatActivityChanged -= installFailureAtActivation;
+            OnCombatStart.RemoveListener(observeDurableStart);
             blocker.Release();
             failedDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
         }
 
-        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-        yield return WaitForTurn(player.GameObject);
-        Assert.That(manager.IsCombatActive, Is.True);
-        Assert.That(player.Creature.Prepared, Is.SameAs(preparedBefore));
-        Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
-        Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
-        Assert.That(player.Controller.GetActions().OfType<Unarmed>(), Has.Count.EqualTo(1));
+        OnCombatStart.AddListener(observeDurableStart);
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(durableStartNotifications, Is.EqualTo(1));
+            Assert.That(player.Creature.Prepared, Is.SameAs(preparedBefore));
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
+            Assert.That(player.Controller.GetActions().OfType<Unarmed>(), Has.Count.EqualTo(1));
+        }
+        finally
+        {
+            OnCombatStart.RemoveListener(observeDurableStart);
+        }
     }
 
     /// <summary>
@@ -352,7 +359,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
             failedDispatcher = GetEncounterDispatcher();
             failedDispatcher.RegisterFactObserver<DamageAppliedFact>(blocker);
         };
-        OnCombatStart.AddListener(installFailure);
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        manager.CombatActivityChanged += installFailureAtActivation;
         bool firstAttemptCompleted = false;
 
         try
@@ -407,7 +415,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         finally
         {
             blocker.Release();
-            OnCombatStart.RemoveListener(installFailure);
+            manager.CombatActivityChanged -= installFailureAtActivation;
             failedDispatcher?.UnregisterFactObserver<DamageAppliedFact>(blocker);
             if (!firstAttemptCompleted)
             {
@@ -640,7 +648,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
             dispatcher = GetEncounterDispatcher();
             dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
         };
-        OnCombatStart.AddListener(installFailure);
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        manager.CombatActivityChanged += installFailureAtActivation;
 
         FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
             "Instance",
@@ -694,7 +703,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         {
             releaseStride = true;
             blocker.Release();
-            OnCombatStart.RemoveListener(installFailure);
+            manager.CombatActivityChanged -= installFailureAtActivation;
             dispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
             singletonField.SetValue(null, previousGrid);
         }
@@ -720,7 +729,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
             dispatcher = GetEncounterDispatcher();
             dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
         };
-        OnCombatStart.AddListener(installFailure);
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        manager.CombatActivityChanged += installFailureAtActivation;
 
         FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
             "Instance",
@@ -777,7 +787,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         {
             releaseStride = true;
             blocker.Release();
-            OnCombatStart.RemoveListener(installFailure);
+            manager.CombatActivityChanged -= installFailureAtActivation;
             dispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
             singletonField.SetValue(null, previousGrid);
         }
@@ -807,13 +817,14 @@ public sealed class DungeonEncounterCombatPlayModeTests
             failedDispatcher = GetEncounterDispatcher();
             failedDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
         };
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
         int inactiveCalls = 0;
         Action<bool> observeActivity = active =>
         {
             if (!active)
                 inactiveCalls++;
         };
-        OnCombatStart.AddListener(installFailure);
+        manager.CombatActivityChanged += installFailureAtActivation;
         manager.CombatActivityChanged += observeActivity;
 
         try
@@ -852,7 +863,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
             );
             Assert.That(inactiveCalls, Is.EqualTo(1));
 
-            OnCombatStart.RemoveListener(installFailure);
+            manager.CombatActivityChanged -= installFailureAtActivation;
             failedDispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
             yield return WaitForTurn(player.GameObject);
@@ -881,7 +892,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         finally
         {
             blocker.Release();
-            OnCombatStart.RemoveListener(installFailure);
+            manager.CombatActivityChanged -= installFailureAtActivation;
             manager.CombatActivityChanged -= observeActivity;
             failedDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
         }
@@ -908,7 +919,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
             joinDispatcher = GetEncounterDispatcher();
             joinDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(joinBlocker);
         };
-        OnCombatStart.AddListener(installJoinBlocker);
+        Action<bool> installJoinBlockerAtActivation = WhenCombatBecomesActive(installJoinBlocker);
+        manager.CombatActivityChanged += installJoinBlockerAtActivation;
 
         try
         {
@@ -933,7 +945,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         finally
         {
             joinBlocker.Release();
-            OnCombatStart.RemoveListener(installJoinBlocker);
+            manager.CombatActivityChanged -= installJoinBlockerAtActivation;
             joinDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(joinBlocker);
         }
 
@@ -957,7 +969,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
             suspendDispatcher = GetEncounterDispatcher();
             suspendDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(suspendBlocker);
         };
-        OnCombatStart.AddListener(installSuspendBlocker);
+        Action<bool> installSuspendBlockerAtActivation = WhenCombatBecomesActive(
+            installSuspendBlocker
+        );
+        manager.CombatActivityChanged += installSuspendBlockerAtActivation;
 
         try
         {
@@ -980,7 +995,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         finally
         {
             suspendBlocker.Release();
-            OnCombatStart.RemoveListener(installSuspendBlocker);
+            manager.CombatActivityChanged -= installSuspendBlockerAtActivation;
             suspendDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(
                 suspendBlocker
             );
@@ -3724,7 +3739,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
             failedDispatcher = GetEncounterDispatcher();
             failedDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
         };
-        OnCombatStart.AddListener(installFailure);
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        manager.CombatActivityChanged += installFailureAtActivation;
 
         try
         {
@@ -3773,7 +3789,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
         finally
         {
-            OnCombatStart.RemoveListener(installFailure);
+            manager.CombatActivityChanged -= installFailureAtActivation;
             blocker.Release();
             failedDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
         }
@@ -4102,6 +4118,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
         )
             yield return null;
         Assert.That(manager.WhosTurn(), expected == null ? Is.Not.Null : Is.SameAs(expected));
+    }
+
+    private static Action<bool> WhenCombatBecomesActive(UnityAction callback)
+    {
+        return active =>
+        {
+            if (active)
+                callback();
+        };
     }
 
     private IEnumerator AssertLethalActionLifecycle(

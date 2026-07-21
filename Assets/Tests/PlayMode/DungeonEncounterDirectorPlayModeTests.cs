@@ -131,7 +131,12 @@ public sealed class DungeonEncounterDirectorPlayModeTests
             failedDispatcher = GetEncounterDispatcher(failedBridge);
             failedDispatcher.RegisterFactObserver<TurnBeganFact>(blocker);
         };
-        OnCombatStart.AddListener(installFailure);
+        Action<bool> installFailureAtActivation = active =>
+        {
+            if (active)
+                installFailure();
+        };
+        manager.CombatActivityChanged += installFailureAtActivation;
         int inactivePublications = 0;
         bool lifecycleWasReconciledAtInactivePublication = false;
         Action<bool> observeActivity = active =>
@@ -188,7 +193,7 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         finally
         {
             blocker.Release();
-            OnCombatStart.RemoveListener(installFailure);
+            manager.CombatActivityChanged -= installFailureAtActivation;
             manager.CombatActivityChanged -= observeActivity;
             failedDispatcher?.UnregisterFactObserver<TurnBeganFact>(blocker);
         }

@@ -219,10 +219,11 @@ namespace Game.Combat.Encounters
         /// <remarks>
         /// Opening is free for any adjacent living party member during exploration and costs the
         /// current living PC exactly one action in combat. The actor's normal action-in-progress
-        /// reservation serializes competing interaction requests while an authoritative action
-        /// spend waits behind another rules root. The cost commits before Unity door state changes,
-        /// so a rejected spend cannot partially change visuals, navigation, persistence, or events.
-        /// Generated doors are open-only in V1.
+        /// reservation serializes competing interaction requests. Exploration deliberately bypasses
+        /// encounter action spending because its zero-cost interaction remains valid after an
+        /// encounter ends or suspends. In combat, the authoritative positive cost commits before
+        /// Unity door state changes, so a rejected spend cannot partially change visuals,
+        /// navigation, persistence, or events. Generated doors are open-only in V1.
         /// </remarks>
         public async ValueTask<bool> TryOpenDoorAsync(DungeonCell doorCell)
         {
@@ -277,7 +278,8 @@ namespace Game.Combat.Encounters
                 return false;
             try
             {
-                await actor.SpendActionsAsync(decision.ActionCost);
+                if (decision.ActionCost > 0)
+                    await actor.SpendActionsAsync(decision.ActionCost);
                 if (!door.TryOpen())
                     return false;
 

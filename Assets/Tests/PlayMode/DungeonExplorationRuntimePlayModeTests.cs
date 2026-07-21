@@ -387,6 +387,83 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         yield break;
     }
 
+    /// <summary>Verifies retained ended-encounter authority cannot reject a free exploration door.</summary>
+    [UnityTest]
+    public IEnumerator FreeDoorOpensAfterEncounterEndsWithoutEncounterSpend()
+    {
+        DoorSpec door = new("door-after-end", new DungeonCell(2, 1));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 1) },
+            doors: new[] { door },
+            configurePartyBeforeInitialization: party =>
+                party[0].GetComponent<CreatureComponent>().initiative = 1000
+        );
+        Combatant enemy = CreateCombatant(
+            "Ended Door Enemy",
+            "Enemies",
+            new Vector3Int(7, 0, 7),
+            initiative: 0,
+            addToken: false
+        );
+        manager.StartDungeonCombat(new[] { fixture.Party[0].Controller, enemy.Controller });
+        yield return WaitForTurn();
+        yield return CoroutineRunner.Await(
+            enemy.Creature.ApplyFinalDamageAsync(
+                enemy.Creature.hp,
+                RuleSource.FromSlug("test-free-door-after-end")
+            )
+        );
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive,
+            "The door test encounter did not finish."
+        );
+        uint actionsBefore = fixture.Party[0].Controller.ActionPoints;
+
+        CoroutineResult<bool> result = new();
+        yield return CoroutineRunner.Await(fixture.Runtime.TryOpenDoorAsync(door.Cell), result);
+
+        Assert.That(result.Value, Is.True);
+        AssertDoorOpen(fixture, door.Cell);
+        Assert.That(fixture.Party[0].Controller.ActionPoints, Is.EqualTo(actionsBefore));
+        Assert.That(fixture.Runtime.CaptureOpenDoorIds(), Is.EqualTo(new[] { door.Id }));
+    }
+
+    /// <summary>Verifies retained suspended-encounter authority cannot reject a free exploration door.</summary>
+    [UnityTest]
+    public IEnumerator FreeDoorOpensAfterEncounterSuspendsWithoutEncounterSpend()
+    {
+        DoorSpec door = new("door-after-suspend", new DungeonCell(2, 1));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 1) },
+            doors: new[] { door },
+            configurePartyBeforeInitialization: party =>
+                party[0].GetComponent<CreatureComponent>().initiative = 1000
+        );
+        Combatant enemy = CreateCombatant(
+            "Suspended Door Enemy",
+            "Enemies",
+            new Vector3Int(7, 0, 7),
+            initiative: 0,
+            addToken: false
+        );
+        manager.StartDungeonCombat(new[] { fixture.Party[0].Controller, enemy.Controller });
+        yield return WaitForTurn();
+        manager.SuspendDungeonCombat();
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive,
+            "The door test encounter did not suspend."
+        );
+        uint actionsBefore = fixture.Party[0].Controller.ActionPoints;
+
+        CoroutineResult<bool> result = new();
+        yield return CoroutineRunner.Await(fixture.Runtime.TryOpenDoorAsync(door.Cell), result);
+
+        Assert.That(result.Value, Is.True);
+        AssertDoorOpen(fixture, door.Cell);
+        Assert.That(fixture.Party[0].Controller.ActionPoints, Is.EqualTo(actionsBefore));
+        Assert.That(fixture.Runtime.CaptureOpenDoorIds(), Is.EqualTo(new[] { door.Id }));
+    }
+
     /// <summary>
     /// Verifies a living follower may open an adjacent exploration door when the selected leader
     /// is not adjacent, without granting the follower movement authority or spending actions.

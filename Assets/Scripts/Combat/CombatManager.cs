@@ -264,7 +264,6 @@ public class CombatManager : CombatManagerInterface
         try
         {
             CombatActivityChanged.Invoke(true);
-            OnCombatStart.Invoke();
         }
         catch
         {
@@ -320,19 +319,9 @@ public class CombatManager : CombatManagerInterface
             durable = true;
             if (wasDungeonDirected)
                 NotifyDungeonCombatStartupCompleted(startingGeneration);
-            try
-            {
-                yield return CoroutineRunner.Await(
-                    startingBridge.DrainAcceptedStartupPresentationAsync()
-                );
-            }
-            finally
-            {
-                // A presentation callback failure is post-acceptance. Release queued lifecycle
-                // requests once that callback batch has been attempted instead of stranding them.
-                if (IsCurrentLifecycle(startingBridge, startingGeneration))
-                    encounterReady = true;
-            }
+            yield return CoroutineRunner.Await(
+                PublishDurableStartupAsync(startingBridge, startingGeneration)
+            );
             if (!IsCurrentLifecycle(startingBridge, startingGeneration))
                 yield break;
 
@@ -360,6 +349,35 @@ public class CombatManager : CombatManagerInterface
             else if (!durable)
                 startupCheckpoint.Commit();
         }
+    }
+
+    private async ValueTask PublishDurableStartupAsync(
+        UnityEncounterRulesBridge startingBridge,
+        long startingGeneration
+    )
+    {
+        List<Exception> failures = new();
+        // Legacy UI and presentation consumers may mutate arbitrary Unity state. Publish them only
+        // after the rules checkpoint and dungeon activation are durable, but before buffered
+        // TurnBegan presentation so HUD setup still precedes the first visible turn.
+        TryComplete(OnCombatStart.Invoke, failures);
+        try
+        {
+            if (IsCurrentLifecycle(startingBridge, startingGeneration))
+                await startingBridge.DrainAcceptedStartupPresentationAsync();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+        finally
+        {
+            // Notification or presentation failure is post-acceptance. Release queued lifecycle
+            // requests after every accepted callback has been attempted instead of stranding them.
+            if (IsCurrentLifecycle(startingBridge, startingGeneration))
+                encounterReady = true;
+        }
+        ThrowCompletionFailures(failures);
     }
 
     private IEnumerator AddDungeonReinforcementsRoutine(
@@ -920,7 +938,7 @@ public class CombatManager : CombatManagerInterface
 
     private void StopCombatState(bool cancelInFlightActions)
     {
-        // Synchronous startup observers must never retain their selected-only projection after a
+        // Pre-durable activity observers must never retain their selected-only projection after a
         // failed event, normal encounter cleanup, or a later exploration transition.
         startupCombatants = Array.Empty<ActionController>();
         // A closed host cannot accept a still-queued join. Settle each lifecycle owner from the
