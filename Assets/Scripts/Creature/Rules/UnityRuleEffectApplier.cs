@@ -32,7 +32,7 @@ namespace Game.Creature.Rules
                 {
                     case RuleEffectType.SpendActions:
                         if (actionController != null)
-                            actionController.ActionPoints -= effect.ActionCost;
+                            actionController.SpendActions(effect.ActionCost);
                         break;
                     case RuleEffectType.SetTakingActionFalse:
                         if (actionController != null)

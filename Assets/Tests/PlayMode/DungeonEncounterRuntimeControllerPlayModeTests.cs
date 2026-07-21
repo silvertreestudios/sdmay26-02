@@ -289,15 +289,17 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         Assert.That(player.ActionPoints, Is.EqualTo(3u));
         player.IsTakingAction = true;
 
-        manager.Remove(enemyController);
-        enemy.ReportDefeated();
-        enemy.gameObject.SetActive(false);
+        CreatureComponent enemyCreature = enemy.GetComponent<CreatureComponent>();
+        enemyCreature.ApplyFinalDamage(
+            enemyCreature.hp + enemyCreature.tempHp,
+            Game.Rules.Runtime.RuleSource.FromSlug("test-final-defeat")
+        );
 
-        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(manager.IsCombatActive, Is.False);
         Assert.That(player.IsInDungeonExploration, Is.False);
 
-        player.ActionPoints -= 3;
         player.IsTakingAction = false;
+        yield return null;
         Assert.That(manager.CheckForEndOfGame(), Is.True);
 
         Assert.That(manager.IsCombatActive, Is.False);

@@ -134,12 +134,12 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
         cleric.level = 1;
         cleric.InitializeHealthBeforeEncounter(1, 1);
-        Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { cleric });
         cleric.wisMod = 4;
         cleric.Build = new CharacterBuild { ClassName = "Cleric" };
         cleric.Prepared = Pf2eCharacterPreparer.Prepare(cleric, cleric.Build);
         clericObject.AddComponent<Team>().Name = "players";
         PlayerActionController controller = clericObject.AddComponent<PlayerActionController>();
+        Game.Rules.Unity.UnityEncounterRulesBridge.CreateHealthTestComposition(new[] { cleric });
         clericController = controller;
 
         GameObject visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(

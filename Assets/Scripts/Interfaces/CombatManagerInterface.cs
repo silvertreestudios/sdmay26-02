@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Events;
 
 public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatManagerInterface>
 {
@@ -43,33 +42,18 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// </summary>
     public abstract void NextTurn();
 
+    /// <summary>Ends the exact active turn owned by the supplied controller.</summary>
+    public abstract void EndCurrentTurn(ActionController actor);
+
     /// <summary>Registers a controller without making a dormant creature initiative-eligible.</summary>
     /// <param name="combatant">The non-null controller to register once.</param>
     public abstract void AddCombatant(ActionController combatant);
-
-    /// <summary>
-    /// Adds an event to the TurnQueue
-    /// </summary>
-    public abstract void AddEvent(TurnStep ts);
 
     /// <summary>
     /// Removes a combatant from the CombatManager
     /// </summary>
     /// <param name="combatant"></param>
     public abstract void Remove(ActionController combatant);
-
-    /// <summary>
-    /// Removes a TurnStep from the combat TurnQueue
-    /// </summary>
-    /// <param name="e"></param>
-    public abstract void Remove(TurnStep e);
-
-    /// <summary>
-    /// Removes an Event from everywhere in the combat queue
-    /// </summary>
-    /// <typeparam name="T">The parameter type for the event</typeparam>
-    /// <param name="e">the event to remove</param>
-    public abstract void Remove(UnityAction e);
 
     /// <summary>Returns the current turn owner, or absence while combat is inactive.</summary>
     public abstract GameObject WhosTurn();

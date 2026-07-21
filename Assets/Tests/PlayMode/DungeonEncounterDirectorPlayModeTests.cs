@@ -184,9 +184,6 @@ public sealed class DungeonEncounterDirectorPlayModeTests
             survivor.GetComponent<DirectorTestActionController>();
         survivorCreature.ApplyFinalDamage(6, RuleSource.FromSlug("test-survivor-damage"));
         survivor.transform.position = new Vector3(4f, 0f, 3f);
-        survivorController.ActionPoints = 2;
-        survivorController.Reacted = true;
-        survivorController.StrikePenalty = 2;
         survivorController.IsTakingAction = false;
 
         DungeonEncounterSuspensionResult suspension = director.EvaluatePartyRegions(
@@ -200,7 +197,7 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         );
         Assert.That(manager.IsCombatActive, Is.False);
         Assert.That(survivorController.ActionPoints, Is.Zero);
-        Assert.That(survivorController.Reacted, Is.False);
+        Assert.That(survivorController.Reacted, Is.True);
         Assert.That(survivorController.StrikePenalty, Is.Zero);
         Assert.That(survivorController.IsTakingAction, Is.False);
 
@@ -327,9 +324,11 @@ public sealed class DungeonEncounterDirectorPlayModeTests
 
     private void Defeat(DungeonEncounterMember member)
     {
-        manager.Remove(member.GetComponent<ActionController>());
-        member.ReportDefeated();
-        member.gameObject.SetActive(false);
+        CreatureComponent creature = member.GetComponent<CreatureComponent>();
+        creature.ApplyFinalDamage(
+            creature.hp + creature.tempHp,
+            RuleSource.FromSlug("test-defeat")
+        );
     }
 
     private DungeonEncounterMember Member(string instanceId) =>

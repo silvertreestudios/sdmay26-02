@@ -8,26 +8,26 @@ using NUnit.Framework;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-public sealed class UnityHealthRulesBridgeTests
+public sealed class UnityEncounterRulesBridgeTests
 {
     [Test]
     public void BridgeRejectsEmptyEncounterWithSpecificError()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
-            UnityHealthRulesBridge.Create(Array.Empty<CreatureComponent>())
+            UnityEncounterRulesBridge.Create(Array.Empty<ActionController>(), "Players")
         );
 
-        StringAssert.Contains("requires at least one creature", error.Message);
+        StringAssert.Contains("requires unique non-null controllers", error.Message);
     }
 
     [Test]
     public void BridgeRejectsNullEncounterCreatureWithSpecificError()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
-            UnityHealthRulesBridge.Create(new CreatureComponent[] { null })
+            UnityEncounterRulesBridge.Create(new ActionController[] { null }, "Players")
         );
 
-        StringAssert.Contains("cannot contain a null creature", error.Message);
+        StringAssert.Contains("requires unique non-null controllers", error.Message);
     }
 
     [Test]
@@ -61,9 +61,14 @@ public sealed class UnityHealthRulesBridgeTests
         {
             CreatureComponent first = firstObject.AddComponent<CreatureComponent>();
             CreatureComponent second = secondObject.AddComponent<CreatureComponent>();
+            TestActionController firstController = PrepareController(firstObject);
+            TestActionController secondController = PrepareController(secondObject);
             first.InitializeHealthBeforeEncounter(10, 12);
             second.InitializeHealthBeforeEncounter(7, 7);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { first, second });
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { firstController, secondController },
+                "Players"
+            );
 
             CreatureId firstId = bridge.GetCreatureId(first);
             CreatureId secondId = bridge.GetCreatureId(second);
@@ -78,8 +83,8 @@ public sealed class UnityHealthRulesBridgeTests
                 RuleSource.FromSlug("test-heal")
             );
 
-            Assert.That(firstId.Value, Is.EqualTo("health-creature-1"));
-            Assert.That(secondId.Value, Is.EqualTo("health-creature-2"));
+            Assert.That(firstId.Value, Is.EqualTo("encounter-creature-1"));
+            Assert.That(secondId.Value, Is.EqualTo("encounter-creature-2"));
             Assert.That(damage.Applied, Is.EqualTo(4));
             Assert.That(healing.Applied, Is.EqualTo(2));
             Assert.That(first.hp, Is.EqualTo(8));
@@ -108,8 +113,12 @@ public sealed class UnityHealthRulesBridgeTests
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            TestActionController controller = PrepareController(creatureObject);
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
             CreatureId id = bridge.GetCreatureId(creature);
             RuleSource rage = RuleSource.FromSlug("rage");
 
@@ -140,8 +149,12 @@ public sealed class UnityHealthRulesBridgeTests
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            TestActionController controller = PrepareController(creatureObject);
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
             InvalidOperationException expected = new InvalidOperationException(
                 "completed observer failure"
             );
@@ -172,8 +185,12 @@ public sealed class UnityHealthRulesBridgeTests
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            TestActionController controller = PrepareController(creatureObject);
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
             GetDispatcher(bridge).RegisterFactObserver<HealthFact>(observer);
 
             InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
@@ -184,7 +201,7 @@ public sealed class UnityHealthRulesBridgeTests
                 )
             );
 
-            StringAssert.Contains("must complete synchronously", error.Message);
+            StringAssert.Contains("must be awaited", error.Message);
         }
         finally
         {
@@ -193,14 +210,26 @@ public sealed class UnityHealthRulesBridgeTests
         }
     }
 
-    private static RuleDispatcher GetDispatcher(UnityHealthRulesBridge bridge)
+    private static RuleDispatcher GetDispatcher(UnityEncounterRulesBridge bridge)
     {
-        FieldInfo field = typeof(UnityHealthRulesBridge).GetField(
+        FieldInfo field = typeof(UnityEncounterRulesBridge).GetField(
             "dispatcher",
             BindingFlags.Instance | BindingFlags.NonPublic
         );
         Assert.That(field, Is.Not.Null);
         return (RuleDispatcher)field.GetValue(bridge);
+    }
+
+    private static TestActionController PrepareController(GameObject obj)
+    {
+        Team team = obj.AddComponent<Team>();
+        team.Name = "Players";
+        return obj.AddComponent<TestActionController>();
+    }
+
+    private sealed class TestActionController : ActionController
+    {
+        public override void EndTurn() { }
     }
 
     private sealed class CompletedFailureObserver : IFactObserver<HealthFact>

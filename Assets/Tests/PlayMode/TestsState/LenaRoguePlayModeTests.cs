@@ -302,8 +302,14 @@ namespace TestsState
         private IEnumerator ForceTurnAndClickAction(GameObject actor, string buttonName)
         {
             ActionController controller = actor.GetComponent<ActionController>();
-            controller.StartTurn();
-            OnNextTurn.Invoke(actor);
+            CombatManagerInterface manager = CombatManagerInterface.GetInstance();
+            int attempts = manager.GetCombatants().Count;
+            while (manager.WhosTurn() != actor && attempts-- > 0)
+            {
+                ActionController current = manager.WhosTurn().GetComponent<ActionController>();
+                manager.EndCurrentTurn(current);
+            }
+            Assert.That(manager.WhosTurn(), Is.SameAs(actor), "Lena did not receive a rules turn.");
 
             Button actionButton = null;
             yield return WaitUntilWithTimeout(

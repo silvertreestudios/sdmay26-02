@@ -62,6 +62,7 @@ namespace Game.Combat.Encounters
         private IDungeonExplorationPresentation explorationPresentation;
         private ActionController selectedLeader;
         private ActionController[] presentedExplorationParty = Array.Empty<ActionController>();
+        private int explorationPresentationRequest;
         private GridInput gridInput;
         private GridBase grid;
         private IExplorationStrideCoordinator explorationMovement =
@@ -267,7 +268,7 @@ namespace Game.Combat.Encounters
             if (!decision.IsAllowed || !door.TryOpen())
                 return false;
 
-            actor.ActionPoints -= decision.ActionCost;
+            actor.SpendActions(decision.ActionCost);
             openDoorIds.Add(door.StableId);
             DoorOpened(door.StableId);
             return true;
@@ -412,6 +413,7 @@ namespace Game.Combat.Encounters
 
             if (
                 !combatManager.IsCombatActive
+                && !partyActionInProgress
                 && (
                     !presentedExplorationParty.SequenceEqual(livingPartyBuffer)
                     || !livingPartySet.Contains(selectedLeader)
@@ -595,6 +597,7 @@ namespace Game.Combat.Encounters
 
         private void OnCombatActivityChanged(bool isActive)
         {
+            int request = ++explorationPresentationRequest;
             ActionController[] livingParty = party.Where(CanObserve).ToArray();
             if (isActive || livingParty.Length == 0)
             {
@@ -608,7 +611,24 @@ namespace Game.Combat.Encounters
                 return;
             }
 
-            PresentExploration(livingParty);
+            if (livingParty.Any(member => member.IsTakingAction))
+                StartCoroutine(PresentExplorationAfterActions(request));
+            else
+                PresentExploration(livingParty);
+        }
+
+        private IEnumerator PresentExplorationAfterActions(int request)
+        {
+            while (
+                request == explorationPresentationRequest
+                && party.Any(member => member != null && member.IsTakingAction)
+            )
+                yield return null;
+            if (request != explorationPresentationRequest || combatManager.IsCombatActive)
+                yield break;
+            ActionController[] livingParty = party.Where(CanObserve).ToArray();
+            if (livingParty.Length > 0)
+                PresentExploration(livingParty);
         }
 
         private void PresentExploration(ActionController[] livingParty)

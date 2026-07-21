@@ -319,9 +319,13 @@ namespace TestsCombat
         {
             GameObject creature = new GameObject(name);
             CreatureComponent component = creature.AddComponent<CreatureComponent>();
-            creature.AddComponent<TestActionController>();
+            TestActionController controller = creature.AddComponent<TestActionController>();
+            creature.AddComponent<Team>().Name = "Players";
             component.InitializeHealthBeforeEncounter(hp, hp);
-            Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { component });
+            Game.Rules.Unity.UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
             component.ac = 10;
             component.attackBonus = 10;
             component.weaknesses = new List<DamageValue>();

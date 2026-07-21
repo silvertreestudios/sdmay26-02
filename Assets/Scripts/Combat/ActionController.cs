@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using Game.Combat.Spells;
 using Game.Creature;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using Game.Strikes;
 using NUnit.Framework;
 using UnityEngine;
@@ -12,18 +14,61 @@ public abstract class ActionController : MonoBehaviour
     protected List<EntityAction> Movements = new();
     protected List<EntityAction> Reactions = new();
     protected bool IsTurn = false;
+    private UnityEncounterRulesBridge encounterRules;
+    private CreatureId encounterCreatureId;
+
+    [SerializeField]
+    private uint actionPoints;
+    private bool reacted;
+    private uint strikePenalty;
     public bool IsTakingAction { get; set; } = false;
 
     /// <summary>Gets whether this controller currently has movement-only exploration authority.</summary>
     public bool IsInDungeonExploration { get; private set; }
 
     /// <summary>Gets whether combat initiative currently grants this controller turn authority.</summary>
-    public bool HasTurnAuthority => IsTurn;
+    public bool HasTurnAuthority =>
+        encounterRules == null
+            ? IsTurn
+            : encounterRules.CurrentTurn.HasValue
+                && encounterRules.CurrentTurn.Value.Actor == encounterCreatureId;
 
-    [field: SerializeField]
-    public uint ActionPoints { get; set; }
-    public bool Reacted { get; set; }
-    public uint StrikePenalty { get; set; } = 0;
+    public uint ActionPoints
+    {
+        get =>
+            HasAuthoritativeActionState
+                ? (uint)encounterRules.GetActionEconomy(encounterCreatureId).ActionsRemaining
+                : actionPoints;
+        set
+        {
+            RequirePreEncounterMutation();
+            actionPoints = value;
+        }
+    }
+    public bool Reacted
+    {
+        get =>
+            HasAuthoritativeActionState
+                ? !encounterRules.GetActionEconomy(encounterCreatureId).ReactionAvailable
+                : reacted;
+        set
+        {
+            RequirePreEncounterMutation();
+            reacted = value;
+        }
+    }
+    public uint StrikePenalty
+    {
+        get =>
+            HasAuthoritativeActionState
+                ? (uint)encounterRules.GetMultipleAttackPenalty(encounterCreatureId).AttackCount
+                : strikePenalty;
+        set
+        {
+            RequirePreEncounterMutation();
+            strikePenalty = value;
+        }
+    }
 
     //Events
     public OnResetActionPoints ResetActionPointsEvent { get; protected set; } = new();
@@ -40,10 +85,14 @@ public abstract class ActionController : MonoBehaviour
     public virtual void StartTurn()
     {
         IsTurn = true;
-        Ref<uint> newActionPoints = new(3);
-        ResetActionPointsEvent.Invoke(newActionPoints);
-        ActionPoints = newActionPoints.Value;
-        StrikePenalty = 0;
+        if (!HasAuthoritativeActionState)
+        {
+            Ref<uint> contribution = new(3);
+            ResetActionPointsEvent.Invoke(contribution);
+            actionPoints = contribution.Value;
+            reacted = false;
+            strikePenalty = 0;
+        }
         SpellEffectController.ExpireAtStartOfTurn(gameObject);
     }
 
@@ -59,9 +108,12 @@ public abstract class ActionController : MonoBehaviour
     {
         IsTurn = false;
         IsTakingAction = false;
-        ActionPoints = 0;
-        Reacted = false;
-        StrikePenalty = 0;
+        if (!HasAuthoritativeActionState)
+        {
+            actionPoints = 0;
+            reacted = false;
+            strikePenalty = 0;
+        }
     }
 
     /// <summary>Enables or disables movement-only authority between dungeon encounters.</summary>
@@ -139,7 +191,7 @@ public abstract class ActionController : MonoBehaviour
             if (!GetMovements().Contains(action))
                 return;
         }
-        else if (!IsTurn || action.ActionCost > ActionPoints)
+        else if (!HasTurnAuthority || action.ActionCost > ActionPoints)
         {
             return;
         }
@@ -148,22 +200,61 @@ public abstract class ActionController : MonoBehaviour
         action.Invoke(this.gameObject);
     }
 
-    public uint GetInitiative()
+    /// <summary>Gets the captured modifier used by the rules runtime's injected d20 roll.</summary>
+    public int GetInitiativeModifier()
     {
-        int initiativeBonus = this.gameObject.GetComponent<CreatureComponent>().GetInitiative();
-        uint roll = (uint)Random.Range(1, 20);
-        Debug.Log(
-            this.gameObject.name
-                + " rolled initiative: "
-                + roll
-                + " +"
-                + initiativeBonus
-                + " = "
-                + (roll + initiativeBonus)
-        );
-        roll += (uint)initiativeBonus;
-        return roll;
+        return gameObject.GetComponent<CreatureComponent>().GetInitiative();
     }
+
+    internal void AttachEncounterRules(UnityEncounterRulesBridge bridge, CreatureId creatureId)
+    {
+        encounterRules = bridge ?? throw new System.ArgumentNullException(nameof(bridge));
+        encounterCreatureId = creatureId.IsEmpty
+            ? throw new System.ArgumentException("A creature ID is required.", nameof(creatureId))
+            : creatureId;
+    }
+
+    internal uint CalculateTurnStartActions()
+    {
+        Ref<uint> contribution = new(3);
+        ResetActionPointsEvent.Invoke(contribution);
+        return contribution.Value;
+    }
+
+    public void SpendActions(uint amount)
+    {
+        if (amount == 0)
+            return;
+
+        if (!HasAuthoritativeActionState)
+        {
+            actionPoints -= amount;
+            return;
+        }
+        encounterRules.SpendActions(encounterCreatureId, checked((int)amount));
+    }
+
+    public void IncrementMultipleAttackPenalty()
+    {
+        if (!HasAuthoritativeActionState)
+        {
+            strikePenalty++;
+            return;
+        }
+        encounterRules.IncrementMap(encounterCreatureId);
+    }
+
+    private void RequirePreEncounterMutation()
+    {
+        if (HasAuthoritativeActionState)
+            throw new System.InvalidOperationException(
+                "Attached encounter action state is reducer-owned. Use a narrow rules operation."
+            );
+    }
+
+    private bool HasAuthoritativeActionState =>
+        encounterRules != null
+        && encounterRules.Snapshot.ActionEconomy.Contains(encounterCreatureId);
 
     public void AddAction(EntityAction action)
     {

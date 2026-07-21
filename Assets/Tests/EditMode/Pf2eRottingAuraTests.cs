@@ -236,11 +236,16 @@ namespace TestsCombat
             CreatureComponent creature = obj.AddComponent<CreatureComponent>();
             creature.name = name;
             creature.InitializeHealthBeforeEncounter(hp, maxHp);
-            Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
             creature.traits = traits == null ? new List<string>() : new List<string>(traits);
             creature.weaknesses = new List<DamageValue>();
             creature.resistances = new List<DamageValue>();
-            return obj.AddComponent<TestActionController>();
+            TestActionController controller = obj.AddComponent<TestActionController>();
+            obj.AddComponent<Team>().Name = "Players";
+            Game.Rules.Unity.UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
+            return controller;
         }
 
         private static Tile[,] BuildTiles(int width, int height)

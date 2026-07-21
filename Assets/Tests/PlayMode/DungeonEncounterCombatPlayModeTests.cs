@@ -70,9 +70,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
     }
 
-    /// <summary>Verifies removing the active controller clears its stale turn-owner reference.</summary>
+    /// <summary>Verifies an active encounter roster cannot be mutated outside its reducer.</summary>
     [Test]
-    public void Remove_CurrentTurnOwnerClearsReferenceWithoutReentrantAdvance()
+    public void Remove_CurrentTurnOwnerIsIgnoredUntilEncounterEnds()
     {
         CombatantFixture current = CreateCombatant("Current", "Players", 100);
         CombatantFixture next = CreateCombatant("Next", "Enemies", 50);
@@ -82,14 +82,14 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         manager.Remove(current.Controller);
 
-        Assert.That(manager.WhosTurn(), Is.Null);
+        Assert.That(manager.WhosTurn(), Is.SameAs(current.GameObject));
         Assert.That(
             manager.GetCombatants(),
-            Is.EquivalentTo(new[] { next.GameObject, ally.GameObject })
+            Is.EquivalentTo(new[] { current.GameObject, next.GameObject, ally.GameObject })
         );
         Assert.That(next.Controller.StartTurnCount, Is.Zero);
 
-        manager.NextTurn();
+        current.Controller.EndTurn();
 
         Assert.That(manager.WhosTurn(), Is.SameAs(next.GameObject));
         Assert.That(next.Controller.StartTurnCount, Is.EqualTo(1));
@@ -123,7 +123,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Assert.That(grid.DestroyedTokens, Contains.Item(enemy.GameObject));
             Assert.That(enemy.Controller.enabled, Is.False);
             Assert.That(enemy.GameObject.activeSelf, Is.False);
-            Assert.That(manager.GetCombatants(), Has.No.Member(enemy.GameObject));
+            Assert.That(manager.GetCombatants(), Has.Member(enemy.GameObject));
         }
         finally
         {
@@ -195,13 +195,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         player.Conditions.Add("Off-Guard", preservedSource);
 
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-        player.Controller.ActionPoints = 2;
-        player.Controller.Reacted = true;
-        player.Controller.StrikePenalty = 2;
         player.Controller.IsTakingAction = true;
-        enemy.Controller.ActionPoints = 1;
-        enemy.Controller.Reacted = true;
-        enemy.Controller.StrikePenalty = 1;
         enemy.Controller.IsTakingAction = true;
 
         manager.SuspendDungeonCombat();
@@ -224,11 +218,11 @@ public sealed class DungeonEncounterCombatPlayModeTests
         int dungeonEndCalls = 0;
         int legacyEndCalls = 0;
         int legacyOutcomeCalls = 0;
-        string winner = string.Empty;
-        Action<string> dungeonEndListener = winningTeam =>
+        EncounterOutcome? winner = null;
+        Action<EncounterOutcome> dungeonEndListener = outcome =>
         {
             dungeonEndCalls++;
-            winner = winningTeam;
+            winner = outcome;
         };
         UnityAction<string> legacyEndListener = _ => legacyEndCalls++;
         UnityAction<bool> legacyOutcomeListener = _ => legacyOutcomeCalls++;
@@ -239,12 +233,12 @@ public sealed class DungeonEncounterCombatPlayModeTests
         try
         {
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-            enemy.GameObject.SetActive(false);
+            enemy.Creature.ApplyFinalDamage(10, RuleSource.FromSlug("test-victory"));
 
             Assert.That(manager.CheckForEndOfGame(), Is.True);
 
             Assert.That(dungeonEndCalls, Is.EqualTo(1));
-            Assert.That(winner, Is.EqualTo("Players"));
+            Assert.That(winner, Is.EqualTo(EncounterOutcome.PlayerVictory));
             Assert.That(legacyEndCalls, Is.Zero);
             Assert.That(legacyOutcomeCalls, Is.Zero);
             Assert.That(manager.IsCombatActive, Is.False);
@@ -265,11 +259,11 @@ public sealed class DungeonEncounterCombatPlayModeTests
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
         int dungeonEndCalls = 0;
         int lossCalls = 0;
-        string winner = string.Empty;
-        Action<string> dungeonEndListener = winningTeam =>
+        EncounterOutcome? winner = null;
+        Action<EncounterOutcome> dungeonEndListener = outcome =>
         {
             dungeonEndCalls++;
-            winner = winningTeam;
+            winner = outcome;
         };
         UnityAction<bool> outcomeListener = playersWon =>
         {
@@ -282,11 +276,11 @@ public sealed class DungeonEncounterCombatPlayModeTests
         try
         {
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-            player.GameObject.SetActive(false);
+            player.Creature.ApplyFinalDamage(10, RuleSource.FromSlug("test-defeat"));
 
             Assert.That(manager.CheckForEndOfGame(), Is.True);
             Assert.That(dungeonEndCalls, Is.EqualTo(1));
-            Assert.That(winner, Is.EqualTo("Enemies"));
+            Assert.That(winner, Is.EqualTo(EncounterOutcome.PlayerDefeat));
             Assert.That(lossCalls, Is.EqualTo(1));
         }
         finally
@@ -397,7 +391,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
     private static void AssertTransientTurnStateCleared(TestActionController controller)
     {
         Assert.That(controller.ActionPoints, Is.Zero);
-        Assert.That(controller.Reacted, Is.False);
+        Assert.That(controller.Reacted, Is.True);
         Assert.That(controller.StrikePenalty, Is.Zero);
         Assert.That(controller.IsTakingAction, Is.False);
         Assert.That(controller.HasTurnAuthority, Is.False);

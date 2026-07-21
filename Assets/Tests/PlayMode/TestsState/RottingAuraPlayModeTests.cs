@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
@@ -29,8 +28,8 @@ namespace TestsState
                 hud.enabled = false;
 
             CombatManager manager = Object.FindFirstObjectByType<CombatManager>();
-            if (manager != null)
-                SetCombatState(manager, new List<ActionController>(), new List<TurnStep>(), null);
+            if (manager != null && manager.IsCombatActive)
+                manager.SuspendDungeonCombat();
 
             foreach (GameObject obj in cleanup)
             {
@@ -62,11 +61,11 @@ namespace TestsState
             GameObject target = CreateTarget("wounded target", 8, 12);
             TestActionController targetController = target.GetComponent<TestActionController>();
             MoveCombatant(tiles, target, targetCell);
-            UnityHealthRulesBridge.Create(
-                new[]
+            UnityEncounterRulesBridge.CreateHealthTestComposition(
+                new CreatureComponent[]
                 {
                     zombie.GetComponent<CreatureComponent>(),
-                    target.GetComponent<CreatureComponent>(),
+                    targetController.GetComponent<CreatureComponent>(),
                 }
             );
 
@@ -123,14 +122,12 @@ namespace TestsState
             MoveCombatant(tiles, target, targetCell);
             CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
 
-            SetCombatState(
+            target.GetComponent<CreatureComponent>().initiative = 1000;
+            zombie.GetComponent<CreatureComponent>().initiative = -1000;
+            StartControlledCombat(
                 manager,
-                new List<ActionController> { targetController, zombieController },
-                new List<TurnStep> { new TurnStep(targetController) },
-                null
+                new List<ActionController> { targetController, zombieController }
             );
-
-            manager.NextTurn();
 
             Assert.That(
                 targetController.HpAtStartTurn,
@@ -144,21 +141,11 @@ namespace TestsState
             );
             int hpAfterCombatantTurn = targetCreature.hp;
 
-            bool eventRan = false;
-            SetCombatState(
-                manager,
-                new List<ActionController> { targetController, zombieController },
-                new List<TurnStep> { new TurnStep(() => eventRan = true) },
-                targetController
-            );
-
-            manager.NextTurn();
-
-            Assert.IsTrue(eventRan);
+            manager.EndCurrentTurn(targetController);
             Assert.That(
                 targetCreature.hp,
                 Is.EqualTo(hpAfterCombatantTurn),
-                "Non-combatant TurnStep events must not re-apply aura damage to the previous turn taker."
+                "Advancing to a different actor must not re-apply aura damage to the previous turn taker."
             );
         }
 
@@ -206,23 +193,18 @@ namespace TestsState
             MoveCombatant(tiles, secondTarget, secondTargetCell);
             CreatureComponent secondTargetCreature = secondTarget.GetComponent<CreatureComponent>();
 
-            SetCombatState(
+            firstTargetCreature.initiative = 1000;
+            secondTargetCreature.initiative = 500;
+            zombie.GetComponent<CreatureComponent>().initiative = -1000;
+            StartControlledCombat(
                 manager,
                 new List<ActionController>
                 {
                     firstTargetController,
                     secondTargetController,
                     zombieController,
-                },
-                new List<TurnStep>
-                {
-                    new TurnStep(firstTargetController),
-                    new TurnStep(secondTargetController),
-                },
-                null
+                }
             );
-
-            manager.NextTurn();
 
             Assert.That(
                 firstTargetCreature.hp,
@@ -236,7 +218,7 @@ namespace TestsState
             );
             int firstTargetHpAfterOwnTurn = firstTargetCreature.hp;
 
-            manager.NextTurn();
+            manager.EndCurrentTurn(firstTargetController);
 
             Assert.That(
                 firstTargetCreature.hp,
@@ -305,23 +287,6 @@ namespace TestsState
             AddTeam(hostile, "Enemies");
             MoveCombatant(tiles, hostile, hostileCell);
 
-            SetCombatState(
-                manager,
-                new List<ActionController>
-                {
-                    defeatedController,
-                    survivorController,
-                    hostileController,
-                },
-                new List<TurnStep>
-                {
-                    new(defeatedController),
-                    new(survivorController),
-                    new(hostileController),
-                },
-                null
-            );
-
             OnNextTurn.AddListener(actor =>
             {
                 if (actor == defeatedActor)
@@ -330,8 +295,19 @@ namespace TestsState
                         .ApplyFinalDamage(1, Game.Rules.Runtime.RuleSource.FromSlug("test-damage"));
             });
 
+            defeatedActor.GetComponent<CreatureComponent>().initiative = 1000;
+            survivor.GetComponent<CreatureComponent>().initiative = 500;
+            hostile.GetComponent<CreatureComponent>().initiative = -1000;
+            StartControlledCombat(
+                manager,
+                new List<ActionController>
+                {
+                    defeatedController,
+                    survivorController,
+                    hostileController,
+                }
+            );
             yield return null;
-            manager.NextTurn();
 
             Assert.That(
                 defeatedActor.activeSelf,
@@ -350,11 +326,10 @@ namespace TestsState
                 "Turn processing should advance to the next eligible actor."
             );
 
-            List<TurnStep> queue = GetPrivateField<List<TurnStep>>(manager, "TurnQueue");
             Assert.That(
-                queue.Any(step => step.Player == defeatedController),
-                Is.False,
-                "A defeated actor must not be requeued."
+                manager.GetCombatants(),
+                Has.Member(defeatedActor),
+                "Defeated slots remain immutable timing boundaries in the encounter roster."
             );
         }
 
@@ -460,71 +435,20 @@ namespace TestsState
             team.Name = teamName;
         }
 
-        private static void SetCombatState(
+        private static void StartControlledCombat(
             CombatManager manager,
-            List<ActionController> combatants,
-            List<TurnStep> turnQueue,
-            ActionController turnTaker
+            List<ActionController> combatants
         )
         {
-            CreatureComponent[] encounterCreatures = combatants
-                .Select(combatant => combatant.GetComponent<CreatureComponent>())
-                .ToArray();
-            UnityHealthRulesBridge healthRules = GetPrivateField<UnityHealthRulesBridge>(
-                manager,
-                "healthRules"
-            );
-            if (
-                encounterCreatures.Length > 0
-                && !ContainsAllCreatures(healthRules, encounterCreatures)
-            )
+            foreach (GameObject existing in manager.GetCombatants().ToArray())
             {
-                healthRules = UnityHealthRulesBridge.Create(encounterCreatures);
-                SetPrivateField(manager, "healthRules", healthRules);
+                ActionController controller = existing.GetComponent<ActionController>();
+                if (controller != null)
+                    manager.Remove(controller);
             }
-
-            SetPrivateField(manager, "Combatants", combatants);
-            SetPrivateField(manager, "TurnQueue", turnQueue);
-            SetPrivateField(manager, "TurnTaker", turnTaker);
-        }
-
-        private static bool ContainsAllCreatures(
-            UnityHealthRulesBridge healthRules,
-            IEnumerable<CreatureComponent> creatures
-        )
-        {
-            if (healthRules == null)
-                return false;
-            try
-            {
-                foreach (CreatureComponent creature in creatures)
-                    healthRules.GetCreatureId(creature);
-                return true;
-            }
-            catch (System.InvalidOperationException)
-            {
-                return false;
-            }
-        }
-
-        private static void SetPrivateField<T>(CombatManager manager, string fieldName, T value)
-        {
-            FieldInfo field = typeof(CombatManager).GetField(
-                fieldName,
-                BindingFlags.Instance | BindingFlags.NonPublic
-            );
-            Assert.IsNotNull(field, "Could not find CombatManager field " + fieldName);
-            field.SetValue(manager, value);
-        }
-
-        private static T GetPrivateField<T>(CombatManager manager, string fieldName)
-        {
-            FieldInfo field = typeof(CombatManager).GetField(
-                fieldName,
-                BindingFlags.Instance | BindingFlags.NonPublic
-            );
-            Assert.IsNotNull(field, "Could not find CombatManager field " + fieldName);
-            return (T)field.GetValue(manager);
+            foreach (ActionController controller in combatants)
+                manager.AddCombatant(controller);
+            manager.StartDungeonCombat(combatants);
         }
 
         private sealed class FixedDiceRoller : IPf2eDiceRoller

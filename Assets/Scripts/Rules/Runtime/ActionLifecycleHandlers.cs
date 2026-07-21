@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
@@ -216,18 +217,27 @@ namespace Game.Rules.Runtime
                 );
             }
 
+            EncounterState encounter = state
+                .Encounters.Select(pair => pair.Value)
+                .FirstOrDefault(value => value.Phase == EncounterPhase.Active);
+            if (encounter == null)
+                return ActionValidationResult.Invalid(
+                    "A once-per-round cost requires an active encounter."
+                );
+
             FrequencyState current = state.Frequencies.TryGet(
                 cost.Binding,
                 out FrequencyState existing
             )
                 ? existing
                 : new FrequencyState(0, 0);
-            if (current.Uses >= 1)
+            int currentRoundUses = current.Round == encounter.Round.Value ? current.Uses : 0;
+            if (currentRoundUses >= 1)
                 return ActionValidationResult.Invalid(
                     "The once-per-round use has already been spent."
                 );
 
-            FrequencyState spent = new FrequencyState(current.Round, current.Uses + 1);
+            FrequencyState spent = new FrequencyState(encounter.Round.Value, currentRoundUses + 1);
             state.Frequencies.Set(cost.Binding, spent);
             facts.Stage(
                 new BindingFrequencySpentFact(

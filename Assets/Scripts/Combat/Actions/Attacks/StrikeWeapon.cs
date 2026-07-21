@@ -246,7 +246,7 @@ namespace Game.Strikes
                 if (ac)
                 {
                     PayCost(ac);
-                    ac.StrikePenalty += 1;
+                    ac.IncrementMultipleAttackPenalty();
                 }
             }
             if (ac)

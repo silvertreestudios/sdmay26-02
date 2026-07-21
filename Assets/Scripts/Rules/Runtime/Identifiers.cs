@@ -13,6 +13,74 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>Identifies one authoritative encounter within a rules store.</summary>
+    public readonly struct EncounterId : IEquatable<EncounterId>
+    {
+        /// <summary>Gets the stable serialized value.</summary>
+        public string Value { get; }
+
+        /// <summary>Gets whether this value is unallocated.</summary>
+        public bool IsEmpty => string.IsNullOrEmpty(Value);
+
+        /// <summary>Initializes a non-empty encounter identifier.</summary>
+        public EncounterId(string value) => Value = StableId.Require(value, nameof(value));
+
+        /// <inheritdoc/>
+        public bool Equals(EncounterId other) =>
+            string.Equals(Value, other.Value, StringComparison.Ordinal);
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) => obj is EncounterId other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() =>
+            StringComparer.Ordinal.GetHashCode(Value ?? string.Empty);
+
+        /// <inheritdoc/>
+        public override string ToString() => Value ?? string.Empty;
+
+        public static bool operator ==(EncounterId left, EncounterId right) => left.Equals(right);
+
+        public static bool operator !=(EncounterId left, EncounterId right) => !left.Equals(right);
+    }
+
+    /// <summary>Identifies one exact turn within an encounter.</summary>
+    public readonly struct TurnId : IEquatable<TurnId>, IComparable<TurnId>
+    {
+        /// <summary>Gets the positive encounter-local sequence.</summary>
+        public long Value { get; }
+
+        /// <summary>Gets whether this value is unallocated.</summary>
+        public bool IsEmpty => Value == 0;
+
+        /// <summary>Initializes a positive turn identifier.</summary>
+        public TurnId(long value)
+        {
+            if (value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(value));
+            Value = value;
+        }
+
+        /// <inheritdoc/>
+        public int CompareTo(TurnId other) => Value.CompareTo(other.Value);
+
+        /// <inheritdoc/>
+        public bool Equals(TurnId other) => Value == other.Value;
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) => obj is TurnId other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() => Value.GetHashCode();
+
+        /// <inheritdoc/>
+        public override string ToString() => Value.ToString();
+
+        public static bool operator ==(TurnId left, TurnId right) => left.Equals(right);
+
+        public static bool operator !=(TurnId left, TurnId right) => !left.Equals(right);
+    }
+
     public readonly struct CreatureId : IEquatable<CreatureId>
     {
         public string Value { get; }

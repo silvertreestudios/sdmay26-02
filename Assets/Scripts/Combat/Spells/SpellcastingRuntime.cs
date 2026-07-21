@@ -139,9 +139,9 @@ namespace Game.Combat.Spells
                 return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
             if (controller != null && context.SpendActions)
             {
-                controller.ActionPoints -= context.ActionCost;
+                controller.SpendActions(context.ActionCost);
                 if (context.Definition.AppliesMultipleAttackPenalty(context))
-                    controller.StrikePenalty += 1;
+                    controller.IncrementMultipleAttackPenalty();
                 controller.IsTakingAction = false;
             }
             result.Success = true;

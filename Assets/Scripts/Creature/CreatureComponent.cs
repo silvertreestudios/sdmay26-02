@@ -104,7 +104,7 @@ namespace Game.Creature
 
         [SerializeField]
         private int _tempHp;
-        private UnityHealthRulesBridge healthRules;
+        private UnityEncounterRulesBridge encounterRules;
         private CreatureId healthCreatureId;
 
         [SerializeField]
@@ -272,9 +272,9 @@ namespace Game.Creature
         /// ownership begins and serialized initialization fields before that boundary.
         /// </summary>
         public HealthState Health =>
-            healthRules == null
+            encounterRules == null
                 ? new HealthState(_hp, _maxHp, _tempHp)
-                : healthRules.GetHealth(healthCreatureId);
+                : encounterRules.GetHealth(healthCreatureId);
 
         /// <summary>Gets authoritative current Hit Points.</summary>
         public int hp => Health.Current;
@@ -1046,7 +1046,7 @@ namespace Game.Creature
         /// <param name="temporary">Imported temporary Hit Points with no recoverable source.</param>
         public void InitializeHealthBeforeEncounter(int current, int maximum, int temporary = 0)
         {
-            if (healthRules != null)
+            if (encounterRules != null)
                 throw new InvalidOperationException(
                     "Health cannot be initialized after RulesState takes ownership."
                 );
@@ -1072,15 +1072,15 @@ namespace Game.Creature
             defeated = true;
 
             var ac = gameObject.GetComponent<ActionController>();
-            if (ac != null && CombatManagerInterface.GetInstance() != null)
-                CombatManagerInterface.GetInstance().Remove(ac);
 
             DungeonEncounterMember encounterMember =
                 gameObject.GetComponent<DungeonEncounterMember>();
             if (encounterMember != null && encounterMember.IsConfigured)
                 encounterMember.ReportDefeated();
 
-            GridAPI.GetInstance().DestroyToken(this.gameObject);
+            GridAPI grid = UnityEngine.Object.FindFirstObjectByType<GridAPI>();
+            if (grid != null)
+                grid.DestroyToken(this.gameObject);
             DisableGameplayInteraction(ac);
             OnDeath.Invoke(gameObject); // Trigger the death event
             CombatLog.GetInstance().Log("- " + this.gameObject.name + " was defeated!");
@@ -1159,12 +1159,12 @@ namespace Game.Creature
 
         internal HealthState GetHealthInitializationState()
         {
-            if (healthRules != null)
-                return healthRules.GetHealth(healthCreatureId);
+            if (encounterRules != null)
+                return encounterRules.GetHealth(healthCreatureId);
             return new HealthState(_hp, _maxHp, _tempHp);
         }
 
-        internal void AttachHealthRules(UnityHealthRulesBridge bridge, CreatureId creatureId)
+        internal void AttachEncounterRules(UnityEncounterRulesBridge bridge, CreatureId creatureId)
         {
             if (bridge == null)
                 throw new ArgumentNullException(nameof(bridge));
@@ -1173,7 +1173,7 @@ namespace Game.Creature
                     "A health creature ID is required.",
                     nameof(creatureId)
                 );
-            healthRules = bridge;
+            encounterRules = bridge;
             healthCreatureId = creatureId;
             ProjectCommittedHealth(bridge.GetHealth(creatureId));
         }
@@ -1190,15 +1190,15 @@ namespace Game.Creature
             GetComponent<CreaturePresentation>()?.PlayHit();
         }
 
-        private UnityHealthRulesBridge RequireHealthRules()
+        private UnityEncounterRulesBridge RequireHealthRules()
         {
-            if (healthRules == null)
+            if (encounterRules == null)
             {
                 throw new InvalidOperationException(
                     "Health commands require an encounter health bridge. CombatManager.StartCombat or an explicit test composition must initialize it first."
                 );
             }
-            return healthRules;
+            return encounterRules;
         }
 
         public int GetInitiative()

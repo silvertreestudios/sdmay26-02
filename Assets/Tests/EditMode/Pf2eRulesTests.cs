@@ -109,8 +109,9 @@ public class Pf2eRulesTests
         Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
 
         Assert.That(zombie.GetComponent<Conditions>().Contains("Slowed"), Is.True);
-        actionController.StartTurn();
-        Assert.That(actionController.ActionPoints, Is.EqualTo(2));
+        Ref<uint> turnActions = new(3);
+        actionController.ResetActionPointsEvent.Invoke(turnActions);
+        Assert.That(turnActions.Value, Is.EqualTo(2));
     }
 
     [Test]
@@ -125,8 +126,9 @@ public class Pf2eRulesTests
         Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
         Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
 
-        actionController.StartTurn();
-        Assert.That(actionController.ActionPoints, Is.EqualTo(2));
+        Ref<uint> turnActions = new(3);
+        actionController.ResetActionPointsEvent.Invoke(turnActions);
+        Assert.That(turnActions.Value, Is.EqualTo(2));
     }
 
     [Test]
@@ -472,7 +474,7 @@ public class Pf2eRulesTests
         created.Add(go);
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
-        Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
+        Game.Rules.Unity.UnityEncounterRulesBridge.CreateHealthTestComposition(new[] { creature });
         creature.level = 1;
         creature.conMod = 1;
         creature.Build = new CharacterBuild

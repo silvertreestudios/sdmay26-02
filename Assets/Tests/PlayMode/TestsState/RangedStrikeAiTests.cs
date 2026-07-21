@@ -108,10 +108,10 @@ namespace TestsState
             controller.StopAllCoroutines();
             EntityAction selected = controller.MindlessDecision();
             Assert.IsInstanceOf<StrikeWeapon>(selected);
-            UnityHealthRulesBridge.Create(
-                new[]
+            UnityEncounterRulesBridge.CreateHealthTestComposition(
+                new CreatureComponent[]
                 {
-                    enemy.GetComponent<CreatureComponent>(),
+                    controller.GetComponent<CreatureComponent>(),
                     controller.BestTarget.GetComponent<CreatureComponent>(),
                 }
             );
