@@ -274,6 +274,24 @@ public sealed class DungeonActorStateAdapterTests
         Assert.That(conditions.CapturePersistentState(), Is.Empty);
     }
 
+    /// <summary>Verifies source removal releases every restored reverse link after one pass.</summary>
+    [Test]
+    public void ConditionSource_RemoveClearsRestoredTargetLinks()
+    {
+        RecordingConditions conditions = CreateObject("Tracked conditions")
+            .AddComponent<RecordingConditions>();
+        ConditionSource source = new();
+        conditions.RestorePersistentState(
+            new[] { new ConditionPersistenceApplication("frightened", 1, source, "application-a") }
+        );
+
+        source.Remove();
+        source.Remove();
+
+        Assert.That(conditions.RemovalAttempts, Is.EqualTo(1));
+        Assert.That(conditions.Contains("frightened"), Is.False);
+    }
+
     [Test]
     public void AuthoredPlayerPrefabs_ProvideDistinctStableDungeonIdentities()
     {
@@ -449,5 +467,16 @@ public sealed class DungeonActorStateAdapterTests
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn() { }
+    }
+
+    private sealed class RecordingConditions : Conditions, IConditionTarget
+    {
+        internal int RemovalAttempts { get; private set; }
+
+        void IConditionTarget.Remove(string condition, ConditionSource source)
+        {
+            RemovalAttempts++;
+            base.Remove(condition, source);
+        }
     }
 }

@@ -65,7 +65,7 @@ public class ConditionSource
             var condition = conditions[i];
             foreach (var target in condition.Item2)
                 target.Remove(condition.Item1, this);
-            condition.Item2 = new();
+            condition.Item2.Clear();
         }
     }
 }
