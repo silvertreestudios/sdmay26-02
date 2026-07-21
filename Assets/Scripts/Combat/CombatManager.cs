@@ -297,9 +297,14 @@ public class CombatManager : CombatManagerInterface
 
     private string OpposingTeamDisplayName()
     {
-        EncounterState encounter = encounterRules.Snapshot.Encounters[encounterRules.EncounterId];
+        RulesSnapshot snapshot = encounterRules.Snapshot;
+        EncounterState encounter = snapshot.Encounters[encounterRules.EncounterId];
+        // Initiative order is the encounter's deterministic cross-team tie breaker. Only living
+        // entries may supply a concrete winner; simultaneous defeat uses the neutral fallback.
         InitiativeEntry opposition = encounter.Roster.FirstOrDefault(entry =>
             entry.Team != encounter.ProtagonistTeam
+            && snapshot.Health.TryGet(entry.Creature, out HealthState health)
+            && health.Current > 0
         );
         return opposition == null
             ? "Opponents"

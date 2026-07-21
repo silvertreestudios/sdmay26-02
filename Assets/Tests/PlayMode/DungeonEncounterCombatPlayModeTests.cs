@@ -453,6 +453,98 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(player.Controller.IsTakingAction, Is.False);
     }
 
+    /// <summary>Verifies affected creatures outside the active roster reject before spell costs.</summary>
+    [UnityTest]
+    public IEnumerator AreaSpellsRejectOffRosterTargetsBeforeAnyCostOrEffect()
+    {
+        CombatantFixture player = CreateCombatant("Roster Spell Player", "Players", 200);
+        CombatantFixture activeEnemy = CreateCombatant("Roster Spell Enemy", "Enemies", 100);
+        CombatantFixture offRoster = CreateCombatant("Suspended Encounter Creature", "Enemies", 0);
+        player.Creature.InitializeHealthBeforeEncounter(5, 10);
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+        int healSlots = spellcasting.Pools["font-heal"].UsesRemaining;
+        int playerHealth = player.Creature.hp;
+        int activeEnemyHealth = activeEnemy.Creature.hp;
+        int offRosterHealth = offRoster.Creature.hp;
+        AreaTargetResult area = new()
+        {
+            Creatures = new List<AreaAffectedCreature>
+            {
+                new() { Creature = player.GameObject, LineOfEffect = StrikeLineOfEffect.Clear },
+                new()
+                {
+                    Creature = activeEnemy.GameObject,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                },
+                new() { Creature = offRoster.GameObject, LineOfEffect = StrikeLineOfEffect.Clear },
+            },
+        };
+
+        player.Controller.IsTakingAction = true;
+        CoroutineResult<CastSpellResult> heal = new();
+        yield return CoroutineRunner.Await(
+            SpellcastingRuntime.CastAsync(
+                player.GameObject,
+                spellcasting.GetSpell("heal"),
+                3,
+                Array.Empty<GameObject>(),
+                area,
+                spendActions: true
+            ),
+            heal
+        );
+
+        Assert.That(heal.Value.Success, Is.False);
+        Assert.That(heal.Value.Message, Does.Contain("active encounter"));
+        Assert.That(heal.Value.Targets, Is.Empty);
+        Assert.That(heal.Value.Rolls, Is.Empty);
+        Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+        Assert.That(spellcasting.Pools["font-heal"].UsesRemaining, Is.EqualTo(healSlots));
+        Assert.That(player.Creature.hp, Is.EqualTo(playerHealth));
+        Assert.That(activeEnemy.Creature.hp, Is.EqualTo(activeEnemyHealth));
+        Assert.That(offRoster.Creature.hp, Is.EqualTo(offRosterHealth));
+        Assert.That(player.Controller.IsTakingAction, Is.False);
+        Assert.That(spends.Facts, Is.Empty);
+
+        player.Controller.IsTakingAction = true;
+        CoroutineResult<CastSpellResult> hymn = new();
+        yield return CoroutineRunner.Await(
+            SpellcastingRuntime.CastAsync(
+                player.GameObject,
+                spellcasting.GetSpell("haunting-hymn"),
+                2,
+                Array.Empty<GameObject>(),
+                area,
+                spendActions: true
+            ),
+            hymn
+        );
+
+        Assert.That(hymn.Value.Success, Is.False);
+        Assert.That(hymn.Value.Message, Does.Contain("active encounter"));
+        Assert.That(hymn.Value.Targets, Is.Empty);
+        Assert.That(hymn.Value.Rolls, Is.Empty);
+        Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+        Assert.That(player.Creature.hp, Is.EqualTo(playerHealth));
+        Assert.That(activeEnemy.Creature.hp, Is.EqualTo(activeEnemyHealth));
+        Assert.That(offRoster.Creature.hp, Is.EqualTo(offRosterHealth));
+        Assert.That(activeEnemy.Conditions.Contains("Deafened"), Is.False);
+        Assert.That(offRoster.Conditions.Contains("Deafened"), Is.False);
+        Assert.That(player.Controller.IsTakingAction, Is.False);
+        Assert.That(spends.Facts, Is.Empty);
+        dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+    }
+
     /// <summary>Verifies a rejected queued Rage spend cannot publish prepared or health state.</summary>
     [UnityTest]
     public IEnumerator RageSpendRejectedAfterTurnEndPublishesNoRageState()
@@ -833,6 +925,103 @@ public sealed class DungeonEncounterCombatPlayModeTests
         );
         Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
         Assert.That(first.Controller.StartTurnCount, Is.EqualTo(1));
+    }
+
+    /// <summary>Verifies multiple living opposition teams use deterministic initiative order.</summary>
+    [UnityTest]
+    public IEnumerator LegacyDefeatReportsFirstLivingOppositionInInitiativeOrder()
+    {
+        TeamRules rules = TeamRules.GetInstance();
+        rules.AddHostileTeam("Goblins");
+        rules.AddHostileTeam("Zombies");
+        CombatantFixture player = CreateCombatant("Legacy Player", "Players", 300);
+        CreateCombatant("Living Goblin", "Goblins", 200);
+        CreateCombatant("Living Zombie", "Zombies", 100);
+        string reportedWinner = string.Empty;
+        int completionCalls = 0;
+        UnityAction<string> recordWinner = winner =>
+        {
+            completionCalls++;
+            reportedWinner = winner;
+        };
+        OnCombatEnd.AddListener(recordWinner);
+        try
+        {
+            manager.StartCombat();
+            yield return WaitForTurn(player.GameObject);
+            yield return CoroutineRunner.Await(
+                player.Creature.ApplyFinalDamageAsync(
+                    player.Creature.hp,
+                    RuleSource.FromSlug("test-multiple-opposition-defeat")
+                )
+            );
+
+            Assert.That(completionCalls, Is.EqualTo(1));
+            Assert.That(reportedWinner, Is.EqualTo("Goblins"));
+            Assert.That(
+                GetEncounterBridge().Snapshot.Encounters[GetEncounterBridge().EncounterId].Outcome,
+                Is.EqualTo(EncounterOutcome.PlayerDefeat)
+            );
+        }
+        finally
+        {
+            OnCombatEnd.RemoveListener(recordWinner);
+        }
+    }
+
+    /// <summary>Verifies a retained defeated opposition slot cannot be reported as winner.</summary>
+    [UnityTest]
+    public IEnumerator LegacyDefeatReportsLivingOppositionAfterEarlierTeamIsDefeated()
+    {
+        TeamRules rules = TeamRules.GetInstance();
+        rules.AddHostileTeam("Goblins");
+        rules.AddHostileTeam("Zombies");
+        CombatantFixture player = CreateCombatant("Legacy Player", "Players", 300);
+        CombatantFixture goblin = CreateCombatant("Defeated Goblin", "Goblins", 200);
+        CombatantFixture zombie = CreateCombatant("Living Zombie", "Zombies", 100);
+        string reportedWinner = string.Empty;
+        int completionCalls = 0;
+        UnityAction<string> recordWinner = winner =>
+        {
+            completionCalls++;
+            reportedWinner = winner;
+        };
+        OnCombatEnd.AddListener(recordWinner);
+        try
+        {
+            manager.StartCombat();
+            yield return WaitForTurn(player.GameObject);
+            yield return CoroutineRunner.Await(
+                goblin.Creature.ApplyFinalDamageAsync(
+                    goblin.Creature.hp,
+                    RuleSource.FromSlug("test-defeated-opposition")
+                )
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+            yield return CoroutineRunner.Await(
+                player.Creature.ApplyFinalDamageAsync(
+                    player.Creature.hp,
+                    RuleSource.FromSlug("test-living-opposition-winner")
+                )
+            );
+
+            UnityEncounterRulesBridge bridge = GetEncounterBridge();
+            Assert.That(completionCalls, Is.EqualTo(1));
+            Assert.That(reportedWinner, Is.EqualTo("Zombies"));
+            Assert.That(bridge.GetHealth(bridge.GetCreatureId(goblin.Creature)).Current, Is.Zero);
+            Assert.That(
+                bridge.GetHealth(bridge.GetCreatureId(zombie.Creature)).Current,
+                Is.Positive
+            );
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Outcome,
+                Is.EqualTo(EncounterOutcome.PlayerDefeat)
+            );
+        }
+        finally
+        {
+            OnCombatEnd.RemoveListener(recordWinner);
+        }
     }
 
     private IEnumerator WaitForTurn(GameObject expected = null)

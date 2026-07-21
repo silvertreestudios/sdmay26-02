@@ -260,6 +260,24 @@ namespace Game.Rules.Unity
         /// <summary>Gets the bridge's encounter identity.</summary>
         public EncounterId EncounterId => encounterId;
 
+        internal bool HasActiveEncounter =>
+            Snapshot.Encounters.TryGet(encounterId, out EncounterState encounter)
+            && encounter.Phase == EncounterPhase.Active;
+
+        // Membership requires both this bridge's identity map and its immutable active roster. A
+        // CreatureComponent attached to another encounter cannot pass by sharing a Unity scene.
+        internal bool IsActiveEncounterParticipant(CreatureComponent creature)
+        {
+            if (
+                creature == null
+                || !creatureIds.TryGetValue(creature, out CreatureId creatureId)
+                || !Snapshot.Encounters.TryGet(encounterId, out EncounterState encounter)
+                || encounter.Phase != EncounterPhase.Active
+            )
+                return false;
+            return encounter.Roster.Any(entry => entry.Creature == creatureId);
+        }
+
         /// <summary>Raised after an outer dispatch fully settles and commits a turn.</summary>
         public event Action<TurnIdentity> TurnBegan = delegate { };
 

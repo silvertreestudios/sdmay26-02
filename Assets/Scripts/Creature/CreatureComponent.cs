@@ -1175,6 +1175,15 @@ namespace Game.Creature
 
         internal UnityEncounterRulesBridge GetEncounterRulesBridge() => RequireHealthRules();
 
+        // Standalone and preparation fixtures may legitimately have no health bridge. Callers that
+        // only need to enforce active-encounter policy must be able to distinguish that case without
+        // starting a mutation or using exception flow.
+        internal bool TryGetEncounterRulesBridge(out UnityEncounterRulesBridge bridge)
+        {
+            bridge = encounterRules;
+            return bridge != null;
+        }
+
         internal void AttachEncounterRules(UnityEncounterRulesBridge bridge, CreatureId creatureId)
         {
             if (bridge == null)

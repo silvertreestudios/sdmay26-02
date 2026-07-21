@@ -134,7 +134,10 @@ namespace Game.Combat.Spells
             return CastAsync(context, new SpellTargetSelection(targets, area));
         }
 
-        /// <summary>Validates selection, commits costs and MAP, then awaits spell effects.</summary>
+        /// <summary>
+        /// Validates selection and active-encounter membership, commits costs and MAP, then awaits
+        /// spell effects.
+        /// </summary>
         /// <param name="context">The cast context and registered spell definition.</param>
         /// <param name="selection">The completed target selection.</param>
         /// <returns>The settled cast result.</returns>
@@ -167,6 +170,12 @@ namespace Game.Combat.Spells
             SpellTargetSelection selected = selection ?? SpellTargetSelection.None;
             if (!context.Definition.IsSelectionValid(context, selected))
                 return Fail(result, "Spell target is invalid.", controller);
+            if (!HasValidActiveEncounterTargets(context, selected))
+                return Fail(
+                    result,
+                    "Spell target is outside the caster's active encounter.",
+                    controller
+                );
 
             bool appliesMap = context.Definition.AppliesMultipleAttackPenalty(context);
             uint attackCount = controller == null ? 0 : controller.StrikePenalty;
@@ -420,6 +429,39 @@ namespace Game.Combat.Spells
                 && creature.traits.Any(trait =>
                     string.Equals(trait, "undead", StringComparison.OrdinalIgnoreCase)
                 );
+        }
+
+        private static bool HasValidActiveEncounterTargets(
+            SpellCastContext context,
+            SpellTargetSelection selection
+        )
+        {
+            CreatureComponent caster = context.CasterCreature;
+            if (
+                !caster.TryGetEncounterRulesBridge(out UnityEncounterRulesBridge bridge)
+                || !bridge.HasActiveEncounter
+            )
+                return true;
+            if (!bridge.IsActiveEncounterParticipant(caster))
+                return false;
+
+            IEnumerable<GameObject> directTargets = selection.Targets ?? Array.Empty<GameObject>();
+            IEnumerable<GameObject> areaTargets =
+                selection.Area?.Creatures == null
+                    ? Array.Empty<GameObject>()
+                    : selection
+                        .Area.Creatures.Where(affected => affected.IsAffected)
+                        .Select(affected => affected.Creature);
+            return directTargets
+                .Concat(areaTargets)
+                .Distinct()
+                .All(target =>
+                {
+                    CreatureComponent targetCreature =
+                        target == null ? null : target.GetComponent<CreatureComponent>();
+                    return targetCreature != null
+                        && bridge.IsActiveEncounterParticipant(targetCreature);
+                });
         }
 
         private static int BasicSaveDamage(int amount, DegreeOfSuccess degree)
