@@ -83,13 +83,8 @@ namespace Game.Combat.Spells
 
         protected override IEnumerator MFInvoke(GameObject caster)
         {
-            ActionController actionController = caster.GetComponent<ActionController>();
             if (definition == null)
-            {
-                if (actionController != null)
-                    actionController.IsTakingAction = false;
                 yield break;
-            }
 
             SpellCastContext context = new(
                 caster,

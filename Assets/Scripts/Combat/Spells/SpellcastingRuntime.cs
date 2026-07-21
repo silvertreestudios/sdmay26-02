@@ -159,6 +159,11 @@ namespace Game.Combat.Spells
         /// <param name="context">The cast context and registered spell definition.</param>
         /// <param name="selection">The completed target selection.</param>
         /// <returns>The settled cast result.</returns>
+        /// <remarks>
+        /// Direct contexts acquire the controller action reservation here. Contexts created by
+        /// <see cref="CastSpellAction"/> borrow its outer reservation, which remains owned by the
+        /// enclosing multi-frame lifecycle until selection and cast presentation both finish.
+        /// </remarks>
         public static async ValueTask<CastSpellResult> CastAsync(
             SpellCastContext context,
             SpellTargetSelection selection
@@ -181,16 +186,20 @@ namespace Game.Combat.Spells
             bool releaseActionReservation = false;
             try
             {
-                if (
-                    controller != null
-                    && controller.IsTakingAction
-                    && !context.ActionReservationAlreadyOwned
-                )
-                    return Fail(result, "The caster is already taking an action.");
                 if (controller != null)
                 {
-                    controller.IsTakingAction = true;
-                    releaseActionReservation = true;
+                    if (context.ActionReservationAlreadyOwned)
+                    {
+                        if (!controller.IsTakingAction)
+                            return Fail(result, "The spell action no longer owns its reservation.");
+                    }
+                    else
+                    {
+                        if (controller.IsTakingAction)
+                            return Fail(result, "The caster is already taking an action.");
+                        controller.IsTakingAction = true;
+                        releaseActionReservation = true;
+                    }
                 }
                 if (
                     context.ActionCost > 0
@@ -239,6 +248,8 @@ namespace Game.Combat.Spells
             finally
             {
                 state.ReleaseCast();
+                // An enclosing CastSpellAction owns its reservation through the outer coroutine's
+                // finally. Only direct casts acquire and release the flag in this runtime.
                 if (releaseActionReservation)
                     controller.IsTakingAction = false;
             }

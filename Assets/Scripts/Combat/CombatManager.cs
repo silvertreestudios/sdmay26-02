@@ -326,21 +326,53 @@ public class CombatManager : CombatManagerInterface
             yield break;
         UnityEncounterRulesBridge suspendingBridge = encounterRules;
         ActionController[] suspendingCombatants = activeCombatants.ToArray();
+        yield return CoroutineRunner.Await(
+            CompleteDungeonSuspensionAsync(suspendingBridge, suspendingCombatants)
+        );
+    }
+
+    private async ValueTask CompleteDungeonSuspensionAsync(
+        UnityEncounterRulesBridge suspendingBridge,
+        ActionController[] suspendingCombatants
+    )
+    {
+        List<Exception> failures = new();
         try
         {
-            yield return CoroutineRunner.Await(suspendingBridge.SuspendEncounter());
-            yield return CoroutineRunner.Await(
-                Pf2eRulesEngine.EndEncounterAsync(suspendingCombatants)
-            );
+            await suspendingBridge.SuspendEncounter();
         }
-        finally
+        catch (Exception exception)
         {
-            // A suspension dispatch can fault after its reducer commits, and later Rage cleanup can
-            // fault after the encounter is already suspended. Only a durably closed lifecycle may
-            // tear down this exact host; a pre-commit rejection leaves the active encounter intact.
-            if (!suspendingBridge.HasActiveEncounter)
-                FinalizeCombatState(suspendingBridge, cancelInFlightActions: true);
+            failures.Add(exception);
         }
+
+        bool suspensionCommitted =
+            suspendingBridge.Snapshot.Encounters.TryGet(
+                suspendingBridge.EncounterId,
+                out EncounterState encounter
+            )
+            && encounter.Phase == EncounterPhase.Suspended;
+        if (!suspensionCommitted)
+        {
+            ThrowCompletionFailures(failures);
+            return;
+        }
+
+        // A post-commit observer can fail the suspension task even though the encounter is already
+        // durably closed. Cleanup and exact-host finalization remain mandatory in that case.
+        try
+        {
+            await Pf2eRulesEngine.EndEncounterAsync(suspendingCombatants);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+        TryComplete(
+            () => FinalizeCombatState(suspendingBridge, cancelInFlightActions: true),
+            failures
+        );
+        ThrowCompletionFailures(failures);
     }
 
     private void OnTurnBeganCommitted(TurnIdentity turn)

@@ -1,4 +1,7 @@
+using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using Game.Creature.Rules;
 using UnityEngine;
@@ -88,10 +91,35 @@ namespace Game.AbilityActions
         /// Ends Rage for an actor and applies cleanup effects returned by the pure Rage rule.
         /// </summary>
         /// <param name="actor">The Unity actor whose Rage should end.</param>
+        /// <remarks>
+        /// Every emitted cleanup effect is attempted in deterministic order. If committed health
+        /// notification fails, later cleanup phases still settle before the original failure (or
+        /// ordered aggregate) is reported.
+        /// </remarks>
+        /// <exception cref="AggregateException">
+        /// More than one ordered Rage cleanup effect reports a failure after every effect is
+        /// attempted.
+        /// </exception>
         public async ValueTask EndRageAsync(GameObject actor)
         {
             RageRuleResult result = RageRule.End(UnityCreatureRulesAdapter.From(actor));
-            await UnityRuleEffectApplier.ApplyAsync(actor, result.Effects);
+            List<Exception> failures = new();
+            foreach (RuleEffect effect in result.Effects)
+            {
+                try
+                {
+                    await UnityRuleEffectApplier.ApplyAsync(actor, new[] { effect });
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
+            }
+
+            if (failures.Count == 1)
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1)
+                throw new AggregateException("Multiple Rage cleanup effects failed.", failures);
         }
 
         protected override IEnumerator MFInvoke(GameObject actor)

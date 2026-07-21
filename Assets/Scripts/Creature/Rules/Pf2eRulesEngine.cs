@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using Game.AbilityActions;
 using Game.Combat.Rules;
@@ -36,13 +37,40 @@ namespace Game.Creature.Rules
         /// Runs encounter-cleanup rule hooks for each combatant; action-specific details stay in their own rule classes.
         /// </summary>
         /// <param name="combatants">The combatants leaving encounter state.</param>
+        /// <remarks>
+        /// Cleanup continues in supplied roster order after an individual participant fails. A
+        /// single failure preserves its stack; multiple failures retain stable participant order.
+        /// </remarks>
+        /// <exception cref="AggregateException">
+        /// More than one participant reports a cleanup failure after all participants are attempted.
+        /// </exception>
         public static async ValueTask EndEncounterAsync(IEnumerable<ActionController> combatants)
         {
             if (combatants == null)
                 return;
 
+            List<Exception> failures = new();
             foreach (ActionController controller in combatants)
-                await new Rage(0).EndRageAsync(controller?.gameObject);
+            {
+                if (controller == null)
+                    continue;
+                try
+                {
+                    await new Rage(0).EndRageAsync(controller.gameObject);
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
+            }
+
+            if (failures.Count == 1)
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1)
+                throw new AggregateException(
+                    "Multiple combatants failed encounter cleanup.",
+                    failures
+                );
         }
 
         /// <summary>
