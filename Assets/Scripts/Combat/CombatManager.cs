@@ -317,9 +317,23 @@ public class CombatManager : CombatManagerInterface
             yield return null;
         if (!combatActive)
             yield break;
-        yield return CoroutineRunner.Await(encounterRules.SuspendEncounter());
-        yield return CoroutineRunner.Await(Pf2eRulesEngine.EndEncounterAsync(activeCombatants));
-        StopCombatState(cancelInFlightActions: true);
+        UnityEncounterRulesBridge suspendingBridge = encounterRules;
+        ActionController[] suspendingCombatants = activeCombatants.ToArray();
+        try
+        {
+            yield return CoroutineRunner.Await(suspendingBridge.SuspendEncounter());
+            yield return CoroutineRunner.Await(
+                Pf2eRulesEngine.EndEncounterAsync(suspendingCombatants)
+            );
+        }
+        finally
+        {
+            // A suspension dispatch can fault after its reducer commits, and later Rage cleanup can
+            // fault after the encounter is already suspended. Only a durably closed lifecycle may
+            // tear down this exact host; a pre-commit rejection leaves the active encounter intact.
+            if (!suspendingBridge.HasActiveEncounter)
+                FinalizeCombatState(suspendingBridge, cancelInFlightActions: true);
+        }
     }
 
     private void OnTurnBeganCommitted(TurnIdentity turn)
@@ -400,13 +414,24 @@ public class CombatManager : CombatManagerInterface
 
     private async ValueTask OnEncounterEndedCommitted(EncounterOutcome outcome)
     {
+        UnityEncounterRulesBridge endingBridge = encounterRules;
+        ActionController[] endingCombatants = activeCombatants.ToArray();
         bool wasDungeonDirected = dungeonDirectedCombat;
         string winningTeam =
             outcome == EncounterOutcome.PlayerVictory
                 ? ProtagonistTeamDisplayName()
                 : OpposingTeamDisplayName();
-        await Pf2eRulesEngine.EndEncounterAsync(activeCombatants);
-        StopCombatState(cancelInFlightActions: false);
+        try
+        {
+            await Pf2eRulesEngine.EndEncounterAsync(endingCombatants);
+        }
+        finally
+        {
+            // EncounterEnded is already authoritative before this presentation callback begins.
+            // Host shutdown must therefore occur even when a nested cleanup dispatch or observer
+            // fails; the original exception continues out after the finally completes.
+            FinalizeCombatState(endingBridge, cancelInFlightActions: false);
+        }
         if (wasDungeonDirected)
         {
             DungeonCombatEnded.Invoke(outcome);
@@ -502,6 +527,16 @@ public class CombatManager : CombatManagerInterface
         encounterReady = false;
         dungeonDirectedCombat = false;
         CombatActivityChanged.Invoke(false);
+    }
+
+    private void FinalizeCombatState(
+        UnityEncounterRulesBridge completingBridge,
+        bool cancelInFlightActions
+    )
+    {
+        if (!combatActive || !ReferenceEquals(encounterRules, completingBridge))
+            return;
+        StopCombatState(cancelInFlightActions);
     }
 
     private void LogInitiative(string heading, IReadOnlyList<ActionController> order)

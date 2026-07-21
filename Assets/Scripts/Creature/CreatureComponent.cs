@@ -1252,7 +1252,7 @@ namespace Game.Creature
             _tempHp = health.Temporary;
         }
 
-        internal void PresentCommittedHit()
+        internal virtual void PresentCommittedHit()
         {
             GetComponent<CreaturePresentation>()?.PlayHit();
         }

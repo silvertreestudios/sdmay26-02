@@ -325,7 +325,8 @@ public sealed class UnityEncounterRulesBridgeTests
         GameObject enemyObject = new GameObject("living enemy");
         try
         {
-            CreatureComponent hero = heroObject.AddComponent<CreatureComponent>();
+            HitTrackingCreatureComponent hero =
+                heroObject.AddComponent<HitTrackingCreatureComponent>();
             CreatureComponent enemy = enemyObject.AddComponent<CreatureComponent>();
             hero.InitializeHealthBeforeEncounter(1, 10);
             enemy.InitializeHealthBeforeEncounter(10, 10);
@@ -354,6 +355,12 @@ public sealed class UnityEncounterRulesBridgeTests
                 registry,
                 new[] { rescueBinding }
             );
+            int encounterEnds = 0;
+            bridge.EncounterEnded += _ =>
+            {
+                encounterEnds++;
+                return default;
+            };
             CreatureId heroId = bridge.GetCreatureId(hero);
             ProjectionSettlementObserver projection = new ProjectionSettlementObserver(
                 hero,
@@ -381,11 +388,17 @@ public sealed class UnityEncounterRulesBridgeTests
             Assert.That(bridge.Snapshot.Health[heroId].Current, Is.EqualTo(1));
             Assert.That(hero.Health, Is.EqualTo(bridge.Snapshot.Health[heroId]));
             Assert.That(GetProjectedCurrentHealth(hero), Is.EqualTo(1));
+            Assert.That(
+                hero.HitPresentations,
+                Is.EqualTo(1),
+                "The committed damage Fact must present one hit even when a reaction rescues the target."
+            );
             Assert.That(hero.IsDefeated, Is.False);
             Assert.That(heroObject.activeSelf, Is.True);
             Assert.That(heroController.enabled, Is.True);
             Assert.That(encounter.Phase, Is.EqualTo(EncounterPhase.Active));
             Assert.That(encounter.Outcome, Is.Null);
+            Assert.That(encounterEnds, Is.Zero);
         }
         finally
         {
@@ -534,6 +547,16 @@ public sealed class UnityEncounterRulesBridgeTests
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn() { }
+    }
+
+    private sealed class HitTrackingCreatureComponent : CreatureComponent
+    {
+        internal int HitPresentations { get; private set; }
+
+        internal override void PresentCommittedHit()
+        {
+            HitPresentations++;
+        }
     }
 
     private sealed class TestCombatLog : CombatLogInterface

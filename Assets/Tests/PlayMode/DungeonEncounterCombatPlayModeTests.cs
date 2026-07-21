@@ -1666,6 +1666,184 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(Enum.GetNames(typeof(EncounterOutcome)), Does.Not.Contain("Draw"));
     }
 
+    /// <summary>Verifies encounter-end host finalization survives a cleanup observer fault.</summary>
+    [UnityTest]
+    public IEnumerator EncounterEndCleanupFailureStillFinalizesHostAndAllowsRestart()
+    {
+        CombatantFixture player = CreateCombatant("Faulted End Cleanup Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Faulted End Cleanup Enemy", "Enemies", 100);
+        CombatantFixture dormant = CreateCombatant("Faulted End Cleanup Dormant", "Enemies", -100);
+        PrepareBarbarian(player.Creature);
+        int inactiveEvents = 0;
+        Action<bool> observeActivity = active =>
+        {
+            if (!active)
+                inactiveEvents++;
+        };
+        manager.CombatActivityChanged += observeActivity;
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsRemovedFact> blocker = new(failAfterRelease: true);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+        bool observerRegistered = true;
+        Task lethal = null;
+
+        try
+        {
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.GreaterThan(0));
+            lethal = enemy
+                .Creature.ApplyFinalDamageAsync(
+                    enemy.Creature.hp,
+                    RuleSource.FromSlug("test-faulted-end-cleanup")
+                )
+                .AsTask();
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "Encounter-end Rage cleanup did not reach its temporary-HP Fact."
+            );
+
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Phase,
+                Is.EqualTo(EncounterPhase.Ended)
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveEvents, Is.Zero);
+
+            blocker.Release();
+            yield return WaitForCondition(
+                () => lethal.IsCompleted,
+                "The faulted encounter-end cleanup did not settle."
+            );
+            Assert.That(lethal.IsFaulted, Is.True);
+            StringAssert.Contains("deliberate Rage Fact failure", lethal.Exception.ToString());
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The committed encounter end did not finalize its Unity host after cleanup failed."
+            );
+
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(manager.WhosTurn(), Is.Null);
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+            AssertTransientTurnStateCleared(player.Controller);
+            AssertTransientTurnStateCleared(enemy.Controller);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, dormant.GameObject })
+            );
+
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            observerRegistered = false;
+            manager.StartDungeonCombat(new[] { player.Controller, dormant.Controller });
+            yield return WaitForTurn(player.GameObject);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+        }
+        finally
+        {
+            blocker.Release();
+            if (observerRegistered)
+                dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            manager.CombatActivityChanged -= observeActivity;
+            _ = lethal?.Exception;
+        }
+    }
+
+    /// <summary>Verifies suspension finalizes its host when post-commit cleanup faults.</summary>
+    [UnityTest]
+    public IEnumerator SuspensionCleanupFailureStillFinalizesHostAndAllowsRestart()
+    {
+        CombatantFixture player = CreateCombatant(
+            "Faulted Suspension Cleanup Player",
+            "Players",
+            200
+        );
+        CombatantFixture enemy = CreateCombatant(
+            "Faulted Suspension Cleanup Enemy",
+            "Enemies",
+            100
+        );
+        CombatantFixture dormant = CreateCombatant(
+            "Faulted Suspension Cleanup Dormant",
+            "Enemies",
+            -100
+        );
+        PrepareBarbarian(player.Creature);
+        int inactiveEvents = 0;
+        Action<bool> observeActivity = active =>
+        {
+            if (!active)
+                inactiveEvents++;
+        };
+        manager.CombatActivityChanged += observeActivity;
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsRemovedFact> blocker = new(failAfterRelease: true);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+        bool observerRegistered = true;
+
+        try
+        {
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.GreaterThan(0));
+            player.Controller.IsTakingAction = true;
+            enemy.Controller.IsTakingAction = true;
+            manager.SuspendDungeonCombat();
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "Suspension Rage cleanup did not reach its temporary-HP Fact."
+            );
+
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Phase,
+                Is.EqualTo(EncounterPhase.Suspended)
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveEvents, Is.Zero);
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate Rage Fact failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The committed suspension did not finalize its Unity host after cleanup failed."
+            );
+            yield return null;
+
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(manager.WhosTurn(), Is.Null);
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+            AssertTransientTurnStateCleared(player.Controller);
+            AssertTransientTurnStateCleared(enemy.Controller);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, enemy.GameObject, dormant.GameObject })
+            );
+
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            observerRegistered = false;
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+        }
+        finally
+        {
+            blocker.Release();
+            if (observerRegistered)
+                dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            manager.CombatActivityChanged -= observeActivity;
+        }
+    }
+
     /// <summary>Verifies suspension resets turn economy without changing durable creature state.</summary>
     [UnityTest]
     public IEnumerator SuspendDungeonCombat_ClearsTurnStateAndPreservesCreatureState()

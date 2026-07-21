@@ -1173,8 +1173,7 @@ namespace Game.Rules.Unity
                     && creature != null
                 )
                 {
-                    HealthState health = snapshot.Health[fact.Creature];
-                    bool presentHit = fact is DamageAppliedFact && health.Current > 0;
+                    bool presentHit = fact is DamageAppliedFact;
                     owner.EnqueuePresentation(
                         fact,
                         () =>
