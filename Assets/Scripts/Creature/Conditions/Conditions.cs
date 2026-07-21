@@ -70,8 +70,10 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     /// <returns>True when that source currently applies the condition.</returns>
     public bool Contains(string condition, ConditionSource source)
     {
+        string conditionId = NormalizeConditionId(condition);
         List<ConditionPersistenceApplication> applications;
-        return AppliedConditions.TryGetValue(condition, out applications)
+        return conditionId.Length > 0
+            && AppliedConditions.TryGetValue(conditionId, out applications)
             && applications.Any(application => application.Source == source);
     }
 
@@ -82,7 +84,8 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     /// <returns>True when the condition currently exists.</returns>
     public bool Contains(string condition)
     {
-        return AppliedConditions.TryGetValue(condition, out _);
+        string conditionId = NormalizeConditionId(condition);
+        return conditionId.Length > 0 && AppliedConditions.TryGetValue(conditionId, out _);
     }
 
     /// <summary>
@@ -153,16 +156,22 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     /// <param name="source">The source being removed.</param>
     public void Remove(string condition, ConditionSource source)
     {
+        string conditionId = NormalizeConditionId(condition);
+        if (conditionId.Length == 0)
+            return;
         List<ConditionPersistenceApplication> applications;
-        if (AppliedConditions.TryGetValue(condition, out applications))
+        if (AppliedConditions.TryGetValue(conditionId, out applications))
         {
             int index = applications.FindIndex(application => application.Source == source);
             if (index >= 0)
                 applications.RemoveAt(index);
             if (applications.Count < 1)
-                AppliedConditions.Remove(condition);
+                AppliedConditions.Remove(conditionId);
         }
     }
+
+    private static string NormalizeConditionId(string condition) =>
+        string.IsNullOrWhiteSpace(condition) ? string.Empty : condition.Trim();
 
     /// <summary>
     /// Replaces one sourced condition with another while preserving source-aware condition ownership.

@@ -259,6 +259,22 @@ public sealed class DungeonActorStateAdapterTests
     }
 
     [Test]
+    public void Conditions_NormalizeIdsForLookupAndRemoval()
+    {
+        Conditions conditions = CreateObject("Normalized conditions").AddComponent<Conditions>();
+        ConditionSource source = new();
+        conditions.AddPersistent("  frightened  ", 1, source);
+
+        Assert.That(conditions.Contains(" frightened "), Is.True);
+        Assert.That(conditions.Contains(" frightened ", source), Is.True);
+
+        conditions.Remove(" frightened ", source);
+
+        Assert.That(conditions.Contains("frightened"), Is.False);
+        Assert.That(conditions.CapturePersistentState(), Is.Empty);
+    }
+
+    [Test]
     public void AuthoredPlayerPrefabs_ProvideDistinctStableDungeonIdentities()
     {
         string[] paths =
