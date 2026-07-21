@@ -4,6 +4,104 @@ using System.Linq;
 
 namespace Game.Rules.Runtime
 {
+    internal static class EncounterEndValidation
+    {
+        internal const string OutcomeMismatch =
+            "The requested outcome does not match authoritative health and teams.";
+
+        internal static bool TryValidate(
+            RulesSnapshot snapshot,
+            EncounterId id,
+            EncounterOutcome requested,
+            out EncounterState encounter,
+            out EncounterOutcome actual,
+            out string rejection
+        )
+        {
+            bool found = snapshot.Encounters.TryGet(id, out encounter);
+            return TryValidate(
+                found,
+                encounter,
+                id,
+                requested,
+                creature =>
+                    snapshot.Health.TryGet(creature, out HealthState health) && health.Current > 0,
+                out actual,
+                out rejection
+            );
+        }
+
+        internal static bool TryValidate(
+            RulesStateDraft state,
+            EncounterId id,
+            EncounterOutcome requested,
+            out EncounterState encounter,
+            out EncounterOutcome actual,
+            out string rejection
+        )
+        {
+            bool found = state.Encounters.TryGet(id, out encounter);
+            return TryValidate(
+                found,
+                encounter,
+                id,
+                requested,
+                creature =>
+                    state.Health.TryGet(creature, out HealthState health) && health.Current > 0,
+                out actual,
+                out rejection
+            );
+        }
+
+        internal static EncounterOutcome? Evaluate(
+            EncounterState encounter,
+            Func<CreatureId, bool> isLiving
+        )
+        {
+            bool protagonistLives = encounter.Roster.Any(entry =>
+                entry.Team == encounter.ProtagonistTeam && isLiving(entry.Creature)
+            );
+            if (!protagonistLives)
+                return EncounterOutcome.PlayerDefeat;
+            bool oppositionLives = encounter.Roster.Any(entry =>
+                entry.Team != encounter.ProtagonistTeam && isLiving(entry.Creature)
+            );
+            return oppositionLives ? (EncounterOutcome?)null : EncounterOutcome.PlayerVictory;
+        }
+
+        private static bool TryValidate(
+            bool found,
+            EncounterState encounter,
+            EncounterId id,
+            EncounterOutcome requested,
+            Func<CreatureId, bool> isLiving,
+            out EncounterOutcome actual,
+            out string rejection
+        )
+        {
+            actual = default;
+            if (!found)
+            {
+                rejection = $"Encounter {id.Value} is unknown.";
+                return false;
+            }
+            if (encounter.Phase != EncounterPhase.Active)
+            {
+                rejection = $"Encounter {id.Value} is not active.";
+                return false;
+            }
+            EncounterOutcome? evaluated = Evaluate(encounter, isLiving);
+            if (!evaluated.HasValue || evaluated.Value != requested)
+            {
+                rejection = OutcomeMismatch;
+                return false;
+            }
+            actual = evaluated.Value;
+            rejection = string.Empty;
+            return true;
+        }
+    }
+
     internal static class EncounterReduction
     {
         public static bool TryGetActive(
@@ -30,18 +128,8 @@ namespace Game.Rules.Runtime
         public static bool IsLiving(RulesStateDraft state, CreatureId creature) =>
             state.Health.TryGet(creature, out HealthState health) && health.Current > 0;
 
-        public static EncounterOutcome? Evaluate(RulesStateDraft state, EncounterState encounter)
-        {
-            bool protagonistLives = encounter.Roster.Any(entry =>
-                entry.Team == encounter.ProtagonistTeam && IsLiving(state, entry.Creature)
-            );
-            if (!protagonistLives)
-                return EncounterOutcome.PlayerDefeat;
-            bool oppositionLives = encounter.Roster.Any(entry =>
-                entry.Team != encounter.ProtagonistTeam && IsLiving(state, entry.Creature)
-            );
-            return oppositionLives ? (EncounterOutcome?)null : EncounterOutcome.PlayerVictory;
-        }
+        public static EncounterOutcome? Evaluate(RulesStateDraft state, EncounterState encounter) =>
+            EncounterEndValidation.Evaluate(encounter, creature => IsLiving(state, creature));
     }
 
     internal sealed class CommitEncounterStartReducer
@@ -404,28 +492,25 @@ namespace Game.Rules.Runtime
         )
         {
             if (
-                !EncounterReduction.TryGetActive(
+                !EncounterEndValidation.TryValidate(
                     state,
                     context.Op.Encounter,
+                    context.Op.Outcome,
                     out EncounterState encounter,
+                    out EncounterOutcome actual,
                     out string rejection
                 )
             )
                 return ReductionResult<EncounterEndOutcome>.Reject(rejection);
-            EncounterOutcome? actual = EncounterReduction.Evaluate(state, encounter);
-            if (!actual.HasValue || actual.Value != context.Op.Outcome)
-                return ReductionResult<EncounterEndOutcome>.Reject(
-                    "The requested outcome does not match authoritative health and teams."
-                );
             CommitEncounterSuspendReducer.ClearTurnResources(state, encounter);
             EncounterState updated = encounter.Replace(
                 phase: EncounterPhase.Ended,
                 clearCurrentTurn: true,
-                outcome: actual.Value
+                outcome: actual
             );
             state.Encounters.Set(updated.Id, updated);
             state.RuleBindings.Remove(EncounterRuleRuntime.OutcomeBindingId(updated.Id));
-            facts.Stage(new EncounterEndedFact(updated.Id, actual.Value));
+            facts.Stage(new EncounterEndedFact(updated.Id, actual));
             return ReductionResult<EncounterEndOutcome>.Accept(new EncounterEndOutcome(updated));
         }
     }

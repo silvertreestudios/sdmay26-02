@@ -506,6 +506,95 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task IncorrectEndOutcomePreservesEncounterEffectAndSuccessfulEndExpiresItFirst()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("encounter-duration-effect");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleRegistry registry = registryBuilder.Build();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                BaseSeed(),
+                registry,
+                true
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            );
+            ActiveEffectId effectId = new ActiveEffectId("encounter-duration-effect-instance");
+            BindingId bindingId = new BindingId("encounter-duration-effect-binding");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                Hero,
+                Source,
+                EffectDuration.Encounter,
+                new TestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                bindingId,
+                definition,
+                Hero,
+                effectId,
+                Source,
+                2
+            );
+            Resolved(await dispatcher.Dispatch(new CreateEffectWorkflowOp(effect, binding)));
+            EncounterState beforeInvalid = dispatcher.Snapshot.Encounters[Encounter];
+            EncounterEndFactOrderObserver endFacts = new EncounterEndFactOrderObserver();
+            dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(endFacts);
+            dispatcher.RegisterFactObserver<EncounterEndedFact>(endFacts);
+
+            OpResult<EncounterEndOutcome> invalid = await dispatcher.Dispatch(
+                new EndEncounterOp(Encounter, EncounterOutcome.PlayerVictory)
+            );
+
+            Assert.That(invalid, Is.TypeOf<InvalidOpResult<EncounterEndOutcome>>());
+            Assert.That(invalid.Facts, Is.Empty);
+            Assert.That(dispatcher.Snapshot.Encounters[Encounter], Is.SameAs(beforeInvalid));
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Phase,
+                Is.EqualTo(EncounterPhase.Active)
+            );
+            Assert.That(dispatcher.Snapshot.ActiveEffects[effectId], Is.EqualTo(effect));
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(effectId), Is.True);
+            Assert.That(dispatcher.Snapshot.RuleBindings[bindingId], Is.EqualTo(binding));
+            Assert.That(endFacts.Order, Is.Empty);
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Enemy,
+                        10,
+                        new HealthChangeOriginId("successful-encounter-end"),
+                        Source
+                    )
+                )
+            );
+
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Phase,
+                Is.EqualTo(EncounterPhase.Ended)
+            );
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Outcome,
+                Is.EqualTo(EncounterOutcome.PlayerVictory)
+            );
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects[effectId].Status,
+                Is.EqualTo(ActiveEffectStatus.Expired)
+            );
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(effectId), Is.False);
+            Assert.That(dispatcher.Snapshot.RuleBindings[bindingId].IsEnabled, Is.False);
+            Assert.That(endFacts.Order, Is.EqualTo(new[] { "expired", "ended" }));
+        }
+
+        [Test]
         public async Task OneRoundEffectExpiresBeforeSourcesNextTurnFact()
         {
             RuleDefinitionId definition = new RuleDefinitionId("timed-effect");
@@ -730,6 +819,27 @@ namespace Game.Rules.Runtime.Tests
             {
                 ActionsAtFact = snapshot.ActionEconomy[fact.Turn.Actor].ActionsRemaining;
                 order.Add("fact");
+                return default;
+            }
+        }
+
+        private sealed class EncounterEndFactOrderObserver
+            : IFactObserver<ActiveEffectExpiredFact>,
+                IFactObserver<EncounterEndedFact>
+        {
+            private readonly List<string> order = new List<string>();
+
+            public IReadOnlyList<string> Order => order;
+
+            public ValueTask OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            {
+                order.Add("expired");
+                return default;
+            }
+
+            public ValueTask OnFactCommitted(EncounterEndedFact fact, RulesSnapshot snapshot)
+            {
+                order.Add("ended");
                 return default;
             }
         }

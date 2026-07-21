@@ -16,7 +16,9 @@ namespace Game.Rules.Runtime
         internal static BindingId OutcomeBindingId(EncounterId encounter) =>
             new BindingId($"encounter-outcome:{encounter.Value}");
 
-        /// <summary>Adds the encounter-owned Observation listener to a shared registry builder.</summary>
+        /// <summary>
+        /// Adds encounter-owned outcome validation and observation to a shared registry builder.
+        /// </summary>
         /// <param name="builder">The registry builder used by the shared dispatcher.</param>
         /// <returns>The same builder so registry composition can continue.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="builder"/> is null.</exception>
@@ -26,6 +28,10 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(builder));
             builder
                 .Define(OutcomeDefinitionId)
+                .Middleware<EndEncounterOp, EncounterEndOutcome>(
+                    RuleLifecyclePhase.Prevention,
+                    new EncounterEndValidationMiddleware()
+                )
                 .FactListener(RuleLifecyclePhase.Observation, new EncounterOutcomeListener());
             return builder;
         }
@@ -136,22 +142,15 @@ namespace Game.Rules.Runtime
             return encounter;
         }
 
-        internal static EncounterOutcome? Evaluate(RulesSnapshot snapshot, EncounterState encounter)
-        {
-            bool protagonistLives = encounter.Roster.Any(entry =>
-                entry.Team == encounter.ProtagonistTeam
-                && snapshot.Health.TryGet(entry.Creature, out HealthState health)
-                && health.Current > 0
+        internal static EncounterOutcome? Evaluate(
+            RulesSnapshot snapshot,
+            EncounterState encounter
+        ) =>
+            EncounterEndValidation.Evaluate(
+                encounter,
+                creature =>
+                    snapshot.Health.TryGet(creature, out HealthState health) && health.Current > 0
             );
-            if (!protagonistLives)
-                return EncounterOutcome.PlayerDefeat;
-            bool oppositionLives = encounter.Roster.Any(entry =>
-                entry.Team != encounter.ProtagonistTeam
-                && snapshot.Health.TryGet(entry.Creature, out HealthState health)
-                && health.Current > 0
-            );
-            return oppositionLives ? (EncounterOutcome?)null : EncounterOutcome.PlayerVictory;
-        }
     }
 
     internal static class EncounterHandlerResults
@@ -473,6 +472,32 @@ namespace Game.Rules.Runtime
                 ),
                 "encounter end"
             );
+        }
+    }
+
+    internal sealed class EncounterEndValidationMiddleware
+        : IOpMiddleware<EndEncounterOp, EncounterEndOutcome>
+    {
+        public ValueTask<OpResult<EncounterEndOutcome>> Invoke(
+            OpFrame<EndEncounterOp> frame,
+            OpMiddlewareContext context,
+            OpNext<EncounterEndOutcome> next
+        )
+        {
+            if (
+                !EncounterEndValidation.TryValidate(
+                    context.Snapshot,
+                    frame.Op.Encounter,
+                    frame.Op.Outcome,
+                    out _,
+                    out _,
+                    out string rejection
+                )
+            )
+                return new ValueTask<OpResult<EncounterEndOutcome>>(
+                    OpResult<EncounterEndOutcome>.Invalid(rejection)
+                );
+            return next();
         }
     }
 

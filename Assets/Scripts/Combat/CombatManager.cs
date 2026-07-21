@@ -211,10 +211,16 @@ public class CombatManager : CombatManagerInterface
             yield return null;
         if (!combatActive)
             yield break;
-        yield return CoroutineRunner.Await(encounterRules.JoinEncounter(additions));
+        CoroutineResult<EncounterJoinOutcome> joined = new();
+        yield return CoroutineRunner.Await(encounterRules.JoinEncounter(additions), joined);
         activeCombatants.AddRange(additions);
         yield return CoroutineRunner.Await(Pf2eRulesEngine.ApplyCombatStartRulesAsync(additions));
-        LogInitiative("Reinforcements", additions);
+        HashSet<ActionController> accepted = new(additions);
+        ActionController[] acceptedOrder = joined
+            .Value.State.Roster.Select(entry => encounterRules.GetController(entry.Creature))
+            .Where(accepted.Contains)
+            .ToArray();
+        LogInitiative("Reinforcements", acceptedOrder);
     }
 
     private IEnumerator SuspendDungeonCombatRoutine()
@@ -238,11 +244,29 @@ public class CombatManager : CombatManagerInterface
             !combatActive
             || !encounterRules.CurrentTurn.HasValue
             || encounterRules.CurrentTurn.Value != turn
-            || !CanParticipate(actor)
         )
             return;
-        if (CanParticipate(actor))
-            actor.StartTurn();
+        if (!CanParticipate(actor))
+        {
+            StartCoroutine(CloseUnpresentableTurn(turn));
+            return;
+        }
+        actor.StartTurn();
+    }
+
+    private IEnumerator CloseUnpresentableTurn(TurnIdentity turn)
+    {
+        // Return from the presentation callback before starting another dispatcher root. The
+        // exact identity check then makes this scheduled cleanup harmless if another path already
+        // closed the turn while presentation was settling.
+        yield return null;
+        if (
+            !combatActive
+            || !encounterRules.CurrentTurn.HasValue
+            || encounterRules.CurrentTurn.Value != turn
+        )
+            yield break;
+        yield return CoroutineRunner.Await(encounterRules.EndTurn(turn));
     }
 
     private void OnTurnEndedCommitted(TurnIdentity turn)

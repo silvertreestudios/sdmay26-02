@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Game.Combat.Encounters;
@@ -106,6 +107,49 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(next.Controller.StartTurnCount, Is.EqualTo(1));
     }
 
+    /// <summary>Verifies presentation-disabled actors close their exact committed turn once.</summary>
+    [UnityTest]
+    public IEnumerator TurnPresentationDisablesActor_ClosesExactTurnAndAdvancesOnce()
+    {
+        CombatantFixture first = CreateCombatant("Disabled First", "Players", 200);
+        CombatantFixture next = CreateCombatant("Eligible Next", "Enemies", 100);
+        CombatantFixture ally = CreateCombatant("Living Ally", "Players", 0);
+        TurnIdentity? disabledTurn = null;
+        UnityAction<GameObject> disableFirst = actor =>
+        {
+            if (actor != first.GameObject)
+                return;
+            disabledTurn = GetEncounterBridge().CurrentTurn;
+            first.Controller.enabled = false;
+        };
+        OnNextTurn.AddListener(disableFirst);
+        try
+        {
+            manager.StartDungeonCombat(
+                new[] { first.Controller, next.Controller, ally.Controller }
+            );
+            RuleDispatcher dispatcher = GetEncounterDispatcher();
+            RecordingFactObserver<TurnEndedFact> ended = new();
+            dispatcher.RegisterFactObserver<TurnEndedFact>(ended);
+
+            yield return WaitForCondition(
+                () => manager.WhosTurn() == next.GameObject && next.Controller.StartTurnCount == 1,
+                "A presentation-disabled actor left its committed turn active."
+            );
+
+            Assert.That(disabledTurn.HasValue, Is.True);
+            Assert.That(first.Controller.StartTurnCount, Is.Zero);
+            Assert.That(first.Controller.enabled, Is.False);
+            Assert.That(next.Controller.HasTurnAuthority, Is.True);
+            Assert.That(ended.Facts, Has.Count.EqualTo(1));
+            Assert.That(ended.Facts[0].Turn, Is.EqualTo(disabledTurn.Value));
+        }
+        finally
+        {
+            OnNextTurn.RemoveListener(disableFirst);
+        }
+    }
+
     /// <summary>Verifies malformed encounter identity cannot interrupt committed defeat cleanup.</summary>
     [UnityTest]
     public IEnumerator LethalDamage_UnconfiguredEncounterMemberStillCompletesDefeatPresentation()
@@ -203,6 +247,55 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         Assert.That(manager.WhosTurn(), Is.SameAs(reinforcement.GameObject));
         Assert.That(reinforcement.Controller.StartTurnCount, Is.EqualTo(1));
+    }
+
+    /// <summary>Verifies reinforcement numbering follows the reducer-sorted accepted roster.</summary>
+    [UnityTest]
+    public IEnumerator AddDungeonReinforcements_LogsAcceptedInitiativeOrder()
+    {
+        CombatantFixture current = CreateCombatant("Current", "Players", 100);
+        CombatantFixture later = CreateCombatant("Later", "Enemies", 0);
+        CombatantFixture low = CreateCombatant("Low Reinforcement", "Enemies", -1000);
+        CombatantFixture high = CreateCombatant("High Reinforcement", "Enemies", 1000);
+        manager.StartDungeonCombat(new[] { current.Controller, later.Controller });
+        yield return WaitForTurn(current.GameObject);
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+        Assert.That(combatLog, Is.Not.Null);
+
+        manager.AddDungeonReinforcements(new[] { low.Controller, high.Controller });
+        yield return WaitForCondition(
+            () =>
+                combatLog
+                    .GetMessages()
+                    .Any(message =>
+                        message.StartsWith("Reinforcements:\n", StringComparison.Ordinal)
+                    ),
+            "Timed out waiting for the accepted reinforcement initiative log."
+        );
+
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        HashSet<ActionController> additions = new() { low.Controller, high.Controller };
+        string[] committedOrder = bridge
+            .Snapshot.Encounters[bridge.EncounterId]
+            .Roster.Select(entry => bridge.GetController(entry.Creature))
+            .Where(additions.Contains)
+            .Select(controller => controller.gameObject.name)
+            .ToArray();
+        string reinforcementLog = combatLog
+            .GetMessages()
+            .Single(message => message.StartsWith("Reinforcements:\n", StringComparison.Ordinal));
+        string[] lines = reinforcementLog.Split(
+            new[] { '\r', '\n' },
+            StringSplitOptions.RemoveEmptyEntries
+        );
+
+        Assert.That(
+            committedOrder,
+            Is.EqualTo(new[] { high.GameObject.name, low.GameObject.name })
+        );
+        Assert.That(lines, Has.Length.EqualTo(3));
+        Assert.That(lines[1], Does.StartWith($"  1. {committedOrder[0]} "));
+        Assert.That(lines[2], Does.StartWith($"  2. {committedOrder[1]} "));
     }
 
     /// <summary>Verifies a lethal final-opponent weapon Strike commits before its effect ends combat.</summary>
@@ -547,13 +640,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
     private RuleDispatcher GetEncounterDispatcher()
     {
-        FieldInfo bridgeField = typeof(CombatManager).GetField(
-            "encounterRules",
-            BindingFlags.Instance | BindingFlags.NonPublic
-        );
-        UnityEncounterRulesBridge bridge =
-            bridgeField.GetValue(manager) as UnityEncounterRulesBridge;
-        Assert.That(bridge, Is.Not.Null);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
         FieldInfo dispatcherField = typeof(UnityEncounterRulesBridge).GetField(
             "dispatcher",
             BindingFlags.Instance | BindingFlags.NonPublic
@@ -561,6 +648,18 @@ public sealed class DungeonEncounterCombatPlayModeTests
         RuleDispatcher dispatcher = dispatcherField.GetValue(bridge) as RuleDispatcher;
         Assert.That(dispatcher, Is.Not.Null);
         return dispatcher;
+    }
+
+    private UnityEncounterRulesBridge GetEncounterBridge()
+    {
+        FieldInfo bridgeField = typeof(CombatManager).GetField(
+            "encounterRules",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        UnityEncounterRulesBridge bridge =
+            bridgeField.GetValue(manager) as UnityEncounterRulesBridge;
+        Assert.That(bridge, Is.Not.Null);
+        return bridge;
     }
 
     private static IEnumerator WaitForCondition(Func<bool> condition, string timeoutMessage)
