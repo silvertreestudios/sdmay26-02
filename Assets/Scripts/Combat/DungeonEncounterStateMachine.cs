@@ -388,6 +388,32 @@ namespace Game.Combat.Encounters
             return true;
         }
 
+        // A reinforcement may be included in a later whole-combat suspension before its queued
+        // join is reduced. Its exact request owner may restore Active or that derived Suspended
+        // state, but must never rewrite Cleared or another request's later activation.
+        internal bool RestoreActivationAfterRejectedReinforcement(
+            string encounterId,
+            DungeonEncounterGroupState previousState
+        )
+        {
+            if (
+                previousState != DungeonEncounterGroupState.Dormant
+                && previousState != DungeonEncounterGroupState.Suspended
+            )
+                throw new ArgumentOutOfRangeException(nameof(previousState));
+            if (!groupsByEncounterId.TryGetValue(encounterId, out EncounterGroup group))
+                throw new KeyNotFoundException($"Encounter '{encounterId}' is not registered.");
+            if (
+                group.State != DungeonEncounterGroupState.Active
+                && group.State != DungeonEncounterGroupState.Suspended
+            )
+                return false;
+
+            group.State = previousState;
+            RefreshEncounterView(group);
+            return true;
+        }
+
         /// <summary>Restores lifecycle state against the immutable plans for the same floor.</summary>
         /// <param name="plans">The complete immutable encounter plans for the floor.</param>
         /// <param name="snapshot">Exactly one valid group snapshot for every plan.</param>

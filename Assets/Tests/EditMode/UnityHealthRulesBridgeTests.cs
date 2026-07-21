@@ -484,15 +484,18 @@ public sealed class UnityEncounterRulesBridgeTests
             await bridge.StartEncounter(new ActionController[] { heroController, enemyController });
             EncounterState before = bridge.Snapshot.Encounters[bridge.EncounterId];
             long version = bridge.Snapshot.Version;
+            int acceptancePublications = 0;
             int hostPublications = 0;
 
             Assert.ThrowsAsync<InvalidOperationException>(async () =>
                 await bridge.JoinEncounter(
                     new ActionController[] { reinforcementController, heroController },
+                    () => acceptancePublications++,
                     () => hostPublications++
                 )
             );
 
+            Assert.That(acceptancePublications, Is.Zero);
             Assert.That(hostPublications, Is.Zero);
             Assert.That(bridge.Snapshot.Version, Is.EqualTo(version));
             Assert.That(

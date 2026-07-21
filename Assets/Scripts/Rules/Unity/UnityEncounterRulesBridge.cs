@@ -421,15 +421,19 @@ namespace Game.Rules.Unity
         /// </returns>
         public ValueTask<EncounterJoinOutcome> JoinEncounter(
             IEnumerable<ActionController> additions
-        ) => JoinEncounter(additions, () => { });
+        ) => JoinEncounter(additions, () => { }, () => { });
 
-        // CombatManager supplies publication that must share the accepted join root. Keeping this
-        // overload internal prevents callers from manufacturing a second host lifecycle boundary.
+        // CombatManager observes reducer acceptance separately from identity/controller publication
+        // so later root-owned initialization faults cannot be misreported as pre-accept rejection.
+        // Keeping this overload internal prevents callers from manufacturing a second host boundary.
         internal async ValueTask<EncounterJoinOutcome> JoinEncounter(
             IEnumerable<ActionController> additions,
+            Action markAccepted,
             Action publishAcceptedControllers
         )
         {
+            if (markAccepted == null)
+                throw new ArgumentNullException(nameof(markAccepted));
             if (publishAcceptedControllers == null)
                 throw new ArgumentNullException(nameof(publishAcceptedControllers));
             ActionController[] copied =
@@ -528,6 +532,7 @@ namespace Game.Rules.Unity
                     reservedIdentities,
                     reservedTeams,
                     plannedControllerIds,
+                    markAccepted,
                     publishAcceptedControllers
                 );
                 await DispatchAsync(new JoinEncounterOp(encounterId, participants), observer);
@@ -1120,6 +1125,7 @@ namespace Game.Rules.Unity
             > reservedIdentities;
             private readonly IReadOnlyDictionary<string, PlayerId> reservedTeams;
             private readonly IReadOnlyDictionary<ActionController, CreatureId> plannedControllerIds;
+            private readonly Action markAccepted;
             private readonly Action publishAcceptedControllers;
 
             internal JoinRootResolutionObserver(
@@ -1128,6 +1134,7 @@ namespace Game.Rules.Unity
                 IReadOnlyList<KeyValuePair<ActionController, CreatureComponent>> reservedIdentities,
                 IReadOnlyDictionary<string, PlayerId> reservedTeams,
                 IReadOnlyDictionary<ActionController, CreatureId> plannedControllerIds,
+                Action markAccepted,
                 Action publishAcceptedControllers
             )
             {
@@ -1136,6 +1143,7 @@ namespace Game.Rules.Unity
                 this.reservedIdentities = reservedIdentities;
                 this.reservedTeams = reservedTeams;
                 this.plannedControllerIds = plannedControllerIds;
+                this.markAccepted = markAccepted;
                 this.publishAcceptedControllers = publishAcceptedControllers;
             }
 
@@ -1149,6 +1157,7 @@ namespace Game.Rules.Unity
                 if (!(result is ResolvedOpResult<EncounterJoinOutcome>))
                     return;
 
+                markAccepted();
                 owner.PublishAcceptedJoin(reservedIdentities, reservedTeams, plannedControllerIds);
                 // Reducer acceptance and Unity identity/host publication are one root-owned
                 // boundary. Initialization may await or fail, but a durably joined future turn

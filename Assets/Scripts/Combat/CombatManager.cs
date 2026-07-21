@@ -16,6 +16,8 @@ public class CombatManager : CombatManagerInterface
 {
     protected readonly List<ActionController> Combatants = new();
     private readonly List<ActionController> activeCombatants = new();
+    private readonly HashSet<DungeonReinforcementRequest> pendingReinforcementRequests = new();
+    private readonly HashSet<DungeonReinforcementRequest> acceptedReinforcementRequests = new();
     private IReadOnlyList<ActionController> startupCombatants = Array.Empty<ActionController>();
     private bool combatActive;
     private bool encounterReady;
@@ -23,6 +25,7 @@ public class CombatManager : CombatManagerInterface
     private UnityEncounterRulesBridge encounterRules;
     private TurnIdentity? pendingTurnEnd;
     private long encounterGeneration;
+    private long reinforcementRequestSequence;
     private PendingEncounterCompletion pendingEncounterCompletion;
 
     /// <summary>Raised with the committed protagonist-relative dungeon outcome.</summary>
@@ -34,6 +37,12 @@ public class CombatManager : CombatManagerInterface
 
     /// <inheritdoc/>
     public override event Action<long> DungeonCombatStartupCompleted = delegate { };
+
+    /// <inheritdoc/>
+    public override event Action<
+        DungeonReinforcementRequest,
+        DungeonReinforcementRequestStatus
+    > DungeonReinforcementRequestCompleted = delegate { };
     public override bool IsCombatActive => combatActive;
 
     public override void AddCombatant(ActionController combatant)
@@ -108,7 +117,10 @@ public class CombatManager : CombatManagerInterface
     public override long StartDungeonCombat(IReadOnlyList<ActionController> participants) =>
         BeginCombat(participants, true);
 
-    public override void AddDungeonReinforcements(IReadOnlyList<ActionController> reinforcements)
+    /// <inheritdoc/>
+    public override DungeonReinforcementRequest AddDungeonReinforcements(
+        IReadOnlyList<ActionController> reinforcements
+    )
     {
         if (reinforcements == null)
             throw new ArgumentNullException(nameof(reinforcements));
@@ -131,9 +143,29 @@ public class CombatManager : CombatManagerInterface
             );
         UnityEncounterRulesBridge requestingBridge = encounterRules;
         long requestingGeneration = encounterGeneration;
-        StartCoroutine(
-            AddDungeonReinforcementsRoutine(additions, requestingBridge, requestingGeneration)
+        reinforcementRequestSequence = checked(reinforcementRequestSequence + 1);
+        DungeonReinforcementRequest request = new(
+            requestingGeneration,
+            reinforcementRequestSequence
         );
+        pendingReinforcementRequests.Add(request);
+        try
+        {
+            StartCoroutine(
+                AddDungeonReinforcementsRoutine(
+                    additions,
+                    requestingBridge,
+                    requestingGeneration,
+                    request
+                )
+            );
+        }
+        catch
+        {
+            pendingReinforcementRequests.Remove(request);
+            throw;
+        }
+        return request;
     }
 
     public override void SuspendDungeonCombat()
@@ -333,32 +365,53 @@ public class CombatManager : CombatManagerInterface
     private IEnumerator AddDungeonReinforcementsRoutine(
         ActionController[] additions,
         UnityEncounterRulesBridge joiningBridge,
-        long joiningGeneration
+        long joiningGeneration,
+        DungeonReinforcementRequest request
     )
     {
-        while (IsCurrentLifecycle(joiningBridge, joiningGeneration) && !encounterReady)
+        try
+        {
+            // The caller must receive and record the opaque request before any completion can fire.
             yield return null;
-        if (!IsCurrentLifecycle(joiningBridge, joiningGeneration) || !encounterReady)
-            yield break;
-        CoroutineResult<EncounterJoinOutcome> joined = new();
-        yield return CoroutineRunner.Await(
-            joiningBridge.JoinEncounter(
-                additions,
-                () => PublishAcceptedReinforcements(joiningBridge, joiningGeneration, additions)
-            ),
-            joined
-        );
-        if (
-            !IsCurrentLifecycle(joiningBridge, joiningGeneration)
-            || !joiningBridge.HasActiveEncounter
-        )
-            yield break;
-        HashSet<ActionController> accepted = new(additions);
-        ActionController[] acceptedOrder = joined
-            .Value.State.Roster.Select(entry => joiningBridge.GetController(entry.Creature))
-            .Where(accepted.Contains)
-            .ToArray();
-        LogInitiative("Reinforcements", acceptedOrder);
+            while (IsCurrentLifecycle(joiningBridge, joiningGeneration) && !encounterReady)
+                yield return null;
+            if (!IsCurrentLifecycle(joiningBridge, joiningGeneration) || !encounterReady)
+                yield break;
+            CoroutineResult<EncounterJoinOutcome> joined = new();
+            yield return CoroutineRunner.Await(
+                joiningBridge.JoinEncounter(
+                    additions,
+                    () => MarkDungeonReinforcementRequestAccepted(request),
+                    () =>
+                    {
+                        PublishAcceptedReinforcements(joiningBridge, joiningGeneration, additions);
+                    }
+                ),
+                joined
+            );
+            CompleteDungeonReinforcementRequest(
+                request,
+                DungeonReinforcementRequestStatus.Accepted
+            );
+            if (
+                !IsCurrentLifecycle(joiningBridge, joiningGeneration)
+                || !joiningBridge.HasActiveEncounter
+            )
+                yield break;
+            HashSet<ActionController> acceptedControllers = new(additions);
+            ActionController[] acceptedOrder = joined
+                .Value.State.Roster.Select(entry => joiningBridge.GetController(entry.Creature))
+                .Where(acceptedControllers.Contains)
+                .ToArray();
+            LogInitiative("Reinforcements", acceptedOrder);
+        }
+        finally
+        {
+            CompleteDungeonReinforcementRequest(
+                request,
+                DungeonReinforcementRequestStatus.RejectedBeforeAcceptance
+            );
+        }
     }
 
     private void PublishAcceptedReinforcements(
@@ -812,11 +865,67 @@ public class CombatManager : CombatManagerInterface
         }
     }
 
+    private void CompleteDungeonReinforcementRequest(
+        DungeonReinforcementRequest request,
+        DungeonReinforcementRequestStatus status
+    )
+    {
+        if (!pendingReinforcementRequests.Remove(request))
+            return;
+        if (acceptedReinforcementRequests.Contains(request))
+            status = DungeonReinforcementRequestStatus.Accepted;
+        acceptedReinforcementRequests.Remove(request);
+        foreach (
+            Action<
+                DungeonReinforcementRequest,
+                DungeonReinforcementRequestStatus
+            > callback in DungeonReinforcementRequestCompleted.GetInvocationList()
+        )
+        {
+            try
+            {
+                callback(request, status);
+            }
+            catch (Exception exception)
+            {
+                // The join's accepted/rejected result is already durable. A lifecycle-owner bug
+                // remains visible without suppressing other owners or masking the join's own fault.
+                Debug.LogException(exception);
+            }
+        }
+    }
+
+    private void MarkDungeonReinforcementRequestAccepted(DungeonReinforcementRequest request)
+    {
+        if (pendingReinforcementRequests.Contains(request))
+            acceptedReinforcementRequests.Add(request);
+    }
+
+    private void SettlePendingDungeonReinforcementRequests()
+    {
+        foreach (
+            DungeonReinforcementRequest request in pendingReinforcementRequests
+                .OrderBy(value => value.Sequence)
+                .ToArray()
+        )
+        {
+            CompleteDungeonReinforcementRequest(
+                request,
+                acceptedReinforcementRequests.Contains(request)
+                    ? DungeonReinforcementRequestStatus.Accepted
+                    : DungeonReinforcementRequestStatus.RejectedBeforeAcceptance
+            );
+        }
+    }
+
     private void StopCombatState(bool cancelInFlightActions)
     {
         // Synchronous startup observers must never retain their selected-only projection after a
         // failed event, normal encounter cleanup, or a later exploration transition.
         startupCombatants = Array.Empty<ActionController>();
+        // A closed host cannot accept a still-queued join. Settle each lifecycle owner from the
+        // root-owned acceptance marker before inactive publication permits exploration or retry.
+        SettlePendingDungeonReinforcementRequests();
         ClearPendingEncounterCompletion();
         if (encounterRules != null)
         {

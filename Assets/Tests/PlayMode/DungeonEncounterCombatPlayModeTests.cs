@@ -828,7 +828,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 "AddDungeonReinforcementsRoutine",
                 new[] { reinforcement.Controller },
                 failedBridge,
-                failedGeneration
+                failedGeneration,
+                CreateReinforcementRequest(failedGeneration, long.MaxValue)
             );
             IEnumerator delayedSuspend = InvokeManagerRoutine(
                 "SuspendDungeonCombatRoutine",
@@ -4087,6 +4088,19 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(method, Is.Not.Null);
         return (IEnumerator)method.Invoke(manager, arguments);
     }
+
+    private static DungeonReinforcementRequest CreateReinforcementRequest(
+        long generation,
+        long sequence
+    ) =>
+        (DungeonReinforcementRequest)
+            Activator.CreateInstance(
+                typeof(DungeonReinforcementRequest),
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                null,
+                new object[] { generation, sequence },
+                null
+            );
 
     private static UnityEncounterRulesBridge GetCreatureEncounterBridge(CreatureComponent creature)
     {

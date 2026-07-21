@@ -2,6 +2,36 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>Identifies one asynchronous dungeon reinforcement request exactly.</summary>
+/// <remarks>
+/// The encounter generation prevents delayed work from binding to a later combat. The sequence
+/// distinguishes multiple reinforcement requests made during the same encounter.
+/// </remarks>
+public sealed class DungeonReinforcementRequest
+{
+    internal DungeonReinforcementRequest(long encounterGeneration, long sequence)
+    {
+        EncounterGeneration = encounterGeneration;
+        Sequence = sequence;
+    }
+
+    /// <summary>Gets the exact combat generation that received this request.</summary>
+    public long EncounterGeneration { get; }
+
+    /// <summary>Gets the manager-local monotonically increasing request sequence.</summary>
+    public long Sequence { get; }
+}
+
+/// <summary>Describes whether an asynchronous reinforcement request became authoritative.</summary>
+public enum DungeonReinforcementRequestStatus
+{
+    /// <summary>The join committed and its root-owned host publication completed.</summary>
+    Accepted,
+
+    /// <summary>The request stopped or rejected before its join became authoritative.</summary>
+    RejectedBeforeAcceptance,
+}
+
 public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatManagerInterface>
 {
     /// <summary>Raised whenever initiative starts or returns to dungeon exploration.</summary>
@@ -25,6 +55,17 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// </remarks>
     public abstract event Action<long> DungeonCombatStartupCompleted;
 
+    /// <summary>Raised exactly once when one asynchronous reinforcement request settles.</summary>
+    /// <remarks>
+    /// A rejected completion means no controller or bridge identity from that request was
+    /// published. Lifecycle owners must correlate the exact request object before compensating;
+    /// an older completion cannot be applied to a later room activation.
+    /// </remarks>
+    public abstract event Action<
+        DungeonReinforcementRequest,
+        DungeonReinforcementRequestStatus
+    > DungeonReinforcementRequestCompleted;
+
     /// <summary>Gets whether the manager currently owns an active initiative round.</summary>
     public abstract bool IsCombatActive { get; }
 
@@ -42,7 +83,12 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// Inserts newly activated dungeon creatures into the current initiative lifecycle.
     /// </summary>
     /// <param name="reinforcements">Newly activated registered controllers.</param>
-    public abstract void AddDungeonReinforcements(IReadOnlyList<ActionController> reinforcements);
+    /// <returns>
+    /// The exact request identity used by lifecycle owners to correlate asynchronous completion.
+    /// </returns>
+    public abstract DungeonReinforcementRequest AddDungeonReinforcements(
+        IReadOnlyList<ActionController> reinforcements
+    );
 
     /// <summary>
     /// Leaves dungeon combat without declaring a winner and clears transient turn state.

@@ -26,6 +26,14 @@ namespace Game.Combat.Encounters
         private readonly Dictionary<string, DungeonEncounterMaterialization> materializations = new(
             StringComparer.Ordinal
         );
+        private readonly Dictionary<
+            DungeonReinforcementRequest,
+            PendingReinforcementActivation
+        > pendingReinforcementActivations = new();
+        private readonly Dictionary<
+            string,
+            DungeonReinforcementRequest
+        > pendingReinforcementRequestsByEncounter = new(StringComparer.Ordinal);
         private readonly HashSet<int> effectiveOccupiedRooms = new();
         private PendingStartupActivation pendingStartupActivation;
         private bool isDisposed;
@@ -113,6 +121,8 @@ namespace Game.Combat.Encounters
             }
             combatManager.DungeonCombatStartupAborted += OnDungeonCombatStartupAborted;
             combatManager.DungeonCombatStartupCompleted += OnDungeonCombatStartupCompleted;
+            combatManager.DungeonReinforcementRequestCompleted +=
+                OnDungeonReinforcementRequestCompleted;
         }
 
         /// <summary>Raised after one materialized encounter creature is permanently defeated.</summary>
@@ -145,6 +155,11 @@ namespace Game.Combat.Encounters
                     "Encounter lifecycle and combat activity must agree before room entry."
                 );
             }
+            if (
+                before.State == DungeonEncounterGroupState.Dormant
+                || before.State == DungeonEncounterGroupState.Suspended
+            )
+                SupersedePendingReinforcement(before.Plan.Id);
             if (
                 (
                     before.State == DungeonEncounterGroupState.Dormant
@@ -218,18 +233,24 @@ namespace Game.Combat.Encounters
                     activation.Add(result.Encounter.Plan.Id, before.State);
                 try
                 {
-                    combatManager.AddDungeonReinforcements(livingEnemies);
+                    DungeonReinforcementRequest request = combatManager.AddDungeonReinforcements(
+                        livingEnemies
+                    );
+                    PendingReinforcementActivation pending = new(
+                        result.Encounter.Plan.Id,
+                        before.State
+                    );
+                    pendingReinforcementActivations.Add(request, pending);
+                    pendingReinforcementRequestsByEncounter[result.Encounter.Plan.Id] = request;
                 }
                 catch
                 {
+                    lifecycle.RestoreActivationAfterRejectedReinforcement(
+                        result.Encounter.Plan.Id,
+                        before.State
+                    );
                     if (belongsToStartingGeneration)
-                    {
-                        lifecycle.RestoreActivationAfterStartupAbort(
-                            result.Encounter.Plan.Id,
-                            before.State
-                        );
                         activation.Remove(result.Encounter.Plan.Id);
-                    }
                     throw;
                 }
             }
@@ -415,6 +436,10 @@ namespace Game.Combat.Encounters
                 return;
             combatManager.DungeonCombatStartupAborted -= OnDungeonCombatStartupAborted;
             combatManager.DungeonCombatStartupCompleted -= OnDungeonCombatStartupCompleted;
+            combatManager.DungeonReinforcementRequestCompleted -=
+                OnDungeonReinforcementRequestCompleted;
+            pendingReinforcementActivations.Clear();
+            pendingReinforcementRequestsByEncounter.Clear();
             foreach (DungeonEncounterMaterialization materialization in materializations.Values)
             {
                 foreach (DungeonEncounterMember member in materialization.Members)
@@ -446,6 +471,61 @@ namespace Game.Combat.Encounters
             if (activation.Generation.HasValue && activation.Generation.Value != generation)
                 return;
             pendingStartupActivation = null;
+        }
+
+        private void OnDungeonReinforcementRequestCompleted(
+            DungeonReinforcementRequest request,
+            DungeonReinforcementRequestStatus status
+        )
+        {
+            if (
+                isDisposed
+                || request == null
+                || !pendingReinforcementActivations.TryGetValue(
+                    request,
+                    out PendingReinforcementActivation activation
+                )
+            )
+                return;
+            pendingReinforcementActivations.Remove(request);
+            if (
+                !pendingReinforcementRequestsByEncounter.TryGetValue(
+                    activation.EncounterId,
+                    out DungeonReinforcementRequest current
+                ) || !ReferenceEquals(current, request)
+            )
+                return;
+            pendingReinforcementRequestsByEncounter.Remove(activation.EncounterId);
+
+            switch (status)
+            {
+                case DungeonReinforcementRequestStatus.Accepted:
+                    return;
+                case DungeonReinforcementRequestStatus.RejectedBeforeAcceptance:
+                    // The bridge guarantees rejected requests published no identity, controller,
+                    // passive hook, or action state. Retain the pre-accept materialization for a
+                    // deterministic retry and compensate only its exact lifecycle activation.
+                    lifecycle.RestoreActivationAfterRejectedReinforcement(
+                        activation.EncounterId,
+                        activation.PreviousState
+                    );
+                    return;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(status));
+            }
+        }
+
+        private void SupersedePendingReinforcement(string encounterId)
+        {
+            if (
+                !pendingReinforcementRequestsByEncounter.TryGetValue(
+                    encounterId,
+                    out DungeonReinforcementRequest superseded
+                )
+            )
+                return;
+            pendingReinforcementRequestsByEncounter.Remove(encounterId);
+            pendingReinforcementActivations.Remove(superseded);
         }
 
         private void AddMaterialization(DungeonEncounterGroupView encounter)
@@ -526,6 +606,21 @@ namespace Game.Combat.Encounters
                 internal string EncounterId { get; }
                 internal DungeonEncounterGroupState PreviousState { get; }
             }
+        }
+
+        private sealed class PendingReinforcementActivation
+        {
+            internal PendingReinforcementActivation(
+                string encounterId,
+                DungeonEncounterGroupState previousState
+            )
+            {
+                EncounterId = encounterId;
+                PreviousState = previousState;
+            }
+
+            internal string EncounterId { get; }
+            internal DungeonEncounterGroupState PreviousState { get; }
         }
     }
 }

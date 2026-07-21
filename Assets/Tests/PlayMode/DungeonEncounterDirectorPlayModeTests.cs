@@ -236,11 +236,31 @@ public sealed class DungeonEncounterDirectorPlayModeTests
     {
         director.EnterRoom(1);
         yield return WaitForTurn();
+        List<DungeonReinforcementRequestStatus> completions = new();
+        Action<DungeonReinforcementRequest, DungeonReinforcementRequestStatus> observeCompletion = (
+            _,
+            status
+        ) => completions.Add(status);
+        manager.DungeonReinforcementRequestCompleted += observeCompletion;
 
-        DungeonRoomEntryResult result = director.EnterRoom(2);
-        yield return WaitForCombatants(4);
+        DungeonRoomEntryResult result;
+        try
+        {
+            result = director.EnterRoom(2);
+            yield return WaitForCondition(
+                () =>
+                    manager.GetCombatants().Count == 4
+                    && completions.Contains(DungeonReinforcementRequestStatus.Accepted),
+                "The accepted reinforcement did not publish its exact completion."
+            );
+        }
+        finally
+        {
+            manager.DungeonReinforcementRequestCompleted -= observeCompletion;
+        }
 
         Assert.That(result.Transition, Is.EqualTo(DungeonRoomEntryTransition.Reinforcement));
+        Assert.That(completions, Is.EqualTo(new[] { DungeonReinforcementRequestStatus.Accepted }));
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(encounterRoot.transform.childCount, Is.EqualTo(3));
         Assert.That(manager.GetCombatants(), Has.Count.EqualTo(4));
@@ -248,6 +268,164 @@ public sealed class DungeonEncounterDirectorPlayModeTests
             director.Lifecycle.ActiveEncounterIds,
             Is.EqualTo(new[] { "encounter-a", "encounter-b" })
         );
+    }
+
+    /// <summary>
+    /// Verifies a queued join rejected by encounter end restores only its dormant activation and a
+    /// delayed duplicate failure cannot revert the successful retry.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator RejectedQueuedReinforcementRestoresDormantGroupAndRetryIgnoresStaleFailure()
+    {
+        director.EnterRoom(1);
+        yield return WaitForTurn();
+        DungeonEncounterMember firstEnemy = Member("encounter-a/creature-0000");
+        DungeonEncounterMember finalEnemy = Member("encounter-a/creature-0001");
+        CreatureComponent firstCreature = firstEnemy.GetComponent<CreatureComponent>();
+        CreatureComponent finalCreature = finalEnemy.GetComponent<CreatureComponent>();
+        yield return CoroutineRunner.Await(
+            firstCreature.ApplyFinalDamageAsync(
+                firstCreature.hp,
+                RuleSource.FromSlug("test-reinforcement-rejection-first-defeat")
+            )
+        );
+        yield return WaitForCondition(
+            () => director.Lifecycle.GetRoomEncounter(1).LivingCreatures.Count == 1,
+            "The first encounter creature did not settle its defeat presentation."
+        );
+
+        UnityEncounterRulesBridge endingBridge = GetEncounterBridge();
+        long endingGeneration = GetEncounterGeneration();
+        RuleDispatcher dispatcher = GetEncounterDispatcher(endingBridge);
+        BlockingFactObserver<HealthFact> blocker = new(
+            "unused non-failing reinforcement blocker",
+            failAfterRelease: false
+        );
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        List<(
+            DungeonReinforcementRequest Request,
+            DungeonReinforcementRequestStatus Status
+        )> completions = new();
+        Action<DungeonReinforcementRequest, DungeonReinforcementRequestStatus> observeCompletion = (
+            request,
+            status
+        ) => completions.Add((request, status));
+        manager.DungeonReinforcementRequestCompleted += observeCompletion;
+        Task lethal = finalCreature
+            .ApplyFinalDamageAsync(
+                finalCreature.hp,
+                RuleSource.FromSlug("test-reinforcement-rejection-final-defeat")
+            )
+            .AsTask();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The final defeat root did not pause before the queued reinforcement."
+            );
+            DungeonRoomEntryResult queued = director.EnterRoom(2);
+            DungeonEncounterMember reinforcementMember = Member("encounter-b/creature-0000");
+            DirectorTestActionController reinforcement =
+                reinforcementMember.GetComponent<DirectorTestActionController>();
+            CreatureComponent reinforcementCreature =
+                reinforcementMember.GetComponent<CreatureComponent>();
+
+            Assert.That(queued.Transition, Is.EqualTo(DungeonRoomEntryTransition.Reinforcement));
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(2).State,
+                Is.EqualTo(DungeonEncounterGroupState.Active)
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                endingBridge.GetCreatureId(reinforcement)
+            );
+            yield return WaitForCondition(
+                () => GetPendingJoinControllerCount(endingBridge) == 1,
+                "The reinforcement did not enter the queued bridge join before encounter end."
+            );
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: Encounter request returned (Invalid|Rejected)"
+                )
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () =>
+                    !manager.IsCombatActive
+                    && director.Lifecycle.GetRoomEncounter(2).State
+                        == DungeonEncounterGroupState.Dormant
+                    && completions.Any(value =>
+                        value.Status == DungeonReinforcementRequestStatus.RejectedBeforeAcceptance
+                    ),
+                "The rejected queued join did not restore its dormant lifecycle activation."
+            );
+            yield return CoroutineRunner.Await(new ValueTask(lethal));
+            yield return WaitForCondition(
+                () => GetPendingJoinControllerCount(endingBridge) == 0,
+                "The rejected bridge join did not release its pending identity reservation."
+            );
+
+            (
+                DungeonReinforcementRequest Request,
+                DungeonReinforcementRequestStatus Status
+            ) rejected = completions.Single(value =>
+                value.Status == DungeonReinforcementRequestStatus.RejectedBeforeAcceptance
+            );
+            Assert.That(rejected.Request.EncounterGeneration, Is.EqualTo(endingGeneration));
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(1).State,
+                Is.EqualTo(DungeonEncounterGroupState.Cleared)
+            );
+            Assert.That(reinforcement.gameObject.activeSelf, Is.True);
+            Assert.That(reinforcement.isActiveAndEnabled, Is.True);
+            Assert.That(reinforcementCreature.Health.Current, Is.GreaterThan(0));
+            Assert.That(reinforcement.HasTurnAuthority, Is.False);
+            Assert.That(reinforcement.ActionPoints, Is.Zero);
+            Assert.Throws<InvalidOperationException>(() =>
+                endingBridge.GetCreatureId(reinforcement)
+            );
+            Assert.That(manager.GetCombatants(), Has.Member(reinforcement.gameObject));
+
+            DungeonRoomEntryResult retry = director.EnterRoom(2);
+            yield return WaitForTurn();
+            UnityEncounterRulesBridge retryBridge = GetEncounterBridge();
+
+            Assert.That(retry.Transition, Is.EqualTo(DungeonRoomEntryTransition.FirstActivation));
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(2).State,
+                Is.EqualTo(DungeonEncounterGroupState.Active)
+            );
+            Assert.That(
+                retryBridge.GetController(retryBridge.GetCreatureId(reinforcement)),
+                Is.SameAs(reinforcement)
+            );
+
+            NotifyReinforcementCompletion(
+                rejected.Request,
+                DungeonReinforcementRequestStatus.RejectedBeforeAcceptance
+            );
+
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(2).State,
+                Is.EqualTo(DungeonEncounterGroupState.Active),
+                "A stale rejected request must not revert the accepted retry."
+            );
+            Assert.That(
+                retryBridge.GetController(retryBridge.GetCreatureId(reinforcement)),
+                Is.SameAs(reinforcement)
+            );
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            manager.DungeonReinforcementRequestCompleted -= observeCompletion;
+            _ = lethal.Exception;
+        }
     }
 
     /// <summary>Verifies an active persisted group resumes through fresh initiative after load.</summary>
@@ -541,6 +719,16 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         return (RuleDispatcher)field.GetValue(bridge);
     }
 
+    private static int GetPendingJoinControllerCount(UnityEncounterRulesBridge bridge)
+    {
+        FieldInfo field = typeof(UnityEncounterRulesBridge).GetField(
+            "pendingJoinControllers",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return ((ICollection<ActionController>)field.GetValue(bridge)).Count;
+    }
+
     private long GetEncounterGeneration()
     {
         FieldInfo field = typeof(CombatManager).GetField(
@@ -559,6 +747,19 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         );
         Assert.That(method, Is.Not.Null);
         method.Invoke(manager, new object[] { generation });
+    }
+
+    private void NotifyReinforcementCompletion(
+        DungeonReinforcementRequest request,
+        DungeonReinforcementRequestStatus status
+    )
+    {
+        MethodInfo method = typeof(CombatManager).GetMethod(
+            "CompleteDungeonReinforcementRequest",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(method, Is.Not.Null);
+        method.Invoke(manager, new object[] { request, status });
     }
 
     private DungeonEncounterMember Member(string instanceId) =>
@@ -744,6 +945,7 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         where TFact : RuleFact
     {
         private readonly string failureMessage;
+        private readonly bool failAfterRelease;
         private readonly TaskCompletionSource<bool> started = new(
             TaskCreationOptions.RunContinuationsAsynchronously
         );
@@ -751,8 +953,11 @@ public sealed class DungeonEncounterDirectorPlayModeTests
             TaskCreationOptions.RunContinuationsAsynchronously
         );
 
-        internal BlockingFactObserver(string failureMessage) =>
+        internal BlockingFactObserver(string failureMessage, bool failAfterRelease = true)
+        {
             this.failureMessage = failureMessage;
+            this.failAfterRelease = failAfterRelease;
+        }
 
         internal Task Started => started.Task;
 
@@ -762,7 +967,8 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         {
             started.TrySetResult(true);
             await release.Task;
-            throw new InvalidOperationException(failureMessage);
+            if (failAfterRelease)
+                throw new InvalidOperationException(failureMessage);
         }
     }
 }
