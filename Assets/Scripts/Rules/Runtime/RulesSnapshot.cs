@@ -11,6 +11,11 @@ namespace Game.Rules.Runtime
         public StateSliceSnapshot<CreatureId, CreatureStatisticsState> Statistics { get; }
         public StateSliceSnapshot<CreatureId, HealthState> Health { get; }
         public StateSliceSnapshot<CreatureId, GridPosition> Positions { get; }
+
+        /// <summary>
+        /// Gets authoritative movement allowances and turn-persistent diagonal phases by creature.
+        /// </summary>
+        public StateSliceSnapshot<CreatureId, MovementBudgetState> MovementBudgets { get; }
         public StateSliceSnapshot<CreatureId, ActionEconomyState> ActionEconomy { get; }
 
         /// <summary>
@@ -54,6 +59,9 @@ namespace Game.Rules.Runtime
             );
             Health = new StateSliceSnapshot<CreatureId, HealthState>(data.Health);
             Positions = new StateSliceSnapshot<CreatureId, GridPosition>(data.Positions);
+            MovementBudgets = new StateSliceSnapshot<CreatureId, MovementBudgetState>(
+                data.MovementBudgets
+            );
             ActionEconomy = new StateSliceSnapshot<CreatureId, ActionEconomyState>(
                 data.ActionEconomy
             );

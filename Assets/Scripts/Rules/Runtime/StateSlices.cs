@@ -28,6 +28,7 @@ namespace Game.Rules.Runtime
     }
 
     public sealed class StateSliceDraft<TKey, TValue>
+        : IReadOnlyCollection<KeyValuePair<TKey, TValue>>
     {
         private readonly Dictionary<TKey, TValue> original;
         private readonly Func<TKey, TValue, bool> isValidEntry;
@@ -70,6 +71,11 @@ namespace Game.Rules.Runtime
         public bool Contains(TKey key) => Current.ContainsKey(key);
 
         public bool TryGet(TKey key, out TValue value) => Current.TryGetValue(key, out value);
+
+        /// <summary>Enumerates the transaction's current values without exposing its backing map.</summary>
+        public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() => Current.GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
         public bool Set(TKey key, TValue value)
         {

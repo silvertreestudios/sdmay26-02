@@ -10,6 +10,11 @@ namespace Game.Rules.Runtime
         public StateSliceDraft<CreatureId, CreatureStatisticsState> Statistics { get; }
         public StateSliceDraft<CreatureId, HealthState> Health { get; }
         public StateSliceDraft<CreatureId, GridPosition> Positions { get; }
+
+        /// <summary>
+        /// Gets transaction-scoped write access to movement allowances and diagonal phases.
+        /// </summary>
+        public StateSliceDraft<CreatureId, MovementBudgetState> MovementBudgets { get; }
         public StateSliceDraft<CreatureId, ActionEconomyState> ActionEconomy { get; }
 
         /// <summary>
@@ -62,6 +67,10 @@ namespace Game.Rules.Runtime
                 data.Positions,
                 (id, value) => !id.IsEmpty
             );
+            MovementBudgets = new StateSliceDraft<CreatureId, MovementBudgetState>(
+                data.MovementBudgets,
+                (id, value) => !id.IsEmpty && id == value.Owner
+            );
             ActionEconomy = new StateSliceDraft<CreatureId, ActionEconomyState>(
                 data.ActionEconomy,
                 (id, value) => !id.IsEmpty
@@ -109,6 +118,7 @@ namespace Game.Rules.Runtime
             || Statistics.IsDirty
             || Health.IsDirty
             || Positions.IsDirty
+            || MovementBudgets.IsDirty
             || ActionEconomy.IsDirty
             || SpellSlots.IsDirty
             || FocusPoints.IsDirty
@@ -128,6 +138,7 @@ namespace Game.Rules.Runtime
                 Statistics.BuildCommittedValues(),
                 Health.BuildCommittedValues(),
                 Positions.BuildCommittedValues(),
+                MovementBudgets.BuildCommittedValues(),
                 ActionEconomy.BuildCommittedValues(),
                 SpellSlots.BuildCommittedValues(),
                 FocusPoints.BuildCommittedValues(),

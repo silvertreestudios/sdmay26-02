@@ -13,6 +13,8 @@ namespace Game.Rules.Runtime
             new Dictionary<CreatureId, HealthState>();
         internal Dictionary<CreatureId, GridPosition> Positions { get; } =
             new Dictionary<CreatureId, GridPosition>();
+        internal Dictionary<CreatureId, MovementBudgetState> MovementBudgets { get; } =
+            new Dictionary<CreatureId, MovementBudgetState>();
         internal Dictionary<CreatureId, ActionEconomyState> ActionEconomy { get; } =
             new Dictionary<CreatureId, ActionEconomyState>();
         internal Dictionary<SpellSlotPoolId, SpellSlotState> SpellSlots { get; } =
@@ -67,6 +69,24 @@ namespace Game.Rules.Runtime
         {
             RequireCreatureId(creature, nameof(creature));
             Positions[creature] = value;
+            return this;
+        }
+
+        /// <summary>
+        /// Seeds one creature's current movement allowance and turn-persistent diagonal phase.
+        /// </summary>
+        /// <param name="creature">The creature that owns the movement budget.</param>
+        /// <param name="value">The immutable movement budget state.</param>
+        /// <returns>This seed so initial state can be composed fluently.</returns>
+        public RulesStateSeed SeedMovementBudget(CreatureId creature, MovementBudgetState value)
+        {
+            RequireCreatureId(creature, nameof(creature));
+            if (value.Owner != creature)
+                throw new ArgumentException(
+                    "A movement budget must be keyed by its owning creature.",
+                    nameof(value)
+                );
+            MovementBudgets[creature] = value;
             return this;
         }
 
