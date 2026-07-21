@@ -163,10 +163,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
         CombatantFixture player = CreateCombatant("Failed Async Start Player", "Players", 200);
         CombatantFixture enemy = CreateCombatant("Failed Async Start Enemy", "Enemies", 100);
         PrepareBarbarian(player.Creature);
+        player.Creature.passives.Add("Zombie-Fist");
+        PreparedCharacter preparedBefore = player.Creature.Prepared;
+        int actionsBefore = player.Controller.GetActions().Count;
         BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: true);
         RuleDispatcher failedDispatcher = null;
+        UnityEncounterRulesBridge failedBridge = null;
         UnityAction installFailure = () =>
         {
+            failedBridge = GetEncounterBridge();
             failedDispatcher = GetEncounterDispatcher();
             failedDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
         };
@@ -180,6 +185,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 "The startup hook did not reach its awaited health Fact."
             );
             Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.GreaterThan(0));
+            Assert.That(player.Controller.GetActions().OfType<Unarmed>(), Has.Count.EqualTo(1));
 
             LogAssert.Expect(
                 LogType.Exception,
@@ -194,6 +202,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Assert.That(GetPublishedActiveCombatants(), Is.Empty);
             Assert.That(GetStartupCombatants(), Is.Empty);
             Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(player.Creature.Prepared, Is.SameAs(preparedBefore));
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(player.Creature.HasTempHpImmunity("rage"), Is.False);
+            Assert.That(player.Controller.GetActions(), Has.Count.EqualTo(actionsBefore));
+            Assert.That(GetCreatureEncounterBridge(player.Creature), Is.Null);
+            Assert.Throws<InvalidOperationException>(() =>
+                failedBridge.GetCreatureId(player.Creature)
+            );
             Assert.That(
                 manager.GetCombatants(),
                 Is.EqualTo(new[] { player.GameObject, enemy.GameObject })
@@ -209,6 +226,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
         yield return WaitForTurn(player.GameObject);
         Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(player.Creature.Prepared, Is.SameAs(preparedBefore));
+        Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+        Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
+        Assert.That(player.Controller.GetActions().OfType<Unarmed>(), Has.Count.EqualTo(1));
     }
 
     /// <summary>
@@ -1826,7 +1847,13 @@ public sealed class DungeonEncounterCombatPlayModeTests
             dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(actions);
             dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(map);
             int completionCalls = 0;
-            manager.DungeonCombatEnded += _ => completionCalls++;
+            bool defeatPresentedAtCompletion = false;
+            manager.DungeonCombatEnded += _ =>
+            {
+                completionCalls++;
+                defeatPresentedAtCompletion =
+                    enemy.Creature.IsDefeated && !enemy.GameObject.activeSelf;
+            };
 
             // A prior fixture's delayed OnDestroy can clear the generic singleton after this
             // helper creates its replacement. Publish the selected grid at the invocation edge.
@@ -1842,6 +1869,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Assert.That(map.Facts, Has.Count.EqualTo(1));
             Assert.That(map.Facts[0].AttackCount, Is.EqualTo(1));
             Assert.That(completionCalls, Is.EqualTo(1));
+            Assert.That(defeatPresentedAtCompletion, Is.True);
             Assert.That(player.Controller.IsTakingAction, Is.False);
         }
         finally
@@ -1872,6 +1900,16 @@ public sealed class DungeonEncounterCombatPlayModeTests
             bridgeField.GetValue(manager) as UnityEncounterRulesBridge;
         Assert.That(bridge, Is.Not.Null);
         return bridge;
+    }
+
+    private static UnityEncounterRulesBridge GetCreatureEncounterBridge(CreatureComponent creature)
+    {
+        FieldInfo field = typeof(CreatureComponent).GetField(
+            "encounterRules",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return field.GetValue(creature) as UnityEncounterRulesBridge;
     }
 
     private IReadOnlyList<ActionController> GetPublishedActiveCombatants()

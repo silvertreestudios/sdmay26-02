@@ -9,6 +9,26 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
 {
     protected Dictionary<string, List<ConditionSource>> AppliedConditions = new();
 
+    internal IReadOnlyDictionary<
+        string,
+        IReadOnlyList<ConditionSource>
+    > CaptureEncounterStartupState()
+    {
+        Dictionary<string, IReadOnlyList<ConditionSource>> snapshot = new();
+        foreach (KeyValuePair<string, List<ConditionSource>> pair in AppliedConditions)
+            snapshot.Add(pair.Key, pair.Value.ToArray());
+        return snapshot;
+    }
+
+    internal void RestoreEncounterStartupState(
+        IReadOnlyDictionary<string, IReadOnlyList<ConditionSource>> snapshot
+    )
+    {
+        AppliedConditions.Clear();
+        foreach (KeyValuePair<string, IReadOnlyList<ConditionSource>> pair in snapshot)
+            AppliedConditions.Add(pair.Key, new List<ConditionSource>(pair.Value));
+    }
+
     /// <summary>
     /// Active condition names used by UI and condition modifier mapping; source details remain internal to this component.
     /// </summary>

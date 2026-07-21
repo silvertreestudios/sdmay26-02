@@ -12,6 +12,7 @@ namespace Game.Rules.Runtime
             RootResolution resolution,
             OpId rootId,
             OpId? causeId,
+            OpId? causalParentRootId,
             IRootResolutionObserver<TResult> observer
         )
         {
@@ -75,12 +76,12 @@ namespace Game.Rules.Runtime
             {
                 await CallbackFailure.AwaitCleanupPreservingPrimary(
                     primary,
-                    NotifyRootSettled(rootId)
+                    NotifyRootSettled(rootId, causalParentRootId)
                 );
                 throw;
             }
 
-            await NotifyRootSettled(rootId);
+            await NotifyRootSettled(rootId, causalParentRootId);
             return result;
         }
 

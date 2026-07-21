@@ -180,10 +180,17 @@ public class CombatManager : CombatManagerInterface
         // Older test scenes and AI-only harnesses do not always provide one, so retain their
         // historical selected-roster semantics by using the first participant's team.
         string protagonistTeam = ResolveProtagonistTeamDisplayName(selected);
-        UnityEncounterRulesBridge startingBridge = UnityEncounterRulesBridge.Create(
-            selected,
-            protagonistTeam
-        );
+        CombatStartupCheckpoint startupCheckpoint = CombatStartupCheckpoint.Capture(selected);
+        UnityEncounterRulesBridge startingBridge;
+        try
+        {
+            startingBridge = UnityEncounterRulesBridge.Create(selected, protagonistTeam);
+        }
+        catch
+        {
+            startupCheckpoint.Restore();
+            throw;
+        }
 
         activeCombatants.Clear();
         activeCombatants.AddRange(selected);
@@ -204,19 +211,20 @@ public class CombatManager : CombatManagerInterface
         }
         catch
         {
-            AbortCombatStartup(startingBridge);
+            AbortCombatStartup(startingBridge, startupCheckpoint);
             throw;
         }
         finally
         {
             startupCombatants = Array.Empty<ActionController>();
         }
-        StartCoroutine(BeginEncounterRules(selected, startingBridge));
+        StartCoroutine(BeginEncounterRules(selected, startingBridge, startupCheckpoint));
     }
 
     private IEnumerator BeginEncounterRules(
         ActionController[] selected,
-        UnityEncounterRulesBridge startingBridge
+        UnityEncounterRulesBridge startingBridge,
+        CombatStartupCheckpoint startupCheckpoint
     )
     {
         bool completed = false;
@@ -242,6 +250,7 @@ public class CombatManager : CombatManagerInterface
                     )
                     .ToArray()
             );
+            startupCheckpoint.Commit();
             completed = true;
         }
         finally
@@ -250,7 +259,9 @@ public class CombatManager : CombatManagerInterface
             // Roll back only the bridge that owns this startup so a later successful retry cannot
             // be torn down by an obsolete continuation.
             if (!completed && combatActive && ReferenceEquals(encounterRules, startingBridge))
-                AbortCombatStartup(startingBridge);
+                AbortCombatStartup(startingBridge, startupCheckpoint);
+            else if (!completed)
+                startupCheckpoint.Commit();
         }
     }
 
@@ -443,7 +454,10 @@ public class CombatManager : CombatManagerInterface
             : team.Name.Trim();
     }
 
-    private void AbortCombatStartup(UnityEncounterRulesBridge startingBridge)
+    private void AbortCombatStartup(
+        UnityEncounterRulesBridge startingBridge,
+        CombatStartupCheckpoint startupCheckpoint
+    )
     {
         if (!ReferenceEquals(encounterRules, startingBridge))
             return;
@@ -453,7 +467,15 @@ public class CombatManager : CombatManagerInterface
         }
         finally
         {
-            encounterRules = null;
+            try
+            {
+                startingBridge.ReleaseHostOwnership();
+            }
+            finally
+            {
+                encounterRules = null;
+                startupCheckpoint.Restore();
+            }
         }
     }
 
@@ -507,4 +529,63 @@ public class CombatManager : CombatManagerInterface
     /// </returns>
     public Vector3[] getPoistions() =>
         GetCombatants().Select(value => value.transform.position).ToArray();
+
+    private sealed class CombatStartupCheckpoint
+    {
+        // Initial participants are not durably in combat until passive hooks and StartEncounter
+        // settle. This host memento complements discarding the failed bridge's authoritative store.
+        private readonly Entry[] entries;
+        private bool settled;
+
+        private CombatStartupCheckpoint(Entry[] entries) => this.entries = entries;
+
+        internal static CombatStartupCheckpoint Capture(
+            IReadOnlyList<ActionController> controllers
+        ) =>
+            new CombatStartupCheckpoint(
+                controllers.Select(controller => new Entry(controller)).ToArray()
+            );
+
+        internal void Commit() => settled = true;
+
+        internal void Restore()
+        {
+            if (settled)
+                return;
+            settled = true;
+            foreach (Entry entry in entries)
+                entry.Restore();
+        }
+
+        private sealed class Entry
+        {
+            private readonly ActionController controller;
+            private readonly ActionControllerEncounterState actionState;
+            private readonly CreatureComponent creature;
+            private readonly CreatureEncounterState creatureState;
+            private readonly Conditions conditions;
+            private readonly IReadOnlyDictionary<
+                string,
+                IReadOnlyList<ConditionSource>
+            > conditionState;
+
+            internal Entry(ActionController controller)
+            {
+                this.controller = controller;
+                actionState = controller.CaptureEncounterStartupState();
+                creature = controller.GetComponent<CreatureComponent>();
+                creatureState = creature.CaptureEncounterStartupState();
+                conditions = controller.GetComponent<Conditions>();
+                conditionState = conditions?.CaptureEncounterStartupState();
+            }
+
+            internal void Restore()
+            {
+                creature.RestoreEncounterStartupState(creatureState);
+                if (conditions != null)
+                    conditions.RestoreEncounterStartupState(conditionState);
+                controller.RestoreEncounterStartupState(actionState);
+            }
+        }
+    }
 }

@@ -69,7 +69,14 @@ namespace Game.Rules.Unity
             StringComparer.Ordinal
         );
         private readonly Dictionary<OpId, Queue<Func<ValueTask>>> presentationByRoot = new();
+
+        // Exact roots retain separate callback queues. Causal edges let the terminal dispatcher
+        // phase drain parent presentation before descendants without touching unrelated roots.
+        private readonly Dictionary<OpId, List<OpId>> presentationChildrenByRoot = new();
+        private readonly HashSet<OpId> settledPresentationRoots = new();
         private readonly RuleDispatcher dispatcher;
+        private readonly BridgeRootSettlementObserver rootSettlementObserver;
+        private readonly BridgeFactObserver factObserver;
         private readonly EncounterId encounterId;
         private readonly PlayerId protagonistTeam;
         private long nextCreatureId;
@@ -136,13 +143,15 @@ namespace Game.Rules.Unity
                 .UseActiveEffectRules(registry)
                 .UseEncounterRules(turnStartAdapters)
                 .Build();
-            dispatcher.RegisterRootSettlementObserver(new BridgeRootSettlementObserver(this));
-            BridgeFactObserver observer = new BridgeFactObserver(this);
-            dispatcher.RegisterFactObserver<HealthFact>(observer);
-            dispatcher.RegisterFactObserver<CreatureReducedToZeroFact>(observer);
-            dispatcher.RegisterFactObserver<TurnBeganFact>(observer);
-            dispatcher.RegisterFactObserver<TurnEndedFact>(observer);
-            dispatcher.RegisterFactObserver<EncounterEndedFact>(observer);
+            rootSettlementObserver = new BridgeRootSettlementObserver(this);
+            factObserver = new BridgeFactObserver(this);
+            dispatcher.RegisterRootSettlementObserver(rootSettlementObserver);
+            dispatcher.RegisterCausalTreeSettlementObserver(rootSettlementObserver);
+            dispatcher.RegisterFactObserver<HealthFact>(factObserver);
+            dispatcher.RegisterFactObserver<CreatureReducedToZeroFact>(factObserver);
+            dispatcher.RegisterFactObserver<TurnBeganFact>(factObserver);
+            dispatcher.RegisterFactObserver<TurnEndedFact>(factObserver);
+            dispatcher.RegisterFactObserver<EncounterEndedFact>(factObserver);
             foreach (KeyValuePair<CreatureComponent, CreatureId> entry in creatureIds)
                 entry.Key.AttachEncounterRules(this, entry.Value);
             foreach (KeyValuePair<ActionController, CreatureId> entry in controllerIds)
@@ -559,11 +568,38 @@ namespace Game.Rules.Unity
         }
 
         /// <summary>Suspends the encounter without an outcome.</summary>
-        /// <returns>The suspended encounter after encounter-duration effects expire.</returns>
+        /// <returns>
+        /// The suspended encounter after effects driven by its retired finite clock expire.
+        /// </returns>
         public async ValueTask<EncounterSuspensionOutcome> SuspendEncounter()
         {
             await DispatchAsync(new SuspendEncounterOp(encounterId));
             return new EncounterSuspensionOutcome(Snapshot.Encounters[encounterId]);
+        }
+
+        internal void ReleaseHostOwnership()
+        {
+            // A failed initial composition is discarded rather than resumed. Remove its observers
+            // and identity maps only after dispatcher ownership returns to idle; component mementos
+            // then restore the attachment that existed before this bridge was created.
+            dispatcher.UnregisterFactObserver<HealthFact>(factObserver);
+            dispatcher.UnregisterFactObserver<CreatureReducedToZeroFact>(factObserver);
+            dispatcher.UnregisterFactObserver<TurnBeganFact>(factObserver);
+            dispatcher.UnregisterFactObserver<TurnEndedFact>(factObserver);
+            dispatcher.UnregisterFactObserver<EncounterEndedFact>(factObserver);
+            dispatcher.UnregisterRootSettlementObserver(rootSettlementObserver);
+            dispatcher.UnregisterCausalTreeSettlementObserver(rootSettlementObserver);
+            presentationByRoot.Clear();
+            presentationChildrenByRoot.Clear();
+            settledPresentationRoots.Clear();
+            creatureIds.Clear();
+            creatures.Clear();
+            controllerIds.Clear();
+            controllers.Clear();
+            pendingJoinCreatures.Clear();
+            pendingJoinControllers.Clear();
+            pendingJoinTeamIds.Clear();
+            pendingJoinTeamReferences.Clear();
         }
 
         /// <summary>Gets the stable rules identity assigned to a registered creature.</summary>
@@ -883,6 +919,77 @@ namespace Game.Rules.Unity
             );
         }
 
+        private void RecordSettledPresentationRoot(OpId rootId, OpId? causalParentRootId)
+        {
+            if (!settledPresentationRoots.Add(rootId))
+                throw new InvalidOperationException(
+                    $"Presentation root {rootId.Value} settled more than once."
+                );
+
+            if (causalParentRootId.HasValue)
+            {
+                if (
+                    !presentationChildrenByRoot.TryGetValue(
+                        causalParentRootId.Value,
+                        out List<OpId> children
+                    )
+                )
+                {
+                    children = new List<OpId>();
+                    presentationChildrenByRoot.Add(causalParentRootId.Value, children);
+                }
+                children.Add(rootId);
+            }
+        }
+
+        private async ValueTask DrainSettledPresentationTreeAsync(OpId rootId)
+        {
+            List<Exception> failures = new List<Exception>();
+            await DrainPresentationTreeAsync(rootId, failures);
+            if (failures.Count == 0)
+                return;
+            if (failures.Count == 1)
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            throw new AggregateException(
+                $"Multiple presentation callbacks failed for causal tree {rootId.Value}.",
+                failures
+            );
+        }
+
+        private async ValueTask DrainPresentationTreeAsync(OpId rootId, List<Exception> failures)
+        {
+            try
+            {
+                await DrainPresentationAsync(rootId);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            int childIndex = 0;
+            while (
+                presentationChildrenByRoot.TryGetValue(rootId, out List<OpId> children)
+                && childIndex < children.Count
+            )
+            {
+                OpId child = children[childIndex++];
+                if (!settledPresentationRoots.Contains(child))
+                {
+                    failures.Add(
+                        new InvalidOperationException(
+                            $"Causal presentation root {child.Value} was not settled before ancestor {rootId.Value}."
+                        )
+                    );
+                    continue;
+                }
+                await DrainPresentationTreeAsync(child, failures);
+            }
+
+            presentationChildrenByRoot.Remove(rootId);
+            settledPresentationRoots.Remove(rootId);
+        }
+
         private async ValueTask InvokeEncounterEnded(EncounterOutcome outcome)
         {
             Delegate[] handlers = EncounterEnded.GetInvocationList();
@@ -938,7 +1045,9 @@ namespace Game.Rules.Unity
             }
         }
 
-        private sealed class BridgeRootSettlementObserver : IRootSettlementObserver
+        private sealed class BridgeRootSettlementObserver
+            : IRootSettlementObserver,
+                ICausalTreeSettlementObserver
         {
             private readonly UnityEncounterRulesBridge owner;
 
@@ -946,8 +1055,19 @@ namespace Game.Rules.Unity
                 this.owner = owner;
 
             /// <inheritdoc/>
-            public ValueTask OnRootSettled(OpId rootId, RulesSnapshot snapshot) =>
-                owner.DrainPresentationAsync(rootId);
+            public ValueTask OnRootSettled(
+                OpId rootId,
+                OpId? causalParentRootId,
+                RulesSnapshot snapshot
+            )
+            {
+                owner.RecordSettledPresentationRoot(rootId, causalParentRootId);
+                return default;
+            }
+
+            /// <inheritdoc/>
+            public ValueTask OnCausalTreeSettled(OpId rootId, RulesSnapshot snapshot) =>
+                owner.DrainSettledPresentationTreeAsync(rootId);
         }
 
         private sealed class SpellExpiryTurnStartAdapter : IEncounterTurnStartAdapter

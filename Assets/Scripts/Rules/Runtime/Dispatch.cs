@@ -37,9 +37,31 @@ namespace Game.Rules.Runtime
     {
         /// <summary>Settles host callbacks owned by one exact completed root.</summary>
         /// <param name="rootId">The root whose listeners and causal work have finished.</param>
+        /// <param name="causalParentRootId">
+        /// The immediate root whose callback caused this root, or no value for an external root.
+        /// A host may use this relationship to retain exact-root ownership while ordering work
+        /// across one completed causal tree.
+        /// </param>
         /// <param name="snapshot">The latest committed snapshot at the settlement boundary.</param>
         /// <returns>A task-like value that completes after host settlement.</returns>
-        ValueTask OnRootSettled(OpId rootId, RulesSnapshot snapshot);
+        ValueTask OnRootSettled(OpId rootId, OpId? causalParentRootId, RulesSnapshot snapshot);
+    }
+
+    /// <summary>
+    /// Observes an external root after settlement observers for its complete causal tree finish.
+    /// </summary>
+    /// <remarks>
+    /// This final host boundary runs once for an external root while it still owns dispatcher
+    /// serialization. It exists for presentation that must preserve exact-root queues but cannot
+    /// drain a descendant before callbacks on any ancestor or sibling have settled.
+    /// </remarks>
+    public interface ICausalTreeSettlementObserver
+    {
+        /// <summary>Settles host work for one complete external-root causal tree.</summary>
+        /// <param name="rootId">The external root at the top of the completed causal tree.</param>
+        /// <param name="snapshot">The latest snapshot after every causal root callback.</param>
+        /// <returns>A task-like value that completes after final host settlement.</returns>
+        ValueTask OnCausalTreeSettled(OpId rootId, RulesSnapshot snapshot);
     }
 
     /// <summary>
@@ -65,6 +87,8 @@ namespace Game.Rules.Runtime
         private readonly SemaphoreSlim rootSerial = new SemaphoreSlim(1, 1);
         private readonly List<IRootSettlementObserver> rootSettlementObservers =
             new List<IRootSettlementObserver>();
+        private readonly List<ICausalTreeSettlementObserver> causalTreeSettlementObservers =
+            new List<ICausalTreeSettlementObserver>();
 
         // Zero is the idle async-flow sentinel. A unique nonzero lease distinguishes callbacks still
         // running inside this dispatcher's current resolution from callers that should wait on the gate.
@@ -161,6 +185,52 @@ namespace Game.Rules.Runtime
                         "Root settlement observers can change only while the dispatcher is idle."
                     );
                 return rootSettlementObservers.Remove(observer);
+            }
+        }
+
+        /// <summary>Registers the host's single final causal-tree settlement observer.</summary>
+        /// <param name="observer">The terminal observer for every external root.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Registration was attempted while a root owned serialization, or a terminal observer is
+        /// already registered.
+        /// </exception>
+        public void RegisterCausalTreeSettlementObserver(ICausalTreeSettlementObserver observer)
+        {
+            if (observer == null)
+                throw new ArgumentNullException(nameof(observer));
+            lock (gate)
+            {
+                if (!activeRoot.IsIdle)
+                    throw new InvalidOperationException(
+                        "Causal-tree settlement observers can change only while the dispatcher is idle."
+                    );
+                if (causalTreeSettlementObservers.Count != 0)
+                    throw new InvalidOperationException(
+                        "A causal-tree settlement observer is already registered."
+                    );
+                causalTreeSettlementObservers.Add(observer);
+            }
+        }
+
+        /// <summary>Removes a host observer from final external-root causal-tree settlement.</summary>
+        /// <param name="observer">The previously registered observer.</param>
+        /// <returns>Whether the observer was registered and removed.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Removal was attempted while a root owned serialization.
+        /// </exception>
+        public bool UnregisterCausalTreeSettlementObserver(ICausalTreeSettlementObserver observer)
+        {
+            if (observer == null)
+                throw new ArgumentNullException(nameof(observer));
+            lock (gate)
+            {
+                if (!activeRoot.IsIdle)
+                    throw new InvalidOperationException(
+                        "Causal-tree settlement observers can change only while the dispatcher is idle."
+                    );
+                return causalTreeSettlementObservers.Remove(observer);
             }
         }
 
@@ -287,7 +357,15 @@ namespace Game.Rules.Runtime
                     resolution.Initialize(rootId);
                 }
 
-                return await DispatchRoot(op, registration, resolution, rootId, null, observer);
+                return await DispatchRoot(
+                    op,
+                    registration,
+                    resolution,
+                    rootId,
+                    null,
+                    null,
+                    observer
+                );
             }
             finally
             {
@@ -407,7 +485,15 @@ namespace Game.Rules.Runtime
 
             try
             {
-                return await DispatchRoot(op, registration, triggered, rootId, causeId, observer);
+                return await DispatchRoot(
+                    op,
+                    registration,
+                    triggered,
+                    rootId,
+                    causeId,
+                    owningRootId,
+                    observer
+                );
             }
             finally
             {
@@ -433,18 +519,40 @@ namespace Game.Rules.Runtime
             }
         }
 
-        internal async ValueTask NotifyRootSettled(OpId rootId)
+        internal async ValueTask NotifyRootSettled(OpId rootId, OpId? causalParentRootId)
         {
             IRootSettlementObserver[] observers;
+            ICausalTreeSettlementObserver[] treeObservers;
             lock (gate)
+            {
                 observers = rootSettlementObservers.ToArray();
+                treeObservers = causalParentRootId.HasValue
+                    ? Array.Empty<ICausalTreeSettlementObserver>()
+                    : causalTreeSettlementObservers.ToArray();
+            }
 
             List<Exception> failures = null;
             foreach (IRootSettlementObserver observer in observers)
             {
                 try
                 {
-                    await InvokeRootCallback(() => observer.OnRootSettled(rootId, Snapshot));
+                    await InvokeRootCallback(() =>
+                        observer.OnRootSettled(rootId, causalParentRootId, Snapshot)
+                    );
+                }
+                catch (Exception exception)
+                {
+                    if (failures == null)
+                        failures = new List<Exception>();
+                    failures.Add(exception);
+                }
+            }
+
+            foreach (ICausalTreeSettlementObserver observer in treeObservers)
+            {
+                try
+                {
+                    await InvokeRootCallback(() => observer.OnCausalTreeSettled(rootId, Snapshot));
                 }
                 catch (Exception exception)
                 {

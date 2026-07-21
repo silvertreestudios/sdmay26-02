@@ -23,10 +23,16 @@ namespace Game.Rules.Runtime
         /// <summary>The effect lasts for the current encounter.</summary>
         Encounter,
 
-        /// <summary>The effect lasts for a positive number of encounter rounds.</summary>
+        /// <summary>
+        /// The effect lasts for a positive number of rounds within its owning encounter and
+        /// retires if that encounter closes first.
+        /// </summary>
         Rounds,
 
-        /// <summary>The effect lasts for a positive number of minutes.</summary>
+        /// <summary>
+        /// The effect lasts for a positive number of encounter-clock minutes and retires if that
+        /// encounter closes first.
+        /// </summary>
         Minutes,
     }
 
@@ -63,14 +69,18 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the common one-minute duration.</summary>
         public static EffectDuration OneMinute => Minutes(1);
 
-        /// <summary>Creates duration metadata for a positive number of encounter rounds.</summary>
+        /// <summary>
+        /// Creates duration metadata for a positive number of rounds in one encounter clock.
+        /// </summary>
         /// <param name="amount">The positive number of rounds.</param>
         /// <returns>The validated duration metadata.</returns>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="amount"/> is not positive.</exception>
         public static EffectDuration Rounds(int amount) =>
             Counted(EffectDurationKind.Rounds, amount);
 
-        /// <summary>Creates duration metadata for a positive number of minutes.</summary>
+        /// <summary>
+        /// Creates duration metadata for a positive number of minutes in one encounter clock.
+        /// </summary>
         /// <param name="amount">The positive number of minutes.</param>
         /// <returns>The validated duration metadata.</returns>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="amount"/> is not positive.</exception>

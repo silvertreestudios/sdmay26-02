@@ -1213,6 +1213,38 @@ namespace Game.Creature
             ProjectCommittedHealth(bridge.GetHealth(creatureId));
         }
 
+        // A failed combat start discards its rules store, so retain both the prior bridge
+        // attachment and the Unity/prepared projections that the temporary bridge may mutate.
+        internal CreatureEncounterState CaptureEncounterStartupState() =>
+            new CreatureEncounterState(
+                GetHealthInitializationState(),
+                encounterRules,
+                healthCreatureId,
+                Prepared,
+                Prepared?.ActiveEffects.ToArray() ?? Array.Empty<ActivePf2eEffect>(),
+                Prepared?.RollOptions.ToArray() ?? Array.Empty<string>(),
+                defeated,
+                gameObject.activeSelf
+            );
+
+        internal void RestoreEncounterStartupState(CreatureEncounterState state)
+        {
+            encounterRules = state.EncounterRules;
+            healthCreatureId = state.HealthCreatureId;
+            Prepared = state.Prepared;
+            if (Prepared != null)
+            {
+                Prepared.ActiveEffects.Clear();
+                Prepared.ActiveEffects.AddRange(state.PreparedActiveEffects);
+                Prepared.RollOptions.Clear();
+                foreach (string option in state.PreparedRollOptions)
+                    Prepared.RollOptions.Add(option);
+            }
+            defeated = state.Defeated;
+            gameObject.SetActive(state.ActiveSelf);
+            ProjectCommittedHealth(state.Health);
+        }
+
         internal void ProjectCommittedHealth(HealthState health)
         {
             _hp = health.Current;
@@ -1393,5 +1425,38 @@ namespace Game.Creature
                     );
             }
         }
+    }
+
+    internal sealed class CreatureEncounterState
+    {
+        internal CreatureEncounterState(
+            HealthState health,
+            UnityEncounterRulesBridge encounterRules,
+            CreatureId healthCreatureId,
+            PreparedCharacter prepared,
+            ActivePf2eEffect[] preparedActiveEffects,
+            string[] preparedRollOptions,
+            bool defeated,
+            bool activeSelf
+        )
+        {
+            Health = health;
+            EncounterRules = encounterRules;
+            HealthCreatureId = healthCreatureId;
+            Prepared = prepared;
+            PreparedActiveEffects = preparedActiveEffects;
+            PreparedRollOptions = preparedRollOptions;
+            Defeated = defeated;
+            ActiveSelf = activeSelf;
+        }
+
+        internal HealthState Health { get; }
+        internal UnityEncounterRulesBridge EncounterRules { get; }
+        internal CreatureId HealthCreatureId { get; }
+        internal PreparedCharacter Prepared { get; }
+        internal ActivePf2eEffect[] PreparedActiveEffects { get; }
+        internal string[] PreparedRollOptions { get; }
+        internal bool Defeated { get; }
+        internal bool ActiveSelf { get; }
     }
 }

@@ -396,7 +396,9 @@ namespace Game.Rules.Runtime
             );
     }
 
-    /// <summary>Schedules one active effect against its source's initiative boundaries.</summary>
+    /// <summary>
+    /// Schedules one active effect against its source's initiative boundaries in one encounter.
+    /// </summary>
     public sealed class ActiveEffectTimingState : IEquatable<ActiveEffectTimingState>
     {
         /// <summary>Gets the scheduled effect instance.</summary>
@@ -414,7 +416,11 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the remaining future source boundaries.</summary>
         public int RemainingBoundaries { get; }
 
-        /// <summary>Gets whether encounter completion expires the effect.</summary>
+        /// <summary>
+        /// Gets whether the source duration was encounter-scoped instead of boundary-counted.
+        /// All finite timings retire when their owning encounter closes because no later encounter
+        /// can advance that timing identity.
+        /// </summary>
         public bool ExpiresWithEncounter { get; }
 
         /// <summary>Gets the deterministic simultaneous-expiry ordering key.</summary>
@@ -426,7 +432,9 @@ namespace Game.Rules.Runtime
         /// <param name="binding">The binding disabled when automatic expiry commits.</param>
         /// <param name="sourceCreature">The creature whose future boundaries count down.</param>
         /// <param name="remainingBoundaries">The non-negative boundaries remaining.</param>
-        /// <param name="expiresWithEncounter">Whether encounter completion expires the effect.</param>
+        /// <param name="expiresWithEncounter">
+        /// Whether the source duration was encounter-scoped instead of boundary-counted.
+        /// </param>
         /// <param name="creationOrder">The deterministic simultaneous-expiry order.</param>
         public ActiveEffectTimingState(
             ActiveEffectId effect,

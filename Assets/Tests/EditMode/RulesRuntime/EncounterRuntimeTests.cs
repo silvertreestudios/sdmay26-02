@@ -829,6 +829,122 @@ namespace Game.Rules.Runtime.Tests
             );
         }
 
+        [TestCase(false, false)]
+        [TestCase(true, false)]
+        [TestCase(false, true)]
+        [TestCase(true, true)]
+        public async Task CountedEffectsRetireWhenOwningEncounterCloses(bool minutes, bool suspend)
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("counted-effect");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleRegistry registry = registryBuilder.Build();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10, 20, 10),
+                BaseSeed(),
+                registry,
+                true
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            );
+            ActiveEffectId countedId = new ActiveEffectId("counted-effect-instance");
+            BindingId countedBindingId = new BindingId("counted-effect-binding");
+            ActiveEffectInstance counted = new ActiveEffectInstance(
+                countedId,
+                definition,
+                Hero,
+                Source,
+                minutes ? EffectDuration.Minutes(1) : EffectDuration.Rounds(1),
+                new TestEffectState()
+            );
+            ActiveRuleBinding countedBinding = new ActiveRuleBinding(
+                countedBindingId,
+                definition,
+                Hero,
+                countedId,
+                Source,
+                2
+            );
+            ActiveEffectId permanentId = new ActiveEffectId("permanent-effect-instance");
+            BindingId permanentBindingId = new BindingId("permanent-effect-binding");
+            ActiveEffectInstance permanent = new ActiveEffectInstance(
+                permanentId,
+                definition,
+                Hero,
+                Source,
+                EffectDuration.Indefinite,
+                new TestEffectState()
+            );
+            ActiveRuleBinding permanentBinding = new ActiveRuleBinding(
+                permanentBindingId,
+                definition,
+                Hero,
+                permanentId,
+                Source,
+                3
+            );
+            Resolved(
+                await dispatcher.Dispatch(new CreateEffectWorkflowOp(counted, countedBinding))
+            );
+            Resolved(
+                await dispatcher.Dispatch(new CreateEffectWorkflowOp(permanent, permanentBinding))
+            );
+
+            if (suspend)
+            {
+                Resolved(await dispatcher.Dispatch(new SuspendEncounterOp(Encounter)));
+                EncounterId resumed = new EncounterId("resumed-encounter");
+                Resolved(
+                    await dispatcher.Dispatch(
+                        new StartEncounterOp(
+                            resumed,
+                            Players,
+                            new[]
+                            {
+                                new EncounterParticipant(Hero, Players, 0),
+                                new EncounterParticipant(Enemy, Enemies, 0),
+                            }
+                        )
+                    )
+                );
+                Assert.That(
+                    dispatcher.Snapshot.Encounters[resumed].Phase,
+                    Is.EqualTo(EncounterPhase.Active)
+                );
+            }
+            else
+            {
+                Resolved(
+                    await dispatcher.Dispatch(
+                        new ApplyDamageOp(
+                            Enemy,
+                            10,
+                            new HealthChangeOriginId("close-counted-effect-encounter"),
+                            Source
+                        )
+                    )
+                );
+            }
+
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects[countedId].Status,
+                Is.EqualTo(ActiveEffectStatus.Expired)
+            );
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(countedId), Is.False);
+            Assert.That(dispatcher.Snapshot.RuleBindings[countedBindingId].IsEnabled, Is.False);
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects[permanentId].Status,
+                Is.EqualTo(ActiveEffectStatus.Active)
+            );
+            Assert.That(dispatcher.Snapshot.RuleBindings[permanentBindingId].IsEnabled, Is.True);
+        }
+
         private static StartEncounterOp Start(params EncounterParticipant[] participants) =>
             new StartEncounterOp(Encounter, Players, participants);
 

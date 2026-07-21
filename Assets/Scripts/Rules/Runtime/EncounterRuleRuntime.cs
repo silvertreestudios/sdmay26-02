@@ -413,22 +413,23 @@ namespace Game.Rules.Runtime
             OpHandlerContext context
         )
         {
-            await ExpireEncounterEffects(frame.Op.Encounter, context);
+            await ExpireEncounterOwnedEffects(frame.Op.Encounter, context);
             return EncounterHandlerResults.Require(
                 await context.Dispatch(new CommitEncounterSuspendOp(frame.Op.Encounter)),
                 "encounter suspension"
             );
         }
 
-        internal static async ValueTask ExpireEncounterEffects(
+        // Counted durations use initiative boundaries, so ending or suspending their owning
+        // encounter permanently retires that clock. Dungeon resume creates a fresh encounter;
+        // retaining the old timing would leave an enabled binding that can never advance.
+        internal static async ValueTask ExpireEncounterOwnedEffects(
             EncounterId encounter,
             OpHandlerContext context
         )
         {
             ActiveEffectTimingState[] timings = context
-                .Snapshot.ActiveEffectTimings.Where(pair =>
-                    pair.Value.Encounter == encounter && pair.Value.ExpiresWithEncounter
-                )
+                .Snapshot.ActiveEffectTimings.Where(pair => pair.Value.Encounter == encounter)
                 .Select(pair => pair.Value)
                 .OrderBy(value => value.CreationOrder)
                 .ThenBy(value => value.Effect.Value, StringComparer.Ordinal)
@@ -465,7 +466,7 @@ namespace Game.Rules.Runtime
             OpHandlerContext context
         )
         {
-            await SuspendEncounterHandler.ExpireEncounterEffects(frame.Op.Encounter, context);
+            await SuspendEncounterHandler.ExpireEncounterOwnedEffects(frame.Op.Encounter, context);
             return EncounterHandlerResults.Require(
                 await context.Dispatch(
                     new CommitEncounterEndOp(frame.Op.Encounter, frame.Op.Outcome)

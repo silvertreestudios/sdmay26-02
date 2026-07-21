@@ -7,6 +7,7 @@ using Game.Rules.Unity;
 using Game.Strikes;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Events;
 
 public abstract class ActionController : MonoBehaviour
 {
@@ -22,6 +23,8 @@ public abstract class ActionController : MonoBehaviour
     private uint actionPoints;
     private bool reacted;
     private uint strikePenalty;
+    private readonly List<UnityAction<Ref<uint>>> managedActionResetListeners = new();
+    private readonly List<UnityAction<List<EntityAction>>> managedReactionListeners = new();
     public bool IsTakingAction { get; set; } = false;
 
     /// <summary>Gets whether this controller currently has movement-only exploration authority.</summary>
@@ -233,6 +236,75 @@ public abstract class ActionController : MonoBehaviour
         hasStandaloneTurnAuthority = false;
     }
 
+    // Startup hooks may add actions and managed rule listeners before their awaited work fails.
+    // Preserve the pre-attachment state so CombatManager can retry without duplicated passives.
+    internal ActionControllerEncounterState CaptureEncounterStartupState() =>
+        new ActionControllerEncounterState(
+            Actions.ToArray(),
+            Movements.ToArray(),
+            Reactions.ToArray(),
+            _actionNames.ToArray(),
+            hasStandaloneTurnAuthority,
+            encounterRules,
+            encounterCreatureId,
+            actionPoints,
+            reacted,
+            strikePenalty,
+            IsTakingAction,
+            IsInDungeonExploration,
+            enabled,
+            managedActionResetListeners.Count,
+            managedReactionListeners.Count
+        );
+
+    internal void RestoreEncounterStartupState(ActionControllerEncounterState state)
+    {
+        // Combat-start rule hooks only append through these managed seams. Removing back to the
+        // captured counts preserves unrelated listeners that predated the transaction.
+        while (managedActionResetListeners.Count > state.ManagedActionResetListenerCount)
+        {
+            int last = managedActionResetListeners.Count - 1;
+            ResetActionPointsEvent.RemoveListener(managedActionResetListeners[last]);
+            managedActionResetListeners.RemoveAt(last);
+        }
+        while (managedReactionListeners.Count > state.ManagedReactionListenerCount)
+        {
+            int last = managedReactionListeners.Count - 1;
+            GetReactionsEvent.RemoveListener(managedReactionListeners[last]);
+            managedReactionListeners.RemoveAt(last);
+        }
+
+        Actions.Clear();
+        Actions.AddRange(state.Actions);
+        Movements.Clear();
+        Movements.AddRange(state.Movements);
+        Reactions.Clear();
+        Reactions.AddRange(state.Reactions);
+        _actionNames.Clear();
+        _actionNames.AddRange(state.ActionNames);
+        hasStandaloneTurnAuthority = state.HasStandaloneTurnAuthority;
+        encounterRules = state.EncounterRules;
+        encounterCreatureId = state.EncounterCreatureId;
+        actionPoints = state.ActionPoints;
+        reacted = state.Reacted;
+        strikePenalty = state.StrikePenalty;
+        IsTakingAction = state.IsTakingAction;
+        IsInDungeonExploration = state.IsInDungeonExploration;
+        enabled = state.Enabled;
+    }
+
+    internal void AddRuleActionResetListener(UnityAction<Ref<uint>> listener)
+    {
+        ResetActionPointsEvent.AddListener(listener);
+        managedActionResetListeners.Add(listener);
+    }
+
+    internal void AddRuleReactionListener(UnityAction<List<EntityAction>> listener)
+    {
+        GetReactionsEvent.AddListener(listener);
+        managedReactionListeners.Add(listener);
+    }
+
     internal uint CalculateTurnStartActions()
     {
         Ref<uint> contribution = new(3);
@@ -298,4 +370,58 @@ public abstract class ActionController : MonoBehaviour
         }
         return names;
     }
+}
+
+internal sealed class ActionControllerEncounterState
+{
+    internal ActionControllerEncounterState(
+        EntityAction[] actions,
+        EntityAction[] movements,
+        EntityAction[] reactions,
+        string[] actionNames,
+        bool hasStandaloneTurnAuthority,
+        UnityEncounterRulesBridge encounterRules,
+        CreatureId encounterCreatureId,
+        uint actionPoints,
+        bool reacted,
+        uint strikePenalty,
+        bool isTakingAction,
+        bool isInDungeonExploration,
+        bool enabled,
+        int managedActionResetListenerCount,
+        int managedReactionListenerCount
+    )
+    {
+        Actions = actions;
+        Movements = movements;
+        Reactions = reactions;
+        ActionNames = actionNames;
+        HasStandaloneTurnAuthority = hasStandaloneTurnAuthority;
+        EncounterRules = encounterRules;
+        EncounterCreatureId = encounterCreatureId;
+        ActionPoints = actionPoints;
+        Reacted = reacted;
+        StrikePenalty = strikePenalty;
+        IsTakingAction = isTakingAction;
+        IsInDungeonExploration = isInDungeonExploration;
+        Enabled = enabled;
+        ManagedActionResetListenerCount = managedActionResetListenerCount;
+        ManagedReactionListenerCount = managedReactionListenerCount;
+    }
+
+    internal EntityAction[] Actions { get; }
+    internal EntityAction[] Movements { get; }
+    internal EntityAction[] Reactions { get; }
+    internal string[] ActionNames { get; }
+    internal bool HasStandaloneTurnAuthority { get; }
+    internal UnityEncounterRulesBridge EncounterRules { get; }
+    internal CreatureId EncounterCreatureId { get; }
+    internal uint ActionPoints { get; }
+    internal bool Reacted { get; }
+    internal uint StrikePenalty { get; }
+    internal bool IsTakingAction { get; }
+    internal bool IsInDungeonExploration { get; }
+    internal bool Enabled { get; }
+    internal int ManagedActionResetListenerCount { get; }
+    internal int ManagedReactionListenerCount { get; }
 }
