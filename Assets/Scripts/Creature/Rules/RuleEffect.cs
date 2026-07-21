@@ -5,8 +5,6 @@ namespace Game.Creature.Rules
     /// </summary>
     public enum RuleEffectType
     {
-        SpendActions,
-        SetTakingActionFalse,
         GainSourceTempHp,
         RemoveSourceTempHp,
         AddTempHpImmunity,
@@ -20,38 +18,12 @@ namespace Game.Creature.Rules
         public RuleEffectType Type { get; }
         public string Source { get; }
         public int Amount { get; }
-        public uint ActionCost { get; }
 
-        private RuleEffect(
-            RuleEffectType type,
-            string source = null,
-            int amount = 0,
-            uint actionCost = 0
-        )
+        private RuleEffect(RuleEffectType type, string source = null, int amount = 0)
         {
             Type = type;
             Source = source;
             Amount = amount;
-            ActionCost = actionCost;
-        }
-
-        /// <summary>
-        /// Creates an effect that spends action points from the acting Unity controller.
-        /// </summary>
-        /// <param name="actionCost">The number of action points to spend.</param>
-        /// <returns>A generic action-spend effect.</returns>
-        public static RuleEffect SpendActions(uint actionCost)
-        {
-            return new RuleEffect(RuleEffectType.SpendActions, actionCost: actionCost);
-        }
-
-        /// <summary>
-        /// Creates an effect that clears the Unity action-in-progress flag after a rule resolves.
-        /// </summary>
-        /// <returns>A generic action-state cleanup effect.</returns>
-        public static RuleEffect SetTakingActionFalse()
-        {
-            return new RuleEffect(RuleEffectType.SetTakingActionFalse);
         }
 
         /// <summary>

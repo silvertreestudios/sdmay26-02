@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using Game.AbilityActions;
 using Game.Combat.Encounters;
 using Game.Combat.Spells;
 using Game.Creature;
@@ -397,6 +398,123 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(player.Controller.IsTakingAction, Is.False);
     }
 
+    /// <summary>Verifies a rejected queued Rage spend cannot publish prepared or health state.</summary>
+    [UnityTest]
+    public IEnumerator RageSpendRejectedAfterTurnEndPublishesNoRageState()
+    {
+        CombatantFixture player = CreateCombatant("Rejected Rage Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Rejected Rage Enemy", "Enemies", 0);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        PrepareBarbarian(player.Creature);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TurnEndedFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<TurnEndedFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        Task<EncounterAdvanceOutcome> ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+        Task<bool> rage = null;
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The turn-end Fact observer did not occupy the dispatcher root."
+            );
+            rage = new Rage(1).UseRageAsync(player.GameObject).AsTask();
+            yield return null;
+
+            Assert.That(rage.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(spends.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return WaitForCondition(
+                () => rage.IsCompleted,
+                "The queued rejected Rage spend did not settle."
+            );
+
+            Assert.That(rage.IsFaulted, Is.True);
+            StringAssert.Contains("insufficient authoritative actions", rage.Exception.ToString());
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("effect-rage"), Is.False);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(player.Creature.tempHp, Is.Zero);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(spends.Facts, Is.Empty);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<TurnEndedFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            _ = rage?.Exception;
+        }
+    }
+
+    /// <summary>Verifies Rage retains its action reservation through awaited health callbacks.</summary>
+    [UnityTest]
+    public IEnumerator RageHealthFactFailureClearsReservationOnlyAfterAllEffectsSettle()
+    {
+        CombatantFixture player = CreateCombatant("Awaited Rage Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Awaited Rage Enemy", "Enemies", 0);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        PrepareBarbarian(player.Creature);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: true);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        int competingInvocations = 0;
+        TestEntityAction competing = new("Competing Action", 0, () => competingInvocations++);
+        Task<bool> rage = new Rage(1).UseRageAsync(player.GameObject).AsTask();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The Rage temporary-HP Fact observer did not begin."
+            );
+
+            Assert.That(rage.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(spends.Facts, Has.Count.EqualTo(1));
+            Assert.That(spends.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
+            player.Controller.TakeAction(competing);
+            yield return null;
+            Assert.That(competingInvocations, Is.Zero);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+
+            blocker.Release();
+            yield return WaitForCondition(
+                () => rage.IsCompleted,
+                "The failed Rage health callback did not settle."
+            );
+
+            Assert.That(rage.IsFaulted, Is.True);
+            StringAssert.Contains("deliberate Rage Fact failure", rage.Exception.ToString());
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(competingInvocations, Is.Zero);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            _ = rage.Exception;
+        }
+    }
+
     /// <summary>Verifies area-spell outcome presentation waits for every target's health change.</summary>
     [UnityTest]
     public IEnumerator LethalAreaSpellSettlesAllTargetsBeforePresentingDeterministicDefeat()
@@ -771,6 +889,19 @@ public sealed class DungeonEncounterCombatPlayModeTests
         return new CombatantFixture(gameObject, creature, conditions, controller);
     }
 
+    private static void PrepareBarbarian(CreatureComponent creature)
+    {
+        creature.level = 1;
+        creature.conMod = 1;
+        creature.Build = new CharacterBuild
+        {
+            ClassName = "Barbarian",
+            SubclassName = "Fury Instinct",
+            ClassFeatName = "Raging Intimidation",
+        };
+        creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
+    }
+
     private GameObject Create(string name)
     {
         GameObject gameObject = new(name);
@@ -969,6 +1100,33 @@ public sealed class DungeonEncounterCombatPlayModeTests
         {
             facts.Add(fact);
             return default;
+        }
+    }
+
+    private sealed class BlockingFactObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        private readonly bool failAfterRelease;
+        private readonly TaskCompletionSource<bool> started = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private readonly TaskCompletionSource<bool> release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        internal BlockingFactObserver(bool failAfterRelease) =>
+            this.failAfterRelease = failAfterRelease;
+
+        internal Task Started => started.Task;
+
+        internal void Release() => release.TrySetResult(true);
+
+        public async ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+        {
+            started.TrySetResult(true);
+            await release.Task;
+            if (failAfterRelease)
+                throw new InvalidOperationException("deliberate Rage Fact failure");
         }
     }
 }

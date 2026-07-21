@@ -10,7 +10,6 @@ namespace Game.Creature.Rules
     public sealed class RageRequest
     {
         public CreatureRulesState Creature { get; set; }
-        public uint ActionCost { get; set; }
         public Pf2eItemCatalog Catalog { get; set; }
     }
 
@@ -78,6 +77,11 @@ namespace Game.Creature.Rules
         /// </summary>
         /// <param name="request">The Unity-free Rage inputs.</param>
         /// <returns>The rule result, including any side effects needed to reflect successful Rage in Unity.</returns>
+        /// <remarks>
+        /// This method publishes prepared Rage state immediately. Action hosts must validate with
+        /// <see cref="CanApply"/> and commit any authoritative action cost before calling it.
+        /// Returned effects contain only post-cost Rage consequences.
+        /// </remarks>
         public static RageRuleResult Apply(RageRequest request)
         {
             string blockReason = GetBlockReason(request);
@@ -92,11 +96,7 @@ namespace Game.Creature.Rules
             Pf2eItem rageEffect = catalog.Resolve(effectUuid) ?? catalog.Resolve("Effect: Rage");
             prepared.AddActiveEffect(rageEffect, RageSource);
 
-            List<RuleEffect> effects = new()
-            {
-                RuleEffect.SpendActions(request.ActionCost),
-                RuleEffect.SetTakingActionFalse(),
-            };
+            List<RuleEffect> effects = new();
 
             int tempHp = Math.Max(0, creature.Level + creature.ConstitutionModifier);
             if (!creature.HasTempHpImmunity(RageSource) && tempHp > 0)

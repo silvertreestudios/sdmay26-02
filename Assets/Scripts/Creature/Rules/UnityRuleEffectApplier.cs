@@ -22,7 +22,6 @@ namespace Game.Creature.Rules
                 return;
 
             CreatureComponent creature = actor.GetComponent<CreatureComponent>();
-            ActionController actionController = actor.GetComponent<ActionController>();
 
             foreach (RuleEffect effect in effects)
             {
@@ -31,14 +30,6 @@ namespace Game.Creature.Rules
 
                 switch (effect.Type)
                 {
-                    case RuleEffectType.SpendActions:
-                        if (actionController != null)
-                            await actionController.SpendActionsAsync(effect.ActionCost);
-                        break;
-                    case RuleEffectType.SetTakingActionFalse:
-                        if (actionController != null)
-                            actionController.IsTakingAction = false;
-                        break;
                     case RuleEffectType.GainSourceTempHp:
                         if (creature != null)
                             await creature.GrantSourceTemporaryHitPointsAsync(

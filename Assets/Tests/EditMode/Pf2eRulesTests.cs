@@ -179,9 +179,7 @@ public class Pf2eRulesTests
         CreatureComponent creature = CreatePreparedBarbarian();
         CreatureRulesState state = UnityCreatureRulesAdapter.From(creature.gameObject);
 
-        RageRuleResult result = RageRule.Apply(
-            new RageRequest { Creature = state, ActionCost = 0 }
-        );
+        RageRuleResult result = RageRule.Apply(new RageRequest { Creature = state });
 
         Assert.That(result.Applied, Is.True);
         Assert.That(creature.Prepared.HasActiveEffect("effect-rage"), Is.True);
@@ -247,11 +245,7 @@ public class Pf2eRulesTests
     {
         CreatureComponent creature = CreatePreparedBarbarian();
         RageRule.Apply(
-            new RageRequest
-            {
-                Creature = UnityCreatureRulesAdapter.From(creature.gameObject),
-                ActionCost = 0,
-            }
+            new RageRequest { Creature = UnityCreatureRulesAdapter.From(creature.gameObject) }
         );
 
         RageRuleResult end = RageRule.End(UnityCreatureRulesAdapter.From(creature.gameObject));
@@ -276,7 +270,6 @@ public class Pf2eRulesTests
         TestActionController actionController =
             creature.gameObject.AddComponent<TestActionController>();
         actionController.ActionPoints = 3;
-        actionController.IsTakingAction = true;
 
         Rage rage = new(1);
         Assert.That(await rage.UseRageAsync(creature.gameObject), Is.True);

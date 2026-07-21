@@ -24,17 +24,48 @@ namespace Game.AbilityActions
         /// Attempts to start Rage for an actor by evaluating the pure rule and applying its generic Unity side effects.
         /// </summary>
         /// <param name="actor">The Unity actor attempting to Rage.</param>
-        /// <returns>True when Rage was applied.</returns>
+        /// <returns>
+        /// <see langword="true"/> when Rage was applied; otherwise <see langword="false"/> when
+        /// its prerequisites fail or another action already owns the actor's reservation.
+        /// </returns>
+        /// <remarks>
+        /// Direct callers whose actor has an <see cref="ActionController"/> receive the same action
+        /// reservation normally established by <see cref="ActionController.TakeAction"/>.
+        /// Eligibility is checked before cost, the authoritative cost settles before prepared Rage
+        /// state is published, and the reservation remains owned until every awaited host effect
+        /// completes or fails.
+        /// </remarks>
         public async ValueTask<bool> UseRageAsync(GameObject actor)
         {
+            ActionController actionController = actor?.GetComponent<ActionController>();
+            if (actionController != null && actionController.IsTakingAction)
+                return false;
+
+            if (actionController != null)
+                actionController.IsTakingAction = true;
+            try
+            {
+                return await ApplyRageAsync(actor);
+            }
+            finally
+            {
+                if (actionController != null)
+                    actionController.IsTakingAction = false;
+            }
+        }
+
+        private async ValueTask<bool> ApplyRageAsync(GameObject actor)
+        {
             Debug.Log(actor + " is attempting to use Rage");
-            RageRuleResult result = RageRule.Apply(
-                new RageRequest
-                {
-                    Creature = UnityCreatureRulesAdapter.From(actor),
-                    ActionCost = ActionCost,
-                }
-            );
+            RageRequest request = new() { Creature = UnityCreatureRulesAdapter.From(actor) };
+            if (!RageRule.CanApply(request))
+            {
+                Debug.Log(actor + " cannot Rage");
+                return false;
+            }
+
+            await PayCostAsync(actor?.GetComponent<ActionController>());
+            RageRuleResult result = RageRule.Apply(request);
             await UnityRuleEffectApplier.ApplyAsync(actor, result.Effects);
             if (!result.Applied)
                 Debug.Log(actor + " cannot Rage");
@@ -49,11 +80,7 @@ namespace Game.AbilityActions
         public bool RageAllowed(GameObject actor)
         {
             return RageRule.CanApply(
-                new RageRequest
-                {
-                    Creature = UnityCreatureRulesAdapter.From(actor),
-                    ActionCost = ActionCost,
-                }
+                new RageRequest { Creature = UnityCreatureRulesAdapter.From(actor) }
             );
         }
 
@@ -69,7 +96,9 @@ namespace Game.AbilityActions
 
         protected override IEnumerator MFInvoke(GameObject actor)
         {
-            yield return CoroutineRunner.Await(UseRageAsync(actor));
+            // ActionController.TakeAction and MultiFrameEntityAction own this invocation's single
+            // reservation. Calling the core avoids releasing it before the outer action finally.
+            yield return CoroutineRunner.Await(ApplyRageAsync(actor));
         }
     }
 }
