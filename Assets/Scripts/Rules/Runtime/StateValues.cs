@@ -42,8 +42,8 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Stores one creature's immutable current, maximum, temporary, and temporary-source health
-    /// state for authoritative rules snapshots.
+    /// Stores one creature's immutable current, maximum, temporary, temporary-source, and durable
+    /// defeat state for authoritative rules snapshots.
     /// </summary>
     public readonly struct HealthState : IEquatable<HealthState>
     {
@@ -60,6 +60,23 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the rule source that owns the current temporary-HP pool.</summary>
         public RuleSource TemporarySource { get; }
+
+        /// <summary>
+        /// Gets whether the rules runtime has committed this creature's defeat after reactions
+        /// settled at zero Hit Points.
+        /// </summary>
+        /// <remarks>
+        /// A committed defeat is irreversible for the owning encounter. Healing may rescue a
+        /// creature while a zero-HP Fact is still reacting, but it cannot resurrect a creature
+        /// after defeat presentation becomes authoritative.
+        /// </remarks>
+        public bool IsCommittedDefeated { get; }
+
+        /// <summary>
+        /// Gets whether positive Hit Points and the absence of committed defeat allow this creature
+        /// to participate as living.
+        /// </summary>
+        public bool IsLiving => Current > 0 && !IsCommittedDefeated;
 
         /// <summary>
         /// Gets the rule sources that cannot currently grant temporary Hit Points.
@@ -83,7 +100,8 @@ namespace Game.Rules.Runtime
             int temporary = 0,
             RuleSource temporarySource = default
         )
-            : this(current, maximum, temporary, temporarySource, Array.Empty<RuleSource>()) { }
+            : this(current, maximum, temporary, temporarySource, Array.Empty<RuleSource>(), false)
+        { }
 
         /// <summary>
         /// Initializes authoritative health with source-specific temporary-HP immunities.
@@ -100,6 +118,17 @@ namespace Game.Rules.Runtime
             RuleSource temporarySource,
             IEnumerable<RuleSource> temporaryHitPointImmunities
         )
+            : this(current, maximum, temporary, temporarySource, temporaryHitPointImmunities, false)
+        { }
+
+        private HealthState(
+            int current,
+            int maximum,
+            int temporary,
+            RuleSource temporarySource,
+            IEnumerable<RuleSource> temporaryHitPointImmunities,
+            bool isCommittedDefeated
+        )
         {
             if (maximum < 0)
                 throw new ArgumentOutOfRangeException(nameof(maximum));
@@ -111,6 +140,11 @@ namespace Game.Rules.Runtime
                 throw new ArgumentException(
                     "Health without temporary Hit Points cannot retain a temporary-HP source.",
                     nameof(temporarySource)
+                );
+            if (isCommittedDefeated && current != 0)
+                throw new ArgumentException(
+                    "A committed-defeated creature must remain at zero Hit Points.",
+                    nameof(current)
                 );
 
             if (temporaryHitPointImmunities == null)
@@ -126,7 +160,44 @@ namespace Game.Rules.Runtime
             Maximum = maximum;
             Temporary = temporary;
             TemporarySource = temporarySource;
+            IsCommittedDefeated = isCommittedDefeated;
             this.temporaryHitPointImmunities = copiedImmunities;
+        }
+
+        internal HealthState WithValues(int current, int temporary, RuleSource temporarySource) =>
+            new HealthState(
+                current,
+                Maximum,
+                temporary,
+                temporarySource,
+                TemporaryHitPointImmunities,
+                IsCommittedDefeated
+            );
+
+        internal HealthState WithTemporaryHitPointImmunities(IEnumerable<RuleSource> immunities) =>
+            new HealthState(
+                Current,
+                Maximum,
+                Temporary,
+                TemporarySource,
+                immunities,
+                IsCommittedDefeated
+            );
+
+        internal HealthState CommitDefeat()
+        {
+            if (Current != 0)
+                throw new InvalidOperationException(
+                    "Only a zero-HP creature can commit authoritative defeat."
+                );
+            return new HealthState(
+                Current,
+                Maximum,
+                Temporary,
+                TemporarySource,
+                TemporaryHitPointImmunities,
+                true
+            );
         }
 
         public bool Equals(HealthState other) =>
@@ -134,6 +205,7 @@ namespace Game.Rules.Runtime
             && Maximum == other.Maximum
             && Temporary == other.Temporary
             && TemporarySource == other.TemporarySource
+            && IsCommittedDefeated == other.IsCommittedDefeated
             && (temporaryHitPointImmunities ?? Array.Empty<RuleSource>()).SequenceEqual(
                 other.temporaryHitPointImmunities ?? Array.Empty<RuleSource>()
             );
@@ -147,6 +219,7 @@ namespace Game.Rules.Runtime
             hash.Add(Maximum);
             hash.Add(Temporary);
             hash.Add(TemporarySource);
+            hash.Add(IsCommittedDefeated);
             foreach (
                 RuleSource immunity in temporaryHitPointImmunities ?? Array.Empty<RuleSource>()
             )

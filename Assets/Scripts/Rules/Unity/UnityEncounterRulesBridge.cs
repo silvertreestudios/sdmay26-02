@@ -327,6 +327,17 @@ namespace Game.Rules.Unity
             return encounter.Roster.Any(entry => entry.Creature == creatureId);
         }
 
+        // Action target validation needs retained roster membership and current living state. A
+        // committed-defeated slot remains historical encounter state but cannot be targeted as a
+        // living combatant or reintroduced through healing.
+        internal bool IsLivingActiveEncounterParticipant(CreatureComponent creature)
+        {
+            if (!IsActiveEncounterParticipant(creature))
+                return false;
+            CreatureId creatureId = creatureIds[creature];
+            return Snapshot.Health.TryGet(creatureId, out HealthState health) && health.IsLiving;
+        }
+
         /// <summary>Raised after an outer dispatch fully settles and commits a turn.</summary>
         public event Action<TurnIdentity> TurnBegan = delegate { };
 
@@ -936,6 +947,23 @@ namespace Game.Rules.Unity
             return RequireResolved(result);
         }
 
+        private async ValueTask PresentCommittedDefeatAsync(
+            CreatureReducedToZeroFact fact,
+            CreatureComponent creature
+        )
+        {
+            if (
+                !Snapshot.Health.TryGet(fact.Creature, out HealthState settledHealth)
+                || settledHealth.Current > 0
+            )
+                return;
+
+            await DispatchAsync(new FinalizeCreatureDefeatOp(fact.Creature));
+            settledHealth = Snapshot.Health[fact.Creature];
+            creature.ProjectCommittedHealth(settledHealth);
+            creature.PresentCommittedDefeat();
+        }
+
         private async ValueTask<TResult> DispatchAsync<TResult>(
             IRuleOp<TResult> operation,
             IRootResolutionObserver<TResult> observer
@@ -1233,7 +1261,7 @@ namespace Game.Rules.Unity
                 ActionController[] combatants = encounter
                     .Roster.Where(entry =>
                         context.Snapshot.Health.TryGet(entry.Creature, out HealthState health)
-                        && health.Current > 0
+                        && health.IsLiving
                     )
                     .Select(entry => owner.GetController(entry.Creature))
                     .ToArray();
@@ -1255,7 +1283,7 @@ namespace Game.Rules.Unity
                     {
                         CreatureId targetId = owner.GetCreatureId(target);
                         return context.Snapshot.Health.TryGet(targetId, out HealthState health)
-                            && health.Current > 0;
+                            && health.IsLiving;
                     },
                     result =>
                         owner.PresentOrBufferStartupCallback(() =>
@@ -1345,21 +1373,7 @@ namespace Game.Rules.Unity
                 )
                     owner.EnqueuePresentation(
                         fact,
-                        () =>
-                        {
-                            if (
-                                !owner.Snapshot.Health.TryGet(
-                                    fact.Creature,
-                                    out HealthState settledHealth
-                                )
-                            )
-                                return default;
-                            creature.ProjectCommittedHealth(settledHealth);
-                            if (settledHealth.Current > 0)
-                                return default;
-                            creature.PresentCommittedDefeat();
-                            return default;
-                        }
+                        () => owner.PresentCommittedDefeatAsync(fact, creature)
                     );
                 return default;
             }

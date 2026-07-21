@@ -489,7 +489,7 @@ namespace Game.Combat.Spells
                 return false;
             if (!bridge.HasActiveEncounter)
                 return true;
-            if (!bridge.IsActiveEncounterParticipant(caster))
+            if (!bridge.IsLivingActiveEncounterParticipant(caster))
                 return false;
 
             IEnumerable<GameObject> directTargets = selection.Targets ?? Array.Empty<GameObject>();
@@ -507,7 +507,7 @@ namespace Game.Combat.Spells
                     CreatureComponent targetCreature =
                         target == null ? null : target.GetComponent<CreatureComponent>();
                     return targetCreature != null
-                        && bridge.IsActiveEncounterParticipant(targetCreature);
+                        && bridge.IsLivingActiveEncounterParticipant(targetCreature);
                 });
         }
 

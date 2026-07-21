@@ -33,6 +33,13 @@ namespace Game.Rules.Runtime
                     new CommitHealingReducer(),
                     HealthReducerSource
                 )
+                .RegisterHandler<FinalizeCreatureDefeatOp, bool>(
+                    new FinalizeCreatureDefeatHandler()
+                )
+                .RegisterReducer<CommitCreatureDefeatOp, bool>(
+                    new CommitCreatureDefeatReducer(),
+                    HealthReducerSource
+                )
                 .RegisterHandler<GrantTemporaryHitPointsOp, TemporaryHitPointsGrantOutcome>(
                     new GrantTemporaryHitPointsHandler()
                 )
@@ -67,9 +74,13 @@ namespace Game.Rules.Runtime
         {
             foreach (HealthBatchChange change in frame.Op.Changes)
             {
-                if (!context.Snapshot.Health.Contains(change.Target))
+                if (!context.Snapshot.Health.TryGet(change.Target, out HealthState health))
                     throw new InvalidOperationException(
                         $"Creature {change.Target.Value} has no authoritative health state."
+                    );
+                if (change.Kind == HealthBatchChangeKind.Healing && health.IsCommittedDefeated)
+                    throw new InvalidOperationException(
+                        $"Creature {change.Target.Value} has a committed defeat and cannot be healed."
                     );
             }
 
@@ -146,6 +157,17 @@ namespace Game.Rules.Runtime
                         frame.Op.Source
                     )
                 )
+            );
+    }
+
+    internal sealed class FinalizeCreatureDefeatHandler : IOpHandler<FinalizeCreatureDefeatOp, bool>
+    {
+        public async ValueTask<bool> Handle(
+            OpFrame<FinalizeCreatureDefeatOp> frame,
+            OpHandlerContext context
+        ) =>
+            await HealthHandlerResult.RequireResolved(
+                context.Dispatch(new CommitCreatureDefeatOp(frame.Op.Target))
             );
     }
 

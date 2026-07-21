@@ -9,6 +9,12 @@ namespace Game.Rules.Runtime
         internal const string OutcomeMismatch =
             "The requested outcome does not match authoritative health and teams.";
 
+        internal static bool IsLiving(RulesSnapshot snapshot, CreatureId creature) =>
+            snapshot.Health.TryGet(creature, out HealthState health) && health.IsLiving;
+
+        internal static bool IsLiving(RulesStateDraft state, CreatureId creature) =>
+            state.Health.TryGet(creature, out HealthState health) && health.IsLiving;
+
         internal static bool TryValidate(
             RulesSnapshot snapshot,
             EncounterId id,
@@ -24,8 +30,7 @@ namespace Game.Rules.Runtime
                 encounter,
                 id,
                 requested,
-                creature =>
-                    snapshot.Health.TryGet(creature, out HealthState health) && health.Current > 0,
+                creature => IsLiving(snapshot, creature),
                 out actual,
                 out rejection
             );
@@ -46,8 +51,7 @@ namespace Game.Rules.Runtime
                 encounter,
                 id,
                 requested,
-                creature =>
-                    state.Health.TryGet(creature, out HealthState health) && health.Current > 0,
+                creature => IsLiving(state, creature),
                 out actual,
                 out rejection
             );
@@ -126,7 +130,7 @@ namespace Game.Rules.Runtime
         }
 
         public static bool IsLiving(RulesStateDraft state, CreatureId creature) =>
-            state.Health.TryGet(creature, out HealthState health) && health.Current > 0;
+            EncounterEndValidation.IsLiving(state, creature);
 
         public static EncounterOutcome? Evaluate(RulesStateDraft state, EncounterState encounter) =>
             EncounterEndValidation.Evaluate(encounter, creature => IsLiving(state, creature));

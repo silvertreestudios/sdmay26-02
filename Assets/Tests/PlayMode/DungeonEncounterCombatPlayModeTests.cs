@@ -88,9 +88,29 @@ public sealed class DungeonEncounterCombatPlayModeTests
         {
             manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
             Assert.That(durableStartRoster, Is.Null, "Startup is not durable at request return.");
-            Assert.That(GetStartupCombatants(), Is.Empty);
+            Assert.That(
+                GetStartupCombatants(),
+                Is.EqualTo(new[] { player.Controller, activeEnemy.Controller })
+            );
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, activeEnemy.GameObject }),
+                "Every pre-roster projection must retain the exact selected startup subset."
+            );
+            Assert.That(
+                manager.getPoistions(),
+                Is.EqualTo(
+                    new[]
+                    {
+                        player.GameObject.transform.position,
+                        activeEnemy.GameObject.transform.position,
+                    }
+                )
+            );
+            Assert.That(manager.WhosTurn(), Is.Null);
             yield return WaitForTurn();
 
+            Assert.That(GetStartupCombatants(), Is.Empty);
             Assert.That(
                 durableStartRoster,
                 Is.EqualTo(new[] { player.GameObject, activeEnemy.GameObject }),
@@ -206,6 +226,11 @@ public sealed class DungeonEncounterCombatPlayModeTests
     {
         CombatantFixture player = CreateCombatant("Failed Async Start Player", "Players", 200);
         CombatantFixture enemy = CreateCombatant("Failed Async Start Enemy", "Enemies", 100);
+        CombatantFixture dormantEnemy = CreateCombatant(
+            "Failed Async Start Dormant Enemy",
+            "Enemies",
+            1000
+        );
         PrepareBarbarian(player.Creature);
         player.Creature.passives.Add("Zombie-Fist");
         PreparedCharacter preparedBefore = player.Creature.Prepared;
@@ -261,6 +286,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
             );
             Assert.That(manager.IsCombatActive, Is.True);
             Assert.That(durableStartNotifications, Is.Zero);
+            Assert.That(
+                GetStartupCombatants(),
+                Is.EqualTo(new[] { player.Controller, enemy.Controller })
+            );
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, enemy.GameObject })
+            );
+            Assert.That(manager.GetCombatants(), Has.No.Member(dormantEnemy.GameObject));
             Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
             Assert.That(player.Creature.Health.Temporary, Is.GreaterThan(0));
             Assert.That(player.Controller.GetActions().OfType<Unarmed>(), Has.Count.EqualTo(1));
@@ -296,7 +330,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
             );
             Assert.That(
                 manager.GetCombatants(),
-                Is.EqualTo(new[] { player.GameObject, enemy.GameObject })
+                Is.EqualTo(new[] { player.GameObject, enemy.GameObject, dormantEnemy.GameObject })
             );
         }
         finally
@@ -319,6 +353,12 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
             Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
             Assert.That(player.Controller.GetActions().OfType<Unarmed>(), Has.Count.EqualTo(1));
+            Assert.That(GetStartupCombatants(), Is.Empty);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, enemy.GameObject })
+            );
+            Assert.That(manager.GetCombatants(), Has.No.Member(dormantEnemy.GameObject));
         }
         finally
         {
@@ -2787,6 +2827,103 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(player.Controller.IsTakingAction, Is.False);
         Assert.That(spends.Facts, Is.Empty);
         dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+    }
+
+    /// <summary>Verifies presented defeat cannot be healed or regain encounter participation.</summary>
+    [UnityTest]
+    public IEnumerator CommittedDefeatRejectsDirectAndPreselectedHealingAndNeverRegainsTurn()
+    {
+        CombatantFixture player = CreateCombatant("Defeat Heal Player", "Players", 300);
+        CombatantFixture defeatedAlly = CreateCombatant("Defeat Heal Ally", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Defeat Heal Enemy", "Enemies", 100);
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        defeatedAlly.Creature.InitializeHealthBeforeEncounter(1, 10);
+        EncounterOutcome? outcome = null;
+        Action<EncounterOutcome> captureOutcome = value => outcome = value;
+        manager.DungeonCombatEnded += captureOutcome;
+
+        try
+        {
+            manager.StartDungeonCombat(
+                new[] { player.Controller, defeatedAlly.Controller, enemy.Controller }
+            );
+            yield return WaitForTurn(player.GameObject);
+            UnityEncounterRulesBridge bridge = GetEncounterBridge();
+            CreatureId defeatedId = bridge.GetCreatureId(defeatedAlly.Creature);
+            yield return CoroutineRunner.Await(
+                defeatedAlly.Creature.ApplyFinalDamageAsync(
+                    1,
+                    RuleSource.FromSlug("commit-defeat-before-heal")
+                )
+            );
+
+            Assert.That(defeatedAlly.Creature.IsDefeated, Is.True);
+            Assert.That(defeatedAlly.GameObject.activeSelf, Is.False);
+            Assert.That(bridge.Snapshot.Health[defeatedId].IsCommittedDefeated, Is.True);
+            Assert.That(manager.GetCombatants(), Has.No.Member(defeatedAlly.GameObject));
+
+            Task<HealingOutcome> directHealing = defeatedAlly
+                .Creature.HealAsync(5, RuleSource.FromSlug("rejected-direct-heal"))
+                .AsTask();
+            yield return WaitForCondition(
+                () => directHealing.IsCompleted,
+                "Direct healing of the committed defeat did not settle."
+            );
+            Assert.That(directHealing.IsFaulted, Is.True);
+            StringAssert.Contains(
+                "committed-defeated creature cannot be healed",
+                directHealing.Exception.ToString()
+            );
+
+            SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+            PreparedSpell heal = spellcasting.GetSpell("heal");
+            int slotsBefore = spellcasting.Pools["font-heal"].UsesRemaining;
+            uint actionsBefore = player.Controller.ActionPoints;
+            CoroutineResult<CastSpellResult> cast = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    player.GameObject,
+                    heal,
+                    1,
+                    new[] { defeatedAlly.GameObject }
+                ),
+                cast
+            );
+
+            Assert.That(cast.Value.Success, Is.False);
+            Assert.That(cast.Value.Message, Does.Contain("active encounter"));
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(actionsBefore));
+            Assert.That(spellcasting.Pools["font-heal"].UsesRemaining, Is.EqualTo(slotsBefore));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(bridge.Snapshot.Health[defeatedId].Current, Is.Zero);
+            Assert.That(defeatedAlly.Creature.hp, Is.Zero);
+
+            manager.EndCurrentTurn(player.Controller);
+            yield return WaitForTurn(enemy.GameObject);
+            Assert.That(defeatedAlly.Controller.StartTurnCount, Is.Zero);
+            yield return CoroutineRunner.Await(
+                player.Creature.ApplyFinalDamageAsync(
+                    player.Creature.hp,
+                    RuleSource.FromSlug("defeat-final-protagonist")
+                )
+            );
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The encounter did not end after its final true protagonist survivor fell."
+            );
+
+            Assert.That(outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+            Assert.That(bridge.Snapshot.Health[defeatedId].Current, Is.Zero);
+            Assert.That(bridge.Snapshot.Health[defeatedId].IsCommittedDefeated, Is.True);
+        }
+        finally
+        {
+            manager.DungeonCombatEnded -= captureOutcome;
+        }
     }
 
     /// <summary>Verifies a rejected queued Rage spend cannot publish prepared or health state.</summary>

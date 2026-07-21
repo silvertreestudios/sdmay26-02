@@ -88,7 +88,7 @@ public class CombatManager : CombatManagerInterface
         List<GameObject> ordered = encounter
             .Roster.Where(entry =>
                 encounterRules.Snapshot.Health.TryGet(entry.Creature, out HealthState health)
-                && health.Current > 0
+                && health.IsLiving
             )
             .Select(entry => encounterRules.GetController(entry.Creature))
             .Where(CanParticipate)
@@ -275,10 +275,6 @@ public class CombatManager : CombatManagerInterface
             );
             throw;
         }
-        finally
-        {
-            startupCombatants = Array.Empty<ActionController>();
-        }
         StartCoroutine(
             BeginEncounterRules(
                 selected,
@@ -317,6 +313,7 @@ public class CombatManager : CombatManagerInterface
             // dungeon activation generation before any buffered external presentation executes.
             startupCheckpoint.Commit();
             durable = true;
+            startupCombatants = Array.Empty<ActionController>();
             if (wasDungeonDirected)
                 NotifyDungeonCombatStartupCompleted(startingGeneration);
             yield return CoroutineRunner.Await(
@@ -792,7 +789,7 @@ public class CombatManager : CombatManagerInterface
         InitiativeEntry opposition = encounter.Roster.FirstOrDefault(entry =>
             entry.Team != encounter.ProtagonistTeam
             && snapshot.Health.TryGet(entry.Creature, out HealthState health)
-            && health.Current > 0
+            && health.IsLiving
         );
         return opposition == null
             ? "Opponents"
@@ -1023,7 +1020,7 @@ public class CombatManager : CombatManagerInterface
         controller != null
         && controller.gameObject.activeSelf
         && controller.isActiveAndEnabled
-        && controller.GetComponent<CreatureComponent>().Health.Current > 0;
+        && controller.GetComponent<CreatureComponent>().Health.IsLiving;
 
     /// <summary>Gets positions used to frame living, participating combatants in the camera.</summary>
     /// <returns>

@@ -295,6 +295,33 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Requests durable defeat commitment after a zero-HP creature's reactions have settled.
+    /// </summary>
+    /// <remarks>
+    /// Unity presentation dispatches this operation immediately before irreversible defeat work.
+    /// Damage does not commit defeat itself because Reaction listeners must retain their causal
+    /// opportunity to heal the creature first.
+    /// </remarks>
+    public sealed class FinalizeCreatureDefeatOp : IRuleOp<bool>
+    {
+        /// <summary>Gets the zero-HP creature whose defeat should become irreversible.</summary>
+        public CreatureId Target { get; }
+
+        /// <summary>Initializes a settled zero-HP defeat request.</summary>
+        /// <param name="target">The authoritative creature identity to finalize.</param>
+        public FinalizeCreatureDefeatOp(CreatureId target) =>
+            Target = HealthOperationValidation.RequireCreature(target);
+    }
+
+    internal sealed class CommitCreatureDefeatOp : IRuleOp<bool>
+    {
+        internal CreatureId Target { get; }
+
+        internal CommitCreatureDefeatOp(CreatureId target) =>
+            Target = HealthOperationValidation.RequireCreature(target);
+    }
+
     /// <summary>Requests a non-stacking temporary Hit Point grant owned by one source.</summary>
     public sealed class GrantTemporaryHitPointsOp : IRuleOp<TemporaryHitPointsGrantOutcome>
     {

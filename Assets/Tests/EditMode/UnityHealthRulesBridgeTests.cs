@@ -450,6 +450,7 @@ public sealed class UnityEncounterRulesBridgeTests
                 "Every root settlement must leave Unity health equal to the latest shared snapshot."
             );
             Assert.That(bridge.Snapshot.Health[heroId].Current, Is.EqualTo(1));
+            Assert.That(bridge.Snapshot.Health[heroId].IsCommittedDefeated, Is.False);
             Assert.That(hero.Health, Is.EqualTo(bridge.Snapshot.Health[heroId]));
             Assert.That(GetProjectedCurrentHealth(hero), Is.EqualTo(1));
             Assert.That(
@@ -506,7 +507,21 @@ public sealed class UnityEncounterRulesBridgeTests
 
             await hero.ApplyFinalDamageAsync(1, RuleSource.FromSlug("causal-lethal-test"));
 
+            InvalidOperationException healingFailure =
+                Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await hero.HealAsync(1, RuleSource.FromSlug("post-presentation-healing"))
+                );
+
             Assert.That(ended, Is.True);
+            Assert.That(bridge.Snapshot.Health[bridge.GetCreatureId(hero)].Current, Is.Zero);
+            Assert.That(
+                bridge.Snapshot.Health[bridge.GetCreatureId(hero)].IsCommittedDefeated,
+                Is.True
+            );
+            StringAssert.Contains(
+                "committed-defeated creature cannot be healed",
+                healingFailure.Message
+            );
             Assert.That(
                 bridge.Snapshot.Encounters[bridge.EncounterId].Outcome,
                 Is.EqualTo(EncounterOutcome.PlayerDefeat)

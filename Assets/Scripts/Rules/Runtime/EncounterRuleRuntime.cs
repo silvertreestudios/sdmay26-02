@@ -148,8 +148,7 @@ namespace Game.Rules.Runtime
         ) =>
             EncounterEndValidation.Evaluate(
                 encounter,
-                creature =>
-                    snapshot.Health.TryGet(creature, out HealthState health) && health.Current > 0
+                creature => EncounterEndValidation.IsLiving(snapshot, creature)
             );
     }
 
@@ -324,13 +323,7 @@ namespace Game.Rules.Runtime
                 }
                 if (boundary.Entry.EligibleFromRound.CompareTo(boundary.State.Round) > 0)
                     continue;
-                if (
-                    !context.Snapshot.Health.TryGet(
-                        boundary.Entry.Creature,
-                        out HealthState boundaryHealth
-                    )
-                    || boundaryHealth.Current <= 0
-                )
+                if (!EncounterEndValidation.IsLiving(context.Snapshot, boundary.Entry.Creature))
                     continue;
                 TurnStartContribution contribution = EncounterHandlerResults.Require(
                     await context.Dispatch(
@@ -342,10 +335,7 @@ namespace Game.Rules.Runtime
                     context.Snapshot,
                     frame.Op.Encounter
                 );
-                if (
-                    !context.Snapshot.Health.TryGet(boundary.Entry.Creature, out HealthState health)
-                    || health.Current <= 0
-                )
+                if (!EncounterEndValidation.IsLiving(context.Snapshot, boundary.Entry.Creature))
                 {
                     // The hook's zero-HP Fact still belongs to this outer root. Return without a
                     // turn so its Reaction listeners settle before the encounter-owned
@@ -518,12 +508,9 @@ namespace Game.Rules.Runtime
                 return new EncounterEvaluationOutcome(encounter);
             if (
                 encounter.CurrentTurn.HasValue
-                && (
-                    !context.Snapshot.Health.TryGet(
-                        encounter.CurrentTurn.Value.Actor,
-                        out HealthState health
-                    )
-                    || health.Current <= 0
+                && !EncounterEndValidation.IsLiving(
+                    context.Snapshot,
+                    encounter.CurrentTurn.Value.Actor
                 )
             )
             {
@@ -576,10 +563,7 @@ namespace Game.Rules.Runtime
             foreach (IEncounterTurnStartAdapter adapter in adapters)
             {
                 contribution = await adapter.Apply(adapterContext, contribution);
-                if (
-                    !context.Snapshot.Health.TryGet(frame.Op.Actor, out HealthState health)
-                    || health.Current <= 0
-                )
+                if (!EncounterEndValidation.IsLiving(context.Snapshot, frame.Op.Actor))
                     break;
             }
             return contribution;
