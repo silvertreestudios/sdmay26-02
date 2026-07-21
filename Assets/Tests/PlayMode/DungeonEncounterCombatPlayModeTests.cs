@@ -68,18 +68,70 @@ public sealed class DungeonEncounterCombatPlayModeTests
         CombatantFixture player = CreateCombatant("Player", "Players", 200);
         CombatantFixture activeEnemy = CreateCombatant("Active Enemy", "Enemies", 100);
         CombatantFixture dormantEnemy = CreateCombatant("Dormant Enemy", "Enemies", 1000);
+        List<GameObject> synchronousStartRoster = null;
+        UnityAction captureStartRoster = () => synchronousStartRoster = manager.GetCombatants();
+        OnCombatStart.AddListener(captureStartRoster);
 
-        manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
-        yield return WaitForTurn();
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
+            Assert.That(
+                synchronousStartRoster,
+                Is.EqualTo(new[] { player.GameObject, activeEnemy.GameObject }),
+                "Synchronous startup consumers must see only the explicit encounter subset."
+            );
+            Assert.That(GetStartupCombatants(), Is.Empty);
+            yield return WaitForTurn();
 
-        Assert.That(manager.IsCombatActive, Is.True);
-        Assert.That(
-            manager.GetCombatants(),
-            Is.EquivalentTo(new[] { player.GameObject, activeEnemy.GameObject })
-        );
-        Assert.That(manager.WhosTurn(), Is.Not.SameAs(dormantEnemy.GameObject));
-        Assert.That(dormantEnemy.Controller.StartTurnCount, Is.Zero);
-        Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EquivalentTo(new[] { player.GameObject, activeEnemy.GameObject })
+            );
+            Assert.That(manager.WhosTurn(), Is.Not.SameAs(dormantEnemy.GameObject));
+            Assert.That(dormantEnemy.Controller.StartTurnCount, Is.Zero);
+            Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
+        }
+        finally
+        {
+            OnCombatStart.RemoveListener(captureStartRoster);
+        }
+    }
+
+    /// <summary>Verifies a failed synchronous startup event cannot retain its selected projection.</summary>
+    [UnityTest]
+    public IEnumerator StartEventFailureClearsBootstrapRosterAndRestoresRegistrationView()
+    {
+        CombatantFixture player = CreateCombatant("Failed Start Player", "Players", 200);
+        CombatantFixture activeEnemy = CreateCombatant("Failed Start Enemy", "Enemies", 100);
+        CombatantFixture dormantEnemy = CreateCombatant("Failed Start Dormant", "Enemies", 0);
+        UnityAction failStart = () =>
+            throw new InvalidOperationException("deliberate synchronous startup failure");
+        OnCombatStart.AddListener(failStart);
+
+        try
+        {
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller })
+            );
+
+            Assert.That(error.Message, Does.Contain("deliberate synchronous startup failure"));
+            Assert.That(manager.IsCombatActive, Is.False);
+            Assert.That(GetStartupCombatants(), Is.Empty);
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(
+                    new[] { player.GameObject, activeEnemy.GameObject, dormantEnemy.GameObject }
+                ),
+                "Without an encounter, gameplay must return to the ordinary living registration view."
+            );
+        }
+        finally
+        {
+            OnCombatStart.RemoveListener(failStart);
+        }
+        yield return null;
     }
 
     /// <summary>
@@ -1606,6 +1658,16 @@ public sealed class DungeonEncounterCombatPlayModeTests
         );
         Assert.That(field, Is.Not.Null);
         return ((IEnumerable<ActionController>)field.GetValue(manager)).ToArray();
+    }
+
+    private IReadOnlyList<ActionController> GetStartupCombatants()
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "startupCombatants",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (IReadOnlyList<ActionController>)field.GetValue(manager);
     }
 
     private static IEnumerator WaitForCondition(Func<bool> condition, string timeoutMessage)

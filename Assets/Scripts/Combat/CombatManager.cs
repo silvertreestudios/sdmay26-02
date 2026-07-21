@@ -15,6 +15,7 @@ public class CombatManager : CombatManagerInterface
 {
     protected readonly List<ActionController> Combatants = new();
     private readonly List<ActionController> activeCombatants = new();
+    private IReadOnlyList<ActionController> startupCombatants = Array.Empty<ActionController>();
     private bool combatActive;
     private bool encounterReady;
     private bool dungeonDirectedCombat;
@@ -52,6 +53,11 @@ public class CombatManager : CombatManagerInterface
 
     public override List<GameObject> GetCombatants()
     {
+        if (startupCombatants.Count > 0)
+            return startupCombatants
+                .Where(CanParticipate)
+                .Select(value => value.gameObject)
+                .ToList();
         if (
             encounterRules == null
             || !encounterRules.Snapshot.Encounters.TryGet(
@@ -181,8 +187,21 @@ public class CombatManager : CombatManagerInterface
         encounterRules.TurnBegan += OnTurnBeganCommitted;
         encounterRules.TurnEnded += OnTurnEndedCommitted;
         encounterRules.EncounterEnded += OnEncounterEndedCommitted;
-        CombatActivityChanged.Invoke(true);
-        OnCombatStart.Invoke();
+        startupCombatants = selected;
+        try
+        {
+            CombatActivityChanged.Invoke(true);
+            OnCombatStart.Invoke();
+        }
+        catch
+        {
+            StopCombatState(cancelInFlightActions: true);
+            throw;
+        }
+        finally
+        {
+            startupCombatants = Array.Empty<ActionController>();
+        }
         StartCoroutine(BeginEncounterRules(selected));
     }
 
@@ -372,6 +391,9 @@ public class CombatManager : CombatManagerInterface
 
     private void StopCombatState(bool cancelInFlightActions)
     {
+        // Synchronous startup observers must never retain their selected-only projection after a
+        // failed event, normal encounter cleanup, or a later exploration transition.
+        startupCombatants = Array.Empty<ActionController>();
         if (encounterRules != null)
         {
             encounterRules.TurnBegan -= OnTurnBeganCommitted;

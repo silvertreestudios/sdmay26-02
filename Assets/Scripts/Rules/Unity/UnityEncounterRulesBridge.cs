@@ -1051,12 +1051,20 @@ namespace Game.Rules.Unity
                 )
                 {
                     HealthState health = snapshot.Health[fact.Creature];
+                    bool presentHit = fact is DamageAppliedFact && health.Current > 0;
                     owner.EnqueuePresentation(
                         fact,
                         () =>
                         {
-                            creature.ProjectCommittedHealth(health);
-                            if (fact is DamageAppliedFact && health.Current > 0)
+                            if (
+                                !owner.Snapshot.Health.TryGet(
+                                    fact.Creature,
+                                    out HealthState settledHealth
+                                )
+                            )
+                                return default;
+                            creature.ProjectCommittedHealth(settledHealth);
+                            if (presentHit)
                                 creature.PresentCommittedHit();
                             return default;
                         }
@@ -1080,10 +1088,11 @@ namespace Game.Rules.Unity
                                     fact.Creature,
                                     out HealthState settledHealth
                                 )
-                                || settledHealth.Current > 0
                             )
                                 return default;
                             creature.ProjectCommittedHealth(settledHealth);
+                            if (settledHealth.Current > 0)
+                                return default;
                             creature.PresentCommittedDefeat();
                             return default;
                         }

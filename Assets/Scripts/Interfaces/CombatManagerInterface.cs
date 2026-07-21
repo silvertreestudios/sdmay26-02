@@ -59,10 +59,12 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// <summary>Returns the current turn owner, or absence while combat is inactive.</summary>
     public abstract GameObject WhosTurn();
 
-    /// <summary>Gets living combatants that gameplay may currently target or path toward.</summary>
+    /// <summary>Gets living combatants that gameplay may currently target or present.</summary>
     /// <returns>
-    /// Living combatant objects in gameplay order. Defeated encounter entries remain in the
-    /// internal initiative roster as timing boundaries but are excluded from this projection.
+    /// During synchronous combat-start events, returns exactly the selected participants in input
+    /// order. During an encounter, returns its living roster in gameplay order. Without either
+    /// lifecycle, returns all living registered controllers. Defeated encounter entries remain in
+    /// the internal initiative roster as timing boundaries but are excluded from this projection.
     /// </returns>
     public abstract List<GameObject> GetCombatants();
 }

@@ -311,13 +311,30 @@ public sealed class UnityEncounterRulesBridgeTests
                 registry,
                 new[] { rescueBinding }
             );
+            CreatureId heroId = bridge.GetCreatureId(hero);
+            ProjectionSettlementObserver projection = new ProjectionSettlementObserver(
+                hero,
+                heroId
+            );
+            GetDispatcher(bridge).RegisterRootSettlementObserver(projection);
             await bridge.StartEncounter(new ActionController[] { heroController, enemyController });
+            projection.Clear();
 
             await hero.ApplyFinalDamageAsync(1, source);
 
-            CreatureId heroId = bridge.GetCreatureId(hero);
             EncounterState encounter = bridge.Snapshot.Encounters[bridge.EncounterId];
             Assert.That(rescue.Calls, Is.EqualTo(1));
+            Assert.That(
+                projection.Calls,
+                Is.GreaterThanOrEqualTo(2),
+                "Causal healing and its owning damage root must settle independently."
+            );
+            Assert.That(projection.SawMultipleRoots, Is.True);
+            Assert.That(
+                projection.AllProjectionsMatched,
+                Is.True,
+                "Every root settlement must leave Unity health equal to the latest shared snapshot."
+            );
             Assert.That(bridge.Snapshot.Health[heroId].Current, Is.EqualTo(1));
             Assert.That(hero.Health, Is.EqualTo(bridge.Snapshot.Health[heroId]));
             Assert.That(GetProjectedCurrentHealth(hero), Is.EqualTo(1));
@@ -471,6 +488,46 @@ public sealed class UnityEncounterRulesBridgeTests
         }
 
         public void ReleaseSecond() => releaseSecond.TrySetResult(true);
+    }
+
+    private sealed class ProjectionSettlementObserver : IRootSettlementObserver
+    {
+        private readonly CreatureComponent creature;
+        private readonly CreatureId creatureId;
+        private OpId firstRoot;
+        private OpId lastRoot;
+
+        public ProjectionSettlementObserver(CreatureComponent creature, CreatureId creatureId)
+        {
+            this.creature = creature;
+            this.creatureId = creatureId;
+            Clear();
+        }
+
+        public int Calls { get; private set; }
+        public bool AllProjectionsMatched { get; private set; }
+        public bool SawMultipleRoots => Calls > 1 && firstRoot != lastRoot;
+
+        /// <inheritdoc/>
+        public ValueTask OnRootSettled(OpId rootId, RulesSnapshot snapshot)
+        {
+            if (!snapshot.Health.TryGet(creatureId, out HealthState health))
+                return default;
+            if (Calls == 0)
+                firstRoot = rootId;
+            lastRoot = rootId;
+            Calls++;
+            AllProjectionsMatched &= GetProjectedCurrentHealth(creature) == health.Current;
+            return default;
+        }
+
+        public void Clear()
+        {
+            Calls = 0;
+            AllProjectionsMatched = true;
+            firstRoot = default;
+            lastRoot = default;
+        }
     }
 
     private sealed class RescueListener : IRuleFactListener<CreatureReducedToZeroFact>
