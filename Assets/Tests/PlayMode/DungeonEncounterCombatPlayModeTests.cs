@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Game.AbilityActions;
 using Game.Combat.Encounters;
@@ -206,6 +207,65 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    /// <summary>Verifies an occupied dispatcher cannot accept duplicate work for a pending turn end.</summary>
+    [UnityTest]
+    public IEnumerator PendingEndTurn_ReservesActorAndAdvancesExactlyOnce()
+    {
+        CombatantFixture current = CreateCombatant("Pending End Current", "Players", 200);
+        CombatantFixture next = CreateCombatant("Pending End Next", "Enemies", 100);
+        CombatantFixture ally = CreateCombatant("Pending End Ally", "Players", 0);
+        manager.StartDungeonCombat(new[] { current.Controller, next.Controller, ally.Controller });
+        yield return WaitForTurn(current.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<TurnEndedFact> ended = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<TurnEndedFact>(ended);
+        Task damage = current
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-pending-end-blocker"))
+            .AsTask();
+        int competingInvocations = 0;
+        TestEntityAction competing = new("Queued After End", 1, () => competingInvocations++);
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The health observer did not occupy the dispatcher root."
+            );
+
+            manager.EndCurrentTurn(current.Controller);
+            manager.EndCurrentTurn(current.Controller);
+            current.Controller.TakeAction(competing);
+            yield return null;
+
+            Assert.That(current.Controller.IsTakingAction, Is.True);
+            Assert.That(current.Controller.HasTurnAuthority, Is.True);
+            Assert.That(current.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(competingInvocations, Is.Zero);
+            Assert.That(ended.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(damage));
+            yield return WaitForTurn(next.GameObject);
+
+            Assert.That(ended.Facts, Has.Count.EqualTo(1));
+            Assert.That(competingInvocations, Is.Zero);
+            Assert.That(current.Controller.HasTurnAuthority, Is.False);
+            Assert.That(current.Controller.ActionPoints, Is.Zero);
+            Assert.That(current.Controller.IsTakingAction, Is.False);
+            Assert.That(next.Controller.HasTurnAuthority, Is.True);
+            Assert.That(next.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(next.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<TurnEndedFact>(ended);
+        }
+    }
+
     /// <summary>Verifies malformed encounter identity cannot interrupt committed defeat cleanup.</summary>
     [UnityTest]
     public IEnumerator LethalDamage_UnconfiguredEncounterMemberStillCompletesDefeatPresentation()
@@ -354,6 +414,79 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(lines[2], Does.StartWith($"  2. {committedOrder[1]} "));
     }
 
+    /// <summary>Verifies concurrent queued reinforcement groups reserve distinct unpublished identities.</summary>
+    [UnityTest]
+    public IEnumerator ConcurrentReinforcementJoins_AcceptBothReservedIdentityGroups()
+    {
+        CombatantFixture current = CreateCombatant("Join Current", "Players", 300);
+        CombatantFixture later = CreateCombatant("Join Later", "Enemies", 0);
+        CombatantFixture first = CreateCombatant("First Pending Join", "Enemies", 200);
+        CombatantFixture second = CreateCombatant("Second Pending Join", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { current.Controller, later.Controller });
+        yield return WaitForTurn(current.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TurnEndedFact> blocker = new(failAfterRelease: false);
+        dispatcher.RegisterFactObserver<TurnEndedFact>(blocker);
+        Task<EncounterAdvanceOutcome> ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The turn-end observer did not occupy the dispatcher root."
+            );
+
+            manager.AddDungeonReinforcements(new[] { first.Controller });
+            manager.AddDungeonReinforcements(new[] { second.Controller });
+            yield return null;
+
+            Assert.Throws<InvalidOperationException>(() => bridge.GetCreatureId(first.Controller));
+            Assert.Throws<InvalidOperationException>(() => bridge.GetCreatureId(second.Controller));
+            Assert.That(manager.GetCombatants(), Has.No.Member(first.GameObject));
+            Assert.That(manager.GetCombatants(), Has.No.Member(second.GameObject));
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return WaitForCondition(
+                () =>
+                    manager.GetCombatants().Count == 4
+                    && combatLog
+                        .GetMessages()
+                        .Count(message =>
+                            message.StartsWith("Reinforcements:\n", StringComparison.Ordinal)
+                        ) == 2,
+                "Both queued reinforcement lifecycle groups were not accepted."
+            );
+
+            CreatureId firstId = bridge.GetCreatureId(first.Controller);
+            CreatureId secondId = bridge.GetCreatureId(second.Controller);
+            Assert.That(firstId, Is.Not.EqualTo(secondId));
+            Assert.That(firstId.Value, Is.EqualTo("encounter-creature-3"));
+            Assert.That(secondId.Value, Is.EqualTo("encounter-creature-4"));
+            Assert.That(bridge.GetController(firstId), Is.SameAs(first.Controller));
+            Assert.That(bridge.GetController(secondId), Is.SameAs(second.Controller));
+            Assert.That(
+                bridge
+                    .Snapshot.Encounters[bridge.EncounterId]
+                    .Roster.Where(entry => entry.Creature == firstId || entry.Creature == secondId)
+                    .Select(entry => entry.Creature),
+                Is.EqualTo(new[] { firstId, secondId })
+            );
+            Assert.That(
+                manager.GetCombatants(),
+                Has.Member(first.GameObject).And.Member(second.GameObject)
+            );
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<TurnEndedFact>(blocker);
+            _ = ending.Exception;
+        }
+    }
+
     /// <summary>Verifies a lethal final-opponent weapon Strike commits before its effect ends combat.</summary>
     [UnityTest]
     public IEnumerator LethalWeaponStrikeCommitsCostAndAlwaysCompletesActionLifecycle()
@@ -451,6 +584,136 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(map.Facts[0].AttackCount, Is.EqualTo(1));
         Assert.That(completionCalls, Is.EqualTo(1));
         Assert.That(player.Controller.IsTakingAction, Is.False);
+    }
+
+    /// <summary>Verifies a queued reload cannot publish after an earlier queued turn end wins.</summary>
+    [UnityTest]
+    public IEnumerator ReloadSpendRejectedAfterTurnEnd_LeavesWeaponUnloadedAndUnlogged()
+    {
+        CombatantFixture player = CreateCombatant("Rejected Reload Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Rejected Reload Enemy", "Enemies", 100);
+        CombatantFixture ally = CreateCombatant("Rejected Reload Ally", "Players", 0);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller, ally.Controller });
+        yield return WaitForTurn(player.GameObject);
+        EquipmentWeapon weapon = CreateReloadTestWeapon();
+        player.Creature.SetAmmoQuantity(weapon.ammo, 2);
+        player.Creature.MarkWeaponFired(weapon);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        Task damage = player
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-reload-rejection-blocker"))
+            .AsTask();
+        Task<EncounterAdvanceOutcome> ending = null;
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The health observer did not occupy the reload dispatcher root."
+            );
+            ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+            player.Controller.TakeAction(new ReloadWeaponAction(1, weapon));
+            yield return null;
+
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Creature.IsWeaponLoaded(weapon), Is.False);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(
+                combatLog.GetMessages().Count(message => message.Contains("reloads Review Sling")),
+                Is.Zero
+            );
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: The actor has insufficient authoritative actions\\."
+                )
+            );
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(damage));
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return null;
+            yield return null;
+
+            Assert.That(player.Creature.IsWeaponLoaded(weapon), Is.False);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(
+                combatLog.GetMessages().Count(message => message.Contains("reloads Review Sling")),
+                Is.Zero
+            );
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            _ = ending?.Exception;
+        }
+    }
+
+    /// <summary>Verifies a delayed reload publishes once only after its action spend commits.</summary>
+    [UnityTest]
+    public IEnumerator DelayedReload_SpendsBeforePublishingLoadedState()
+    {
+        CombatantFixture player = CreateCombatant("Delayed Reload Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Delayed Reload Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        EquipmentWeapon weapon = CreateReloadTestWeapon();
+        player.Creature.SetAmmoQuantity(weapon.ammo, 2);
+        player.Creature.MarkWeaponFired(weapon);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        Task damage = player
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-reload-success-blocker"))
+            .AsTask();
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The health observer did not occupy the delayed reload dispatcher root."
+            );
+            player.Controller.TakeAction(new ReloadWeaponAction(1, weapon));
+            yield return null;
+
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Creature.IsWeaponLoaded(weapon), Is.False);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(spends.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(damage));
+            yield return WaitForCondition(
+                () => player.Creature.IsWeaponLoaded(weapon) && !player.Controller.IsTakingAction,
+                "The accepted delayed reload did not settle."
+            );
+
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(spends.Facts, Has.Count.EqualTo(1));
+            Assert.That(spends.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(
+                combatLog.GetMessages().Count(message => message.Contains("reloads Review Sling")),
+                Is.EqualTo(1)
+            );
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+        }
     }
 
     /// <summary>Verifies affected creatures outside the active roster reject before spell costs.</summary>
@@ -1144,6 +1407,19 @@ public sealed class DungeonEncounterCombatPlayModeTests
             ClassFeatName = "Raging Intimidation",
         };
         creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
+    }
+
+    private static EquipmentWeapon CreateReloadTestWeapon()
+    {
+        return new EquipmentWeapon
+        {
+            name = "Review Sling",
+            range = 50,
+            reload = "1",
+            ammo = "review-sling-bullets",
+            damage = new Dice(1, 6, "bludgeoning"),
+            traits = new List<string> { "propulsive" },
+        };
     }
 
     private GameObject Create(string name)

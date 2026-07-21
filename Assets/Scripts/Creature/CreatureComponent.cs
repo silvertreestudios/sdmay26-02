@@ -809,9 +809,24 @@ namespace Game.Creature
                 _unloadedWeapons.Add(key);
         }
 
+        internal bool CanReloadWeapon(EquipmentWeapon weapon)
+        {
+            return weapon != null
+                && GetReloadCost(weapon) > 0
+                && HasAmmoFor(weapon)
+                && !IsWeaponLoaded(weapon);
+        }
+
+        /// <summary>Publishes an eligible weapon's loaded state after its caller commits cost.</summary>
+        /// <param name="weapon">The unloaded reload weapon with available ammunition.</param>
+        /// <returns>Whether the unloaded marker was removed exactly once.</returns>
+        /// <remarks>
+        /// This state-only method never spends actions. Combat actions must validate eligibility,
+        /// await authoritative payment, and only then call this method.
+        /// </remarks>
         public bool ReloadWeapon(EquipmentWeapon weapon)
         {
-            if (weapon == null || GetReloadCost(weapon) <= 0 || !HasAmmoFor(weapon))
+            if (!CanReloadWeapon(weapon))
                 return false;
 
             _unloadedWeapons.Remove(NormalizeEquipmentKey(weapon.name));

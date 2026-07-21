@@ -19,6 +19,7 @@ public class CombatManager : CombatManagerInterface
     private bool encounterReady;
     private bool dungeonDirectedCombat;
     private UnityEncounterRulesBridge encounterRules;
+    private TurnIdentity? pendingTurnEnd;
 
     /// <summary>Raised with the committed protagonist-relative dungeon outcome.</summary>
     public event Action<EncounterOutcome> DungeonCombatEnded = delegate { };
@@ -133,9 +134,7 @@ public class CombatManager : CombatManagerInterface
     public override void NextTurn()
     {
         if (combatActive && encounterRules.CurrentTurn.HasValue)
-            StartCoroutine(
-                CoroutineRunner.Await(encounterRules.EndTurn(encounterRules.CurrentTurn.Value))
-            );
+            RequestTurnEnd(encounterRules.CurrentTurn.Value);
     }
 
     public override void EndCurrentTurn(ActionController actor)
@@ -148,9 +147,7 @@ public class CombatManager : CombatManagerInterface
             || encounterRules.CurrentTurn.Value.Actor != encounterRules.GetCreatureId(actor)
         )
             return;
-        StartCoroutine(
-            CoroutineRunner.Await(encounterRules.EndTurn(encounterRules.CurrentTurn.Value))
-        );
+        RequestTurnEnd(encounterRules.CurrentTurn.Value);
     }
 
     private void BeginCombat(IReadOnlyList<ActionController> participants, bool dungeonDirected)
@@ -266,7 +263,42 @@ public class CombatManager : CombatManagerInterface
             || encounterRules.CurrentTurn.Value != turn
         )
             yield break;
-        yield return CoroutineRunner.Await(encounterRules.EndTurn(turn));
+        RequestTurnEnd(turn);
+    }
+
+    private void RequestTurnEnd(TurnIdentity turn)
+    {
+        if (
+            !combatActive
+            || pendingTurnEnd.HasValue
+            || !encounterRules.CurrentTurn.HasValue
+            || encounterRules.CurrentTurn.Value != turn
+        )
+            return;
+
+        ActionController actor = encounterRules.GetController(turn.Actor);
+        if (actor.IsTakingAction)
+            return;
+
+        // Reserve both the exact reducer turn and the Unity action surface before the dispatcher
+        // can yield. Repeated end requests and actions must not queue behind the same stale turn.
+        pendingTurnEnd = turn;
+        actor.IsTakingAction = true;
+        StartCoroutine(EndReservedTurn(turn, actor));
+    }
+
+    private IEnumerator EndReservedTurn(TurnIdentity turn, ActionController actor)
+    {
+        try
+        {
+            yield return CoroutineRunner.Await(encounterRules.EndTurn(turn));
+        }
+        finally
+        {
+            if (pendingTurnEnd.HasValue && pendingTurnEnd.Value == turn)
+                pendingTurnEnd = null;
+            actor.IsTakingAction = false;
+        }
     }
 
     private void OnTurnEndedCommitted(TurnIdentity turn)

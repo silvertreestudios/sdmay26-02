@@ -261,19 +261,27 @@ namespace Game.Strikes
         }
     }
 
+    /// <summary>Spends the reload action before publishing a weapon's loaded state.</summary>
     [System.Serializable]
     public class ReloadWeaponAction : MultiFrameEntityAction
     {
         private readonly EquipmentWeapon Weapon;
 
+        /// <inheritdoc/>
         public override string ActionName => "Reload " + Weapon.name;
 
+        /// <summary>Creates an action for the weapon's imported reload cost.</summary>
+        /// <param name="cost">The authoritative action cost to commit.</param>
+        /// <param name="weapon">The unloaded weapon that will become ready after payment.</param>
         public ReloadWeaponAction(uint cost, EquipmentWeapon weapon)
             : base(cost)
         {
-            Weapon = weapon;
+            Weapon = weapon ?? throw new System.ArgumentNullException(nameof(weapon));
         }
 
+        /// <summary>Checks whether this action was created for the supplied weapon definition.</summary>
+        /// <param name="weapon">A weapon definition or equivalent imported name.</param>
+        /// <returns>Whether this action represents that weapon.</returns>
         public bool RepresentsWeapon(EquipmentWeapon weapon)
         {
             return Weapon == weapon
@@ -292,13 +300,16 @@ namespace Game.Strikes
         {
             ActionController ac = target.GetComponent<ActionController>();
             CreatureComponent cc = target.GetComponent<CreatureComponent>();
-            if (cc != null && cc.ReloadWeapon(Weapon))
-            {
-                CombatLog.GetInstance().Log("- " + target.name + " reloads " + Weapon.name + ".");
-                yield return CoroutineRunner.Await(PayCostAsync(ac));
-            }
-            if (ac)
-                ac.IsTakingAction = false;
+            if (cc == null || !cc.CanReloadWeapon(Weapon))
+                yield break;
+
+            yield return CoroutineRunner.Await(PayCostAsync(ac));
+            if (!cc.ReloadWeapon(Weapon))
+                throw new System.InvalidOperationException(
+                    "Validated reload state changed before the accepted action could publish."
+                );
+
+            CombatLog.GetInstance().Log("- " + target.name + " reloads " + Weapon.name + ".");
         }
     }
 }

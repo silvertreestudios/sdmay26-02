@@ -48,17 +48,30 @@ namespace Game.Rules.Unity
     /// <summary>Owns the single authoritative rules store and dispatcher for one Unity encounter.</summary>
     public sealed class UnityEncounterRulesBridge
     {
-        private Dictionary<CreatureComponent, CreatureId> creatureIds = new();
-        private Dictionary<CreatureId, CreatureComponent> creatures = new();
-        private Dictionary<ActionController, CreatureId> controllerIds = new();
-        private Dictionary<CreatureId, ActionController> controllers = new();
-        private Dictionary<string, PlayerId> teamIds = new(StringComparer.Ordinal);
-        private Dictionary<PlayerId, string> teamDisplayNames = new();
+        private readonly Dictionary<CreatureComponent, CreatureId> creatureIds = new();
+        private readonly Dictionary<CreatureId, CreatureComponent> creatures = new();
+        private readonly Dictionary<ActionController, CreatureId> controllerIds = new();
+        private readonly Dictionary<CreatureId, ActionController> controllers = new();
+        private readonly Dictionary<string, PlayerId> teamIds = new(StringComparer.Ordinal);
+        private readonly Dictionary<PlayerId, string> teamDisplayNames = new();
         private readonly Dictionary<HealthChangeOriginId, RuleSource> origins = new();
+
+        // Join planning runs synchronously up to its dispatcher await. These reservations are not
+        // authoritative membership: they only prevent queued plans from reusing an identity, and
+        // public maps/attachments still publish exclusively after reducer acceptance.
+        private readonly HashSet<CreatureComponent> pendingJoinCreatures = new();
+        private readonly HashSet<ActionController> pendingJoinControllers = new();
+        private readonly Dictionary<string, PlayerId> pendingJoinTeamIds = new(
+            StringComparer.Ordinal
+        );
+        private readonly Dictionary<string, int> pendingJoinTeamReferences = new(
+            StringComparer.Ordinal
+        );
         private readonly Queue<Func<ValueTask>> presentation = new();
         private readonly RuleDispatcher dispatcher;
         private readonly EncounterId encounterId;
         private readonly PlayerId protagonistTeam;
+        private long nextCreatureId;
         private long nextOriginId;
 
         private UnityEncounterRulesBridge(
@@ -80,6 +93,7 @@ namespace Game.Rules.Unity
                 creatures.Add(id, creature);
                 seed.SeedHealth(id, creature.GetHealthInitializationState());
             }
+            nextCreatureId = encounterCreatures.Count;
             ActiveRuleBinding[] copiedBindings =
                 initialBindings?.ToArray()
                 ?? throw new ArgumentNullException(nameof(initialBindings));
@@ -325,39 +339,141 @@ namespace Game.Rules.Unity
                     "Reinforcements require unique non-null controllers.",
                     nameof(additions)
                 );
-            Dictionary<CreatureComponent, CreatureId> plannedCreatureIds = new(creatureIds);
-            Dictionary<CreatureId, CreatureComponent> plannedCreatures = new(creatures);
-            Dictionary<ActionController, CreatureId> plannedControllerIds = new(controllerIds);
-            Dictionary<CreatureId, ActionController> plannedControllers = new(controllers);
-            Dictionary<string, PlayerId> plannedTeamIds = new(teamIds, StringComparer.Ordinal);
-            Dictionary<PlayerId, string> plannedTeamDisplayNames = new(teamDisplayNames);
-            EncounterJoinParticipant[] participants = copied
-                .Select(controller =>
-                    PlanReinforcement(
-                        controller,
-                        plannedCreatureIds,
-                        plannedCreatures,
-                        plannedControllerIds,
-                        plannedControllers,
-                        plannedTeamIds,
-                        plannedTeamDisplayNames
-                    )
-                )
-                .ToArray();
-            await DispatchAsync(new JoinEncounterOp(encounterId, participants));
-            creatureIds = plannedCreatureIds;
-            creatures = plannedCreatures;
-            controllerIds = plannedControllerIds;
-            controllers = plannedControllers;
-            teamIds = plannedTeamIds;
-            teamDisplayNames = plannedTeamDisplayNames;
-            foreach (ActionController controller in copied)
+            List<KeyValuePair<ActionController, CreatureComponent>> reservedIdentities = new();
+            Dictionary<string, PlayerId> reservedTeams = new(StringComparer.Ordinal);
+            try
             {
-                CreatureId id = controllerIds[controller];
-                controller.GetComponent<CreatureComponent>().AttachEncounterRules(this, id);
-                controller.AttachEncounterRules(this, id);
+                foreach (ActionController controller in copied)
+                {
+                    CreatureComponent creature = controller.GetComponent<CreatureComponent>();
+                    if (creature == null)
+                        throw new ArgumentException(
+                            "Every reinforcement requires a CreatureComponent.",
+                            nameof(additions)
+                        );
+                    if (controllerIds.ContainsKey(controller))
+                        continue;
+                    if (
+                        pendingJoinControllers.Contains(controller)
+                        || pendingJoinCreatures.Contains(creature)
+                    )
+                        throw new InvalidOperationException(
+                            "A reinforcement identity is already pending registration."
+                        );
+                    pendingJoinControllers.Add(controller);
+                    pendingJoinCreatures.Add(creature);
+                    reservedIdentities.Add(
+                        new KeyValuePair<ActionController, CreatureComponent>(controller, creature)
+                    );
+                }
+
+                Dictionary<CreatureComponent, CreatureId> plannedCreatureIds = new(creatureIds);
+                Dictionary<CreatureId, CreatureComponent> plannedCreatures = new(creatures);
+                Dictionary<ActionController, CreatureId> plannedControllerIds = new(controllerIds);
+                Dictionary<CreatureId, ActionController> plannedControllers = new(controllers);
+                Dictionary<string, PlayerId> plannedTeamIds = new(teamIds, StringComparer.Ordinal);
+                Dictionary<PlayerId, string> plannedTeamDisplayNames = new(teamDisplayNames);
+                foreach (KeyValuePair<string, PlayerId> pendingTeam in pendingJoinTeamIds)
+                {
+                    if (!plannedTeamIds.ContainsKey(pendingTeam.Key))
+                        plannedTeamIds.Add(pendingTeam.Key, pendingTeam.Value);
+                    if (!plannedTeamDisplayNames.ContainsKey(pendingTeam.Value))
+                        plannedTeamDisplayNames.Add(pendingTeam.Value, pendingTeam.Key);
+                }
+
+                EncounterJoinParticipant[] participants = copied
+                    .Select(controller =>
+                        PlanReinforcement(
+                            controller,
+                            plannedCreatureIds,
+                            plannedCreatures,
+                            plannedControllerIds,
+                            plannedControllers,
+                            plannedTeamIds,
+                            plannedTeamDisplayNames
+                        )
+                    )
+                    .ToArray();
+                for (int index = 0; index < copied.Length; index++)
+                {
+                    string display = GetTeamDisplayName(copied[index]);
+                    if (teamIds.ContainsKey(display) || reservedTeams.ContainsKey(display))
+                        continue;
+                    PlayerId id = participants[index].Participant.Team;
+                    if (
+                        pendingJoinTeamIds.TryGetValue(display, out PlayerId pendingId)
+                        && pendingId != id
+                    )
+                        throw new InvalidOperationException(
+                            "Pending reinforcement team identity changed during planning."
+                        );
+                    if (!pendingJoinTeamIds.ContainsKey(display))
+                        pendingJoinTeamIds.Add(display, id);
+                    pendingJoinTeamReferences[display] = pendingJoinTeamReferences.TryGetValue(
+                        display,
+                        out int references
+                    )
+                        ? references + 1
+                        : 1;
+                    reservedTeams.Add(display, id);
+                }
+
+                await DispatchAsync(new JoinEncounterOp(encounterId, participants));
+
+                foreach (KeyValuePair<string, PlayerId> team in reservedTeams)
+                {
+                    if (teamIds.TryGetValue(team.Key, out PlayerId committedTeam))
+                    {
+                        if (committedTeam != team.Value)
+                            throw new InvalidOperationException(
+                                "Committed reinforcement team identity conflicts with its reservation."
+                            );
+                        continue;
+                    }
+                    teamIds.Add(team.Key, team.Value);
+                    teamDisplayNames.Add(team.Value, team.Key);
+                }
+                foreach (
+                    KeyValuePair<ActionController, CreatureComponent> reserved in reservedIdentities
+                )
+                {
+                    CreatureId id = plannedControllerIds[reserved.Key];
+                    creatureIds.Add(reserved.Value, id);
+                    creatures.Add(id, reserved.Value);
+                    controllerIds.Add(reserved.Key, id);
+                    controllers.Add(id, reserved.Key);
+                }
+                foreach (
+                    KeyValuePair<ActionController, CreatureComponent> reserved in reservedIdentities
+                )
+                {
+                    CreatureId id = controllerIds[reserved.Key];
+                    reserved.Value.AttachEncounterRules(this, id);
+                    reserved.Key.AttachEncounterRules(this, id);
+                }
+                return new EncounterJoinOutcome(Snapshot.Encounters[encounterId]);
             }
-            return new EncounterJoinOutcome(Snapshot.Encounters[encounterId]);
+            finally
+            {
+                foreach (
+                    KeyValuePair<ActionController, CreatureComponent> reserved in reservedIdentities
+                )
+                {
+                    pendingJoinControllers.Remove(reserved.Key);
+                    pendingJoinCreatures.Remove(reserved.Value);
+                }
+                foreach (string display in reservedTeams.Keys)
+                {
+                    int references = pendingJoinTeamReferences[display] - 1;
+                    if (references > 0)
+                    {
+                        pendingJoinTeamReferences[display] = references;
+                        continue;
+                    }
+                    pendingJoinTeamReferences.Remove(display);
+                    pendingJoinTeamIds.Remove(display);
+                }
+            }
         }
 
         private EncounterJoinParticipant PlanReinforcement(
@@ -389,7 +505,9 @@ namespace Game.Rules.Unity
                 throw new InvalidOperationException(
                     "A creature cannot be registered through two controllers."
                 );
-            CreatureId id = new CreatureId($"encounter-creature-{plannedCreatureIds.Count + 1}");
+            // Rejected plans may leave a harmless sequence gap; IDs are never reused while another
+            // accepted or pending join can still reference them.
+            CreatureId id = new CreatureId($"encounter-creature-{++nextCreatureId}");
             HealthState health = creature.GetHealthInitializationState();
             plannedCreatureIds.Add(creature, id);
             plannedCreatures.Add(id, creature);
@@ -609,11 +727,7 @@ namespace Game.Rules.Unity
             IDictionary<PlayerId, string> resolvedTeamDisplayNames
         )
         {
-            Team team = controller.GetComponent<Team>();
-            string display =
-                team == null || string.IsNullOrWhiteSpace(team.Name)
-                    ? "Unassigned"
-                    : team.Name.Trim();
+            string display = GetTeamDisplayName(controller);
             if (resolvedTeamIds.TryGetValue(display, out PlayerId existing))
                 return existing;
             string baseSlug = new string(
@@ -632,6 +746,14 @@ namespace Game.Rules.Unity
             resolvedTeamIds.Add(display, id);
             resolvedTeamDisplayNames.Add(id, display);
             return id;
+        }
+
+        private static string GetTeamDisplayName(ActionController controller)
+        {
+            Team team = controller.GetComponent<Team>();
+            return team == null || string.IsNullOrWhiteSpace(team.Name)
+                ? "Unassigned"
+                : team.Name.Trim();
         }
 
         private bool TryFindTeam(string displayName, out PlayerId id)
