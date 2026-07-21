@@ -35,7 +35,7 @@ public class PlayerActionController : ActionController
             CombatLog.GetInstance().Log("- " + this.gameObject.name + " ended their turn.");
             // Clean up turn state
             // I.E. UI, etc
-            CombatManagerInterface.GetInstance().EndCurrentTurn(this);
+            CompleteOwnedTurn();
         }
     }
 

@@ -16,6 +16,15 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// </remarks>
     public abstract event Action<long> DungeonCombatStartupAborted;
 
+    /// <summary>
+    /// Raised when a dungeon combat's rules startup becomes durable for its exact generation.
+    /// </summary>
+    /// <remarks>
+    /// Unity presentation callbacks run after this boundary. A callback failure remains visible,
+    /// but it cannot roll the accepted encounter or its dungeon activations back.
+    /// </remarks>
+    public abstract event Action<long> DungeonCombatStartupCompleted;
+
     /// <summary>Gets whether the manager currently owns an active initiative round.</summary>
     public abstract bool IsCombatActive { get; }
 

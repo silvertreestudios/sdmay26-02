@@ -112,6 +112,7 @@ namespace Game.Combat.Encounters
                 }
             }
             combatManager.DungeonCombatStartupAborted += OnDungeonCombatStartupAborted;
+            combatManager.DungeonCombatStartupCompleted += OnDungeonCombatStartupCompleted;
         }
 
         /// <summary>Raised after one materialized encounter creature is permanently defeated.</summary>
@@ -184,7 +185,8 @@ namespace Game.Combat.Encounters
                     throw new InvalidOperationException(
                         "The encounter lifecycle requested a new combat while combat is already active."
                     );
-                PendingStartupActivation activation = new(result.Encounter.Plan.Id, before.State);
+                PendingStartupActivation activation = new();
+                activation.Add(result.Encounter.Plan.Id, before.State);
                 pendingStartupActivation = activation;
                 try
                 {
@@ -198,10 +200,7 @@ namespace Game.Combat.Encounters
                 {
                     if (ReferenceEquals(pendingStartupActivation, activation))
                     {
-                        lifecycle.RestoreActivationAfterStartupAbort(
-                            activation.EncounterId,
-                            activation.PreviousState
-                        );
+                        activation.Restore(lifecycle);
                         pendingStartupActivation = null;
                     }
                     throw;
@@ -213,7 +212,26 @@ namespace Game.Combat.Encounters
                     throw new InvalidOperationException(
                         "The encounter lifecycle requested reinforcements while combat is inactive."
                     );
-                combatManager.AddDungeonReinforcements(livingEnemies);
+                PendingStartupActivation activation = pendingStartupActivation;
+                bool belongsToStartingGeneration = activation != null;
+                if (belongsToStartingGeneration)
+                    activation.Add(result.Encounter.Plan.Id, before.State);
+                try
+                {
+                    combatManager.AddDungeonReinforcements(livingEnemies);
+                }
+                catch
+                {
+                    if (belongsToStartingGeneration)
+                    {
+                        lifecycle.RestoreActivationAfterStartupAbort(
+                            result.Encounter.Plan.Id,
+                            before.State
+                        );
+                        activation.Remove(result.Encounter.Plan.Id);
+                    }
+                    throw;
+                }
             }
 
             return result;
@@ -396,6 +414,7 @@ namespace Game.Combat.Encounters
             if (isDisposed)
                 return;
             combatManager.DungeonCombatStartupAborted -= OnDungeonCombatStartupAborted;
+            combatManager.DungeonCombatStartupCompleted -= OnDungeonCombatStartupCompleted;
             foreach (DungeonEncounterMaterialization materialization in materializations.Values)
             {
                 foreach (DungeonEncounterMember member in materialization.Members)
@@ -415,10 +434,17 @@ namespace Game.Combat.Encounters
             if (activation.Generation.HasValue && activation.Generation.Value != generation)
                 return;
 
-            lifecycle.RestoreActivationAfterStartupAbort(
-                activation.EncounterId,
-                activation.PreviousState
-            );
+            activation.Restore(lifecycle);
+            pendingStartupActivation = null;
+        }
+
+        private void OnDungeonCombatStartupCompleted(long generation)
+        {
+            if (isDisposed || pendingStartupActivation == null)
+                return;
+            PendingStartupActivation activation = pendingStartupActivation;
+            if (activation.Generation.HasValue && activation.Generation.Value != generation)
+                return;
             pendingStartupActivation = null;
         }
 
@@ -463,18 +489,43 @@ namespace Game.Combat.Encounters
 
         private sealed class PendingStartupActivation
         {
-            internal PendingStartupActivation(
-                string encounterId,
-                DungeonEncounterGroupState previousState
-            )
+            private readonly List<Activation> activations = new();
+
+            internal void Add(string encounterId, DungeonEncounterGroupState previousState)
             {
-                EncounterId = encounterId;
-                PreviousState = previousState;
+                if (activations.Any(value => value.EncounterId == encounterId))
+                    return;
+                activations.Add(new Activation(encounterId, previousState));
             }
 
-            internal string EncounterId { get; }
-            internal DungeonEncounterGroupState PreviousState { get; }
+            internal void Remove(string encounterId) =>
+                activations.RemoveAll(value => value.EncounterId == encounterId);
+
+            internal void Restore(DungeonEncounterStateMachine lifecycle)
+            {
+                for (int index = activations.Count - 1; index >= 0; index--)
+                {
+                    Activation activation = activations[index];
+                    lifecycle.RestoreActivationAfterStartupAbort(
+                        activation.EncounterId,
+                        activation.PreviousState
+                    );
+                }
+            }
+
             internal long? Generation { get; set; }
+
+            private readonly struct Activation
+            {
+                internal Activation(string encounterId, DungeonEncounterGroupState previousState)
+                {
+                    EncounterId = encounterId;
+                    PreviousState = previousState;
+                }
+
+                internal string EncounterId { get; }
+                internal DungeonEncounterGroupState PreviousState { get; }
+            }
         }
     }
 }

@@ -196,6 +196,20 @@ public abstract class ActionController : MonoBehaviour
     public abstract void EndTurn();
 
     /// <summary>
+    /// Closes reducer-owned turn authority through the combat manager, or clears a standalone turn
+    /// locally when no encounter action state owns this controller.
+    /// </summary>
+    protected void CompleteOwnedTurn()
+    {
+        if (HasAuthoritativeActionState)
+        {
+            CombatManagerInterface.GetInstance().EndCurrentTurn(this);
+            return;
+        }
+        ResetEncounterTurnState();
+    }
+
+    /// <summary>
     /// Returns a copied list of all actions the controller can perform, excluding movements
     /// </summary>
     /// <returns></returns>

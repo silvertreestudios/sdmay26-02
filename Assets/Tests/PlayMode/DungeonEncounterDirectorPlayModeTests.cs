@@ -116,11 +116,11 @@ public sealed class DungeonEncounterDirectorPlayModeTests
     }
 
     /// <summary>
-    /// Verifies an asynchronous startup abort restores only its exact room activation and permits
-    /// the ordinary room-entry flow to retry.
+    /// Verifies an asynchronous startup abort restores every room activated by its generation and
+    /// permits the ordinary room-entry flow to retry.
     /// </summary>
     [UnityTest]
-    public IEnumerator AsyncStartupAbortReconcilesDirectorAndIgnoresStaleGeneration()
+    public IEnumerator AsyncStartupAbortRestoresAllGenerationActivationsAndIgnoresStaleAbort()
     {
         BlockingFactObserver<TurnBeganFact> blocker = new("deliberate director startup failure");
         UnityEncounterRulesBridge failedBridge = null;
@@ -160,6 +160,14 @@ public sealed class DungeonEncounterDirectorPlayModeTests
                 "The first-turn observer did not pause dungeon startup."
             );
 
+            DungeonRoomEntryResult second = director.EnterRoom(2);
+            Assert.That(second.Transition, Is.EqualTo(DungeonRoomEntryTransition.Reinforcement));
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(2).State,
+                Is.EqualTo(DungeonEncounterGroupState.Active),
+                "The second room must join the still-pending startup generation."
+            );
+
             LogAssert.Expect(
                 LogType.Exception,
                 new Regex("InvalidOperationException: deliberate director startup failure")
@@ -169,8 +177,10 @@ public sealed class DungeonEncounterDirectorPlayModeTests
                 () =>
                     !manager.IsCombatActive
                     && director.Lifecycle.GetRoomEncounter(1).State
+                        == DungeonEncounterGroupState.Dormant
+                    && director.Lifecycle.GetRoomEncounter(2).State
                         == DungeonEncounterGroupState.Dormant,
-                "The failed startup did not reconcile manager and room lifecycle state."
+                "The failed startup did not restore every activation owned by its generation."
             );
             Assert.That(inactivePublications, Is.EqualTo(1));
             Assert.That(lifecycleWasReconciledAtInactivePublication, Is.True);
@@ -185,8 +195,17 @@ public sealed class DungeonEncounterDirectorPlayModeTests
 
         DungeonRoomEntryResult retry = director.EnterRoom(1);
         yield return WaitForTurn();
+        DungeonRoomEntryResult retryReinforcement = director.EnterRoom(2);
+        yield return WaitForCondition(
+            () => manager.GetCombatants().Count == 4,
+            "The restored second room did not join the successful retry."
+        );
 
         Assert.That(retry.Transition, Is.EqualTo(DungeonRoomEntryTransition.FirstActivation));
+        Assert.That(
+            retryReinforcement.Transition,
+            Is.EqualTo(DungeonRoomEntryTransition.Reinforcement)
+        );
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(
             director.Lifecycle.GetRoomEncounter(1).State,
@@ -203,6 +222,12 @@ public sealed class DungeonEncounterDirectorPlayModeTests
             Is.EqualTo(DungeonEncounterGroupState.Active),
             "A stale startup notification must not revert a successful retry."
         );
+        Assert.That(
+            director.Lifecycle.GetRoomEncounter(2).State,
+            Is.EqualTo(DungeonEncounterGroupState.Active),
+            "A stale startup notification must not revert a retry reinforcement."
+        );
+        Assert.That(manager.GetCombatants(), Has.Count.EqualTo(4));
     }
 
     /// <summary>Verifies a second entered room materializes and joins the running fight.</summary>

@@ -446,6 +446,180 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    /// <summary>Verifies a player controller revokes locally owned authority outside encounters.</summary>
+    [Test]
+    public void PlayerEndTurnClearsStandaloneAuthorityAndActions()
+    {
+        PlayerActionController player = CreateLifecycleController<PlayerActionController>(
+            "Standalone Player",
+            "Players",
+            100
+        );
+
+        player.StartTurn();
+        Assert.That(player.HasTurnAuthority, Is.True);
+        Assert.That(player.ActionPoints, Is.EqualTo(3));
+
+        player.EndTurn();
+
+        Assert.That(player.HasTurnAuthority, Is.False);
+        Assert.That(player.ActionPoints, Is.Zero);
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    /// <summary>Verifies an AI controller revokes locally owned authority outside encounters.</summary>
+    [Test]
+    public void AiEndTurnClearsStandaloneAuthorityAndActions()
+    {
+        StandaloneTestAIActionController enemy =
+            CreateLifecycleController<StandaloneTestAIActionController>(
+                "Standalone AI",
+                "Enemies",
+                100
+            );
+
+        enemy.StartTurn();
+        Assert.That(enemy.HasTurnAuthority, Is.True);
+        Assert.That(enemy.ActionPoints, Is.EqualTo(3));
+
+        enemy.EndTurn();
+
+        Assert.That(enemy.HasTurnAuthority, Is.False);
+        Assert.That(enemy.ActionPoints, Is.Zero);
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    /// <summary>Verifies attached player and AI turns still close through the encounter reducer.</summary>
+    [UnityTest]
+    public IEnumerator AttachedPlayerEndTurnAdvancesToAiThroughAuthoritativeLifecycle()
+    {
+        PlayerActionController player = CreateLifecycleController<PlayerActionController>(
+            "Attached Player",
+            "Players",
+            200
+        );
+        StandaloneTestAIActionController enemy =
+            CreateLifecycleController<StandaloneTestAIActionController>(
+                "Attached AI",
+                "Enemies",
+                100
+            );
+
+        manager.StartDungeonCombat(new ActionController[] { player, enemy });
+        yield return WaitForCondition(
+            () => player.HasTurnAuthority && player.ActionPoints == 3,
+            "The authoritative player turn did not begin."
+        );
+
+        player.EndTurn();
+        yield return WaitForCondition(
+            () => enemy.HasTurnAuthority && enemy.ActionPoints == 3,
+            "The authoritative lifecycle did not advance to the AI."
+        );
+
+        Assert.That(player.HasTurnAuthority, Is.False);
+        Assert.That(player.ActionPoints, Is.Zero);
+        Assert.That(manager.WhosTurn(), Is.SameAs(enemy.gameObject));
+        Assert.That(manager.IsCombatActive, Is.True);
+    }
+
+    /// <summary>
+    /// Verifies external presentation begins only after startup is durable, so a later callback
+    /// fault cannot convert already-presented work into a partially rolled-back encounter.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator StartupPresentationFaultLeavesAcceptedEncounterUsableAndRetryPresentsOnce()
+    {
+        CombatantFixture player = CreateCombatant("Accepted Presentation Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Accepted Presentation Enemy", "Enemies", 100);
+        SpellEffectController spellEffects = SpellEffectController.GetOrAdd(player.GameObject);
+        spellEffects.AddOrRefresh(new ShieldSpellEffect(player.GameObject));
+        int failedTurnCallbacks = 0;
+        int inactivePublications = 0;
+        UnityAction<GameObject> failTurnPresentation = actor =>
+        {
+            if (actor != player.GameObject)
+                return;
+            failedTurnCallbacks++;
+            throw new InvalidOperationException("deliberate accepted startup presentation failure");
+        };
+        Action<bool> observeActivity = active =>
+        {
+            if (!active)
+                inactivePublications++;
+        };
+        OnNextTurn.AddListener(failTurnPresentation);
+        manager.CombatActivityChanged += observeActivity;
+
+        try
+        {
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: deliberate accepted startup presentation failure"
+                )
+            );
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForCondition(
+                () => failedTurnCallbacks == 1,
+                "The accepted first-turn presentation callback did not run."
+            );
+
+            UnityEncounterRulesBridge acceptedBridge = GetEncounterBridge();
+            EncounterState acceptedEncounter = acceptedBridge.Snapshot.Encounters[
+                acceptedBridge.EncounterId
+            ];
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(acceptedEncounter.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(acceptedEncounter.CurrentTurn.HasValue, Is.True);
+            Assert.That(player.Controller.HasTurnAuthority, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3));
+            Assert.That(player.Controller.StartTurnCount, Is.Zero);
+            Assert.That(spellEffects.HasEffect<ShieldSpellEffect>(), Is.False);
+            Assert.That(inactivePublications, Is.Zero);
+
+            OnNextTurn.RemoveListener(failTurnPresentation);
+            manager.SuspendDungeonCombat();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "A post-acceptance presentation fault left startup requests permanently blocked."
+            );
+            Assert.That(inactivePublications, Is.EqualTo(1));
+
+            int successfulTurnCallbacks = 0;
+            UnityAction<GameObject> observeSuccessfulTurn = actor =>
+            {
+                if (actor == player.GameObject)
+                    successfulTurnCallbacks++;
+            };
+            spellEffects.AddOrRefresh(new ShieldSpellEffect(player.GameObject));
+            OnNextTurn.AddListener(observeSuccessfulTurn);
+            try
+            {
+                manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+                yield return WaitForCondition(
+                    () => player.Controller.StartTurnCount == 1,
+                    "The successful retry did not complete first-turn presentation."
+                );
+
+                Assert.That(manager.IsCombatActive, Is.True);
+                Assert.That(successfulTurnCallbacks, Is.EqualTo(1));
+                Assert.That(spellEffects.HasEffect<ShieldSpellEffect>(), Is.False);
+                Assert.That(player.Controller.HasTurnAuthority, Is.True);
+                Assert.That(player.Controller.ActionPoints, Is.EqualTo(3));
+            }
+            finally
+            {
+                OnNextTurn.RemoveListener(observeSuccessfulTurn);
+            }
+        }
+        finally
+        {
+            OnNextTurn.RemoveListener(failTurnPresentation);
+            manager.CombatActivityChanged -= observeActivity;
+        }
+    }
+
     /// <summary>Verifies rollback never recreates an exploration reservation that already settled.</summary>
     [UnityTest]
     public IEnumerator StartupFailureAfterExplorationStrideSettlesLeavesNoReservation()
@@ -3992,6 +4166,20 @@ public sealed class DungeonEncounterCombatPlayModeTests
         return new CombatantFixture(gameObject, creature, conditions, controller);
     }
 
+    private T CreateLifecycleController<T>(string name, string teamName, int initiative)
+        where T : ActionController
+    {
+        GameObject gameObject = Create(name);
+        CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
+        creature.name = name;
+        creature.initiative = initiative;
+        creature.InitializeHealthBeforeEncounter(10, 10);
+        gameObject.AddComponent<Conditions>();
+        Team team = gameObject.AddComponent<Team>();
+        team.Name = teamName;
+        return gameObject.AddComponent<T>();
+    }
+
     private static void PrepareBarbarian(CreatureComponent creature)
     {
         creature.level = 1;
@@ -4115,6 +4303,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
             CombatManagerInterface.GetInstance().NextTurn();
         }
     }
+
+    private sealed class StandaloneTestAIActionController : AIActionController { }
 
     private sealed class TestEntityAction : MultiFrameEntityAction
     {

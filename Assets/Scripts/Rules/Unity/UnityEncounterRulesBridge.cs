@@ -74,7 +74,7 @@ namespace Game.Rules.Unity
         // phase drain parent presentation before descendants without touching unrelated roots.
         private readonly Dictionary<OpId, List<OpId>> presentationChildrenByRoot = new();
         private readonly HashSet<OpId> settledPresentationRoots = new();
-        private StartupPresentationTransaction startupPresentationTransaction;
+        private StartupPresentationBuffer startupPresentationBuffer;
         private readonly RuleDispatcher dispatcher;
         private readonly BridgeRootSettlementObserver rootSettlementObserver;
         private readonly BridgeFactObserver factObserver;
@@ -352,45 +352,64 @@ namespace Game.Rules.Unity
             return new EncounterStartOutcome(Snapshot.Encounters[encounterId]);
         }
 
-        // Initial combat hooks and the complete first-turn causal tree form one host transaction.
-        // Dispatcher commits remain authoritative, but their Unity callbacks cannot escape before
-        // CombatManager accepts startup and its checkpoint becomes durable.
-        internal void BeginStartupPresentationTransaction()
+        // Initial combat hooks and the complete first-turn causal tree buffer Unity presentation
+        // until CombatManager accepts the rules startup. The later callback batch is deliberately
+        // not described as transactional because arbitrary UnityEvent work cannot be rolled back.
+        internal void BeginStartupPresentationBuffering()
         {
-            if (startupPresentationTransaction != null)
+            if (startupPresentationBuffer != null)
                 throw new InvalidOperationException(
-                    "Only one startup presentation transaction may be active."
+                    "Only one startup presentation buffer may be active."
                 );
-            startupPresentationTransaction = new StartupPresentationTransaction();
+            startupPresentationBuffer = new StartupPresentationBuffer();
         }
 
-        internal async ValueTask CommitStartupPresentationTransactionAsync()
+        internal async ValueTask DrainAcceptedStartupPresentationAsync()
         {
-            StartupPresentationTransaction transaction =
-                startupPresentationTransaction
-                ?? throw new InvalidOperationException(
-                    "No startup presentation transaction is active."
-                );
-            startupPresentationTransaction = null;
+            StartupPresentationBuffer buffer =
+                startupPresentationBuffer
+                ?? throw new InvalidOperationException("No startup presentation buffer is active.");
+            startupPresentationBuffer = null;
+            List<Exception> failures = new();
             try
             {
-                while (transaction.Work.Count > 0)
-                    await transaction.Work.Dequeue().Invoke();
+                while (buffer.Work.Count > 0)
+                {
+                    try
+                    {
+                        await buffer.Work.Dequeue().Invoke();
+                    }
+                    catch (Exception exception)
+                    {
+                        // Startup is already durable. Attempt every accepted callback exactly once
+                        // so one presentation bug cannot suppress later turn/end host work.
+                        failures.Add(exception);
+                    }
+                }
             }
             finally
             {
-                foreach (OpId rootId in transaction.Roots)
+                foreach (OpId rootId in buffer.Roots)
                     DiscardPresentationTree(rootId);
             }
+
+            if (failures.Count == 0)
+                return;
+            if (failures.Count == 1)
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            throw new AggregateException(
+                "Multiple accepted startup presentation callbacks failed.",
+                failures
+            );
         }
 
-        internal void DiscardStartupPresentationTransaction()
+        internal void DiscardStartupPresentationBuffer()
         {
-            StartupPresentationTransaction transaction = startupPresentationTransaction;
-            startupPresentationTransaction = null;
-            if (transaction == null)
+            StartupPresentationBuffer buffer = startupPresentationBuffer;
+            startupPresentationBuffer = null;
+            if (buffer == null)
                 return;
-            foreach (OpId rootId in transaction.Roots)
+            foreach (OpId rootId in buffer.Roots)
                 DiscardPresentationTree(rootId);
         }
 
@@ -651,7 +670,7 @@ namespace Game.Rules.Unity
             dispatcher.UnregisterFactObserver<EncounterEndedFact>(factObserver);
             dispatcher.UnregisterRootSettlementObserver(rootSettlementObserver);
             dispatcher.UnregisterCausalTreeSettlementObserver(rootSettlementObserver);
-            DiscardStartupPresentationTransaction();
+            DiscardStartupPresentationBuffer();
             presentationByRoot.Clear();
             presentationChildrenByRoot.Clear();
             settledPresentationRoots.Clear();
@@ -953,9 +972,9 @@ namespace Game.Rules.Unity
         {
             if (callback == null)
                 throw new ArgumentNullException(nameof(callback));
-            if (startupPresentationTransaction == null)
+            if (startupPresentationBuffer == null)
                 return callback();
-            startupPresentationTransaction.Work.Enqueue(callback);
+            startupPresentationBuffer.Work.Enqueue(callback);
             return default;
         }
 
@@ -1031,12 +1050,10 @@ namespace Game.Rules.Unity
 
         private ValueTask DrainOrBufferSettledPresentationTreeAsync(OpId rootId)
         {
-            if (startupPresentationTransaction == null)
+            if (startupPresentationBuffer == null)
                 return DrainSettledPresentationTreeAsync(rootId);
-            startupPresentationTransaction.AddRoot(rootId);
-            startupPresentationTransaction.Work.Enqueue(() =>
-                DrainSettledPresentationTreeAsync(rootId)
-            );
+            startupPresentationBuffer.AddRoot(rootId);
+            startupPresentationBuffer.Work.Enqueue(() => DrainSettledPresentationTreeAsync(rootId));
             return default;
         }
 
@@ -1244,7 +1261,7 @@ namespace Game.Rules.Unity
             }
         }
 
-        private sealed class StartupPresentationTransaction
+        private sealed class StartupPresentationBuffer
         {
             internal Queue<Func<ValueTask>> Work { get; } = new();
             internal List<OpId> Roots { get; } = new();

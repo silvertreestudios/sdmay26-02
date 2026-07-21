@@ -31,6 +31,9 @@ public class CombatManager : CombatManagerInterface
 
     /// <inheritdoc/>
     public override event Action<long> DungeonCombatStartupAborted = delegate { };
+
+    /// <inheritdoc/>
+    public override event Action<long> DungeonCombatStartupCompleted = delegate { };
     public override bool IsCombatActive => combatActive;
 
     public override void AddCombatant(ActionController combatant)
@@ -203,7 +206,7 @@ public class CombatManager : CombatManagerInterface
         try
         {
             startingBridge = UnityEncounterRulesBridge.Create(selected, protagonistTeam);
-            startingBridge.BeginStartupPresentationTransaction();
+            startingBridge.BeginStartupPresentationBuffering();
         }
         catch
         {
@@ -246,7 +249,13 @@ public class CombatManager : CombatManagerInterface
             startupCombatants = Array.Empty<ActionController>();
         }
         StartCoroutine(
-            BeginEncounterRules(selected, startingBridge, startingGeneration, startupCheckpoint)
+            BeginEncounterRules(
+                selected,
+                startingBridge,
+                startingGeneration,
+                dungeonDirected,
+                startupCheckpoint
+            )
         );
         return startingGeneration;
     }
@@ -255,10 +264,11 @@ public class CombatManager : CombatManagerInterface
         ActionController[] selected,
         UnityEncounterRulesBridge startingBridge,
         long startingGeneration,
+        bool wasDungeonDirected,
         CombatStartupCheckpoint startupCheckpoint
     )
     {
-        bool completed = false;
+        bool durable = false;
         try
         {
             yield return CoroutineRunner.Await(
@@ -272,13 +282,28 @@ public class CombatManager : CombatManagerInterface
             if (!IsCurrentLifecycle(startingBridge, startingGeneration))
                 yield break;
 
-            yield return CoroutineRunner.Await(
-                startingBridge.CommitStartupPresentationTransactionAsync()
-            );
+            // Arbitrary Unity events cannot be rolled back. Accept the complete rules startup and
+            // dungeon activation generation before any buffered external presentation executes.
+            startupCheckpoint.Commit();
+            durable = true;
+            if (wasDungeonDirected)
+                NotifyDungeonCombatStartupCompleted(startingGeneration);
+            try
+            {
+                yield return CoroutineRunner.Await(
+                    startingBridge.DrainAcceptedStartupPresentationAsync()
+                );
+            }
+            finally
+            {
+                // A presentation callback failure is post-acceptance. Release queued lifecycle
+                // requests once that callback batch has been attempted instead of stranding them.
+                if (IsCurrentLifecycle(startingBridge, startingGeneration))
+                    encounterReady = true;
+            }
             if (!IsCurrentLifecycle(startingBridge, startingGeneration))
                 yield break;
 
-            encounterReady = true;
             LogInitiative(
                 "Initiative Order",
                 started
@@ -287,22 +312,20 @@ public class CombatManager : CombatManagerInterface
                     )
                     .ToArray()
             );
-            startupCheckpoint.Commit();
-            completed = true;
         }
         finally
         {
             // CoroutineRunner rethrows the original awaited failure after this finally executes.
             // Roll back only the bridge that owns this startup so a later successful retry cannot
             // be torn down by an obsolete continuation.
-            if (!completed && IsCurrentLifecycle(startingBridge, startingGeneration))
+            if (!durable && IsCurrentLifecycle(startingBridge, startingGeneration))
                 AbortCombatStartup(
                     startingBridge,
                     startingGeneration,
-                    dungeonDirectedCombat,
+                    wasDungeonDirected,
                     startupCheckpoint
                 );
-            else if (!completed)
+            else if (!durable)
                 startupCheckpoint.Commit();
         }
     }
@@ -743,7 +766,7 @@ public class CombatManager : CombatManagerInterface
         {
             try
             {
-                startingBridge.DiscardStartupPresentationTransaction();
+                startingBridge.DiscardStartupPresentationBuffer();
                 startingBridge.ReleaseHostOwnership();
             }
             finally
@@ -767,6 +790,23 @@ public class CombatManager : CombatManagerInterface
                 // Startup rollback must remain complete even if a lifecycle owner has a bug. The
                 // original startup fault continues through its coroutine while this secondary
                 // notification fault remains visible in the Unity log.
+                Debug.LogException(exception);
+            }
+        }
+    }
+
+    private void NotifyDungeonCombatStartupCompleted(long generation)
+    {
+        foreach (Action<long> callback in DungeonCombatStartupCompleted.GetInvocationList())
+        {
+            try
+            {
+                callback(generation);
+            }
+            catch (Exception exception)
+            {
+                // Acceptance is already durable. Keep a lifecycle-owner bug visible without
+                // converting it into an impossible rollback of committed rules and presentation.
                 Debug.LogException(exception);
             }
         }
