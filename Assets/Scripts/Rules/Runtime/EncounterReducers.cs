@@ -532,14 +532,28 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
-            bool ownsActiveTurn = state.Encounters.Any(pair =>
-                pair.Value.Phase == EncounterPhase.Active
-                && pair.Value.CurrentTurn.HasValue
-                && pair.Value.CurrentTurn.Value.Actor == context.Op.Actor
-            );
-            if (!ownsActiveTurn)
+            EncounterState encounter = state
+                .Encounters.Where(pair =>
+                    pair.Value.Phase == EncounterPhase.Active
+                    && pair.Value.CurrentTurn.HasValue
+                    && pair.Value.CurrentTurn.Value.Actor == context.Op.Actor
+                )
+                .Select(pair => pair.Value)
+                .FirstOrDefault();
+            if (encounter == null)
                 return ReductionResult<LegacyActionSpendOutcome>.Reject(
                     "The actor does not own an active current turn."
+                );
+            if (
+                context.Op.RequiredLivingTarget.HasValue
+                && (
+                    !encounter.Roster.Any(entry =>
+                        entry.Creature == context.Op.RequiredLivingTarget.Value
+                    ) || !EncounterReduction.IsLiving(state, context.Op.RequiredLivingTarget.Value)
+                )
+            )
+                return ReductionResult<LegacyActionSpendOutcome>.Reject(
+                    "The selected Strike target is no longer a living participant in the actor's encounter."
                 );
             if (
                 !state.ActionEconomy.TryGet(context.Op.Actor, out ActionEconomyState economy)

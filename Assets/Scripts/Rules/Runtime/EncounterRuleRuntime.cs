@@ -586,7 +586,13 @@ namespace Game.Rules.Runtime
             OpHandlerContext context
         ) =>
             EncounterHandlerResults.Require(
-                await context.Dispatch(new CommitLegacyActionsOp(frame.Op.Actor, frame.Op.Amount)),
+                await context.Dispatch(
+                    new CommitLegacyActionsOp(
+                        frame.Op.Actor,
+                        frame.Op.Amount,
+                        frame.Op.RequiredLivingTarget
+                    )
+                ),
                 "legacy action spend"
             );
     }

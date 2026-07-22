@@ -290,17 +290,42 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the non-negative action cost; zero validates authority without mutation.</summary>
         public int Amount { get; }
 
+        /// <summary>
+        /// Gets the optional encounter participant that must still be living when the spend commits.
+        /// </summary>
+        public CreatureId? RequiredLivingTarget { get; }
+
         /// <summary>Creates a temporary same-store action authorization/spend request.</summary>
         /// <param name="actor">The creature paying the action cost.</param>
         /// <param name="amount">The non-negative number of actions to spend.</param>
         public SpendLegacyActionsOp(CreatureId actor, int amount)
+            : this(actor, amount, null) { }
+
+        /// <summary>
+        /// Creates an action spend that atomically requires one current living encounter target.
+        /// </summary>
+        /// <param name="actor">The creature paying the action cost.</param>
+        /// <param name="amount">The non-negative number of actions to spend.</param>
+        /// <param name="requiredLivingTarget">
+        /// The selected participant that must remain living in the actor's encounter.
+        /// </param>
+        public SpendLegacyActionsOp(CreatureId actor, int amount, CreatureId requiredLivingTarget)
+            : this(actor, amount, (CreatureId?)requiredLivingTarget) { }
+
+        private SpendLegacyActionsOp(CreatureId actor, int amount, CreatureId? requiredLivingTarget)
         {
             if (actor.IsEmpty)
                 throw new ArgumentException("An actor is required.", nameof(actor));
             if (amount < 0)
                 throw new ArgumentOutOfRangeException(nameof(amount));
+            if (requiredLivingTarget.HasValue && requiredLivingTarget.Value.IsEmpty)
+                throw new ArgumentException(
+                    "A required living target cannot be empty.",
+                    nameof(requiredLivingTarget)
+                );
             Actor = actor;
             Amount = amount;
+            RequiredLivingTarget = requiredLivingTarget;
         }
     }
 
@@ -548,11 +573,13 @@ namespace Game.Rules.Runtime
     {
         public CreatureId Actor { get; }
         public int Amount { get; }
+        public CreatureId? RequiredLivingTarget { get; }
 
-        public CommitLegacyActionsOp(CreatureId actor, int amount)
+        public CommitLegacyActionsOp(CreatureId actor, int amount, CreatureId? requiredLivingTarget)
         {
             Actor = actor;
             Amount = amount;
+            RequiredLivingTarget = requiredLivingTarget;
         }
     }
 

@@ -444,6 +444,26 @@ public abstract class ActionController : MonoBehaviour
         await encounterRules.SpendActionsAsync(encounterCreatureId, checked((int)amount));
     }
 
+    internal async ValueTask SpendStrikeActionsAsync(
+        CreatureComponent requiredLivingTarget,
+        uint amount
+    )
+    {
+        if (requiredLivingTarget == null)
+            throw new ArgumentNullException(nameof(requiredLivingTarget));
+        if (!HasAuthoritativeActionState)
+        {
+            if (amount > 0)
+                actionPoints -= amount;
+            return;
+        }
+        await encounterRules.SpendStrikeActionsAsync(
+            encounterCreatureId,
+            encounterRules.GetCreatureId(requiredLivingTarget),
+            checked((int)amount)
+        );
+    }
+
     /// <summary>Increments turn-scoped MAP through the shared encounter store.</summary>
     public async ValueTask IncrementMultipleAttackPenaltyAsync()
     {

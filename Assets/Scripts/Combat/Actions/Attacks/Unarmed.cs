@@ -60,7 +60,7 @@ namespace Game.Strikes
                         .Log(
                             "- "
                                 + attacker.name
-                                + " cannot strike a creature outside its encounter."
+                                + " cannot strike a creature outside its encounter or no longer living."
                         );
                     yield break;
                 }
@@ -68,7 +68,12 @@ namespace Game.Strikes
                 uint attackCount = ac == null ? 0 : ac.StrikePenalty;
                 if (ac != null)
                 {
-                    yield return CoroutineRunner.Await(PayCostAsync(ac));
+                    yield return CoroutineRunner.Await(
+                        PayStrikeCostAsync(
+                            ac,
+                            target.Value.Target.GetComponent<CreatureComponent>()
+                        )
+                    );
                     yield return CoroutineRunner.Await(ac.IncrementMultipleAttackPenaltyAsync());
                 }
                 CombatLog
@@ -145,8 +150,8 @@ namespace Game.Strikes
                     out UnityEncounterRulesBridge targetBridge
                 )
                 && object.ReferenceEquals(attackerBridge, targetBridge)
-                && attackerBridge.IsActiveEncounterParticipant(attackerCreature)
-                && attackerBridge.IsActiveEncounterParticipant(targetCreature);
+                && attackerBridge.IsLivingActiveEncounterParticipant(attackerCreature)
+                && attackerBridge.IsLivingActiveEncounterParticipant(targetCreature);
         }
     }
 }

@@ -214,6 +214,49 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task TargetAwareActionSpendRejectsCommittedDefeatAtomically()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10, 5));
+            CountingFactObserver<LegacyActionsSpentFact> spends =
+                new CountingFactObserver<LegacyActionsSpentFact>();
+            dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+            await dispatcher.Dispatch(
+                Start(
+                    new EncounterParticipant(Hero, Players, 0),
+                    new EncounterParticipant(Enemy, Enemies, 0),
+                    new EncounterParticipant(Reinforcement, Enemies, 0)
+                )
+            );
+            await dispatcher.Dispatch(
+                new ApplyDamageOp(
+                    Enemy,
+                    10,
+                    new HealthChangeOriginId("target-aware-defeat"),
+                    Source
+                )
+            );
+            await dispatcher.Dispatch(new FinalizeCreatureDefeatOp(Enemy));
+
+            InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(new SpendLegacyActionsOp(Hero, 1, Enemy))
+            );
+
+            Assert.That(rejected.Message, Does.Contain("no longer a living participant"));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Hero],
+                Is.EqualTo(new ActionEconomyState(3, true))
+            );
+            Assert.That(spends.Calls, Is.Zero);
+
+            LegacyActionSpendOutcome livingTargetSpend = Resolved(
+                await dispatcher.Dispatch(new SpendLegacyActionsOp(Hero, 1, Reinforcement))
+            ).Value;
+            Assert.That(livingTargetSpend.Remaining, Is.EqualTo(2));
+            Assert.That(spends.Calls, Is.EqualTo(1));
+        }
+
+        [Test]
         public async Task QueuedMapAfterExactTurnLossRejectsWithoutRecreatingPenalty()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));

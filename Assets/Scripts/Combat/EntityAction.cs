@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Game.Creature;
 using UnityEngine;
 
 public abstract class EntityAction
@@ -19,6 +20,24 @@ public abstract class EntityAction
     {
         if (ac != null && !ac.IsInDungeonExploration)
             return ac.SpendActionsAsync(ActionCost);
+        return default;
+    }
+
+    /// <summary>
+    /// Atomically validates a selected living encounter target and spends this action's cost.
+    /// </summary>
+    /// <param name="ac">The controller paying through its attached encounter store.</param>
+    /// <param name="requiredLivingTarget">
+    /// The selected Strike target that must still be a living participant when payment commits.
+    /// </param>
+    /// <returns>The complete target-aware action-spend root, or a completed exploration value.</returns>
+    protected ValueTask PayStrikeCostAsync(
+        ActionController ac,
+        CreatureComponent requiredLivingTarget
+    )
+    {
+        if (ac != null && !ac.IsInDungeonExploration)
+            return ac.SpendStrikeActionsAsync(requiredLivingTarget, ActionCost);
         return default;
     }
 

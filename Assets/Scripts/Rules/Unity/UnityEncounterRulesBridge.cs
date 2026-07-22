@@ -873,6 +873,14 @@ namespace Game.Rules.Unity
             int amount
         ) => DispatchAsync(new SpendLegacyActionsOp(actor, amount));
 
+        // The reducer validates this target inside the same root that commits the cost. A Unity
+        // selection check alone can become stale while this dispatch waits behind another root.
+        internal ValueTask<LegacyActionSpendOutcome> SpendStrikeActionsAsync(
+            CreatureId actor,
+            CreatureId requiredLivingTarget,
+            int amount
+        ) => DispatchAsync(new SpendLegacyActionsOp(actor, amount, requiredLivingTarget));
+
         /// <summary>Awaits a turn-authorized MAP increment through the transitional same-store port.</summary>
         /// <param name="actor">The registered actor that must still own the exact current turn.</param>
         /// <returns>The actor's committed turn-scoped attack count.</returns>

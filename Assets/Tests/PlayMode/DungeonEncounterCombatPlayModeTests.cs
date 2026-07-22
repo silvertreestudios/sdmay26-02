@@ -2132,6 +2132,58 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    /// <summary>Verifies a queued unarmed Strike cannot pay for a target defeated after selection.</summary>
+    [UnityTest]
+    public IEnumerator StaleSelectedUnarmedTargetRejectsBeforeCostsMapRollOrPresentation()
+    {
+        CombatantFixture player = CreateCombatant("Stale Unarmed Player", "Players", 300);
+        CombatantFixture defeatedTarget = CreateCombatant("Stale Unarmed Target", "Enemies", 200);
+        CombatantFixture livingEnemy = CreateCombatant("Stale Unarmed Survivor", "Enemies", 100);
+        defeatedTarget.Creature.InitializeHealthBeforeEncounter(1, 10);
+        Unarmed strike = new(
+            1,
+            new List<Dice> { new Dice(1, 6, "bludgeoning") },
+            new List<DamageValue>()
+        );
+
+        yield return AssertStaleSelectedStrikeRejectsBeforeCosts(
+            player,
+            defeatedTarget,
+            livingEnemy,
+            strike,
+            null,
+            "attacks Stale Unarmed Target with unarmed strike"
+        );
+    }
+
+    /// <summary>Verifies a queued weapon Strike cannot spend or consume ammo for a defeated target.</summary>
+    [UnityTest]
+    public IEnumerator StaleSelectedWeaponTargetRejectsBeforeCostsMapAmmoRollOrPresentation()
+    {
+        CombatantFixture player = CreateCombatant("Stale Weapon Player", "Players", 300);
+        CombatantFixture defeatedTarget = CreateCombatant("Stale Weapon Target", "Enemies", 200);
+        CombatantFixture livingEnemy = CreateCombatant("Stale Weapon Survivor", "Enemies", 100);
+        defeatedTarget.Creature.InitializeHealthBeforeEncounter(1, 10);
+        EquipmentWeapon weapon = new()
+        {
+            name = "Stale Selection Bow",
+            range = 60,
+            ammo = "stale-selection-arrows",
+            damage = new Dice(1, 6, "piercing"),
+            traits = new List<string>(),
+        };
+        player.Creature.SetAmmoQuantity(weapon.ammo, 2);
+
+        yield return AssertStaleSelectedStrikeRejectsBeforeCosts(
+            player,
+            defeatedTarget,
+            livingEnemy,
+            new StrikeWeapon(1, weapon, player.GameObject),
+            weapon,
+            "strikes Stale Weapon Target with Stale Selection Bow"
+        );
+    }
+
     /// <summary>Verifies a lethal attack spell commits actions and MAP before damage.</summary>
     [UnityTest]
     public IEnumerator LethalSpellCommitsCostAndAlwaysCompletesActionLifecycle()
@@ -4361,6 +4413,127 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    private IEnumerator AssertStaleSelectedStrikeRejectsBeforeCosts(
+        CombatantFixture player,
+        CombatantFixture defeatedTarget,
+        CombatantFixture livingEnemy,
+        EntityAction action,
+        EquipmentWeapon ammunitionWeapon,
+        string forbiddenAttackLog
+    )
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Stale Strike GridAPI").AddComponent<TestGridAPI>();
+        grid.StrikeTarget = defeatedTarget.GameObject;
+        grid.HoldStrikeSelection = true;
+        singletonField.SetValue(null, grid);
+        manager.StartDungeonCombat(
+            new[] { player.Controller, defeatedTarget.Controller, livingEnemy.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<LegacyMapIncrementedFact> maps = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+        Task blockingDamage = player
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("stale-strike-root-blocker"))
+            .AsTask();
+        Task lethalDamage = null;
+        int ammunitionBefore =
+            ammunitionWeapon == null ? 0 : player.Creature.GetAmmoQuantity(ammunitionWeapon.ammo);
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The stale-Strike blocker did not occupy the dispatcher."
+            );
+            UnityEngine.Random.State randomBefore = UnityEngine.Random.state;
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(action);
+            yield return WaitForCondition(
+                () => grid.StrikeSelectionStarted,
+                "The Strike did not select its initially living target."
+            );
+
+            lethalDamage = defeatedTarget
+                .Creature.ApplyFinalDamageAsync(
+                    1,
+                    RuleSource.FromSlug("stale-strike-target-defeat")
+                )
+                .AsTask();
+            grid.ReleaseStrikeSelection();
+            yield return WaitForCondition(
+                () => grid.StrikeSelectionCompleted,
+                "The selected Strike did not leave its targeting boundary."
+            );
+            yield return null;
+
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            if (ammunitionWeapon != null)
+                Assert.That(
+                    player.Creature.GetAmmoQuantity(ammunitionWeapon.ammo),
+                    Is.EqualTo(ammunitionBefore)
+                );
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("selected Strike target is no longer a living participant")
+            );
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(blockingDamage));
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The rejected stale Strike did not release its action reservation."
+            );
+
+            Assert.That(defeatedTarget.Creature.IsDefeated, Is.True);
+            Assert.That(defeatedTarget.GameObject.activeSelf, Is.False);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(manager.GetCombatants(), Has.Member(livingEnemy.GameObject));
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(UnityEngine.Random.state, Is.EqualTo(randomBefore));
+            Assert.That(
+                combatLog.GetMessages().Any(message => message.Contains(forbiddenAttackLog)),
+                Is.False
+            );
+            if (ammunitionWeapon != null)
+            {
+                Assert.That(
+                    player.Creature.GetAmmoQuantity(ammunitionWeapon.ammo),
+                    Is.EqualTo(ammunitionBefore)
+                );
+                Assert.That(player.Creature.IsWeaponLoaded(ammunitionWeapon), Is.True);
+            }
+        }
+        finally
+        {
+            grid.ReleaseStrikeSelection();
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(maps);
+            singletonField.SetValue(null, previousGrid);
+            _ = lethalDamage?.Exception;
+        }
+    }
+
     private RuleDispatcher GetEncounterDispatcher()
     {
         UnityEncounterRulesBridge bridge = GetEncounterBridge();
@@ -4841,10 +5014,17 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
     private sealed class TestGridAPI : GridAPI
     {
+        private bool releaseStrikeSelection;
+
         public List<GameObject> DestroyedTokens { get; } = new();
         public GameObject StrikeTarget { get; set; }
         public Func<GameObject, IEnumerator> StrideRoutine { get; set; }
         public int StrideCalls { get; private set; }
+        public bool HoldStrikeSelection { get; set; }
+        public bool StrikeSelectionStarted { get; private set; }
+        public bool StrikeSelectionCompleted { get; private set; }
+
+        public void ReleaseStrikeSelection() => releaseStrikeSelection = true;
 
         public override IEnumerator Stride(GameObject character)
         {
@@ -4870,6 +5050,13 @@ public sealed class DungeonEncounterCombatPlayModeTests
                     RangePenalty = 0,
                 };
             }
+            if (HoldStrikeSelection)
+            {
+                StrikeSelectionStarted = true;
+                while (!releaseStrikeSelection)
+                    yield return null;
+            }
+            StrikeSelectionCompleted = true;
             yield break;
         }
 
