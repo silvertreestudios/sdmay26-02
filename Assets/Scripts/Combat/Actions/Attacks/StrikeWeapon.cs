@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
@@ -227,38 +228,33 @@ namespace Game.Strikes
                     yield break;
                 }
 
-                uint attackCount = ac == null ? 0 : ac.StrikePenalty;
-                if (ac != null)
+                CreatureComponent targetCreature =
+                    target.Value.Target.GetComponent<CreatureComponent>();
+                async ValueTask ExecuteStrike()
                 {
-                    yield return CoroutineRunner.Await(
-                        PayStrikeCostAsync(
-                            ac,
-                            target.Value.Target.GetComponent<CreatureComponent>()
-                        )
-                    );
-                    yield return CoroutineRunner.Await(ac.IncrementMultipleAttackPenaltyAsync());
-                }
-                if (cc != null && !cc.ConsumeAmmoFor(Weapon))
-                    throw new System.InvalidOperationException(
-                        "Validated Strike ammunition became unavailable before its effect."
-                    );
+                    uint attackCount = ac == null ? 0 : ac.StrikePenalty;
+                    if (ac != null)
+                        await ac.IncrementMultipleAttackPenaltyAsync();
+                    if (cc != null && !cc.ConsumeAmmoFor(Weapon))
+                        throw new System.InvalidOperationException(
+                            "Validated Strike ammunition became unavailable before its effect."
+                        );
 
-                CombatLog
-                    .GetInstance()
-                    .Log(
-                        "- "
-                            + attacker.name
-                            + " strikes "
-                            + target.Value.Target.name
-                            + " with "
-                            + weaponName
-                            + "."
-                    );
-                attacker
-                    .GetComponent<CreaturePresentation>()
-                    ?.PlayAttack(Weapon, target.Value.Target.transform.position);
-                yield return CoroutineRunner.Await(
-                    StrikeResolutionPipeline.ResolveAsync(
+                    CombatLog
+                        .GetInstance()
+                        .Log(
+                            "- "
+                                + attacker.name
+                                + " strikes "
+                                + target.Value.Target.name
+                                + " with "
+                                + weaponName
+                                + "."
+                        );
+                    attacker
+                        .GetComponent<CreaturePresentation>()
+                        ?.PlayAttack(Weapon, target.Value.Target.transform.position);
+                    await StrikeResolutionPipeline.ResolveAsync(
                         new StrikeResolutionRequest
                         {
                             Attacker = attacker,
@@ -267,9 +263,13 @@ namespace Game.Strikes
                             TargetingResult = target.Value,
                             MultipleAttackCountOverride = attackCount,
                         }
-                    )
+                    );
+                    cc?.MarkWeaponFired(Weapon);
+                }
+
+                yield return CoroutineRunner.Await(
+                    ExecuteTargetedActionAsync(ac, targetCreature, ExecuteStrike)
                 );
-                cc?.MarkWeaponFired(Weapon);
             }
         }
     }

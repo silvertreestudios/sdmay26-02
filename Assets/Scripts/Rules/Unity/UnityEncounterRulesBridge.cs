@@ -873,13 +873,19 @@ namespace Game.Rules.Unity
             int amount
         ) => DispatchAsync(new SpendLegacyActionsOp(actor, amount));
 
-        // The reducer validates this immutable target set inside the same root that commits the
-        // cost. A Unity selection check alone can become stale while dispatch waits behind a root.
-        internal ValueTask<LegacyActionSpendOutcome> SpendTargetedActionsAsync(
+        // The reducer validates this immutable target set with AP. The observer then keeps the
+        // accepted action's remaining rules work inside the same serialized causal tree, so an
+        // unrelated queued root cannot enter between payment and authoritative effects.
+        internal ValueTask<LegacyActionSpendOutcome> ExecuteTargetedActionAsync(
             CreatureId actor,
             IReadOnlyList<CreatureId> requiredLivingTargets,
-            int amount
-        ) => DispatchAsync(new SpendLegacyActionsOp(actor, amount, requiredLivingTargets));
+            int amount,
+            Func<ValueTask> execution
+        ) =>
+            DispatchAsync(
+                new SpendLegacyActionsOp(actor, amount, requiredLivingTargets),
+                new TargetedActionRootObserver(execution)
+            );
 
         /// <summary>Awaits a turn-authorized MAP increment through the transitional same-store port.</summary>
         /// <param name="actor">The registered actor that must still own the exact current turn.</param>
@@ -1199,6 +1205,22 @@ namespace Game.Rules.Unity
                 publishAcceptedControllers();
                 await Pf2eRulesEngine.ApplyCombatStartRulesAsync(controllers);
             }
+        }
+
+        private sealed class TargetedActionRootObserver
+            : IRootResolutionObserver<LegacyActionSpendOutcome>
+        {
+            private readonly Func<ValueTask> execution;
+
+            internal TargetedActionRootObserver(Func<ValueTask> execution) =>
+                this.execution = execution ?? throw new ArgumentNullException(nameof(execution));
+
+            /// <inheritdoc/>
+            public ValueTask OnRootResolved(
+                OpId rootId,
+                OpResult<LegacyActionSpendOutcome> result,
+                RulesSnapshot snapshot
+            ) => result is ResolvedOpResult<LegacyActionSpendOutcome> ? execution() : default;
         }
 
         private sealed class BridgeRootSettlementObserver

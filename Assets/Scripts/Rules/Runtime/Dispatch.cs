@@ -7,20 +7,21 @@ using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
-    /// <summary>Observes root resolution before binding-scoped Fact listeners begin.</summary>
+    /// <summary>Runs root-owned work after resolution and before binding-scoped Fact listeners.</summary>
     /// <typeparam name="TResult">The operation's successful structural result type.</typeparam>
     /// <remarks>
     /// This narrow transaction boundary exists for host state that must become resolvable with the
-    /// reducer commit before any causal or queued root can observe it. The callback remains inside
-    /// root serialization and may await a public dispatcher call; that call becomes a causally
-    /// linked root instead of waiting on the serialization gate.
+    /// reducer commit and for accepted action work that must settle before an unrelated queued root
+    /// can begin. The callback remains inside root serialization and may await a public dispatcher
+    /// call; that call becomes a causally linked root instead of waiting on the serialization gate.
     /// </remarks>
     public interface IRootResolutionObserver<TResult>
     {
-        /// <summary>Publishes accepted host state for the resolved root before its Fact listeners run.</summary>
+        /// <summary>Settles accepted root-owned work before its Fact listeners run.</summary>
         /// <param name="rootId">The exact completed resolution root.</param>
         /// <param name="result">
-        /// The root's structural result. Observers must not publish host state for an invalid result.
+        /// The root's structural result. Observers must not publish or execute accepted work for an
+        /// invalid result.
         /// </param>
         /// <param name="snapshot">The latest snapshot after root resolution.</param>
         /// <returns>A task-like value that settles publication and any causal work.</returns>
@@ -263,14 +264,15 @@ namespace Game.Rules.Runtime
             DispatchExternal(op, NoRootResolutionObserver<TResult>.Instance);
 
         /// <summary>
-        /// Dispatches an external root with accepted host publication inside its serialization.
+        /// Dispatches an external root with accepted root-owned work inside its serialization.
         /// </summary>
         /// <typeparam name="TResult">The successful result type declared by the operation.</typeparam>
         /// <param name="op">The externally allowed operation to resolve.</param>
         /// <param name="observer">
-        /// The host publication observer invoked after resolution and before Fact listeners.
+        /// The observer invoked after resolution and before Fact listeners while serialization is
+        /// still owned.
         /// </param>
-        /// <returns>The settled root result after host publication and all listeners.</returns>
+        /// <returns>The settled root result after root-owned work and all listeners.</returns>
         /// <exception cref="ArgumentNullException">
         /// <paramref name="op"/> or <paramref name="observer"/> is <see langword="null"/>.
         /// </exception>

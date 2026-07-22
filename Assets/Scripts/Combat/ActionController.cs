@@ -444,17 +444,21 @@ public abstract class ActionController : MonoBehaviour
         await encounterRules.SpendActionsAsync(encounterCreatureId, checked((int)amount));
     }
 
-    internal async ValueTask SpendTargetedActionsAsync(
+    internal async ValueTask ExecuteTargetedActionAsync(
         IReadOnlyList<CreatureComponent> requiredLivingTargets,
-        uint amount
+        uint amount,
+        Func<ValueTask> execution
     )
     {
         if (requiredLivingTargets == null)
             throw new ArgumentNullException(nameof(requiredLivingTargets));
+        if (execution == null)
+            throw new ArgumentNullException(nameof(execution));
         if (!HasAuthoritativeActionState)
         {
             if (amount > 0)
                 actionPoints -= amount;
+            await execution();
             return;
         }
         List<CreatureId> targetIds = new(requiredLivingTargets.Count);
@@ -467,10 +471,11 @@ public abstract class ActionController : MonoBehaviour
                 );
             targetIds.Add(encounterRules.GetCreatureId(target));
         }
-        await encounterRules.SpendTargetedActionsAsync(
+        await encounterRules.ExecuteTargetedActionAsync(
             encounterCreatureId,
             targetIds,
-            checked((int)amount)
+            checked((int)amount),
+            execution
         );
     }
 

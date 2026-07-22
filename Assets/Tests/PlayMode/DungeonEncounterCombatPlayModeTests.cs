@@ -2184,6 +2184,26 @@ public sealed class DungeonEncounterCombatPlayModeTests
         );
     }
 
+    /// <summary>Verifies a queued root cannot enter an accepted unarmed Strike transaction.</summary>
+    [UnityTest]
+    public IEnumerator AcceptedUnarmedStrikeSettlesBeforeLaterQueuedDefeat() =>
+        AssertQueuedStrikeSettlesBeforeLaterDefeat(useAmmunitionWeapon: false);
+
+    /// <summary>Verifies ammunition and weapon effects settle before a later queued defeat.</summary>
+    [UnityTest]
+    public IEnumerator AcceptedWeaponStrikeSettlesBeforeLaterQueuedDefeat() =>
+        AssertQueuedStrikeSettlesBeforeLaterDefeat(useAmmunitionWeapon: true);
+
+    /// <summary>Verifies a slotted Heal settles before a later queued defeat root.</summary>
+    [UnityTest]
+    public IEnumerator AcceptedSlottedHealSettlesBeforeLaterQueuedDefeat() =>
+        AssertQueuedSpellSettlesBeforeLaterDefeat(useAttackSpell: false);
+
+    /// <summary>Verifies attack-spell MAP and damage settle before a later queued defeat.</summary>
+    [UnityTest]
+    public IEnumerator AcceptedAttackSpellSettlesBeforeLaterQueuedDefeat() =>
+        AssertQueuedSpellSettlesBeforeLaterDefeat(useAttackSpell: true);
+
     /// <summary>Verifies a lethal attack spell commits actions and MAP before damage.</summary>
     [UnityTest]
     public IEnumerator LethalSpellCommitsCostAndAlwaysCompletesActionLifecycle()
@@ -2894,7 +2914,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Assert.That(player.Controller.IsTakingAction, Is.False);
             Assert.That(spends.Facts, Is.Empty);
             Assert.That(maps.Facts, Is.Empty);
-            Assert.That(healthFacts.Facts, Has.Count.EqualTo(2));
+            Assert.That(healthFacts.Facts, Has.Count.EqualTo(3));
             Assert.That(
                 bridge.Snapshot.Health[bridge.GetCreatureId(player.Creature)].Current,
                 Is.EqualTo(playerHealthAfterBlock)
@@ -3027,7 +3047,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Assert.That(player.Controller.IsTakingAction, Is.False);
             Assert.That(spends.Facts, Is.Empty);
             Assert.That(maps.Facts, Is.Empty);
-            Assert.That(healthFacts.Facts, Has.Count.EqualTo(2));
+            Assert.That(healthFacts.Facts, Has.Count.EqualTo(3));
             Assert.That(UnityEngine.Random.state, Is.EqualTo(randomBefore));
             Assert.That(target.GameObject.GetComponent<SpellEffectController>(), Is.Null);
             Assert.That(
@@ -4689,6 +4709,245 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    private IEnumerator AssertQueuedSpellSettlesBeforeLaterDefeat(bool useAttackSpell)
+    {
+        string label = useAttackSpell ? "Attack Spell" : "Slotted Heal";
+        CombatantFixture player = CreateCombatant(label + " Root Player", "Players", 300);
+        CombatantFixture target = CreateCombatant(
+            label + " Root Target",
+            useAttackSpell ? "Enemies" : "Players",
+            200
+        );
+        CombatantFixture survivor = CreateCombatant(label + " Root Survivor", "Enemies", 100);
+        target.Creature.InitializeHealthBeforeEncounter(useAttackSpell ? 100 : 5, 100);
+        survivor.Creature.InitializeHealthBeforeEncounter(100, 100);
+        target.Creature.ac = -100;
+        player.Creature.level = 20;
+        player.Creature.wisMod = 20;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+        PreparedSpell spell = spellcasting.GetSpell(useAttackSpell ? "divine-lance" : "heal");
+        uint actionCost = useAttackSpell ? 2u : 1u;
+        string actionSource = useAttackSpell ? "divine-lance" : "heal";
+        string queuedSource = useAttackSpell
+            ? "queued-after-attack-spell"
+            : "queued-after-slotted-heal";
+        int slotsBefore = spellcasting.Pools["font-heal"].UsesRemaining;
+
+        manager.StartDungeonCombat(
+            new[] { player.Controller, target.Controller, survivor.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<LegacyActionsSpentFact> blocker = new(failAfterRelease: false);
+        TargetActionOrderingObserver order = new(bridge);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(order);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(order);
+        dispatcher.RegisterFactObserver<HealthFact>(order);
+        UnityEngine.Random.State randomBefore = UnityEngine.Random.state;
+        Task<CastSpellResult> cast = null;
+        Task lethalDamage = null;
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            cast = SpellcastingRuntime
+                .CastAsync(player.GameObject, spell, actionCost, new[] { target.GameObject })
+                .AsTask();
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The accepted "
+                    + label
+                    + " root did not pause after its root-owned effects settled."
+            );
+
+            Assert.That(cast.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u - actionCost));
+            Assert.That(player.Controller.StrikePenalty, Is.EqualTo(useAttackSpell ? 1u : 0u));
+            Assert.That(target.Creature.hp, useAttackSpell ? Is.LessThan(100) : Is.GreaterThan(5));
+            Assert.That(
+                spellcasting.Pools["font-heal"].UsesRemaining,
+                Is.EqualTo(useAttackSpell ? slotsBefore : slotsBefore - 1)
+            );
+
+            lethalDamage = target
+                .Creature.ApplyFinalDamageAsync(1000, RuleSource.FromSlug(queuedSource))
+                .AsTask();
+            yield return null;
+            Assert.That(lethalDamage.IsCompleted, Is.False);
+            Assert.That(target.Creature.IsDefeated, Is.False);
+
+            blocker.Release();
+            CoroutineResult<CastSpellResult> castResult = new();
+            yield return CoroutineRunner.Await(new ValueTask<CastSpellResult>(cast), castResult);
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+
+            string[] expectedOrder = useAttackSpell
+                ? new[] { "map", actionSource, "actions", queuedSource }
+                : new[] { actionSource, "actions", queuedSource };
+            Assert.That(order.Events, Is.EqualTo(expectedOrder));
+            Assert.That(castResult.Value.Success, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u - actionCost));
+            Assert.That(player.Controller.StrikePenalty, Is.EqualTo(useAttackSpell ? 1u : 0u));
+            Assert.That(
+                spellcasting.Pools["font-heal"].UsesRemaining,
+                Is.EqualTo(useAttackSpell ? slotsBefore : slotsBefore - 1)
+            );
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(target.Creature.IsDefeated, Is.True);
+            Assert.That(target.GameObject.activeSelf, Is.False);
+            Assert.That(
+                combatLog
+                    .GetMessages()
+                    .Count(message => message.Contains(" casts " + spell.Name + ".")),
+                Is.EqualTo(1)
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(order);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(order);
+            dispatcher.UnregisterFactObserver<HealthFact>(order);
+            UnityEngine.Random.state = randomBefore;
+            _ = cast?.Exception;
+            _ = lethalDamage?.Exception;
+        }
+    }
+
+    private IEnumerator AssertQueuedStrikeSettlesBeforeLaterDefeat(bool useAmmunitionWeapon)
+    {
+        string label = useAmmunitionWeapon ? "Weapon" : "Unarmed";
+        CombatantFixture player = CreateCombatant(label + " Root Player", "Players", 300);
+        CombatantFixture target = CreateCombatant(label + " Root Target", "Enemies", 200);
+        CombatantFixture survivor = CreateCombatant(label + " Root Survivor", "Enemies", 100);
+        target.Creature.InitializeHealthBeforeEncounter(100, 100);
+        survivor.Creature.InitializeHealthBeforeEncounter(100, 100);
+        target.Creature.ac = -100;
+        player.Creature.attackBonus = 100;
+        EquipmentWeapon weapon = new()
+        {
+            name = "Serialized Root Bow",
+            range = 60,
+            ammo = "serialized-root-arrows",
+            damage = new Dice(1, 6, "piercing"),
+            traits = new List<string>(),
+        };
+        player.Creature.SetAmmoQuantity(weapon.ammo, 2);
+        EntityAction action = useAmmunitionWeapon
+            ? new StrikeWeapon(1, weapon, player.GameObject)
+            : new Unarmed(
+                1,
+                new List<Dice> { new Dice(1, 6, "bludgeoning") },
+                new List<DamageValue>()
+            );
+        string actionSource = useAmmunitionWeapon ? "serialized-root-bow" : "unarmed";
+        string queuedSource = useAmmunitionWeapon
+            ? "queued-after-weapon-strike"
+            : "queued-after-unarmed-strike";
+        string actionLog = useAmmunitionWeapon
+            ? "strikes " + target.GameObject.name + " with Serialized Root Bow."
+            : "attacks " + target.GameObject.name + " with unarmed strike.";
+        int ammoBefore = player.Creature.GetAmmoQuantity(weapon.ammo);
+
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create(label + " Root GridAPI").AddComponent<TestGridAPI>();
+        grid.StrikeTarget = target.GameObject;
+        singletonField.SetValue(null, grid);
+        manager.StartDungeonCombat(
+            new[] { player.Controller, target.Controller, survivor.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<LegacyActionsSpentFact> blocker = new(failAfterRelease: false);
+        TargetActionOrderingObserver order = new(bridge);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(order);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(order);
+        dispatcher.RegisterFactObserver<HealthFact>(order);
+        UnityEngine.Random.State randomBefore = UnityEngine.Random.state;
+        Task lethalDamage = null;
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(action);
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The accepted "
+                    + label
+                    + " Strike root did not pause after its root-owned effects settled."
+            );
+
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(player.Controller.StrikePenalty, Is.EqualTo(1u));
+            Assert.That(target.Creature.hp, Is.LessThan(100));
+            Assert.That(
+                player.Creature.GetAmmoQuantity(weapon.ammo),
+                Is.EqualTo(useAmmunitionWeapon ? ammoBefore - 1 : ammoBefore)
+            );
+
+            lethalDamage = target
+                .Creature.ApplyFinalDamageAsync(1000, RuleSource.FromSlug(queuedSource))
+                .AsTask();
+            yield return null;
+            Assert.That(lethalDamage.IsCompleted, Is.False);
+            Assert.That(target.Creature.IsDefeated, Is.False);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The serialized " + label + " Strike did not release its reservation."
+            );
+
+            Assert.That(
+                order.Events,
+                Is.EqualTo(new[] { "map", actionSource, "actions", queuedSource })
+            );
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(player.Controller.StrikePenalty, Is.EqualTo(1u));
+            Assert.That(
+                player.Creature.GetAmmoQuantity(weapon.ammo),
+                Is.EqualTo(useAmmunitionWeapon ? ammoBefore - 1 : ammoBefore)
+            );
+            Assert.That(target.Creature.IsDefeated, Is.True);
+            Assert.That(target.GameObject.activeSelf, Is.False);
+            Assert.That(
+                combatLog.GetMessages().Count(message => message.Contains(actionLog)),
+                Is.EqualTo(1)
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(order);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(order);
+            dispatcher.UnregisterFactObserver<HealthFact>(order);
+            singletonField.SetValue(null, previousGrid);
+            UnityEngine.Random.state = randomBefore;
+            _ = lethalDamage?.Exception;
+        }
+    }
+
     private IEnumerator AssertStaleSelectedStrikeRejectsBeforeCosts(
         CombatantFixture player,
         CombatantFixture defeatedTarget,
@@ -5418,6 +5677,42 @@ public sealed class DungeonEncounterCombatPlayModeTests
                     created[x, z] = new Tile();
             }
             return created;
+        }
+    }
+
+    private sealed class TargetActionOrderingObserver
+        : IFactObserver<LegacyActionsSpentFact>,
+            IFactObserver<LegacyMapIncrementedFact>,
+            IFactObserver<HealthFact>
+    {
+        private readonly UnityEncounterRulesBridge bridge;
+        private readonly List<string> events = new();
+
+        internal TargetActionOrderingObserver(UnityEncounterRulesBridge bridge) =>
+            this.bridge = bridge;
+
+        internal IReadOnlyList<string> Events => events;
+
+        public ValueTask OnFactCommitted(LegacyActionsSpentFact fact, RulesSnapshot snapshot)
+        {
+            events.Add("actions");
+            return default;
+        }
+
+        public ValueTask OnFactCommitted(LegacyMapIncrementedFact fact, RulesSnapshot snapshot)
+        {
+            events.Add("map");
+            return default;
+        }
+
+        public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot snapshot)
+        {
+            if (
+                (fact is DamageAppliedFact || fact is HealingAppliedFact)
+                && bridge.TryGetOriginSource(fact.Origin, out RuleSource source)
+            )
+                events.Add(source.Slug);
+            return default;
         }
     }
 

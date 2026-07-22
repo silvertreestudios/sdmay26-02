@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.KayKit;
 using Game.Rules.Unity;
@@ -65,32 +66,30 @@ namespace Game.Strikes
                     yield break;
                 }
 
-                uint attackCount = ac == null ? 0 : ac.StrikePenalty;
-                if (ac != null)
+                CreatureComponent targetCreature =
+                    target.Value.Target.GetComponent<CreatureComponent>();
+                async ValueTask ExecuteStrike()
                 {
-                    yield return CoroutineRunner.Await(
-                        PayStrikeCostAsync(
-                            ac,
-                            target.Value.Target.GetComponent<CreatureComponent>()
-                        )
-                    );
-                    yield return CoroutineRunner.Await(ac.IncrementMultipleAttackPenaltyAsync());
-                }
-                CombatLog
-                    .GetInstance()
-                    .Log(
-                        "- "
-                            + attacker.name
-                            + " attacks "
-                            + target.Value.Target.name
-                            + " with unarmed strike."
-                    );
-                Debug.Log(attacker + " Striking " + target.Value.Target);
-                attacker
-                    .GetComponent<CreaturePresentation>()
-                    ?.PlayAttack(AnimationStyle.Unarmed, target.Value.Target.transform.position);
-                yield return CoroutineRunner.Await(
-                    StrikeResolutionPipeline.ResolveAsync(
+                    uint attackCount = ac == null ? 0 : ac.StrikePenalty;
+                    if (ac != null)
+                        await ac.IncrementMultipleAttackPenaltyAsync();
+                    CombatLog
+                        .GetInstance()
+                        .Log(
+                            "- "
+                                + attacker.name
+                                + " attacks "
+                                + target.Value.Target.name
+                                + " with unarmed strike."
+                        );
+                    Debug.Log(attacker + " Striking " + target.Value.Target);
+                    attacker
+                        .GetComponent<CreaturePresentation>()
+                        ?.PlayAttack(
+                            AnimationStyle.Unarmed,
+                            target.Value.Target.transform.position
+                        );
+                    await StrikeResolutionPipeline.ResolveAsync(
                         new StrikeResolutionRequest
                         {
                             Attacker = attacker,
@@ -99,7 +98,11 @@ namespace Game.Strikes
                             TargetingResult = target.Value,
                             MultipleAttackCountOverride = attackCount,
                         }
-                    )
+                    );
+                }
+
+                yield return CoroutineRunner.Await(
+                    ExecuteTargetedActionAsync(ac, targetCreature, ExecuteStrike)
                 );
             }
         }

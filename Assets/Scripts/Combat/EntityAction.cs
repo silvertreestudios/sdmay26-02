@@ -24,21 +24,29 @@ public abstract class EntityAction
     }
 
     /// <summary>
-    /// Atomically validates a selected living encounter target and spends this action's cost.
+    /// Serializes one target-bearing action from validation and payment through rules effects.
     /// </summary>
     /// <param name="ac">The controller paying through its attached encounter store.</param>
     /// <param name="requiredLivingTarget">
     /// The selected Strike target that must still be a living participant when payment commits.
     /// </param>
-    /// <returns>The complete target-aware action-spend root, or a completed exploration value.</returns>
-    protected ValueTask PayStrikeCostAsync(
+    /// <param name="execution">
+    /// The complete MAP, resource, roll, and authoritative effect sequence to keep in the root.
+    /// </param>
+    /// <returns>The complete target-aware action root.</returns>
+    protected ValueTask ExecuteTargetedActionAsync(
         ActionController ac,
-        CreatureComponent requiredLivingTarget
+        CreatureComponent requiredLivingTarget,
+        System.Func<ValueTask> execution
     )
     {
         if (ac != null && !ac.IsInDungeonExploration)
-            return ac.SpendTargetedActionsAsync(new[] { requiredLivingTarget }, ActionCost);
-        return default;
+            return ac.ExecuteTargetedActionAsync(
+                new[] { requiredLivingTarget },
+                ActionCost,
+                execution
+            );
+        return execution();
     }
 
     /// <summary>

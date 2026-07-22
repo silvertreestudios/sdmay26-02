@@ -230,33 +230,40 @@ namespace Game.Combat.Spells
 
                 bool appliesMap = context.Definition.AppliesMultipleAttackPenalty(context);
                 uint attackCount = controller == null ? 0 : controller.StrikePenalty;
-                if (controller != null && (context.SpendActions || requiredLivingTargets.Count > 0))
-                    await controller.SpendTargetedActionsAsync(
-                        requiredLivingTargets,
-                        context.SpendActions ? context.ActionCost : 0
-                    );
-                if (!state.Spend(context.Spell))
-                    throw new InvalidOperationException(
-                        "A validated spell slot became unavailable before commitment."
-                    );
-                if (controller != null && context.SpendActions && appliesMap)
+                async ValueTask ExecuteAuthorizedCast()
                 {
-                    context.MultipleAttackCountOverride = attackCount;
-                    await controller.IncrementMultipleAttackPenaltyAsync();
+                    if (!state.Spend(context.Spell))
+                        throw new InvalidOperationException(
+                            "A validated spell slot became unavailable before commitment."
+                        );
+                    if (controller != null && context.SpendActions && appliesMap)
+                    {
+                        context.MultipleAttackCountOverride = attackCount;
+                        await controller.IncrementMultipleAttackPenaltyAsync();
+                    }
+
+                    if (!await context.Definition.Cast(context, selected, result))
+                        throw new InvalidOperationException(
+                            "A spell rejected a selection after validating and committing its costs."
+                        );
+                    result.Success = true;
+                    if (!creature.IsDefeated)
+                        context
+                            .Caster.GetComponent<CreaturePresentation>()
+                            ?.PlayAttack(AnimationStyle.Magic);
+                    CombatLogInterface log =
+                        UnityEngine.Object.FindFirstObjectByType<CombatLogInterface>();
+                    log?.Log("- " + context.Caster.name + " casts " + context.Spell.Name + ".");
                 }
 
-                if (!await context.Definition.Cast(context, selected, result))
-                    throw new InvalidOperationException(
-                        "A spell rejected a selection after validating and committing its costs."
+                if (controller != null && (context.SpendActions || requiredLivingTargets.Count > 0))
+                    await controller.ExecuteTargetedActionAsync(
+                        requiredLivingTargets,
+                        context.SpendActions ? context.ActionCost : 0,
+                        ExecuteAuthorizedCast
                     );
-                result.Success = true;
-                if (!creature.IsDefeated)
-                    context
-                        .Caster.GetComponent<CreaturePresentation>()
-                        ?.PlayAttack(AnimationStyle.Magic);
-                CombatLogInterface log =
-                    UnityEngine.Object.FindFirstObjectByType<CombatLogInterface>();
-                log?.Log("- " + context.Caster.name + " casts " + context.Spell.Name + ".");
+                else
+                    await ExecuteAuthorizedCast();
                 return result;
             }
             finally
