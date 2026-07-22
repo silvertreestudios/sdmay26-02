@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
+using Game.Creature;
 using Game.Creature.Rules;
 using UnityEngine;
 
@@ -35,9 +36,10 @@ namespace Game.AbilityActions
         /// <remarks>
         /// Direct callers whose actor has an <see cref="ActionController"/> receive the same action
         /// reservation normally established by <see cref="ActionController.TakeAction"/>.
-        /// Eligibility is checked before cost, the authoritative cost settles before prepared Rage
-        /// state is published, and the reservation remains owned until every awaited host effect
-        /// completes or fails.
+        /// Eligibility is checked before dispatch. Exact turn authority, the optional cost,
+        /// prepared Rage state, and temporary Hit Points then settle inside one serialized causal
+        /// tree before an unrelated root or action-spend listener can proceed. The reservation
+        /// remains owned until every awaited host effect completes or fails.
         /// </remarks>
         public async ValueTask<bool> UseRageAsync(GameObject actor)
         {
@@ -75,13 +77,25 @@ namespace Game.AbilityActions
                 return false;
             }
 
-            if (requireActionAuthority)
-                await PayCostAsync(actionController);
-            RageRuleResult result = RageRule.Apply(request);
-            await UnityRuleEffectApplier.ApplyAsync(actor, result.Effects);
-            if (!result.Applied)
-                Debug.Log(actor + " cannot Rage");
-            return result.Applied;
+            async ValueTask<bool> ApplyAuthorizedRage()
+            {
+                RageRuleResult result = RageRule.Apply(request);
+                await UnityRuleEffectApplier.ApplyAsync(actor, result.Effects);
+                if (!result.Applied)
+                    Debug.Log(actor + " cannot Rage");
+                return result.Applied;
+            }
+
+            if (!requireActionAuthority)
+                return await ApplyAuthorizedRage();
+
+            bool applied = false;
+            await actionController.ExecuteActionAsync(
+                Array.Empty<CreatureComponent>(),
+                ActionCost,
+                async () => applied = await ApplyAuthorizedRage()
+            );
+            return applied;
         }
 
         // Combat-start initialization already runs inside the encounter's serialized startup or

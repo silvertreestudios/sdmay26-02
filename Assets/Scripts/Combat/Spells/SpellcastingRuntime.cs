@@ -257,7 +257,7 @@ namespace Game.Combat.Spells
                 }
 
                 if (controller != null && (context.SpendActions || requiredLivingTargets.Count > 0))
-                    await controller.ExecuteTargetedActionAsync(
+                    await controller.ExecuteActionAsync(
                         requiredLivingTargets,
                         context.SpendActions ? context.ActionCost : 0,
                         ExecuteAuthorizedCast
@@ -315,6 +315,17 @@ namespace Game.Combat.Spells
             );
         }
 
+        /// <summary>Finds friendly creatures inside a grid-measured emanation.</summary>
+        /// <param name="caster">The creature at the emanation origin.</param>
+        /// <param name="rangeFeet">The inclusive emanation radius in feet.</param>
+        /// <returns>
+        /// The caster followed by qualifying friendly creatures discovered in the scene.
+        /// </returns>
+        /// <remarks>
+        /// During an active encounter, discovery includes only current living participants in the
+        /// caster's exact authoritative roster. Standalone compositions retain scene-wide friendly
+        /// discovery because they have no encounter roster to project.
+        /// </remarks>
         public static IReadOnlyList<GameObject> FriendlyCreaturesInEmanation(
             GameObject caster,
             int rangeFeet
@@ -322,6 +333,12 @@ namespace Game.Combat.Spells
         {
             if (caster == null)
                 return Array.Empty<GameObject>();
+            CreatureComponent casterCreature = caster.GetComponent<CreatureComponent>();
+            UnityEncounterRulesBridge encounterBridge = null;
+            bool restrictToEncounter =
+                casterCreature != null
+                && casterCreature.TryGetEncounterRulesBridge(out encounterBridge)
+                && encounterBridge.HasActiveEncounter;
             List<GameObject> targets = new() { caster };
             Vector3Int start = Vector3Int.RoundToInt(caster.transform.position);
             foreach (
@@ -331,6 +348,11 @@ namespace Game.Combat.Spells
             )
             {
                 if (creature == null || creature.gameObject == caster)
+                    continue;
+                if (
+                    restrictToEncounter
+                    && !encounterBridge.IsLivingActiveEncounterParticipant(creature)
+                )
                     continue;
                 int distance = StrikeTargeting.MeasureGridDistanceFeet(
                     start,

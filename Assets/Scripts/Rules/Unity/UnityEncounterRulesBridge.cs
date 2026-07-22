@@ -873,10 +873,12 @@ namespace Game.Rules.Unity
             int amount
         ) => DispatchAsync(new SpendLegacyActionsOp(actor, amount));
 
-        // The reducer validates this immutable target set with AP. The observer then keeps the
-        // accepted action's remaining rules work inside the same serialized causal tree, so an
-        // unrelated queued root cannot enter between payment and authoritative effects.
-        internal ValueTask<LegacyActionSpendOutcome> ExecuteTargetedActionAsync(
+        // The reducer validates exact turn authority, AP, and any immutable target set. The
+        // observer then keeps the accepted action's remaining rules work inside the same
+        // serialized causal tree, so an unrelated queued root cannot enter between payment and
+        // authoritative effects. Non-target actions pass an empty target set through this same
+        // boundary instead of inventing a second serialization mechanism.
+        internal ValueTask<LegacyActionSpendOutcome> ExecuteActionAsync(
             CreatureId actor,
             IReadOnlyList<CreatureId> requiredLivingTargets,
             int amount,
@@ -884,7 +886,7 @@ namespace Game.Rules.Unity
         ) =>
             DispatchAsync(
                 new SpendLegacyActionsOp(actor, amount, requiredLivingTargets),
-                new TargetedActionRootObserver(execution)
+                new SerializedActionRootObserver(execution)
             );
 
         /// <summary>Awaits a turn-authorized MAP increment through the transitional same-store port.</summary>
@@ -1207,12 +1209,12 @@ namespace Game.Rules.Unity
             }
         }
 
-        private sealed class TargetedActionRootObserver
+        private sealed class SerializedActionRootObserver
             : IRootResolutionObserver<LegacyActionSpendOutcome>
         {
             private readonly Func<ValueTask> execution;
 
-            internal TargetedActionRootObserver(Func<ValueTask> execution) =>
+            internal SerializedActionRootObserver(Func<ValueTask> execution) =>
                 this.execution = execution ?? throw new ArgumentNullException(nameof(execution));
 
             /// <inheritdoc/>

@@ -444,7 +444,9 @@ public abstract class ActionController : MonoBehaviour
         await encounterRules.SpendActionsAsync(encounterCreatureId, checked((int)amount));
     }
 
-    internal async ValueTask ExecuteTargetedActionAsync(
+    // Exact action authority and optional targets commit before execution, while the supplied
+    // callback retains the dispatcher's causal-root lease through all awaited rules work.
+    internal async ValueTask ExecuteActionAsync(
         IReadOnlyList<CreatureComponent> requiredLivingTargets,
         uint amount,
         Func<ValueTask> execution
@@ -471,7 +473,7 @@ public abstract class ActionController : MonoBehaviour
                 );
             targetIds.Add(encounterRules.GetCreatureId(target));
         }
-        await encounterRules.ExecuteTargetedActionAsync(
+        await encounterRules.ExecuteActionAsync(
             encounterCreatureId,
             targetIds,
             checked((int)amount),

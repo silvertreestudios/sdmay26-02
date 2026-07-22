@@ -41,11 +41,7 @@ public abstract class EntityAction
     )
     {
         if (ac != null && !ac.IsInDungeonExploration)
-            return ac.ExecuteTargetedActionAsync(
-                new[] { requiredLivingTarget },
-                ActionCost,
-                execution
-            );
+            return ac.ExecuteActionAsync(new[] { requiredLivingTarget }, ActionCost, execution);
         return execution();
     }
 

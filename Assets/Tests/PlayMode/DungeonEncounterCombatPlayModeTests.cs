@@ -3177,6 +3177,99 @@ public sealed class DungeonEncounterCombatPlayModeTests
         dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
     }
 
+    /// <summary>Verifies Bless discovery excludes every nearby non-living or off-roster creature.</summary>
+    [UnityTest]
+    public IEnumerator BlessAutomaticEmanationTargetsOnlyLivingCurrentEncounterParticipants()
+    {
+        CombatantFixture player = CreateCombatant("Bless Player", "Players", 300);
+        CombatantFixture ally = CreateCombatant("Bless Ally", "Players", 200);
+        CombatantFixture defeatedAlly = CreateCombatant("Defeated Bless Ally", "Players", 150);
+        CombatantFixture enemy = CreateCombatant("Bless Enemy", "Enemies", 100);
+        CombatantFixture dormantFriendly = CreateCombatant(
+            "Dormant Friendly Outside Encounter",
+            "Players",
+            50
+        );
+        GameObject unassignedObject = Create("Unassigned Bless Helper");
+        CreatureComponent unassigned = unassignedObject.AddComponent<CreatureComponent>();
+        unassigned.InitializeHealthBeforeEncounter(10, 10);
+        player.GameObject.transform.position = Vector3.zero;
+        ally.GameObject.transform.position = new Vector3(1, 0, 0);
+        defeatedAlly.GameObject.transform.position = new Vector3(1, 0, 1);
+        enemy.GameObject.transform.position = new Vector3(2, 0, 0);
+        dormantFriendly.GameObject.transform.position = new Vector3(2, 0, 1);
+        unassignedObject.transform.position = new Vector3(3, 0, 0);
+        defeatedAlly.Creature.InitializeHealthBeforeEncounter(1, 10);
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+
+        manager.StartDungeonCombat(
+            new[] { player.Controller, ally.Controller, defeatedAlly.Controller, enemy.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        yield return CoroutineRunner.Await(
+            defeatedAlly.Creature.ApplyFinalDamageAsync(
+                1,
+                RuleSource.FromSlug("exclude-defeated-from-bless")
+            )
+        );
+        defeatedAlly.GameObject.SetActive(true);
+
+        IReadOnlyList<GameObject> discovered = SpellcastingRuntime.FriendlyCreaturesInEmanation(
+            player.GameObject,
+            15
+        );
+        Assert.That(discovered, Is.EqualTo(new[] { player.GameObject, ally.GameObject }));
+        Assert.That(discovered, Has.No.Member(defeatedAlly.GameObject));
+        Assert.That(discovered, Has.No.Member(dormantFriendly.GameObject));
+        Assert.That(discovered, Has.No.Member(unassignedObject));
+        Assert.That(discovered, Has.No.Member(enemy.GameObject));
+
+        SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+        PreparedSpell bless = spellcasting.GetSpell("bless");
+        int slotsBefore = spellcasting.Pools["rank-1-bless"].UsesRemaining;
+        uint actionsBefore = player.Controller.ActionPoints;
+        CoroutineResult<CastSpellResult> cast = new();
+        yield return CoroutineRunner.Await(
+            SpellcastingRuntime.CastAsync(
+                player.GameObject,
+                bless,
+                2,
+                discovered,
+                spendActions: true
+            ),
+            cast
+        );
+
+        Assert.That(cast.Value.Success, Is.True);
+        Assert.That(cast.Value.Targets, Is.EqualTo(new[] { player.GameObject, ally.GameObject }));
+        Assert.That(player.Controller.ActionPoints, Is.EqualTo(actionsBefore - 2));
+        Assert.That(spellcasting.Pools["rank-1-bless"].UsesRemaining, Is.EqualTo(slotsBefore - 1));
+        Assert.That(
+            player.GameObject.GetComponent<SpellEffectController>().HasEffect<BlessSpellEffect>(),
+            Is.True
+        );
+        Assert.That(
+            ally.GameObject.GetComponent<SpellEffectController>().HasEffect<BlessSpellEffect>(),
+            Is.True
+        );
+        Assert.That(defeatedAlly.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+        Assert.That(dormantFriendly.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+        Assert.That(unassignedObject.GetComponent<SpellEffectController>(), Is.Null);
+        Assert.That(enemy.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+        Assert.That(player.Controller.IsTakingAction, Is.False);
+        Assert.That(
+            UnityEngine
+                .Object.FindFirstObjectByType<TestCombatLog>()
+                .GetMessages()
+                .Count(message => message.Contains(" casts " + bless.Name + ".")),
+            Is.EqualTo(1)
+        );
+    }
+
     /// <summary>Verifies presented defeat cannot be healed or regain encounter participation.</summary>
     [UnityTest]
     public IEnumerator CommittedDefeatRejectsDirectAndPreselectedHealingAndNeverRegainsTurn()
@@ -3274,6 +3367,26 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    /// <summary>Verifies a lethal root ahead of positive-cost Rage rejects every Rage mutation.</summary>
+    [UnityTest]
+    public IEnumerator PositiveCostManualRageRejectsLethalRootQueuedBeforeSpend() =>
+        AssertManualRageRejectsLethalRootQueuedBeforeSpend(1);
+
+    /// <summary>Verifies zero-cost Rage still serializes authority behind an earlier lethal root.</summary>
+    [UnityTest]
+    public IEnumerator ZeroCostManualRageRejectsLethalRootQueuedBeforeAuthorization() =>
+        AssertManualRageRejectsLethalRootQueuedBeforeSpend(0);
+
+    /// <summary>Verifies positive-cost Rage fully settles before a later lethal root enters.</summary>
+    [UnityTest]
+    public IEnumerator PositiveCostManualRageSettlesBeforeLethalRootQueuedBehindSpend() =>
+        AssertManualRageSettlesBeforeLethalRootQueuedBehindSpend(1);
+
+    /// <summary>Verifies zero-cost Rage effects remain in its accepted authorization root.</summary>
+    [UnityTest]
+    public IEnumerator ZeroCostManualRageSettlesBeforeLethalRootQueuedBehindAuthorization() =>
+        AssertManualRageSettlesBeforeLethalRootQueuedBehindSpend(0);
+
     /// <summary>Verifies a rejected queued Rage spend cannot publish prepared or health state.</summary>
     [UnityTest]
     public IEnumerator RageSpendRejectedAfterTurnEndPublishesNoRageState()
@@ -3360,8 +3473,11 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Assert.That(rage.IsCompleted, Is.False);
             Assert.That(player.Controller.IsTakingAction, Is.True);
             Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
-            Assert.That(spends.Facts, Has.Count.EqualTo(1));
-            Assert.That(spends.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(
+                spends.Facts,
+                Is.Empty,
+                "The outer action-spend Fact waits for accepted Rage causal work."
+            );
             Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
             Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
             player.Controller.TakeAction(competing);
@@ -3379,6 +3495,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
             StringAssert.Contains("deliberate Rage Fact failure", rage.Exception.ToString());
             Assert.That(player.Controller.IsTakingAction, Is.False);
             Assert.That(competingInvocations, Is.Zero);
+            Assert.That(spends.Facts, Has.Count.EqualTo(1));
+            Assert.That(spends.Facts[0].Amount, Is.EqualTo(1));
             Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
             Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
         }
@@ -4709,6 +4827,165 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    private IEnumerator AssertManualRageRejectsLethalRootQueuedBeforeSpend(uint actionCost)
+    {
+        string label = actionCost == 0 ? "Zero Cost" : "Positive Cost";
+        CombatantFixture player = CreateCombatant(label + " Rejected Rage Player", "Players", 300);
+        CombatantFixture ally = CreateCombatant(label + " Rejected Rage Ally", "Players", 200);
+        CombatantFixture enemy = CreateCombatant(label + " Rejected Rage Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { player.Controller, ally.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        PrepareBarbarian(player.Creature);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<TemporaryHitPointsGrantedFact> tempGrants = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(tempGrants);
+        Task occupyingDamage = enemy
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("block-before-manual-rage"))
+            .AsTask();
+        Task lethalDamage = null;
+        Task<bool> rage = null;
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The health root did not pause before queued manual Rage."
+            );
+            lethalDamage = player
+                .Creature.ApplyFinalDamageAsync(
+                    1000,
+                    RuleSource.FromSlug("lethal-before-manual-rage")
+                )
+                .AsTask();
+            rage = new Rage(actionCost).UseRageAsync(player.GameObject).AsTask();
+            yield return null;
+
+            Assert.That(lethalDamage.IsCompleted, Is.False);
+            Assert.That(rage.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(tempGrants.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(occupyingDamage));
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+            yield return WaitForCondition(
+                () => rage.IsCompleted,
+                "The rejected queued manual Rage did not settle."
+            );
+
+            Assert.That(rage.IsFaulted, Is.True);
+            StringAssert.Contains("does not own an active current turn", rage.Exception.ToString());
+            Assert.That(player.Creature.IsDefeated, Is.True);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("effect-rage"), Is.False);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(player.Creature.tempHp, Is.Zero);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(tempGrants.Facts, Is.Empty);
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(tempGrants);
+            _ = occupyingDamage.Exception;
+            _ = lethalDamage?.Exception;
+            _ = rage?.Exception;
+        }
+    }
+
+    private IEnumerator AssertManualRageSettlesBeforeLethalRootQueuedBehindSpend(uint actionCost)
+    {
+        string label = actionCost == 0 ? "Zero Cost" : "Positive Cost";
+        CombatantFixture player = CreateCombatant(label + " Accepted Rage Player", "Players", 300);
+        CombatantFixture ally = CreateCombatant(label + " Accepted Rage Ally", "Players", 200);
+        CombatantFixture enemy = CreateCombatant(label + " Accepted Rage Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { player.Controller, ally.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        PrepareBarbarian(player.Creature);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<TemporaryHitPointsGrantedFact> tempGrants = new();
+        RageActionOrderingObserver order = new(bridge);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(tempGrants);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(order);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(order);
+        dispatcher.RegisterFactObserver<HealthFact>(order);
+        Task<bool> rage = new Rage(actionCost).UseRageAsync(player.GameObject).AsTask();
+        Task lethalDamage = null;
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The accepted manual Rage did not pause in temporary-HP observation."
+            );
+
+            Assert.That(rage.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u - actionCost));
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(tempGrants.Facts, Is.Empty);
+
+            lethalDamage = player
+                .Creature.ApplyFinalDamageAsync(
+                    1000,
+                    RuleSource.FromSlug("lethal-after-manual-rage")
+                )
+                .AsTask();
+            yield return null;
+            Assert.That(lethalDamage.IsCompleted, Is.False);
+            Assert.That(player.Creature.IsDefeated, Is.False);
+
+            blocker.Release();
+            CoroutineResult<bool> rageResult = new();
+            yield return CoroutineRunner.Await(new ValueTask<bool>(rage), rageResult);
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+
+            string[] expectedOrder =
+                actionCost == 0
+                    ? new[] { "rage-temp", "lethal-after-manual-rage" }
+                    : new[] { "rage-temp", "actions", "lethal-after-manual-rage" };
+            Assert.That(order.Events, Is.EqualTo(expectedOrder));
+            Assert.That(rageResult.Value, Is.True);
+            Assert.That(tempGrants.Facts, Has.Count.EqualTo(1));
+            Assert.That(spends.Facts.Count, Is.EqualTo(actionCost == 0 ? 0 : 1));
+            if (actionCost > 0)
+                Assert.That(spends.Facts[0].Amount, Is.EqualTo((int)actionCost));
+            Assert.That(player.Creature.IsDefeated, Is.True);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(tempGrants);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(order);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(order);
+            dispatcher.UnregisterFactObserver<HealthFact>(order);
+            _ = rage.Exception;
+            _ = lethalDamage?.Exception;
+        }
+    }
+
     private IEnumerator AssertQueuedSpellSettlesBeforeLaterDefeat(bool useAttackSpell)
     {
         string label = useAttackSpell ? "Attack Spell" : "Slotted Heal";
@@ -5677,6 +5954,42 @@ public sealed class DungeonEncounterCombatPlayModeTests
                     created[x, z] = new Tile();
             }
             return created;
+        }
+    }
+
+    private sealed class RageActionOrderingObserver
+        : IFactObserver<TemporaryHitPointsGrantedFact>,
+            IFactObserver<LegacyActionsSpentFact>,
+            IFactObserver<HealthFact>
+    {
+        private readonly UnityEncounterRulesBridge bridge;
+        private readonly List<string> events = new();
+
+        internal RageActionOrderingObserver(UnityEncounterRulesBridge bridge) =>
+            this.bridge = bridge;
+
+        internal IReadOnlyList<string> Events => events;
+
+        public ValueTask OnFactCommitted(TemporaryHitPointsGrantedFact fact, RulesSnapshot snapshot)
+        {
+            events.Add("rage-temp");
+            return default;
+        }
+
+        public ValueTask OnFactCommitted(LegacyActionsSpentFact fact, RulesSnapshot snapshot)
+        {
+            events.Add("actions");
+            return default;
+        }
+
+        public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot snapshot)
+        {
+            if (
+                fact is DamageAppliedFact
+                && bridge.TryGetOriginSource(fact.Origin, out RuleSource source)
+            )
+                events.Add(source.Slug);
+            return default;
         }
     }
 
