@@ -68,7 +68,6 @@ namespace TestsState
 
             GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
             gridBase.Fsm.CurrentState.Leftclick();
-            // Wait a frame for events to process
             yield return null;
 
             // check that we have transitioned to idle after an execution of strike
@@ -133,8 +132,13 @@ namespace TestsState
             GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
             GameObject target = gridBase.GetTiles()[targetPos.x, targetPos.z].Occupants[0];
             gridBase.Fsm.CurrentState.Leftclick();
-            // Wait a frame for events to process
-            yield return null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                    gridBase.Fsm.CurrentState is StateIdle
+                    && player.GetComponent<PlayerActionController>().ActionPoints == 2
+                    && !player.GetComponent<PlayerActionController>().IsTakingAction
+            );
 
             // check that we have transitioned to idle after an execution of strike
             Assert.IsTrue(

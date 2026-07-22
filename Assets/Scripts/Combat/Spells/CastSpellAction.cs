@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.Creature.Rules;
 using UnityEngine;
@@ -59,13 +60,18 @@ namespace Game.Combat.Spells
             }
         }
 
-        public CastSpellResult Cast(
+        /// <summary>Casts this prepared action variant and awaits effects, costs, and MAP.</summary>
+        /// <param name="caster">The creature invoking this prepared spell action.</param>
+        /// <param name="targets">Optional already-selected direct targets.</param>
+        /// <param name="area">Optional already-selected area targeting result.</param>
+        /// <returns>The complete cast result after the causal root settles.</returns>
+        public ValueTask<CastSpellResult> CastAsync(
             GameObject caster,
             IReadOnlyList<GameObject> targets = null,
             GridPublic.AreaTargetResult area = null
         )
         {
-            return SpellcastingRuntime.Cast(
+            return SpellcastingRuntime.CastAsync(
                 caster,
                 spell,
                 variantActionCost,
@@ -77,20 +83,24 @@ namespace Game.Combat.Spells
 
         protected override IEnumerator MFInvoke(GameObject caster)
         {
-            ActionController actionController = caster.GetComponent<ActionController>();
             if (definition == null)
-            {
-                if (actionController != null)
-                    actionController.IsTakingAction = false;
                 yield break;
-            }
+            ActionController controller = caster.GetComponent<ActionController>();
+            if (
+                controller == null
+                || !controller.TryGetCurrentActionReservation(
+                    out ActionReservationToken reservation
+                )
+            )
+                yield break;
 
             SpellCastContext context = new(
                 caster,
                 spell,
                 variantActionCost,
                 spendActions: true,
-                definition
+                definition,
+                ownedActionReservation: reservation
             );
             yield return definition.SelectAndCast(context);
         }

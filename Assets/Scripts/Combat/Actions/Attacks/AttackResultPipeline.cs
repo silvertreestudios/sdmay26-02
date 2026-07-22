@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Combat.Rules;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -13,7 +14,15 @@ using RuleSource = Game.Rules.Runtime.RuleSource;
 /// </summary>
 public static class StrikeResolutionPipeline
 {
-    public static StrikeResolutionResult Resolve(StrikeResolutionRequest request)
+    /// <summary>Resolves every Strike phase and awaits committed damage before later effects.</summary>
+    /// <param name="request">The attacker, target, profile, and validated targeting result.</param>
+    /// <returns>The settled Strike context and its final attack and damage results.</returns>
+    /// <exception cref="ArgumentException">
+    /// The request does not resolve to attacker and target creature components.
+    /// </exception>
+    public static async ValueTask<StrikeResolutionResult> ResolveAsync(
+        StrikeResolutionRequest request
+    )
     {
         StrikeResolutionContext context = StrikeResolutionContext.FromRequest(request);
         if (context.AttackerCreature == null)
@@ -44,6 +53,14 @@ public static class StrikeResolutionPipeline
             ApplyPhase(adjustments, StrikeAdjustmentPhase.AfterCriticalDoubling, context);
             ApplyPhase(adjustments, StrikeAdjustmentPhase.BeforeDefenseAdjustments, context);
             ApplyPhase(adjustments, StrikeAdjustmentPhase.ApplyDefenseAndDamage, context);
+            await context.TargetCreature.ApplyFinalDamageAsync(
+                checked((int)context.FinalAppliedDamage),
+                RuleSource.FromSlug(
+                    string.IsNullOrWhiteSpace(context.Profile.ItemSlug)
+                        ? "strike"
+                        : context.Profile.ItemSlug
+                )
+            );
             ApplyPhase(adjustments, StrikeAdjustmentPhase.AfterDamageApplied, context);
         }
 
@@ -164,7 +181,9 @@ internal sealed class MultipleAttackAndRangePenaltyAdjustment : StrikeAdjustment
     public override void Apply(StrikeResolutionContext context)
     {
         uint strikePenaltyCount =
-            context.AttackerObject.GetComponent<ActionController>()?.StrikePenalty ?? 0;
+            context.MultipleAttackCountOverride
+            ?? context.AttackerObject.GetComponent<ActionController>()?.StrikePenalty
+            ?? 0;
         context.MultipleAttackPenalty = CalculateMultipleAttackPenalty(context, strikePenaltyCount);
         context.RangePenalty = context.TargetingResult?.RangePenalty ?? 0;
 
@@ -480,13 +499,6 @@ internal sealed class ApplyDefenseAndDamageAdjustment : StrikeAdjustmentBase
         DamageRoller.FinalizeDamageResolution(context.DamageResolution);
         context.DamageValues = context.DamageResolution.DamageValues;
         context.FinalAppliedDamage = (uint)Mathf.Max(0, context.DamageResolution.TotalDamage);
-        string sourceSlug = string.IsNullOrWhiteSpace(context.Profile.ItemSlug)
-            ? "strike"
-            : context.Profile.ItemSlug;
-        context.TargetCreature.ApplyFinalDamage(
-            (int)context.FinalAppliedDamage,
-            RuleSource.FromSlug(sourceSlug)
-        );
     }
 }
 

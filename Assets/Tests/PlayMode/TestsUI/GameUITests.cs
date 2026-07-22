@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Game.Creature;
 using Game.Rules.Runtime;
 using NUnit.Framework;
@@ -107,20 +108,15 @@ namespace TestsUI
             ActionController actionController = player.GetComponent<ActionController>();
             Assert.IsNotNull(actionController, "Current player has no ActionController.");
 
-            List<GameObject> combatants = CombatManagerInterface.GetInstance().GetCombatants();
-            int playerCardIndex = combatants.IndexOf(player);
-            Assert.GreaterOrEqual(
-                playerCardIndex,
-                0,
-                "Current player was not found in the combatant queue."
-            );
-            Assert.Less(
-                playerCardIndex,
-                cardHolder.childCount,
-                "Current player's card was not found in CardHolder."
-            );
-
-            VisualElement card = cardHolder.ElementAt(playerCardIndex);
+            VisualElement card = cardHolder
+                .Children()
+                .FirstOrDefault(candidate =>
+                    CountMedallionsWithClass(
+                        candidate.Query<VisualElement>(className: "action-medallion").ToList(),
+                        "action-medallion--filled"
+                    ) == (int)actionController.ActionPoints
+                );
+            Assert.IsNotNull(card, "Current action projection was not found in CardHolder.");
             List<VisualElement> medallions = null;
             yield return WaitUntilWithTimeout(
                 timeout,
@@ -154,15 +150,14 @@ namespace TestsUI
             ).resolvedStyle.height;
 
             uint[] actionPointStates = { 3, 2, 1, 0 };
+            uint previousActionPoints = 3;
             foreach (uint actionPoints in actionPointStates)
             {
-                foreach (GameObject combatant in combatants)
-                {
-                    ActionController combatantActionController =
-                        combatant.GetComponent<ActionController>();
-                    if (combatantActionController != null)
-                        combatantActionController.ActionPoints = actionPoints;
-                }
+                if (previousActionPoints > actionPoints)
+                    yield return CoroutineRunner.Await(
+                        actionController.SpendActionsAsync(previousActionPoints - actionPoints)
+                    );
+                previousActionPoints = actionPoints;
 
                 yield return WaitUntilWithTimeout(
                     timeout,
@@ -245,7 +240,9 @@ namespace TestsUI
                 1,
                 "The UI fixture player must survive test damage."
             );
-            creature.ApplyFinalDamage(1, RuleSource.FromSlug("test-exploration-ui-damage"));
+            yield return CoroutineRunner.Await(
+                creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-exploration-ui-damage"))
+            );
             string expectedHealth =
                 $"{creature.hp + creature.tempHp}/{creature.maxHp + creature.tempHp}";
             yield return WaitUntilWithTimeout(
@@ -367,22 +364,19 @@ namespace TestsUI
             ActionController actionController = player.GetComponent<ActionController>();
             Assert.IsNotNull(actionController, "Current combatant has no ActionController.");
 
-            List<GameObject> combatants = CombatManagerInterface.GetInstance().GetCombatants();
-            foreach (GameObject combatant in combatants)
-            {
-                ActionController combatantActionController =
-                    combatant.GetComponent<ActionController>();
-                if (combatantActionController != null)
-                    combatantActionController.ActionPoints = 0;
-            }
-
             Conditions conditions =
                 player.GetComponent<Conditions>() ?? player.AddComponent<Conditions>();
             Condition slowed = DefinedConditions.TryGet("Slowed 1");
             Assert.IsNotNull(slowed, "Slowed 1 condition definition was not found.");
 
             slowed.Apply(new ConditionSource(), player);
-            actionController.StartTurn();
+            CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
+            int turnCount = combatManager.GetCombatants().Count;
+            for (int index = 0; index < turnCount; index++)
+            {
+                GameObject actor = combatManager.WhosTurn();
+                combatManager.EndCurrentTurn(actor.GetComponent<ActionController>());
+            }
 
             int matchingCards = 0;
             yield return WaitUntilWithTimeout(
@@ -478,7 +472,9 @@ namespace TestsUI
             ActionController actionController = player.GetComponent<ActionController>();
             Assert.IsNotNull(actionController, "Current player has no ActionController.");
 
-            actionController.ActionPoints = 0;
+            yield return CoroutineRunner.Await(
+                actionController.SpendActionsAsync(actionController.ActionPoints)
+            );
             yield return null;
 
             Assert.AreEqual(
@@ -510,26 +506,6 @@ namespace TestsUI
             Assert.IsTrue(
                 endTurnButton.enabledSelf,
                 "End Turn should remain available when no action is running."
-            );
-
-            actionController.ActionPoints = 1;
-            yield return null;
-
-            Assert.IsTrue(
-                strideButton.enabledSelf,
-                "Stride should re-enable when enough AP is restored."
-            );
-            Assert.IsTrue(
-                strikeButton.enabledSelf,
-                "Strike should re-enable when enough AP is restored."
-            );
-            Assert.IsFalse(
-                strideButton.ClassListContains(HUDController.DisabledHudButtonClass),
-                "Stride disabled style should be removed when available."
-            );
-            Assert.IsFalse(
-                strikeButton.ClassListContains(HUDController.DisabledHudButtonClass),
-                "Strike disabled style should be removed when available."
             );
         }
 

@@ -2,13 +2,18 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
@@ -110,15 +115,157 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         );
     }
 
+    /// <summary>
+    /// Verifies an asynchronous startup abort restores every room activated by its generation and
+    /// permits the ordinary room-entry flow to retry.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator AsyncStartupAbortRestoresAllGenerationActivationsAndIgnoresStaleAbort()
+    {
+        BlockingFactObserver<TurnBeganFact> blocker = new("deliberate director startup failure");
+        UnityEncounterRulesBridge failedBridge = null;
+        RuleDispatcher failedDispatcher = null;
+        UnityAction installFailure = () =>
+        {
+            failedBridge = GetEncounterBridge();
+            failedDispatcher = GetEncounterDispatcher(failedBridge);
+            failedDispatcher.RegisterFactObserver<TurnBeganFact>(blocker);
+        };
+        Action<bool> installFailureAtActivation = active =>
+        {
+            if (active)
+                installFailure();
+        };
+        manager.CombatActivityChanged += installFailureAtActivation;
+        int inactivePublications = 0;
+        bool lifecycleWasReconciledAtInactivePublication = false;
+        Action<bool> observeActivity = active =>
+        {
+            if (active)
+                return;
+            inactivePublications++;
+            lifecycleWasReconciledAtInactivePublication = !director.Lifecycle.HasActiveEncounters;
+        };
+        manager.CombatActivityChanged += observeActivity;
+        long failedGeneration = 0;
+
+        try
+        {
+            DungeonRoomEntryResult first = director.EnterRoom(1);
+            failedGeneration = GetEncounterGeneration();
+
+            Assert.That(first.Transition, Is.EqualTo(DungeonRoomEntryTransition.FirstActivation));
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(1).State,
+                Is.EqualTo(DungeonEncounterGroupState.Active)
+            );
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The first-turn observer did not pause dungeon startup."
+            );
+
+            DungeonRoomEntryResult second = director.EnterRoom(2);
+            Assert.That(second.Transition, Is.EqualTo(DungeonRoomEntryTransition.Reinforcement));
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(2).State,
+                Is.EqualTo(DungeonEncounterGroupState.Active),
+                "The second room must join the still-pending startup generation."
+            );
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate director startup failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () =>
+                    !manager.IsCombatActive
+                    && director.Lifecycle.GetRoomEncounter(1).State
+                        == DungeonEncounterGroupState.Dormant
+                    && director.Lifecycle.GetRoomEncounter(2).State
+                        == DungeonEncounterGroupState.Dormant,
+                "The failed startup did not restore every activation owned by its generation."
+            );
+            Assert.That(inactivePublications, Is.EqualTo(1));
+            Assert.That(lifecycleWasReconciledAtInactivePublication, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            manager.CombatActivityChanged -= installFailureAtActivation;
+            manager.CombatActivityChanged -= observeActivity;
+            failedDispatcher?.UnregisterFactObserver<TurnBeganFact>(blocker);
+        }
+
+        DungeonRoomEntryResult retry = director.EnterRoom(1);
+        yield return WaitForTurn();
+        DungeonRoomEntryResult retryReinforcement = director.EnterRoom(2);
+        yield return WaitForCondition(
+            () => manager.GetCombatants().Count == 4,
+            "The restored second room did not join the successful retry."
+        );
+
+        Assert.That(retry.Transition, Is.EqualTo(DungeonRoomEntryTransition.FirstActivation));
+        Assert.That(
+            retryReinforcement.Transition,
+            Is.EqualTo(DungeonRoomEntryTransition.Reinforcement)
+        );
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            director.Lifecycle.GetRoomEncounter(1).State,
+            Is.EqualTo(DungeonEncounterGroupState.Active)
+        );
+        Assert.That(GetEncounterBridge(), Is.Not.SameAs(failedBridge));
+        Assert.That(GetEncounterGeneration(), Is.GreaterThan(failedGeneration));
+
+        NotifyStartupAbort(failedGeneration);
+
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            director.Lifecycle.GetRoomEncounter(1).State,
+            Is.EqualTo(DungeonEncounterGroupState.Active),
+            "A stale startup notification must not revert a successful retry."
+        );
+        Assert.That(
+            director.Lifecycle.GetRoomEncounter(2).State,
+            Is.EqualTo(DungeonEncounterGroupState.Active),
+            "A stale startup notification must not revert a retry reinforcement."
+        );
+        Assert.That(manager.GetCombatants(), Has.Count.EqualTo(4));
+    }
+
     /// <summary>Verifies a second entered room materializes and joins the running fight.</summary>
-    [Test]
-    public void ChainedRoomEntryAddsReinforcements()
+    [UnityTest]
+    public IEnumerator ChainedRoomEntryAddsReinforcements()
     {
         director.EnterRoom(1);
+        yield return WaitForTurn();
+        List<DungeonReinforcementRequestStatus> completions = new();
+        Action<DungeonReinforcementRequest, DungeonReinforcementRequestStatus> observeCompletion = (
+            _,
+            status
+        ) => completions.Add(status);
+        manager.DungeonReinforcementRequestCompleted += observeCompletion;
 
-        DungeonRoomEntryResult result = director.EnterRoom(2);
+        DungeonRoomEntryResult result;
+        try
+        {
+            result = director.EnterRoom(2);
+            yield return WaitForCondition(
+                () =>
+                    manager.GetCombatants().Count == 4
+                    && completions.Contains(DungeonReinforcementRequestStatus.Accepted),
+                "The accepted reinforcement did not publish its exact completion."
+            );
+        }
+        finally
+        {
+            manager.DungeonReinforcementRequestCompleted -= observeCompletion;
+        }
 
         Assert.That(result.Transition, Is.EqualTo(DungeonRoomEntryTransition.Reinforcement));
+        Assert.That(completions, Is.EqualTo(new[] { DungeonReinforcementRequestStatus.Accepted }));
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(encounterRoot.transform.childCount, Is.EqualTo(3));
         Assert.That(manager.GetCombatants(), Has.Count.EqualTo(4));
@@ -126,6 +273,164 @@ public sealed class DungeonEncounterDirectorPlayModeTests
             director.Lifecycle.ActiveEncounterIds,
             Is.EqualTo(new[] { "encounter-a", "encounter-b" })
         );
+    }
+
+    /// <summary>
+    /// Verifies a queued join rejected by encounter end restores only its dormant activation and a
+    /// delayed duplicate failure cannot revert the successful retry.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator RejectedQueuedReinforcementRestoresDormantGroupAndRetryIgnoresStaleFailure()
+    {
+        director.EnterRoom(1);
+        yield return WaitForTurn();
+        DungeonEncounterMember firstEnemy = Member("encounter-a/creature-0000");
+        DungeonEncounterMember finalEnemy = Member("encounter-a/creature-0001");
+        CreatureComponent firstCreature = firstEnemy.GetComponent<CreatureComponent>();
+        CreatureComponent finalCreature = finalEnemy.GetComponent<CreatureComponent>();
+        yield return CoroutineRunner.Await(
+            firstCreature.ApplyFinalDamageAsync(
+                firstCreature.hp,
+                RuleSource.FromSlug("test-reinforcement-rejection-first-defeat")
+            )
+        );
+        yield return WaitForCondition(
+            () => director.Lifecycle.GetRoomEncounter(1).LivingCreatures.Count == 1,
+            "The first encounter creature did not settle its defeat presentation."
+        );
+
+        UnityEncounterRulesBridge endingBridge = GetEncounterBridge();
+        long endingGeneration = GetEncounterGeneration();
+        RuleDispatcher dispatcher = GetEncounterDispatcher(endingBridge);
+        BlockingFactObserver<HealthFact> blocker = new(
+            "unused non-failing reinforcement blocker",
+            failAfterRelease: false
+        );
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        List<(
+            DungeonReinforcementRequest Request,
+            DungeonReinforcementRequestStatus Status
+        )> completions = new();
+        Action<DungeonReinforcementRequest, DungeonReinforcementRequestStatus> observeCompletion = (
+            request,
+            status
+        ) => completions.Add((request, status));
+        manager.DungeonReinforcementRequestCompleted += observeCompletion;
+        Task lethal = finalCreature
+            .ApplyFinalDamageAsync(
+                finalCreature.hp,
+                RuleSource.FromSlug("test-reinforcement-rejection-final-defeat")
+            )
+            .AsTask();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The final defeat root did not pause before the queued reinforcement."
+            );
+            DungeonRoomEntryResult queued = director.EnterRoom(2);
+            DungeonEncounterMember reinforcementMember = Member("encounter-b/creature-0000");
+            DirectorTestActionController reinforcement =
+                reinforcementMember.GetComponent<DirectorTestActionController>();
+            CreatureComponent reinforcementCreature =
+                reinforcementMember.GetComponent<CreatureComponent>();
+
+            Assert.That(queued.Transition, Is.EqualTo(DungeonRoomEntryTransition.Reinforcement));
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(2).State,
+                Is.EqualTo(DungeonEncounterGroupState.Active)
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                endingBridge.GetCreatureId(reinforcement)
+            );
+            yield return WaitForCondition(
+                () => GetPendingJoinControllerCount(endingBridge) == 1,
+                "The reinforcement did not enter the queued bridge join before encounter end."
+            );
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: Encounter request returned (Invalid|Rejected)"
+                )
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () =>
+                    !manager.IsCombatActive
+                    && director.Lifecycle.GetRoomEncounter(2).State
+                        == DungeonEncounterGroupState.Dormant
+                    && completions.Any(value =>
+                        value.Status == DungeonReinforcementRequestStatus.RejectedBeforeAcceptance
+                    ),
+                "The rejected queued join did not restore its dormant lifecycle activation."
+            );
+            yield return CoroutineRunner.Await(new ValueTask(lethal));
+            yield return WaitForCondition(
+                () => GetPendingJoinControllerCount(endingBridge) == 0,
+                "The rejected bridge join did not release its pending identity reservation."
+            );
+
+            (
+                DungeonReinforcementRequest Request,
+                DungeonReinforcementRequestStatus Status
+            ) rejected = completions.Single(value =>
+                value.Status == DungeonReinforcementRequestStatus.RejectedBeforeAcceptance
+            );
+            Assert.That(rejected.Request.EncounterGeneration, Is.EqualTo(endingGeneration));
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(1).State,
+                Is.EqualTo(DungeonEncounterGroupState.Cleared)
+            );
+            Assert.That(reinforcement.gameObject.activeSelf, Is.True);
+            Assert.That(reinforcement.isActiveAndEnabled, Is.True);
+            Assert.That(reinforcementCreature.Health.Current, Is.GreaterThan(0));
+            Assert.That(reinforcement.HasTurnAuthority, Is.False);
+            Assert.That(reinforcement.ActionPoints, Is.Zero);
+            Assert.Throws<InvalidOperationException>(() =>
+                endingBridge.GetCreatureId(reinforcement)
+            );
+            Assert.That(manager.GetCombatants(), Has.Member(reinforcement.gameObject));
+
+            DungeonRoomEntryResult retry = director.EnterRoom(2);
+            yield return WaitForTurn();
+            UnityEncounterRulesBridge retryBridge = GetEncounterBridge();
+
+            Assert.That(retry.Transition, Is.EqualTo(DungeonRoomEntryTransition.FirstActivation));
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(2).State,
+                Is.EqualTo(DungeonEncounterGroupState.Active)
+            );
+            Assert.That(
+                retryBridge.GetController(retryBridge.GetCreatureId(reinforcement)),
+                Is.SameAs(reinforcement)
+            );
+
+            NotifyReinforcementCompletion(
+                rejected.Request,
+                DungeonReinforcementRequestStatus.RejectedBeforeAcceptance
+            );
+
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(
+                director.Lifecycle.GetRoomEncounter(2).State,
+                Is.EqualTo(DungeonEncounterGroupState.Active),
+                "A stale rejected request must not revert the accepted retry."
+            );
+            Assert.That(
+                retryBridge.GetController(retryBridge.GetCreatureId(reinforcement)),
+                Is.SameAs(reinforcement)
+            );
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            manager.DungeonReinforcementRequestCompleted -= observeCompletion;
+            _ = lethal.Exception;
+        }
     }
 
     /// <summary>Verifies an active persisted group resumes through fresh initiative after load.</summary>
@@ -172,27 +477,28 @@ public sealed class DungeonEncounterDirectorPlayModeTests
     /// Verifies retreat and return preserve durable survivor state while resetting turn state and
     /// rolling a fresh initiative order.
     /// </summary>
-    [Test]
-    public void RetreatAndResumePreservePartialCasualtiesAndDurableState()
+    [UnityTest]
+    public IEnumerator RetreatAndResumePreservePartialCasualtiesAndDurableState()
     {
         director.EnterRoom(1);
+        yield return WaitForTurn();
         DungeonEncounterMember defeated = Member("encounter-a/creature-0000");
         DungeonEncounterMember survivor = Member("encounter-a/creature-0001");
-        Defeat(defeated);
+        yield return CoroutineRunner.Await(DefeatAsync(defeated));
         CreatureComponent survivorCreature = survivor.GetComponent<CreatureComponent>();
         DirectorTestActionController survivorController =
             survivor.GetComponent<DirectorTestActionController>();
-        survivorCreature.ApplyFinalDamage(6, RuleSource.FromSlug("test-survivor-damage"));
+        yield return CoroutineRunner.Await(
+            survivorCreature.ApplyFinalDamageAsync(6, RuleSource.FromSlug("test-survivor-damage"))
+        );
         survivor.transform.position = new Vector3(4f, 0f, 3f);
-        survivorController.ActionPoints = 2;
-        survivorController.Reacted = true;
-        survivorController.StrikePenalty = 2;
         survivorController.IsTakingAction = false;
 
         DungeonEncounterSuspensionResult suspension = director.EvaluatePartyRegions(
             1,
             Array.Empty<int>()
         );
+        yield return WaitForCombatInactive();
 
         Assert.That(
             suspension.Transition,
@@ -200,11 +506,14 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         );
         Assert.That(manager.IsCombatActive, Is.False);
         Assert.That(survivorController.ActionPoints, Is.Zero);
-        Assert.That(survivorController.Reacted, Is.False);
+        Assert.That(survivorController.Reacted, Is.True);
         Assert.That(survivorController.StrikePenalty, Is.Zero);
         Assert.That(survivorController.IsTakingAction, Is.False);
 
         DungeonRoomEntryResult resumed = director.EnterRoom(1);
+        yield return WaitForTurn();
+        yield return WaitForCombatants(2);
+        yield return WaitForInitiativeLogs(2);
 
         Assert.That(resumed.Transition, Is.EqualTo(DungeonRoomEntryTransition.Resume));
         Assert.That(manager.IsCombatActive, Is.True);
@@ -266,16 +575,20 @@ public sealed class DungeonEncounterDirectorPlayModeTests
     }
 
     /// <summary>Verifies a targetable suspended enemy can die during another resumed fight.</summary>
-    [Test]
-    public void SuspendedMaterializedEnemyDefeatPersistsWithoutInterruptingActiveGroup()
+    [UnityTest]
+    public IEnumerator SuspendedMaterializedEnemyDefeatPersistsWithoutInterruptingActiveGroup()
     {
         director.EnterRoom(1);
+        yield return WaitForTurn();
         director.EnterRoom(2);
+        yield return WaitForCombatants(4);
         director.EvaluatePartyRegions(1, Array.Empty<int>());
+        yield return WaitForCombatInactive();
         director.EnterRoom(1);
+        yield return WaitForTurn();
         DungeonEncounterMember suspended = Member("encounter-b/creature-0000");
 
-        Assert.DoesNotThrow(() => Defeat(suspended));
+        yield return CoroutineRunner.Await(DefeatAsync(suspended));
 
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(
@@ -292,27 +605,29 @@ public sealed class DungeonEncounterDirectorPlayModeTests
     }
 
     /// <summary>Verifies only clearing every active group returns the game to exploration.</summary>
-    [Test]
-    public void FinalActiveGroupVictoryClearsGroupsAndEndsCombat()
+    [UnityTest]
+    public IEnumerator FinalActiveGroupVictoryClearsGroupsAndEndsCombat()
     {
         director.EnterRoom(1);
+        yield return WaitForTurn();
         director.EnterRoom(2);
+        yield return WaitForCombatants(4);
 
-        Defeat(Member("encounter-a/creature-0000"));
+        yield return CoroutineRunner.Await(DefeatAsync(Member("encounter-a/creature-0000")));
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(
             director.Lifecycle.GetEncounter("encounter-a").State,
             Is.EqualTo(DungeonEncounterGroupState.Active)
         );
 
-        Defeat(Member("encounter-a/creature-0001"));
+        yield return CoroutineRunner.Await(DefeatAsync(Member("encounter-a/creature-0001")));
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(
             director.Lifecycle.GetEncounter("encounter-a").State,
             Is.EqualTo(DungeonEncounterGroupState.Cleared)
         );
 
-        Defeat(Member("encounter-b/creature-0000"));
+        yield return CoroutineRunner.Await(DefeatAsync(Member("encounter-b/creature-0000")));
 
         Assert.That(manager.IsCombatActive, Is.False);
         Assert.That(
@@ -325,11 +640,131 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         );
     }
 
-    private void Defeat(DungeonEncounterMember member)
+    private async ValueTask DefeatAsync(DungeonEncounterMember member)
     {
-        manager.Remove(member.GetComponent<ActionController>());
-        member.ReportDefeated();
-        member.gameObject.SetActive(false);
+        CreatureComponent creature = member.GetComponent<CreatureComponent>();
+        await creature.ApplyFinalDamageAsync(
+            creature.hp + creature.tempHp,
+            RuleSource.FromSlug("test-defeat")
+        );
+    }
+
+    private IEnumerator WaitForTurn()
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (manager.WhosTurn() == null && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(manager.WhosTurn(), Is.Not.Null);
+    }
+
+    private IEnumerator WaitForCombatants(int expected)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (manager.GetCombatants().Count != expected && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(
+            manager.GetCombatants(),
+            Has.Count.EqualTo(expected),
+            "Timed out waiting for the reducer-owned encounter roster to commit."
+        );
+    }
+
+    private IEnumerator WaitForInitiativeLogs(int expected)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (
+            combatLog.Messages.Count(message => message.StartsWith("Initiative Order")) != expected
+            && Time.realtimeSinceStartup < deadline
+        )
+            yield return null;
+        Assert.That(
+            combatLog.Messages.Count(message => message.StartsWith("Initiative Order")),
+            Is.EqualTo(expected),
+            "Timed out waiting for the resumed encounter initiative presentation."
+        );
+    }
+
+    private IEnumerator WaitForCombatInactive()
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (manager.IsCombatActive && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(
+            manager.IsCombatActive,
+            Is.False,
+            "Timed out waiting for the encounter to suspend or end."
+        );
+    }
+
+    private static IEnumerator WaitForCondition(Func<bool> condition, string timeoutMessage)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (!condition() && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(condition(), Is.True, timeoutMessage);
+    }
+
+    private UnityEncounterRulesBridge GetEncounterBridge()
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "encounterRules",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return field.GetValue(manager) as UnityEncounterRulesBridge;
+    }
+
+    private static RuleDispatcher GetEncounterDispatcher(UnityEncounterRulesBridge bridge)
+    {
+        FieldInfo field = typeof(UnityEncounterRulesBridge).GetField(
+            "dispatcher",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (RuleDispatcher)field.GetValue(bridge);
+    }
+
+    private static int GetPendingJoinControllerCount(UnityEncounterRulesBridge bridge)
+    {
+        FieldInfo field = typeof(UnityEncounterRulesBridge).GetField(
+            "pendingJoinControllers",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return ((ICollection<ActionController>)field.GetValue(bridge)).Count;
+    }
+
+    private long GetEncounterGeneration()
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "encounterGeneration",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (long)field.GetValue(manager);
+    }
+
+    private void NotifyStartupAbort(long generation)
+    {
+        MethodInfo method = typeof(CombatManager).GetMethod(
+            "NotifyDungeonCombatStartupAborted",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(method, Is.Not.Null);
+        method.Invoke(manager, new object[] { generation });
+    }
+
+    private void NotifyReinforcementCompletion(
+        DungeonReinforcementRequest request,
+        DungeonReinforcementRequestStatus status
+    )
+    {
+        MethodInfo method = typeof(CombatManager).GetMethod(
+            "CompleteDungeonReinforcementRequest",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(method, Is.Not.Null);
+        method.Invoke(manager, new object[] { request, status });
     }
 
     private DungeonEncounterMember Member(string instanceId) =>
@@ -509,5 +944,36 @@ public sealed class DungeonEncounterDirectorPlayModeTests
 
         /// <inheritdoc/>
         public override List<string> GetMessages() => new(Messages);
+    }
+
+    private sealed class BlockingFactObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        private readonly string failureMessage;
+        private readonly bool failAfterRelease;
+        private readonly TaskCompletionSource<bool> started = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private readonly TaskCompletionSource<bool> release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        internal BlockingFactObserver(string failureMessage, bool failAfterRelease = true)
+        {
+            this.failureMessage = failureMessage;
+            this.failAfterRelease = failAfterRelease;
+        }
+
+        internal Task Started => started.Task;
+
+        internal void Release() => release.TrySetResult(true);
+
+        public async ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+        {
+            started.TrySetResult(true);
+            await release.Task;
+            if (failAfterRelease)
+                throw new InvalidOperationException(failureMessage);
+        }
     }
 }

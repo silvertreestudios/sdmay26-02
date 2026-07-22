@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.Creature.Rules;
 using GridPrivate;
@@ -47,7 +48,7 @@ namespace TestsCombat
         }
 
         [Test]
-        public void RottingAuraDamagesOnlyWoundedLivingTargetsInsideEmanation()
+        public async Task RottingAuraDamagesOnlyWoundedLivingTargetsInsideEmanation()
         {
             Tile[,] tiles = BuildTiles(8, 8);
             TestActionController source = CreateCombatant(
@@ -78,21 +79,21 @@ namespace TestsCombat
             Place(tiles, outside.gameObject);
 
             List<CreatureAuraEffectResult> woundedResults =
-                CreatureAuraResolver.ApplyTurnStartAuras(
+                await CreatureAuraResolver.ApplyTurnStartAurasAsync(
                     wounded,
                     new[] { source, wounded, healthy, outside },
                     tiles,
                     new FixedDiceRoller(3)
                 );
             List<CreatureAuraEffectResult> healthyResults =
-                CreatureAuraResolver.ApplyTurnStartAuras(
+                await CreatureAuraResolver.ApplyTurnStartAurasAsync(
                     healthy,
                     new[] { source, wounded, healthy, outside },
                     tiles,
                     new FixedDiceRoller(3)
                 );
             List<CreatureAuraEffectResult> outsideResults =
-                CreatureAuraResolver.ApplyTurnStartAuras(
+                await CreatureAuraResolver.ApplyTurnStartAurasAsync(
                     outside,
                     new[] { source, wounded, healthy, outside },
                     tiles,
@@ -110,7 +111,7 @@ namespace TestsCombat
         }
 
         [Test]
-        public void RottingAuraExcludesUndeadAndConstructTargets()
+        public async Task RottingAuraExcludesUndeadAndConstructTargets()
         {
             Tile[,] tiles = BuildTiles(8, 8);
             TestActionController source = CreateAuraZombie(tiles, 3, 3, level: 0);
@@ -135,32 +136,32 @@ namespace TestsCombat
 
             Assert.AreEqual(
                 0,
-                CreatureAuraResolver
-                    .ApplyTurnStartAuras(
+                (
+                    await CreatureAuraResolver.ApplyTurnStartAurasAsync(
                         undead,
                         new[] { source, undead },
                         tiles,
                         new FixedDiceRoller(6)
                     )
-                    .Count
+                ).Count
             );
             Assert.AreEqual(
                 0,
-                CreatureAuraResolver
-                    .ApplyTurnStartAuras(
+                (
+                    await CreatureAuraResolver.ApplyTurnStartAurasAsync(
                         construct,
                         new[] { source, construct },
                         tiles,
                         new FixedDiceRoller(6)
                     )
-                    .Count
+                ).Count
             );
             Assert.AreEqual(7, undead.GetComponent<CreatureComponent>().hp);
             Assert.AreEqual(7, construct.GetComponent<CreatureComponent>().hp);
         }
 
         [Test]
-        public void RottingAuraUsesVoidWeaknessResistanceAndLevelScaling()
+        public async Task RottingAuraUsesVoidWeaknessResistanceAndLevelScaling()
         {
             Tile[,] tiles = BuildTiles(8, 8);
             TestActionController source = CreateAuraZombie(tiles, 3, 3, level: 6);
@@ -170,12 +171,13 @@ namespace TestsCombat
             targetCreature.resistances.Add(new DamageValue("void", 1));
             Place(tiles, target.gameObject);
 
-            List<CreatureAuraEffectResult> results = CreatureAuraResolver.ApplyTurnStartAuras(
-                target,
-                new[] { source, target },
-                tiles,
-                new FixedDiceRoller(2)
-            );
+            List<CreatureAuraEffectResult> results =
+                await CreatureAuraResolver.ApplyTurnStartAurasAsync(
+                    target,
+                    new[] { source, target },
+                    tiles,
+                    new FixedDiceRoller(2)
+                );
 
             Assert.AreEqual(1, results.Count);
             Assert.AreEqual(4, results[0].RolledDamage, "Level 6 aura should roll 2d6.");
@@ -236,11 +238,16 @@ namespace TestsCombat
             CreatureComponent creature = obj.AddComponent<CreatureComponent>();
             creature.name = name;
             creature.InitializeHealthBeforeEncounter(hp, maxHp);
-            Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
             creature.traits = traits == null ? new List<string>() : new List<string>(traits);
             creature.weaknesses = new List<DamageValue>();
             creature.resistances = new List<DamageValue>();
-            return obj.AddComponent<TestActionController>();
+            TestActionController controller = obj.AddComponent<TestActionController>();
+            obj.AddComponent<Team>().Name = "Players";
+            Game.Rules.Unity.UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
+            return controller;
         }
 
         private static Tile[,] BuildTiles(int width, int height)

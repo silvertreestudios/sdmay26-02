@@ -54,7 +54,7 @@ public static class DefinedAbilities
                 slow.Apply(Slow, g);
             }
 
-            actionController.GetReactionsEvent.AddListener(
+            actionController.AddRuleReactionListener(
                 (List<EntityAction> reactions) => reactions.Clear()
             );
         }
@@ -66,8 +66,7 @@ public static class DefinedAbilities
         {
             // On combat start, IF conditions met, instantly use rage with no action point cost
             Debug.Log("Applying Quick-Tempered to " + g.name);
-            Rage rageAction = new Rage(0);
-            rageAction.UseRage(g);
+            // Encounter composition owns the awaited zero-action Rage application.
         }
     );
 

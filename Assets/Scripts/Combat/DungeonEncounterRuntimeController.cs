@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Combat.Exploration;
 using Game.Creature;
 using Game.DungeonGeneration;
@@ -62,6 +63,7 @@ namespace Game.Combat.Encounters
         private IDungeonExplorationPresentation explorationPresentation;
         private ActionController selectedLeader;
         private ActionController[] presentedExplorationParty = Array.Empty<ActionController>();
+        private int explorationPresentationRequest;
         private GridInput gridInput;
         private GridBase grid;
         private IExplorationStrideCoordinator explorationMovement =
@@ -216,9 +218,14 @@ namespace Game.Combat.Encounters
         /// </returns>
         /// <remarks>
         /// Opening is free for any adjacent living party member during exploration and costs the
-        /// current living PC exactly one action in combat. Generated doors are open-only in V1.
+        /// current living PC exactly one action in combat. The actor's normal action-in-progress
+        /// reservation serializes competing interaction requests. Exploration deliberately bypasses
+        /// encounter action spending because its zero-cost interaction remains valid after an
+        /// encounter ends or suspends. In combat, the authoritative positive cost commits before
+        /// Unity door state changes, so a rejected spend cannot partially change visuals,
+        /// navigation, persistence, or events. Generated doors are open-only in V1.
         /// </remarks>
-        public bool TryOpenDoor(DungeonCell doorCell)
+        public async ValueTask<bool> TryOpenDoorAsync(DungeonCell doorCell)
         {
             if (
                 !IsInitialized || !doorsByCell.TryGetValue(doorCell, out DungeonDoorController door)
@@ -264,13 +271,26 @@ namespace Game.Combat.Encounters
                     actor.ActionPoints
                 )
             );
-            if (!decision.IsAllowed || !door.TryOpen())
+            if (!decision.IsAllowed)
                 return false;
 
-            actor.ActionPoints -= decision.ActionCost;
-            openDoorIds.Add(door.StableId);
-            DoorOpened(door.StableId);
-            return true;
+            if (!actor.TryReserveAction(out ActionReservationToken reservation))
+                return false;
+            try
+            {
+                if (decision.ActionCost > 0)
+                    await actor.SpendActionsAsync(decision.ActionCost);
+                if (!door.TryOpen())
+                    return false;
+
+                openDoorIds.Add(door.StableId);
+                DoorOpened(door.StableId);
+                return true;
+            }
+            finally
+            {
+                actor.ReleaseActionReservation(reservation);
+            }
         }
 
         /// <summary>Attempts to select one living party member as the exploration leader.</summary>
@@ -412,6 +432,7 @@ namespace Game.Combat.Encounters
 
             if (
                 !combatManager.IsCombatActive
+                && !partyActionInProgress
                 && (
                     !presentedExplorationParty.SequenceEqual(livingPartyBuffer)
                     || !livingPartySet.Contains(selectedLeader)
@@ -536,7 +557,9 @@ namespace Game.Combat.Encounters
 
         private void OnGridCellClicked(Vector3Int cell)
         {
-            TryOpenDoor(new DungeonCell(cell.x, cell.z));
+            StartCoroutine(
+                CoroutineRunner.Await(TryOpenDoorAsync(new DungeonCell(cell.x, cell.z)))
+            );
         }
 
         bool IExplorationStrideCoordinator.Handles(GameObject character) =>
@@ -595,6 +618,7 @@ namespace Game.Combat.Encounters
 
         private void OnCombatActivityChanged(bool isActive)
         {
+            int request = ++explorationPresentationRequest;
             ActionController[] livingParty = party.Where(CanObserve).ToArray();
             if (isActive || livingParty.Length == 0)
             {
@@ -608,7 +632,24 @@ namespace Game.Combat.Encounters
                 return;
             }
 
-            PresentExploration(livingParty);
+            if (livingParty.Any(member => member.IsTakingAction))
+                StartCoroutine(PresentExplorationAfterActions(request));
+            else
+                PresentExploration(livingParty);
+        }
+
+        private IEnumerator PresentExplorationAfterActions(int request)
+        {
+            while (
+                request == explorationPresentationRequest
+                && party.Any(member => member != null && member.IsTakingAction)
+            )
+                yield return null;
+            if (request != explorationPresentationRequest || combatManager.IsCombatActive)
+                yield break;
+            ActionController[] livingParty = party.Where(CanObserve).ToArray();
+            if (livingParty.Length > 0)
+                PresentExploration(livingParty);
         }
 
         private void PresentExploration(ActionController[] livingParty)

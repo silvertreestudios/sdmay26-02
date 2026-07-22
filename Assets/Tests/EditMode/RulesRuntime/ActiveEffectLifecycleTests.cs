@@ -18,7 +18,7 @@ namespace Game.Rules.Runtime.Tests
         public void CreateAtomicallyCommitsTypedEffectBindingAndFact()
         {
             RuleRegistry registry = CreateRegistry();
-            InMemoryRulesStore store = new InMemoryRulesStore();
+            InMemoryRulesStore store = CreateEncounterStore();
             RulesSnapshot before = store.Snapshot;
             ActiveEffectInstance effect = CreateEffect(new AuraEffectState(2));
             ActiveRuleBinding binding = CreateBinding(effect);
@@ -50,7 +50,7 @@ namespace Game.Rules.Runtime.Tests
         public void CreateEstablishesExactStateTypeOnTheInstance()
         {
             RuleRegistry registry = CreateRegistry();
-            InMemoryRulesStore store = new InMemoryRulesStore();
+            InMemoryRulesStore store = CreateEncounterStore();
             ActiveEffectInstance effect = CreateEffect(new OtherEffectState());
 
             ReductionResult<ActiveEffectCreationOutcome> result = store.Reduce(
@@ -236,7 +236,10 @@ namespace Game.Rules.Runtime.Tests
                 new RulesStateSeed()
                     .SeedActiveEffect(effect)
                     .SeedRuleBinding(binding)
-                    .SeedFrequency(BindingId, new FrequencyState(3, 1))
+                    .SeedFrequency(
+                        BindingId,
+                        new FrequencyState(new EncounterId("frequency-encounter"), 3, 1)
+                    )
             );
 
             ReductionResult<ActiveEffectExpirationOutcome> expired = store.Reduce(
@@ -392,6 +395,33 @@ namespace Game.Rules.Runtime.Tests
         ) =>
             new InMemoryRulesStore(
                 new RulesStateSeed().SeedActiveEffect(effect).SeedRuleBinding(binding)
+            );
+
+        private static InMemoryRulesStore CreateEncounterStore() =>
+            new InMemoryRulesStore(
+                new RulesStateSeed().SeedEncounter(
+                    new EncounterState(
+                        new EncounterId("effect-encounter"),
+                        EncounterPhase.Active,
+                        new PlayerId("players"),
+                        RoundNumber.First,
+                        new[]
+                        {
+                            new InitiativeEntry(
+                                SourceCreature,
+                                new PlayerId("players"),
+                                10,
+                                0,
+                                0,
+                                RoundNumber.First
+                            ),
+                        },
+                        0,
+                        null,
+                        1,
+                        null
+                    )
+                )
             );
 
         private static ReductionContext<TOp> Context<TOp>(TOp op) =>

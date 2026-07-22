@@ -691,12 +691,12 @@ public sealed class ProceduralDungeonScenePlayModeTests
         GameObject controllerObject = new("Pending Inactive AI");
         controllerObject.SetActive(false);
         MindlessController controller = controllerObject.AddComponent<MindlessController>();
-        FieldInfo isTurn = typeof(ActionController).GetField(
-            "IsTurn",
+        FieldInfo standaloneTurnAuthority = typeof(ActionController).GetField(
+            "hasStandaloneTurnAuthority",
             BindingFlags.Instance | BindingFlags.NonPublic
         );
-        Assert.That(isTurn, Is.Not.Null);
-        isTurn.SetValue(controller, true);
+        Assert.That(standaloneTurnAuthority, Is.Not.Null);
+        standaloneTurnAuthority.SetValue(controller, true);
 
         Assert.That(
             map.TryPopulateJson(

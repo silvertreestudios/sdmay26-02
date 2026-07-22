@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Game.Rules.Runtime
 {
@@ -36,6 +38,131 @@ namespace Game.Rules.Runtime
             if (value < 0)
                 throw new ArgumentOutOfRangeException(parameterName);
             return value;
+        }
+    }
+
+    /// <summary>Identifies whether one entry in a health batch deals damage or restores health.</summary>
+    public enum HealthBatchChangeKind
+    {
+        /// <summary>Applies an already-final damage amount.</summary>
+        Damage,
+
+        /// <summary>Applies healing subject to maximum-HP clamping.</summary>
+        Healing,
+    }
+
+    /// <summary>
+    /// Describes one ordered health change that belongs to a larger completed effect.
+    /// </summary>
+    /// <remarks>
+    /// Higher-level actions should finish targeting, rolls, and damage calculation before creating
+    /// these entries. The batch handler preserves entry order while placing every resulting health
+    /// Fact under one causal root, so outcome listeners observe the complete multi-target effect.
+    /// </remarks>
+    public sealed class HealthBatchChange
+    {
+        /// <summary>Gets whether this entry deals damage or restores health.</summary>
+        public HealthBatchChangeKind Kind { get; }
+
+        /// <summary>Gets the creature whose authoritative health changes.</summary>
+        public CreatureId Target { get; }
+
+        /// <summary>Gets the non-negative already-final damage or requested healing amount.</summary>
+        public int Amount { get; }
+
+        /// <summary>Gets the stable identity of this individual health change.</summary>
+        public HealthChangeOriginId Origin { get; }
+
+        /// <summary>Gets the rules source responsible for this individual health change.</summary>
+        public RuleSource Source { get; }
+
+        /// <summary>Initializes one validated entry in a multi-target health effect.</summary>
+        /// <param name="kind">Whether the amount is damage or healing.</param>
+        /// <param name="target">The creature whose authoritative health changes.</param>
+        /// <param name="amount">The non-negative already-final damage or requested healing.</param>
+        /// <param name="origin">The stable identity of this individual health change.</param>
+        /// <param name="source">The rules source responsible for this change.</param>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="kind"/> is undefined or <paramref name="amount"/> is negative.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// <paramref name="target"/>, <paramref name="origin"/>, or <paramref name="source"/> is empty.
+        /// </exception>
+        public HealthBatchChange(
+            HealthBatchChangeKind kind,
+            CreatureId target,
+            int amount,
+            HealthChangeOriginId origin,
+            RuleSource source
+        )
+        {
+            if (kind != HealthBatchChangeKind.Damage && kind != HealthBatchChangeKind.Healing)
+                throw new ArgumentOutOfRangeException(nameof(kind));
+            Kind = kind;
+            Target = HealthOperationValidation.RequireCreature(target);
+            Amount = HealthOperationValidation.RequireAmount(amount, nameof(amount));
+            Origin = HealthOperationValidation.RequireOrigin(origin);
+            Source = HealthOperationValidation.RequireSource(source);
+        }
+    }
+
+    /// <summary>Reports the amount applied by one ordered health-batch entry.</summary>
+    public sealed class HealthBatchChangeOutcome
+    {
+        /// <summary>Gets the request whose result this value describes.</summary>
+        public HealthBatchChange Change { get; }
+
+        /// <summary>
+        /// Gets damage absorbed by temporary/current HP or healing restored after clamping.
+        /// </summary>
+        public int Applied { get; }
+
+        internal HealthBatchChangeOutcome(HealthBatchChange change, int applied)
+        {
+            Change = change ?? throw new ArgumentNullException(nameof(change));
+            Applied = applied;
+        }
+    }
+
+    /// <summary>Reports every health result in the same deterministic order as its batch request.</summary>
+    public sealed class HealthBatchOutcome
+    {
+        /// <summary>Gets the immutable ordered results for the completed effect.</summary>
+        public IReadOnlyList<HealthBatchChangeOutcome> Changes { get; }
+
+        internal HealthBatchOutcome(IEnumerable<HealthBatchChangeOutcome> changes) =>
+            Changes = Array.AsReadOnly(changes.ToArray());
+    }
+
+    /// <summary>
+    /// Applies a completed multi-target health effect under one dispatcher causal root.
+    /// </summary>
+    /// <remarks>
+    /// Each entry still uses the normal damage or healing workflow, including its middleware and
+    /// Facts. Binding-scoped Fact listeners run only after every entry has committed, preventing
+    /// encounter outcome from depending on target iteration order.
+    /// </remarks>
+    public sealed class ApplyHealthBatchOp : IRuleOp<HealthBatchOutcome>
+    {
+        /// <summary>Gets the immutable health changes in action-defined processing order.</summary>
+        public IReadOnlyList<HealthBatchChange> Changes { get; }
+
+        /// <summary>Initializes one non-empty completed health-effect batch.</summary>
+        /// <param name="changes">The validated health changes in deterministic processing order.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="changes"/> is null.</exception>
+        /// <exception cref="ArgumentException">
+        /// The sequence is empty or contains a null entry.
+        /// </exception>
+        public ApplyHealthBatchOp(IEnumerable<HealthBatchChange> changes)
+        {
+            HealthBatchChange[] copied =
+                changes?.ToArray() ?? throw new ArgumentNullException(nameof(changes));
+            if (copied.Length == 0 || copied.Any(change => change == null))
+                throw new ArgumentException(
+                    "A health batch requires at least one non-null change.",
+                    nameof(changes)
+                );
+            Changes = Array.AsReadOnly(copied);
         }
     }
 
@@ -166,6 +293,33 @@ namespace Game.Rules.Runtime
             Origin = HealthOperationValidation.RequireOrigin(origin);
             Source = HealthOperationValidation.RequireSource(source);
         }
+    }
+
+    /// <summary>
+    /// Requests durable defeat commitment after a zero-HP creature's reactions have settled.
+    /// </summary>
+    /// <remarks>
+    /// Unity presentation dispatches this operation immediately before irreversible defeat work.
+    /// Damage does not commit defeat itself because Reaction listeners must retain their causal
+    /// opportunity to heal the creature first.
+    /// </remarks>
+    public sealed class FinalizeCreatureDefeatOp : IRuleOp<bool>
+    {
+        /// <summary>Gets the zero-HP creature whose defeat should become irreversible.</summary>
+        public CreatureId Target { get; }
+
+        /// <summary>Initializes a settled zero-HP defeat request.</summary>
+        /// <param name="target">The authoritative creature identity to finalize.</param>
+        public FinalizeCreatureDefeatOp(CreatureId target) =>
+            Target = HealthOperationValidation.RequireCreature(target);
+    }
+
+    internal sealed class CommitCreatureDefeatOp : IRuleOp<bool>
+    {
+        internal CreatureId Target { get; }
+
+        internal CommitCreatureDefeatOp(CreatureId target) =>
+            Target = HealthOperationValidation.RequireCreature(target);
     }
 
     /// <summary>Requests a non-stacking temporary Hit Point grant owned by one source.</summary>

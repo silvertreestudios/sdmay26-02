@@ -89,6 +89,10 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
 
         player.IsTakingAction = false;
         yield return null;
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive,
+            "Timed out waiting for retreat suspension."
+        );
 
         Assert.That(manager.IsCombatActive, Is.False);
         Assert.That(player.IsInDungeonExploration, Is.True);
@@ -124,7 +128,10 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         );
 
         player.transform.position = new Vector3(2f, 0f, 2f);
-        yield return null;
+        yield return WaitForCondition(
+            () => manager.WhosTurn() != null,
+            "Timed out waiting for resumed encounter authority."
+        );
 
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(player.IsInDungeonExploration, Is.False);
@@ -141,7 +148,10 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         Assert.That(enemy.IsTakingAction, Is.True);
 
         enemy.IsTakingAction = false;
-        yield return null;
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive,
+            "Timed out waiting for the second retreat suspension."
+        );
         Assert.That(manager.IsCombatActive, Is.False);
         Assert.That(player.IsInDungeonExploration, Is.True);
         Assert.That(presentation.ShowCount, Is.EqualTo(3));
@@ -234,7 +244,10 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
 
         survivor.transform.position = new Vector3(1f, 0f, 1f);
         player.transform.position = new Vector3(1f, 0f, 0f);
-        yield return null;
+        yield return WaitForCondition(
+            () => manager.WhosTurn() != null,
+            "Timed out waiting for persisted encounter authority."
+        );
 
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(player.IsInDungeonExploration, Is.False);
@@ -279,7 +292,10 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
             new RecordingExplorationPresentation()
         );
         player.transform.position = new Vector3(2f, 0f, 2f);
-        yield return null;
+        yield return WaitForCondition(
+            () => manager.WhosTurn() != null,
+            "Timed out waiting for final encounter authority."
+        );
 
         DungeonEncounterMember enemy = runtime
             .GetComponentsInChildren<DungeonEncounterMember>()
@@ -289,15 +305,26 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         Assert.That(player.ActionPoints, Is.EqualTo(3u));
         player.IsTakingAction = true;
 
-        manager.Remove(enemyController);
-        enemy.ReportDefeated();
-        enemy.gameObject.SetActive(false);
+        CreatureComponent enemyCreature = enemy.GetComponent<CreatureComponent>();
+        yield return CoroutineRunner.Await(
+            enemyCreature.ApplyFinalDamageAsync(
+                enemyCreature.hp + enemyCreature.tempHp,
+                Game.Rules.Runtime.RuleSource.FromSlug("test-final-defeat")
+            )
+        );
 
-        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            manager.IsCombatActive,
+            Is.True,
+            "Committed outcome presentation must wait for the exact in-flight reservation."
+        );
         Assert.That(player.IsInDungeonExploration, Is.False);
 
-        player.ActionPoints -= 3;
         player.IsTakingAction = false;
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive,
+            "Timed out waiting for host completion after releasing the action reservation."
+        );
         Assert.That(manager.CheckForEndOfGame(), Is.True);
 
         Assert.That(manager.IsCombatActive, Is.False);
@@ -402,6 +429,14 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
             pristine.EncounterPlans,
             runtimeState
         );
+    }
+
+    private static IEnumerator WaitForCondition(Func<bool> condition, string timeoutMessage)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (!condition() && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(condition(), Is.True, timeoutMessage);
     }
 
     private T Track<T>(T value)

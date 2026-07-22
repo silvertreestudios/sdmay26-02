@@ -50,7 +50,7 @@ namespace TestsState
             );
             MoveCombatant(grid.GetTiles(), lena, lenaCell);
             MoveCombatant(grid.GetTiles(), target, targetCell);
-            PrepareTarget(target, -10, 100);
+            yield return PrepareTarget(target, -10, 100);
             yield return ForceTurnAndClickAction(lena, "DogslicerButton");
 
             StrikeResolutionContext observed = null;
@@ -81,19 +81,21 @@ namespace TestsState
             );
             MoveCombatant(grid.GetTiles(), lena, lenaCell);
             MoveCombatant(grid.GetTiles(), target, targetCell);
-            PrepareTarget(target, -10, 100);
+            yield return PrepareTarget(target, -10, 100);
 
             yield return ForceTurnAndClickAction(lena, "DogslicerButton");
             StrikeResolutionContext normalStrike = null;
             yield return ExecuteSelectedStrike(lena, targetCell, value => normalStrike = value);
             Assert.That(normalStrike.DamageDice.Count, Is.EqualTo(1));
 
-            target
-                .GetComponent<CreatureComponent>()
-                .GrantSourceTemporaryHitPoints(
-                    Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
-                    100
-                );
+            yield return CoroutineRunner.Await(
+                target
+                    .GetComponent<CreatureComponent>()
+                    .GrantSourceTemporaryHitPointsAsync(
+                        Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                        100
+                    )
+            );
             target.GetComponent<Conditions>().Add("Off-Guard", new ConditionSource());
             yield return ForceTurnAndClickAction(lena, "DogslicerButton");
             StrikeResolutionContext offGuardStrike = null;
@@ -124,7 +126,7 @@ namespace TestsState
             MoveCombatant(tiles, ally, allyCell);
             MoveCombatant(tiles, target, targetCell);
             MoveCombatant(tiles, lena, lenaCell);
-            PrepareTarget(target, -10, 100);
+            yield return PrepareTarget(target, -10, 100);
 
             yield return ForceTurnAndClickAction(lena, "DogslicerButton");
             StrikeResolutionContext observed = null;
@@ -158,7 +160,7 @@ namespace TestsState
             MoveCombatant(tiles, ally, allyCell);
             MoveCombatant(tiles, target, targetCell);
             MoveCombatant(tiles, lena, lenaCell);
-            PrepareTarget(target, -10, 100);
+            yield return PrepareTarget(target, -10, 100);
 
             yield return ForceTurnAndClickAction(lena, "DogslicerButton");
             StrikeResolutionContext observed = null;
@@ -187,7 +189,7 @@ namespace TestsState
             MoveCombatant(tiles, ally, allyCell);
             MoveCombatant(tiles, target, targetCell);
             MoveCombatant(tiles, lena, lenaCell);
-            PrepareTarget(target, -10, 100);
+            yield return PrepareTarget(target, -10, 100);
 
             yield return ForceTurnAndClickAction(lena, "ShortbowButton");
             StrikeResolutionContext observed = null;
@@ -214,7 +216,7 @@ namespace TestsState
             );
             MoveCombatant(grid.GetTiles(), lena, lenaCell);
             MoveCombatant(grid.GetTiles(), target, targetCell);
-            PrepareTarget(target, -10, 100);
+            yield return PrepareTarget(target, -10, 100);
             target.GetComponent<Conditions>().Add("Off-Guard", new ConditionSource());
 
             CreatureComponent creature = lena.GetComponent<CreatureComponent>();
@@ -246,7 +248,7 @@ namespace TestsState
             FindEmptyStraightLine(tiles, 5, out Vector3Int lenaCell, out Vector3Int targetCell);
             MoveCombatant(tiles, lena, lenaCell);
             MoveCombatant(tiles, target, targetCell);
-            PrepareTarget(target, -10, 100);
+            yield return PrepareTarget(target, -10, 100);
             tiles[lenaCell.x + 2, lenaCell.z] = null;
 
             CreatureComponent creature = lena.GetComponent<CreatureComponent>();
@@ -302,8 +304,14 @@ namespace TestsState
         private IEnumerator ForceTurnAndClickAction(GameObject actor, string buttonName)
         {
             ActionController controller = actor.GetComponent<ActionController>();
-            controller.StartTurn();
-            OnNextTurn.Invoke(actor);
+            CombatManagerInterface manager = CombatManagerInterface.GetInstance();
+            int attempts = manager.GetCombatants().Count;
+            while (manager.WhosTurn() != actor && attempts-- > 0)
+            {
+                ActionController current = manager.WhosTurn().GetComponent<ActionController>();
+                manager.EndCurrentTurn(current);
+            }
+            Assert.That(manager.WhosTurn(), Is.SameAs(actor), "Lena did not receive a rules turn.");
 
             Button actionButton = null;
             yield return WaitUntilWithTimeout(
@@ -452,15 +460,17 @@ namespace TestsState
             return ally;
         }
 
-        private static void PrepareTarget(GameObject target, int ac, int hp)
+        private static IEnumerator PrepareTarget(GameObject target, int ac, int hp)
         {
             CreatureComponent creature = target.GetComponent<CreatureComponent>();
             creature.equippedArmor = null;
             creature.armorBonuses = new List<ArmorBonus>();
             creature.ac = ac;
-            creature.GrantSourceTemporaryHitPoints(
-                Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
-                hp
+            yield return CoroutineRunner.Await(
+                creature.GrantSourceTemporaryHitPointsAsync(
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                    hp
+                )
             );
             if (target.GetComponent<Conditions>() == null)
                 target.AddComponent<Conditions>();

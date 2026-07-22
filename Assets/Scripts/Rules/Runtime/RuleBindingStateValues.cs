@@ -23,10 +23,16 @@ namespace Game.Rules.Runtime
         /// <summary>The effect lasts for the current encounter.</summary>
         Encounter,
 
-        /// <summary>The effect lasts for a positive number of encounter rounds.</summary>
+        /// <summary>
+        /// The effect lasts for a positive number of rounds within its owning encounter and
+        /// retires if that encounter closes first.
+        /// </summary>
         Rounds,
 
-        /// <summary>The effect lasts for a positive number of minutes.</summary>
+        /// <summary>
+        /// The effect lasts for a positive number of encounter-clock minutes and retires if that
+        /// encounter closes first.
+        /// </summary>
         Minutes,
     }
 
@@ -63,14 +69,18 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the common one-minute duration.</summary>
         public static EffectDuration OneMinute => Minutes(1);
 
-        /// <summary>Creates duration metadata for a positive number of encounter rounds.</summary>
+        /// <summary>
+        /// Creates duration metadata for a positive number of rounds in one encounter clock.
+        /// </summary>
         /// <param name="amount">The positive number of rounds.</param>
         /// <returns>The validated duration metadata.</returns>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="amount"/> is not positive.</exception>
         public static EffectDuration Rounds(int amount) =>
             Counted(EffectDurationKind.Rounds, amount);
 
-        /// <summary>Creates duration metadata for a positive number of minutes.</summary>
+        /// <summary>
+        /// Creates duration metadata for a positive number of minutes in one encounter clock.
+        /// </summary>
         /// <param name="amount">The positive number of minutes.</param>
         /// <returns>The validated duration metadata.</returns>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="amount"/> is not positive.</exception>
@@ -442,30 +452,53 @@ namespace Game.Rules.Runtime
             HashCode.Combine(Id, DefinitionId, Owner, EffectId, Source, CreationOrder, IsEnabled);
     }
 
+    /// <summary>
+    /// Records one binding's encounter-scoped frequency use. Encounter identity prevents equal
+    /// round numbers from separate combats from sharing a spent use.
+    /// </summary>
     public readonly struct FrequencyState : IEquatable<FrequencyState>
     {
+        /// <summary>Gets the encounter in which this frequency was recorded.</summary>
+        public EncounterId Encounter { get; }
+
+        /// <summary>Gets the encounter round in which the use count applies.</summary>
         public int Round { get; }
+
+        /// <summary>Gets the number of uses committed in the encounter and round.</summary>
         public int Uses { get; }
 
-        public FrequencyState(int round, int uses)
+        /// <summary>Creates an encounter-qualified immutable frequency marker.</summary>
+        /// <param name="encounter">The encounter that owns the use.</param>
+        /// <param name="round">The zero-based sentinel or positive encounter round.</param>
+        /// <param name="uses">The non-negative committed use count.</param>
+        public FrequencyState(EncounterId encounter, int round, int uses)
         {
+            if (encounter.IsEmpty)
+                throw new ArgumentException("An encounter ID is required.", nameof(encounter));
             if (round < 0)
                 throw new ArgumentOutOfRangeException(nameof(round));
             if (uses < 0)
                 throw new ArgumentOutOfRangeException(nameof(uses));
+            Encounter = encounter;
             Round = round;
             Uses = uses;
         }
 
-        public bool Equals(FrequencyState other) => Round == other.Round && Uses == other.Uses;
+        /// <inheritdoc/>
+        public bool Equals(FrequencyState other) =>
+            Encounter == other.Encounter && Round == other.Round && Uses == other.Uses;
 
+        /// <inheritdoc/>
         public override bool Equals(object obj) => obj is FrequencyState other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine(Round, Uses);
+        /// <inheritdoc/>
+        public override int GetHashCode() => HashCode.Combine(Encounter, Round, Uses);
 
+        /// <summary>Compares complete encounter, round, and use state.</summary>
         public static bool operator ==(FrequencyState left, FrequencyState right) =>
             left.Equals(right);
 
+        /// <summary>Compares complete encounter, round, and use state.</summary>
         public static bool operator !=(FrequencyState left, FrequencyState right) =>
             !left.Equals(right);
     }

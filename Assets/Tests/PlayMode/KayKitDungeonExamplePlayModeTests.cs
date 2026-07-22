@@ -394,6 +394,7 @@ public sealed class KayKitDungeonExamplePlayModeTests
     public IEnumerator EveryEncounterArchetypeCanStartATurnWithExpectedAttacks()
     {
         string[] representatives = { "Lena", "Torgrim", "Zombie Shambler A", "Skeleton Guard A" };
+        CombatManagerInterface manager = Object.FindFirstObjectByType<CombatManagerInterface>();
 
         foreach (string name in representatives)
         {
@@ -404,7 +405,12 @@ public sealed class KayKitDungeonExamplePlayModeTests
                 Is.Not.Empty,
                 $"{name} needs at least one combat action."
             );
-            controller.StartTurn();
+            int attempts = manager.GetCombatants().Count;
+            while (manager.WhosTurn() != controller.gameObject && attempts-- > 0)
+            {
+                ActionController current = manager.WhosTurn().GetComponent<ActionController>();
+                manager.EndCurrentTurn(current);
+            }
             Assert.That(
                 controller.ActionPoints,
                 Is.GreaterThan(0),
@@ -458,9 +464,11 @@ public sealed class KayKitDungeonExamplePlayModeTests
             foreach (ActionController enemy in CombatantsForTeam("Enemies"))
             {
                 CreatureComponent creature = enemy.GetComponent<CreatureComponent>();
-                creature.ApplyFinalDamage(
-                    creature.hp + creature.tempHp,
-                    Game.Rules.Runtime.RuleSource.FromSlug("test-lethal-damage")
+                yield return CoroutineRunner.Await(
+                    creature.ApplyFinalDamageAsync(
+                        creature.hp + creature.tempHp,
+                        Game.Rules.Runtime.RuleSource.FromSlug("test-lethal-damage")
+                    )
                 );
             }
 
@@ -470,7 +478,8 @@ public sealed class KayKitDungeonExamplePlayModeTests
             Assert.That(
                 manager
                     .GetCombatants()
-                    .All(combatant => combatant.GetComponent<Team>().Name == "Players"),
+                    .Where(combatant => combatant.GetComponent<Team>().Name == "Enemies")
+                    .All(combatant => combatant.GetComponent<CreatureComponent>().hp == 0),
                 Is.True
             );
         }

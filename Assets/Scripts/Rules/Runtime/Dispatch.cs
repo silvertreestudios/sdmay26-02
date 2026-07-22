@@ -1,11 +1,70 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>Runs root-owned work after resolution and before binding-scoped Fact listeners.</summary>
+    /// <typeparam name="TResult">The operation's successful structural result type.</typeparam>
+    /// <remarks>
+    /// This narrow transaction boundary exists for host state that must become resolvable with the
+    /// reducer commit and for accepted action work that must settle before an unrelated queued root
+    /// can begin. The callback remains inside root serialization and may await a public dispatcher
+    /// call; that call becomes a causally linked root instead of waiting on the serialization gate.
+    /// </remarks>
+    public interface IRootResolutionObserver<TResult>
+    {
+        /// <summary>Settles accepted root-owned work before its Fact listeners run.</summary>
+        /// <param name="rootId">The exact completed resolution root.</param>
+        /// <param name="result">
+        /// The root's structural result. Observers must not publish or execute accepted work for an
+        /// invalid result.
+        /// </param>
+        /// <param name="snapshot">The latest snapshot after root resolution.</param>
+        /// <returns>A task-like value that settles publication and any causal work.</returns>
+        ValueTask OnRootResolved(OpId rootId, OpResult<TResult> result, RulesSnapshot snapshot);
+    }
+
+    /// <summary>Observes each exact root after all of its binding-scoped Fact listeners settle.</summary>
+    /// <remarks>
+    /// Observers execute before the dispatcher releases serialization to an unrelated queued root.
+    /// They may await public dispatcher calls, which become causally linked roots. This is intended
+    /// for host presentation transactions, not for changing the already-settled root result.
+    /// </remarks>
+    public interface IRootSettlementObserver
+    {
+        /// <summary>Settles host callbacks owned by one exact completed root.</summary>
+        /// <param name="rootId">The root whose listeners and causal work have finished.</param>
+        /// <param name="causalParentRootId">
+        /// The immediate root whose callback caused this root, or no value for an external root.
+        /// A host may use this relationship to retain exact-root ownership while ordering work
+        /// across one completed causal tree.
+        /// </param>
+        /// <param name="snapshot">The latest committed snapshot at the settlement boundary.</param>
+        /// <returns>A task-like value that completes after host settlement.</returns>
+        ValueTask OnRootSettled(OpId rootId, OpId? causalParentRootId, RulesSnapshot snapshot);
+    }
+
+    /// <summary>
+    /// Observes an external root after settlement observers for its complete causal tree finish.
+    /// </summary>
+    /// <remarks>
+    /// This final host boundary runs once for an external root while it still owns dispatcher
+    /// serialization. It exists for presentation that must preserve exact-root queues but cannot
+    /// drain a descendant before callbacks on any ancestor or sibling have settled.
+    /// </remarks>
+    public interface ICausalTreeSettlementObserver
+    {
+        /// <summary>Settles host work for one complete external-root causal tree.</summary>
+        /// <param name="rootId">The external root at the top of the completed causal tree.</param>
+        /// <param name="snapshot">The latest snapshot after every causal root callback.</param>
+        /// <returns>A task-like value that completes after final host settlement.</returns>
+        ValueTask OnCausalTreeSettled(OpId rootId, RulesSnapshot snapshot);
+    }
+
     /// <summary>
     /// Resolves typed rules operations while preserving frame provenance, committed facts, and diagnostics.
     /// </summary>
@@ -27,10 +86,15 @@ namespace Game.Rules.Runtime
             Array.AsReadOnly(Array.Empty<BoundMiddlewareRegistration>());
         private readonly object gate = new object();
         private readonly SemaphoreSlim rootSerial = new SemaphoreSlim(1, 1);
+        private readonly List<IRootSettlementObserver> rootSettlementObservers =
+            new List<IRootSettlementObserver>();
+        private readonly List<ICausalTreeSettlementObserver> causalTreeSettlementObservers =
+            new List<ICausalTreeSettlementObserver>();
 
         // Zero is the idle async-flow sentinel. A unique nonzero lease distinguishes callbacks still
         // running inside this dispatcher's current resolution from callers that should wait on the gate.
         private readonly AsyncLocal<long> activeResolutionFlow = new AsyncLocal<long>();
+        private readonly AsyncLocal<long> activeRootCallbackFlow = new AsyncLocal<long>();
         private long activeResolutionFlowLease;
         private long nextResolutionFlowLease;
         private readonly IRulesStore store;
@@ -79,6 +143,98 @@ namespace Game.Rules.Runtime
         /// </summary>
         public ResolutionDiagnostics Diagnostics { get; }
 
+        /// <summary>Registers a host observer for exact-root settlement.</summary>
+        /// <param name="observer">The observer appended to deterministic registration order.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Registration was attempted while a root owned serialization, or the observer is already
+        /// registered.
+        /// </exception>
+        public void RegisterRootSettlementObserver(IRootSettlementObserver observer)
+        {
+            if (observer == null)
+                throw new ArgumentNullException(nameof(observer));
+            lock (gate)
+            {
+                if (!activeRoot.IsIdle)
+                    throw new InvalidOperationException(
+                        "Root settlement observers can change only while the dispatcher is idle."
+                    );
+                if (rootSettlementObservers.Contains(observer))
+                    throw new InvalidOperationException(
+                        "The root settlement observer is already registered."
+                    );
+                rootSettlementObservers.Add(observer);
+            }
+        }
+
+        /// <summary>Removes a host observer from later exact-root settlement.</summary>
+        /// <param name="observer">The previously registered observer.</param>
+        /// <returns>Whether the observer was registered and removed.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Removal was attempted while a root owned serialization.
+        /// </exception>
+        public bool UnregisterRootSettlementObserver(IRootSettlementObserver observer)
+        {
+            if (observer == null)
+                throw new ArgumentNullException(nameof(observer));
+            lock (gate)
+            {
+                if (!activeRoot.IsIdle)
+                    throw new InvalidOperationException(
+                        "Root settlement observers can change only while the dispatcher is idle."
+                    );
+                return rootSettlementObservers.Remove(observer);
+            }
+        }
+
+        /// <summary>Registers the host's single final causal-tree settlement observer.</summary>
+        /// <param name="observer">The terminal observer for every external root.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Registration was attempted while a root owned serialization, or a terminal observer is
+        /// already registered.
+        /// </exception>
+        public void RegisterCausalTreeSettlementObserver(ICausalTreeSettlementObserver observer)
+        {
+            if (observer == null)
+                throw new ArgumentNullException(nameof(observer));
+            lock (gate)
+            {
+                if (!activeRoot.IsIdle)
+                    throw new InvalidOperationException(
+                        "Causal-tree settlement observers can change only while the dispatcher is idle."
+                    );
+                if (causalTreeSettlementObservers.Count != 0)
+                    throw new InvalidOperationException(
+                        "A causal-tree settlement observer is already registered."
+                    );
+                causalTreeSettlementObservers.Add(observer);
+            }
+        }
+
+        /// <summary>Removes a host observer from final external-root causal-tree settlement.</summary>
+        /// <param name="observer">The previously registered observer.</param>
+        /// <returns>Whether the observer was registered and removed.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Removal was attempted while a root owned serialization.
+        /// </exception>
+        public bool UnregisterCausalTreeSettlementObserver(ICausalTreeSettlementObserver observer)
+        {
+            if (observer == null)
+                throw new ArgumentNullException(nameof(observer));
+            lock (gate)
+            {
+                if (!activeRoot.IsIdle)
+                    throw new InvalidOperationException(
+                        "Causal-tree settlement observers can change only while the dispatcher is idle."
+                    );
+                return causalTreeSettlementObservers.Remove(observer);
+            }
+        }
+
         /// <summary>
         /// Dispatches an externally allowed operation as a new root resolution.
         /// </summary>
@@ -90,7 +246,8 @@ namespace Game.Rules.Runtime
         /// <exception cref="ArgumentNullException"><paramref name="op"/> is <see langword="null"/>.</exception>
         /// <exception cref="InvalidOperationException">
         /// The operation is nested-only, no compatible resolver is registered, the current resolution
-        /// calls this public root API reentrantly, or a handler violates nested-dispatch ownership.
+        /// calls this public root API outside a registered root callback, or a handler violates
+        /// nested-dispatch ownership.
         /// </exception>
         /// <remarks>
         /// Resolver, middleware, observer, and post-commit listener exceptions propagate to the
@@ -103,21 +260,67 @@ namespace Game.Rules.Runtime
         /// exception first. Other external roots remain queued until this entire resolution releases
         /// ownership.
         /// </remarks>
-        public async ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op)
+        public ValueTask<OpResult<TResult>> Dispatch<TResult>(IRuleOp<TResult> op) =>
+            DispatchExternal(op, NoRootResolutionObserver<TResult>.Instance);
+
+        /// <summary>
+        /// Dispatches an external root with accepted root-owned work inside its serialization.
+        /// </summary>
+        /// <typeparam name="TResult">The successful result type declared by the operation.</typeparam>
+        /// <param name="op">The externally allowed operation to resolve.</param>
+        /// <param name="observer">
+        /// The observer invoked after resolution and before Fact listeners while serialization is
+        /// still owned.
+        /// </param>
+        /// <returns>The settled root result after root-owned work and all listeners.</returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="op"/> or <paramref name="observer"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// The operation is nested-only, no compatible resolver is registered, the current resolution
+        /// calls this public root API outside a registered root callback, or a handler violates
+        /// nested-dispatch ownership.
+        /// </exception>
+        public ValueTask<OpResult<TResult>> Dispatch<TResult>(
+            IRuleOp<TResult> op,
+            IRootResolutionObserver<TResult> observer
+        )
+        {
+            if (observer == null)
+                throw new ArgumentNullException(nameof(observer));
+            return DispatchExternal(op, observer);
+        }
+
+        private async ValueTask<OpResult<TResult>> DispatchExternal<TResult>(
+            IRuleOp<TResult> op,
+            IRootResolutionObserver<TResult> observer
+        )
         {
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
             long callerFlowLease = activeResolutionFlow.Value;
+            RootResolution callbackOwner = RootResolution.Idle;
             lock (gate)
             {
                 if (callerFlowLease != 0 && callerFlowLease == activeResolutionFlowLease)
                 {
-                    throw new InvalidOperationException(
-                        "An active resolution cannot call the public root Dispatch API. "
-                            + "Use its callback context for nested work."
-                    );
+                    if (activeRootCallbackFlow.Value != activeResolutionFlowLease)
+                        throw new InvalidOperationException(
+                            "An active resolution cannot call the public root Dispatch API. "
+                                + "Use its callback context for nested work."
+                        );
+                    callbackOwner = activeRoot;
                 }
             }
+
+            if (!callbackOwner.IsIdle)
+                return await DispatchTriggeredRoot(
+                    op,
+                    callbackOwner.RootId,
+                    callbackOwner.RootId,
+                    observer,
+                    "Root-callback dispatch requires its owning root to retain serialization."
+                );
 
             await rootSerial.WaitAsync();
             // Keep the idle sentinel until construction succeeds so the ownership gate is still
@@ -156,7 +359,15 @@ namespace Game.Rules.Runtime
                     resolution.Initialize(rootId);
                 }
 
-                return await DispatchRoot(op, registration, resolution, rootId, null);
+                return await DispatchRoot(
+                    op,
+                    registration,
+                    resolution,
+                    rootId,
+                    null,
+                    null,
+                    observer
+                );
             }
             finally
             {
@@ -238,26 +449,36 @@ namespace Game.Rules.Runtime
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
 
+            return await DispatchTriggeredRoot(
+                op,
+                committedRootId,
+                causeId,
+                NoRootResolutionObserver<TResult>.Instance,
+                "Fact-listener dispatch requires its completed root to retain resolution ownership."
+            );
+        }
+
+        private async ValueTask<OpResult<TResult>> DispatchTriggeredRoot<TResult>(
+            IRuleOp<TResult> op,
+            OpId owningRootId,
+            OpId causeId,
+            IRootResolutionObserver<TResult> observer,
+            string ownershipFailure
+        )
+        {
             IRegistration registration = RequireRegistration(op.GetType(), typeof(TResult));
             if (registration.Policy != InvocationPolicy.ExternalAllowed)
-            {
                 throw new InvalidOperationException(
-                    $"{op.GetType().Name} is nested-only and cannot begin a Fact-listener batch."
+                    $"{op.GetType().Name} is nested-only and cannot begin a causal root."
                 );
-            }
 
             RootResolution owner;
             RootResolution triggered = new RootResolution();
             OpId rootId;
             lock (gate)
             {
-                if (activeRoot.IsIdle || activeRoot.RootId != committedRootId)
-                {
-                    throw new InvalidOperationException(
-                        "Fact-listener dispatch requires its completed root to retain resolution ownership."
-                    );
-                }
-
+                if (activeRoot.IsIdle || activeRoot.RootId != owningRootId)
+                    throw new InvalidOperationException(ownershipFailure);
                 owner = activeRoot;
                 rootId = ids.Next();
                 triggered.Initialize(rootId);
@@ -266,7 +487,15 @@ namespace Game.Rules.Runtime
 
             try
             {
-                return await DispatchRoot(op, registration, triggered, rootId, causeId);
+                return await DispatchRoot(
+                    op,
+                    registration,
+                    triggered,
+                    rootId,
+                    causeId,
+                    owningRootId,
+                    observer
+                );
             }
             finally
             {
@@ -276,6 +505,83 @@ namespace Game.Rules.Runtime
                         activeRoot = owner;
                 }
             }
+        }
+
+        internal async ValueTask InvokeRootCallback(Func<ValueTask> callback)
+        {
+            long previous = activeRootCallbackFlow.Value;
+            activeRootCallbackFlow.Value = activeResolutionFlowLease;
+            try
+            {
+                await callback();
+            }
+            finally
+            {
+                activeRootCallbackFlow.Value = previous;
+            }
+        }
+
+        internal async ValueTask NotifyRootSettled(OpId rootId, OpId? causalParentRootId)
+        {
+            IRootSettlementObserver[] observers;
+            ICausalTreeSettlementObserver[] treeObservers;
+            lock (gate)
+            {
+                observers = rootSettlementObservers.ToArray();
+                treeObservers = causalParentRootId.HasValue
+                    ? Array.Empty<ICausalTreeSettlementObserver>()
+                    : causalTreeSettlementObservers.ToArray();
+            }
+
+            List<Exception> failures = null;
+            foreach (IRootSettlementObserver observer in observers)
+            {
+                try
+                {
+                    await InvokeRootCallback(() =>
+                        observer.OnRootSettled(rootId, causalParentRootId, Snapshot)
+                    );
+                }
+                catch (Exception exception)
+                {
+                    if (failures == null)
+                        failures = new List<Exception>();
+                    failures.Add(exception);
+                }
+            }
+
+            foreach (ICausalTreeSettlementObserver observer in treeObservers)
+            {
+                try
+                {
+                    await InvokeRootCallback(() => observer.OnCausalTreeSettled(rootId, Snapshot));
+                }
+                catch (Exception exception)
+                {
+                    if (failures == null)
+                        failures = new List<Exception>();
+                    failures.Add(exception);
+                }
+            }
+
+            if (failures == null)
+                return;
+            if (failures.Count == 1)
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            throw new AggregateException("Multiple root settlement observers failed.", failures);
+        }
+
+        private sealed class NoRootResolutionObserver<TResult> : IRootResolutionObserver<TResult>
+        {
+            internal static NoRootResolutionObserver<TResult> Instance { get; } =
+                new NoRootResolutionObserver<TResult>();
+
+            /// <inheritdoc/>
+            public ValueTask OnRootResolved(
+                OpId rootId,
+                OpResult<TResult> result,
+                RulesSnapshot snapshot
+            ) => default;
         }
     }
 }

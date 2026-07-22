@@ -139,7 +139,7 @@ public static class DefinedConditions
     public static void Slowed(GameObject target, uint tier)
     {
         ActionController ac = target.GetComponent<ActionController>();
-        ac.ResetActionPointsEvent.AddListener(
+        ac.AddRuleActionResetListener(
             (Ref<uint> points) =>
             {
                 points.Value -= tier;

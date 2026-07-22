@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.ExceptionServices;
+using System.Threading.Tasks;
 using Game.AbilityActions;
 using Game.Combat.Rules;
 using Game.Creature;
@@ -35,36 +37,89 @@ namespace Game.Creature.Rules
         /// Runs encounter-cleanup rule hooks for each combatant; action-specific details stay in their own rule classes.
         /// </summary>
         /// <param name="combatants">The combatants leaving encounter state.</param>
-        public static void EndEncounter(IEnumerable<ActionController> combatants)
+        /// <remarks>
+        /// Cleanup continues in supplied roster order after an individual participant fails. A
+        /// single failure preserves its stack; multiple failures retain stable participant order.
+        /// </remarks>
+        /// <exception cref="AggregateException">
+        /// More than one participant reports a cleanup failure after all participants are attempted.
+        /// </exception>
+        public static async ValueTask EndEncounterAsync(IEnumerable<ActionController> combatants)
         {
             if (combatants == null)
                 return;
 
+            List<Exception> failures = new();
             foreach (ActionController controller in combatants)
-                new Rage(0).EndRage(controller?.gameObject);
+            {
+                if (controller == null)
+                    continue;
+                try
+                {
+                    await new Rage(0).EndRageAsync(controller.gameObject);
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
+            }
+
+            if (failures.Count == 1)
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1)
+                throw new AggregateException(
+                    "Multiple combatants failed encounter cleanup.",
+                    failures
+                );
         }
 
         /// <summary>
         /// Applies combat-start rule hooks such as auto-starting Rage for matching prepared character options.
         /// </summary>
         /// <param name="combatants">The combatants entering encounter state.</param>
-        public static void ApplyCombatStartRules(IEnumerable<ActionController> combatants)
+        /// <remarks>
+        /// Every supplied controller is attempted once in order. A failure from one controller
+        /// cannot suppress initialization of later accepted participants; failures are reported
+        /// only after the complete batch settles.
+        /// </remarks>
+        /// <exception cref="AggregateException">
+        /// More than one controller reports an initialization failure.
+        /// </exception>
+        public static async ValueTask ApplyCombatStartRulesAsync(
+            IEnumerable<ActionController> combatants
+        )
         {
             if (combatants == null)
                 return;
 
+            List<Exception> failures = new();
             foreach (ActionController controller in combatants)
             {
-                CreatureComponent creature = controller?.GetComponent<CreatureComponent>();
-                if (creature == null)
-                    continue;
+                try
+                {
+                    CreatureComponent creature = controller?.GetComponent<CreatureComponent>();
+                    if (creature == null)
+                        continue;
 
-                ApplyImportedPassiveAbilities(controller, creature);
+                    ApplyImportedPassiveAbilities(controller, creature);
 
-                PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
-                if (prepared.HasOwnedItem("quick-tempered"))
-                    new Rage(0).UseRage(controller.gameObject);
+                    PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
+                    if (prepared.HasOwnedItem("quick-tempered"))
+                        await new Rage(0).ApplyCombatStartRageAsync(controller.gameObject);
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
             }
+
+            if (failures.Count == 1)
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1)
+                throw new AggregateException(
+                    "Multiple combatants failed combat-start initialization.",
+                    failures
+                );
         }
 
         private static void ApplyImportedPassiveAbilities(
@@ -78,6 +133,8 @@ namespace Game.Creature.Rules
             foreach (string passive in creature.passives)
             {
                 if (string.IsNullOrWhiteSpace(passive))
+                    continue;
+                if (string.Equals(passive, "quick-tempered", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 Ability ability = DefinedAbilities.TryGet(passive);

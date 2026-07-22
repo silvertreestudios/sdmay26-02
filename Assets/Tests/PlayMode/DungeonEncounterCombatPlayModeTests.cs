@@ -1,10 +1,19 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using Game.AbilityActions;
 using Game.Combat.Encounters;
+using Game.Combat.Spells;
 using Game.Creature;
+using Game.Creature.Rules;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
+using Game.Strikes;
+using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
@@ -30,6 +39,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
         UnityEngine.Random.InitState(158);
 
         Create("TestCombatLog").AddComponent<TestCombatLog>();
+        Create("Stable Action Coroutine Runner").AddComponent<CoroutineRunner>();
+        TeamRules teamRules = Create("TeamRules").AddComponent<TeamRules>();
+        teamRules.AddFriendlyTeam("Players");
+        teamRules.AddHostileTeam("Enemies");
         manager = Create("CombatManager").AddComponent<CombatManager>();
     }
 
@@ -51,53 +64,1358 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies dungeon combat excludes registered controllers outside its explicit roster.</summary>
-    [Test]
-    public void StartDungeonCombat_UsesOnlyExplicitRegisteredParticipants()
+    [UnityTest]
+    public IEnumerator StartDungeonCombat_UsesOnlyExplicitRegisteredParticipants()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 200);
         CombatantFixture activeEnemy = CreateCombatant("Active Enemy", "Enemies", 100);
         CombatantFixture dormantEnemy = CreateCombatant("Dormant Enemy", "Enemies", 1000);
+        player.GameObject.transform.position = new Vector3(1f, 0f, 0f);
+        activeEnemy.GameObject.transform.position = new Vector3(2f, 0f, 0f);
+        dormantEnemy.GameObject.transform.position = new Vector3(3f, 0f, 0f);
+        List<GameObject> durableStartRoster = null;
+        List<string> startupOrder = new();
+        UnityAction captureStartRoster = () =>
+        {
+            durableStartRoster = manager.GetCombatants();
+            startupOrder.Add("combat-start");
+        };
+        UnityAction<GameObject> captureFirstTurn = _ => startupOrder.Add("next-turn");
+        OnCombatStart.AddListener(captureStartRoster);
+        OnNextTurn.AddListener(captureFirstTurn);
 
-        manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
+            Assert.That(durableStartRoster, Is.Null, "Startup is not durable at request return.");
+            Assert.That(
+                GetStartupCombatants(),
+                Is.EqualTo(new[] { player.Controller, activeEnemy.Controller })
+            );
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, activeEnemy.GameObject }),
+                "Every pre-roster projection must retain the exact selected startup subset."
+            );
+            Assert.That(
+                manager.getPoistions(),
+                Is.EqualTo(
+                    new[]
+                    {
+                        player.GameObject.transform.position,
+                        activeEnemy.GameObject.transform.position,
+                    }
+                )
+            );
+            Assert.That(manager.WhosTurn(), Is.Null);
+            yield return WaitForTurn();
 
-        Assert.That(manager.IsCombatActive, Is.True);
-        Assert.That(
-            manager.GetCombatants(),
-            Is.EquivalentTo(new[] { player.GameObject, activeEnemy.GameObject })
-        );
-        Assert.That(manager.WhosTurn(), Is.Not.SameAs(dormantEnemy.GameObject));
-        Assert.That(dormantEnemy.Controller.StartTurnCount, Is.Zero);
-        Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
+            Assert.That(GetStartupCombatants(), Is.Empty);
+            Assert.That(
+                durableStartRoster,
+                Is.EqualTo(new[] { player.GameObject, activeEnemy.GameObject }),
+                "Durable startup consumers must see only the explicit encounter subset."
+            );
+            Assert.That(startupOrder, Is.EqualTo(new[] { "combat-start", "next-turn" }));
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EquivalentTo(new[] { player.GameObject, activeEnemy.GameObject })
+            );
+            Assert.That(
+                manager.getPoistions(),
+                Is.EqualTo(
+                    new[]
+                    {
+                        player.GameObject.transform.position,
+                        activeEnemy.GameObject.transform.position,
+                    }
+                )
+            );
+            Assert.That(manager.WhosTurn(), Is.Not.SameAs(dormantEnemy.GameObject));
+            Assert.That(dormantEnemy.Controller.StartTurnCount, Is.Zero);
+            Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
+
+            yield return CoroutineRunner.Await(
+                activeEnemy.Creature.ApplyFinalDamageAsync(
+                    activeEnemy.Creature.hp,
+                    RuleSource.FromSlug("test-selected-subset-end")
+                )
+            );
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The selected-subset encounter did not finish."
+            );
+
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, dormantEnemy.GameObject }),
+                "A closed encounter must restore every living registered exploration actor."
+            );
+            Assert.That(
+                manager.getPoistions(),
+                Is.EqualTo(
+                    new[]
+                    {
+                        player.GameObject.transform.position,
+                        dormantEnemy.GameObject.transform.position,
+                    }
+                )
+            );
+        }
+        finally
+        {
+            OnCombatStart.RemoveListener(captureStartRoster);
+            OnNextTurn.RemoveListener(captureFirstTurn);
+        }
     }
 
-    /// <summary>Verifies removing the active controller clears its stale turn-owner reference.</summary>
+    /// <summary>Verifies a durable startup notification fault does not strand first-turn presentation.</summary>
+    [UnityTest]
+    public IEnumerator DurableStartEventFailureKeepsAcceptedEncounterPresentable()
+    {
+        CombatantFixture player = CreateCombatant("Failed Start Player", "Players", 200);
+        CombatantFixture activeEnemy = CreateCombatant("Failed Start Enemy", "Enemies", 100);
+        UnityAction failStart = () =>
+            throw new InvalidOperationException("deliberate durable startup notification failure");
+        OnCombatStart.AddListener(failStart);
+
+        try
+        {
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: deliberate durable startup notification failure"
+                )
+            );
+            manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(player.Controller.StartTurnCount, Is.EqualTo(1));
+            Assert.That(player.Controller.HasTurnAuthority, Is.True);
+        }
+        finally
+        {
+            OnCombatStart.RemoveListener(failStart);
+        }
+    }
+
+    /// <summary>Verifies legacy all-registered combat deterministically supports arbitrary teams.</summary>
+    [UnityTest]
+    public IEnumerator StartCombatWithoutPlayersTeamUsesFirstSelectedTeamAsProtagonists()
+    {
+        CombatantFixture teamA = CreateCombatant("Legacy Team A", "TeamA", 200);
+        CombatantFixture teamB = CreateCombatant("Legacy Team B", "TeamB", 100);
+
+        manager.StartCombat();
+        yield return WaitForTurn(teamA.GameObject);
+
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        EncounterState encounter = bridge.Snapshot.Encounters[bridge.EncounterId];
+        Assert.That(bridge.GetTeamDisplayName(encounter.ProtagonistTeam), Is.EqualTo("TeamA"));
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EqualTo(new[] { teamA.GameObject, teamB.GameObject })
+        );
+    }
+
+    /// <summary>Verifies an awaited startup hook fault fully rolls back and permits a restart.</summary>
+    [UnityTest]
+    public IEnumerator AsynchronousStartHookFailureLeavesCombatInactiveAndRestartable()
+    {
+        CombatantFixture player = CreateCombatant("Failed Async Start Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Failed Async Start Enemy", "Enemies", 100);
+        CombatantFixture dormantEnemy = CreateCombatant(
+            "Failed Async Start Dormant Enemy",
+            "Enemies",
+            1000
+        );
+        PrepareBarbarian(player.Creature);
+        player.Creature.passives.Add("Zombie-Fist");
+        PreparedCharacter preparedBefore = player.Creature.Prepared;
+        HealthState healthBefore = player.Creature.Health;
+        int actionsBefore = player.Controller.GetActions().Count;
+        uint actionPointsBefore = player.Controller.ActionPoints;
+        uint strikePenaltyBefore = player.Controller.StrikePenalty;
+        bool reactedBefore = player.Controller.Reacted;
+        bool turnAuthorityBefore = player.Controller.HasTurnAuthority;
+        bool reservationBefore = player.Controller.IsTakingAction;
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: true);
+        RuleDispatcher failedDispatcher = null;
+        UnityEncounterRulesBridge failedBridge = null;
+        int durableStartNotifications = 0;
+        UnityAction observeDurableStart = () => durableStartNotifications++;
+        UnityAction installFailure = () =>
+        {
+            failedBridge = GetEncounterBridge();
+            failedDispatcher = GetEncounterDispatcher();
+            failedDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        };
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        bool inactiveObserved = false;
+        bool inactiveSawRestoredState = false;
+        Action<bool> observeRollback = active =>
+        {
+            if (active)
+                return;
+            inactiveObserved = true;
+            inactiveSawRestoredState =
+                ReferenceEquals(player.Creature.Prepared, preparedBefore)
+                && !player.Creature.Prepared.HasActiveEffect("rage")
+                && player.Creature.Health == healthBefore
+                && !player.Creature.HasTempHpImmunity("rage")
+                && player.Controller.GetActions().Count == actionsBefore
+                && player.Controller.ActionPoints == actionPointsBefore
+                && player.Controller.StrikePenalty == strikePenaltyBefore
+                && player.Controller.Reacted == reactedBefore
+                && player.Controller.HasTurnAuthority == turnAuthorityBefore
+                && player.Controller.IsTakingAction == reservationBefore
+                && GetCreatureEncounterBridge(player.Creature) == null;
+        };
+        manager.CombatActivityChanged += installFailureAtActivation;
+        manager.CombatActivityChanged += observeRollback;
+        OnCombatStart.AddListener(observeDurableStart);
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The startup hook did not reach its awaited health Fact."
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(durableStartNotifications, Is.Zero);
+            Assert.That(
+                GetStartupCombatants(),
+                Is.EqualTo(new[] { player.Controller, enemy.Controller })
+            );
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, enemy.GameObject })
+            );
+            Assert.That(manager.GetCombatants(), Has.No.Member(dormantEnemy.GameObject));
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.GreaterThan(0));
+            Assert.That(player.Controller.GetActions().OfType<Unarmed>(), Has.Count.EqualTo(1));
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate Rage Fact failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The failed asynchronous startup did not roll combat state back."
+            );
+
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+            Assert.That(GetStartupCombatants(), Is.Empty);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(player.Creature.Prepared, Is.SameAs(preparedBefore));
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(player.Creature.HasTempHpImmunity("rage"), Is.False);
+            Assert.That(player.Controller.GetActions(), Has.Count.EqualTo(actionsBefore));
+            Assert.That(GetCreatureEncounterBridge(player.Creature), Is.Null);
+            Assert.That(durableStartNotifications, Is.Zero);
+            Assert.That(inactiveObserved, Is.True);
+            Assert.That(
+                inactiveSawRestoredState,
+                Is.True,
+                "Inactive observers must see the restored checkpoint and released failed bridge."
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                failedBridge.GetCreatureId(player.Creature)
+            );
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, enemy.GameObject, dormantEnemy.GameObject })
+            );
+        }
+        finally
+        {
+            manager.CombatActivityChanged -= installFailureAtActivation;
+            manager.CombatActivityChanged -= observeRollback;
+            OnCombatStart.RemoveListener(observeDurableStart);
+            blocker.Release();
+            failedDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        }
+
+        OnCombatStart.AddListener(observeDurableStart);
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(durableStartNotifications, Is.EqualTo(1));
+            Assert.That(player.Creature.Prepared, Is.SameAs(preparedBefore));
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
+            Assert.That(player.Controller.GetActions().OfType<Unarmed>(), Has.Count.EqualTo(1));
+            Assert.That(GetStartupCombatants(), Is.Empty);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, enemy.GameObject })
+            );
+            Assert.That(manager.GetCombatants(), Has.No.Member(dormantEnemy.GameObject));
+        }
+        finally
+        {
+            OnCombatStart.RemoveListener(observeDurableStart);
+        }
+    }
+
+    /// <summary>
+    /// Verifies failed first-turn rules discard every buffered Unity presentation side effect.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator FirstTurnAuraFailureDiscardsStartupPresentationAndRetriesCleanly()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        Assert.That(singletonField, Is.Not.Null);
+        object previousGrid = singletonField.GetValue(null);
+        StartupTestGridAPI grid = Create("Startup Transaction Grid")
+            .AddComponent<StartupTestGridAPI>();
+        singletonField.SetValue(null, grid);
+
+        CombatantFixture player = CreateCombatant("Startup Aura Player", "Players", 200);
+        CombatantFixture auraSource = CreateCombatant("Startup Aura Source", "Enemies", 100);
+        player.GameObject.transform.position = new Vector3(2f, 0f, 2f);
+        auraSource.GameObject.transform.position = new Vector3(3f, 0f, 2f);
+        player.Creature.InitializeHealthBeforeEncounter(1, 10);
+        auraSource.Creature.auras.Add(
+            new CreatureAura
+            {
+                name = "Rotting Aura",
+                slug = RottingAuraRule.RuleSlug,
+                radiusFeet = 10,
+                traits = new List<string> { "aura", "disease", "void" },
+            }
+        );
+        Token playerToken = player.GameObject.AddComponent<Token>();
+        auraSource.GameObject.AddComponent<Token>();
+        GameObject colliderOwner = Create("Startup Aura Player Collider");
+        colliderOwner.transform.SetParent(player.GameObject.transform);
+        BoxCollider targetCollider = colliderOwner.AddComponent<BoxCollider>();
+        ConditionSource preservedCondition = new();
+        player.Conditions.Add("Off-Guard", preservedCondition);
+        SpellEffectController spellEffects = SpellEffectController.GetOrAdd(player.GameObject);
+        spellEffects.AddOrRefresh(new ShieldSpellEffect(player.GameObject));
+
+        int deathPresentations = 0;
+        int turnPresentations = 0;
+        UnityAction<GameObject> observeDeath = defeated =>
+        {
+            if (defeated == player.GameObject)
+                deathPresentations++;
+        };
+        UnityAction<GameObject> observeTurn = actor =>
+        {
+            if (actor == player.GameObject)
+                turnPresentations++;
+        };
+        OnDeath.AddListener(observeDeath);
+        OnNextTurn.AddListener(observeTurn);
+
+        BlockingFactObserver<DamageAppliedFact> blocker = new(
+            failAfterRelease: true,
+            "deliberate startup aura observer failure"
+        );
+        UnityEncounterRulesBridge failedBridge = null;
+        RuleDispatcher failedDispatcher = null;
+        UnityAction installFailure = () =>
+        {
+            failedBridge = GetEncounterBridge();
+            failedDispatcher = GetEncounterDispatcher();
+            failedDispatcher.RegisterFactObserver<DamageAppliedFact>(blocker);
+        };
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        manager.CombatActivityChanged += installFailureAtActivation;
+        bool firstAttemptCompleted = false;
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, auraSource.Controller });
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "Rotting Aura did not reach the awaited startup health observer."
+            );
+
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(player.Creature.hp, Is.EqualTo(1));
+            Assert.That(player.Creature.IsDefeated, Is.False);
+            Assert.That(player.GameObject.activeSelf, Is.True);
+            Assert.That(player.Controller.enabled, Is.True);
+            Assert.That(targetCollider.enabled, Is.True);
+            Assert.That(playerToken.IsRegistered, Is.True);
+            Assert.That(grid.Contains(player.GameObject), Is.True);
+            Assert.That(grid.DestroyedTokens, Is.Empty);
+            Assert.That(spellEffects.HasEffect<ShieldSpellEffect>(), Is.True);
+            Assert.That(player.Conditions.Contains("Off-Guard", preservedCondition), Is.True);
+            Assert.That(deathPresentations, Is.Zero);
+            Assert.That(turnPresentations, Is.Zero);
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate startup aura observer failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The failed first-turn transaction did not roll startup back."
+            );
+
+            Assert.That(player.Creature.hp, Is.EqualTo(1));
+            Assert.That(player.Creature.IsDefeated, Is.False);
+            Assert.That(player.GameObject.activeSelf, Is.True);
+            Assert.That(player.Controller.enabled, Is.True);
+            Assert.That(targetCollider.enabled, Is.True);
+            Assert.That(playerToken.IsRegistered, Is.True);
+            Assert.That(grid.Contains(player.GameObject), Is.True);
+            Assert.That(grid.DestroyedTokens, Is.Empty);
+            Assert.That(spellEffects.HasEffect<ShieldSpellEffect>(), Is.True);
+            Assert.That(player.Conditions.Contains("Off-Guard", preservedCondition), Is.True);
+            Assert.That(deathPresentations, Is.Zero);
+            Assert.That(turnPresentations, Is.Zero);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(GetPendingEncounterCompletion(), Is.Null);
+            Assert.That(GetCreatureEncounterBridge(player.Creature), Is.Null);
+            firstAttemptCompleted = true;
+        }
+        finally
+        {
+            blocker.Release();
+            manager.CombatActivityChanged -= installFailureAtActivation;
+            failedDispatcher?.UnregisterFactObserver<DamageAppliedFact>(blocker);
+            if (!firstAttemptCompleted)
+            {
+                OnDeath.RemoveListener(observeDeath);
+                OnNextTurn.RemoveListener(observeTurn);
+                singletonField.SetValue(null, previousGrid);
+            }
+        }
+
+        try
+        {
+            auraSource.Creature.auras.Clear();
+            manager.StartDungeonCombat(new[] { player.Controller, auraSource.Controller });
+            yield return WaitForTurn(player.GameObject);
+
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(player.Creature.hp, Is.EqualTo(1));
+            Assert.That(player.Creature.IsDefeated, Is.False);
+            Assert.That(player.GameObject.activeSelf, Is.True);
+            Assert.That(player.Controller.enabled, Is.True);
+            Assert.That(targetCollider.enabled, Is.True);
+            Assert.That(playerToken.IsRegistered, Is.True);
+            Assert.That(grid.Contains(player.GameObject), Is.True);
+            Assert.That(spellEffects.HasEffect<ShieldSpellEffect>(), Is.False);
+            Assert.That(player.Conditions.Contains("Off-Guard", preservedCondition), Is.True);
+            Assert.That(deathPresentations, Is.Zero);
+            Assert.That(turnPresentations, Is.EqualTo(1));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(GetEncounterBridge(), Is.Not.SameAs(failedBridge));
+        }
+        finally
+        {
+            OnDeath.RemoveListener(observeDeath);
+            OnNextTurn.RemoveListener(observeTurn);
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
+    /// <summary>Verifies a player controller revokes locally owned authority outside encounters.</summary>
     [Test]
-    public void Remove_CurrentTurnOwnerClearsReferenceWithoutReentrantAdvance()
+    public void PlayerEndTurnClearsStandaloneAuthorityAndActions()
+    {
+        PlayerActionController player = CreateLifecycleController<PlayerActionController>(
+            "Standalone Player",
+            "Players",
+            100
+        );
+
+        player.StartTurn();
+        Assert.That(player.HasTurnAuthority, Is.True);
+        Assert.That(player.ActionPoints, Is.EqualTo(3));
+
+        player.EndTurn();
+
+        Assert.That(player.HasTurnAuthority, Is.False);
+        Assert.That(player.ActionPoints, Is.Zero);
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    /// <summary>Verifies an AI controller revokes locally owned authority outside encounters.</summary>
+    [Test]
+    public void AiEndTurnClearsStandaloneAuthorityAndActions()
+    {
+        StandaloneTestAIActionController enemy =
+            CreateLifecycleController<StandaloneTestAIActionController>(
+                "Standalone AI",
+                "Enemies",
+                100
+            );
+
+        enemy.StartTurn();
+        Assert.That(enemy.HasTurnAuthority, Is.True);
+        Assert.That(enemy.ActionPoints, Is.EqualTo(3));
+
+        enemy.EndTurn();
+
+        Assert.That(enemy.HasTurnAuthority, Is.False);
+        Assert.That(enemy.ActionPoints, Is.Zero);
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    /// <summary>Verifies attached player and AI turns still close through the encounter reducer.</summary>
+    [UnityTest]
+    public IEnumerator AttachedPlayerEndTurnAdvancesToAiThroughAuthoritativeLifecycle()
+    {
+        PlayerActionController player = CreateLifecycleController<PlayerActionController>(
+            "Attached Player",
+            "Players",
+            200
+        );
+        StandaloneTestAIActionController enemy =
+            CreateLifecycleController<StandaloneTestAIActionController>(
+                "Attached AI",
+                "Enemies",
+                100
+            );
+
+        manager.StartDungeonCombat(new ActionController[] { player, enemy });
+        yield return WaitForCondition(
+            () => player.HasTurnAuthority && player.ActionPoints == 3,
+            "The authoritative player turn did not begin."
+        );
+
+        player.EndTurn();
+        yield return WaitForCondition(
+            () => enemy.HasTurnAuthority && enemy.ActionPoints == 3,
+            "The authoritative lifecycle did not advance to the AI."
+        );
+
+        Assert.That(player.HasTurnAuthority, Is.False);
+        Assert.That(player.ActionPoints, Is.Zero);
+        Assert.That(manager.WhosTurn(), Is.SameAs(enemy.gameObject));
+        Assert.That(manager.IsCombatActive, Is.True);
+    }
+
+    /// <summary>
+    /// Verifies external presentation begins only after startup is durable, so a later callback
+    /// fault cannot convert already-presented work into a partially rolled-back encounter.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator StartupPresentationFaultLeavesAcceptedEncounterUsableAndRetryPresentsOnce()
+    {
+        CombatantFixture player = CreateCombatant("Accepted Presentation Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Accepted Presentation Enemy", "Enemies", 100);
+        SpellEffectController spellEffects = SpellEffectController.GetOrAdd(player.GameObject);
+        spellEffects.AddOrRefresh(new ShieldSpellEffect(player.GameObject));
+        int failedTurnCallbacks = 0;
+        int inactivePublications = 0;
+        UnityAction<GameObject> failTurnPresentation = actor =>
+        {
+            if (actor != player.GameObject)
+                return;
+            failedTurnCallbacks++;
+            throw new InvalidOperationException("deliberate accepted startup presentation failure");
+        };
+        Action<bool> observeActivity = active =>
+        {
+            if (!active)
+                inactivePublications++;
+        };
+        OnNextTurn.AddListener(failTurnPresentation);
+        manager.CombatActivityChanged += observeActivity;
+
+        try
+        {
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: deliberate accepted startup presentation failure"
+                )
+            );
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForCondition(
+                () => failedTurnCallbacks == 1,
+                "The accepted first-turn presentation callback did not run."
+            );
+
+            UnityEncounterRulesBridge acceptedBridge = GetEncounterBridge();
+            EncounterState acceptedEncounter = acceptedBridge.Snapshot.Encounters[
+                acceptedBridge.EncounterId
+            ];
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(acceptedEncounter.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(acceptedEncounter.CurrentTurn.HasValue, Is.True);
+            Assert.That(player.Controller.HasTurnAuthority, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3));
+            Assert.That(player.Controller.StartTurnCount, Is.Zero);
+            Assert.That(spellEffects.HasEffect<ShieldSpellEffect>(), Is.False);
+            Assert.That(inactivePublications, Is.Zero);
+
+            OnNextTurn.RemoveListener(failTurnPresentation);
+            manager.SuspendDungeonCombat();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "A post-acceptance presentation fault left startup requests permanently blocked."
+            );
+            Assert.That(inactivePublications, Is.EqualTo(1));
+
+            int successfulTurnCallbacks = 0;
+            UnityAction<GameObject> observeSuccessfulTurn = actor =>
+            {
+                if (actor == player.GameObject)
+                    successfulTurnCallbacks++;
+            };
+            spellEffects.AddOrRefresh(new ShieldSpellEffect(player.GameObject));
+            OnNextTurn.AddListener(observeSuccessfulTurn);
+            try
+            {
+                manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+                yield return WaitForCondition(
+                    () => player.Controller.StartTurnCount == 1,
+                    "The successful retry did not complete first-turn presentation."
+                );
+
+                Assert.That(manager.IsCombatActive, Is.True);
+                Assert.That(successfulTurnCallbacks, Is.EqualTo(1));
+                Assert.That(spellEffects.HasEffect<ShieldSpellEffect>(), Is.False);
+                Assert.That(player.Controller.HasTurnAuthority, Is.True);
+                Assert.That(player.Controller.ActionPoints, Is.EqualTo(3));
+            }
+            finally
+            {
+                OnNextTurn.RemoveListener(observeSuccessfulTurn);
+            }
+        }
+        finally
+        {
+            OnNextTurn.RemoveListener(failTurnPresentation);
+            manager.CombatActivityChanged -= observeActivity;
+        }
+    }
+
+    /// <summary>Verifies rollback never recreates an exploration reservation that already settled.</summary>
+    [UnityTest]
+    public IEnumerator StartupFailureAfterExplorationStrideSettlesLeavesNoReservation()
+    {
+        CombatantFixture player = CreateCombatant("Settled Startup Stride Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Settled Startup Stride Enemy", "Enemies", 100);
+        PrepareBarbarian(player.Creature);
+        Stride stride = new(1);
+        player.Controller.AddTestMovement(stride);
+        player.Controller.SetDungeonExploration(true);
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(
+            failAfterRelease: true,
+            "deliberate settled-Stride startup failure"
+        );
+        RuleDispatcher dispatcher = null;
+        UnityAction installFailure = () =>
+        {
+            dispatcher = GetEncounterDispatcher();
+            dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        };
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        manager.CombatActivityChanged += installFailureAtActivation;
+
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Settled Startup Stride Grid").AddComponent<TestGridAPI>();
+        bool releaseStride = false;
+        IEnumerator StartCombatAndWait(GameObject _)
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            while (!releaseStride)
+                yield return null;
+        }
+        grid.StrideRoutine = StartCombatAndWait;
+        singletonField.SetValue(null, grid);
+
+        try
+        {
+            player.Controller.TakeAction(stride);
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted && grid.StrideCalls == 1,
+                "Exploration Stride did not pause the startup transaction."
+            );
+
+            releaseStride = true;
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The exploration Stride did not settle before startup rollback."
+            );
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate settled-Stride startup failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The failed startup did not restore exploration."
+            );
+
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(player.Controller.IsInDungeonExploration, Is.True);
+            grid.StrideRoutine = null;
+            player.Controller.TakeAction(stride);
+            yield return WaitForCondition(
+                () => grid.StrideCalls == 2 && !player.Controller.IsTakingAction,
+                "An ownerless restored reservation blocked the next exploration action."
+            );
+        }
+        finally
+        {
+            releaseStride = true;
+            blocker.Release();
+            manager.CombatActivityChanged -= installFailureAtActivation;
+            dispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
+    /// <summary>Verifies rollback preserves only the still-live exploration action owner.</summary>
+    [UnityTest]
+    public IEnumerator StartupFailureWhileExplorationStrideIsLivePreservesExactOwner()
+    {
+        CombatantFixture player = CreateCombatant("Live Startup Stride Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Live Startup Stride Enemy", "Enemies", 100);
+        PrepareBarbarian(player.Creature);
+        Stride stride = new(1);
+        player.Controller.AddTestMovement(stride);
+        player.Controller.SetDungeonExploration(true);
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(
+            failAfterRelease: true,
+            "deliberate live-Stride startup failure"
+        );
+        RuleDispatcher dispatcher = null;
+        UnityAction installFailure = () =>
+        {
+            dispatcher = GetEncounterDispatcher();
+            dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        };
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        manager.CombatActivityChanged += installFailureAtActivation;
+
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Live Startup Stride Grid").AddComponent<TestGridAPI>();
+        bool releaseStride = false;
+        IEnumerator StartCombatAndWait(GameObject _)
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            while (!releaseStride)
+                yield return null;
+        }
+        grid.StrideRoutine = StartCombatAndWait;
+        singletonField.SetValue(null, grid);
+
+        try
+        {
+            player.Controller.TakeAction(stride);
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted && grid.StrideCalls == 1,
+                "Exploration Stride did not remain live during startup."
+            );
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate live-Stride startup failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The failed startup did not restore its still-running Stride."
+            );
+
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.IsInDungeonExploration, Is.True);
+            player.Controller.TakeAction(stride);
+            yield return null;
+            Assert.That(grid.StrideCalls, Is.EqualTo(1), "A live owner must block a competitor.");
+
+            releaseStride = true;
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The original Stride owner did not release its exact reservation."
+            );
+            grid.StrideRoutine = null;
+            player.Controller.TakeAction(stride);
+            yield return WaitForCondition(
+                () => grid.StrideCalls == 2 && !player.Controller.IsTakingAction,
+                "The original finalizer interfered with the next exploration action."
+            );
+        }
+        finally
+        {
+            releaseStride = true;
+            blocker.Release();
+            manager.CombatActivityChanged -= installFailureAtActivation;
+            dispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
+    /// <summary>Verifies delayed lifecycle requests cannot cross a failed-start generation.</summary>
+    [UnityTest]
+    public IEnumerator FailedStartupCancelsStaleReinforcementAndSuspensionRequests()
+    {
+        CombatantFixture player = CreateCombatant("Stale Request Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Stale Request Enemy", "Enemies", 100);
+        CombatantFixture reinforcement = CreateCombatant(
+            "Stale Request Reinforcement",
+            "Enemies",
+            50
+        );
+        PrepareBarbarian(player.Creature);
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(
+            failAfterRelease: true,
+            "deliberate stale-request startup failure"
+        );
+        RuleDispatcher failedDispatcher = null;
+        UnityEncounterRulesBridge failedBridge = null;
+        UnityAction installFailure = () =>
+        {
+            failedBridge = GetEncounterBridge();
+            failedDispatcher = GetEncounterDispatcher();
+            failedDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        };
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        int inactiveCalls = 0;
+        Action<bool> observeActivity = active =>
+        {
+            if (!active)
+                inactiveCalls++;
+        };
+        manager.CombatActivityChanged += installFailureAtActivation;
+        manager.CombatActivityChanged += observeActivity;
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "Startup did not pause before delayed requests were queued."
+            );
+            long failedGeneration = GetEncounterGeneration();
+            IEnumerator delayedJoin = InvokeManagerRoutine(
+                "AddDungeonReinforcementsRoutine",
+                new[] { reinforcement.Controller },
+                failedBridge,
+                failedGeneration,
+                CreateReinforcementRequest(failedGeneration, long.MaxValue)
+            );
+            IEnumerator delayedSuspend = InvokeManagerRoutine(
+                "SuspendDungeonCombatRoutine",
+                failedBridge,
+                failedGeneration
+            );
+            Assert.That(delayedJoin.MoveNext(), Is.True);
+            Assert.That(delayedSuspend.MoveNext(), Is.True);
+            manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+            manager.SuspendDungeonCombat();
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate stale-request startup failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The faulted startup did not release its manager generation."
+            );
+            Assert.That(inactiveCalls, Is.EqualTo(1));
+
+            manager.CombatActivityChanged -= installFailureAtActivation;
+            failedDispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+            UnityEncounterRulesBridge retryBridge = GetEncounterBridge();
+            Assert.That(retryBridge, Is.Not.SameAs(failedBridge));
+            Assert.That(GetEncounterGeneration(), Is.GreaterThan(failedGeneration));
+
+            Assert.That(delayedJoin.MoveNext(), Is.False);
+            Assert.That(delayedSuspend.MoveNext(), Is.False);
+            yield return null;
+            yield return null;
+
+            EncounterState retry = retryBridge.Snapshot.Encounters[retryBridge.EncounterId];
+            Assert.That(retry.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(
+                retry.Roster.Select(entry => retryBridge.GetController(entry.Creature)),
+                Is.EqualTo(new[] { player.Controller, enemy.Controller })
+            );
+            Assert.That(
+                GetPublishedActiveCombatants(),
+                Is.EqualTo(new[] { player.Controller, enemy.Controller })
+            );
+            Assert.That(GetCreatureEncounterBridge(reinforcement.Creature), Is.Null);
+            Assert.That(inactiveCalls, Is.EqualTo(1));
+        }
+        finally
+        {
+            blocker.Release();
+            manager.CombatActivityChanged -= installFailureAtActivation;
+            manager.CombatActivityChanged -= observeActivity;
+            failedDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        }
+    }
+
+    /// <summary>Verifies same-generation startup waits still join and suspend normally.</summary>
+    [UnityTest]
+    public IEnumerator SameGenerationStartupWaitsExecuteForReinforcementAndSuspension()
+    {
+        CombatantFixture joinPlayer = CreateCombatant("Waiting Join Player", "Players", 300);
+        CombatantFixture joinEnemy = CreateCombatant("Waiting Join Enemy", "Enemies", 200);
+        CombatantFixture reinforcement = CreateCombatant(
+            "Waiting Join Reinforcement",
+            "Enemies",
+            100
+        );
+        PrepareBarbarian(joinPlayer.Creature);
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> joinBlocker = new(
+            failAfterRelease: false
+        );
+        RuleDispatcher joinDispatcher = null;
+        UnityAction installJoinBlocker = () =>
+        {
+            joinDispatcher = GetEncounterDispatcher();
+            joinDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(joinBlocker);
+        };
+        Action<bool> installJoinBlockerAtActivation = WhenCombatBecomesActive(installJoinBlocker);
+        manager.CombatActivityChanged += installJoinBlockerAtActivation;
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { joinPlayer.Controller, joinEnemy.Controller });
+            yield return WaitForCondition(
+                () => joinBlocker.Started.IsCompleted,
+                "Same-generation join startup did not pause."
+            );
+            manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+            joinBlocker.Release();
+            yield return WaitForCondition(
+                () => GetPublishedActiveCombatants().Contains(reinforcement.Controller),
+                "A valid same-generation reinforcement wait did not execute."
+            );
+            Assert.That(
+                GetEncounterBridge()
+                    .Snapshot.Encounters[GetEncounterBridge().EncounterId]
+                    .Roster.Select(entry => GetEncounterBridge().GetController(entry.Creature)),
+                Has.Member(reinforcement.Controller)
+            );
+        }
+        finally
+        {
+            joinBlocker.Release();
+            manager.CombatActivityChanged -= installJoinBlockerAtActivation;
+            joinDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(joinBlocker);
+        }
+
+        manager.SuspendDungeonCombat();
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive,
+            "The joined encounter did not suspend before the second scenario."
+        );
+
+        CombatantFixture suspendPlayer = CreateCombatant("Waiting Suspend Player", "Players", 300);
+        CombatantFixture suspendEnemy = CreateCombatant("Waiting Suspend Enemy", "Enemies", 200);
+        PrepareBarbarian(suspendPlayer.Creature);
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> suspendBlocker = new(
+            failAfterRelease: false
+        );
+        RuleDispatcher suspendDispatcher = null;
+        UnityEncounterRulesBridge suspendingBridge = null;
+        UnityAction installSuspendBlocker = () =>
+        {
+            suspendingBridge = GetEncounterBridge();
+            suspendDispatcher = GetEncounterDispatcher();
+            suspendDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(suspendBlocker);
+        };
+        Action<bool> installSuspendBlockerAtActivation = WhenCombatBecomesActive(
+            installSuspendBlocker
+        );
+        manager.CombatActivityChanged += installSuspendBlockerAtActivation;
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { suspendPlayer.Controller, suspendEnemy.Controller });
+            yield return WaitForCondition(
+                () => suspendBlocker.Started.IsCompleted,
+                "Same-generation suspension startup did not pause."
+            );
+            manager.SuspendDungeonCombat();
+            suspendBlocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "A valid same-generation suspension wait did not execute."
+            );
+            Assert.That(
+                suspendingBridge.Snapshot.Encounters[suspendingBridge.EncounterId].Phase,
+                Is.EqualTo(EncounterPhase.Suspended)
+            );
+        }
+        finally
+        {
+            suspendBlocker.Release();
+            manager.CombatActivityChanged -= installSuspendBlockerAtActivation;
+            suspendDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(
+                suspendBlocker
+            );
+        }
+    }
+
+    /// <summary>
+    /// Verifies camera framing excludes defeated timing slots without removing their rules identity.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator DefeatedRetainedParticipant_IsExcludedFromOrderedCameraPositions()
+    {
+        CombatantFixture player = CreateCombatant("Camera Player", "Players", 300);
+        CombatantFixture defeatedEnemy = CreateCombatant("Defeated Camera Enemy", "Enemies", 200);
+        CombatantFixture livingEnemy = CreateCombatant("Living Camera Enemy", "Enemies", 100);
+        player.GameObject.transform.position = new Vector3(1f, 0f, 2f);
+        defeatedEnemy.GameObject.transform.position = new Vector3(50f, 0f, 60f);
+        livingEnemy.GameObject.transform.position = new Vector3(3f, 0f, 4f);
+
+        manager.StartDungeonCombat(
+            new[] { player.Controller, defeatedEnemy.Controller, livingEnemy.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        CreatureId playerId = bridge.GetCreatureId(player.Creature);
+        CreatureId defeatedId = bridge.GetCreatureId(defeatedEnemy.Creature);
+        CreatureId livingId = bridge.GetCreatureId(livingEnemy.Creature);
+
+        yield return CoroutineRunner.Await(
+            defeatedEnemy.Creature.ApplyFinalDamageAsync(
+                defeatedEnemy.Creature.hp,
+                RuleSource.FromSlug("test-camera-defeat")
+            )
+        );
+
+        EncounterState encounter = bridge.Snapshot.Encounters[bridge.EncounterId];
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            encounter.Roster.Select(entry => entry.Creature),
+            Is.EqualTo(new[] { playerId, defeatedId, livingId }),
+            "Defeat must retain the immutable initiative timing slot."
+        );
+        Assert.That(bridge.GetController(defeatedId), Is.SameAs(defeatedEnemy.Controller));
+        Assert.That(defeatedEnemy.GameObject.activeSelf, Is.False);
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EqualTo(new[] { player.GameObject, livingEnemy.GameObject })
+        );
+        Assert.That(
+            manager.getPoistions(),
+            Is.EqualTo(
+                new[]
+                {
+                    player.GameObject.transform.position,
+                    livingEnemy.GameObject.transform.position,
+                }
+            ),
+            "Camera inputs must preserve living gameplay order and exclude defeated positions."
+        );
+    }
+
+    /// <summary>Verifies an active encounter roster cannot be mutated outside its reducer.</summary>
+    [UnityTest]
+    public IEnumerator Remove_CurrentTurnOwnerIsIgnoredUntilEncounterEnds()
     {
         CombatantFixture current = CreateCombatant("Current", "Players", 100);
         CombatantFixture next = CreateCombatant("Next", "Enemies", 50);
         CombatantFixture ally = CreateCombatant("Ally", "Players", 0);
         manager.StartDungeonCombat(new[] { current.Controller, next.Controller, ally.Controller });
+        yield return WaitForTurn(current.GameObject);
         Assert.That(manager.WhosTurn(), Is.SameAs(current.GameObject));
 
         manager.Remove(current.Controller);
 
-        Assert.That(manager.WhosTurn(), Is.Null);
+        Assert.That(manager.WhosTurn(), Is.SameAs(current.GameObject));
         Assert.That(
             manager.GetCombatants(),
-            Is.EquivalentTo(new[] { next.GameObject, ally.GameObject })
+            Is.EquivalentTo(new[] { current.GameObject, next.GameObject, ally.GameObject })
         );
         Assert.That(next.Controller.StartTurnCount, Is.Zero);
 
-        manager.NextTurn();
+        current.Controller.EndTurn();
+        yield return WaitForTurn(next.GameObject);
 
         Assert.That(manager.WhosTurn(), Is.SameAs(next.GameObject));
         Assert.That(next.Controller.StartTurnCount, Is.EqualTo(1));
     }
 
+    /// <summary>Verifies presentation-disabled actors close their exact committed turn once.</summary>
+    [UnityTest]
+    public IEnumerator TurnPresentationDisablesActor_ClosesExactTurnAndAdvancesOnce()
+    {
+        CombatantFixture first = CreateCombatant("Disabled First", "Players", 200);
+        CombatantFixture next = CreateCombatant("Eligible Next", "Enemies", 100);
+        CombatantFixture ally = CreateCombatant("Living Ally", "Players", 0);
+        TurnIdentity? disabledTurn = null;
+        UnityAction<GameObject> disableFirst = actor =>
+        {
+            if (actor != first.GameObject)
+                return;
+            disabledTurn = GetEncounterBridge().CurrentTurn;
+            first.Controller.enabled = false;
+        };
+        OnNextTurn.AddListener(disableFirst);
+        try
+        {
+            manager.StartDungeonCombat(
+                new[] { first.Controller, next.Controller, ally.Controller }
+            );
+            RuleDispatcher dispatcher = GetEncounterDispatcher();
+            RecordingFactObserver<TurnEndedFact> ended = new();
+            dispatcher.RegisterFactObserver<TurnEndedFact>(ended);
+
+            yield return WaitForCondition(
+                () => manager.WhosTurn() == next.GameObject && next.Controller.StartTurnCount == 1,
+                "A presentation-disabled actor left its committed turn active."
+            );
+
+            Assert.That(disabledTurn.HasValue, Is.True);
+            Assert.That(first.Controller.StartTurnCount, Is.Zero);
+            Assert.That(first.Controller.enabled, Is.False);
+            Assert.That(next.Controller.HasTurnAuthority, Is.True);
+            Assert.That(ended.Facts, Has.Count.EqualTo(1));
+            Assert.That(ended.Facts[0].Turn, Is.EqualTo(disabledTurn.Value));
+        }
+        finally
+        {
+            OnNextTurn.RemoveListener(disableFirst);
+        }
+    }
+
+    /// <summary>
+    /// Verifies disabled participants retain timing slots without leaking into gameplay projections.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator DisabledRetainedParticipant_IsSkippedAndRejoinsGameplayProjection()
+    {
+        CombatantFixture current = CreateCombatant("Projection Current", "Players", 300);
+        CombatantFixture skipped = CreateCombatant("Projection Disabled", "Enemies", 200);
+        CombatantFixture next = CreateCombatant("Projection Next", "Players", 100);
+        current.GameObject.transform.position = new Vector3(1f, 0f, 1f);
+        skipped.GameObject.transform.position = new Vector3(20f, 0f, 20f);
+        next.GameObject.transform.position = new Vector3(2f, 0f, 2f);
+
+        manager.StartDungeonCombat(
+            new[] { current.Controller, skipped.Controller, next.Controller }
+        );
+        yield return WaitForTurn(current.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        CreatureId skippedId = bridge.GetCreatureId(skipped.Creature);
+        RecordingFactObserver<TurnEndedFact> ended = new();
+        GetEncounterDispatcher().RegisterFactObserver<TurnEndedFact>(ended);
+
+        skipped.Controller.enabled = false;
+        Assert.That(
+            bridge.Snapshot.Encounters[bridge.EncounterId].Roster.Select(entry => entry.Creature),
+            Has.Member(skippedId),
+            "Participation changes must not remove immutable initiative slots."
+        );
+        Assert.That(manager.GetCombatants(), Has.No.Member(skipped.GameObject));
+        Assert.That(manager.getPoistions(), Has.No.Member(skipped.GameObject.transform.position));
+        Assert.That(
+            manager
+                .GetCombatants()
+                .Where(combatant => combatant.GetComponent<Team>().Name == "Enemies"),
+            Is.Empty,
+            "The gameplay projection consumed by MindlessController must exclude disabled targets."
+        );
+
+        skipped.Controller.enabled = true;
+        skipped.GameObject.SetActive(false);
+        Assert.That(manager.GetCombatants(), Has.No.Member(skipped.GameObject));
+        Assert.That(manager.getPoistions(), Has.No.Member(skipped.GameObject.transform.position));
+        skipped.GameObject.SetActive(true);
+        skipped.Controller.enabled = false;
+
+        current.Controller.EndTurn();
+        yield return WaitForTurn(next.GameObject);
+
+        Assert.That(skipped.Controller.StartTurnCount, Is.Zero);
+        Assert.That(
+            ended.Facts.Count(fact => fact.Turn.Actor == skippedId),
+            Is.EqualTo(1),
+            "The disabled actor's exact committed timing boundary must close once."
+        );
+
+        skipped.Controller.enabled = true;
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EqualTo(new[] { next.GameObject, current.GameObject, skipped.GameObject }),
+            "A living participant must rejoin in deterministic gameplay order when enabled."
+        );
+        Assert.That(
+            manager.getPoistions(),
+            Is.EqualTo(
+                new[]
+                {
+                    next.GameObject.transform.position,
+                    current.GameObject.transform.position,
+                    skipped.GameObject.transform.position,
+                }
+            )
+        );
+    }
+
+    /// <summary>Verifies an occupied dispatcher cannot accept duplicate work for a pending turn end.</summary>
+    [UnityTest]
+    public IEnumerator PendingEndTurn_ReservesActorAndAdvancesExactlyOnce()
+    {
+        CombatantFixture current = CreateCombatant("Pending End Current", "Players", 200);
+        CombatantFixture next = CreateCombatant("Pending End Next", "Enemies", 100);
+        CombatantFixture ally = CreateCombatant("Pending End Ally", "Players", 0);
+        manager.StartDungeonCombat(new[] { current.Controller, next.Controller, ally.Controller });
+        yield return WaitForTurn(current.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<TurnEndedFact> ended = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<TurnEndedFact>(ended);
+        Task damage = current
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-pending-end-blocker"))
+            .AsTask();
+        int competingInvocations = 0;
+        TestEntityAction competing = new("Queued After End", 1, () => competingInvocations++);
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The health observer did not occupy the dispatcher root."
+            );
+
+            manager.EndCurrentTurn(current.Controller);
+            manager.EndCurrentTurn(current.Controller);
+            current.Controller.TakeAction(competing);
+            yield return null;
+
+            Assert.That(current.Controller.IsTakingAction, Is.True);
+            Assert.That(current.Controller.HasTurnAuthority, Is.True);
+            Assert.That(current.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(competingInvocations, Is.Zero);
+            Assert.That(ended.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(damage));
+            yield return WaitForTurn(next.GameObject);
+
+            Assert.That(ended.Facts, Has.Count.EqualTo(1));
+            Assert.That(competingInvocations, Is.Zero);
+            Assert.That(current.Controller.HasTurnAuthority, Is.False);
+            Assert.That(current.Controller.ActionPoints, Is.Zero);
+            Assert.That(current.Controller.IsTakingAction, Is.False);
+            Assert.That(next.Controller.HasTurnAuthority, Is.True);
+            Assert.That(next.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(next.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<TurnEndedFact>(ended);
+        }
+    }
+
+    /// <summary>Verifies an attack cannot recreate MAP after a queued exact turn end wins.</summary>
+    [UnityTest]
+    public IEnumerator QueuedStrikeMapAfterTurnLossRejectsAndReleasesActionReservation()
+    {
+        CombatantFixture player = CreateCombatant("Stale MAP Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Stale MAP Enemy", "Enemies", 100);
+        CombatantFixture ally = CreateCombatant("Stale MAP Ally", "Players", 0);
+        player.Creature.attackBonus = 100;
+        enemy.Creature.ac = -100;
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Stale MAP GridAPI").AddComponent<TestGridAPI>();
+        grid.StrikeTarget = enemy.GameObject;
+        singletonField.SetValue(null, grid);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller, ally.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<LegacyActionsSpentFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<LegacyMapIncrementedFact> maps = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+        int enemyHealth = enemy.Creature.hp;
+        Task<EncounterAdvanceOutcome> ending = null;
+
+        try
+        {
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(
+                new Unarmed(
+                    1,
+                    new List<Dice> { new Dice(1, 1, "bludgeoning") },
+                    new List<DamageValue>()
+                )
+            );
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The action spend did not occupy the dispatcher before MAP."
+            );
+            ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: .*The actor does not own an active current turn\\."
+                )
+            );
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return WaitForTurn(enemy.GameObject);
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The rejected MAP left the attack reservation active."
+            );
+
+            Assert.That(spends.Facts, Has.Count.EqualTo(1));
+            Assert.That(spends.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(player.Controller.HasTurnAuthority, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(enemy.Creature.hp, Is.EqualTo(enemyHealth));
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(maps);
+            singletonField.SetValue(null, previousGrid);
+            _ = ending?.Exception;
+        }
+    }
+
     /// <summary>Verifies malformed encounter identity cannot interrupt committed defeat cleanup.</summary>
-    [Test]
-    public void LethalDamage_UnconfiguredEncounterMemberStillCompletesDefeatPresentation()
+    [UnityTest]
+    public IEnumerator LethalDamage_UnconfiguredEncounterMemberStillCompletesDefeatPresentation()
     {
         FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
             "Instance",
@@ -113,9 +1431,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
             CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
             DungeonEncounterMember member = enemy.GameObject.AddComponent<DungeonEncounterMember>();
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn();
 
-            Assert.DoesNotThrow(() =>
-                enemy.Creature.ApplyFinalDamage(10, RuleSource.FromSlug("test-lethal-damage"))
+            yield return CoroutineRunner.Await(
+                enemy.Creature.ApplyFinalDamageAsync(10, RuleSource.FromSlug("test-lethal-damage"))
             );
 
             Assert.That(member.IsConfigured, Is.False);
@@ -132,8 +1451,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies a reinforcement before the current initiative waits for the next round.</summary>
-    [Test]
-    public void AddDungeonReinforcements_HigherInitiativeWaitsUntilNextRound()
+    [UnityTest]
+    public IEnumerator AddDungeonReinforcements_HigherInitiativeWaitsUntilNextRound()
     {
         CombatantFixture current = CreateCombatant("Current", "Players", 100);
         CombatantFixture later = CreateCombatant("Later", "Enemies", 0);
@@ -143,19 +1462,28 @@ public sealed class DungeonEncounterCombatPlayModeTests
             200
         );
         manager.StartDungeonCombat(new[] { current.Controller, later.Controller });
+        yield return WaitForTurn(current.GameObject);
         Assert.That(manager.WhosTurn(), Is.SameAs(current.GameObject));
-        current.Creature.ApplyFinalDamage(2, RuleSource.FromSlug("test-current-damage"));
+        yield return CoroutineRunner.Await(
+            current.Creature.ApplyFinalDamageAsync(2, RuleSource.FromSlug("test-current-damage"))
+        );
 
         manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+        yield return WaitForCondition(
+            () => manager.GetCombatants().Count == 3,
+            "Timed out waiting for the reinforcement roster commit."
+        );
 
         Assert.That(
             current.Creature.hp,
             Is.EqualTo(8),
             "Rebuilding health ownership for reinforcements must preserve current combatant state."
         );
-        reinforcement.Creature.ApplyFinalDamage(
-            1,
-            RuleSource.FromSlug("test-reinforcement-damage")
+        yield return CoroutineRunner.Await(
+            reinforcement.Creature.ApplyFinalDamageAsync(
+                1,
+                RuleSource.FromSlug("test-reinforcement-damage")
+            )
         );
         Assert.That(
             reinforcement.Creature.hp,
@@ -172,39 +1500,2983 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(reinforcement.Controller.HasTurnAuthority, Is.False);
 
         current.Controller.EndTurn();
+        yield return WaitForTurn(later.GameObject);
 
         Assert.That(manager.WhosTurn(), Is.SameAs(later.GameObject));
         Assert.That(reinforcement.Controller.StartTurnCount, Is.Zero);
 
         later.Controller.EndTurn();
+        yield return WaitForTurn(reinforcement.GameObject);
 
         Assert.That(manager.WhosTurn(), Is.SameAs(reinforcement.GameObject));
         Assert.That(reinforcement.Controller.StartTurnCount, Is.EqualTo(1));
     }
 
+    /// <summary>Verifies reinforcement numbering follows the reducer-sorted accepted roster.</summary>
+    [UnityTest]
+    public IEnumerator AddDungeonReinforcements_LogsAcceptedInitiativeOrder()
+    {
+        CombatantFixture current = CreateCombatant("Current", "Players", 100);
+        CombatantFixture later = CreateCombatant("Later", "Enemies", 0);
+        CombatantFixture low = CreateCombatant("Low Reinforcement", "Enemies", -1000);
+        CombatantFixture high = CreateCombatant("High Reinforcement", "Enemies", 1000);
+        manager.StartDungeonCombat(new[] { current.Controller, later.Controller });
+        yield return WaitForTurn(current.GameObject);
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+        Assert.That(combatLog, Is.Not.Null);
+
+        manager.AddDungeonReinforcements(new[] { low.Controller, high.Controller });
+        yield return WaitForCondition(
+            () =>
+                combatLog
+                    .GetMessages()
+                    .Any(message =>
+                        message.StartsWith("Reinforcements:\n", StringComparison.Ordinal)
+                    ),
+            "Timed out waiting for the accepted reinforcement initiative log."
+        );
+
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        HashSet<ActionController> additions = new() { low.Controller, high.Controller };
+        string[] committedOrder = bridge
+            .Snapshot.Encounters[bridge.EncounterId]
+            .Roster.Select(entry => bridge.GetController(entry.Creature))
+            .Where(additions.Contains)
+            .Select(controller => controller.gameObject.name)
+            .ToArray();
+        string reinforcementLog = combatLog
+            .GetMessages()
+            .Single(message => message.StartsWith("Reinforcements:\n", StringComparison.Ordinal));
+        string[] lines = reinforcementLog.Split(
+            new[] { '\r', '\n' },
+            StringSplitOptions.RemoveEmptyEntries
+        );
+
+        Assert.That(
+            committedOrder,
+            Is.EqualTo(new[] { high.GameObject.name, low.GameObject.name })
+        );
+        Assert.That(lines, Has.Length.EqualTo(3));
+        Assert.That(lines[1], Does.StartWith($"  1. {committedOrder[0]} "));
+        Assert.That(lines[2], Does.StartWith($"  2. {committedOrder[1]} "));
+    }
+
+    /// <summary>Verifies concurrent queued reinforcement groups reserve distinct unpublished identities.</summary>
+    [UnityTest]
+    public IEnumerator ConcurrentReinforcementJoins_AcceptBothReservedIdentityGroups()
+    {
+        CombatantFixture current = CreateCombatant("Join Current", "Players", 300);
+        CombatantFixture later = CreateCombatant("Join Later", "Enemies", 0);
+        CombatantFixture first = CreateCombatant("First Pending Join", "Enemies", 200);
+        CombatantFixture second = CreateCombatant("Second Pending Join", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { current.Controller, later.Controller });
+        yield return WaitForTurn(current.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TurnEndedFact> blocker = new(failAfterRelease: false);
+        dispatcher.RegisterFactObserver<TurnEndedFact>(blocker);
+        Task<EncounterAdvanceOutcome> ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The turn-end observer did not occupy the dispatcher root."
+            );
+
+            manager.AddDungeonReinforcements(new[] { first.Controller });
+            manager.AddDungeonReinforcements(new[] { second.Controller });
+            yield return null;
+
+            Assert.Throws<InvalidOperationException>(() => bridge.GetCreatureId(first.Controller));
+            Assert.Throws<InvalidOperationException>(() => bridge.GetCreatureId(second.Controller));
+            Assert.That(manager.GetCombatants(), Has.No.Member(first.GameObject));
+            Assert.That(manager.GetCombatants(), Has.No.Member(second.GameObject));
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return WaitForCondition(
+                () =>
+                    manager.GetCombatants().Count == 4
+                    && combatLog
+                        .GetMessages()
+                        .Count(message =>
+                            message.StartsWith("Reinforcements:\n", StringComparison.Ordinal)
+                        ) == 2,
+                "Both queued reinforcement lifecycle groups were not accepted."
+            );
+
+            CreatureId firstId = bridge.GetCreatureId(first.Controller);
+            CreatureId secondId = bridge.GetCreatureId(second.Controller);
+            Assert.That(firstId, Is.Not.EqualTo(secondId));
+            Assert.That(firstId.Value, Is.EqualTo("encounter-creature-3"));
+            Assert.That(secondId.Value, Is.EqualTo("encounter-creature-4"));
+            Assert.That(bridge.GetController(firstId), Is.SameAs(first.Controller));
+            Assert.That(bridge.GetController(secondId), Is.SameAs(second.Controller));
+            Assert.That(
+                bridge
+                    .Snapshot.Encounters[bridge.EncounterId]
+                    .Roster.Where(entry => entry.Creature == firstId || entry.Creature == secondId)
+                    .Select(entry => entry.Creature),
+                Is.EqualTo(new[] { firstId, secondId })
+            );
+            Assert.That(
+                manager.GetCombatants(),
+                Has.Member(first.GameObject).And.Member(second.GameObject)
+            );
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<TurnEndedFact>(blocker);
+            _ = ending.Exception;
+        }
+    }
+
+    /// <summary>Verifies accepted reinforcement publication and initialization share the join root.</summary>
+    [UnityTest]
+    public IEnumerator QueuedJoinPublishesIdentityAndInitializationBeforeEligibleTurn()
+    {
+        CombatantFixture current = CreateCombatant("Join Boundary Current", "Players", 300);
+        CombatantFixture reinforcement = CreateCombatant(
+            "Join Boundary Reinforcement",
+            "Enemies",
+            200
+        );
+        CombatantFixture later = CreateCombatant("Join Boundary Later", "Enemies", 0);
+        PrepareBarbarian(reinforcement.Creature);
+        Assert.That(reinforcement.Creature.Prepared.HasOwnedItem("quick-tempered"), Is.True);
+        manager.StartDungeonCombat(new[] { current.Controller, later.Controller });
+        yield return WaitForTurn(current.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> rootBlocker = new(failAfterRelease: false);
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> initializationBlocker = new(
+            failAfterRelease: false
+        );
+        dispatcher.RegisterFactObserver<HealthFact>(rootBlocker);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(initializationBlocker);
+        Task occupied = current
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-join-root-blocker"))
+            .AsTask();
+        Task<EncounterAdvanceOutcome> ending = null;
+        int reinforcementTurnPresentations = 0;
+        bool initializedAtPresentation = false;
+        UnityAction<GameObject> observeTurn = actor =>
+        {
+            if (actor != reinforcement.GameObject)
+                return;
+            reinforcementTurnPresentations++;
+            initializedAtPresentation =
+                reinforcement.Creature.Prepared.HasActiveEffect("rage")
+                && reinforcement.Creature.Health.Temporary > 0;
+        };
+        OnNextTurn.AddListener(observeTurn);
+
+        try
+        {
+            yield return WaitForCondition(
+                () => rootBlocker.Started.IsCompleted,
+                "The health root did not occupy reinforcement serialization."
+            );
+            manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+            ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+            yield return null;
+
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.GetCreatureId(reinforcement.Controller)
+            );
+            Assert.That(GetPublishedActiveCombatants(), Has.No.Member(reinforcement.Controller));
+
+            rootBlocker.Release();
+            yield return WaitForCondition(
+                () => initializationBlocker.Started.IsCompleted,
+                "Quick-Tempered initialization did not begin inside the accepted join root."
+            );
+
+            CreatureId reinforcementId = bridge.GetCreatureId(reinforcement.Controller);
+            Assert.That(
+                bridge.GetController(reinforcementId),
+                Is.SameAs(reinforcement.Controller),
+                "Accepted identity publication must precede any causal initialization dispatch."
+            );
+            Assert.That(
+                bridge.CurrentTurn.Value.Actor,
+                Is.EqualTo(bridge.GetCreatureId(current.Controller))
+            );
+            Assert.That(reinforcement.Controller.StartTurnCount, Is.Zero);
+            Assert.That(
+                GetPublishedActiveCombatants(),
+                Has.Member(reinforcement.Controller),
+                "A durably accepted reinforcement must be in host cleanup before hooks await."
+            );
+
+            initializationBlocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(occupied));
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return WaitForTurn(reinforcement.GameObject);
+
+            Assert.That(reinforcementTurnPresentations, Is.EqualTo(1));
+            Assert.That(initializedAtPresentation, Is.True);
+            Assert.That(reinforcement.Controller.StartTurnCount, Is.EqualTo(1));
+            Assert.That(GetPublishedActiveCombatants(), Has.Member(reinforcement.Controller));
+        }
+        finally
+        {
+            rootBlocker.Release();
+            initializationBlocker.Release();
+            OnNextTurn.RemoveListener(observeTurn);
+            dispatcher.UnregisterFactObserver<HealthFact>(rootBlocker);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(initializationBlocker);
+            _ = ending?.Exception;
+        }
+    }
+
+    /// <summary>Verifies one accepted initializer failure cannot suppress later controllers.</summary>
+    [UnityTest]
+    public IEnumerator AcceptedJoinInitializesEveryControllerBeforeReportingEarlierFailure()
+    {
+        CombatantFixture current = CreateCombatant("Faulted Join Current", "Players", 300);
+        CombatantFixture faulting = CreateCombatant(
+            "Faulted Join First Reinforcement",
+            "Enemies",
+            200
+        );
+        CombatantFixture initializedLater = CreateCombatant(
+            "Faulted Join Later Reinforcement",
+            "Enemies",
+            100
+        );
+        CombatantFixture existingLater = CreateCombatant("Faulted Join Existing", "Enemies", 0);
+        PrepareBarbarian(faulting.Creature);
+        PrepareBarbarian(initializedLater.Creature);
+        manager.StartDungeonCombat(new[] { current.Controller, existingLater.Controller });
+        yield return WaitForTurn(current.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        RecordingFactObserver<TemporaryHitPointsGrantedFact> grants = new();
+        SelectedFactFailureObserver<TemporaryHitPointsGrantedFact> failFirst = new(
+            fact => fact.Creature == bridge.GetCreatureId(faulting.Controller),
+            "deliberate first accepted initializer failure"
+        );
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(grants);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(failFirst);
+        List<DungeonReinforcementRequestStatus> completions = new();
+        Action<DungeonReinforcementRequest, DungeonReinforcementRequestStatus> observeCompletion = (
+            _,
+            status
+        ) => completions.Add(status);
+        manager.DungeonReinforcementRequestCompleted += observeCompletion;
+        Task<EncounterAdvanceOutcome> ending = null;
+
+        try
+        {
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: deliberate first accepted initializer failure"
+                )
+            );
+            manager.AddDungeonReinforcements(
+                new[] { faulting.Controller, initializedLater.Controller }
+            );
+            yield return WaitForCondition(
+                () =>
+                    initializedLater.Creature.Health.Temporary == 2
+                    && completions.Contains(DungeonReinforcementRequestStatus.Accepted),
+                "The later accepted reinforcement did not initialize after the earlier failure."
+            );
+
+            CreatureId faultingId = bridge.GetCreatureId(faulting.Controller);
+            CreatureId initializedLaterId = bridge.GetCreatureId(initializedLater.Controller);
+            Assert.That(bridge.GetController(faultingId), Is.SameAs(faulting.Controller));
+            Assert.That(
+                bridge.GetController(initializedLaterId),
+                Is.SameAs(initializedLater.Controller)
+            );
+            Assert.That(
+                bridge
+                    .Snapshot.Encounters[bridge.EncounterId]
+                    .Roster.Select(entry => entry.Creature),
+                Is.SupersetOf(new[] { faultingId, initializedLaterId })
+            );
+            Assert.That(GetPublishedActiveCombatants(), Has.Member(faulting.Controller));
+            Assert.That(GetPublishedActiveCombatants(), Has.Member(initializedLater.Controller));
+            Assert.That(faulting.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(initializedLater.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(faulting.Creature.Health.Temporary, Is.EqualTo(2));
+            Assert.That(initializedLater.Creature.Health.Temporary, Is.EqualTo(2));
+            Assert.That(grants.Facts.Count(fact => fact.Creature == faultingId), Is.EqualTo(1));
+            Assert.That(
+                grants.Facts.Count(fact => fact.Creature == initializedLaterId),
+                Is.EqualTo(1)
+            );
+            Assert.That(failFirst.Calls, Is.EqualTo(1));
+            Assert.That(
+                completions,
+                Is.EqualTo(new[] { DungeonReinforcementRequestStatus.Accepted }),
+                "An initializer failure cannot falsely reject a durably accepted join."
+            );
+
+            ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return WaitForTurn(faulting.GameObject);
+
+            Assert.That(faulting.Controller.StartTurnCount, Is.EqualTo(1));
+            Assert.That(manager.GetCombatants(), Has.Member(faulting.GameObject));
+            Assert.That(manager.GetCombatants(), Has.Member(initializedLater.GameObject));
+
+            yield return CoroutineRunner.Await(
+                current.Creature.ApplyFinalDamageAsync(
+                    current.Creature.hp,
+                    RuleSource.FromSlug("test-faulted-join-cleanup")
+                )
+            );
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "Encounter cleanup did not settle after the faulted accepted join."
+            );
+            Assert.That(faulting.Creature.Health.Temporary, Is.Zero);
+            Assert.That(initializedLater.Creature.Health.Temporary, Is.Zero);
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+        }
+        finally
+        {
+            manager.DungeonReinforcementRequestCompleted -= observeCompletion;
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(grants);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(failFirst);
+            _ = ending?.Exception;
+        }
+    }
+
+    /// <summary>Verifies a completed join continuation cannot restore manager state after defeat.</summary>
+    [UnityTest]
+    public IEnumerator CombatEndingBehindJoinLeavesPublishedActiveCombatantsCleared()
+    {
+        CombatantFixture player = CreateCombatant("Ending Join Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Ending Join Enemy", "Enemies", 100);
+        CombatantFixture reinforcement = CreateCombatant("Ending Join Reinforcement", "Enemies", 0);
+        PrepareBarbarian(reinforcement.Creature);
+        player.Creature.InitializeHealthBeforeEncounter(1, 1);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: false);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        Task lethal = null;
+
+        try
+        {
+            manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The reinforcement start hook did not hold the accepted join root."
+            );
+            lethal = player
+                .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-ending-behind-join"))
+                .AsTask();
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(lethal));
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The queued lethal root did not settle the encounter."
+            );
+            yield return null;
+            yield return null;
+
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+            Assert.That(manager.IsCombatActive, Is.False);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            _ = lethal?.Exception;
+        }
+    }
+
+    /// <summary>Verifies a lethal final-opponent weapon Strike commits before its effect ends combat.</summary>
+    [UnityTest]
+    public IEnumerator LethalWeaponStrikeCommitsCostAndAlwaysCompletesActionLifecycle()
+    {
+        CombatantFixture player = CreateCombatant("Weapon Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Weapon Enemy", "Enemies", 0);
+        player.Creature.attackBonus = 100;
+        enemy.Creature.ac = -100;
+        enemy.Creature.InitializeHealthBeforeEncounter(1, 1);
+        EquipmentWeapon weapon = new()
+        {
+            name = "Lifecycle Test Sword",
+            damage = new Dice(1, 1, "slashing"),
+            traits = new List<string>(),
+        };
+        StrikeWeapon strike = new(1, weapon, player.GameObject);
+
+        yield return AssertLethalActionLifecycle(
+            player,
+            enemy,
+            strike,
+            expectedActionCost: 1,
+            configureGridTarget: true
+        );
+    }
+
+    /// <summary>Verifies lethal Strike completion waits for post-damage weapon work.</summary>
+    [UnityTest]
+    public IEnumerator LethalWeaponDefersHostCompletionUntilStrikeReservationSettles()
+    {
+        CombatantFixture player = CreateCombatant("Deferred Weapon Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Deferred Weapon Enemy", "Enemies", 100);
+        PrepareBarbarian(player.Creature);
+        player.Creature.attackBonus = 100;
+        enemy.Creature.ac = -100;
+        enemy.Creature.InitializeHealthBeforeEncounter(1, 1);
+        EquipmentWeapon weapon = new()
+        {
+            name = "Deferred Lifecycle Crossbow",
+            reload = "1",
+            damage = new Dice(1, 1, "piercing"),
+            traits = new List<string>(),
+        };
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Deferred Weapon GridAPI").AddComponent<TestGridAPI>();
+        grid.StrikeTarget = enemy.GameObject;
+        singletonField.SetValue(null, grid);
+        int inactiveCalls = 0;
+        int outcomeCalls = 0;
+        bool actionSettledAtInactive = false;
+        Action<bool> observeActivity = active =>
+        {
+            if (active)
+                return;
+            inactiveCalls++;
+            actionSettledAtInactive =
+                !player.Controller.IsTakingAction && !player.Creature.IsWeaponLoaded(weapon);
+        };
+        manager.CombatActivityChanged += observeActivity;
+        manager.DungeonCombatEnded += _ => outcomeCalls++;
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        TaskCompletionSource<bool> endStarted = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        TaskCompletionSource<bool> releaseEnd = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        Func<EncounterOutcome, ValueTask> blockEnd = async _ =>
+        {
+            endStarted.TrySetResult(true);
+            await releaseEnd.Task;
+        };
+        SelectedFactFailureObserver<TemporaryHitPointsRemovedFact> cleanupFailure = new(
+            fact => fact.Creature == bridge.GetCreatureId(player.Creature),
+            "deferred weapon cleanup failure"
+        );
+        bridge.EncounterEnded += blockEnd;
+        dispatcher.RegisterFactObserver<TemporaryHitPointsRemovedFact>(cleanupFailure);
+        TestCombatLog log = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(new StrikeWeapon(1, weapon, player.GameObject));
+            yield return WaitForCondition(
+                () => endStarted.Task.IsCompleted,
+                "The lethal Strike did not reach committed encounter-end presentation."
+            );
+
+            int messagesBeforeAfterDamage = log.GetMessages().Count;
+            Assert.That(enemy.Creature.IsDefeated, Is.True);
+            Assert.That(enemy.GameObject.activeSelf, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Creature.IsWeaponLoaded(weapon), Is.True);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveCalls, Is.Zero);
+            Assert.That(outcomeCalls, Is.Zero);
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deferred weapon cleanup failure")
+            );
+            releaseEnd.TrySetResult(true);
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "Host completion did not follow the settled lethal Strike."
+            );
+            yield return null;
+
+            Assert.That(log.GetMessages().Count, Is.GreaterThan(messagesBeforeAfterDamage));
+            Assert.That(player.Creature.IsWeaponLoaded(weapon), Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(actionSettledAtInactive, Is.True);
+            Assert.That(cleanupFailure.Calls, Is.EqualTo(1));
+            Assert.That(inactiveCalls, Is.EqualTo(1));
+            Assert.That(outcomeCalls, Is.EqualTo(1));
+        }
+        finally
+        {
+            releaseEnd.TrySetResult(true);
+            bridge.EncounterEnded -= blockEnd;
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(cleanupFailure);
+            manager.CombatActivityChanged -= observeActivity;
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
+    /// <summary>Verifies a lethal final-opponent unarmed Strike commits before damage.</summary>
+    [UnityTest]
+    public IEnumerator LethalUnarmedStrikeCommitsCostAndAlwaysCompletesActionLifecycle()
+    {
+        CombatantFixture player = CreateCombatant("Unarmed Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Unarmed Enemy", "Enemies", 0);
+        player.Creature.attackBonus = 100;
+        enemy.Creature.ac = -100;
+        enemy.Creature.InitializeHealthBeforeEncounter(1, 1);
+        Unarmed strike = new(
+            1,
+            new List<Dice> { new Dice(1, 1, "bludgeoning") },
+            new List<DamageValue>()
+        );
+
+        yield return AssertLethalActionLifecycle(
+            player,
+            enemy,
+            strike,
+            expectedActionCost: 1,
+            configureGridTarget: true
+        );
+    }
+
+    /// <summary>Verifies both Strike paths reject non-roster targets before any resource or roll.</summary>
+    [UnityTest]
+    public IEnumerator WeaponAndUnarmedStrikeRejectOutsideEncounterBeforeCostsMapOrRolls()
+    {
+        CombatantFixture player = CreateCombatant("Membership Strike Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Membership Strike Enemy", "Enemies", 100);
+        CombatantFixture outsider = CreateCombatant("Membership Strike Outsider", "Enemies", 0);
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Membership Strike GridAPI").AddComponent<TestGridAPI>();
+        grid.StrikeTarget = outsider.GameObject;
+        singletonField.SetValue(null, grid);
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+            RuleDispatcher dispatcher = GetEncounterDispatcher();
+            RecordingFactObserver<LegacyActionsSpentFact> actions = new();
+            RecordingFactObserver<LegacyMapIncrementedFact> maps = new();
+            dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(actions);
+            dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+            int startingHealth = outsider.Creature.hp;
+            UnityEngine.Random.State beforeWeapon = UnityEngine.Random.state;
+            EquipmentWeapon weapon = new()
+            {
+                name = "Membership Test Sword",
+                damage = new Dice(1, 6, "slashing"),
+                traits = new List<string>(),
+            };
+
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(new StrikeWeapon(1, weapon, player.GameObject));
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The rejected off-roster weapon Strike did not release its reservation."
+            );
+
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(actions.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(outsider.Creature.hp, Is.EqualTo(startingHealth));
+            Assert.That(UnityEngine.Random.state, Is.EqualTo(beforeWeapon));
+
+            UnityEncounterRulesBridge.CreateHealthTestComposition(new[] { outsider.Creature });
+            UnityEngine.Random.State beforeUnarmed = UnityEngine.Random.state;
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(
+                new Unarmed(
+                    1,
+                    new List<Dice> { new Dice(1, 6, "bludgeoning") },
+                    new List<DamageValue>()
+                )
+            );
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The rejected differently attached unarmed Strike did not release its reservation."
+            );
+
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(actions.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(outsider.Creature.hp, Is.EqualTo(startingHealth));
+            Assert.That(UnityEngine.Random.state, Is.EqualTo(beforeUnarmed));
+        }
+        finally
+        {
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
+    /// <summary>Verifies a queued unarmed Strike cannot pay for a target defeated after selection.</summary>
+    [UnityTest]
+    public IEnumerator StaleSelectedUnarmedTargetRejectsBeforeCostsMapRollOrPresentation()
+    {
+        CombatantFixture player = CreateCombatant("Stale Unarmed Player", "Players", 300);
+        CombatantFixture defeatedTarget = CreateCombatant("Stale Unarmed Target", "Enemies", 200);
+        CombatantFixture livingEnemy = CreateCombatant("Stale Unarmed Survivor", "Enemies", 100);
+        defeatedTarget.Creature.InitializeHealthBeforeEncounter(1, 10);
+        Unarmed strike = new(
+            1,
+            new List<Dice> { new Dice(1, 6, "bludgeoning") },
+            new List<DamageValue>()
+        );
+
+        yield return AssertStaleSelectedStrikeRejectsBeforeCosts(
+            player,
+            defeatedTarget,
+            livingEnemy,
+            strike,
+            null,
+            "attacks Stale Unarmed Target with unarmed strike"
+        );
+    }
+
+    /// <summary>Verifies a queued weapon Strike cannot spend or consume ammo for a defeated target.</summary>
+    [UnityTest]
+    public IEnumerator StaleSelectedWeaponTargetRejectsBeforeCostsMapAmmoRollOrPresentation()
+    {
+        CombatantFixture player = CreateCombatant("Stale Weapon Player", "Players", 300);
+        CombatantFixture defeatedTarget = CreateCombatant("Stale Weapon Target", "Enemies", 200);
+        CombatantFixture livingEnemy = CreateCombatant("Stale Weapon Survivor", "Enemies", 100);
+        defeatedTarget.Creature.InitializeHealthBeforeEncounter(1, 10);
+        EquipmentWeapon weapon = new()
+        {
+            name = "Stale Selection Bow",
+            range = 60,
+            ammo = "stale-selection-arrows",
+            damage = new Dice(1, 6, "piercing"),
+            traits = new List<string>(),
+        };
+        player.Creature.SetAmmoQuantity(weapon.ammo, 2);
+
+        yield return AssertStaleSelectedStrikeRejectsBeforeCosts(
+            player,
+            defeatedTarget,
+            livingEnemy,
+            new StrikeWeapon(1, weapon, player.GameObject),
+            weapon,
+            "strikes Stale Weapon Target with Stale Selection Bow"
+        );
+    }
+
+    /// <summary>Verifies a queued root cannot enter an accepted unarmed Strike transaction.</summary>
+    [UnityTest]
+    public IEnumerator AcceptedUnarmedStrikeSettlesBeforeLaterQueuedDefeat() =>
+        AssertQueuedStrikeSettlesBeforeLaterDefeat(useAmmunitionWeapon: false);
+
+    /// <summary>Verifies ammunition and weapon effects settle before a later queued defeat.</summary>
+    [UnityTest]
+    public IEnumerator AcceptedWeaponStrikeSettlesBeforeLaterQueuedDefeat() =>
+        AssertQueuedStrikeSettlesBeforeLaterDefeat(useAmmunitionWeapon: true);
+
+    /// <summary>Verifies a slotted Heal settles before a later queued defeat root.</summary>
+    [UnityTest]
+    public IEnumerator AcceptedSlottedHealSettlesBeforeLaterQueuedDefeat() =>
+        AssertQueuedSpellSettlesBeforeLaterDefeat(useAttackSpell: false);
+
+    /// <summary>Verifies attack-spell MAP and damage settle before a later queued defeat.</summary>
+    [UnityTest]
+    public IEnumerator AcceptedAttackSpellSettlesBeforeLaterQueuedDefeat() =>
+        AssertQueuedSpellSettlesBeforeLaterDefeat(useAttackSpell: true);
+
+    /// <summary>Verifies a lethal attack spell commits actions and MAP before damage.</summary>
+    [UnityTest]
+    public IEnumerator LethalSpellCommitsCostAndAlwaysCompletesActionLifecycle()
+    {
+        CombatantFixture player = CreateCombatant("Spell Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Spell Enemy", "Enemies", 0);
+        player.Creature.level = 20;
+        player.Creature.wisMod = 20;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        enemy.Creature.ac = -100;
+        enemy.Creature.InitializeHealthBeforeEncounter(1, 1);
+        enemy.GameObject.transform.position = new Vector3(1, 0, 0);
+        PreparedSpell spell = player.Creature.Prepared.Spellcasting.GetSpell("divine-lance");
+        Assert.That(spell, Is.Not.Null);
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        RecordingFactObserver<LegacyActionsSpentFact> actions = new();
+        RecordingFactObserver<LegacyMapIncrementedFact> map = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(actions);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(map);
+        int completionCalls = 0;
+        bool castSettledAtCompletion = false;
+        Task<CastSpellResult> castTask = null;
+        manager.DungeonCombatEnded += _ =>
+        {
+            completionCalls++;
+            castSettledAtCompletion =
+                castTask != null
+                && castTask.IsCompletedSuccessfully
+                && !player.Controller.IsTakingAction
+                && UnityEngine
+                    .Object.FindFirstObjectByType<TestCombatLog>()
+                    .GetMessages()
+                    .Any(message => message.Contains(" casts Divine Lance."));
+        };
+        CoroutineResult<CastSpellResult> cast = new();
+
+        castTask = SpellcastingRuntime
+            .CastAsync(player.GameObject, spell, 2, new[] { enemy.GameObject })
+            .AsTask();
+        yield return CoroutineRunner.Await(new ValueTask<CastSpellResult>(castTask), cast);
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive && !player.Controller.IsTakingAction,
+            "Lethal spell completion left combat or action presentation deferred."
+        );
+
+        Assert.That(cast.Value.Success, Is.True);
+        Assert.That(actions.Facts, Has.Count.EqualTo(1));
+        Assert.That(actions.Facts[0].Amount, Is.EqualTo(2));
+        Assert.That(map.Facts, Has.Count.EqualTo(1));
+        Assert.That(map.Facts[0].AttackCount, Is.EqualTo(1));
+        Assert.That(completionCalls, Is.EqualTo(1));
+        Assert.That(castSettledAtCompletion, Is.True);
+        Assert.That(player.Controller.IsTakingAction, Is.False);
+    }
+
+    /// <summary>Verifies an outer spell action settles success and logging before legacy completion.</summary>
+    [UnityTest]
+    public IEnumerator LethalCastSpellActionDefersLegacyCompletionUntilOuterFinally()
+    {
+        CombatantFixture player = CreateCombatant("Deferred Spell Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Deferred Spell Enemy", "Enemies", 100);
+        player.Creature.level = 1;
+        player.Creature.wisMod = 4;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        PreparedSpell spell = player.Creature.Prepared.Spellcasting.GetSpell("light");
+        enemy.Creature.InitializeHealthBeforeEncounter(1, 1);
+        PausedLethalSpellDefinition definition = new(enemy.GameObject);
+        CastSpellAction action = new(spell, 1, definition);
+        int competingInvocations = 0;
+        TestEntityAction competing = new(
+            "Outcome-Pending Competing Action",
+            0,
+            () => competingInvocations++
+        );
+        TestCombatLog log = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+        int inactiveCalls = 0;
+        int legacyEndCalls = 0;
+        int legacyOutcomeCalls = 0;
+        bool actionSettledAtNotification = false;
+        Action<bool> observeActivity = active =>
+        {
+            if (active)
+                return;
+            inactiveCalls++;
+            actionSettledAtNotification =
+                definition.CastBodyFinished
+                && !player.Controller.IsTakingAction
+                && log.GetMessages().Any(message => message.Contains(" casts " + spell.Name + "."));
+        };
+        UnityAction<string> observeEnd = _ => legacyEndCalls++;
+        UnityAction<bool> observeOutcome = _ => legacyOutcomeCalls++;
+        manager.CombatActivityChanged += observeActivity;
+        OnCombatEnd.AddListener(observeEnd);
+        OnCombatOutcome.AddListener(observeOutcome);
+
+        try
+        {
+            manager.StartCombat();
+            yield return WaitForTurn(player.GameObject);
+            player.Controller.TakeAction(action);
+            yield return WaitForCondition(
+                () => definition.DamageSettled,
+                "The lethal spell did not reach its post-damage action boundary."
+            );
+
+            Assert.That(enemy.Creature.IsDefeated, Is.True);
+            Assert.That(enemy.GameObject.activeSelf, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(definition.CastBodyFinished, Is.False);
+            Assert.That(log.GetMessages(), Has.None.Contains(" casts " + spell.Name + "."));
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveCalls, Is.Zero);
+            Assert.That(legacyEndCalls, Is.Zero);
+            Assert.That(legacyOutcomeCalls, Is.Zero);
+            Assert.That(
+                GetEncounterBridge().Snapshot.Encounters[GetEncounterBridge().EncounterId].Phase,
+                Is.EqualTo(EncounterPhase.Ended)
+            );
+            player.Controller.TakeAction(competing);
+            manager.EndCurrentTurn(player.Controller);
+            Assert.That(competingInvocations, Is.Zero);
+            Assert.That(manager.IsCombatActive, Is.True);
+
+            definition.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "Legacy host completion did not follow the settled spell action."
+            );
+
+            Assert.That(definition.CastBodyFinished, Is.True);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(actionSettledAtNotification, Is.True);
+            Assert.That(inactiveCalls, Is.EqualTo(1));
+            Assert.That(legacyEndCalls, Is.EqualTo(1));
+            Assert.That(legacyOutcomeCalls, Is.EqualTo(1));
+            Assert.That(competingInvocations, Is.Zero);
+        }
+        finally
+        {
+            definition.Release();
+            manager.CombatActivityChanged -= observeActivity;
+            OnCombatEnd.RemoveListener(observeEnd);
+            OnCombatOutcome.RemoveListener(observeOutcome);
+        }
+    }
+
+    /// <summary>Verifies self-defeat cannot stop the reservation-owning spell coroutine.</summary>
+    [UnityTest]
+    public IEnumerator SelfLethalSpellActionSettlesOnStableHostAfterActorDeactivation()
+    {
+        CombatantFixture player = CreateCombatant("Self-Lethal Spell Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Self-Lethal Spell Enemy", "Enemies", 100);
+        player.Creature.InitializeHealthBeforeEncounter(1, 1);
+        player.Creature.level = 1;
+        player.Creature.wisMod = 4;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        PreparedSpell spell = player.Creature.Prepared.Spellcasting.GetSpell("light");
+        PausedLethalSpellDefinition definition = new(player.GameObject);
+        CastSpellAction action = new(spell, 1, definition);
+        TestCombatLog log = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+        int inactiveCalls = 0;
+        int dungeonEndCalls = 0;
+        int outcomeCalls = 0;
+        bool settledAtInactive = false;
+        Action<bool> observeActivity = active =>
+        {
+            if (active)
+                return;
+            inactiveCalls++;
+            settledAtInactive =
+                definition.CastBodyFinished
+                && !player.Controller.IsTakingAction
+                && log.GetMessages().Any(message => message.Contains(" casts " + spell.Name + "."));
+        };
+        Action<EncounterOutcome> observeDungeonEnd = _ => dungeonEndCalls++;
+        UnityAction<bool> observeOutcome = _ => outcomeCalls++;
+        manager.CombatActivityChanged += observeActivity;
+        manager.DungeonCombatEnded += observeDungeonEnd;
+        OnCombatOutcome.AddListener(observeOutcome);
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        RecordingFactObserver<LegacyActionsSpentFact> actions = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(actions);
+
+        try
+        {
+            player.Controller.TakeAction(action);
+            yield return WaitForCondition(
+                () => definition.DamageSettled,
+                "The self-lethal spell did not settle its committed damage."
+            );
+
+            Assert.That(player.Creature.IsDefeated, Is.True);
+            Assert.That(player.GameObject.activeSelf, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(definition.CastBodyFinished, Is.False);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveCalls, Is.Zero);
+            Assert.That(dungeonEndCalls, Is.Zero);
+            Assert.That(outcomeCalls, Is.Zero);
+            Assert.That(GetPendingEncounterCompletion(), Is.Not.Null);
+
+            definition.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "Self-lethal spell completion remained stranded after actor deactivation."
+            );
+
+            Assert.That(definition.CastBodyFinished, Is.True);
+            Assert.That(actions.Facts, Has.Count.EqualTo(1));
+            Assert.That(actions.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(settledAtInactive, Is.True);
+            Assert.That(inactiveCalls, Is.EqualTo(1));
+            Assert.That(dungeonEndCalls, Is.EqualTo(1));
+            Assert.That(outcomeCalls, Is.EqualTo(1));
+            Assert.That(GetPendingEncounterCompletion(), Is.Null);
+            Assert.That(
+                UnityEngine.Object.FindObjectsByType<CoroutineRunner>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None
+                ),
+                Has.Length.EqualTo(1)
+            );
+        }
+        finally
+        {
+            definition.Release();
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(actions);
+            manager.CombatActivityChanged -= observeActivity;
+            manager.DungeonCombatEnded -= observeDungeonEnd;
+            OnCombatOutcome.RemoveListener(observeOutcome);
+        }
+    }
+
+    /// <summary>Verifies a post-defeat action fault remains visible without stranding completion.</summary>
+    [UnityTest]
+    public IEnumerator SelfLethalSpellFaultReleasesReservationAndFinalizesEncounter()
+    {
+        CombatantFixture player = CreateCombatant("Faulting Self-Lethal Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Faulting Self-Lethal Enemy", "Enemies", 100);
+        player.Creature.InitializeHealthBeforeEncounter(1, 1);
+        player.Creature.level = 1;
+        player.Creature.wisMod = 4;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        PreparedSpell spell = player.Creature.Prepared.Spellcasting.GetSpell("light");
+        FaultingSelfLethalSpellDefinition definition = new(player.GameObject);
+        CastSpellAction action = new(spell, 1, definition);
+        int inactiveCalls = 0;
+        int dungeonEndCalls = 0;
+        int outcomeCalls = 0;
+        Action<bool> observeActivity = active => inactiveCalls += active ? 0 : 1;
+        Action<EncounterOutcome> observeDungeonEnd = _ => dungeonEndCalls++;
+        UnityAction<bool> observeOutcome = _ => outcomeCalls++;
+        manager.CombatActivityChanged += observeActivity;
+        manager.DungeonCombatEnded += observeDungeonEnd;
+        OnCombatOutcome.AddListener(observeOutcome);
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        RecordingFactObserver<LegacyActionsSpentFact> actions = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(actions);
+
+        try
+        {
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate post-defeat spell failure")
+            );
+            player.Controller.TakeAction(action);
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "A visible post-defeat spell fault stranded encounter completion."
+            );
+
+            Assert.That(definition.DamageSettled, Is.True);
+            Assert.That(player.Creature.IsDefeated, Is.True);
+            Assert.That(player.GameObject.activeSelf, Is.False);
+            Assert.That(actions.Facts, Has.Count.EqualTo(1));
+            Assert.That(actions.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(inactiveCalls, Is.EqualTo(1));
+            Assert.That(dungeonEndCalls, Is.EqualTo(1));
+            Assert.That(outcomeCalls, Is.EqualTo(1));
+            Assert.That(GetPendingEncounterCompletion(), Is.Null);
+            Assert.That(
+                UnityEngine.Object.FindFirstObjectByType<TestCombatLog>().GetMessages(),
+                Has.None.Contains(" casts " + spell.Name + ".")
+            );
+        }
+        finally
+        {
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(actions);
+            manager.CombatActivityChanged -= observeActivity;
+            manager.DungeonCombatEnded -= observeDungeonEnd;
+            OnCombatOutcome.RemoveListener(observeOutcome);
+        }
+    }
+
+    /// <summary>Verifies direct casts reserve their final slot before an awaited action spend.</summary>
+    [UnityTest]
+    public IEnumerator ConcurrentDirectCastsSpendOneActionSlotAndEffect()
+    {
+        CombatantFixture player = CreateCombatant("Concurrent Spell Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Concurrent Spell Enemy", "Enemies", 100);
+        player.Creature.level = 1;
+        player.Creature.wisMod = 4;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+        PreparedSpell spell = spellcasting.GetSpell("infuse-vitality");
+        SpellSlotPool pool = spellcasting.Pools["rank-1-infuse-vitality"];
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<LegacyActionsSpentFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        Task<CastSpellResult> first = null;
+
+        try
+        {
+            first = SpellcastingRuntime
+                .CastAsync(player.GameObject, spell, 1, new[] { player.GameObject })
+                .AsTask();
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The first cast did not pause while its action spend was settling."
+            );
+
+            CoroutineResult<CastSpellResult> rejected = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    player.GameObject,
+                    spell,
+                    1,
+                    new[] { player.GameObject }
+                ),
+                rejected
+            );
+
+            Assert.That(rejected.Value.Success, Is.False);
+            Assert.That(rejected.Value.Message, Does.Contain("already casting"));
+            Assert.That(rejected.Value.Targets, Is.Empty);
+            Assert.That(rejected.Value.Rolls, Is.Empty);
+            Assert.That(first.IsCompleted, Is.False);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(pool.UsesRemaining, Is.EqualTo(1));
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+
+            blocker.Release();
+            CoroutineResult<CastSpellResult> accepted = new();
+            yield return CoroutineRunner.Await(new ValueTask<CastSpellResult>(first), accepted);
+
+            SpellEffectController effects = player.GameObject.GetComponent<SpellEffectController>();
+            Assert.That(accepted.Value.Success, Is.True);
+            Assert.That(accepted.Value.Targets, Is.EqualTo(new[] { player.GameObject }));
+            Assert.That(accepted.Value.Rolls, Is.Empty);
+            Assert.That(spends.Facts, Has.Count.EqualTo(1));
+            Assert.That(spends.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(pool.UsesRemaining, Is.Zero);
+            Assert.That(effects, Is.Not.Null);
+            Assert.That(
+                effects.Effects.Count(effect => effect is InfuseVitalitySpellEffect),
+                Is.EqualTo(1)
+            );
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            _ = first?.Exception;
+        }
+    }
+
+    /// <summary>Verifies a prepared spell action retains its outer reservation through completion.</summary>
+    [UnityTest]
+    public IEnumerator CastSpellActionRetainsOuterReservationUntilCoroutineFinally()
+    {
+        CombatantFixture player = CreateCombatant("Reserved Spell Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Reserved Spell Enemy", "Enemies", 100);
+        player.Creature.level = 1;
+        player.Creature.wisMod = 4;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        PreparedSpell spell = player.Creature.Prepared.Spellcasting.GetSpell("light");
+        PausedCompletionSpellDefinition definition = new();
+        CastSpellAction action = new(spell, 1, definition);
+        int competingInvocations = 0;
+        TestEntityAction competing = new("Competing Spell Action", 0, () => competingInvocations++);
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        TurnIdentity reservedTurn = GetEncounterBridge().CurrentTurn.Value;
+        player.Controller.TakeAction(action);
+        yield return WaitForCondition(
+            () => definition.CastSettled,
+            "The spell action did not reach its post-cast completion boundary."
+        );
+
+        Assert.That(player.Controller.IsTakingAction, Is.True);
+        Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+        player.Controller.TakeAction(competing);
+        manager.EndCurrentTurn(player.Controller);
+        Assert.That(competingInvocations, Is.Zero);
+        Assert.That(GetEncounterBridge().CurrentTurn, Is.EqualTo(reservedTurn));
+
+        definition.ReleaseCompletion();
+        yield return WaitForCondition(
+            () => definition.OuterSelectionFinishing,
+            "The spell selection coroutine did not resume after its cast settled."
+        );
+        Assert.That(
+            player.Controller.IsTakingAction,
+            Is.True,
+            "Only the outer MultiFrameEntityAction finally may release this reservation."
+        );
+        player.Controller.TakeAction(competing);
+        manager.EndCurrentTurn(player.Controller);
+        Assert.That(competingInvocations, Is.Zero);
+        Assert.That(GetEncounterBridge().CurrentTurn, Is.EqualTo(reservedTurn));
+
+        yield return WaitForCondition(
+            () => !player.Controller.IsTakingAction,
+            "The outer spell action did not release its reservation."
+        );
+        GatedEntityAction later = new("Later Reserved Action");
+        player.Controller.TakeAction(later);
+        yield return WaitForCondition(
+            () => later.Started,
+            "A later action could not reserve the actor after spell completion."
+        );
+        yield return null;
+        Assert.That(player.Controller.IsTakingAction, Is.True);
+        Assert.That(competingInvocations, Is.Zero);
+
+        later.Release();
+        yield return WaitForCondition(
+            () => !player.Controller.IsTakingAction,
+            "The later action did not release its own reservation."
+        );
+    }
+
+    /// <summary>Verifies a queued reload cannot publish after an earlier queued turn end wins.</summary>
+    [UnityTest]
+    public IEnumerator ReloadSpendRejectedAfterTurnEnd_LeavesWeaponUnloadedAndUnlogged()
+    {
+        CombatantFixture player = CreateCombatant("Rejected Reload Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Rejected Reload Enemy", "Enemies", 100);
+        CombatantFixture ally = CreateCombatant("Rejected Reload Ally", "Players", 0);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller, ally.Controller });
+        yield return WaitForTurn(player.GameObject);
+        EquipmentWeapon weapon = CreateReloadTestWeapon();
+        player.Creature.SetAmmoQuantity(weapon.ammo, 2);
+        player.Creature.MarkWeaponFired(weapon);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        Task damage = player
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-reload-rejection-blocker"))
+            .AsTask();
+        Task<EncounterAdvanceOutcome> ending = null;
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The health observer did not occupy the reload dispatcher root."
+            );
+            ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+            player.Controller.TakeAction(new ReloadWeaponAction(1, weapon));
+            yield return null;
+
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Creature.IsWeaponLoaded(weapon), Is.False);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(
+                combatLog.GetMessages().Count(message => message.Contains("reloads Review Sling")),
+                Is.Zero
+            );
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "InvalidOperationException: The actor has insufficient authoritative actions\\."
+                )
+            );
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(damage));
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return null;
+            yield return null;
+
+            Assert.That(player.Creature.IsWeaponLoaded(weapon), Is.False);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(
+                combatLog.GetMessages().Count(message => message.Contains("reloads Review Sling")),
+                Is.Zero
+            );
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            _ = ending?.Exception;
+        }
+    }
+
+    /// <summary>Verifies a delayed reload publishes once only after its action spend commits.</summary>
+    [UnityTest]
+    public IEnumerator DelayedReload_SpendsBeforePublishingLoadedState()
+    {
+        CombatantFixture player = CreateCombatant("Delayed Reload Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Delayed Reload Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        EquipmentWeapon weapon = CreateReloadTestWeapon();
+        player.Creature.SetAmmoQuantity(weapon.ammo, 2);
+        player.Creature.MarkWeaponFired(weapon);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        Task damage = player
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-reload-success-blocker"))
+            .AsTask();
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The health observer did not occupy the delayed reload dispatcher root."
+            );
+            player.Controller.TakeAction(new ReloadWeaponAction(1, weapon));
+            yield return null;
+
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Creature.IsWeaponLoaded(weapon), Is.False);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(spends.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(damage));
+            yield return WaitForCondition(
+                () => player.Creature.IsWeaponLoaded(weapon) && !player.Controller.IsTakingAction,
+                "The accepted delayed reload did not settle."
+            );
+
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(spends.Facts, Has.Count.EqualTo(1));
+            Assert.That(spends.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(
+                combatLog.GetMessages().Count(message => message.Contains("reloads Review Sling")),
+                Is.EqualTo(1)
+            );
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+        }
+    }
+
+    /// <summary>Verifies queued defeat invalidates every affected Heal target before any cost.</summary>
+    [UnityTest]
+    public IEnumerator QueuedDefeatRejectsAreaHealBeforeActionsSlotRollsOrEffects()
+    {
+        CombatantFixture player = CreateCombatant("Stale Heal Player", "Players", 300);
+        CombatantFixture ally = CreateCombatant("Stale Heal Ally", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Stale Heal Enemy", "Enemies", 100);
+        player.Creature.InitializeHealthBeforeEncounter(8, 10);
+        ally.Creature.InitializeHealthBeforeEncounter(1, 10);
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+        PreparedSpell heal = spellcasting.GetSpell("heal");
+        SpellSlotPool pool = spellcasting.Pools["font-heal"];
+        AreaTargetResult area = new()
+        {
+            Creatures = new List<AreaAffectedCreature>
+            {
+                new() { Creature = player.GameObject, LineOfEffect = StrikeLineOfEffect.Clear },
+                new() { Creature = ally.GameObject, LineOfEffect = StrikeLineOfEffect.Clear },
+            },
+        };
+
+        manager.StartDungeonCombat(new[] { player.Controller, ally.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<HealthFact> healthFacts = new();
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<LegacyMapIncrementedFact> maps = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<HealthFact>(healthFacts);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+        Task blockingDamage = player
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("stale-heal-root-blocker"))
+            .AsTask();
+        Task lethalDamage = null;
+        Task<CastSpellResult> cast = null;
+        UnityEngine.Random.State randomBefore = default;
+        bool randomCaptured = false;
+        int slotsBefore = pool.UsesRemaining;
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The stale-Heal blocker did not occupy the dispatcher."
+            );
+            int playerHealthAfterBlock = bridge
+                .Snapshot
+                .Health[bridge.GetCreatureId(player.Creature)]
+                .Current;
+            randomBefore = UnityEngine.Random.state;
+            randomCaptured = true;
+            lethalDamage = ally
+                .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("stale-heal-target-defeat"))
+                .AsTask();
+            cast = SpellcastingRuntime
+                .CastAsync(
+                    player.GameObject,
+                    heal,
+                    3,
+                    Array.Empty<GameObject>(),
+                    area,
+                    spendActions: true
+                )
+                .AsTask();
+            yield return null;
+
+            Assert.That(cast.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(pool.UsesRemaining, Is.EqualTo(slotsBefore));
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(blockingDamage));
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+            yield return WaitForCondition(
+                () => cast.IsCompleted,
+                "The target-aware Heal rejection did not settle."
+            );
+
+            Assert.That(cast.IsFaulted, Is.True);
+            StringAssert.Contains(
+                "selected action target is no longer a living participant",
+                cast.Exception.ToString()
+            );
+            Assert.That(ally.Creature.IsDefeated, Is.True);
+            Assert.That(ally.GameObject.activeSelf, Is.False);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(pool.UsesRemaining, Is.EqualTo(slotsBefore));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(healthFacts.Facts, Has.Count.EqualTo(3));
+            Assert.That(
+                bridge.Snapshot.Health[bridge.GetCreatureId(player.Creature)].Current,
+                Is.EqualTo(playerHealthAfterBlock)
+            );
+            Assert.That(player.Creature.hp, Is.EqualTo(playerHealthAfterBlock));
+            Assert.That(UnityEngine.Random.state, Is.EqualTo(randomBefore));
+            Assert.That(player.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+            Assert.That(
+                combatLog.GetMessages().Any(message => message.Contains(" casts Heal.")),
+                Is.False
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+
+            CoroutineResult<CastSpellResult> livingTargetCast = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    player.GameObject,
+                    heal,
+                    1,
+                    new[] { player.GameObject }
+                ),
+                livingTargetCast
+            );
+            Assert.That(livingTargetCast.Value.Success, Is.True);
+            Assert.That(player.Creature.hp, Is.GreaterThan(playerHealthAfterBlock));
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(pool.UsesRemaining, Is.EqualTo(slotsBefore - 1));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<HealthFact>(healthFacts);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(maps);
+            if (randomCaptured)
+                UnityEngine.Random.state = randomBefore;
+            _ = cast?.Exception;
+            _ = lethalDamage?.Exception;
+        }
+    }
+
+    /// <summary>Verifies queued defeat invalidates an attack-spell target before AP or MAP.</summary>
+    [UnityTest]
+    public IEnumerator QueuedDefeatRejectsAttackSpellBeforeActionsMapRollsOrEffects()
+    {
+        CombatantFixture player = CreateCombatant("Stale Attack Spell Player", "Players", 300);
+        CombatantFixture target = CreateCombatant("Stale Attack Spell Target", "Enemies", 200);
+        CombatantFixture survivor = CreateCombatant("Stale Attack Spell Survivor", "Enemies", 100);
+        target.Creature.InitializeHealthBeforeEncounter(1, 10);
+        survivor.Creature.InitializeHealthBeforeEncounter(100, 100);
+        player.Creature.level = 20;
+        player.Creature.wisMod = 20;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        PreparedSpell lance = player.Creature.Prepared.Spellcasting.GetSpell("divine-lance");
+
+        manager.StartDungeonCombat(
+            new[] { player.Controller, target.Controller, survivor.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<HealthFact> healthFacts = new();
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<LegacyMapIncrementedFact> maps = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<HealthFact>(healthFacts);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+        Task blockingDamage = player
+            .Creature.ApplyFinalDamageAsync(
+                1,
+                RuleSource.FromSlug("stale-attack-spell-root-blocker")
+            )
+            .AsTask();
+        Task lethalDamage = null;
+        Task<CastSpellResult> cast = null;
+        UnityEngine.Random.State randomBefore = default;
+        bool randomCaptured = false;
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The stale attack-spell blocker did not occupy the dispatcher."
+            );
+            randomBefore = UnityEngine.Random.state;
+            randomCaptured = true;
+            lethalDamage = target
+                .Creature.ApplyFinalDamageAsync(
+                    1,
+                    RuleSource.FromSlug("stale-attack-spell-target-defeat")
+                )
+                .AsTask();
+            cast = SpellcastingRuntime
+                .CastAsync(player.GameObject, lance, 2, new[] { target.GameObject })
+                .AsTask();
+            yield return null;
+
+            Assert.That(cast.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(blockingDamage));
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+            yield return WaitForCondition(
+                () => cast.IsCompleted,
+                "The target-aware attack-spell rejection did not settle."
+            );
+
+            Assert.That(cast.IsFaulted, Is.True);
+            StringAssert.Contains(
+                "selected action target is no longer a living participant",
+                cast.Exception.ToString()
+            );
+            Assert.That(target.Creature.IsDefeated, Is.True);
+            Assert.That(target.GameObject.activeSelf, Is.False);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(healthFacts.Facts, Has.Count.EqualTo(3));
+            Assert.That(UnityEngine.Random.state, Is.EqualTo(randomBefore));
+            Assert.That(target.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+            Assert.That(
+                combatLog.GetMessages().Any(message => message.Contains(" casts Divine Lance.")),
+                Is.False
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+
+            CoroutineResult<CastSpellResult> livingTargetCast = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    player.GameObject,
+                    lance,
+                    2,
+                    new[] { survivor.GameObject }
+                ),
+                livingTargetCast
+            );
+            Assert.That(livingTargetCast.Value.Success, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(1u));
+            Assert.That(player.Controller.StrikePenalty, Is.EqualTo(1u));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(survivor.Creature.hp, Is.LessThan(100));
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<HealthFact>(healthFacts);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(maps);
+            if (randomCaptured)
+                UnityEngine.Random.state = randomBefore;
+            _ = cast?.Exception;
+            _ = lethalDamage?.Exception;
+        }
+    }
+
+    /// <summary>Verifies affected creatures outside the active roster reject before spell costs.</summary>
+    [UnityTest]
+    public IEnumerator AreaSpellsRejectOffRosterTargetsBeforeAnyCostOrEffect()
+    {
+        CombatantFixture player = CreateCombatant("Roster Spell Player", "Players", 200);
+        CombatantFixture activeEnemy = CreateCombatant("Roster Spell Enemy", "Enemies", 100);
+        CombatantFixture offRoster = CreateCombatant("Suspended Encounter Creature", "Enemies", 0);
+        player.Creature.InitializeHealthBeforeEncounter(5, 10);
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        manager.StartDungeonCombat(new[] { player.Controller, activeEnemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+        int healSlots = spellcasting.Pools["font-heal"].UsesRemaining;
+        int playerHealth = player.Creature.hp;
+        int activeEnemyHealth = activeEnemy.Creature.hp;
+        int offRosterHealth = offRoster.Creature.hp;
+        AreaTargetResult area = new()
+        {
+            Creatures = new List<AreaAffectedCreature>
+            {
+                new() { Creature = player.GameObject, LineOfEffect = StrikeLineOfEffect.Clear },
+                new()
+                {
+                    Creature = activeEnemy.GameObject,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                },
+                new() { Creature = offRoster.GameObject, LineOfEffect = StrikeLineOfEffect.Clear },
+            },
+        };
+
+        CoroutineResult<CastSpellResult> heal = new();
+        yield return CoroutineRunner.Await(
+            SpellcastingRuntime.CastAsync(
+                player.GameObject,
+                spellcasting.GetSpell("heal"),
+                3,
+                Array.Empty<GameObject>(),
+                area,
+                spendActions: true
+            ),
+            heal
+        );
+
+        Assert.That(heal.Value.Success, Is.False);
+        Assert.That(heal.Value.Message, Does.Contain("active encounter"));
+        Assert.That(heal.Value.Targets, Is.Empty);
+        Assert.That(heal.Value.Rolls, Is.Empty);
+        Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+        Assert.That(spellcasting.Pools["font-heal"].UsesRemaining, Is.EqualTo(healSlots));
+        Assert.That(player.Creature.hp, Is.EqualTo(playerHealth));
+        Assert.That(activeEnemy.Creature.hp, Is.EqualTo(activeEnemyHealth));
+        Assert.That(offRoster.Creature.hp, Is.EqualTo(offRosterHealth));
+        Assert.That(player.Controller.IsTakingAction, Is.False);
+        Assert.That(spends.Facts, Is.Empty);
+
+        CoroutineResult<CastSpellResult> hymn = new();
+        yield return CoroutineRunner.Await(
+            SpellcastingRuntime.CastAsync(
+                player.GameObject,
+                spellcasting.GetSpell("haunting-hymn"),
+                2,
+                Array.Empty<GameObject>(),
+                area,
+                spendActions: true
+            ),
+            hymn
+        );
+
+        Assert.That(hymn.Value.Success, Is.False);
+        Assert.That(hymn.Value.Message, Does.Contain("active encounter"));
+        Assert.That(hymn.Value.Targets, Is.Empty);
+        Assert.That(hymn.Value.Rolls, Is.Empty);
+        Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+        Assert.That(player.Creature.hp, Is.EqualTo(playerHealth));
+        Assert.That(activeEnemy.Creature.hp, Is.EqualTo(activeEnemyHealth));
+        Assert.That(offRoster.Creature.hp, Is.EqualTo(offRosterHealth));
+        Assert.That(activeEnemy.Conditions.Contains("Deafened"), Is.False);
+        Assert.That(offRoster.Conditions.Contains("Deafened"), Is.False);
+        Assert.That(player.Controller.IsTakingAction, Is.False);
+        Assert.That(spends.Facts, Is.Empty);
+        dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+    }
+
+    /// <summary>Verifies Bless discovery excludes every nearby non-living or off-roster creature.</summary>
+    [UnityTest]
+    public IEnumerator BlessAutomaticEmanationTargetsOnlyLivingCurrentEncounterParticipants()
+    {
+        CombatantFixture player = CreateCombatant("Bless Player", "Players", 300);
+        CombatantFixture ally = CreateCombatant("Bless Ally", "Players", 200);
+        CombatantFixture defeatedAlly = CreateCombatant("Defeated Bless Ally", "Players", 150);
+        CombatantFixture enemy = CreateCombatant("Bless Enemy", "Enemies", 100);
+        CombatantFixture dormantFriendly = CreateCombatant(
+            "Dormant Friendly Outside Encounter",
+            "Players",
+            50
+        );
+        GameObject unassignedObject = Create("Unassigned Bless Helper");
+        CreatureComponent unassigned = unassignedObject.AddComponent<CreatureComponent>();
+        unassigned.InitializeHealthBeforeEncounter(10, 10);
+        player.GameObject.transform.position = Vector3.zero;
+        ally.GameObject.transform.position = new Vector3(1, 0, 0);
+        defeatedAlly.GameObject.transform.position = new Vector3(1, 0, 1);
+        enemy.GameObject.transform.position = new Vector3(2, 0, 0);
+        dormantFriendly.GameObject.transform.position = new Vector3(2, 0, 1);
+        unassignedObject.transform.position = new Vector3(3, 0, 0);
+        defeatedAlly.Creature.InitializeHealthBeforeEncounter(1, 10);
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+
+        manager.StartDungeonCombat(
+            new[] { player.Controller, ally.Controller, defeatedAlly.Controller, enemy.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        yield return CoroutineRunner.Await(
+            defeatedAlly.Creature.ApplyFinalDamageAsync(
+                1,
+                RuleSource.FromSlug("exclude-defeated-from-bless")
+            )
+        );
+        defeatedAlly.GameObject.SetActive(true);
+
+        IReadOnlyList<GameObject> discovered = SpellcastingRuntime.FriendlyCreaturesInEmanation(
+            player.GameObject,
+            15
+        );
+        Assert.That(discovered, Is.EqualTo(new[] { player.GameObject, ally.GameObject }));
+        Assert.That(discovered, Has.No.Member(defeatedAlly.GameObject));
+        Assert.That(discovered, Has.No.Member(dormantFriendly.GameObject));
+        Assert.That(discovered, Has.No.Member(unassignedObject));
+        Assert.That(discovered, Has.No.Member(enemy.GameObject));
+
+        SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+        PreparedSpell bless = spellcasting.GetSpell("bless");
+        int slotsBefore = spellcasting.Pools["rank-1-bless"].UsesRemaining;
+        uint actionsBefore = player.Controller.ActionPoints;
+        CoroutineResult<CastSpellResult> cast = new();
+        yield return CoroutineRunner.Await(
+            SpellcastingRuntime.CastAsync(
+                player.GameObject,
+                bless,
+                2,
+                discovered,
+                spendActions: true
+            ),
+            cast
+        );
+
+        Assert.That(cast.Value.Success, Is.True);
+        Assert.That(cast.Value.Targets, Is.EqualTo(new[] { player.GameObject, ally.GameObject }));
+        Assert.That(player.Controller.ActionPoints, Is.EqualTo(actionsBefore - 2));
+        Assert.That(spellcasting.Pools["rank-1-bless"].UsesRemaining, Is.EqualTo(slotsBefore - 1));
+        Assert.That(
+            player.GameObject.GetComponent<SpellEffectController>().HasEffect<BlessSpellEffect>(),
+            Is.True
+        );
+        Assert.That(
+            ally.GameObject.GetComponent<SpellEffectController>().HasEffect<BlessSpellEffect>(),
+            Is.True
+        );
+        Assert.That(defeatedAlly.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+        Assert.That(dormantFriendly.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+        Assert.That(unassignedObject.GetComponent<SpellEffectController>(), Is.Null);
+        Assert.That(enemy.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+        Assert.That(player.Controller.IsTakingAction, Is.False);
+        Assert.That(
+            UnityEngine
+                .Object.FindFirstObjectByType<TestCombatLog>()
+                .GetMessages()
+                .Count(message => message.Contains(" casts " + bless.Name + ".")),
+            Is.EqualTo(1)
+        );
+    }
+
+    /// <summary>Verifies presented defeat cannot be healed or regain encounter participation.</summary>
+    [UnityTest]
+    public IEnumerator CommittedDefeatRejectsDirectAndPreselectedHealingAndNeverRegainsTurn()
+    {
+        CombatantFixture player = CreateCombatant("Defeat Heal Player", "Players", 300);
+        CombatantFixture defeatedAlly = CreateCombatant("Defeat Heal Ally", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Defeat Heal Enemy", "Enemies", 100);
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        defeatedAlly.Creature.InitializeHealthBeforeEncounter(1, 10);
+        EncounterOutcome? outcome = null;
+        Action<EncounterOutcome> captureOutcome = value => outcome = value;
+        manager.DungeonCombatEnded += captureOutcome;
+
+        try
+        {
+            manager.StartDungeonCombat(
+                new[] { player.Controller, defeatedAlly.Controller, enemy.Controller }
+            );
+            yield return WaitForTurn(player.GameObject);
+            UnityEncounterRulesBridge bridge = GetEncounterBridge();
+            CreatureId defeatedId = bridge.GetCreatureId(defeatedAlly.Creature);
+            yield return CoroutineRunner.Await(
+                defeatedAlly.Creature.ApplyFinalDamageAsync(
+                    1,
+                    RuleSource.FromSlug("commit-defeat-before-heal")
+                )
+            );
+
+            Assert.That(defeatedAlly.Creature.IsDefeated, Is.True);
+            Assert.That(defeatedAlly.GameObject.activeSelf, Is.False);
+            Assert.That(bridge.Snapshot.Health[defeatedId].IsCommittedDefeated, Is.True);
+            Assert.That(manager.GetCombatants(), Has.No.Member(defeatedAlly.GameObject));
+
+            Task<HealingOutcome> directHealing = defeatedAlly
+                .Creature.HealAsync(5, RuleSource.FromSlug("rejected-direct-heal"))
+                .AsTask();
+            yield return WaitForCondition(
+                () => directHealing.IsCompleted,
+                "Direct healing of the committed defeat did not settle."
+            );
+            Assert.That(directHealing.IsFaulted, Is.True);
+            StringAssert.Contains(
+                "committed-defeated creature cannot be healed",
+                directHealing.Exception.ToString()
+            );
+
+            SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+            PreparedSpell heal = spellcasting.GetSpell("heal");
+            int slotsBefore = spellcasting.Pools["font-heal"].UsesRemaining;
+            uint actionsBefore = player.Controller.ActionPoints;
+            CoroutineResult<CastSpellResult> cast = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    player.GameObject,
+                    heal,
+                    1,
+                    new[] { defeatedAlly.GameObject }
+                ),
+                cast
+            );
+
+            Assert.That(cast.Value.Success, Is.False);
+            Assert.That(cast.Value.Message, Does.Contain("active encounter"));
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(actionsBefore));
+            Assert.That(spellcasting.Pools["font-heal"].UsesRemaining, Is.EqualTo(slotsBefore));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(bridge.Snapshot.Health[defeatedId].Current, Is.Zero);
+            Assert.That(defeatedAlly.Creature.hp, Is.Zero);
+
+            manager.EndCurrentTurn(player.Controller);
+            yield return WaitForTurn(enemy.GameObject);
+            Assert.That(defeatedAlly.Controller.StartTurnCount, Is.Zero);
+            yield return CoroutineRunner.Await(
+                player.Creature.ApplyFinalDamageAsync(
+                    player.Creature.hp,
+                    RuleSource.FromSlug("defeat-final-protagonist")
+                )
+            );
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The encounter did not end after its final true protagonist survivor fell."
+            );
+
+            Assert.That(outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+            Assert.That(bridge.Snapshot.Health[defeatedId].Current, Is.Zero);
+            Assert.That(bridge.Snapshot.Health[defeatedId].IsCommittedDefeated, Is.True);
+        }
+        finally
+        {
+            manager.DungeonCombatEnded -= captureOutcome;
+        }
+    }
+
+    /// <summary>Verifies a lethal root ahead of positive-cost Rage rejects every Rage mutation.</summary>
+    [UnityTest]
+    public IEnumerator PositiveCostManualRageRejectsLethalRootQueuedBeforeSpend() =>
+        AssertManualRageRejectsLethalRootQueuedBeforeSpend(1);
+
+    /// <summary>Verifies zero-cost Rage still serializes authority behind an earlier lethal root.</summary>
+    [UnityTest]
+    public IEnumerator ZeroCostManualRageRejectsLethalRootQueuedBeforeAuthorization() =>
+        AssertManualRageRejectsLethalRootQueuedBeforeSpend(0);
+
+    /// <summary>Verifies positive-cost Rage fully settles before a later lethal root enters.</summary>
+    [UnityTest]
+    public IEnumerator PositiveCostManualRageSettlesBeforeLethalRootQueuedBehindSpend() =>
+        AssertManualRageSettlesBeforeLethalRootQueuedBehindSpend(1);
+
+    /// <summary>Verifies zero-cost Rage effects remain in its accepted authorization root.</summary>
+    [UnityTest]
+    public IEnumerator ZeroCostManualRageSettlesBeforeLethalRootQueuedBehindAuthorization() =>
+        AssertManualRageSettlesBeforeLethalRootQueuedBehindSpend(0);
+
+    /// <summary>Verifies a rejected queued Rage spend cannot publish prepared or health state.</summary>
+    [UnityTest]
+    public IEnumerator RageSpendRejectedAfterTurnEndPublishesNoRageState()
+    {
+        CombatantFixture player = CreateCombatant("Rejected Rage Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Rejected Rage Enemy", "Enemies", 0);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        PrepareBarbarian(player.Creature);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TurnEndedFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<TurnEndedFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        Task<EncounterAdvanceOutcome> ending = bridge.EndTurn(bridge.CurrentTurn.Value).AsTask();
+        Task<bool> rage = null;
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The turn-end Fact observer did not occupy the dispatcher root."
+            );
+            rage = new Rage(1).UseRageAsync(player.GameObject).AsTask();
+            yield return null;
+
+            Assert.That(rage.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(spends.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask<EncounterAdvanceOutcome>(ending));
+            yield return WaitForCondition(
+                () => rage.IsCompleted,
+                "The queued rejected Rage spend did not settle."
+            );
+
+            Assert.That(rage.IsFaulted, Is.True);
+            StringAssert.Contains("does not own an active current turn", rage.Exception.ToString());
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("effect-rage"), Is.False);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(player.Creature.tempHp, Is.Zero);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(spends.Facts, Is.Empty);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<TurnEndedFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            _ = rage?.Exception;
+        }
+    }
+
+    /// <summary>Verifies Rage retains its action reservation through awaited health callbacks.</summary>
+    [UnityTest]
+    public IEnumerator RageHealthFactFailureClearsReservationOnlyAfterAllEffectsSettle()
+    {
+        CombatantFixture player = CreateCombatant("Awaited Rage Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Awaited Rage Enemy", "Enemies", 0);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        PrepareBarbarian(player.Creature);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: true);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        int competingInvocations = 0;
+        TestEntityAction competing = new("Competing Action", 0, () => competingInvocations++);
+        Task<bool> rage = new Rage(1).UseRageAsync(player.GameObject).AsTask();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The Rage temporary-HP Fact observer did not begin."
+            );
+
+            Assert.That(rage.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(
+                spends.Facts,
+                Is.Empty,
+                "The outer action-spend Fact waits for accepted Rage causal work."
+            );
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
+            player.Controller.TakeAction(competing);
+            yield return null;
+            Assert.That(competingInvocations, Is.Zero);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+
+            blocker.Release();
+            yield return WaitForCondition(
+                () => rage.IsCompleted,
+                "The failed Rage health callback did not settle."
+            );
+
+            Assert.That(rage.IsFaulted, Is.True);
+            StringAssert.Contains("deliberate Rage Fact failure", rage.Exception.ToString());
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(competingInvocations, Is.Zero);
+            Assert.That(spends.Facts, Has.Count.EqualTo(1));
+            Assert.That(spends.Facts[0].Amount, Is.EqualTo(1));
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            _ = rage.Exception;
+        }
+    }
+
+    /// <summary>
+    /// Verifies zero-cost manual Rage requires current authority and rejects closed encounters
+    /// without spending, publishing Rage state, or leaking its reservation.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator ZeroCostManualRageRequiresAuthorityAndRejectsClosedEncounters()
+    {
+        CombatantFixture player = CreateCombatant("Zero-Cost Rage Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Zero-Cost Rage Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        PrepareBarbarian(player.Creature);
+        PrepareBarbarian(enemy.Creature);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+
+        try
+        {
+            CoroutineResult<bool> offTurn = new();
+            yield return CoroutineRunner.Await(new Rage(0).UseRageAsync(enemy.GameObject), offTurn);
+            Assert.That(offTurn.Value, Is.False);
+            Assert.That(enemy.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(enemy.Creature.Health.Temporary, Is.Zero);
+            Assert.That(enemy.Controller.IsTakingAction, Is.False);
+
+            CoroutineResult<bool> authorized = new();
+            yield return CoroutineRunner.Await(
+                new Rage(0).UseRageAsync(player.GameObject),
+                authorized
+            );
+            Assert.That(authorized.Value, Is.True);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(spends.Facts, Is.Empty, "Zero-cost validation must not emit a spend Fact.");
+
+            manager.SuspendDungeonCombat();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The zero-cost Rage encounter did not suspend."
+            );
+            CoroutineResult<bool> suspended = new();
+            yield return CoroutineRunner.Await(
+                new Rage(0).UseRageAsync(enemy.GameObject),
+                suspended
+            );
+            Assert.That(suspended.Value, Is.False);
+            Assert.That(enemy.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(enemy.Creature.Health.Temporary, Is.Zero);
+            Assert.That(enemy.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+        }
+
+        CombatantFixture endedPlayer = CreateCombatant(
+            "Ended Zero-Cost Rage Player",
+            "Players",
+            200
+        );
+        CombatantFixture endedEnemy = CreateCombatant("Ended Zero-Cost Rage Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { endedPlayer.Controller, endedEnemy.Controller });
+        yield return WaitForTurn(endedPlayer.GameObject);
+        yield return CoroutineRunner.Await(
+            endedEnemy.Creature.ApplyFinalDamageAsync(
+                endedEnemy.Creature.hp,
+                RuleSource.FromSlug("test-ended-zero-cost-rage")
+            )
+        );
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive,
+            "The zero-cost Rage encounter did not end."
+        );
+        PrepareBarbarian(endedPlayer.Creature);
+
+        CoroutineResult<bool> ended = new();
+        yield return CoroutineRunner.Await(new Rage(0).UseRageAsync(endedPlayer.GameObject), ended);
+        Assert.That(ended.Value, Is.False);
+        Assert.That(endedPlayer.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+        Assert.That(endedPlayer.Creature.Health.Temporary, Is.Zero);
+        Assert.That(endedPlayer.Controller.IsTakingAction, Is.False);
+    }
+
+    /// <summary>Verifies area-spell outcome presentation waits for every target's health change.</summary>
+    [UnityTest]
+    public IEnumerator LethalAreaSpellSettlesAllTargetsBeforePresentingDeterministicDefeat()
+    {
+        CombatantFixture player = CreateCombatant("Area Spell Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Area Spell Enemy", "Enemies", 0);
+        player.Creature.InitializeHealthBeforeEncounter(1, 1);
+        enemy.Creature.InitializeHealthBeforeEncounter(1, 1);
+        player.Creature.level = 20;
+        player.Creature.wisMod = 20;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        CreatureId playerId = bridge.GetCreatureId(player.Creature);
+        CreatureId enemyId = bridge.GetCreatureId(enemy.Creature);
+        int outcomeCalls = 0;
+        int playerHealthAtOutcome = -1;
+        int enemyHealthAtOutcome = -1;
+        EncounterOutcome? presentedOutcome = null;
+        Func<EncounterOutcome, ValueTask> recordOutcome = outcome =>
+        {
+            outcomeCalls++;
+            playerHealthAtOutcome = bridge.Snapshot.Health[playerId].Current;
+            enemyHealthAtOutcome = bridge.Snapshot.Health[enemyId].Current;
+            presentedOutcome = outcome;
+            return default;
+        };
+        bridge.EncounterEnded += recordOutcome;
+        int hostOutcomeCalls = 0;
+        bool castAndTargetsSettledAtHostOutcome = false;
+        Task<CastSpellResult> castTask = null;
+        manager.DungeonCombatEnded += _ =>
+        {
+            hostOutcomeCalls++;
+            castAndTargetsSettledAtHostOutcome =
+                castTask != null
+                && castTask.IsCompletedSuccessfully
+                && !player.Controller.IsTakingAction
+                && bridge.Snapshot.Health[playerId].Current == 0
+                && bridge.Snapshot.Health[enemyId].Current == 0;
+        };
+        PreparedSpell hymn = player.Creature.Prepared.Spellcasting.GetSpell("haunting-hymn");
+        AreaTargetResult area = new AreaTargetResult
+        {
+            Creatures = new List<AreaAffectedCreature>
+            {
+                new AreaAffectedCreature
+                {
+                    Creature = player.GameObject,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                },
+                new AreaAffectedCreature
+                {
+                    Creature = enemy.GameObject,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                },
+            },
+        };
+        CoroutineResult<CastSpellResult> completed = new CoroutineResult<CastSpellResult>();
+        try
+        {
+            castTask = SpellcastingRuntime
+                .CastAsync(
+                    player.GameObject,
+                    hymn,
+                    2,
+                    Array.Empty<GameObject>(),
+                    area,
+                    spendActions: true
+                )
+                .AsTask();
+            yield return CoroutineRunner.Await(new ValueTask<CastSpellResult>(castTask), completed);
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "Multi-target host completion did not follow the settled cast."
+            );
+        }
+        finally
+        {
+            bridge.EncounterEnded -= recordOutcome;
+        }
+
+        Assert.That(completed.Value.Success, Is.True);
+        Assert.That(
+            completed.Value.Targets.Distinct(),
+            Is.EquivalentTo(new[] { player.GameObject, enemy.GameObject })
+        );
+        Assert.That(outcomeCalls, Is.EqualTo(1));
+        Assert.That(hostOutcomeCalls, Is.EqualTo(1));
+        Assert.That(castAndTargetsSettledAtHostOutcome, Is.True);
+        Assert.That(playerHealthAtOutcome, Is.Zero);
+        Assert.That(enemyHealthAtOutcome, Is.Zero);
+        Assert.That(presentedOutcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+        Assert.That(
+            bridge.Snapshot.Encounters[bridge.EncounterId].Outcome,
+            Is.EqualTo(EncounterOutcome.PlayerDefeat)
+        );
+        Assert.That(Enum.GetNames(typeof(EncounterOutcome)), Does.Not.Contain("Draw"));
+    }
+
+    /// <summary>Verifies encounter-end host finalization survives a cleanup observer fault.</summary>
+    [UnityTest]
+    public IEnumerator EncounterEndCleanupFailureStillFinalizesHostAndAllowsRestart()
+    {
+        CombatantFixture player = CreateCombatant("Faulted End Cleanup Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Faulted End Cleanup Enemy", "Enemies", 100);
+        CombatantFixture dormant = CreateCombatant("Faulted End Cleanup Dormant", "Enemies", -100);
+        PrepareBarbarian(player.Creature);
+        int inactiveEvents = 0;
+        int dungeonEndCalls = 0;
+        int throwingNotificationCalls = 0;
+        EncounterOutcome? publishedOutcome = null;
+        Action<bool> observeActivity = active =>
+        {
+            if (!active)
+                inactiveEvents++;
+        };
+        Action<EncounterOutcome> recordOutcome = outcome =>
+        {
+            dungeonEndCalls++;
+            publishedOutcome = outcome;
+        };
+        Action<EncounterOutcome> failOutcomeNotification = _ =>
+        {
+            throwingNotificationCalls++;
+            throw new InvalidOperationException("deliberate outcome notification failure");
+        };
+        manager.CombatActivityChanged += observeActivity;
+        manager.DungeonCombatEnded += recordOutcome;
+        manager.DungeonCombatEnded += failOutcomeNotification;
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsRemovedFact> blocker = new(failAfterRelease: true);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+        bool observerRegistered = true;
+        Task lethal = null;
+
+        try
+        {
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.GreaterThan(0));
+            lethal = enemy
+                .Creature.ApplyFinalDamageAsync(
+                    enemy.Creature.hp,
+                    RuleSource.FromSlug("test-faulted-end-cleanup")
+                )
+                .AsTask();
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "Encounter-end Rage cleanup did not reach its temporary-HP Fact."
+            );
+
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Phase,
+                Is.EqualTo(EncounterPhase.Ended)
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveEvents, Is.Zero);
+
+            blocker.Release();
+            yield return WaitForCondition(
+                () => lethal.IsCompleted,
+                "The faulted encounter-end cleanup did not settle."
+            );
+            Assert.That(lethal.IsFaulted, Is.True);
+            Exception[] failures = lethal.Exception.Flatten().InnerExceptions.ToArray();
+            Assert.That(failures, Has.Length.EqualTo(2));
+            Assert.That(
+                failures[0].Message,
+                Does.Contain("deliberate Rage Fact failure"),
+                "The cleanup fault must remain the primary reported failure."
+            );
+            Assert.That(
+                failures[1].Message,
+                Does.Contain("deliberate outcome notification failure")
+            );
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The committed encounter end did not finalize its Unity host after cleanup failed."
+            );
+
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(dungeonEndCalls, Is.EqualTo(1));
+            Assert.That(throwingNotificationCalls, Is.EqualTo(1));
+            Assert.That(publishedOutcome, Is.EqualTo(EncounterOutcome.PlayerVictory));
+            Assert.That(manager.WhosTurn(), Is.Null);
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+            AssertTransientTurnStateCleared(player.Controller);
+            AssertTransientTurnStateCleared(enemy.Controller);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, dormant.GameObject })
+            );
+
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            observerRegistered = false;
+            manager.StartDungeonCombat(new[] { player.Controller, dormant.Controller });
+            yield return WaitForTurn(player.GameObject);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+        }
+        finally
+        {
+            blocker.Release();
+            if (observerRegistered)
+                dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            manager.CombatActivityChanged -= observeActivity;
+            manager.DungeonCombatEnded -= recordOutcome;
+            manager.DungeonCombatEnded -= failOutcomeNotification;
+            _ = lethal?.Exception;
+        }
+    }
+
+    /// <summary>Verifies legacy outcome channels survive a committed cleanup failure.</summary>
+    [UnityTest]
+    public IEnumerator LegacyEndCleanupFailureStillPublishesWinnerAndAllowsRestart()
+    {
+        CombatantFixture player = CreateCombatant("Legacy Fault Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Legacy Fault Enemy", "Enemies", 100);
+        PrepareBarbarian(player.Creature);
+        int inactiveEvents = 0;
+        int dungeonEndCalls = 0;
+        int legacyEndCalls = 0;
+        int legacyOutcomeCalls = 0;
+        string winner = string.Empty;
+        bool? playersWon = null;
+        Action<bool> observeActivity = active =>
+        {
+            if (!active)
+                inactiveEvents++;
+        };
+        Action<EncounterOutcome> observeDungeonEnd = _ => dungeonEndCalls++;
+        UnityAction<string> observeLegacyEnd = value =>
+        {
+            legacyEndCalls++;
+            winner = value;
+        };
+        UnityAction<bool> observeLegacyOutcome = value =>
+        {
+            legacyOutcomeCalls++;
+            playersWon = value;
+        };
+        manager.CombatActivityChanged += observeActivity;
+        manager.DungeonCombatEnded += observeDungeonEnd;
+        OnCombatEnd.AddListener(observeLegacyEnd);
+        OnCombatOutcome.AddListener(observeLegacyOutcome);
+        manager.StartCombat();
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsRemovedFact> blocker = new(failAfterRelease: true);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+        bool observerRegistered = true;
+        Task lethal = null;
+
+        try
+        {
+            lethal = enemy
+                .Creature.ApplyFinalDamageAsync(
+                    enemy.Creature.hp,
+                    RuleSource.FromSlug("test-legacy-faulted-end-cleanup")
+                )
+                .AsTask();
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "Legacy cleanup did not reach its temporary-HP Fact."
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => lethal.IsCompleted,
+                "The legacy cleanup failure did not settle."
+            );
+
+            Assert.That(lethal.IsFaulted, Is.True);
+            StringAssert.Contains("deliberate Rage Fact failure", lethal.Exception.ToString());
+            Assert.That(manager.IsCombatActive, Is.False);
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(dungeonEndCalls, Is.Zero);
+            Assert.That(legacyEndCalls, Is.EqualTo(1));
+            Assert.That(winner, Is.EqualTo("Players"));
+            Assert.That(legacyOutcomeCalls, Is.EqualTo(1));
+            Assert.That(playersWon, Is.True);
+
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            observerRegistered = false;
+            CombatantFixture retryEnemy = CreateCombatant(
+                "Legacy Fault Retry Enemy",
+                "Enemies",
+                100
+            );
+            manager.StartCombat();
+            yield return WaitForTurn(player.GameObject);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(manager.GetCombatants(), Has.Member(retryEnemy.GameObject));
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(legacyEndCalls, Is.EqualTo(1));
+            Assert.That(legacyOutcomeCalls, Is.EqualTo(1));
+        }
+        finally
+        {
+            blocker.Release();
+            if (observerRegistered)
+                dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            manager.CombatActivityChanged -= observeActivity;
+            manager.DungeonCombatEnded -= observeDungeonEnd;
+            OnCombatEnd.RemoveListener(observeLegacyEnd);
+            OnCombatOutcome.RemoveListener(observeLegacyOutcome);
+            _ = lethal?.Exception;
+        }
+    }
+
+    /// <summary>Verifies suspension finalizes its host when post-commit cleanup faults.</summary>
+    [UnityTest]
+    public IEnumerator SuspensionCleanupFailureStillFinalizesHostAndAllowsRestart()
+    {
+        CombatantFixture player = CreateCombatant(
+            "Faulted Suspension Cleanup Player",
+            "Players",
+            200
+        );
+        CombatantFixture enemy = CreateCombatant(
+            "Faulted Suspension Cleanup Enemy",
+            "Enemies",
+            100
+        );
+        CombatantFixture dormant = CreateCombatant(
+            "Faulted Suspension Cleanup Dormant",
+            "Enemies",
+            -100
+        );
+        PrepareBarbarian(player.Creature);
+        int inactiveEvents = 0;
+        Action<bool> observeActivity = active =>
+        {
+            if (!active)
+                inactiveEvents++;
+        };
+        manager.CombatActivityChanged += observeActivity;
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsRemovedFact> blocker = new(failAfterRelease: true);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+        bool observerRegistered = true;
+
+        try
+        {
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.GreaterThan(0));
+            player.Controller.IsTakingAction = true;
+            enemy.Controller.IsTakingAction = true;
+            manager.SuspendDungeonCombat();
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "Suspension Rage cleanup did not reach its temporary-HP Fact."
+            );
+
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Phase,
+                Is.EqualTo(EncounterPhase.Suspended)
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveEvents, Is.Zero);
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate Rage Fact failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "The committed suspension did not finalize its Unity host after cleanup failed."
+            );
+            yield return null;
+
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(manager.WhosTurn(), Is.Null);
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+            AssertTransientTurnStateCleared(player.Controller);
+            AssertTransientTurnStateCleared(enemy.Controller);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, enemy.GameObject, dormant.GameObject })
+            );
+
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            observerRegistered = false;
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+        }
+        finally
+        {
+            blocker.Release();
+            if (observerRegistered)
+                dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(blocker);
+            manager.CombatActivityChanged -= observeActivity;
+        }
+    }
+
+    /// <summary>Verifies suspension cleanup includes a reinforcement accepted ahead of it.</summary>
+    [UnityTest]
+    public IEnumerator QueuedJoinBeforeSuspensionCleansAcceptedQuickTemperedReinforcement()
+    {
+        CombatantFixture player = CreateCombatant("Queued Suspension Player", "Players", 300);
+        CombatantFixture enemy = CreateCombatant("Queued Suspension Enemy", "Enemies", 100);
+        CombatantFixture reinforcement = CreateCombatant(
+            "Queued Suspension Reinforcement",
+            "Enemies",
+            200
+        );
+        PrepareBarbarian(reinforcement.Creature);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        Task occupied = player
+            .Creature.ApplyFinalDamageAsync(
+                1,
+                RuleSource.FromSlug("test-queued-join-suspension-blocker")
+            )
+            .AsTask();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The dispatcher root did not pause queued join and suspension work."
+            );
+            manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+            manager.SuspendDungeonCombat();
+            yield return null;
+
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.GetCreatureId(reinforcement.Controller)
+            );
+            Assert.That(GetPublishedActiveCombatants(), Has.No.Member(reinforcement.Controller));
+
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "Suspension did not settle after the preceding reinforcement join."
+            );
+            yield return CoroutineRunner.Await(new ValueTask(occupied));
+
+            EncounterState suspended = bridge.Snapshot.Encounters[bridge.EncounterId];
+            Assert.That(suspended.Phase, Is.EqualTo(EncounterPhase.Suspended));
+            Assert.That(
+                suspended.Roster.Select(entry => bridge.GetController(entry.Creature)),
+                Is.EqualTo(new[] { player.Controller, reinforcement.Controller, enemy.Controller })
+            );
+            Assert.That(
+                bridge.GetController(bridge.GetCreatureId(reinforcement.Controller)),
+                Is.SameAs(reinforcement.Controller)
+            );
+            Assert.That(reinforcement.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(reinforcement.Creature.Health.Temporary, Is.Zero);
+            Assert.That(reinforcement.Creature.HasTempHpImmunity("rage"), Is.True);
+            AssertTransientTurnStateCleared(reinforcement.Controller);
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EqualTo(new[] { player.GameObject, enemy.GameObject, reinforcement.GameObject })
+            );
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            _ = occupied.Exception;
+        }
+    }
+
+    /// <summary>Verifies a join rejected behind suspension is neither published nor cleaned.</summary>
+    [UnityTest]
+    public IEnumerator QueuedJoinRejectedAfterSuspensionPublishesNoController()
+    {
+        CombatantFixture player = CreateCombatant("Rejected Suspension Player", "Players", 300);
+        CombatantFixture enemy = CreateCombatant("Rejected Suspension Enemy", "Enemies", 100);
+        CombatantFixture rejected = CreateCombatant(
+            "Rejected Suspension Reinforcement",
+            "Enemies",
+            200
+        );
+        PrepareBarbarian(rejected.Creature);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        Task occupied = player
+            .Creature.ApplyFinalDamageAsync(
+                1,
+                RuleSource.FromSlug("test-rejected-join-suspension-blocker")
+            )
+            .AsTask();
+        Task suspension = null;
+        Task<EncounterJoinOutcome> rejectedJoin = null;
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The dispatcher root did not pause the rejected join scenario."
+            );
+            suspension = CompleteDungeonSuspensionAsync(bridge);
+            rejectedJoin = bridge.JoinEncounter(new[] { rejected.Controller }).AsTask();
+            blocker.Release();
+            yield return WaitForCondition(
+                () => suspension.IsCompleted && rejectedJoin.IsCompleted,
+                "Queued suspension and rejected join did not settle."
+            );
+            yield return CoroutineRunner.Await(new ValueTask(occupied));
+
+            Assert.That(suspension.IsCompletedSuccessfully, Is.True);
+            Assert.That(rejectedJoin.IsFaulted, Is.True);
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Phase,
+                Is.EqualTo(EncounterPhase.Suspended)
+            );
+            Assert.That(
+                bridge
+                    .Snapshot.Encounters[bridge.EncounterId]
+                    .Roster.Select(entry => bridge.GetController(entry.Creature)),
+                Is.EqualTo(new[] { player.Controller, enemy.Controller })
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.GetCreatureId(rejected.Controller)
+            );
+            Assert.That(GetCreatureEncounterBridge(rejected.Creature), Is.Null);
+            Assert.That(rejected.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(rejected.Creature.Health.Temporary, Is.Zero);
+            Assert.That(GetPublishedActiveCombatants(), Is.Empty);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            _ = occupied.Exception;
+            _ = suspension?.Exception;
+            _ = rejectedJoin?.Exception;
+        }
+    }
+
+    /// <summary>Verifies a committed suspension fault still runs complete ordered cleanup.</summary>
+    [UnityTest]
+    public IEnumerator PostCommitSuspensionFaultStillCleansAndPreservesPrimaryFailure()
+    {
+        CombatantFixture player = CreateCombatant("Post-Commit Suspension Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Post-Commit Suspension Enemy", "Enemies", 100);
+        PrepareBarbarian(player.Creature);
+        int inactiveEvents = 0;
+        Action<bool> observeActivity = active =>
+        {
+            if (!active)
+                inactiveEvents++;
+        };
+        manager.CombatActivityChanged += observeActivity;
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        CreatureId playerId = bridge.GetCreatureId(player.Creature);
+        BlockingFactObserver<EncounterSuspendedFact> suspensionFailure = new(
+            failAfterRelease: true,
+            "deliberate suspension settlement failure"
+        );
+        SelectedFactFailureObserver<TemporaryHitPointsRemovedFact> cleanupFailure = new(
+            fact => fact.Creature == playerId,
+            "deliberate suspension cleanup failure"
+        );
+        dispatcher.RegisterFactObserver<EncounterSuspendedFact>(suspensionFailure);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsRemovedFact>(cleanupFailure);
+        Task suspension = CompleteDungeonSuspensionAsync(bridge);
+
+        try
+        {
+            yield return WaitForCondition(
+                () => suspensionFailure.Started.IsCompleted,
+                "The suspension did not reach its post-commit Fact observer."
+            );
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Phase,
+                Is.EqualTo(EncounterPhase.Suspended)
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.GreaterThan(0));
+
+            suspensionFailure.Release();
+            yield return WaitForCondition(
+                () => suspension.IsCompleted,
+                "The post-commit suspension failure did not settle cleanup."
+            );
+
+            Assert.That(suspension.IsFaulted, Is.True);
+            Exception[] failures = suspension.Exception.Flatten().InnerExceptions.ToArray();
+            Assert.That(failures, Has.Length.EqualTo(2));
+            Assert.That(
+                failures[0].Message,
+                Does.Contain("deliberate suspension settlement failure")
+            );
+            Assert.That(failures[1].Message, Does.Contain("deliberate suspension cleanup failure"));
+            Assert.That(cleanupFailure.Calls, Is.EqualTo(1));
+            Assert.That(manager.IsCombatActive, Is.False);
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(player.Creature.HasTempHpImmunity("rage"), Is.True);
+            AssertTransientTurnStateCleared(player.Controller);
+            AssertTransientTurnStateCleared(enemy.Controller);
+
+            dispatcher.UnregisterFactObserver<EncounterSuspendedFact>(suspensionFailure);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(cleanupFailure);
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(
+                player.Creature.Prepared.ActiveEffects.Count(effect => effect.SourceSlug == "rage"),
+                Is.EqualTo(1)
+            );
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+        }
+        finally
+        {
+            suspensionFailure.Release();
+            dispatcher.UnregisterFactObserver<EncounterSuspendedFact>(suspensionFailure);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(cleanupFailure);
+            manager.CombatActivityChanged -= observeActivity;
+            _ = suspension.Exception;
+        }
+    }
+
+    /// <summary>Verifies one participant's cleanup fault cannot strand later participants.</summary>
+    [UnityTest]
+    public IEnumerator EndCleanupAttemptsEveryRagingParticipantInStableOrder()
+    {
+        CombatantFixture first = CreateCombatant("First Cleanup Barbarian", "Players", 300);
+        CombatantFixture second = CreateCombatant("Second Cleanup Barbarian", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Multi-Cleanup Enemy", "Enemies", 100);
+        PrepareBarbarian(first.Creature);
+        PrepareBarbarian(second.Creature);
+        int inactiveEvents = 0;
+        int outcomeCalls = 0;
+        EncounterOutcome? publishedOutcome = null;
+        Action<bool> observeActivity = active =>
+        {
+            if (!active)
+                inactiveEvents++;
+        };
+        Action<EncounterOutcome> observeOutcome = outcome =>
+        {
+            outcomeCalls++;
+            publishedOutcome = outcome;
+        };
+        manager.CombatActivityChanged += observeActivity;
+        manager.DungeonCombatEnded += observeOutcome;
+        manager.StartDungeonCombat(new[] { first.Controller, second.Controller, enemy.Controller });
+        yield return WaitForTurn(first.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        CreatureId firstId = bridge.GetCreatureId(first.Creature);
+        CreatureId secondId = bridge.GetCreatureId(second.Creature);
+        SelectedFactFailureObserver<TemporaryHitPointsRemovedFact> firstFailure = new(
+            fact => fact.Creature == firstId,
+            "first participant cleanup failure"
+        );
+        SelectedFactFailureObserver<TemporaryHitPointImmunityAddedFact> secondFailure = new(
+            fact => fact.Creature == secondId,
+            "second participant cleanup failure"
+        );
+        dispatcher.RegisterFactObserver<TemporaryHitPointsRemovedFact>(firstFailure);
+        dispatcher.RegisterFactObserver<TemporaryHitPointImmunityAddedFact>(secondFailure);
+        Task lethal = null;
+
+        try
+        {
+            Assert.That(first.Creature.Health.Temporary, Is.GreaterThan(0));
+            Assert.That(second.Creature.Health.Temporary, Is.GreaterThan(0));
+            lethal = enemy
+                .Creature.ApplyFinalDamageAsync(
+                    enemy.Creature.hp,
+                    RuleSource.FromSlug("test-multiple-cleanup-failures")
+                )
+                .AsTask();
+            yield return WaitForCondition(
+                () => lethal.IsCompleted,
+                "The multi-participant cleanup did not settle."
+            );
+
+            Assert.That(lethal.IsFaulted, Is.True);
+            Exception[] failures = lethal.Exception.Flatten().InnerExceptions.ToArray();
+            Assert.That(failures, Has.Length.EqualTo(2));
+            Assert.That(failures[0].Message, Does.Contain("first participant cleanup failure"));
+            Assert.That(failures[1].Message, Does.Contain("second participant cleanup failure"));
+            Assert.That(firstFailure.Calls, Is.EqualTo(1));
+            Assert.That(secondFailure.Calls, Is.EqualTo(1));
+            Assert.That(manager.IsCombatActive, Is.False);
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(outcomeCalls, Is.EqualTo(1));
+            Assert.That(publishedOutcome, Is.EqualTo(EncounterOutcome.PlayerVictory));
+
+            foreach (CombatantFixture barbarian in new[] { first, second })
+            {
+                Assert.That(barbarian.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+                Assert.That(barbarian.Creature.Health.Temporary, Is.Zero);
+                Assert.That(barbarian.Creature.HasTempHpImmunity("rage"), Is.True);
+            }
+
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(firstFailure);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointImmunityAddedFact>(secondFailure);
+            CombatantFixture retryEnemy = CreateCombatant(
+                "Multi-Cleanup Retry Enemy",
+                "Enemies",
+                100
+            );
+            manager.StartDungeonCombat(
+                new[] { first.Controller, second.Controller, retryEnemy.Controller }
+            );
+            yield return WaitForTurn(first.GameObject);
+            foreach (CombatantFixture barbarian in new[] { first, second })
+            {
+                Assert.That(barbarian.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+                Assert.That(
+                    barbarian.Creature.Prepared.ActiveEffects.Count(effect =>
+                        effect.SourceSlug == "rage"
+                    ),
+                    Is.EqualTo(1)
+                );
+                Assert.That(barbarian.Creature.Health.Temporary, Is.Zero);
+            }
+            Assert.That(inactiveEvents, Is.EqualTo(1));
+            Assert.That(outcomeCalls, Is.EqualTo(1));
+        }
+        finally
+        {
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsRemovedFact>(firstFailure);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointImmunityAddedFact>(secondFailure);
+            manager.CombatActivityChanged -= observeActivity;
+            manager.DungeonCombatEnded -= observeOutcome;
+            _ = lethal?.Exception;
+        }
+    }
+
+    /// <summary>
+    /// Verifies failed startup removes transaction-created condition state and listeners.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator StartupFailureAfterSlowRestoresMissingConditionsAndRetriesOnce()
+    {
+        CombatantFixture player = CreateCombatant(
+            "Failed Slow Startup Player",
+            "Players",
+            200,
+            addConditions: false
+        );
+        CombatantFixture enemy = CreateCombatant("Failed Slow Startup Enemy", "Enemies", 100);
+        PrepareBarbarian(player.Creature);
+        player.Creature.passives.Add("Slow");
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: true);
+        RuleDispatcher failedDispatcher = null;
+        UnityAction installFailure = () =>
+        {
+            failedDispatcher = GetEncounterDispatcher();
+            failedDispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        };
+        Action<bool> installFailureAtActivation = WhenCombatBecomesActive(installFailure);
+        manager.CombatActivityChanged += installFailureAtActivation;
+
+        try
+        {
+            Assert.That(player.GameObject.GetComponent<Conditions>(), Is.Null);
+            Assert.That(
+                GetManagedListenerCount(player.Controller, "managedActionResetListeners"),
+                Is.Zero
+            );
+            Assert.That(
+                GetManagedListenerCount(player.Controller, "managedReactionListeners"),
+                Is.Zero
+            );
+
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "Slow startup did not reach the later awaited Rage Fact."
+            );
+            Conditions provisional = player.GameObject.GetComponent<Conditions>();
+            Assert.That(provisional, Is.Not.Null);
+            Assert.That(provisional.Contains("Slowed"), Is.True);
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("InvalidOperationException: deliberate Rage Fact failure")
+            );
+            blocker.Release();
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive,
+                "Failed Slow startup did not roll back."
+            );
+
+            Assert.That(
+                player.GameObject.GetComponent<Conditions>(),
+                Is.Null,
+                "A component created inside the failed startup transaction must be removed."
+            );
+            Assert.That(
+                GetManagedListenerCount(player.Controller, "managedActionResetListeners"),
+                Is.Zero
+            );
+            Assert.That(
+                GetManagedListenerCount(player.Controller, "managedReactionListeners"),
+                Is.Zero
+            );
+        }
+        finally
+        {
+            manager.CombatActivityChanged -= installFailureAtActivation;
+            blocker.Release();
+            failedDispatcher?.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        }
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        Conditions restored = player.GameObject.GetComponent<Conditions>();
+        Assert.That(restored, Is.Not.Null);
+        Assert.That(restored.Contains("Slowed"), Is.True);
+        Assert.That(
+            GetManagedListenerCount(player.Controller, "managedActionResetListeners"),
+            Is.EqualTo(1)
+        );
+        Assert.That(
+            GetManagedListenerCount(player.Controller, "managedReactionListeners"),
+            Is.EqualTo(1)
+        );
+        Assert.That(player.Controller.ActionPoints, Is.EqualTo(2));
+    }
+
     /// <summary>Verifies suspension resets turn economy without changing durable creature state.</summary>
-    [Test]
-    public void SuspendDungeonCombat_ClearsTurnStateAndPreservesCreatureState()
+    [UnityTest]
+    public IEnumerator SuspendDungeonCombat_ClearsTurnStateAndPreservesCreatureState()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+        CombatantFixture dormant = CreateCombatant("Suspended Dormant", "Enemies", -100);
         Vector3 preservedPosition = new(4f, 0f, 7f);
         ConditionSource preservedSource = new();
         player.GameObject.transform.position = preservedPosition;
+        enemy.GameObject.transform.position = new Vector3(5f, 0f, 7f);
+        dormant.GameObject.transform.position = new Vector3(9f, 0f, 7f);
         player.Creature.InitializeHealthBeforeEncounter(7, 10);
         player.Conditions.Add("Off-Guard", preservedSource);
 
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-        player.Controller.ActionPoints = 2;
-        player.Controller.Reacted = true;
-        player.Controller.StrikePenalty = 2;
+        yield return WaitForTurn();
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EqualTo(new[] { player.GameObject, enemy.GameObject })
+        );
+        Assert.That(manager.getPoistions(), Has.No.Member(dormant.GameObject.transform.position));
         player.Controller.IsTakingAction = true;
-        enemy.Controller.ActionPoints = 1;
-        enemy.Controller.Reacted = true;
-        enemy.Controller.StrikePenalty = 1;
         enemy.Controller.IsTakingAction = true;
 
         manager.SuspendDungeonCombat();
+        yield return WaitForCondition(
+            () => !manager.IsCombatActive,
+            "Timed out waiting for encounter suspension."
+        );
 
         Assert.That(manager.IsCombatActive, Is.False);
         Assert.That(manager.WhosTurn(), Is.Null);
@@ -213,22 +4485,37 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(player.Creature.hp, Is.EqualTo(7));
         Assert.That(player.GameObject.transform.position, Is.EqualTo(preservedPosition));
         Assert.That(player.Conditions.Contains("Off-Guard", preservedSource), Is.True);
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EqualTo(new[] { player.GameObject, enemy.GameObject, dormant.GameObject })
+        );
+        Assert.That(
+            manager.getPoistions(),
+            Is.EqualTo(
+                new[]
+                {
+                    player.GameObject.transform.position,
+                    enemy.GameObject.transform.position,
+                    dormant.GameObject.transform.position,
+                }
+            )
+        );
     }
 
     /// <summary>Verifies dungeon victory uses its dedicated event instead of legacy completion events.</summary>
-    [Test]
-    public void DungeonVictory_EmitsOnlyDungeonCompletionEvent()
+    [UnityTest]
+    public IEnumerator DungeonVictory_EmitsOnlyDungeonCompletionEvent()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
         int dungeonEndCalls = 0;
         int legacyEndCalls = 0;
         int legacyOutcomeCalls = 0;
-        string winner = string.Empty;
-        Action<string> dungeonEndListener = winningTeam =>
+        EncounterOutcome? winner = null;
+        Action<EncounterOutcome> dungeonEndListener = outcome =>
         {
             dungeonEndCalls++;
-            winner = winningTeam;
+            winner = outcome;
         };
         UnityAction<string> legacyEndListener = _ => legacyEndCalls++;
         UnityAction<bool> legacyOutcomeListener = _ => legacyOutcomeCalls++;
@@ -239,12 +4526,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
         try
         {
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-            enemy.GameObject.SetActive(false);
+            yield return WaitForTurn();
+            yield return CoroutineRunner.Await(
+                enemy.Creature.ApplyFinalDamageAsync(10, RuleSource.FromSlug("test-victory"))
+            );
 
             Assert.That(manager.CheckForEndOfGame(), Is.True);
 
             Assert.That(dungeonEndCalls, Is.EqualTo(1));
-            Assert.That(winner, Is.EqualTo("Players"));
+            Assert.That(winner, Is.EqualTo(EncounterOutcome.PlayerVictory));
             Assert.That(legacyEndCalls, Is.Zero);
             Assert.That(legacyOutcomeCalls, Is.Zero);
             Assert.That(manager.IsCombatActive, Is.False);
@@ -258,18 +4548,18 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies dungeon party defeat also reaches the normal loss presentation channel.</summary>
-    [Test]
-    public void DungeonDefeatEmitsDungeonCompletionAndNormalLossOutcome()
+    [UnityTest]
+    public IEnumerator DungeonDefeatEmitsDungeonCompletionAndNormalLossOutcome()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
         int dungeonEndCalls = 0;
         int lossCalls = 0;
-        string winner = string.Empty;
-        Action<string> dungeonEndListener = winningTeam =>
+        EncounterOutcome? winner = null;
+        Action<EncounterOutcome> dungeonEndListener = outcome =>
         {
             dungeonEndCalls++;
-            winner = winningTeam;
+            winner = outcome;
         };
         UnityAction<bool> outcomeListener = playersWon =>
         {
@@ -282,11 +4572,14 @@ public sealed class DungeonEncounterCombatPlayModeTests
         try
         {
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-            player.GameObject.SetActive(false);
+            yield return WaitForTurn();
+            yield return CoroutineRunner.Await(
+                player.Creature.ApplyFinalDamageAsync(10, RuleSource.FromSlug("test-defeat"))
+            );
 
             Assert.That(manager.CheckForEndOfGame(), Is.True);
             Assert.That(dungeonEndCalls, Is.EqualTo(1));
-            Assert.That(winner, Is.EqualTo("Enemies"));
+            Assert.That(winner, Is.EqualTo(EncounterOutcome.PlayerDefeat));
             Assert.That(lossCalls, Is.EqualTo(1));
         }
         finally
@@ -297,8 +4590,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies exploration permits only repeatable movement without spending actions.</summary>
-    [Test]
-    public void DungeonExplorationAllowsOnlyRepeatableMovementActions()
+    [UnityTest]
+    public IEnumerator DungeonExplorationAllowsOnlyRepeatableMovementActions()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         int movementCalls = 0;
@@ -313,7 +4606,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
         player.Controller.SetDungeonExploration(true);
 
         player.Controller.TakeAction(movement);
+        yield return WaitForCondition(
+            () => !player.Controller.IsTakingAction,
+            "Timed out waiting for the first exploration action."
+        );
         player.Controller.TakeAction(movement);
+        yield return WaitForCondition(
+            () => !player.Controller.IsTakingAction,
+            "Timed out waiting for the repeated exploration action."
+        );
         player.Controller.TakeAction(attack);
 
         Assert.That(movementCalls, Is.EqualTo(2));
@@ -329,14 +4630,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>Verifies legacy combat still activates every registered controller.</summary>
-    [Test]
-    public void LegacyStartCombat_ActivatesEveryRegisteredController()
+    [UnityTest]
+    public IEnumerator LegacyStartCombat_ActivatesEveryRegisteredController()
     {
         CombatantFixture first = CreateCombatant("First", "Players", 300);
         CombatantFixture second = CreateCombatant("Second", "Enemies", 200);
         CombatantFixture third = CreateCombatant("Third", "Enemies", 100);
 
         manager.StartCombat();
+        yield return WaitForTurn(first.GameObject);
 
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(
@@ -347,19 +4649,888 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(first.Controller.StartTurnCount, Is.EqualTo(1));
     }
 
-    private CombatantFixture CreateCombatant(string name, string teamName, int initiative)
+    /// <summary>Verifies multiple living opposition teams use deterministic initiative order.</summary>
+    [UnityTest]
+    public IEnumerator LegacyDefeatReportsFirstLivingOppositionInInitiativeOrder()
+    {
+        TeamRules rules = TeamRules.GetInstance();
+        rules.AddHostileTeam("Goblins");
+        rules.AddHostileTeam("Zombies");
+        CombatantFixture player = CreateCombatant("Legacy Player", "Players", 300);
+        CreateCombatant("Living Goblin", "Goblins", 200);
+        CreateCombatant("Living Zombie", "Zombies", 100);
+        string reportedWinner = string.Empty;
+        int completionCalls = 0;
+        UnityAction<string> recordWinner = winner =>
+        {
+            completionCalls++;
+            reportedWinner = winner;
+        };
+        OnCombatEnd.AddListener(recordWinner);
+        try
+        {
+            manager.StartCombat();
+            yield return WaitForTurn(player.GameObject);
+            yield return CoroutineRunner.Await(
+                player.Creature.ApplyFinalDamageAsync(
+                    player.Creature.hp,
+                    RuleSource.FromSlug("test-multiple-opposition-defeat")
+                )
+            );
+
+            Assert.That(completionCalls, Is.EqualTo(1));
+            Assert.That(reportedWinner, Is.EqualTo("Goblins"));
+            Assert.That(
+                GetEncounterBridge().Snapshot.Encounters[GetEncounterBridge().EncounterId].Outcome,
+                Is.EqualTo(EncounterOutcome.PlayerDefeat)
+            );
+        }
+        finally
+        {
+            OnCombatEnd.RemoveListener(recordWinner);
+        }
+    }
+
+    /// <summary>Verifies a retained defeated opposition slot cannot be reported as winner.</summary>
+    [UnityTest]
+    public IEnumerator LegacyDefeatReportsLivingOppositionAfterEarlierTeamIsDefeated()
+    {
+        TeamRules rules = TeamRules.GetInstance();
+        rules.AddHostileTeam("Goblins");
+        rules.AddHostileTeam("Zombies");
+        CombatantFixture player = CreateCombatant("Legacy Player", "Players", 300);
+        CombatantFixture goblin = CreateCombatant("Defeated Goblin", "Goblins", 200);
+        CombatantFixture zombie = CreateCombatant("Living Zombie", "Zombies", 100);
+        string reportedWinner = string.Empty;
+        int completionCalls = 0;
+        UnityAction<string> recordWinner = winner =>
+        {
+            completionCalls++;
+            reportedWinner = winner;
+        };
+        OnCombatEnd.AddListener(recordWinner);
+        try
+        {
+            manager.StartCombat();
+            yield return WaitForTurn(player.GameObject);
+            yield return CoroutineRunner.Await(
+                goblin.Creature.ApplyFinalDamageAsync(
+                    goblin.Creature.hp,
+                    RuleSource.FromSlug("test-defeated-opposition")
+                )
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+            yield return CoroutineRunner.Await(
+                player.Creature.ApplyFinalDamageAsync(
+                    player.Creature.hp,
+                    RuleSource.FromSlug("test-living-opposition-winner")
+                )
+            );
+
+            UnityEncounterRulesBridge bridge = GetEncounterBridge();
+            Assert.That(completionCalls, Is.EqualTo(1));
+            Assert.That(reportedWinner, Is.EqualTo("Zombies"));
+            Assert.That(bridge.GetHealth(bridge.GetCreatureId(goblin.Creature)).Current, Is.Zero);
+            Assert.That(
+                bridge.GetHealth(bridge.GetCreatureId(zombie.Creature)).Current,
+                Is.Positive
+            );
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Outcome,
+                Is.EqualTo(EncounterOutcome.PlayerDefeat)
+            );
+        }
+        finally
+        {
+            OnCombatEnd.RemoveListener(recordWinner);
+        }
+    }
+
+    private IEnumerator WaitForTurn(GameObject expected = null)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (
+            (manager.WhosTurn() == null || (expected != null && manager.WhosTurn() != expected))
+            && Time.realtimeSinceStartup < deadline
+        )
+            yield return null;
+        Assert.That(manager.WhosTurn(), expected == null ? Is.Not.Null : Is.SameAs(expected));
+    }
+
+    private static Action<bool> WhenCombatBecomesActive(UnityAction callback)
+    {
+        return active =>
+        {
+            if (active)
+                callback();
+        };
+    }
+
+    private IEnumerator AssertLethalActionLifecycle(
+        CombatantFixture player,
+        CombatantFixture enemy,
+        EntityAction action,
+        int expectedActionCost,
+        bool configureGridTarget
+    )
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Lifecycle Test GridAPI").AddComponent<TestGridAPI>();
+        if (configureGridTarget)
+            grid.StrikeTarget = enemy.GameObject;
+        singletonField.SetValue(null, grid);
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            yield return WaitForTurn(player.GameObject);
+            RuleDispatcher dispatcher = GetEncounterDispatcher();
+            RecordingFactObserver<LegacyActionsSpentFact> actions = new();
+            RecordingFactObserver<LegacyMapIncrementedFact> map = new();
+            dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(actions);
+            dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(map);
+            int completionCalls = 0;
+            bool defeatPresentedAtCompletion = false;
+            bool actionSettledAtCompletion = false;
+            manager.DungeonCombatEnded += _ =>
+            {
+                completionCalls++;
+                defeatPresentedAtCompletion =
+                    enemy.Creature.IsDefeated && !enemy.GameObject.activeSelf;
+                actionSettledAtCompletion = !player.Controller.IsTakingAction;
+            };
+
+            // A prior fixture's delayed OnDestroy can clear the generic singleton after this
+            // helper creates its replacement. Publish the selected grid at the invocation edge.
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(action);
+            yield return WaitForCondition(
+                () => !manager.IsCombatActive && !player.Controller.IsTakingAction,
+                "Lethal Strike completion left combat or action presentation deferred."
+            );
+
+            Assert.That(actions.Facts, Has.Count.EqualTo(1));
+            Assert.That(actions.Facts[0].Amount, Is.EqualTo(expectedActionCost));
+            Assert.That(map.Facts, Has.Count.EqualTo(1));
+            Assert.That(map.Facts[0].AttackCount, Is.EqualTo(1));
+            Assert.That(completionCalls, Is.EqualTo(1));
+            Assert.That(defeatPresentedAtCompletion, Is.True);
+            Assert.That(actionSettledAtCompletion, Is.True);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
+    private IEnumerator AssertManualRageRejectsLethalRootQueuedBeforeSpend(uint actionCost)
+    {
+        string label = actionCost == 0 ? "Zero Cost" : "Positive Cost";
+        CombatantFixture player = CreateCombatant(label + " Rejected Rage Player", "Players", 300);
+        CombatantFixture ally = CreateCombatant(label + " Rejected Rage Ally", "Players", 200);
+        CombatantFixture enemy = CreateCombatant(label + " Rejected Rage Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { player.Controller, ally.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        PrepareBarbarian(player.Creature);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<TemporaryHitPointsGrantedFact> tempGrants = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(tempGrants);
+        Task occupyingDamage = enemy
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("block-before-manual-rage"))
+            .AsTask();
+        Task lethalDamage = null;
+        Task<bool> rage = null;
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The health root did not pause before queued manual Rage."
+            );
+            lethalDamage = player
+                .Creature.ApplyFinalDamageAsync(
+                    1000,
+                    RuleSource.FromSlug("lethal-before-manual-rage")
+                )
+                .AsTask();
+            rage = new Rage(actionCost).UseRageAsync(player.GameObject).AsTask();
+            yield return null;
+
+            Assert.That(lethalDamage.IsCompleted, Is.False);
+            Assert.That(rage.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(tempGrants.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(occupyingDamage));
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+            yield return WaitForCondition(
+                () => rage.IsCompleted,
+                "The rejected queued manual Rage did not settle."
+            );
+
+            Assert.That(rage.IsFaulted, Is.True);
+            StringAssert.Contains("does not own an active current turn", rage.Exception.ToString());
+            Assert.That(player.Creature.IsDefeated, Is.True);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.False);
+            Assert.That(player.Creature.Prepared.HasActiveEffect("effect-rage"), Is.False);
+            Assert.That(player.Creature.Health.Temporary, Is.Zero);
+            Assert.That(player.Creature.tempHp, Is.Zero);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(tempGrants.Facts, Is.Empty);
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(tempGrants);
+            _ = occupyingDamage.Exception;
+            _ = lethalDamage?.Exception;
+            _ = rage?.Exception;
+        }
+    }
+
+    private IEnumerator AssertManualRageSettlesBeforeLethalRootQueuedBehindSpend(uint actionCost)
+    {
+        string label = actionCost == 0 ? "Zero Cost" : "Positive Cost";
+        CombatantFixture player = CreateCombatant(label + " Accepted Rage Player", "Players", 300);
+        CombatantFixture ally = CreateCombatant(label + " Accepted Rage Ally", "Players", 200);
+        CombatantFixture enemy = CreateCombatant(label + " Accepted Rage Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { player.Controller, ally.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        PrepareBarbarian(player.Creature);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<TemporaryHitPointsGrantedFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<TemporaryHitPointsGrantedFact> tempGrants = new();
+        RageActionOrderingObserver order = new(bridge);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(tempGrants);
+        dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(order);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(order);
+        dispatcher.RegisterFactObserver<HealthFact>(order);
+        Task<bool> rage = new Rage(actionCost).UseRageAsync(player.GameObject).AsTask();
+        Task lethalDamage = null;
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The accepted manual Rage did not pause in temporary-HP observation."
+            );
+
+            Assert.That(rage.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u - actionCost));
+            Assert.That(player.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+            Assert.That(player.Creature.Health.Temporary, Is.EqualTo(2));
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(tempGrants.Facts, Is.Empty);
+
+            lethalDamage = player
+                .Creature.ApplyFinalDamageAsync(
+                    1000,
+                    RuleSource.FromSlug("lethal-after-manual-rage")
+                )
+                .AsTask();
+            yield return null;
+            Assert.That(lethalDamage.IsCompleted, Is.False);
+            Assert.That(player.Creature.IsDefeated, Is.False);
+
+            blocker.Release();
+            CoroutineResult<bool> rageResult = new();
+            yield return CoroutineRunner.Await(new ValueTask<bool>(rage), rageResult);
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+
+            string[] expectedOrder =
+                actionCost == 0
+                    ? new[] { "rage-temp", "lethal-after-manual-rage" }
+                    : new[] { "rage-temp", "actions", "lethal-after-manual-rage" };
+            Assert.That(order.Events, Is.EqualTo(expectedOrder));
+            Assert.That(rageResult.Value, Is.True);
+            Assert.That(tempGrants.Facts, Has.Count.EqualTo(1));
+            Assert.That(spends.Facts.Count, Is.EqualTo(actionCost == 0 ? 0 : 1));
+            if (actionCost > 0)
+                Assert.That(spends.Facts[0].Amount, Is.EqualTo((int)actionCost));
+            Assert.That(player.Creature.IsDefeated, Is.True);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(blocker);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(tempGrants);
+            dispatcher.UnregisterFactObserver<TemporaryHitPointsGrantedFact>(order);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(order);
+            dispatcher.UnregisterFactObserver<HealthFact>(order);
+            _ = rage.Exception;
+            _ = lethalDamage?.Exception;
+        }
+    }
+
+    private IEnumerator AssertQueuedSpellSettlesBeforeLaterDefeat(bool useAttackSpell)
+    {
+        string label = useAttackSpell ? "Attack Spell" : "Slotted Heal";
+        CombatantFixture player = CreateCombatant(label + " Root Player", "Players", 300);
+        CombatantFixture target = CreateCombatant(
+            label + " Root Target",
+            useAttackSpell ? "Enemies" : "Players",
+            200
+        );
+        CombatantFixture survivor = CreateCombatant(label + " Root Survivor", "Enemies", 100);
+        target.Creature.InitializeHealthBeforeEncounter(useAttackSpell ? 100 : 5, 100);
+        survivor.Creature.InitializeHealthBeforeEncounter(100, 100);
+        target.Creature.ac = -100;
+        player.Creature.level = 20;
+        player.Creature.wisMod = 20;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+        PreparedSpell spell = spellcasting.GetSpell(useAttackSpell ? "divine-lance" : "heal");
+        uint actionCost = useAttackSpell ? 2u : 1u;
+        string actionSource = useAttackSpell ? "divine-lance" : "heal";
+        string queuedSource = useAttackSpell
+            ? "queued-after-attack-spell"
+            : "queued-after-slotted-heal";
+        int slotsBefore = spellcasting.Pools["font-heal"].UsesRemaining;
+
+        manager.StartDungeonCombat(
+            new[] { player.Controller, target.Controller, survivor.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<LegacyActionsSpentFact> blocker = new(failAfterRelease: false);
+        TargetActionOrderingObserver order = new(bridge);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(order);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(order);
+        dispatcher.RegisterFactObserver<HealthFact>(order);
+        UnityEngine.Random.State randomBefore = UnityEngine.Random.state;
+        Task<CastSpellResult> cast = null;
+        Task lethalDamage = null;
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            cast = SpellcastingRuntime
+                .CastAsync(player.GameObject, spell, actionCost, new[] { target.GameObject })
+                .AsTask();
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The accepted "
+                    + label
+                    + " root did not pause after its root-owned effects settled."
+            );
+
+            Assert.That(cast.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u - actionCost));
+            Assert.That(player.Controller.StrikePenalty, Is.EqualTo(useAttackSpell ? 1u : 0u));
+            Assert.That(target.Creature.hp, useAttackSpell ? Is.LessThan(100) : Is.GreaterThan(5));
+            Assert.That(
+                spellcasting.Pools["font-heal"].UsesRemaining,
+                Is.EqualTo(useAttackSpell ? slotsBefore : slotsBefore - 1)
+            );
+
+            lethalDamage = target
+                .Creature.ApplyFinalDamageAsync(1000, RuleSource.FromSlug(queuedSource))
+                .AsTask();
+            yield return null;
+            Assert.That(lethalDamage.IsCompleted, Is.False);
+            Assert.That(target.Creature.IsDefeated, Is.False);
+
+            blocker.Release();
+            CoroutineResult<CastSpellResult> castResult = new();
+            yield return CoroutineRunner.Await(new ValueTask<CastSpellResult>(cast), castResult);
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+
+            string[] expectedOrder = useAttackSpell
+                ? new[] { "map", actionSource, "actions", queuedSource }
+                : new[] { actionSource, "actions", queuedSource };
+            Assert.That(order.Events, Is.EqualTo(expectedOrder));
+            Assert.That(castResult.Value.Success, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u - actionCost));
+            Assert.That(player.Controller.StrikePenalty, Is.EqualTo(useAttackSpell ? 1u : 0u));
+            Assert.That(
+                spellcasting.Pools["font-heal"].UsesRemaining,
+                Is.EqualTo(useAttackSpell ? slotsBefore : slotsBefore - 1)
+            );
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(target.Creature.IsDefeated, Is.True);
+            Assert.That(target.GameObject.activeSelf, Is.False);
+            Assert.That(
+                combatLog
+                    .GetMessages()
+                    .Count(message => message.Contains(" casts " + spell.Name + ".")),
+                Is.EqualTo(1)
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(order);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(order);
+            dispatcher.UnregisterFactObserver<HealthFact>(order);
+            UnityEngine.Random.state = randomBefore;
+            _ = cast?.Exception;
+            _ = lethalDamage?.Exception;
+        }
+    }
+
+    private IEnumerator AssertQueuedStrikeSettlesBeforeLaterDefeat(bool useAmmunitionWeapon)
+    {
+        string label = useAmmunitionWeapon ? "Weapon" : "Unarmed";
+        CombatantFixture player = CreateCombatant(label + " Root Player", "Players", 300);
+        CombatantFixture target = CreateCombatant(label + " Root Target", "Enemies", 200);
+        CombatantFixture survivor = CreateCombatant(label + " Root Survivor", "Enemies", 100);
+        target.Creature.InitializeHealthBeforeEncounter(100, 100);
+        survivor.Creature.InitializeHealthBeforeEncounter(100, 100);
+        target.Creature.ac = -100;
+        player.Creature.attackBonus = 100;
+        EquipmentWeapon weapon = new()
+        {
+            name = "Serialized Root Bow",
+            range = 60,
+            ammo = "serialized-root-arrows",
+            damage = new Dice(1, 6, "piercing"),
+            traits = new List<string>(),
+        };
+        player.Creature.SetAmmoQuantity(weapon.ammo, 2);
+        EntityAction action = useAmmunitionWeapon
+            ? new StrikeWeapon(1, weapon, player.GameObject)
+            : new Unarmed(
+                1,
+                new List<Dice> { new Dice(1, 6, "bludgeoning") },
+                new List<DamageValue>()
+            );
+        string actionSource = useAmmunitionWeapon ? "serialized-root-bow" : "unarmed";
+        string queuedSource = useAmmunitionWeapon
+            ? "queued-after-weapon-strike"
+            : "queued-after-unarmed-strike";
+        string actionLog = useAmmunitionWeapon
+            ? "strikes " + target.GameObject.name + " with Serialized Root Bow."
+            : "attacks " + target.GameObject.name + " with unarmed strike.";
+        int ammoBefore = player.Creature.GetAmmoQuantity(weapon.ammo);
+
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create(label + " Root GridAPI").AddComponent<TestGridAPI>();
+        grid.StrikeTarget = target.GameObject;
+        singletonField.SetValue(null, grid);
+        manager.StartDungeonCombat(
+            new[] { player.Controller, target.Controller, survivor.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<LegacyActionsSpentFact> blocker = new(failAfterRelease: false);
+        TargetActionOrderingObserver order = new(bridge);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(order);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(order);
+        dispatcher.RegisterFactObserver<HealthFact>(order);
+        UnityEngine.Random.State randomBefore = UnityEngine.Random.state;
+        Task lethalDamage = null;
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(action);
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The accepted "
+                    + label
+                    + " Strike root did not pause after its root-owned effects settled."
+            );
+
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(player.Controller.StrikePenalty, Is.EqualTo(1u));
+            Assert.That(target.Creature.hp, Is.LessThan(100));
+            Assert.That(
+                player.Creature.GetAmmoQuantity(weapon.ammo),
+                Is.EqualTo(useAmmunitionWeapon ? ammoBefore - 1 : ammoBefore)
+            );
+
+            lethalDamage = target
+                .Creature.ApplyFinalDamageAsync(1000, RuleSource.FromSlug(queuedSource))
+                .AsTask();
+            yield return null;
+            Assert.That(lethalDamage.IsCompleted, Is.False);
+            Assert.That(target.Creature.IsDefeated, Is.False);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The serialized " + label + " Strike did not release its reservation."
+            );
+
+            Assert.That(
+                order.Events,
+                Is.EqualTo(new[] { "map", actionSource, "actions", queuedSource })
+            );
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(player.Controller.StrikePenalty, Is.EqualTo(1u));
+            Assert.That(
+                player.Creature.GetAmmoQuantity(weapon.ammo),
+                Is.EqualTo(useAmmunitionWeapon ? ammoBefore - 1 : ammoBefore)
+            );
+            Assert.That(target.Creature.IsDefeated, Is.True);
+            Assert.That(target.GameObject.activeSelf, Is.False);
+            Assert.That(
+                combatLog.GetMessages().Count(message => message.Contains(actionLog)),
+                Is.EqualTo(1)
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(order);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(order);
+            dispatcher.UnregisterFactObserver<HealthFact>(order);
+            singletonField.SetValue(null, previousGrid);
+            UnityEngine.Random.state = randomBefore;
+            _ = lethalDamage?.Exception;
+        }
+    }
+
+    private IEnumerator AssertStaleSelectedStrikeRejectsBeforeCosts(
+        CombatantFixture player,
+        CombatantFixture defeatedTarget,
+        CombatantFixture livingEnemy,
+        EntityAction action,
+        EquipmentWeapon ammunitionWeapon,
+        string forbiddenAttackLog
+    )
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        object previousGrid = singletonField.GetValue(null);
+        TestGridAPI grid = Create("Stale Strike GridAPI").AddComponent<TestGridAPI>();
+        grid.StrikeTarget = defeatedTarget.GameObject;
+        grid.HoldStrikeSelection = true;
+        singletonField.SetValue(null, grid);
+        manager.StartDungeonCombat(
+            new[] { player.Controller, defeatedTarget.Controller, livingEnemy.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<LegacyMapIncrementedFact> maps = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+        Task blockingDamage = player
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("stale-strike-root-blocker"))
+            .AsTask();
+        Task lethalDamage = null;
+        int ammunitionBefore =
+            ammunitionWeapon == null ? 0 : player.Creature.GetAmmoQuantity(ammunitionWeapon.ammo);
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The stale-Strike blocker did not occupy the dispatcher."
+            );
+            UnityEngine.Random.State randomBefore = UnityEngine.Random.state;
+            singletonField.SetValue(null, grid);
+            player.Controller.TakeAction(action);
+            yield return WaitForCondition(
+                () => grid.StrikeSelectionStarted,
+                "The Strike did not select its initially living target."
+            );
+
+            lethalDamage = defeatedTarget
+                .Creature.ApplyFinalDamageAsync(
+                    1,
+                    RuleSource.FromSlug("stale-strike-target-defeat")
+                )
+                .AsTask();
+            grid.ReleaseStrikeSelection();
+            yield return WaitForCondition(
+                () => grid.StrikeSelectionCompleted,
+                "The selected Strike did not leave its targeting boundary."
+            );
+            yield return null;
+
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            if (ammunitionWeapon != null)
+                Assert.That(
+                    player.Creature.GetAmmoQuantity(ammunitionWeapon.ammo),
+                    Is.EqualTo(ammunitionBefore)
+                );
+
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("selected action target is no longer a living participant")
+            );
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(blockingDamage));
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+            yield return WaitForCondition(
+                () => !player.Controller.IsTakingAction,
+                "The rejected stale Strike did not release its action reservation."
+            );
+
+            Assert.That(defeatedTarget.Creature.IsDefeated, Is.True);
+            Assert.That(defeatedTarget.GameObject.activeSelf, Is.False);
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(manager.GetCombatants(), Has.Member(livingEnemy.GameObject));
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(UnityEngine.Random.state, Is.EqualTo(randomBefore));
+            Assert.That(
+                combatLog.GetMessages().Any(message => message.Contains(forbiddenAttackLog)),
+                Is.False
+            );
+            if (ammunitionWeapon != null)
+            {
+                Assert.That(
+                    player.Creature.GetAmmoQuantity(ammunitionWeapon.ammo),
+                    Is.EqualTo(ammunitionBefore)
+                );
+                Assert.That(player.Creature.IsWeaponLoaded(ammunitionWeapon), Is.True);
+            }
+        }
+        finally
+        {
+            grid.ReleaseStrikeSelection();
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(maps);
+            singletonField.SetValue(null, previousGrid);
+            _ = lethalDamage?.Exception;
+        }
+    }
+
+    private RuleDispatcher GetEncounterDispatcher()
+    {
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        FieldInfo dispatcherField = typeof(UnityEncounterRulesBridge).GetField(
+            "dispatcher",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        RuleDispatcher dispatcher = dispatcherField.GetValue(bridge) as RuleDispatcher;
+        Assert.That(dispatcher, Is.Not.Null);
+        return dispatcher;
+    }
+
+    private UnityEncounterRulesBridge GetEncounterBridge()
+    {
+        FieldInfo bridgeField = typeof(CombatManager).GetField(
+            "encounterRules",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        UnityEncounterRulesBridge bridge =
+            bridgeField.GetValue(manager) as UnityEncounterRulesBridge;
+        Assert.That(bridge, Is.Not.Null);
+        return bridge;
+    }
+
+    private Task CompleteDungeonSuspensionAsync(UnityEncounterRulesBridge bridge)
+    {
+        MethodInfo method = typeof(CombatManager).GetMethod(
+            "CompleteDungeonSuspensionAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(method, Is.Not.Null);
+        return (
+            (ValueTask)method.Invoke(manager, new object[] { bridge, GetEncounterGeneration() })
+        ).AsTask();
+    }
+
+    private long GetEncounterGeneration()
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "encounterGeneration",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (long)field.GetValue(manager);
+    }
+
+    private IEnumerator InvokeManagerRoutine(string name, params object[] arguments)
+    {
+        MethodInfo method = typeof(CombatManager).GetMethod(
+            name,
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(method, Is.Not.Null);
+        return (IEnumerator)method.Invoke(manager, arguments);
+    }
+
+    private static DungeonReinforcementRequest CreateReinforcementRequest(
+        long generation,
+        long sequence
+    ) =>
+        (DungeonReinforcementRequest)
+            Activator.CreateInstance(
+                typeof(DungeonReinforcementRequest),
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                null,
+                new object[] { generation, sequence },
+                null
+            );
+
+    private static UnityEncounterRulesBridge GetCreatureEncounterBridge(CreatureComponent creature)
+    {
+        FieldInfo field = typeof(CreatureComponent).GetField(
+            "encounterRules",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return field.GetValue(creature) as UnityEncounterRulesBridge;
+    }
+
+    private IReadOnlyList<ActionController> GetPublishedActiveCombatants()
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "activeCombatants",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return ((IEnumerable<ActionController>)field.GetValue(manager)).ToArray();
+    }
+
+    private IReadOnlyList<ActionController> GetStartupCombatants()
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "startupCombatants",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (IReadOnlyList<ActionController>)field.GetValue(manager);
+    }
+
+    private object GetPendingEncounterCompletion()
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "pendingEncounterCompletion",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return field.GetValue(manager);
+    }
+
+    private static IEnumerator WaitForCondition(Func<bool> condition, string timeoutMessage)
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (!condition() && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        Assert.That(condition(), Is.True, timeoutMessage);
+    }
+
+    private static int GetManagedListenerCount(ActionController controller, string fieldName)
+    {
+        FieldInfo field = typeof(ActionController).GetField(
+            fieldName,
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return ((ICollection)field.GetValue(controller)).Count;
+    }
+
+    private CombatantFixture CreateCombatant(
+        string name,
+        string teamName,
+        int initiative,
+        bool addConditions = true
+    )
     {
         GameObject gameObject = Create(name);
         CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
         creature.name = name;
         creature.initiative = initiative;
         creature.InitializeHealthBeforeEncounter(10, 10);
-        Conditions conditions = gameObject.AddComponent<Conditions>();
+        Conditions conditions = addConditions ? gameObject.AddComponent<Conditions>() : null;
         TestActionController controller = gameObject.AddComponent<TestActionController>();
         Team team = gameObject.AddComponent<Team>();
         team.Name = teamName;
         manager.AddCombatant(controller);
         return new CombatantFixture(gameObject, creature, conditions, controller);
+    }
+
+    private T CreateLifecycleController<T>(string name, string teamName, int initiative)
+        where T : ActionController
+    {
+        GameObject gameObject = Create(name);
+        CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
+        creature.name = name;
+        creature.initiative = initiative;
+        creature.InitializeHealthBeforeEncounter(10, 10);
+        gameObject.AddComponent<Conditions>();
+        Team team = gameObject.AddComponent<Team>();
+        team.Name = teamName;
+        return gameObject.AddComponent<T>();
+    }
+
+    private static void PrepareBarbarian(CreatureComponent creature)
+    {
+        creature.level = 1;
+        creature.conMod = 1;
+        creature.Build = new CharacterBuild
+        {
+            ClassName = "Barbarian",
+            SubclassName = "Fury Instinct",
+            ClassFeatName = "Raging Intimidation",
+        };
+        creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
+    }
+
+    private static EquipmentWeapon CreateReloadTestWeapon()
+    {
+        return new EquipmentWeapon
+        {
+            name = "Review Sling",
+            range = 50,
+            reload = "1",
+            ammo = "review-sling-bullets",
+            damage = new Dice(1, 6, "bludgeoning"),
+            traits = new List<string> { "propulsive" },
+        };
     }
 
     private GameObject Create(string name)
@@ -371,6 +5542,20 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
     private static void DestroyExistingRuntime()
     {
+        foreach (
+            CoroutineRunner runner in UnityEngine.Object.FindObjectsByType<CoroutineRunner>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None
+            )
+        )
+            UnityEngine.Object.DestroyImmediate(runner.gameObject);
+        foreach (
+            GridAPI grid in UnityEngine.Object.FindObjectsByType<GridAPI>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None
+            )
+        )
+            UnityEngine.Object.DestroyImmediate(grid.gameObject);
         foreach (
             GameManager gameManager in UnityEngine.Object.FindObjectsByType<GameManager>(
                 FindObjectsInactive.Include,
@@ -397,7 +5582,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
     private static void AssertTransientTurnStateCleared(TestActionController controller)
     {
         Assert.That(controller.ActionPoints, Is.Zero);
-        Assert.That(controller.Reacted, Is.False);
+        Assert.That(controller.Reacted, Is.True);
         Assert.That(controller.StrikePenalty, Is.Zero);
         Assert.That(controller.IsTakingAction, Is.False);
         Assert.That(controller.HasTurnAuthority, Is.False);
@@ -438,16 +5623,17 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         public override void EndTurn()
         {
-            if (!IsTurn)
+            if (!HasTurnAuthority)
                 return;
 
-            IsTurn = false;
             IsTakingAction = false;
             CombatManagerInterface.GetInstance().NextTurn();
         }
     }
 
-    private sealed class TestEntityAction : EntityAction
+    private sealed class StandaloneTestAIActionController : AIActionController { }
+
+    private sealed class TestEntityAction : MultiFrameEntityAction
     {
         private readonly Action invocation;
 
@@ -461,13 +5647,154 @@ public sealed class DungeonEncounterCombatPlayModeTests
         public override string ActionName { get; }
 
         /// <inheritdoc/>
-        public override void Invoke(GameObject target)
+        protected override IEnumerator MFInvoke(GameObject target)
         {
             ActionController controller = target.GetComponent<ActionController>();
             invocation();
-            PayCost(controller);
-            controller.IsTakingAction = false;
+            yield return CoroutineRunner.Await(PayCostAsync(controller));
         }
+    }
+
+    private sealed class GatedEntityAction : MultiFrameEntityAction
+    {
+        private bool released;
+
+        internal GatedEntityAction(string name)
+            : base(0) => ActionName = name;
+
+        public override string ActionName { get; }
+        internal bool Started { get; private set; }
+
+        internal void Release() => released = true;
+
+        /// <inheritdoc/>
+        protected override IEnumerator MFInvoke(GameObject target)
+        {
+            Started = true;
+            while (!released)
+                yield return null;
+        }
+    }
+
+    private sealed class PausedCompletionSpellDefinition : ISpellDefinition
+    {
+        private bool completionReleased;
+
+        public string Slug => "light";
+        internal bool CastSettled { get; private set; }
+        internal bool OuterSelectionFinishing { get; private set; }
+
+        public IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => new[] { 1u };
+
+        public IEnumerator SelectAndCast(SpellCastContext context)
+        {
+            yield return CoroutineRunner.Await(context.CastAsync(SpellTargetSelection.None));
+            CastSettled = true;
+            while (!completionReleased)
+                yield return null;
+            OuterSelectionFinishing = true;
+            yield return null;
+        }
+
+        public bool IsSelectionValid(SpellCastContext context, SpellTargetSelection selection) =>
+            true;
+
+        public ValueTask<bool> Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
+        {
+            result.Targets.Add(context.Caster);
+            return new ValueTask<bool>(true);
+        }
+
+        public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
+
+        internal void ReleaseCompletion() => completionReleased = true;
+    }
+
+    private sealed class PausedLethalSpellDefinition : ISpellDefinition
+    {
+        private readonly GameObject target;
+        private readonly TaskCompletionSource<bool> release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        internal PausedLethalSpellDefinition(GameObject target) => this.target = target;
+
+        public string Slug => "light";
+        internal bool DamageSettled { get; private set; }
+        internal bool CastBodyFinished { get; private set; }
+
+        public IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => new[] { 1u };
+
+        public IEnumerator SelectAndCast(SpellCastContext context)
+        {
+            yield return CoroutineRunner.Await(
+                context.CastAsync(SpellTargetSelection.ForTarget(target))
+            );
+        }
+
+        public bool IsSelectionValid(SpellCastContext context, SpellTargetSelection selection) =>
+            selection.Targets.Count == 1 && selection.Targets[0] == target;
+
+        public async ValueTask<bool> Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
+        {
+            await target
+                .GetComponent<CreatureComponent>()
+                .ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-paused-lethal-spell"));
+            DamageSettled = true;
+            await release.Task;
+            result.Targets.Add(target);
+            CastBodyFinished = true;
+            return true;
+        }
+
+        public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
+
+        internal void Release() => release.TrySetResult(true);
+    }
+
+    private sealed class FaultingSelfLethalSpellDefinition : ISpellDefinition
+    {
+        private readonly GameObject target;
+
+        internal FaultingSelfLethalSpellDefinition(GameObject target) => this.target = target;
+
+        public string Slug => "light";
+        internal bool DamageSettled { get; private set; }
+
+        public IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => new[] { 1u };
+
+        public IEnumerator SelectAndCast(SpellCastContext context)
+        {
+            yield return CoroutineRunner.Await(
+                context.CastAsync(SpellTargetSelection.ForTarget(target))
+            );
+        }
+
+        public bool IsSelectionValid(SpellCastContext context, SpellTargetSelection selection) =>
+            selection.Targets.Count == 1 && selection.Targets[0] == target;
+
+        public async ValueTask<bool> Cast(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            CastSpellResult result
+        )
+        {
+            await target
+                .GetComponent<CreatureComponent>()
+                .ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-faulting-self-lethal-spell"));
+            DamageSettled = true;
+            throw new InvalidOperationException("deliberate post-defeat spell failure");
+        }
+
+        public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
     }
 
     private sealed class TestCombatLog : CombatLogInterface
@@ -499,7 +5826,101 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
     private sealed class TestGridAPI : GridAPI
     {
+        private bool releaseStrikeSelection;
+
         public List<GameObject> DestroyedTokens { get; } = new();
+        public GameObject StrikeTarget { get; set; }
+        public Func<GameObject, IEnumerator> StrideRoutine { get; set; }
+        public int StrideCalls { get; private set; }
+        public bool HoldStrikeSelection { get; set; }
+        public bool StrikeSelectionStarted { get; private set; }
+        public bool StrikeSelectionCompleted { get; private set; }
+
+        public void ReleaseStrikeSelection() => releaseStrikeSelection = true;
+
+        public override IEnumerator Stride(GameObject character)
+        {
+            StrideCalls++;
+            if (StrideRoutine != null)
+                yield return StrideRoutine(character);
+        }
+
+        public override IEnumerator GetStrikeTarget(
+            GameObject attacker,
+            StrikeTargetRequest request,
+            CoroutineResult<StrikeTargetResult> target
+        )
+        {
+            if (StrikeTarget != null)
+            {
+                target.Value = new StrikeTargetResult
+                {
+                    Target = StrikeTarget,
+                    DistanceFeet = 5,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                    Cover = StrikeCover.None,
+                    RangePenalty = 0,
+                };
+            }
+            if (HoldStrikeSelection)
+            {
+                StrikeSelectionStarted = true;
+                while (!releaseStrikeSelection)
+                    yield return null;
+            }
+            StrikeSelectionCompleted = true;
+            yield break;
+        }
+
+        public override IEnumerator GetAreaTarget(
+            AreaTargetSource source,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> target
+        )
+        {
+            yield break;
+        }
+
+        public override bool DestroyToken(GameObject token)
+        {
+            DestroyedTokens.Add(token);
+            return true;
+        }
+    }
+
+    private sealed class StartupTestGridAPI : GridAPI, GridAPIPrivate
+    {
+        private readonly Tile[,] tiles = CreateTiles(8, 8);
+
+        public List<GameObject> DestroyedTokens { get; } = new();
+
+        public bool Contains(GameObject token) =>
+            tiles.Cast<Tile>().Any(tile => tile.Occupants.Contains(token));
+
+        public Tile[,] GetTiles() => tiles;
+
+        public bool[,] GetLineOfSightBlocks() => new bool[tiles.GetLength(0), tiles.GetLength(1)];
+
+        public IPathfinder GetPathfinder() => null;
+
+        public bool AddToken(GameObject token)
+        {
+            Vector3Int position = Vector3Int.RoundToInt(token.transform.position);
+            if (!GridTargeting.IsInBounds(tiles, position))
+                return false;
+            Tile tile = tiles[position.x, position.z];
+            if (!tile.Occupants.Contains(token))
+                tile.Occupants.Add(token);
+            return true;
+        }
+
+        public override bool DestroyToken(GameObject token)
+        {
+            DestroyedTokens.Add(token);
+            foreach (Tile tile in tiles)
+                tile.Occupants.Remove(token);
+            return true;
+        }
 
         public override IEnumerator Stride(GameObject character)
         {
@@ -524,10 +5945,158 @@ public sealed class DungeonEncounterCombatPlayModeTests
             yield break;
         }
 
-        public override bool DestroyToken(GameObject token)
+        private static Tile[,] CreateTiles(int width, int height)
         {
-            DestroyedTokens.Add(token);
-            return true;
+            Tile[,] created = new Tile[width, height];
+            for (int x = 0; x < width; x++)
+            {
+                for (int z = 0; z < height; z++)
+                    created[x, z] = new Tile();
+            }
+            return created;
+        }
+    }
+
+    private sealed class RageActionOrderingObserver
+        : IFactObserver<TemporaryHitPointsGrantedFact>,
+            IFactObserver<LegacyActionsSpentFact>,
+            IFactObserver<HealthFact>
+    {
+        private readonly UnityEncounterRulesBridge bridge;
+        private readonly List<string> events = new();
+
+        internal RageActionOrderingObserver(UnityEncounterRulesBridge bridge) =>
+            this.bridge = bridge;
+
+        internal IReadOnlyList<string> Events => events;
+
+        public ValueTask OnFactCommitted(TemporaryHitPointsGrantedFact fact, RulesSnapshot snapshot)
+        {
+            events.Add("rage-temp");
+            return default;
+        }
+
+        public ValueTask OnFactCommitted(LegacyActionsSpentFact fact, RulesSnapshot snapshot)
+        {
+            events.Add("actions");
+            return default;
+        }
+
+        public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot snapshot)
+        {
+            if (
+                fact is DamageAppliedFact
+                && bridge.TryGetOriginSource(fact.Origin, out RuleSource source)
+            )
+                events.Add(source.Slug);
+            return default;
+        }
+    }
+
+    private sealed class TargetActionOrderingObserver
+        : IFactObserver<LegacyActionsSpentFact>,
+            IFactObserver<LegacyMapIncrementedFact>,
+            IFactObserver<HealthFact>
+    {
+        private readonly UnityEncounterRulesBridge bridge;
+        private readonly List<string> events = new();
+
+        internal TargetActionOrderingObserver(UnityEncounterRulesBridge bridge) =>
+            this.bridge = bridge;
+
+        internal IReadOnlyList<string> Events => events;
+
+        public ValueTask OnFactCommitted(LegacyActionsSpentFact fact, RulesSnapshot snapshot)
+        {
+            events.Add("actions");
+            return default;
+        }
+
+        public ValueTask OnFactCommitted(LegacyMapIncrementedFact fact, RulesSnapshot snapshot)
+        {
+            events.Add("map");
+            return default;
+        }
+
+        public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot snapshot)
+        {
+            if (
+                (fact is DamageAppliedFact || fact is HealingAppliedFact)
+                && bridge.TryGetOriginSource(fact.Origin, out RuleSource source)
+            )
+                events.Add(source.Slug);
+            return default;
+        }
+    }
+
+    private sealed class RecordingFactObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        private readonly List<TFact> facts = new();
+
+        public IReadOnlyList<TFact> Facts => facts;
+
+        public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+        {
+            facts.Add(fact);
+            return default;
+        }
+    }
+
+    private sealed class BlockingFactObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        private readonly bool failAfterRelease;
+        private readonly string failureMessage;
+        private readonly TaskCompletionSource<bool> started = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private readonly TaskCompletionSource<bool> release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        internal BlockingFactObserver(
+            bool failAfterRelease,
+            string failureMessage = "deliberate Rage Fact failure"
+        )
+        {
+            this.failAfterRelease = failAfterRelease;
+            this.failureMessage = failureMessage;
+        }
+
+        internal Task Started => started.Task;
+
+        internal void Release() => release.TrySetResult(true);
+
+        public async ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+        {
+            started.TrySetResult(true);
+            await release.Task;
+            if (failAfterRelease)
+                throw new InvalidOperationException(failureMessage);
+        }
+    }
+
+    private sealed class SelectedFactFailureObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        private readonly Func<TFact, bool> shouldFail;
+        private readonly string failureMessage;
+
+        internal SelectedFactFailureObserver(Func<TFact, bool> shouldFail, string failureMessage)
+        {
+            this.shouldFail = shouldFail;
+            this.failureMessage = failureMessage;
+        }
+
+        internal int Calls { get; private set; }
+
+        public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+        {
+            if (!shouldFail(fact))
+                return default;
+            Calls++;
+            throw new InvalidOperationException(failureMessage);
         }
     }
 }

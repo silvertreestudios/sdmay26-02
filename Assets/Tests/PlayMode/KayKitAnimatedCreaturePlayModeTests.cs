@@ -299,9 +299,11 @@ public sealed class KayKitAnimatedCreaturePlayModeTests
         Tile tile = grid.GetTiles()[location.x, location.z];
         Assert.That(tile.Occupants.Contains(lena.gameObject), Is.True);
 
-        lena.ApplyFinalDamage(
-            lena.hp + lena.tempHp,
-            Game.Rules.Runtime.RuleSource.FromSlug("test-damage")
+        yield return CoroutineRunner.Await(
+            lena.ApplyFinalDamageAsync(
+                lena.hp + lena.tempHp,
+                Game.Rules.Runtime.RuleSource.FromSlug("test-damage")
+            )
         );
 
         Assert.That(tile.Occupants.Contains(lena.gameObject), Is.False);

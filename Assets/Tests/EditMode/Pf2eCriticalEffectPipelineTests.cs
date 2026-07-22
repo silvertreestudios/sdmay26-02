@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.Strikes;
 using GridPublic;
@@ -24,7 +25,7 @@ namespace TestsCombat
         }
 
         [Test]
-        public void DeadlyTraitAddsExtraDieOnlyOnCriticalThroughPipeline()
+        public async Task DeadlyTraitAddsExtraDieOnlyOnCriticalThroughPipeline()
         {
             // PF2e sources:
             // Strike critical damage: https://2e.aonprd.com/Rules.aspx?ID=2343
@@ -36,7 +37,7 @@ namespace TestsCombat
             GameObject attacker = CreateCreature("attacker", 100);
             GameObject target = CreateCreature("target", 100);
 
-            StrikeResolutionResult normal = ResolveForcedStrike(
+            StrikeResolutionResult normal = await ResolveForcedStrikeAsync(
                 attacker,
                 target,
                 DegreeOfSuccess.Success,
@@ -48,7 +49,7 @@ namespace TestsCombat
                 normal.LogDetails.Any(detail => detail.Value.Contains("deadly-d10 critical damage"))
             );
 
-            StrikeResolutionResult critical = ResolveForcedStrike(
+            StrikeResolutionResult critical = await ResolveForcedStrikeAsync(
                 attacker,
                 target,
                 DegreeOfSuccess.CriticalSuccess,
@@ -70,7 +71,7 @@ namespace TestsCombat
         }
 
         [Test]
-        public void FatalTraitUsesPreRollUpgradeAndPostDoubleExtraDieOnlyOnCritical()
+        public async Task FatalTraitUsesPreRollUpgradeAndPostDoubleExtraDieOnlyOnCritical()
         {
             // PF2e sources:
             // Strike critical damage: https://2e.aonprd.com/Rules.aspx?ID=2343
@@ -82,7 +83,7 @@ namespace TestsCombat
             GameObject attacker = CreateCreature("attacker", 100);
             GameObject target = CreateCreature("target", 100);
 
-            StrikeResolutionResult normal = ResolveForcedStrike(
+            StrikeResolutionResult normal = await ResolveForcedStrikeAsync(
                 attacker,
                 target,
                 DegreeOfSuccess.Success,
@@ -95,7 +96,7 @@ namespace TestsCombat
             Assert.GreaterOrEqual(normal.FinalAppliedDamage, 1u);
             Assert.LessOrEqual(normal.FinalAppliedDamage, 6u);
 
-            StrikeResolutionResult critical = ResolveForcedStrike(
+            StrikeResolutionResult critical = await ResolveForcedStrikeAsync(
                 attacker,
                 target,
                 DegreeOfSuccess.CriticalSuccess,
@@ -125,7 +126,7 @@ namespace TestsCombat
         }
 
         [Test]
-        public void PipelineRunsEffectsInPhaseOrderAndAppliesDefenseBeforeFinalDamage()
+        public async Task PipelineRunsEffectsInPhaseOrderAndAppliesDefenseBeforeFinalDamage()
         {
             GameObject logObject = new GameObject("test-combat-log");
             InstallTestCombatLog(logObject);
@@ -179,7 +180,7 @@ namespace TestsCombat
                 )
             );
 
-            StrikeResolutionResult result = ResolveStrike(
+            StrikeResolutionResult result = await ResolveStrikeAsync(
                 attacker,
                 target,
                 null,
@@ -249,7 +250,7 @@ namespace TestsCombat
         }
 
         [Test]
-        public void TargetProviderReceivesContextAfterCriticalDamageApplied()
+        public async Task TargetProviderReceivesContextAfterCriticalDamageApplied()
         {
             GameObject logObject = new GameObject("test-combat-log");
             InstallTestCombatLog(logObject);
@@ -274,7 +275,7 @@ namespace TestsCombat
                 new List<string> { "deadly-d10" }
             );
 
-            StrikeResolutionResult normal = ResolveForcedStrike(
+            StrikeResolutionResult normal = await ResolveForcedStrikeAsync(
                 attacker,
                 target,
                 DegreeOfSuccess.Success,
@@ -283,7 +284,7 @@ namespace TestsCombat
             );
             Assert.AreEqual(0, provider.Calls);
 
-            StrikeResolutionResult critical = ResolveForcedStrike(
+            StrikeResolutionResult critical = await ResolveForcedStrikeAsync(
                 attacker,
                 target,
                 DegreeOfSuccess.CriticalSuccess,
@@ -319,9 +320,13 @@ namespace TestsCombat
         {
             GameObject creature = new GameObject(name);
             CreatureComponent component = creature.AddComponent<CreatureComponent>();
-            creature.AddComponent<TestActionController>();
+            TestActionController controller = creature.AddComponent<TestActionController>();
+            creature.AddComponent<Team>().Name = "Players";
             component.InitializeHealthBeforeEncounter(hp, hp);
-            Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { component });
+            Game.Rules.Unity.UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
             component.ac = 10;
             component.attackBonus = 10;
             component.weaknesses = new List<DamageValue>();
@@ -329,7 +334,7 @@ namespace TestsCombat
             return creature;
         }
 
-        private static StrikeResolutionResult ResolveForcedStrike(
+        private static ValueTask<StrikeResolutionResult> ResolveForcedStrikeAsync(
             GameObject attacker,
             GameObject target,
             DegreeOfSuccess degree,
@@ -343,10 +348,17 @@ namespace TestsCombat
                 attacker.GetComponent<TestStrikeAdjustmentProvider>()
                 ?? attacker.AddComponent<TestStrikeAdjustmentProvider>();
             provider.Effects.Add(new ForceDegreeStrikeAdjustment(degree));
-            return ResolveStrike(attacker, target, traits, sourceInfo, damageDice, flatDamages);
+            return ResolveStrikeAsync(
+                attacker,
+                target,
+                traits,
+                sourceInfo,
+                damageDice,
+                flatDamages
+            );
         }
 
-        private static StrikeResolutionResult ResolveStrike(
+        private static ValueTask<StrikeResolutionResult> ResolveStrikeAsync(
             GameObject attacker,
             GameObject target,
             List<string> traits = null,
@@ -356,7 +368,7 @@ namespace TestsCombat
         )
         {
             StrikeProfile profile = BuildProfile(traits, sourceInfo, damageDice, flatDamages);
-            return StrikeResolutionPipeline.Resolve(
+            return StrikeResolutionPipeline.ResolveAsync(
                 new StrikeResolutionRequest
                 {
                     Attacker = attacker,

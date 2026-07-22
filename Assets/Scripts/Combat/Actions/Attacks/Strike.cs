@@ -155,6 +155,16 @@ public class StrikeResolutionRequest
     public GameObject Target { get; set; }
     public StrikeProfile Profile { get; set; }
     public StrikeTargetResult TargetingResult { get; set; }
+
+    /// <summary>
+    /// Gets or sets the attack count captured before this Strike committed its MAP increment.
+    /// </summary>
+    /// <remarks>
+    /// Invoking actions commit cost and the next-attack MAP state before effects that may end an
+    /// encounter. Supplying this value preserves the penalty for the current attack. Direct rules
+    /// tests and unmigrated callers may omit it to read the controller's current count.
+    /// </remarks>
+    public uint? MultipleAttackCountOverride { get; set; }
 }
 
 /// <summary>
@@ -226,6 +236,7 @@ public class StrikeResolutionContext
     public int AttackBonus { get; set; }
     public int TotalAttackModifier { get; set; }
     public int MultipleAttackPenalty { get; set; }
+    internal uint? MultipleAttackCountOverride { get; set; }
     public int RangePenalty { get; set; }
     public int CoverAcBonus { get; set; }
     public bool FlankedOffGuard { get; set; }
@@ -260,6 +271,7 @@ public class StrikeResolutionContext
             FlatDamages = new List<DamageValue>(profile.FlatDamages ?? new List<DamageValue>()),
             DamageValues = new List<DamageValue>(),
             TargetingResult = request.TargetingResult,
+            MultipleAttackCountOverride = request.MultipleAttackCountOverride,
         };
     }
 

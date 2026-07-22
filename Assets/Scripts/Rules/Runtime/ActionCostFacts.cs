@@ -235,12 +235,14 @@ namespace Game.Rules.Runtime
         /// <param name="actionOpId">The action frame that spent the frequency.</param>
         /// <param name="actor">The creature authorized by the binding.</param>
         /// <param name="binding">The active binding whose use changed.</param>
+        /// <param name="encounter">The encounter that owns the frequency use.</param>
         /// <param name="round">The round marker retained by frequency state.</param>
         /// <param name="uses">The number of uses recorded after the commit.</param>
         public BindingFrequencySpentFact(
             OpId actionOpId,
             CreatureId actor,
             BindingId binding,
+            EncounterId encounter,
             int round,
             int uses
         )
@@ -251,6 +253,8 @@ namespace Game.Rules.Runtime
                 throw new ArgumentException("An action actor is required.", nameof(actor));
             if (binding.IsEmpty)
                 throw new ArgumentException("A binding ID is required.", nameof(binding));
+            if (encounter.IsEmpty)
+                throw new ArgumentException("An encounter ID is required.", nameof(encounter));
             if (round < 0)
                 throw new ArgumentOutOfRangeException(nameof(round));
             if (uses <= 0)
@@ -258,6 +262,7 @@ namespace Game.Rules.Runtime
             ActionOpId = actionOpId;
             Actor = actor;
             Binding = binding;
+            Encounter = encounter;
             Round = round;
             Uses = uses;
         }
@@ -276,6 +281,12 @@ namespace Game.Rules.Runtime
         /// Gets the active binding whose frequency changed.
         /// </summary>
         public BindingId Binding { get; }
+
+        /// <summary>
+        /// Gets the encounter that owns the frequency use so equal rounds in later encounters do
+        /// not inherit this spend.
+        /// </summary>
+        public EncounterId Encounter { get; }
 
         /// <summary>
         /// Gets the round marker retained by frequency state.

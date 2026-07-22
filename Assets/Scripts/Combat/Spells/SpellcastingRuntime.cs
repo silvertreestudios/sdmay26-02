@@ -1,12 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
+using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
+using HealthBatchChangeKind = Game.Rules.Runtime.HealthBatchChangeKind;
+using HealthBatchOutcome = Game.Rules.Runtime.HealthBatchOutcome;
 using RuleSource = Game.Rules.Runtime.RuleSource;
 
 namespace Game.Combat.Spells
@@ -52,6 +56,12 @@ namespace Game.Combat.Spells
         public uint ActionCost { get; }
         public bool SpendActions { get; }
         public ISpellDefinition Definition { get; }
+        internal ActionReservationToken OwnedActionReservation { get; }
+
+        /// <summary>
+        /// Gets the turn attack count captured before an attack spell commits its MAP increment.
+        /// </summary>
+        public uint? MultipleAttackCountOverride { get; internal set; }
 
         public SpellCastContext(
             GameObject caster,
@@ -60,12 +70,30 @@ namespace Game.Combat.Spells
             bool spendActions,
             ISpellDefinition definition
         )
+            : this(
+                caster,
+                spell,
+                actionCost,
+                spendActions,
+                definition,
+                ownedActionReservation: default
+            ) { }
+
+        internal SpellCastContext(
+            GameObject caster,
+            PreparedSpell spell,
+            uint actionCost,
+            bool spendActions,
+            ISpellDefinition definition,
+            ActionReservationToken ownedActionReservation
+        )
         {
             Caster = caster;
             Spell = spell;
             ActionCost = actionCost;
             SpendActions = spendActions;
             Definition = definition;
+            OwnedActionReservation = ownedActionReservation;
         }
 
         public ActionController ActionController =>
@@ -74,8 +102,11 @@ namespace Game.Combat.Spells
             Caster != null ? Caster.GetComponent<CreatureComponent>() : null;
         public SpellcastingState Spellcasting => CasterCreature?.Prepared?.Spellcasting;
 
-        public CastSpellResult Cast(SpellTargetSelection selection) =>
-            SpellcastingRuntime.Cast(this, selection);
+        /// <summary>Applies one completed selection through this cast's awaited runtime context.</summary>
+        /// <param name="selection">The selected direct targets or area.</param>
+        /// <returns>The settled cast result.</returns>
+        public ValueTask<CastSpellResult> CastAsync(SpellTargetSelection selection) =>
+            SpellcastingRuntime.CastAsync(this, selection);
     }
 
     public static class SpellcastingRuntime
@@ -90,7 +121,15 @@ namespace Game.Combat.Spells
             };
         }
 
-        public static CastSpellResult Cast(
+        /// <summary>Builds and executes one prepared spell cast through its registered definition.</summary>
+        /// <param name="caster">The casting creature.</param>
+        /// <param name="spell">The prepared spell entry being consumed or invoked.</param>
+        /// <param name="actionCost">The selected action-cost variant.</param>
+        /// <param name="targets">Optional already-selected direct targets.</param>
+        /// <param name="area">Optional already-selected area result.</param>
+        /// <param name="spendActions">Whether the cast pays encounter actions on success.</param>
+        /// <returns>The settled cast result, including validation failures.</returns>
+        public static ValueTask<CastSpellResult> CastAsync(
             GameObject caster,
             PreparedSpell spell,
             uint actionCost,
@@ -100,17 +139,35 @@ namespace Game.Combat.Spells
         )
         {
             if (!SpellRegistry.TryGet(spell?.Slug, out ISpellDefinition definition))
-                return Fail(
-                    new CastSpellResult(),
-                    spell == null ? "Spell is not prepared." : spell.Name + " is not implemented.",
-                    caster != null ? caster.GetComponent<ActionController>() : null
+                return new ValueTask<CastSpellResult>(
+                    Fail(
+                        new CastSpellResult(),
+                        spell == null
+                            ? "Spell is not prepared."
+                            : spell.Name + " is not implemented."
+                    )
                 );
 
             SpellCastContext context = new(caster, spell, actionCost, spendActions, definition);
-            return Cast(context, new SpellTargetSelection(targets, area));
+            return CastAsync(context, new SpellTargetSelection(targets, area));
         }
 
-        public static CastSpellResult Cast(SpellCastContext context, SpellTargetSelection selection)
+        /// <summary>
+        /// Validates selection and active-encounter membership, commits costs and MAP, then awaits
+        /// spell effects.
+        /// </summary>
+        /// <param name="context">The cast context and registered spell definition.</param>
+        /// <param name="selection">The completed target selection.</param>
+        /// <returns>The settled cast result.</returns>
+        /// <remarks>
+        /// Direct contexts acquire the controller action reservation here. Contexts created by
+        /// <see cref="CastSpellAction"/> borrow its outer reservation, which remains owned by the
+        /// enclosing multi-frame lifecycle until selection and cast presentation both finish.
+        /// </remarks>
+        public static async ValueTask<CastSpellResult> CastAsync(
+            SpellCastContext context,
+            SpellTargetSelection selection
+        )
         {
             CastSpellResult result = new();
             CreatureComponent creature = context.CasterCreature;
@@ -122,36 +179,101 @@ namespace Game.Combat.Spells
                 || state == null
                 || context.Spell == null
             )
-                return Fail(result, "Caster is not ready to cast spells.", controller);
+                return Fail(result, "Caster is not ready to cast spells.");
             if (
-                context.ActionCost > 0
-                && controller != null
-                && context.SpendActions
-                && controller.ActionPoints < context.ActionCost
+                creature.TryGetEncounterRulesBridge(out UnityEncounterRulesBridge attachedBridge)
+                && !attachedBridge.AllowsNewActionLifecycle
             )
-                return Fail(result, "Not enough actions.", controller);
-            if (!state.CanCast(context.Spell))
-                return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
+                return Fail(result, "The caster's encounter is no longer active.");
+            if (!state.TryReserveCast())
+                return Fail(result, "The caster is already casting a spell.");
 
-            if (!context.Definition.Cast(context, selection ?? SpellTargetSelection.None, result))
-                return Fail(result, "Spell target is invalid.", controller);
-            if (!state.Spend(context.Spell))
-                return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
-            if (controller != null && context.SpendActions)
+            bool releaseActionReservation = false;
+            ActionReservationToken actionReservation = default;
+            try
             {
-                controller.ActionPoints -= context.ActionCost;
-                if (context.Definition.AppliesMultipleAttackPenalty(context))
-                    controller.StrikePenalty += 1;
-                controller.IsTakingAction = false;
+                if (controller != null)
+                {
+                    if (context.OwnedActionReservation.IsValid)
+                    {
+                        if (!controller.OwnsActionReservation(context.OwnedActionReservation))
+                            return Fail(result, "The spell action no longer owns its reservation.");
+                    }
+                    else
+                    {
+                        if (!controller.TryReserveAction(out actionReservation))
+                            return Fail(result, "The caster is already taking an action.");
+                        releaseActionReservation = true;
+                    }
+                }
+                if (
+                    context.ActionCost > 0
+                    && controller != null
+                    && context.SpendActions
+                    && controller.ActionPoints < context.ActionCost
+                )
+                    return Fail(result, "Not enough actions.");
+                if (!state.CanCast(context.Spell))
+                    return Fail(result, context.Spell.Name + " has no remaining slot.");
+
+                SpellTargetSelection selected = selection ?? SpellTargetSelection.None;
+                if (!context.Definition.IsSelectionValid(context, selected))
+                    return Fail(result, "Spell target is invalid.");
+                if (
+                    !TryGetRequiredLivingEncounterTargets(
+                        context,
+                        selected,
+                        out IReadOnlyList<CreatureComponent> requiredLivingTargets
+                    )
+                )
+                    return Fail(result, "Spell target is outside the caster's active encounter.");
+
+                bool appliesMap = context.Definition.AppliesMultipleAttackPenalty(context);
+                uint attackCount = controller == null ? 0 : controller.StrikePenalty;
+                async ValueTask ExecuteAuthorizedCast()
+                {
+                    if (!state.Spend(context.Spell))
+                        throw new InvalidOperationException(
+                            "A validated spell slot became unavailable before commitment."
+                        );
+                    if (controller != null && context.SpendActions && appliesMap)
+                    {
+                        context.MultipleAttackCountOverride = attackCount;
+                        await controller.IncrementMultipleAttackPenaltyAsync();
+                    }
+
+                    if (!await context.Definition.Cast(context, selected, result))
+                        throw new InvalidOperationException(
+                            "A spell rejected a selection after validating and committing its costs."
+                        );
+                    result.Success = true;
+                    if (!creature.IsDefeated)
+                        context
+                            .Caster.GetComponent<CreaturePresentation>()
+                            ?.PlayAttack(AnimationStyle.Magic);
+                    CombatLogInterface log =
+                        UnityEngine.Object.FindFirstObjectByType<CombatLogInterface>();
+                    log?.Log("- " + context.Caster.name + " casts " + context.Spell.Name + ".");
+                }
+
+                if (controller != null && (context.SpendActions || requiredLivingTargets.Count > 0))
+                    await controller.ExecuteActionAsync(
+                        requiredLivingTargets,
+                        context.SpendActions ? context.ActionCost : 0,
+                        ExecuteAuthorizedCast
+                    );
+                else
+                    await ExecuteAuthorizedCast();
+                return result;
             }
-            result.Success = true;
-            if (!creature.IsDefeated)
-                context
-                    .Caster.GetComponent<CreaturePresentation>()
-                    ?.PlayAttack(AnimationStyle.Magic);
-            CombatLogInterface log = UnityEngine.Object.FindFirstObjectByType<CombatLogInterface>();
-            log?.Log("- " + context.Caster.name + " casts " + context.Spell.Name + ".");
-            return result;
+            finally
+            {
+                state.ReleaseCast();
+                // An enclosing CastSpellAction owns its reservation through the outer coroutine's
+                // finally. Only direct casts acquire and release the flag in this runtime.
+                if (releaseActionReservation)
+                    controller.ReleaseActionReservation(actionReservation);
+            }
         }
 
         public static int SpellAttackModifier(CreatureComponent caster)
@@ -193,6 +315,17 @@ namespace Game.Combat.Spells
             );
         }
 
+        /// <summary>Finds friendly creatures inside a grid-measured emanation.</summary>
+        /// <param name="caster">The creature at the emanation origin.</param>
+        /// <param name="rangeFeet">The inclusive emanation radius in feet.</param>
+        /// <returns>
+        /// The caster followed by qualifying friendly creatures discovered in the scene.
+        /// </returns>
+        /// <remarks>
+        /// During an active encounter, discovery includes only current living participants in the
+        /// caster's exact authoritative roster. Standalone compositions retain scene-wide friendly
+        /// discovery because they have no encounter roster to project.
+        /// </remarks>
         public static IReadOnlyList<GameObject> FriendlyCreaturesInEmanation(
             GameObject caster,
             int rangeFeet
@@ -200,6 +333,12 @@ namespace Game.Combat.Spells
         {
             if (caster == null)
                 return Array.Empty<GameObject>();
+            CreatureComponent casterCreature = caster.GetComponent<CreatureComponent>();
+            UnityEncounterRulesBridge encounterBridge = null;
+            bool restrictToEncounter =
+                casterCreature != null
+                && casterCreature.TryGetEncounterRulesBridge(out encounterBridge)
+                && encounterBridge.HasActiveEncounter;
             List<GameObject> targets = new() { caster };
             Vector3Int start = Vector3Int.RoundToInt(caster.transform.position);
             foreach (
@@ -209,6 +348,11 @@ namespace Game.Combat.Spells
             )
             {
                 if (creature == null || creature.gameObject == caster)
+                    continue;
+                if (
+                    restrictToEncounter
+                    && !encounterBridge.IsLivingActiveEncounterParticipant(creature)
+                )
                     continue;
                 int distance = StrikeTargeting.MeasureGridDistanceFeet(
                     start,
@@ -220,7 +364,15 @@ namespace Game.Combat.Spells
             return targets;
         }
 
-        public static void ApplyBasicFortitudeDamage(
+        /// <summary>Rolls damage, resolves a basic Fortitude save, and awaits applied damage.</summary>
+        /// <param name="caster">The creature providing the spell DC.</param>
+        /// <param name="target">The creature attempting the save.</param>
+        /// <param name="dice">The spell's damage dice.</param>
+        /// <param name="result">The cast result receiving rolls, targets, and applied amount.</param>
+        /// <param name="applyDeafenedOnCriticalFailure">Whether critical failure adds Deafened.</param>
+        /// <param name="source">The stable rule source for health provenance.</param>
+        /// <returns>A task-like value that completes after damage and conditions settle.</returns>
+        public static async ValueTask ApplyBasicFortitudeDamageAsync(
             GameObject caster,
             GameObject target,
             Dice dice,
@@ -234,7 +386,7 @@ namespace Game.Combat.Spells
                 new List<DamageValue>()
             );
             DamageRoller.FinalizeDamageResolution(damage);
-            ApplyBasicFortitudeDamage(
+            await ApplyBasicFortitudeDamageAsync(
                 caster,
                 target,
                 new DamageValue(dice.damageType, damage.TotalDamage),
@@ -244,7 +396,15 @@ namespace Game.Combat.Spells
             );
         }
 
-        public static void ApplyBasicFortitudeDamage(
+        /// <summary>Resolves fixed damage through a basic Fortitude save and awaits application.</summary>
+        /// <param name="caster">The creature providing the spell DC.</param>
+        /// <param name="target">The creature attempting the save.</param>
+        /// <param name="damage">The already-rolled typed damage.</param>
+        /// <param name="result">The cast result receiving rolls, targets, and applied amount.</param>
+        /// <param name="applyDeafenedOnCriticalFailure">Whether critical failure adds Deafened.</param>
+        /// <param name="source">The stable rule source for health provenance.</param>
+        /// <returns>A task-like value that completes after damage and conditions settle.</returns>
+        public static async ValueTask ApplyBasicFortitudeDamageAsync(
             GameObject caster,
             GameObject target,
             DamageValue damage,
@@ -253,6 +413,58 @@ namespace Game.Combat.Spells
             RuleSource source
         )
         {
+            List<UnityHealthBatchChange> changes = new();
+            QueueBasicFortitudeDamage(
+                caster,
+                target,
+                damage,
+                result,
+                applyDeafenedOnCriticalFailure,
+                source,
+                changes
+            );
+            if (changes.Count > 0)
+                await ApplyFinalHealthBatchAsync(changes);
+        }
+
+        internal static void QueueBasicFortitudeDamage(
+            GameObject caster,
+            GameObject target,
+            Dice dice,
+            CastSpellResult result,
+            bool applyDeafenedOnCriticalFailure,
+            RuleSource source,
+            ICollection<UnityHealthBatchChange> changes
+        )
+        {
+            DamageRollResolution damage = DamageRoller.StartDamageResolution(
+                new List<Dice> { dice },
+                new List<DamageValue>()
+            );
+            DamageRoller.FinalizeDamageResolution(damage);
+            QueueBasicFortitudeDamage(
+                caster,
+                target,
+                new DamageValue(dice.damageType, damage.TotalDamage),
+                result,
+                applyDeafenedOnCriticalFailure,
+                source,
+                changes
+            );
+        }
+
+        internal static void QueueBasicFortitudeDamage(
+            GameObject caster,
+            GameObject target,
+            DamageValue damage,
+            CastSpellResult result,
+            bool applyDeafenedOnCriticalFailure,
+            RuleSource source,
+            ICollection<UnityHealthBatchChange> changes
+        )
+        {
+            if (changes == null)
+                throw new ArgumentNullException(nameof(changes));
             CreatureComponent casterCreature = caster.GetComponent<CreatureComponent>();
             CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
             int dc = casterCreature.Prepared.Spellcasting.SpellDc;
@@ -261,7 +473,16 @@ namespace Game.Combat.Spells
             result.Rolls.Add(save);
             int amount = BasicSaveDamage(damage.DamageAmount, save.degree);
             if (amount > 0)
-                targetCreature.ApplyFinalDamage(amount, source);
+            {
+                changes.Add(
+                    new UnityHealthBatchChange(
+                        HealthBatchChangeKind.Damage,
+                        targetCreature,
+                        amount,
+                        source
+                    )
+                );
+            }
             if (applyDeafenedOnCriticalFailure && save.degree == DegreeOfSuccess.CriticalFail)
                 (target.GetComponent<Conditions>() ?? target.AddComponent<Conditions>()).Add(
                     "Deafened",
@@ -271,12 +492,67 @@ namespace Game.Combat.Spells
             result.Amount += amount;
         }
 
+        internal static ValueTask<HealthBatchOutcome> ApplyFinalHealthBatchAsync(
+            IReadOnlyList<UnityHealthBatchChange> changes
+        )
+        {
+            if (changes == null)
+                throw new ArgumentNullException(nameof(changes));
+            if (changes.Count == 0)
+                throw new ArgumentException(
+                    "A completed spell health batch cannot be empty.",
+                    nameof(changes)
+                );
+            UnityEncounterRulesBridge bridge = changes[0].Target.GetEncounterRulesBridge();
+            return bridge.ApplyFinalHealthBatchAsync(changes);
+        }
+
         public static bool IsUndead(CreatureComponent creature)
         {
             return creature.traits != null
                 && creature.traits.Any(trait =>
                     string.Equals(trait, "undead", StringComparison.OrdinalIgnoreCase)
                 );
+        }
+
+        private static bool TryGetRequiredLivingEncounterTargets(
+            SpellCastContext context,
+            SpellTargetSelection selection,
+            out IReadOnlyList<CreatureComponent> requiredLivingTargets
+        )
+        {
+            requiredLivingTargets = Array.Empty<CreatureComponent>();
+            CreatureComponent caster = context.CasterCreature;
+            if (!caster.TryGetEncounterRulesBridge(out UnityEncounterRulesBridge bridge))
+                return true;
+            if (!bridge.AllowsNewActionLifecycle)
+                return false;
+            if (!bridge.HasActiveEncounter)
+                return true;
+            if (!bridge.IsLivingActiveEncounterParticipant(caster))
+                return false;
+
+            List<CreatureComponent> targets = new();
+            IEnumerable<GameObject> directTargets = selection.Targets ?? Array.Empty<GameObject>();
+            IEnumerable<GameObject> areaTargets =
+                selection.Area?.Creatures == null
+                    ? Array.Empty<GameObject>()
+                    : selection
+                        .Area.Creatures.Where(affected => affected.IsAffected)
+                        .Select(affected => affected.Creature);
+            foreach (GameObject target in directTargets.Concat(areaTargets).Distinct())
+            {
+                CreatureComponent targetCreature =
+                    target == null ? null : target.GetComponent<CreatureComponent>();
+                if (
+                    targetCreature == null
+                    || !bridge.IsLivingActiveEncounterParticipant(targetCreature)
+                )
+                    return false;
+                targets.Add(targetCreature);
+            }
+            requiredLivingTargets = targets;
+            return true;
         }
 
         private static int BasicSaveDamage(int amount, DegreeOfSuccess degree)
@@ -290,16 +566,19 @@ namespace Game.Combat.Spells
             };
         }
 
-        public static CastSpellResult Fail(
-            CastSpellResult result,
-            string message,
-            ActionController controller
-        )
+        /// <summary>Records a normal spell validation or targeting failure.</summary>
+        /// <param name="result">The cast result that should describe the failure.</param>
+        /// <param name="message">The player-facing reason the cast did not proceed.</param>
+        /// <returns>The supplied result marked unsuccessful.</returns>
+        /// <remarks>
+        /// This helper does not release action or cast reservations. The lifecycle that acquired
+        /// a reservation must release it after all selection or cast work has finished; otherwise
+        /// one rejected concurrent caller could clear another cast's reservation.
+        /// </remarks>
+        public static CastSpellResult Fail(CastSpellResult result, string message)
         {
             result.Success = false;
             result.Message = message;
-            if (controller != null)
-                controller.IsTakingAction = false;
             return result;
         }
     }

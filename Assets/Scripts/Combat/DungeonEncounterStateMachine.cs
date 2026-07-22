@@ -365,6 +365,55 @@ namespace Game.Combat.Encounters
             return Array.AsReadOnly(active.Select(group => group.Plan.Id).ToArray());
         }
 
+        // Room entry publishes Active before the asynchronous rules startup can settle. Only the
+        // director that owns that exact startup generation may use this compensation, and only
+        // while the group is still Active; later suspended or completed states are never reverted.
+        internal bool RestoreActivationAfterStartupAbort(
+            string encounterId,
+            DungeonEncounterGroupState previousState
+        )
+        {
+            if (
+                previousState != DungeonEncounterGroupState.Dormant
+                && previousState != DungeonEncounterGroupState.Suspended
+            )
+                throw new ArgumentOutOfRangeException(nameof(previousState));
+            if (!groupsByEncounterId.TryGetValue(encounterId, out EncounterGroup group))
+                throw new KeyNotFoundException($"Encounter '{encounterId}' is not registered.");
+            if (group.State != DungeonEncounterGroupState.Active)
+                return false;
+
+            group.State = previousState;
+            RefreshEncounterView(group);
+            return true;
+        }
+
+        // A reinforcement may be included in a later whole-combat suspension before its queued
+        // join is reduced. Its exact request owner may restore Active or that derived Suspended
+        // state, but must never rewrite Cleared or another request's later activation.
+        internal bool RestoreActivationAfterRejectedReinforcement(
+            string encounterId,
+            DungeonEncounterGroupState previousState
+        )
+        {
+            if (
+                previousState != DungeonEncounterGroupState.Dormant
+                && previousState != DungeonEncounterGroupState.Suspended
+            )
+                throw new ArgumentOutOfRangeException(nameof(previousState));
+            if (!groupsByEncounterId.TryGetValue(encounterId, out EncounterGroup group))
+                throw new KeyNotFoundException($"Encounter '{encounterId}' is not registered.");
+            if (
+                group.State != DungeonEncounterGroupState.Active
+                && group.State != DungeonEncounterGroupState.Suspended
+            )
+                return false;
+
+            group.State = previousState;
+            RefreshEncounterView(group);
+            return true;
+        }
+
         /// <summary>Restores lifecycle state against the immutable plans for the same floor.</summary>
         /// <param name="plans">The complete immutable encounter plans for the floor.</param>
         /// <param name="snapshot">Exactly one valid group snapshot for every plan.</param>

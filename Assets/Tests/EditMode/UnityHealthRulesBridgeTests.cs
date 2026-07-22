@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Game.Creature;
@@ -8,26 +10,26 @@ using NUnit.Framework;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-public sealed class UnityHealthRulesBridgeTests
+public sealed class UnityEncounterRulesBridgeTests
 {
     [Test]
     public void BridgeRejectsEmptyEncounterWithSpecificError()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
-            UnityHealthRulesBridge.Create(Array.Empty<CreatureComponent>())
+            UnityEncounterRulesBridge.Create(Array.Empty<ActionController>(), "Players")
         );
 
-        StringAssert.Contains("requires at least one creature", error.Message);
+        StringAssert.Contains("requires unique non-null controllers", error.Message);
     }
 
     [Test]
     public void BridgeRejectsNullEncounterCreatureWithSpecificError()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
-            UnityHealthRulesBridge.Create(new CreatureComponent[] { null })
+            UnityEncounterRulesBridge.Create(new ActionController[] { null }, "Players")
         );
 
-        StringAssert.Contains("cannot contain a null creature", error.Message);
+        StringAssert.Contains("requires unique non-null controllers", error.Message);
     }
 
     [Test]
@@ -40,7 +42,7 @@ public sealed class UnityHealthRulesBridgeTests
             creature.InitializeHealthBeforeEncounter(10, 10);
 
             InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
-                creature.ApplyFinalDamage(1, RuleSource.FromSlug("test-damage"))
+                creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-damage"))
             );
 
             StringAssert.Contains("require an encounter health bridge", error.Message);
@@ -53,7 +55,7 @@ public sealed class UnityHealthRulesBridgeTests
     }
 
     [Test]
-    public void BridgeOwnsHealthAndProjectsCommittedFactsBackToComponents()
+    public async Task BridgeOwnsHealthAndProjectsCommittedFactsBackToComponents()
     {
         GameObject firstObject = new GameObject("first");
         GameObject secondObject = new GameObject("second");
@@ -61,25 +63,30 @@ public sealed class UnityHealthRulesBridgeTests
         {
             CreatureComponent first = firstObject.AddComponent<CreatureComponent>();
             CreatureComponent second = secondObject.AddComponent<CreatureComponent>();
+            TestActionController firstController = PrepareController(firstObject);
+            TestActionController secondController = PrepareController(secondObject);
             first.InitializeHealthBeforeEncounter(10, 12);
             second.InitializeHealthBeforeEncounter(7, 7);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { first, second });
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { firstController, secondController },
+                "Players"
+            );
 
             CreatureId firstId = bridge.GetCreatureId(first);
             CreatureId secondId = bridge.GetCreatureId(second);
-            DamageOutcome damage = bridge.ApplyFinalDamage(
+            DamageOutcome damage = await bridge.ApplyFinalDamageAsync(
                 firstId,
                 4,
                 RuleSource.FromSlug("test-strike")
             );
-            HealingOutcome healing = bridge.ApplyHealing(
+            HealingOutcome healing = await bridge.ApplyHealingAsync(
                 firstId,
                 2,
                 RuleSource.FromSlug("test-heal")
             );
 
-            Assert.That(firstId.Value, Is.EqualTo("health-creature-1"));
-            Assert.That(secondId.Value, Is.EqualTo("health-creature-2"));
+            Assert.That(firstId.Value, Is.EqualTo("encounter-creature-1"));
+            Assert.That(secondId.Value, Is.EqualTo("encounter-creature-2"));
             Assert.That(damage.Applied, Is.EqualTo(4));
             Assert.That(healing.Applied, Is.EqualTo(2));
             Assert.That(first.hp, Is.EqualTo(8));
@@ -102,25 +109,90 @@ public sealed class UnityHealthRulesBridgeTests
     }
 
     [Test]
-    public void BridgeProjectsSourceTemporaryHitPointStateAndImmunity()
+    public async Task ProtagonistLookupUsesOrdinalIdentityForCaseVariantTeams()
+    {
+        GameObject lowerCaseObject = new GameObject("lower-case opposition");
+        GameObject protagonistObject = new GameObject("exact-case protagonist");
+        GameObject logObject = new GameObject("case-variant team combat log");
+        try
+        {
+            logObject.AddComponent<TestCombatLog>();
+            CreatureComponent lowerCase = lowerCaseObject.AddComponent<CreatureComponent>();
+            CreatureComponent protagonist = protagonistObject.AddComponent<CreatureComponent>();
+            lowerCase.InitializeHealthBeforeEncounter(10, 10);
+            protagonist.InitializeHealthBeforeEncounter(10, 10);
+            TestActionController lowerCaseController = PrepareController(
+                lowerCaseObject,
+                "players"
+            );
+            TestActionController protagonistController = PrepareController(
+                protagonistObject,
+                "Players"
+            );
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { lowerCaseController, protagonistController },
+                "Players",
+                new ScriptedRollService(20, 10)
+            );
+
+            EncounterState started = (
+                await bridge.StartEncounter(
+                    new ActionController[] { lowerCaseController, protagonistController }
+                )
+            ).State;
+            CreatureId lowerCaseId = bridge.GetCreatureId(lowerCase);
+            CreatureId protagonistId = bridge.GetCreatureId(protagonist);
+            PlayerId lowerCaseTeam = started
+                .Roster.Single(entry => entry.Creature == lowerCaseId)
+                .Team;
+            PlayerId exactCaseTeam = started
+                .Roster.Single(entry => entry.Creature == protagonistId)
+                .Team;
+
+            Assert.That(lowerCaseTeam, Is.Not.EqualTo(exactCaseTeam));
+            Assert.That(started.ProtagonistTeam, Is.EqualTo(exactCaseTeam));
+            Assert.That(bridge.GetTeamDisplayName(started.ProtagonistTeam), Is.EqualTo("Players"));
+
+            await protagonist.ApplyFinalDamageAsync(
+                protagonist.hp,
+                RuleSource.FromSlug("case-variant-protagonist-defeat")
+            );
+
+            EncounterState ended = bridge.Snapshot.Encounters[bridge.EncounterId];
+            Assert.That(ended.Phase, Is.EqualTo(EncounterPhase.Ended));
+            Assert.That(ended.Outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+            Assert.That(bridge.GetHealth(lowerCaseId).Current, Is.Positive);
+        }
+        finally
+        {
+            Object.DestroyImmediate(lowerCaseObject);
+            Object.DestroyImmediate(protagonistObject);
+            Object.DestroyImmediate(logObject);
+        }
+    }
+
+    [Test]
+    public async Task BridgeProjectsSourceTemporaryHitPointStateAndImmunity()
     {
         GameObject creatureObject = new GameObject("creature");
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            TestActionController controller = PrepareController(creatureObject);
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
             CreatureId id = bridge.GetCreatureId(creature);
             RuleSource rage = RuleSource.FromSlug("rage");
 
-            creature.GrantSourceTemporaryHitPoints(rage, 4);
-            creature.ApplyFinalDamage(1, RuleSource.FromSlug("test-damage"));
-            creature.RemoveSourceTemporaryHitPoints(rage);
-            creature.AddTemporaryHitPointImmunity(rage);
-            TemporaryHitPointsGrantOutcome blocked = creature.GrantSourceTemporaryHitPoints(
-                rage,
-                5
-            );
+            await creature.GrantSourceTemporaryHitPointsAsync(rage, 4);
+            await creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("test-damage"));
+            await creature.RemoveSourceTemporaryHitPointsAsync(rage);
+            await creature.AddTemporaryHitPointImmunityAsync(rage);
+            TemporaryHitPointsGrantOutcome blocked =
+                await creature.GrantSourceTemporaryHitPointsAsync(rage, 5);
 
             Assert.That(blocked.Immune, Is.True);
             Assert.That(creature.tempHp, Is.Zero);
@@ -140,23 +212,33 @@ public sealed class UnityHealthRulesBridgeTests
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            TestActionController controller = PrepareController(creatureObject);
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
             InvalidOperationException expected = new InvalidOperationException(
                 "completed observer failure"
             );
             GetDispatcher(bridge)
                 .RegisterFactObserver<HealthFact>(new CompletedFailureObserver(expected));
 
-            InvalidOperationException actual = Assert.Throws<InvalidOperationException>(() =>
-                bridge.ApplyFinalDamage(
-                    bridge.GetCreatureId(creature),
-                    1,
-                    RuleSource.FromSlug("test-damage")
-                )
+            InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await bridge.ApplyFinalDamageAsync(
+                        bridge.GetCreatureId(creature),
+                        1,
+                        RuleSource.FromSlug("test-damage")
+                    )
             );
 
             Assert.That(actual, Is.SameAs(expected));
+            Assert.That(
+                GetProjectedCurrentHealth(creature),
+                Is.EqualTo(9),
+                "Committed presentation must drain for its exact failed root before ownership releases."
+            );
         }
         finally
         {
@@ -165,26 +247,44 @@ public sealed class UnityHealthRulesBridgeTests
     }
 
     [Test]
-    public void BridgeRejectsIncompleteDispatcherWork()
+    public async Task AwaitedPortsSerializeIncompleteObserversAndDrainPresentation()
     {
         GameObject creatureObject = new GameObject("creature");
         IncompleteObserver observer = new IncompleteObserver();
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            TestActionController controller = PrepareController(creatureObject);
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
             GetDispatcher(bridge).RegisterFactObserver<HealthFact>(observer);
 
-            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
-                bridge.ApplyFinalDamage(
-                    bridge.GetCreatureId(creature),
-                    1,
-                    RuleSource.FromSlug("test-damage")
-                )
+            CreatureId creatureId = bridge.GetCreatureId(creature);
+            ValueTask<DamageOutcome> pending = bridge.ApplyFinalDamageAsync(
+                creatureId,
+                2,
+                RuleSource.FromSlug("test-damage")
+            );
+            long versionAfterDamageCommit = bridge.Snapshot.Version;
+            ValueTask<HealingOutcome> queued = bridge.ApplyHealingAsync(
+                creatureId,
+                1,
+                RuleSource.FromSlug("test-healing")
             );
 
-            StringAssert.Contains("must complete synchronously", error.Message);
+            Assert.That(pending.IsCompleted, Is.False);
+            Assert.That(queued.IsCompleted, Is.False);
+            Assert.That(bridge.Snapshot.Version, Is.EqualTo(versionAfterDamageCommit));
+            Assert.That(bridge.Snapshot.Health[creatureId].Current, Is.EqualTo(8));
+            Assert.That(GetProjectedCurrentHealth(creature), Is.EqualTo(10));
+            observer.Complete();
+            await pending;
+            await queued;
+            Assert.That(bridge.Snapshot.Health[creatureId].Current, Is.EqualTo(9));
+            Assert.That(GetProjectedCurrentHealth(creature), Is.EqualTo(9));
         }
         finally
         {
@@ -193,14 +293,377 @@ public sealed class UnityHealthRulesBridgeTests
         }
     }
 
-    private static RuleDispatcher GetDispatcher(UnityHealthRulesBridge bridge)
+    [Test]
+    public async Task OverlappingRootsDrainOnlyTheirOwnPresentationAfterListenersSettle()
     {
-        FieldInfo field = typeof(UnityHealthRulesBridge).GetField(
+        GameObject creatureObject = new GameObject("root-scoped presentation creature");
+        SecondHealthFactObserver observer = new SecondHealthFactObserver();
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            TestActionController controller = PrepareController(creatureObject);
+            creature.InitializeHealthBeforeEncounter(10, 10);
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
+            GetDispatcher(bridge).RegisterFactObserver<HealthFact>(observer);
+            CreatureId id = bridge.GetCreatureId(creature);
+
+            Task<DamageOutcome> first = bridge
+                .ApplyFinalDamageAsync(id, 1, RuleSource.FromSlug("first-root"))
+                .AsTask();
+            Task<DamageOutcome> second = bridge
+                .ApplyFinalDamageAsync(id, 1, RuleSource.FromSlug("second-root"))
+                .AsTask();
+            await observer.SecondStarted;
+
+            Assert.That(bridge.Snapshot.Health[id].Current, Is.EqualTo(8));
+            Assert.That(
+                GetProjectedCurrentHealth(creature),
+                Is.EqualTo(9),
+                "The first caller must not drain presentation owned by the paused second root."
+            );
+            Assert.That(second.IsCompleted, Is.False);
+
+            observer.ReleaseSecond();
+            await first;
+            await second;
+
+            Assert.That(GetProjectedCurrentHealth(creature), Is.EqualTo(8));
+            Assert.That(observer.Calls, Is.EqualTo(2));
+        }
+        finally
+        {
+            observer.ReleaseSecond();
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    [Test]
+    public async Task CausalChildFromLaterSettlementObserverDrainsWithOwningTree()
+    {
+        GameObject creatureObject = new GameObject("late causal settlement creature");
+        SecondHealthFactObserver blocker = new SecondHealthFactObserver();
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            TestActionController controller = PrepareController(creatureObject);
+            creature.InitializeHealthBeforeEncounter(10, 10);
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { controller },
+                "Players"
+            );
+            RuleDispatcher dispatcher = GetDispatcher(bridge);
+            CreatureId id = bridge.GetCreatureId(creature);
+            dispatcher.RegisterFactObserver<HealthFact>(blocker);
+            dispatcher.RegisterRootSettlementObserver(
+                new CausalHealingSettlementObserver(bridge, id)
+            );
+
+            Task<DamageOutcome> damage = bridge
+                .ApplyFinalDamageAsync(id, 2, RuleSource.FromSlug("tree-parent-damage"))
+                .AsTask();
+            await blocker.SecondStarted;
+
+            Assert.That(bridge.Snapshot.Health[id].Current, Is.EqualTo(9));
+            Assert.That(GetProjectedCurrentHealth(creature), Is.EqualTo(10));
+            Assert.That(damage.IsCompleted, Is.False);
+
+            blocker.ReleaseSecond();
+            await damage;
+
+            Assert.That(GetProjectedCurrentHealth(creature), Is.EqualTo(9));
+        }
+        finally
+        {
+            blocker.ReleaseSecond();
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    [Test]
+    public async Task ReactionHealedCreatureRemainsActiveAndSkipsDefeatPresentation()
+    {
+        GameObject heroObject = new GameObject("reaction-healed hero");
+        GameObject enemyObject = new GameObject("living enemy");
+        try
+        {
+            HitTrackingCreatureComponent hero =
+                heroObject.AddComponent<HitTrackingCreatureComponent>();
+            CreatureComponent enemy = enemyObject.AddComponent<CreatureComponent>();
+            hero.InitializeHealthBeforeEncounter(1, 10);
+            enemy.InitializeHealthBeforeEncounter(10, 10);
+            TestActionController heroController = PrepareController(heroObject, "Players");
+            TestActionController enemyController = PrepareController(enemyObject, "Enemies");
+            RuleSource source = RuleSource.FromSlug("reaction-heal-test");
+            RuleDefinitionId rescueDefinition = new RuleDefinitionId("reaction-heal");
+            RescueListener rescue = new RescueListener(source);
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder
+                .Define(rescueDefinition)
+                .FactListener(RuleLifecyclePhase.Reaction, rescue);
+            RuleRegistry registry = registryBuilder.Build();
+            ActiveRuleBinding rescueBinding = new ActiveRuleBinding(
+                new BindingId("reaction-heal-binding"),
+                rescueDefinition,
+                new CreatureId("encounter-creature-1"),
+                null,
+                source,
+                1
+            );
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.CreateWithRuleComposition(
+                new ActionController[] { heroController, enemyController },
+                "Players",
+                new ScriptedRollService(20, 10),
+                registry,
+                new[] { rescueBinding }
+            );
+            int encounterEnds = 0;
+            bridge.EncounterEnded += _ =>
+            {
+                encounterEnds++;
+                return default;
+            };
+            CreatureId heroId = bridge.GetCreatureId(hero);
+            ProjectionSettlementObserver projection = new ProjectionSettlementObserver(
+                hero,
+                heroId
+            );
+            GetDispatcher(bridge).RegisterRootSettlementObserver(projection);
+            await bridge.StartEncounter(new ActionController[] { heroController, enemyController });
+            projection.Clear();
+
+            await hero.ApplyFinalDamageAsync(1, source);
+
+            EncounterState encounter = bridge.Snapshot.Encounters[bridge.EncounterId];
+            Assert.That(rescue.Calls, Is.EqualTo(1));
+            Assert.That(
+                projection.Calls,
+                Is.GreaterThanOrEqualTo(2),
+                "Causal healing and its owning damage root must settle independently."
+            );
+            Assert.That(projection.SawMultipleRoots, Is.True);
+            Assert.That(
+                projection.AllProjectionsMatched,
+                Is.True,
+                "Every root settlement must leave Unity health equal to the latest shared snapshot."
+            );
+            Assert.That(bridge.Snapshot.Health[heroId].Current, Is.EqualTo(1));
+            Assert.That(bridge.Snapshot.Health[heroId].IsCommittedDefeated, Is.False);
+            Assert.That(hero.Health, Is.EqualTo(bridge.Snapshot.Health[heroId]));
+            Assert.That(GetProjectedCurrentHealth(hero), Is.EqualTo(1));
+            Assert.That(
+                hero.HitPresentations,
+                Is.EqualTo(1),
+                "The committed damage Fact must present one hit even when a reaction rescues the target."
+            );
+            Assert.That(hero.IsDefeated, Is.False);
+            Assert.That(heroObject.activeSelf, Is.True);
+            Assert.That(heroController.enabled, Is.True);
+            Assert.That(encounter.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(encounter.Outcome, Is.Null);
+            Assert.That(encounterEnds, Is.Zero);
+        }
+        finally
+        {
+            Object.DestroyImmediate(heroObject);
+            Object.DestroyImmediate(enemyObject);
+        }
+    }
+
+    [Test]
+    public async Task LethalProjectionAndDefeatSettleBeforeCausalEncounterEndPresentation()
+    {
+        GameObject heroObject = new GameObject("lethally damaged hero");
+        GameObject enemyObject = new GameObject("surviving enemy");
+        GameObject logObject = new GameObject("lethal presentation combat log");
+        try
+        {
+            logObject.AddComponent<TestCombatLog>();
+            CreatureComponent hero = heroObject.AddComponent<CreatureComponent>();
+            CreatureComponent enemy = enemyObject.AddComponent<CreatureComponent>();
+            hero.InitializeHealthBeforeEncounter(1, 10);
+            enemy.InitializeHealthBeforeEncounter(10, 10);
+            TestActionController heroController = PrepareController(heroObject, "Players");
+            TestActionController enemyController = PrepareController(enemyObject, "Enemies");
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { heroController, enemyController },
+                "Players",
+                new ScriptedRollService(20, 10)
+            );
+            await bridge.StartEncounter(new ActionController[] { heroController, enemyController });
+            bool ended = false;
+            bridge.EncounterEnded += outcome =>
+            {
+                Assert.That(outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+                Assert.That(hero.hp, Is.Zero);
+                Assert.That(hero.IsDefeated, Is.True);
+                Assert.That(heroController.enabled, Is.False);
+                Assert.That(heroObject.activeSelf, Is.False);
+                ended = true;
+                return default;
+            };
+
+            await hero.ApplyFinalDamageAsync(1, RuleSource.FromSlug("causal-lethal-test"));
+
+            InvalidOperationException healingFailure =
+                Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await hero.HealAsync(1, RuleSource.FromSlug("post-presentation-healing"))
+                );
+
+            Assert.That(ended, Is.True);
+            Assert.That(bridge.Snapshot.Health[bridge.GetCreatureId(hero)].Current, Is.Zero);
+            Assert.That(
+                bridge.Snapshot.Health[bridge.GetCreatureId(hero)].IsCommittedDefeated,
+                Is.True
+            );
+            StringAssert.Contains(
+                "committed-defeated creature cannot be healed",
+                healingFailure.Message
+            );
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Outcome,
+                Is.EqualTo(EncounterOutcome.PlayerDefeat)
+            );
+        }
+        finally
+        {
+            Object.DestroyImmediate(heroObject);
+            Object.DestroyImmediate(enemyObject);
+            Object.DestroyImmediate(logObject);
+        }
+    }
+
+    [Test]
+    public async Task RejectedJoinLeavesRulesStateIdentityMapsAndAttachmentsUnchanged()
+    {
+        GameObject heroObject = new GameObject("hero");
+        GameObject enemyObject = new GameObject("enemy");
+        GameObject reinforcementObject = new GameObject("reinforcement");
+        try
+        {
+            CreatureComponent hero = heroObject.AddComponent<CreatureComponent>();
+            CreatureComponent enemy = enemyObject.AddComponent<CreatureComponent>();
+            CreatureComponent reinforcement = reinforcementObject.AddComponent<CreatureComponent>();
+            hero.InitializeHealthBeforeEncounter(10, 10);
+            enemy.InitializeHealthBeforeEncounter(10, 10);
+            reinforcement.InitializeHealthBeforeEncounter(8, 8);
+            TestActionController heroController = PrepareController(heroObject, "Players");
+            TestActionController enemyController = PrepareController(enemyObject, "Enemies");
+            TestActionController reinforcementController = PrepareController(
+                reinforcementObject,
+                "Enemies"
+            );
+            UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+                new ActionController[] { heroController, enemyController },
+                "Players",
+                new ScriptedRollService(20, 10, 15, 5)
+            );
+            await bridge.StartEncounter(new ActionController[] { heroController, enemyController });
+            EncounterState before = bridge.Snapshot.Encounters[bridge.EncounterId];
+            long version = bridge.Snapshot.Version;
+            int acceptancePublications = 0;
+            int hostPublications = 0;
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await bridge.JoinEncounter(
+                    new ActionController[] { reinforcementController, heroController },
+                    () => acceptancePublications++,
+                    () => hostPublications++
+                )
+            );
+
+            Assert.That(acceptancePublications, Is.Zero);
+            Assert.That(hostPublications, Is.Zero);
+            Assert.That(bridge.Snapshot.Version, Is.EqualTo(version));
+            Assert.That(
+                bridge.Snapshot.Encounters[bridge.EncounterId].Roster,
+                Is.EqualTo(before.Roster)
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.GetCreatureId(reinforcementController)
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                reinforcement.ApplyFinalDamageAsync(1, RuleSource.FromSlug("rejected-join"))
+            );
+        }
+        finally
+        {
+            Object.DestroyImmediate(heroObject);
+            Object.DestroyImmediate(enemyObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    private static RuleDispatcher GetDispatcher(UnityEncounterRulesBridge bridge)
+    {
+        FieldInfo field = typeof(UnityEncounterRulesBridge).GetField(
             "dispatcher",
             BindingFlags.Instance | BindingFlags.NonPublic
         );
         Assert.That(field, Is.Not.Null);
         return (RuleDispatcher)field.GetValue(bridge);
+    }
+
+    private static int GetProjectedCurrentHealth(CreatureComponent creature)
+    {
+        FieldInfo field = typeof(CreatureComponent).GetField(
+            "_hp",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (int)field.GetValue(creature);
+    }
+
+    private static TestActionController PrepareController(GameObject obj) =>
+        PrepareController(obj, "Players");
+
+    private static TestActionController PrepareController(GameObject obj, string teamName)
+    {
+        Team team = obj.AddComponent<Team>();
+        team.Name = teamName;
+        return obj.AddComponent<TestActionController>();
+    }
+
+    private sealed class TestActionController : ActionController
+    {
+        public override void EndTurn() { }
+    }
+
+    private sealed class HitTrackingCreatureComponent : CreatureComponent
+    {
+        internal int HitPresentations { get; private set; }
+
+        internal override void PresentCommittedHit()
+        {
+            HitPresentations++;
+        }
+    }
+
+    private sealed class TestCombatLog : CombatLogInterface
+    {
+        public override void DevMode() { }
+
+        public override void ReleaseMode() { }
+
+        public override void AddWhiteList(string tag) { }
+
+        public override void AddBlackList(string tag) { }
+
+        public override void Log(string msg) { }
+
+        public override void DevLog(string msg) { }
+
+        public override void DevLog(string msg, string tag) { }
+
+        public override void DevLog(string msg, List<string> tags) { }
+
+        public override void Log(string msg, string tag) { }
+
+        public override void Log(string msg, List<string> tags) { }
+
+        public override List<string> GetMessages() => new List<string>();
     }
 
     private sealed class CompletedFailureObserver : IFactObserver<HealthFact>
@@ -223,5 +686,128 @@ public sealed class UnityHealthRulesBridgeTests
             new ValueTask(completion.Task);
 
         public void Complete() => completion.TrySetResult(true);
+    }
+
+    private sealed class SecondHealthFactObserver : IFactObserver<HealthFact>
+    {
+        private readonly TaskCompletionSource<bool> secondStarted = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private readonly TaskCompletionSource<bool> releaseSecond = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        public int Calls { get; private set; }
+        public Task SecondStarted => secondStarted.Task;
+
+        public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot currentSnapshot)
+        {
+            Calls++;
+            if (Calls != 2)
+                return default;
+            secondStarted.TrySetResult(true);
+            return new ValueTask(releaseSecond.Task);
+        }
+
+        public void ReleaseSecond() => releaseSecond.TrySetResult(true);
+    }
+
+    private sealed class ProjectionSettlementObserver : IRootSettlementObserver
+    {
+        private readonly CreatureComponent creature;
+        private readonly CreatureId creatureId;
+        private OpId firstRoot;
+        private OpId lastRoot;
+
+        public ProjectionSettlementObserver(CreatureComponent creature, CreatureId creatureId)
+        {
+            this.creature = creature;
+            this.creatureId = creatureId;
+            Clear();
+        }
+
+        public int Calls { get; private set; }
+        public bool AllProjectionsMatched { get; private set; }
+        public bool SawMultipleRoots => Calls > 1 && firstRoot != lastRoot;
+
+        /// <inheritdoc/>
+        public ValueTask OnRootSettled(
+            OpId rootId,
+            OpId? causalParentRootId,
+            RulesSnapshot snapshot
+        )
+        {
+            if (!snapshot.Health.TryGet(creatureId, out HealthState health))
+                return default;
+            if (Calls == 0)
+                firstRoot = rootId;
+            lastRoot = rootId;
+            Calls++;
+            AllProjectionsMatched &= GetProjectedCurrentHealth(creature) == health.Current;
+            return default;
+        }
+
+        public void Clear()
+        {
+            Calls = 0;
+            AllProjectionsMatched = true;
+            firstRoot = default;
+            lastRoot = default;
+        }
+    }
+
+    private sealed class CausalHealingSettlementObserver : IRootSettlementObserver
+    {
+        private readonly UnityEncounterRulesBridge bridge;
+        private readonly CreatureId creature;
+        private bool dispatched;
+
+        internal CausalHealingSettlementObserver(
+            UnityEncounterRulesBridge bridge,
+            CreatureId creature
+        )
+        {
+            this.bridge = bridge;
+            this.creature = creature;
+        }
+
+        /// <inheritdoc/>
+        public async ValueTask OnRootSettled(
+            OpId rootId,
+            OpId? causalParentRootId,
+            RulesSnapshot snapshot
+        )
+        {
+            if (causalParentRootId.HasValue || dispatched)
+                return;
+            dispatched = true;
+            await bridge.ApplyHealingAsync(
+                creature,
+                1,
+                RuleSource.FromSlug("late-settlement-healing")
+            );
+        }
+    }
+
+    private sealed class RescueListener : IRuleFactListener<CreatureReducedToZeroFact>
+    {
+        private readonly RuleSource source;
+
+        public RescueListener(RuleSource source) => this.source = source;
+
+        public int Calls { get; private set; }
+
+        public async ValueTask OnFactCommitted(CreatureReducedToZeroFact fact, FactContext context)
+        {
+            Calls++;
+            await context.Dispatch(
+                new ApplyHealingOp(
+                    fact.Creature,
+                    1,
+                    new HealthChangeOriginId("reaction-heal"),
+                    source
+                )
+            );
+        }
     }
 }

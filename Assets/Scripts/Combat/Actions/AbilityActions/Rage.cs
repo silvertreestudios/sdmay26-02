@@ -1,4 +1,9 @@
+using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
+using System.Threading.Tasks;
+using Game.Creature;
 using Game.Creature.Rules;
 using UnityEngine;
 
@@ -23,22 +28,81 @@ namespace Game.AbilityActions
         /// Attempts to start Rage for an actor by evaluating the pure rule and applying its generic Unity side effects.
         /// </summary>
         /// <param name="actor">The Unity actor attempting to Rage.</param>
-        /// <returns>True when Rage was applied.</returns>
-        public bool UseRage(GameObject actor)
+        /// <returns>
+        /// <see langword="true"/> when Rage was applied; otherwise <see langword="false"/> when
+        /// its prerequisites fail, the actor lacks turn authority, the encounter is closed, or
+        /// another action already owns the actor's reservation.
+        /// </returns>
+        /// <remarks>
+        /// Direct callers whose actor has an <see cref="ActionController"/> receive the same action
+        /// reservation normally established by <see cref="ActionController.TakeAction"/>.
+        /// Eligibility is checked before dispatch. Exact turn authority, the optional cost,
+        /// prepared Rage state, and temporary Hit Points then settle inside one serialized causal
+        /// tree before an unrelated root or action-spend listener can proceed. The reservation
+        /// remains owned until every awaited host effect completes or fails.
+        /// </remarks>
+        public async ValueTask<bool> UseRageAsync(GameObject actor)
+        {
+            ActionController actionController = actor?.GetComponent<ActionController>();
+            ActionReservationToken reservation = default;
+            if (actionController != null && !actionController.TryReserveAction(out reservation))
+                return false;
+            try
+            {
+                return await ApplyRageAsync(actor, requireActionAuthority: true);
+            }
+            finally
+            {
+                if (actionController != null)
+                    actionController.ReleaseActionReservation(reservation);
+            }
+        }
+
+        private async ValueTask<bool> ApplyRageAsync(GameObject actor, bool requireActionAuthority)
         {
             Debug.Log(actor + " is attempting to use Rage");
-            RageRuleResult result = RageRule.Apply(
-                new RageRequest
-                {
-                    Creature = UnityCreatureRulesAdapter.From(actor),
-                    ActionCost = ActionCost,
-                }
-            );
-            UnityRuleEffectApplier.Apply(actor, result.Effects);
-            if (!result.Applied)
+            ActionController actionController = actor?.GetComponent<ActionController>();
+            if (
+                requireActionAuthority
+                && (actionController == null || !actionController.HasTurnAuthority)
+            )
+            {
+                Debug.Log(actor + " cannot Rage without current turn authority");
+                return false;
+            }
+            RageRequest request = new() { Creature = UnityCreatureRulesAdapter.From(actor) };
+            if (!RageRule.CanApply(request))
+            {
                 Debug.Log(actor + " cannot Rage");
-            return result.Applied;
+                return false;
+            }
+
+            async ValueTask<bool> ApplyAuthorizedRage()
+            {
+                RageRuleResult result = RageRule.Apply(request);
+                await UnityRuleEffectApplier.ApplyAsync(actor, result.Effects);
+                if (!result.Applied)
+                    Debug.Log(actor + " cannot Rage");
+                return result.Applied;
+            }
+
+            if (!requireActionAuthority)
+                return await ApplyAuthorizedRage();
+
+            bool applied = false;
+            await actionController.ExecuteActionAsync(
+                Array.Empty<CreatureComponent>(),
+                ActionCost,
+                async () => applied = await ApplyAuthorizedRage()
+            );
+            return applied;
         }
+
+        // Combat-start initialization already runs inside the encounter's serialized startup or
+        // join root. It must not replace an exploration action reservation that legitimately spans
+        // startup; the host checkpoint preserves that exact owner until its outer action settles.
+        internal ValueTask<bool> ApplyCombatStartRageAsync(GameObject actor) =>
+            ApplyRageAsync(actor, requireActionAuthority: false);
 
         /// <summary>
         /// Checks whether the actor can currently Rage without mutating Unity or prepared rule state.
@@ -48,11 +112,7 @@ namespace Game.AbilityActions
         public bool RageAllowed(GameObject actor)
         {
             return RageRule.CanApply(
-                new RageRequest
-                {
-                    Creature = UnityCreatureRulesAdapter.From(actor),
-                    ActionCost = ActionCost,
-                }
+                new RageRequest { Creature = UnityCreatureRulesAdapter.From(actor) }
             );
         }
 
@@ -60,16 +120,42 @@ namespace Game.AbilityActions
         /// Ends Rage for an actor and applies cleanup effects returned by the pure Rage rule.
         /// </summary>
         /// <param name="actor">The Unity actor whose Rage should end.</param>
-        public void EndRage(GameObject actor)
+        /// <remarks>
+        /// Every emitted cleanup effect is attempted in deterministic order. If committed health
+        /// notification fails, later cleanup phases still settle before the original failure (or
+        /// ordered aggregate) is reported.
+        /// </remarks>
+        /// <exception cref="AggregateException">
+        /// More than one ordered Rage cleanup effect reports a failure after every effect is
+        /// attempted.
+        /// </exception>
+        public async ValueTask EndRageAsync(GameObject actor)
         {
             RageRuleResult result = RageRule.End(UnityCreatureRulesAdapter.From(actor));
-            UnityRuleEffectApplier.Apply(actor, result.Effects);
+            List<Exception> failures = new();
+            foreach (RuleEffect effect in result.Effects)
+            {
+                try
+                {
+                    await UnityRuleEffectApplier.ApplyAsync(actor, new[] { effect });
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
+            }
+
+            if (failures.Count == 1)
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1)
+                throw new AggregateException("Multiple Rage cleanup effects failed.", failures);
         }
 
         protected override IEnumerator MFInvoke(GameObject actor)
         {
-            UseRage(actor);
-            yield break;
+            // ActionController.TakeAction and MultiFrameEntityAction own this invocation's single
+            // reservation. Calling the core avoids releasing it before the outer action finally.
+            yield return CoroutineRunner.Await(ApplyRageAsync(actor, requireActionAuthority: true));
         }
     }
 }

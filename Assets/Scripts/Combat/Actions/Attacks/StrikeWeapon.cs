@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
@@ -197,8 +198,6 @@ namespace Game.Strikes
                 CombatLog
                     .GetInstance()
                     .Log("- " + attacker.name + " cannot fire " + weaponName + ".");
-                if (ac)
-                    ac.IsTakingAction = false;
                 yield break;
             }
 
@@ -209,64 +208,93 @@ namespace Game.Strikes
 
             if (target.Value != null && target.Value.Target != null)
             {
-                if (cc != null && !cc.ConsumeAmmoFor(Weapon))
+                if (!StrikeEncounterTargeting.IsValid(attacker, target.Value.Target))
+                {
+                    CombatLog
+                        .GetInstance()
+                        .Log(
+                            "- "
+                                + attacker.name
+                                + " cannot strike a creature outside its encounter or no longer living."
+                        );
+                    yield break;
+                }
+
+                if (cc != null && (!cc.HasAmmoFor(Weapon) || !cc.IsWeaponLoaded(Weapon)))
                 {
                     CombatLog
                         .GetInstance()
                         .Log("- " + attacker.name + " has no ammunition for " + weaponName + ".");
-                    if (ac)
-                        ac.IsTakingAction = false;
                     yield break;
                 }
 
-                CombatLog
-                    .GetInstance()
-                    .Log(
-                        "- "
-                            + attacker.name
-                            + " strikes "
-                            + target.Value.Target.name
-                            + " with "
-                            + weaponName
-                            + "."
-                    );
-                attacker
-                    .GetComponent<CreaturePresentation>()
-                    ?.PlayAttack(Weapon, target.Value.Target.transform.position);
-                StrikeResolutionPipeline.Resolve(
-                    new StrikeResolutionRequest
-                    {
-                        Attacker = attacker,
-                        Target = target.Value.Target,
-                        Profile = Profile,
-                        TargetingResult = target.Value,
-                    }
-                );
-                cc?.MarkWeaponFired(Weapon);
-                if (ac)
+                CreatureComponent targetCreature =
+                    target.Value.Target.GetComponent<CreatureComponent>();
+                async ValueTask ExecuteStrike()
                 {
-                    PayCost(ac);
-                    ac.StrikePenalty += 1;
+                    uint attackCount = ac == null ? 0 : ac.StrikePenalty;
+                    if (ac != null)
+                        await ac.IncrementMultipleAttackPenaltyAsync();
+                    if (cc != null && !cc.ConsumeAmmoFor(Weapon))
+                        throw new System.InvalidOperationException(
+                            "Validated Strike ammunition became unavailable before its effect."
+                        );
+
+                    CombatLog
+                        .GetInstance()
+                        .Log(
+                            "- "
+                                + attacker.name
+                                + " strikes "
+                                + target.Value.Target.name
+                                + " with "
+                                + weaponName
+                                + "."
+                        );
+                    attacker
+                        .GetComponent<CreaturePresentation>()
+                        ?.PlayAttack(Weapon, target.Value.Target.transform.position);
+                    await StrikeResolutionPipeline.ResolveAsync(
+                        new StrikeResolutionRequest
+                        {
+                            Attacker = attacker,
+                            Target = target.Value.Target,
+                            Profile = Profile,
+                            TargetingResult = target.Value,
+                            MultipleAttackCountOverride = attackCount,
+                        }
+                    );
+                    cc?.MarkWeaponFired(Weapon);
                 }
+
+                yield return CoroutineRunner.Await(
+                    ExecuteTargetedActionAsync(ac, targetCreature, ExecuteStrike)
+                );
             }
-            if (ac)
-                ac.IsTakingAction = false;
         }
     }
 
+    /// <summary>Spends the reload action before publishing a weapon's loaded state.</summary>
     [System.Serializable]
-    public class ReloadWeaponAction : EntityAction
+    public class ReloadWeaponAction : MultiFrameEntityAction
     {
         private readonly EquipmentWeapon Weapon;
 
+        /// <inheritdoc/>
         public override string ActionName => "Reload " + Weapon.name;
 
+        /// <summary>Creates an action for the weapon's imported reload cost.</summary>
+        /// <param name="cost">The authoritative action cost to commit.</param>
+        /// <param name="weapon">The unloaded weapon that will become ready after payment.</param>
         public ReloadWeaponAction(uint cost, EquipmentWeapon weapon)
             : base(cost)
         {
-            Weapon = weapon;
+            Weapon = weapon ?? throw new System.ArgumentNullException(nameof(weapon));
         }
 
+        /// <summary>Checks whether this action was created for the supplied weapon definition.</summary>
+        /// <param name="weapon">A weapon definition or equivalent imported name.</param>
+        /// <returns>Whether this action represents that weapon.</returns>
         public bool RepresentsWeapon(EquipmentWeapon weapon)
         {
             return Weapon == weapon
@@ -281,18 +309,20 @@ namespace Game.Strikes
                 );
         }
 
-        public override void Invoke(GameObject target)
+        protected override IEnumerator MFInvoke(GameObject target)
         {
             ActionController ac = target.GetComponent<ActionController>();
             CreatureComponent cc = target.GetComponent<CreatureComponent>();
-            if (cc != null && cc.ReloadWeapon(Weapon))
-            {
-                CombatLog.GetInstance().Log("- " + target.name + " reloads " + Weapon.name + ".");
-                PayCost(ac);
-            }
-            if (ac)
-                ac.IsTakingAction = false;
-            base.Invoke(target);
+            if (cc == null || !cc.CanReloadWeapon(Weapon))
+                yield break;
+
+            yield return CoroutineRunner.Await(PayCostAsync(ac));
+            if (!cc.ReloadWeapon(Weapon))
+                throw new System.InvalidOperationException(
+                    "Validated reload state changed before the accepted action could publish."
+                );
+
+            CombatLog.GetInstance().Log("- " + target.name + " reloads " + Weapon.name + ".");
         }
     }
 }

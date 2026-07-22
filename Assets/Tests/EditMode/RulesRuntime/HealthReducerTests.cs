@@ -139,6 +139,43 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task CommittedDefeatRejectsHealingAndKeepsHealthAtZero()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(new HealthState(0, 10));
+
+            OpResult<bool> defeat = await dispatcher.Dispatch(
+                new FinalizeCreatureDefeatOp(Creature)
+            );
+            InvalidOperationException healingFailure =
+                Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await dispatcher.Dispatch(
+                        new ApplyHealingOp(
+                            Creature,
+                            5,
+                            new HealthChangeOriginId("post-defeat-heal"),
+                            RuleSource.FromSlug("heal")
+                        )
+                    )
+                );
+            InvalidOperationException temporaryFailure =
+                Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await dispatcher.Dispatch(Grant(5, Rage, "post-defeat-temporary-hit-points"))
+                );
+
+            Assert.That(RequireResolved(defeat).Value, Is.True);
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.Zero);
+            Assert.That(dispatcher.Snapshot.Health[Creature].IsCommittedDefeated, Is.True);
+            StringAssert.Contains(
+                "committed-defeated creature cannot be healed",
+                healingFailure.Message
+            );
+            StringAssert.Contains(
+                "committed-defeated creature cannot receive temporary Hit Points",
+                temporaryFailure.Message
+            );
+        }
+
+        [Test]
         public async Task SourceTemporaryHitPointsGrantConsumeRemoveAndRespectImmunity()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new HealthState(10, 10));

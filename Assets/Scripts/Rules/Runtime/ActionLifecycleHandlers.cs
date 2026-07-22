@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
@@ -216,24 +217,43 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            FrequencyState current = state.Frequencies.TryGet(
-                cost.Binding,
-                out FrequencyState existing
-            )
-                ? existing
-                : new FrequencyState(0, 0);
-            if (current.Uses >= 1)
+            EncounterState[] actorEncounters = state
+                .Encounters.Select(pair => pair.Value)
+                .Where(value =>
+                    value.Phase == EncounterPhase.Active
+                    && value.Roster.Any(entry => entry.Creature == op.Actor)
+                )
+                .ToArray();
+            if (actorEncounters.Length != 1)
+                return ActionValidationResult.Invalid(
+                    "A once-per-round cost requires exactly one active encounter for the actor."
+                );
+            EncounterState encounter = actorEncounters[0];
+
+            bool hasCurrent = state.Frequencies.TryGet(cost.Binding, out FrequencyState existing);
+            int currentRoundUses =
+                hasCurrent
+                && existing.Encounter == encounter.Id
+                && existing.Round == encounter.Round.Value
+                    ? existing.Uses
+                    : 0;
+            if (currentRoundUses >= 1)
                 return ActionValidationResult.Invalid(
                     "The once-per-round use has already been spent."
                 );
 
-            FrequencyState spent = new FrequencyState(current.Round, current.Uses + 1);
+            FrequencyState spent = new FrequencyState(
+                encounter.Id,
+                encounter.Round.Value,
+                currentRoundUses + 1
+            );
             state.Frequencies.Set(cost.Binding, spent);
             facts.Stage(
                 new BindingFrequencySpentFact(
                     op.ActionOpId,
                     op.Actor,
                     cost.Binding,
+                    spent.Encounter,
                     spent.Round,
                     spent.Uses
                 )

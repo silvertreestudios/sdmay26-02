@@ -4,7 +4,10 @@ using UnityEngine;
 // C# doesn't allow static classes to inherit
 // from anything other than object.
 
-/// <summary>Triggered upon starting combat</summary>
+/// <summary>
+/// Triggered after combat startup is durable and before the first turn is presented to Unity.
+/// Startup attempts that roll back do not publish this event.
+/// </summary>
 public class OnCombatStart : StaticUnityEvent<OnCombatStart> { }
 
 /// <summary>Triggered upon ending combat, contains the name of the winning team</summary>

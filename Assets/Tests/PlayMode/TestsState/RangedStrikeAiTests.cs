@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using Game.Creature;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Strikes;
 using GridPrivate;
@@ -37,6 +38,105 @@ namespace TestsState
         }
 
         [UnityTest]
+        public IEnumerator EnemyIgnoresDefeatedTargetWhenLivingHostileRemains()
+        {
+            yield return base.Setup();
+            yield return null;
+
+            CombatManager manager = Object.FindFirstObjectByType<CombatManager>();
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            Assert.That(manager, Is.Not.Null);
+            Assert.That(grid, Is.Not.Null);
+            List<GameObject> playerTargets = manager
+                .GetCombatants()
+                .FindAll(combatant => combatant.GetComponent<PlayerActionController>() != null);
+            Assert.That(playerTargets, Has.Count.GreaterThanOrEqualTo(2));
+            GameObject defeatedTarget = playerTargets[0];
+            GameObject livingTarget = playerTargets[1];
+
+            GameObject enemy = CreateRangedEnemy(
+                "defeated-target-filter-ai",
+                CreateShortbow(),
+                1,
+                100
+            );
+            PlaceOnClearLine(grid.GetTiles(), enemy, livingTarget);
+            CreatureComponent defeatedCreature = defeatedTarget.GetComponent<CreatureComponent>();
+            yield return CoroutineRunner.Await(
+                defeatedCreature.ApplyFinalDamageAsync(
+                    defeatedCreature.hp + defeatedCreature.tempHp,
+                    RuleSource.FromSlug("test-ai-defeated-target")
+                )
+            );
+
+            Assert.That(manager.GetCombatants(), Has.No.Member(defeatedTarget));
+            Assert.That(manager.GetCombatants(), Has.Member(livingTarget));
+            MindlessController controller = enemy.GetComponent<MindlessController>();
+            controller.StartTurn();
+            controller.StopAllCoroutines();
+            EntityAction selected = controller.MindlessDecision();
+
+            Assert.That(selected, Is.TypeOf<StrikeWeapon>());
+            Assert.That(manager.GetCombatants(), Has.Member(controller.BestTarget));
+            Assert.That(controller.BestTarget, Is.Not.SameAs(defeatedTarget));
+        }
+
+        [UnityTest]
+        public IEnumerator EnemyIgnoresDisabledTargetWhenLivingHostileRemains()
+        {
+            yield return base.Setup();
+            yield return null;
+
+            CombatManager manager = Object.FindFirstObjectByType<CombatManager>();
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            Assert.That(manager, Is.Not.Null);
+            Assert.That(grid, Is.Not.Null);
+            List<GameObject> playerTargets = manager
+                .GetCombatants()
+                .FindAll(combatant => combatant.GetComponent<PlayerActionController>() != null);
+            Assert.That(playerTargets, Has.Count.GreaterThanOrEqualTo(2));
+            GameObject current = manager.WhosTurn();
+            GameObject disabledTarget =
+                playerTargets.Find(target => target != current) ?? playerTargets[0];
+            GameObject livingTarget = playerTargets.Find(target => target != disabledTarget);
+            Assert.That(livingTarget, Is.Not.Null);
+            ActionController disabledController = disabledTarget.GetComponent<ActionController>();
+
+            try
+            {
+                disabledController.enabled = false;
+                Assert.That(manager.GetCombatants(), Has.No.Member(disabledTarget));
+                Assert.That(manager.GetCombatants(), Has.Member(livingTarget));
+
+                GameObject enemy = CreateRangedEnemy(
+                    "disabled-target-filter-ai",
+                    CreateShortbow(),
+                    1,
+                    100
+                );
+                PlaceOnClearLine(grid.GetTiles(), enemy, livingTarget);
+                MindlessController controller = enemy.GetComponent<MindlessController>();
+                controller.StartTurn();
+                controller.StopAllCoroutines();
+                EntityAction selected = controller.MindlessDecision();
+
+                Assert.That(selected, Is.TypeOf<StrikeWeapon>());
+                Assert.That(controller.BestTarget, Is.SameAs(livingTarget));
+                Assert.That(controller.BestTarget, Is.Not.SameAs(disabledTarget));
+            }
+            finally
+            {
+                disabledController.enabled = true;
+            }
+
+            Assert.That(
+                manager.GetCombatants(),
+                Has.Member(disabledTarget),
+                "A living retained member must return to AI projections when enabled."
+            );
+        }
+
+        [UnityTest]
         public IEnumerator ResetEncounterTurnStateCancelsPendingAiTurnSequence()
         {
             yield return base.Setup();
@@ -52,7 +152,13 @@ namespace TestsState
                 100
             );
             PlaceOnClearLine(grid.GetTiles(), enemy, target);
-            PrepareDurableTarget(target);
+            CreatureComponent durableTarget = PrepareDurableTarget(target);
+            yield return CoroutineRunner.Await(
+                durableTarget.GrantSourceTemporaryHitPointsAsync(
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                    100
+                )
+            );
 
             MindlessController controller = enemy.GetComponent<MindlessController>();
             FieldInfo turnSequenceField = typeof(MindlessController).GetField(
@@ -108,14 +214,20 @@ namespace TestsState
             controller.StopAllCoroutines();
             EntityAction selected = controller.MindlessDecision();
             Assert.IsInstanceOf<StrikeWeapon>(selected);
-            UnityHealthRulesBridge.Create(
-                new[]
+            UnityEncounterRulesBridge.CreateHealthTestComposition(
+                new CreatureComponent[]
                 {
-                    enemy.GetComponent<CreatureComponent>(),
+                    controller.GetComponent<CreatureComponent>(),
                     controller.BestTarget.GetComponent<CreatureComponent>(),
                 }
             );
             CreatureComponent selectedTargetCreature = PrepareDurableTarget(controller.BestTarget);
+            yield return CoroutineRunner.Await(
+                selectedTargetCreature.GrantSourceTemporaryHitPointsAsync(
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                    100
+                )
+            );
 
             UnityEngine.Random.State randomState = UnityEngine.Random.state;
             UnityEngine.Random.InitState(7602);
@@ -147,6 +259,12 @@ namespace TestsState
             yield return WaitForCurrentPlayerTurn(value => player = value);
             GameObject target = FindHostileTarget(player);
             CreatureComponent targetCreature = PrepareDurableTarget(target);
+            yield return CoroutineRunner.Await(
+                targetCreature.GrantSourceTemporaryHitPointsAsync(
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                    100
+                )
+            );
             SetupRangedAction(player, CreateShortbow(), 1, 100);
             PlaceOnClearLine(tiles, player, target);
             OnNextTurn.Invoke(player);
@@ -202,6 +320,12 @@ namespace TestsState
             yield return WaitForCurrentPlayerTurn(value => player = value);
             GameObject target = FindHostileTarget(player);
             CreatureComponent targetCreature = PrepareDurableTarget(target);
+            yield return CoroutineRunner.Await(
+                targetCreature.GrantSourceTemporaryHitPointsAsync(
+                    Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
+                    100
+                )
+            );
             SetupRangedAction(player, CreateShortbow(), 1, 100);
             FindEmptyStraightLine(tiles, 5, out Vector3Int playerCell, out Vector3Int targetCell);
             MoveCombatant(tiles, player, playerCell);
@@ -362,10 +486,6 @@ namespace TestsState
         {
             Assert.IsNotNull(target);
             CreatureComponent creature = target.GetComponent<CreatureComponent>();
-            creature.GrantSourceTemporaryHitPoints(
-                Game.Rules.Runtime.RuleSource.FromSlug("test-durability"),
-                100
-            );
             creature.ac = 1;
             return creature;
         }

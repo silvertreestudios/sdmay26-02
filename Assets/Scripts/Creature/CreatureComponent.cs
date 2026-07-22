@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Combat.Encounters;
 using Game.Combat.Spells;
 using Game.Creature;
@@ -104,7 +105,7 @@ namespace Game.Creature
 
         [SerializeField]
         private int _tempHp;
-        private UnityHealthRulesBridge healthRules;
+        private UnityEncounterRulesBridge encounterRules;
         private CreatureId healthCreatureId;
 
         [SerializeField]
@@ -272,9 +273,9 @@ namespace Game.Creature
         /// ownership begins and serialized initialization fields before that boundary.
         /// </summary>
         public HealthState Health =>
-            healthRules == null
+            encounterRules == null
                 ? new HealthState(_hp, _maxHp, _tempHp)
-                : healthRules.GetHealth(healthCreatureId);
+                : encounterRules.GetHealth(healthCreatureId);
 
         /// <summary>Gets authoritative current Hit Points.</summary>
         public int hp => Health.Current;
@@ -808,9 +809,24 @@ namespace Game.Creature
                 _unloadedWeapons.Add(key);
         }
 
+        internal bool CanReloadWeapon(EquipmentWeapon weapon)
+        {
+            return weapon != null
+                && GetReloadCost(weapon) > 0
+                && HasAmmoFor(weapon)
+                && !IsWeaponLoaded(weapon);
+        }
+
+        /// <summary>Publishes an eligible weapon's loaded state after its caller commits cost.</summary>
+        /// <param name="weapon">The unloaded reload weapon with available ammunition.</param>
+        /// <returns>Whether the unloaded marker was removed exactly once.</returns>
+        /// <remarks>
+        /// This state-only method never spends actions. Combat actions must validate eligibility,
+        /// await authoritative payment, and only then call this method.
+        /// </remarks>
         public bool ReloadWeapon(EquipmentWeapon weapon)
         {
-            if (weapon == null || GetReloadCost(weapon) <= 0 || !HasAmmoFor(weapon))
+            if (!CanReloadWeapon(weapon))
                 return false;
 
             _unloadedWeapons.Remove(NormalizeEquipmentKey(weapon.name));
@@ -1046,7 +1062,7 @@ namespace Game.Creature
         /// <param name="temporary">Imported temporary Hit Points with no recoverable source.</param>
         public void InitializeHealthBeforeEncounter(int current, int maximum, int temporary = 0)
         {
-            if (healthRules != null)
+            if (encounterRules != null)
                 throw new InvalidOperationException(
                     "Health cannot be initialized after RulesState takes ownership."
                 );
@@ -1056,15 +1072,21 @@ namespace Game.Creature
             _tempHp = validated.Temporary;
         }
 
-        /// <summary>Commits already-final damage through the authoritative health dispatcher.</summary>
+        /// <summary>
+        /// Commits already-final damage and awaits the complete health and encounter causal root.
+        /// </summary>
         /// <param name="amount">Damage remaining after all upstream damage calculations.</param>
         /// <param name="source">The existing rules source responsible for the damage.</param>
         /// <returns>The exact temporary- and current-HP amounts committed.</returns>
-        public DamageOutcome ApplyFinalDamage(int amount, RuleSource source) =>
-            RequireHealthRules().ApplyFinalDamage(healthCreatureId, amount, source);
+        public ValueTask<DamageOutcome> ApplyFinalDamageAsync(int amount, RuleSource source) =>
+            RequireHealthRules().ApplyFinalDamageAsync(healthCreatureId, amount, source);
 
-        //helper function to signal to CombatManager when a player is defeated, so they can be removed from the turn queue and combat
-        //this function also clears the character's position from the grid memory and deactivates their game object
+        /// <summary>Presents a committed zero-HP transition without changing the rules roster.</summary>
+        /// <remarks>
+        /// The authoritative encounter retains this creature's initiative entry as an effect-timing
+        /// boundary. Presentation marks the component defeated, clears its occupied grid cell, and
+        /// deactivates the GameObject only after the outer rules dispatch has fully settled.
+        /// </remarks>
         internal void PresentCommittedDefeat()
         {
             if (defeated)
@@ -1072,15 +1094,15 @@ namespace Game.Creature
             defeated = true;
 
             var ac = gameObject.GetComponent<ActionController>();
-            if (ac != null && CombatManagerInterface.GetInstance() != null)
-                CombatManagerInterface.GetInstance().Remove(ac);
 
             DungeonEncounterMember encounterMember =
                 gameObject.GetComponent<DungeonEncounterMember>();
             if (encounterMember != null && encounterMember.IsConfigured)
                 encounterMember.ReportDefeated();
 
-            GridAPI.GetInstance().DestroyToken(this.gameObject);
+            GridAPI grid = UnityEngine.Object.FindFirstObjectByType<GridAPI>();
+            if (grid != null)
+                grid.DestroyToken(this.gameObject);
             DisableGameplayInteraction(ac);
             OnDeath.Invoke(gameObject); // Trigger the death event
             CombatLog.GetInstance().Log("- " + this.gameObject.name + " was defeated!");
@@ -1111,8 +1133,8 @@ namespace Game.Creature
         /// <param name="healAmount">The non-negative healing requested.</param>
         /// <param name="source">The existing rules source responsible for the healing.</param>
         /// <returns>The amount committed after maximum-HP clamping.</returns>
-        public HealingOutcome Heal(int healAmount, RuleSource source) =>
-            RequireHealthRules().ApplyHealing(healthCreatureId, healAmount, source);
+        public ValueTask<HealingOutcome> HealAsync(int healAmount, RuleSource source) =>
+            RequireHealthRules().ApplyHealingAsync(healthCreatureId, healAmount, source);
 
         /// <summary>
         /// Grants non-stacking temporary Hit Points owned by one rule source.
@@ -1120,24 +1142,26 @@ namespace Game.Creature
         /// <param name="source">The rule source that owns the resulting pool.</param>
         /// <param name="amount">The non-negative pool offered by the source.</param>
         /// <returns>Whether the offer replaced the current pool or was blocked.</returns>
-        public TemporaryHitPointsGrantOutcome GrantSourceTemporaryHitPoints(
+        public ValueTask<TemporaryHitPointsGrantOutcome> GrantSourceTemporaryHitPointsAsync(
             RuleSource source,
             int amount
-        ) => RequireHealthRules().GrantTemporaryHitPoints(healthCreatureId, amount, source);
+        ) => RequireHealthRules().GrantTemporaryHitPointsAsync(healthCreatureId, amount, source);
 
         /// <summary>Removes temporary Hit Points still owned by one rule source.</summary>
         /// <param name="source">The source whose remaining pool may be removed.</param>
         /// <returns>The amount removed, or zero when another source owns the pool.</returns>
-        public TemporaryHitPointsRemovalOutcome RemoveSourceTemporaryHitPoints(RuleSource source) =>
-            RequireHealthRules().RemoveTemporaryHitPoints(healthCreatureId, source);
+        public ValueTask<TemporaryHitPointsRemovalOutcome> RemoveSourceTemporaryHitPointsAsync(
+            RuleSource source
+        ) => RequireHealthRules().RemoveTemporaryHitPointsAsync(healthCreatureId, source);
 
         /// <summary>
         /// Records that a source cannot grant temporary Hit Points again until game flow resets the immunity set.
         /// </summary>
         /// <param name="source">The source to block from later grants.</param>
         /// <returns>Whether a new immunity was committed.</returns>
-        public TemporaryHitPointImmunityOutcome AddTemporaryHitPointImmunity(RuleSource source) =>
-            RequireHealthRules().AddTemporaryHitPointImmunity(healthCreatureId, source);
+        public ValueTask<TemporaryHitPointImmunityOutcome> AddTemporaryHitPointImmunityAsync(
+            RuleSource source
+        ) => RequireHealthRules().AddTemporaryHitPointImmunityAsync(healthCreatureId, source);
 
         /// <summary>
         /// Checks whether a source is currently blocked from granting temporary Hit Points.
@@ -1159,12 +1183,23 @@ namespace Game.Creature
 
         internal HealthState GetHealthInitializationState()
         {
-            if (healthRules != null)
-                return healthRules.GetHealth(healthCreatureId);
+            if (encounterRules != null)
+                return encounterRules.GetHealth(healthCreatureId);
             return new HealthState(_hp, _maxHp, _tempHp);
         }
 
-        internal void AttachHealthRules(UnityHealthRulesBridge bridge, CreatureId creatureId)
+        internal UnityEncounterRulesBridge GetEncounterRulesBridge() => RequireHealthRules();
+
+        // Standalone and preparation fixtures may legitimately have no health bridge. Callers that
+        // only need to enforce active-encounter policy must be able to distinguish that case without
+        // starting a mutation or using exception flow.
+        internal bool TryGetEncounterRulesBridge(out UnityEncounterRulesBridge bridge)
+        {
+            bridge = encounterRules;
+            return bridge != null;
+        }
+
+        internal void AttachEncounterRules(UnityEncounterRulesBridge bridge, CreatureId creatureId)
         {
             if (bridge == null)
                 throw new ArgumentNullException(nameof(bridge));
@@ -1173,9 +1208,41 @@ namespace Game.Creature
                     "A health creature ID is required.",
                     nameof(creatureId)
                 );
-            healthRules = bridge;
+            encounterRules = bridge;
             healthCreatureId = creatureId;
             ProjectCommittedHealth(bridge.GetHealth(creatureId));
+        }
+
+        // A failed combat start discards its rules store, so retain both the prior bridge
+        // attachment and the Unity/prepared projections that the temporary bridge may mutate.
+        internal CreatureEncounterState CaptureEncounterStartupState() =>
+            new CreatureEncounterState(
+                GetHealthInitializationState(),
+                encounterRules,
+                healthCreatureId,
+                Prepared,
+                Prepared?.ActiveEffects.ToArray() ?? Array.Empty<ActivePf2eEffect>(),
+                Prepared?.RollOptions.ToArray() ?? Array.Empty<string>(),
+                defeated,
+                gameObject.activeSelf
+            );
+
+        internal void RestoreEncounterStartupState(CreatureEncounterState state)
+        {
+            encounterRules = state.EncounterRules;
+            healthCreatureId = state.HealthCreatureId;
+            Prepared = state.Prepared;
+            if (Prepared != null)
+            {
+                Prepared.ActiveEffects.Clear();
+                Prepared.ActiveEffects.AddRange(state.PreparedActiveEffects);
+                Prepared.RollOptions.Clear();
+                foreach (string option in state.PreparedRollOptions)
+                    Prepared.RollOptions.Add(option);
+            }
+            defeated = state.Defeated;
+            gameObject.SetActive(state.ActiveSelf);
+            ProjectCommittedHealth(state.Health);
         }
 
         internal void ProjectCommittedHealth(HealthState health)
@@ -1185,20 +1252,20 @@ namespace Game.Creature
             _tempHp = health.Temporary;
         }
 
-        internal void PresentCommittedHit()
+        internal virtual void PresentCommittedHit()
         {
             GetComponent<CreaturePresentation>()?.PlayHit();
         }
 
-        private UnityHealthRulesBridge RequireHealthRules()
+        private UnityEncounterRulesBridge RequireHealthRules()
         {
-            if (healthRules == null)
+            if (encounterRules == null)
             {
                 throw new InvalidOperationException(
                     "Health commands require an encounter health bridge. CombatManager.StartCombat or an explicit test composition must initialize it first."
                 );
             }
-            return healthRules;
+            return encounterRules;
         }
 
         public int GetInitiative()
@@ -1358,5 +1425,38 @@ namespace Game.Creature
                     );
             }
         }
+    }
+
+    internal sealed class CreatureEncounterState
+    {
+        internal CreatureEncounterState(
+            HealthState health,
+            UnityEncounterRulesBridge encounterRules,
+            CreatureId healthCreatureId,
+            PreparedCharacter prepared,
+            ActivePf2eEffect[] preparedActiveEffects,
+            string[] preparedRollOptions,
+            bool defeated,
+            bool activeSelf
+        )
+        {
+            Health = health;
+            EncounterRules = encounterRules;
+            HealthCreatureId = healthCreatureId;
+            Prepared = prepared;
+            PreparedActiveEffects = preparedActiveEffects;
+            PreparedRollOptions = preparedRollOptions;
+            Defeated = defeated;
+            ActiveSelf = activeSelf;
+        }
+
+        internal HealthState Health { get; }
+        internal UnityEncounterRulesBridge EncounterRules { get; }
+        internal CreatureId HealthCreatureId { get; }
+        internal PreparedCharacter Prepared { get; }
+        internal ActivePf2eEffect[] PreparedActiveEffects { get; }
+        internal string[] PreparedRollOptions { get; }
+        internal bool Defeated { get; }
+        internal bool ActiveSelf { get; }
     }
 }

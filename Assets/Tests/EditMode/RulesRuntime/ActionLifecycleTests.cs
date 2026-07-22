@@ -14,6 +14,9 @@ namespace Game.Rules.Runtime.Tests
     public sealed class ActionLifecycleTests
     {
         private static readonly CreatureId Actor = new CreatureId("action-actor");
+        private static readonly CreatureId Enemy = new CreatureId("action-enemy");
+        private static readonly PlayerId Players = new PlayerId("action-players");
+        private static readonly PlayerId Enemies = new PlayerId("action-enemies");
         private static readonly ActionDefinitionId ActionDefinition = new ActionDefinitionId(
             "test-action"
         );
@@ -120,6 +123,109 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(
                 dispatcher.Diagnostics.Compact,
                 Does.Contain("profile: 1 action(s); 4 additional cost(s); concentrate,manipulate")
+            );
+        }
+
+        [Test]
+        public async Task OncePerRoundUseIsRejectedWithinEncounterAndResetsForNextEncounter()
+        {
+            EncounterId firstEncounter = new EncounterId("frequency-encounter-a");
+            EncounterId secondEncounter = new EncounterId("frequency-encounter-b");
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                Binding,
+                BindingDefinition,
+                Actor,
+                default(ActiveEffectId?),
+                Source,
+                0
+            );
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
+            registryBuilder.Define(BindingDefinition);
+            RuleRegistry registry = registryBuilder.AddOutcomeRule().Build();
+            ActionProfile profile = ActionProfile.OneAction(
+                Array.Empty<Trait>(),
+                new[] { RuleCost.OncePerRound(Binding) }
+            );
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(
+                    new RulesStateSeed()
+                        .SeedHealth(Actor, new HealthState(10, 10))
+                        .SeedHealth(Enemy, new HealthState(10, 10))
+                        .SeedRuleBinding(binding)
+                ),
+                new ScriptedRollService(20, 10, 20, 10)
+            )
+                .RegisterHandler<TestActionOp, TestActionOutcome>(new RecordingActionHandler(true))
+                .UseRuleRegistry(registry)
+                .UseHealthRules()
+                .UseEncounterRules(Array.Empty<IEncounterTurnStartAdapter>())
+                .UseActionLifecycle(new FixedActionCatalog(profile))
+                .Build();
+
+            await dispatcher.Dispatch(
+                new StartEncounterOp(
+                    firstEncounter,
+                    Players,
+                    new[]
+                    {
+                        new EncounterParticipant(Actor, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0),
+                    }
+                )
+            );
+            OpResult<TestActionOutcome> firstUse = await dispatcher.Dispatch(new TestActionOp());
+            InvalidOperationException repeat = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(new TestActionOp())
+            );
+
+            Assert.That(repeat.Message, Does.Contain("once-per-round use has already been spent"));
+            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            BindingFrequencySpentFact firstFact = firstUse
+                .Facts.OfType<BindingFrequencySpentFact>()
+                .Single();
+            Assert.That(firstFact.Encounter, Is.EqualTo(firstEncounter));
+            Assert.That(
+                dispatcher.Snapshot.Frequencies[Binding],
+                Is.EqualTo(new FrequencyState(firstEncounter, 1, 1))
+            );
+
+            await dispatcher.Dispatch(
+                new ApplyDamageOp(
+                    Enemy,
+                    10,
+                    new HealthChangeOriginId("end-frequency-encounter-a"),
+                    Source
+                )
+            );
+            await dispatcher.Dispatch(
+                new ApplyHealingOp(
+                    Enemy,
+                    10,
+                    new HealthChangeOriginId("restore-frequency-enemy"),
+                    Source
+                )
+            );
+            await dispatcher.Dispatch(
+                new StartEncounterOp(
+                    secondEncounter,
+                    Players,
+                    new[]
+                    {
+                        new EncounterParticipant(Actor, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0),
+                    }
+                )
+            );
+
+            OpResult<TestActionOutcome> secondUse = await dispatcher.Dispatch(new TestActionOp());
+            BindingFrequencySpentFact secondFact = secondUse
+                .Facts.OfType<BindingFrequencySpentFact>()
+                .Single();
+            Assert.That(secondFact.Encounter, Is.EqualTo(secondEncounter));
+            Assert.That(
+                dispatcher.Snapshot.Frequencies[Binding],
+                Is.EqualTo(new FrequencyState(secondEncounter, 1, 1))
             );
         }
 
@@ -559,7 +665,33 @@ namespace Game.Rules.Runtime.Tests
                     .SeedFocusPoints(Actor, new FocusPointState(2, 3))
                     .SeedAmmunition(new AmmunitionState(Ammunition, Actor, 5))
                     .SeedRuleBinding(binding)
-                    .SeedFrequency(Binding, new FrequencyState(4, 0))
+                    .SeedFrequency(
+                        Binding,
+                        new FrequencyState(new EncounterId("action-encounter"), 4, 0)
+                    )
+                    .SeedEncounter(
+                        new EncounterState(
+                            new EncounterId("action-encounter"),
+                            EncounterPhase.Active,
+                            new PlayerId("players"),
+                            new RoundNumber(4),
+                            new[]
+                            {
+                                new InitiativeEntry(
+                                    Actor,
+                                    new PlayerId("players"),
+                                    10,
+                                    0,
+                                    0,
+                                    RoundNumber.First
+                                ),
+                            },
+                            0,
+                            null,
+                            1,
+                            null
+                        )
+                    )
             );
         }
 

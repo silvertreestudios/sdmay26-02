@@ -1,9 +1,12 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
@@ -11,15 +14,28 @@ using UnityEngine;
 public class Pf2eClericSpellcastingTests
 {
     private readonly List<GameObject> created = new();
+    private UnityEngine.Random.State randomState;
 
+    /// <summary>Captures Unity's process-global random state before each deterministic fixture.</summary>
+    [SetUp]
+    public void SetUp() => randomState = UnityEngine.Random.state;
+
+    /// <summary>Destroys fixture objects and restores Unity's random state even after failures.</summary>
     [TearDown]
     public void TearDown()
     {
-        foreach (GameObject go in created)
-            if (go != null)
-                Object.DestroyImmediate(go);
-        created.Clear();
-        Pf2eItemCatalog.ResetForTests();
+        try
+        {
+            foreach (GameObject go in created)
+                if (go != null)
+                    Object.DestroyImmediate(go);
+            created.Clear();
+            Pf2eItemCatalog.ResetForTests();
+        }
+        finally
+        {
+            UnityEngine.Random.state = randomState;
+        }
     }
 
     [Test]
@@ -96,14 +112,13 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void ShieldAddsCircumstanceAcAndExpiresOnCasterNextTurn()
+    public async Task ShieldAddsCircumstanceAcAndExpiresOnCasterNextTurn()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
         controller.ActionPoints = 3;
-        controller.IsTakingAction = true;
 
-        Cast("shield", cleric, 1);
+        await CastAsync("shield", cleric, 1);
 
         Assert.That(cleric.ResolveArmorClass().Total, Is.EqualTo(12));
         Assert.That(controller.ActionPoints, Is.EqualTo(2));
@@ -114,12 +129,91 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void GuidanceAppliesOnceThenRecordsEncounterImmunity()
+    public async Task HealthOnlyCompositionAllowsCantripPreparedAndFontCasts()
+    {
+        CreatureComponent cleric = CreatePreparedCleric();
+        CreatureComponent ally = CreateCreature("Health-Only Ally", 3, 20);
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        controller.ActionPoints = 8;
+        UnityEncounterRulesBridge bridge = cleric.GetEncounterRulesBridge();
+        UnityEngine.Random.InitState(12);
+
+        Assert.That(bridge.HasActiveEncounter, Is.False);
+        Assert.That(bridge.AllowsNewActionLifecycle, Is.True);
+
+        CastSpellResult cantrip = await CastAsync("shield", cleric, 1);
+        CastSpellResult prepared = await CastAsync("bless", cleric, 2, ally.gameObject);
+        CastSpellResult font = await CastAsync("heal", cleric, 2, ally.gameObject);
+
+        Assert.That(cantrip.Success, Is.True);
+        Assert.That(prepared.Success, Is.True);
+        Assert.That(font.Success, Is.True);
+        Assert.That(controller.ActionPoints, Is.EqualTo(3));
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining, Is.Zero);
+        Assert.That(cleric.Prepared.Spellcasting.Pools["font-heal"].UsesRemaining, Is.EqualTo(3));
+        Assert.That(ally.Health.Current, Is.GreaterThan(3));
+    }
+
+    [TestCase(false, EncounterPhase.Ended)]
+    [TestCase(true, EncounterPhase.Suspended)]
+    public async Task CommittedClosedEncounterRejectsCastWithoutResourceOrReservationLeak(
+        bool suspend,
+        EncounterPhase expectedPhase
+    )
+    {
+        CreatureComponent cleric = CreatePreparedCleric();
+        CreatureComponent enemy = CreateCreature("Closed Encounter Enemy");
+        cleric.initiative = 100;
+        enemy.initiative = 0;
+        cleric.gameObject.AddComponent<Team>().Name = "Players";
+        enemy.gameObject.AddComponent<Team>().Name = "Enemies";
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        TestActionController enemyController =
+            enemy.gameObject.AddComponent<TestActionController>();
+        InstallTestCombatLog();
+        UnityEncounterRulesBridge bridge = UnityEncounterRulesBridge.Create(
+            new ActionController[] { controller, enemyController },
+            "Players",
+            new ScriptedRollService(20, 1)
+        );
+        await bridge.StartEncounter(new ActionController[] { controller, enemyController });
+
+        Assert.That(bridge.AllowsNewActionLifecycle, Is.True);
+        if (suspend)
+            await bridge.SuspendEncounter();
+        else
+            await enemy.ApplyFinalDamageAsync(10, RuleSource.FromSlug("test-close-encounter"));
+
+        Assert.That(
+            bridge.Snapshot.Encounters[bridge.EncounterId].Phase,
+            Is.EqualTo(expectedPhase)
+        );
+        Assert.That(bridge.AllowsNewActionLifecycle, Is.False);
+        uint actionsBefore = controller.ActionPoints;
+        int slotBefore = cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining;
+        int attackBefore = cleric.ResolveAttackRoll().Total;
+
+        CastSpellResult result = await CastAsync("bless", cleric, 2, cleric.gameObject);
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.Message, Does.Contain("encounter is no longer active"));
+        Assert.That(controller.ActionPoints, Is.EqualTo(actionsBefore));
+        Assert.That(
+            cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining,
+            Is.EqualTo(slotBefore)
+        );
+        Assert.That(cleric.ResolveAttackRoll().Total, Is.EqualTo(attackBefore));
+        Assert.That(controller.IsTakingAction, Is.False);
+    }
+
+    [Test]
+    public async Task GuidanceAppliesOnceThenRecordsEncounterImmunity()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally");
 
-        CastSpellResult result = Cast("guidance", cleric, 1, ally.gameObject);
+        CastSpellResult result = await CastAsync("guidance", cleric, 1, ally.gameObject);
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(1));
@@ -129,7 +223,7 @@ public class Pf2eClericSpellcastingTests
             Is.True
         );
 
-        CastSpellResult second = SpellcastingRuntime.Cast(
+        CastSpellResult second = await SpellcastingRuntime.CastAsync(
             cleric.gameObject,
             cleric.Prepared.Spellcasting.GetSpell("guidance"),
             1,
@@ -140,13 +234,13 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void BlessGrantsStatusAttackBonusAndConsumesPreparedSlot()
+    public async Task BlessGrantsStatusAttackBonusAndConsumesPreparedSlot()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally");
         ally.transform.position = new Vector3(2, 0, 0);
 
-        CastSpellResult result = Cast("bless", cleric, 2, ally.gameObject);
+        CastSpellResult result = await CastAsync("bless", cleric, 2, ally.gameObject);
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(1));
@@ -157,12 +251,12 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void InfuseVitalityAddsVitalityDamageToWeaponAndUnarmedStrikes()
+    public async Task InfuseVitalityAddsVitalityDamageToWeaponAndUnarmedStrikes()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally");
 
-        CastSpellResult result = Cast("infuse-vitality", cleric, 1, ally.gameObject);
+        CastSpellResult result = await CastAsync("infuse-vitality", cleric, 1, ally.gameObject);
 
         Assert.That(result.Success, Is.True);
         CreatureComponent target = CreateCreature("Target");
@@ -205,13 +299,13 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void HealUsesFontPoolAndCanHealLivingTargets()
+    public async Task HealUsesFontPoolAndCanHealLivingTargets()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally", 3, 20);
         UnityEngine.Random.InitState(12);
 
-        CastSpellResult result = Cast("heal", cleric, 2, ally.gameObject);
+        CastSpellResult result = await CastAsync("heal", cleric, 2, ally.gameObject);
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.hp, Is.GreaterThan(3));
@@ -220,23 +314,37 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void DivineLanceUsesSpellAttackAndMultipleAttackPenalty()
+    public async Task DivineLanceUsesSpellAttackAndMultipleAttackPenalty()
     {
         CreatureComponent cleric = CreatePreparedCleric();
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
         controller.ActionPoints = 3;
-        controller.IsTakingAction = true;
+        controller.StrikePenalty = 1;
         CreatureComponent target = CreateCreature("Target", 100, 100);
         target.transform.position = new Vector3(6, 0, 0);
         target.ac = 12;
         UnityEngine.Random.InitState(3);
         InstallTestCombatLog();
+        StrikeResolutionContext observed = null;
+        UnityEngine.Events.UnityAction<StrikeResolutionContext> listener = context =>
+            observed = context;
+        OnStrikePreparedEvent.AddListener(listener);
 
-        CastSpellResult result = Cast("divine-lance", cleric, 2, target.gameObject);
+        CastSpellResult result;
+        try
+        {
+            result = await CastAsync("divine-lance", cleric, 2, target.gameObject);
+        }
+        finally
+        {
+            OnStrikePreparedEvent.RemoveListener(listener);
+        }
 
         Assert.That(result.Success, Is.True);
         Assert.That(controller.ActionPoints, Is.EqualTo(1));
-        Assert.That(controller.StrikePenalty, Is.EqualTo(1));
+        Assert.That(controller.StrikePenalty, Is.EqualTo(2));
+        Assert.That(observed, Is.Not.Null);
+        Assert.That(observed.MultipleAttackPenalty, Is.EqualTo(5));
     }
 
     private void InstallTestCombatLog()
@@ -251,7 +359,7 @@ public class Pf2eClericSpellcastingTests
         field.SetValue(null, log);
     }
 
-    private CastSpellResult Cast(
+    private async ValueTask<CastSpellResult> CastAsync(
         string slug,
         CreatureComponent caster,
         uint actionCost,
@@ -259,7 +367,7 @@ public class Pf2eClericSpellcastingTests
     )
     {
         PreparedSpell spell = caster.Prepared.Spellcasting.GetSpell(slug);
-        return SpellcastingRuntime.Cast(
+        return await SpellcastingRuntime.CastAsync(
             caster.gameObject,
             spell,
             actionCost,
@@ -290,7 +398,7 @@ public class Pf2eClericSpellcastingTests
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
         creature.InitializeHealthBeforeEncounter(currentHitPoints, maximumHitPoints);
-        Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
+        Game.Rules.Unity.UnityEncounterRulesBridge.CreateHealthTestComposition(new[] { creature });
         return creature;
     }
 

@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -13,6 +14,7 @@ using UnityEngine.TestTools;
 public class ClericSpellcastingPlayModeTests : PlayModeBase
 {
     private GameObject clericObject;
+    private GameObject spellTargetObject;
     private ActionController clericController;
 
     [TearDown]
@@ -27,6 +29,8 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         if (clericObject != null)
             Object.Destroy(clericObject);
+        if (spellTargetObject != null)
+            Object.Destroy(spellTargetObject);
 
         Pf2eItemCatalog.ResetForTests();
     }
@@ -56,6 +60,91 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         Assert.That(controller.ActionPoints, Is.EqualTo(2));
         Assert.That(controller.IsTakingAction, Is.False);
+    }
+
+    [UnityTest]
+    public IEnumerator HealthOnlyCompositionAllowsCantripPreparedAndFontCasts()
+    {
+        clericObject = new GameObject("Health-Only PlayMode Cleric");
+        CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
+        cleric.InitializeHealthBeforeEncounter(10, 10);
+        cleric.level = 1;
+        cleric.wisMod = 4;
+        cleric.Build = new CharacterBuild { ClassName = "Cleric" };
+        cleric.Prepared = Pf2eCharacterPreparer.Prepare(cleric, cleric.Build);
+        clericObject.AddComponent<Conditions>();
+        clericObject.AddComponent<Team>().Name = "players";
+        PlayerActionController controller = clericObject.AddComponent<PlayerActionController>();
+        clericController = controller;
+
+        spellTargetObject = new GameObject("Health-Only PlayMode Ally");
+        CreatureComponent ally = spellTargetObject.AddComponent<CreatureComponent>();
+        ally.InitializeHealthBeforeEncounter(3, 20);
+        spellTargetObject.AddComponent<Conditions>();
+        Game.Rules.Unity.UnityEncounterRulesBridge.CreateHealthTestComposition(
+            new[] { cleric, ally }
+        );
+        UnityEngine.Random.State randomState = UnityEngine.Random.state;
+        UnityEngine.Random.InitState(12);
+
+        try
+        {
+            yield return null;
+
+            controller.StartTurn();
+            CoroutineResult<CastSpellResult> cantrip = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    clericObject,
+                    cleric.Prepared.Spellcasting.GetSpell("shield"),
+                    1
+                ),
+                cantrip
+            );
+            Assert.That(cantrip.Value.Success, Is.True);
+            Assert.That(controller.ActionPoints, Is.EqualTo(2));
+            Assert.That(controller.IsTakingAction, Is.False);
+
+            controller.StartTurn();
+            CoroutineResult<CastSpellResult> prepared = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    clericObject,
+                    cleric.Prepared.Spellcasting.GetSpell("bless"),
+                    2,
+                    new[] { spellTargetObject }
+                ),
+                prepared
+            );
+            Assert.That(prepared.Value.Success, Is.True);
+            Assert.That(controller.ActionPoints, Is.EqualTo(1));
+            Assert.That(cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining, Is.Zero);
+            Assert.That(controller.IsTakingAction, Is.False);
+
+            controller.StartTurn();
+            CoroutineResult<CastSpellResult> font = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    clericObject,
+                    cleric.Prepared.Spellcasting.GetSpell("heal"),
+                    2,
+                    new[] { spellTargetObject }
+                ),
+                font
+            );
+            Assert.That(font.Value.Success, Is.True);
+            Assert.That(controller.ActionPoints, Is.EqualTo(1));
+            Assert.That(
+                cleric.Prepared.Spellcasting.Pools["font-heal"].UsesRemaining,
+                Is.EqualTo(3)
+            );
+            Assert.That(ally.Health.Current, Is.GreaterThan(3));
+            Assert.That(controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            UnityEngine.Random.state = randomState;
+        }
     }
 
     [UnityTest]
@@ -134,12 +223,12 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
         cleric.level = 1;
         cleric.InitializeHealthBeforeEncounter(1, 1);
-        Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { cleric });
         cleric.wisMod = 4;
         cleric.Build = new CharacterBuild { ClassName = "Cleric" };
         cleric.Prepared = Pf2eCharacterPreparer.Prepare(cleric, cleric.Build);
         clericObject.AddComponent<Team>().Name = "players";
         PlayerActionController controller = clericObject.AddComponent<PlayerActionController>();
+        Game.Rules.Unity.UnityEncounterRulesBridge.CreateHealthTestComposition(new[] { cleric });
         clericController = controller;
 
         GameObject visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
@@ -164,7 +253,9 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
             new SelfDefeatingSpellDefinition()
         );
 
-        CastSpellResult result = context.Cast(SpellTargetSelection.None);
+        CoroutineResult<CastSpellResult> completed = new CoroutineResult<CastSpellResult>();
+        yield return CoroutineRunner.Await(context.CastAsync(SpellTargetSelection.None), completed);
+        CastSpellResult result = completed.Value;
 
         Assert.That(result.Success, Is.True);
         Assert.That(
@@ -206,23 +297,22 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
                 yield return null;
 
             if (shouldCast)
-                context.Cast(SpellTargetSelection.None);
+                yield return CoroutineRunner.Await(context.CastAsync(SpellTargetSelection.None));
             else
-                SpellcastingRuntime.Fail(
-                    new CastSpellResult(),
-                    "Spell targeting was cancelled.",
-                    context.ActionController
-                );
+                SpellcastingRuntime.Fail(new CastSpellResult(), "Spell targeting was cancelled.");
         }
 
-        public bool Cast(
+        public bool IsSelectionValid(SpellCastContext context, SpellTargetSelection selection) =>
+            true;
+
+        public ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
         )
         {
             result.Targets.Add(context.Caster);
-            return true;
+            return new ValueTask<bool>(true);
         }
 
         public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
@@ -244,13 +334,16 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
             yield break;
         }
 
-        public bool Cast(
+        public bool IsSelectionValid(SpellCastContext context, SpellTargetSelection selection) =>
+            true;
+
+        public async ValueTask<bool> Cast(
             SpellCastContext context,
             SpellTargetSelection selection,
             CastSpellResult result
         )
         {
-            context.CasterCreature.ApplyFinalDamage(
+            await context.CasterCreature.ApplyFinalDamageAsync(
                 1,
                 Game.Rules.Runtime.RuleSource.FromSlug("test-spell")
             );

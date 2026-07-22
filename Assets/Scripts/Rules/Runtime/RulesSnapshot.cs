@@ -50,6 +50,15 @@ namespace Game.Rules.Runtime
         public StateSliceSnapshot<BindingId, ActiveRuleBinding> RuleBindings { get; }
         public StateSliceSnapshot<BindingId, FrequencyState> Frequencies { get; }
 
+        /// <summary>Gets authoritative encounter clocks keyed by encounter identity.</summary>
+        public StateSliceSnapshot<EncounterId, EncounterState> Encounters { get; }
+
+        /// <summary>Gets active-effect schedules keyed by effect identity.</summary>
+        public StateSliceSnapshot<
+            ActiveEffectId,
+            ActiveEffectTimingState
+        > ActiveEffectTimings { get; }
+
         internal RulesSnapshot(RulesStateData data)
         {
             Version = data.Version;
@@ -78,6 +87,10 @@ namespace Game.Rules.Runtime
             );
             RuleBindings = new StateSliceSnapshot<BindingId, ActiveRuleBinding>(data.RuleBindings);
             Frequencies = new StateSliceSnapshot<BindingId, FrequencyState>(data.Frequencies);
+            Encounters = new StateSliceSnapshot<EncounterId, EncounterState>(data.Encounters);
+            ActiveEffectTimings = new StateSliceSnapshot<ActiveEffectId, ActiveEffectTimingState>(
+                data.ActiveEffectTimings
+            );
         }
     }
 }

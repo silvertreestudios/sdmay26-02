@@ -99,7 +99,10 @@ namespace Game.Rules.Runtime.Tests
                 .SeedEquipment(item)
                 .SeedActiveEffect(effect)
                 .SeedRuleBinding(binding)
-                .SeedFrequency(binding.Id, new FrequencyState(2, 0));
+                .SeedFrequency(
+                    binding.Id,
+                    new FrequencyState(new EncounterId("snapshot-encounter"), 2, 0)
+                );
 
             InMemoryRulesStore store = new InMemoryRulesStore(seed);
             callerTraits.Add(Trait.FromSlug("added-later"));
@@ -118,7 +121,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(snapshot.Equipment[item.Id], Is.EqualTo(item));
             Assert.That(snapshot.ActiveEffects[effect.Id], Is.EqualTo(effect));
             Assert.That(snapshot.RuleBindings[binding.Id], Is.EqualTo(binding));
-            Assert.That(snapshot.Frequencies[binding.Id], Is.EqualTo(new FrequencyState(2, 0)));
+            Assert.That(
+                snapshot.Frequencies[binding.Id],
+                Is.EqualTo(new FrequencyState(new EncounterId("snapshot-encounter"), 2, 0))
+            );
         }
 
         [Test]
@@ -500,7 +506,10 @@ namespace Game.Rules.Runtime.Tests
                 seed.SeedMultipleAttackPenalty(default, new MultipleAttackPenaltyState(0))
             );
             Assert.Throws<ArgumentException>(() =>
-                seed.SeedFrequency(default, new FrequencyState(0, 0))
+                seed.SeedFrequency(
+                    default,
+                    new FrequencyState(new EncounterId("invalid-key-encounter"), 0, 0)
+                )
             );
 
             InMemoryRulesStore store = CreateStore(20);
