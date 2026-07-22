@@ -2791,6 +2791,282 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    /// <summary>Verifies queued defeat invalidates every affected Heal target before any cost.</summary>
+    [UnityTest]
+    public IEnumerator QueuedDefeatRejectsAreaHealBeforeActionsSlotRollsOrEffects()
+    {
+        CombatantFixture player = CreateCombatant("Stale Heal Player", "Players", 300);
+        CombatantFixture ally = CreateCombatant("Stale Heal Ally", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Stale Heal Enemy", "Enemies", 100);
+        player.Creature.InitializeHealthBeforeEncounter(8, 10);
+        ally.Creature.InitializeHealthBeforeEncounter(1, 10);
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        SpellcastingState spellcasting = player.Creature.Prepared.Spellcasting;
+        PreparedSpell heal = spellcasting.GetSpell("heal");
+        SpellSlotPool pool = spellcasting.Pools["font-heal"];
+        AreaTargetResult area = new()
+        {
+            Creatures = new List<AreaAffectedCreature>
+            {
+                new() { Creature = player.GameObject, LineOfEffect = StrikeLineOfEffect.Clear },
+                new() { Creature = ally.GameObject, LineOfEffect = StrikeLineOfEffect.Clear },
+            },
+        };
+
+        manager.StartDungeonCombat(new[] { player.Controller, ally.Controller, enemy.Controller });
+        yield return WaitForTurn(player.GameObject);
+        UnityEncounterRulesBridge bridge = GetEncounterBridge();
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<HealthFact> healthFacts = new();
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<LegacyMapIncrementedFact> maps = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<HealthFact>(healthFacts);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+        Task blockingDamage = player
+            .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("stale-heal-root-blocker"))
+            .AsTask();
+        Task lethalDamage = null;
+        Task<CastSpellResult> cast = null;
+        UnityEngine.Random.State randomBefore = default;
+        bool randomCaptured = false;
+        int slotsBefore = pool.UsesRemaining;
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The stale-Heal blocker did not occupy the dispatcher."
+            );
+            int playerHealthAfterBlock = bridge
+                .Snapshot
+                .Health[bridge.GetCreatureId(player.Creature)]
+                .Current;
+            randomBefore = UnityEngine.Random.state;
+            randomCaptured = true;
+            lethalDamage = ally
+                .Creature.ApplyFinalDamageAsync(1, RuleSource.FromSlug("stale-heal-target-defeat"))
+                .AsTask();
+            cast = SpellcastingRuntime
+                .CastAsync(
+                    player.GameObject,
+                    heal,
+                    3,
+                    Array.Empty<GameObject>(),
+                    area,
+                    spendActions: true
+                )
+                .AsTask();
+            yield return null;
+
+            Assert.That(cast.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(pool.UsesRemaining, Is.EqualTo(slotsBefore));
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(blockingDamage));
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+            yield return WaitForCondition(
+                () => cast.IsCompleted,
+                "The target-aware Heal rejection did not settle."
+            );
+
+            Assert.That(cast.IsFaulted, Is.True);
+            StringAssert.Contains(
+                "selected action target is no longer a living participant",
+                cast.Exception.ToString()
+            );
+            Assert.That(ally.Creature.IsDefeated, Is.True);
+            Assert.That(ally.GameObject.activeSelf, Is.False);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(pool.UsesRemaining, Is.EqualTo(slotsBefore));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(healthFacts.Facts, Has.Count.EqualTo(2));
+            Assert.That(
+                bridge.Snapshot.Health[bridge.GetCreatureId(player.Creature)].Current,
+                Is.EqualTo(playerHealthAfterBlock)
+            );
+            Assert.That(player.Creature.hp, Is.EqualTo(playerHealthAfterBlock));
+            Assert.That(UnityEngine.Random.state, Is.EqualTo(randomBefore));
+            Assert.That(player.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+            Assert.That(
+                combatLog.GetMessages().Any(message => message.Contains(" casts Heal.")),
+                Is.False
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+
+            CoroutineResult<CastSpellResult> livingTargetCast = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    player.GameObject,
+                    heal,
+                    1,
+                    new[] { player.GameObject }
+                ),
+                livingTargetCast
+            );
+            Assert.That(livingTargetCast.Value.Success, Is.True);
+            Assert.That(player.Creature.hp, Is.GreaterThan(playerHealthAfterBlock));
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(2u));
+            Assert.That(pool.UsesRemaining, Is.EqualTo(slotsBefore - 1));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<HealthFact>(healthFacts);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(maps);
+            if (randomCaptured)
+                UnityEngine.Random.state = randomBefore;
+            _ = cast?.Exception;
+            _ = lethalDamage?.Exception;
+        }
+    }
+
+    /// <summary>Verifies queued defeat invalidates an attack-spell target before AP or MAP.</summary>
+    [UnityTest]
+    public IEnumerator QueuedDefeatRejectsAttackSpellBeforeActionsMapRollsOrEffects()
+    {
+        CombatantFixture player = CreateCombatant("Stale Attack Spell Player", "Players", 300);
+        CombatantFixture target = CreateCombatant("Stale Attack Spell Target", "Enemies", 200);
+        CombatantFixture survivor = CreateCombatant("Stale Attack Spell Survivor", "Enemies", 100);
+        target.Creature.InitializeHealthBeforeEncounter(1, 10);
+        survivor.Creature.InitializeHealthBeforeEncounter(100, 100);
+        player.Creature.level = 20;
+        player.Creature.wisMod = 20;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        PreparedSpell lance = player.Creature.Prepared.Spellcasting.GetSpell("divine-lance");
+
+        manager.StartDungeonCombat(
+            new[] { player.Controller, target.Controller, survivor.Controller }
+        );
+        yield return WaitForTurn(player.GameObject);
+        RuleDispatcher dispatcher = GetEncounterDispatcher();
+        BlockingFactObserver<HealthFact> blocker = new(failAfterRelease: false);
+        RecordingFactObserver<HealthFact> healthFacts = new();
+        RecordingFactObserver<LegacyActionsSpentFact> spends = new();
+        RecordingFactObserver<LegacyMapIncrementedFact> maps = new();
+        dispatcher.RegisterFactObserver<HealthFact>(blocker);
+        dispatcher.RegisterFactObserver<HealthFact>(healthFacts);
+        dispatcher.RegisterFactObserver<LegacyActionsSpentFact>(spends);
+        dispatcher.RegisterFactObserver<LegacyMapIncrementedFact>(maps);
+        Task blockingDamage = player
+            .Creature.ApplyFinalDamageAsync(
+                1,
+                RuleSource.FromSlug("stale-attack-spell-root-blocker")
+            )
+            .AsTask();
+        Task lethalDamage = null;
+        Task<CastSpellResult> cast = null;
+        UnityEngine.Random.State randomBefore = default;
+        bool randomCaptured = false;
+        TestCombatLog combatLog = UnityEngine.Object.FindFirstObjectByType<TestCombatLog>();
+
+        try
+        {
+            yield return WaitForCondition(
+                () => blocker.Started.IsCompleted,
+                "The stale attack-spell blocker did not occupy the dispatcher."
+            );
+            randomBefore = UnityEngine.Random.state;
+            randomCaptured = true;
+            lethalDamage = target
+                .Creature.ApplyFinalDamageAsync(
+                    1,
+                    RuleSource.FromSlug("stale-attack-spell-target-defeat")
+                )
+                .AsTask();
+            cast = SpellcastingRuntime
+                .CastAsync(player.GameObject, lance, 2, new[] { target.GameObject })
+                .AsTask();
+            yield return null;
+
+            Assert.That(cast.IsCompleted, Is.False);
+            Assert.That(player.Controller.IsTakingAction, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+
+            blocker.Release();
+            yield return CoroutineRunner.Await(new ValueTask(blockingDamage));
+            yield return CoroutineRunner.Await(new ValueTask(lethalDamage));
+            yield return WaitForCondition(
+                () => cast.IsCompleted,
+                "The target-aware attack-spell rejection did not settle."
+            );
+
+            Assert.That(cast.IsFaulted, Is.True);
+            StringAssert.Contains(
+                "selected action target is no longer a living participant",
+                cast.Exception.ToString()
+            );
+            Assert.That(target.Creature.IsDefeated, Is.True);
+            Assert.That(target.GameObject.activeSelf, Is.False);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(3u));
+            Assert.That(player.Controller.StrikePenalty, Is.Zero);
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(spends.Facts, Is.Empty);
+            Assert.That(maps.Facts, Is.Empty);
+            Assert.That(healthFacts.Facts, Has.Count.EqualTo(2));
+            Assert.That(UnityEngine.Random.state, Is.EqualTo(randomBefore));
+            Assert.That(target.GameObject.GetComponent<SpellEffectController>(), Is.Null);
+            Assert.That(
+                combatLog.GetMessages().Any(message => message.Contains(" casts Divine Lance.")),
+                Is.False
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+
+            CoroutineResult<CastSpellResult> livingTargetCast = new();
+            yield return CoroutineRunner.Await(
+                SpellcastingRuntime.CastAsync(
+                    player.GameObject,
+                    lance,
+                    2,
+                    new[] { survivor.GameObject }
+                ),
+                livingTargetCast
+            );
+            Assert.That(livingTargetCast.Value.Success, Is.True);
+            Assert.That(player.Controller.ActionPoints, Is.EqualTo(1u));
+            Assert.That(player.Controller.StrikePenalty, Is.EqualTo(1u));
+            Assert.That(player.Controller.IsTakingAction, Is.False);
+            Assert.That(survivor.Creature.hp, Is.LessThan(100));
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            blocker.Release();
+            dispatcher.UnregisterFactObserver<HealthFact>(blocker);
+            dispatcher.UnregisterFactObserver<HealthFact>(healthFacts);
+            dispatcher.UnregisterFactObserver<LegacyActionsSpentFact>(spends);
+            dispatcher.UnregisterFactObserver<LegacyMapIncrementedFact>(maps);
+            if (randomCaptured)
+                UnityEngine.Random.state = randomBefore;
+            _ = cast?.Exception;
+            _ = lethalDamage?.Exception;
+        }
+    }
+
     /// <summary>Verifies affected creatures outside the active roster reject before spell costs.</summary>
     [UnityTest]
     public IEnumerator AreaSpellsRejectOffRosterTargetsBeforeAnyCostOrEffect()
@@ -4490,7 +4766,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
             LogAssert.Expect(
                 LogType.Exception,
-                new Regex("selected Strike target is no longer a living participant")
+                new Regex("selected action target is no longer a living participant")
             );
             blocker.Release();
             yield return CoroutineRunner.Await(new ValueTask(blockingDamage));

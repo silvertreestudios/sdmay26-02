@@ -214,7 +214,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task TargetAwareActionSpendRejectsCommittedDefeatAtomically()
+        public async Task TargetAwareActionSpendRejectsAnyCommittedDefeatAtomically()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10, 5));
             CountingFactObserver<LegacyActionsSpentFact> spends =
@@ -239,7 +239,13 @@ namespace Game.Rules.Runtime.Tests
 
             InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
                 async () =>
-                    await dispatcher.Dispatch(new SpendLegacyActionsOp(Hero, 1, Enemy))
+                    await dispatcher.Dispatch(
+                        new SpendLegacyActionsOp(
+                            Hero,
+                            1,
+                            new[] { Reinforcement, Enemy, Reinforcement }
+                        )
+                    )
             );
 
             Assert.That(rejected.Message, Does.Contain("no longer a living participant"));
@@ -250,7 +256,9 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(spends.Calls, Is.Zero);
 
             LegacyActionSpendOutcome livingTargetSpend = Resolved(
-                await dispatcher.Dispatch(new SpendLegacyActionsOp(Hero, 1, Reinforcement))
+                await dispatcher.Dispatch(
+                    new SpendLegacyActionsOp(Hero, 1, new[] { Reinforcement })
+                )
             ).Value;
             Assert.That(livingTargetSpend.Remaining, Is.EqualTo(2));
             Assert.That(spends.Calls, Is.EqualTo(1));

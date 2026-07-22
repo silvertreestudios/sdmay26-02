@@ -25,6 +25,20 @@ namespace Game.Rules.Runtime
                 );
             return Array.AsReadOnly(copied);
         }
+
+        public static IReadOnlyList<CreatureId> CopyRequiredLivingTargets(
+            IEnumerable<CreatureId> targets
+        )
+        {
+            CreatureId[] copied =
+                targets?.Distinct().ToArray() ?? throw new ArgumentNullException(nameof(targets));
+            if (copied.Any(target => target.IsEmpty))
+                throw new ArgumentException(
+                    "Required living targets cannot contain an empty creature identity.",
+                    nameof(targets)
+                );
+            return Array.AsReadOnly(copied);
+        }
     }
 
     /// <summary>Requests a new encounter, initiative rolls, and its first eligible turn.</summary>
@@ -281,7 +295,9 @@ namespace Game.Rules.Runtime
         internal TurnEndingOp(TurnIdentity turn) => Turn = turn;
     }
 
-    /// <summary>Requests same-store turn authorization and an optional legacy action spend.</summary>
+    /// <summary>
+    /// Requests same-store turn and target authorization with an optional legacy action spend.
+    /// </summary>
     public sealed class SpendLegacyActionsOp : IRuleOp<LegacyActionSpendOutcome>
     {
         /// <summary>Gets the creature whose reducer-owned actions are spent.</summary>
@@ -291,15 +307,15 @@ namespace Game.Rules.Runtime
         public int Amount { get; }
 
         /// <summary>
-        /// Gets the optional encounter participant that must still be living when the spend commits.
+        /// Gets the encounter participants that must still be living when the spend commits.
         /// </summary>
-        public CreatureId? RequiredLivingTarget { get; }
+        public IReadOnlyList<CreatureId> RequiredLivingTargets { get; }
 
         /// <summary>Creates a temporary same-store action authorization/spend request.</summary>
         /// <param name="actor">The creature paying the action cost.</param>
         /// <param name="amount">The non-negative number of actions to spend.</param>
         public SpendLegacyActionsOp(CreatureId actor, int amount)
-            : this(actor, amount, null) { }
+            : this(actor, amount, Array.Empty<CreatureId>()) { }
 
         /// <summary>
         /// Creates an action spend that atomically requires one current living encounter target.
@@ -310,22 +326,33 @@ namespace Game.Rules.Runtime
         /// The selected participant that must remain living in the actor's encounter.
         /// </param>
         public SpendLegacyActionsOp(CreatureId actor, int amount, CreatureId requiredLivingTarget)
-            : this(actor, amount, (CreatureId?)requiredLivingTarget) { }
+            : this(actor, amount, new[] { requiredLivingTarget }) { }
 
-        private SpendLegacyActionsOp(CreatureId actor, int amount, CreatureId? requiredLivingTarget)
+        /// <summary>
+        /// Creates an action spend that atomically requires every selected encounter target to
+        /// remain living.
+        /// </summary>
+        /// <param name="actor">The creature paying the action cost.</param>
+        /// <param name="amount">The non-negative number of actions to spend.</param>
+        /// <param name="requiredLivingTargets">
+        /// The selected participants that must remain living in the actor's encounter. The
+        /// operation copies and de-duplicates this sequence before dispatch.
+        /// </param>
+        public SpendLegacyActionsOp(
+            CreatureId actor,
+            int amount,
+            IEnumerable<CreatureId> requiredLivingTargets
+        )
         {
             if (actor.IsEmpty)
                 throw new ArgumentException("An actor is required.", nameof(actor));
             if (amount < 0)
                 throw new ArgumentOutOfRangeException(nameof(amount));
-            if (requiredLivingTarget.HasValue && requiredLivingTarget.Value.IsEmpty)
-                throw new ArgumentException(
-                    "A required living target cannot be empty.",
-                    nameof(requiredLivingTarget)
-                );
             Actor = actor;
             Amount = amount;
-            RequiredLivingTarget = requiredLivingTarget;
+            RequiredLivingTargets = EncounterOperationValues.CopyRequiredLivingTargets(
+                requiredLivingTargets
+            );
         }
     }
 
@@ -573,13 +600,17 @@ namespace Game.Rules.Runtime
     {
         public CreatureId Actor { get; }
         public int Amount { get; }
-        public CreatureId? RequiredLivingTarget { get; }
+        public IReadOnlyList<CreatureId> RequiredLivingTargets { get; }
 
-        public CommitLegacyActionsOp(CreatureId actor, int amount, CreatureId? requiredLivingTarget)
+        public CommitLegacyActionsOp(
+            CreatureId actor,
+            int amount,
+            IReadOnlyList<CreatureId> requiredLivingTargets
+        )
         {
             Actor = actor;
             Amount = amount;
-            RequiredLivingTarget = requiredLivingTarget;
+            RequiredLivingTargets = requiredLivingTargets;
         }
     }
 

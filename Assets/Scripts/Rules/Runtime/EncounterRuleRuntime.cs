@@ -590,7 +590,7 @@ namespace Game.Rules.Runtime
                     new CommitLegacyActionsOp(
                         frame.Op.Actor,
                         frame.Op.Amount,
-                        frame.Op.RequiredLivingTarget
+                        frame.Op.RequiredLivingTargets
                     )
                 ),
                 "legacy action spend"

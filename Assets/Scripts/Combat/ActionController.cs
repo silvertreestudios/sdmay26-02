@@ -444,22 +444,32 @@ public abstract class ActionController : MonoBehaviour
         await encounterRules.SpendActionsAsync(encounterCreatureId, checked((int)amount));
     }
 
-    internal async ValueTask SpendStrikeActionsAsync(
-        CreatureComponent requiredLivingTarget,
+    internal async ValueTask SpendTargetedActionsAsync(
+        IReadOnlyList<CreatureComponent> requiredLivingTargets,
         uint amount
     )
     {
-        if (requiredLivingTarget == null)
-            throw new ArgumentNullException(nameof(requiredLivingTarget));
+        if (requiredLivingTargets == null)
+            throw new ArgumentNullException(nameof(requiredLivingTargets));
         if (!HasAuthoritativeActionState)
         {
             if (amount > 0)
                 actionPoints -= amount;
             return;
         }
-        await encounterRules.SpendStrikeActionsAsync(
+        List<CreatureId> targetIds = new(requiredLivingTargets.Count);
+        foreach (CreatureComponent target in requiredLivingTargets)
+        {
+            if (target == null)
+                throw new ArgumentException(
+                    "Required living targets cannot contain a missing creature.",
+                    nameof(requiredLivingTargets)
+                );
+            targetIds.Add(encounterRules.GetCreatureId(target));
+        }
+        await encounterRules.SpendTargetedActionsAsync(
             encounterCreatureId,
-            encounterRules.GetCreatureId(requiredLivingTarget),
+            targetIds,
             checked((int)amount)
         );
     }

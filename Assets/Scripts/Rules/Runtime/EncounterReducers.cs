@@ -545,15 +545,13 @@ namespace Game.Rules.Runtime
                     "The actor does not own an active current turn."
                 );
             if (
-                context.Op.RequiredLivingTarget.HasValue
-                && (
-                    !encounter.Roster.Any(entry =>
-                        entry.Creature == context.Op.RequiredLivingTarget.Value
-                    ) || !EncounterReduction.IsLiving(state, context.Op.RequiredLivingTarget.Value)
+                context.Op.RequiredLivingTargets.Any(target =>
+                    !encounter.Roster.Any(entry => entry.Creature == target)
+                    || !EncounterReduction.IsLiving(state, target)
                 )
             )
                 return ReductionResult<LegacyActionSpendOutcome>.Reject(
-                    "The selected Strike target is no longer a living participant in the actor's encounter."
+                    "A selected action target is no longer a living participant in the actor's encounter."
                 );
             if (
                 !state.ActionEconomy.TryGet(context.Op.Actor, out ActionEconomyState economy)

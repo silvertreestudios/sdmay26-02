@@ -219,13 +219,22 @@ namespace Game.Combat.Spells
                 SpellTargetSelection selected = selection ?? SpellTargetSelection.None;
                 if (!context.Definition.IsSelectionValid(context, selected))
                     return Fail(result, "Spell target is invalid.");
-                if (!HasValidActiveEncounterTargets(context, selected))
+                if (
+                    !TryGetRequiredLivingEncounterTargets(
+                        context,
+                        selected,
+                        out IReadOnlyList<CreatureComponent> requiredLivingTargets
+                    )
+                )
                     return Fail(result, "Spell target is outside the caster's active encounter.");
 
                 bool appliesMap = context.Definition.AppliesMultipleAttackPenalty(context);
                 uint attackCount = controller == null ? 0 : controller.StrikePenalty;
-                if (controller != null && context.SpendActions)
-                    await controller.SpendActionsAsync(context.ActionCost);
+                if (controller != null && (context.SpendActions || requiredLivingTargets.Count > 0))
+                    await controller.SpendTargetedActionsAsync(
+                        requiredLivingTargets,
+                        context.SpendActions ? context.ActionCost : 0
+                    );
                 if (!state.Spend(context.Spell))
                     throw new InvalidOperationException(
                         "A validated spell slot became unavailable before commitment."
@@ -477,11 +486,13 @@ namespace Game.Combat.Spells
                 );
         }
 
-        private static bool HasValidActiveEncounterTargets(
+        private static bool TryGetRequiredLivingEncounterTargets(
             SpellCastContext context,
-            SpellTargetSelection selection
+            SpellTargetSelection selection,
+            out IReadOnlyList<CreatureComponent> requiredLivingTargets
         )
         {
+            requiredLivingTargets = Array.Empty<CreatureComponent>();
             CreatureComponent caster = context.CasterCreature;
             if (!caster.TryGetEncounterRulesBridge(out UnityEncounterRulesBridge bridge))
                 return true;
@@ -492,6 +503,7 @@ namespace Game.Combat.Spells
             if (!bridge.IsLivingActiveEncounterParticipant(caster))
                 return false;
 
+            List<CreatureComponent> targets = new();
             IEnumerable<GameObject> directTargets = selection.Targets ?? Array.Empty<GameObject>();
             IEnumerable<GameObject> areaTargets =
                 selection.Area?.Creatures == null
@@ -499,16 +511,19 @@ namespace Game.Combat.Spells
                     : selection
                         .Area.Creatures.Where(affected => affected.IsAffected)
                         .Select(affected => affected.Creature);
-            return directTargets
-                .Concat(areaTargets)
-                .Distinct()
-                .All(target =>
-                {
-                    CreatureComponent targetCreature =
-                        target == null ? null : target.GetComponent<CreatureComponent>();
-                    return targetCreature != null
-                        && bridge.IsLivingActiveEncounterParticipant(targetCreature);
-                });
+            foreach (GameObject target in directTargets.Concat(areaTargets).Distinct())
+            {
+                CreatureComponent targetCreature =
+                    target == null ? null : target.GetComponent<CreatureComponent>();
+                if (
+                    targetCreature == null
+                    || !bridge.IsLivingActiveEncounterParticipant(targetCreature)
+                )
+                    return false;
+                targets.Add(targetCreature);
+            }
+            requiredLivingTargets = targets;
+            return true;
         }
 
         private static int BasicSaveDamage(int amount, DegreeOfSuccess degree)

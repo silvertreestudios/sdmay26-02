@@ -873,13 +873,13 @@ namespace Game.Rules.Unity
             int amount
         ) => DispatchAsync(new SpendLegacyActionsOp(actor, amount));
 
-        // The reducer validates this target inside the same root that commits the cost. A Unity
-        // selection check alone can become stale while this dispatch waits behind another root.
-        internal ValueTask<LegacyActionSpendOutcome> SpendStrikeActionsAsync(
+        // The reducer validates this immutable target set inside the same root that commits the
+        // cost. A Unity selection check alone can become stale while dispatch waits behind a root.
+        internal ValueTask<LegacyActionSpendOutcome> SpendTargetedActionsAsync(
             CreatureId actor,
-            CreatureId requiredLivingTarget,
+            IReadOnlyList<CreatureId> requiredLivingTargets,
             int amount
-        ) => DispatchAsync(new SpendLegacyActionsOp(actor, amount, requiredLivingTarget));
+        ) => DispatchAsync(new SpendLegacyActionsOp(actor, amount, requiredLivingTargets));
 
         /// <summary>Awaits a turn-authorized MAP increment through the transitional same-store port.</summary>
         /// <param name="actor">The registered actor that must still own the exact current turn.</param>
