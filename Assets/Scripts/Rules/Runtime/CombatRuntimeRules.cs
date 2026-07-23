@@ -311,23 +311,27 @@ namespace Game.Rules.Runtime
             if (!state.ActionEconomy.Contains(op.Actor))
                 return CombatRuntimeOutcome.Rejected("The turn actor is not registered.");
 
-            List<CreatureId> participants = new List<CreatureId>();
+            List<KeyValuePair<CreatureId, ActionEconomyState>> participants =
+                new List<KeyValuePair<CreatureId, ActionEconomyState>>();
             foreach (KeyValuePair<CreatureId, ActionEconomyState> pair in state.ActionEconomy)
-                participants.Add(pair.Key);
-            foreach (CreatureId participant in participants)
+                participants.Add(pair);
+            foreach (KeyValuePair<CreatureId, ActionEconomyState> participant in participants)
             {
-                state.ActionEconomy.Set(participant, new ActionEconomyState(0, false));
-                state.MovementBudgets.Remove(participant);
+                state.ActionEconomy.Set(
+                    participant.Key,
+                    new ActionEconomyState(0, participant.Value.ReactionAvailable)
+                );
             }
+            state.MovementBudgets.Remove(op.Actor);
             state.ActionEconomy.Set(op.Actor, new ActionEconomyState(op.Actions, true));
             return CombatRuntimeOutcome.Success;
         }
 
         private static CombatRuntimeOutcome EndTurn(CreatureId actor, RulesStateDraft state)
         {
-            if (!state.ActionEconomy.Contains(actor))
+            if (!state.ActionEconomy.TryGet(actor, out ActionEconomyState economy))
                 return CombatRuntimeOutcome.Rejected("The turn actor is not registered.");
-            state.ActionEconomy.Set(actor, new ActionEconomyState(0, false));
+            state.ActionEconomy.Set(actor, new ActionEconomyState(0, economy.ReactionAvailable));
             state.MovementBudgets.Remove(actor);
             return CombatRuntimeOutcome.Success;
         }

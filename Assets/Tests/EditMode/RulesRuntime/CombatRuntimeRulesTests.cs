@@ -8,20 +8,25 @@ namespace Game.Tests.EditMode.RulesRuntime
     public sealed class CombatRuntimeRulesTests
     {
         private static readonly CreatureId Actor = new CreatureId("actor");
+        private static readonly CreatureId Other = new CreatureId("other");
 
         [Test]
         public async Task TurnAndLegacyCostsShareAuthoritativeActionEconomy()
         {
             RuleDispatcher dispatcher = CreateDispatcher(
-                new RulesStateSeed().SeedActionEconomy(Actor, new ActionEconomyState(0, false))
+                new RulesStateSeed()
+                    .SeedActionEconomy(Actor, new ActionEconomyState(0, false))
+                    .SeedActionEconomy(Other, new ActionEconomyState(0, true))
             );
 
             AssertSuccess(await dispatcher.Dispatch(new BeginCombatTurnOp(Actor, 3)));
+            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ReactionAvailable, Is.True);
+            Assert.That(dispatcher.Snapshot.ActionEconomy[Other].ReactionAvailable, Is.True);
             AssertSuccess(await dispatcher.Dispatch(new SpendLegacyActionsOp(Actor, 1)));
             Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
             AssertSuccess(await dispatcher.Dispatch(new EndCombatTurnOp(Actor)));
             Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.Zero);
-            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ReactionAvailable, Is.False);
+            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ReactionAvailable, Is.True);
         }
 
         [Test]
