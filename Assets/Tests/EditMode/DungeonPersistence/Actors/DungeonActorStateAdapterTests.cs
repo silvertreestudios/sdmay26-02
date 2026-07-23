@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
@@ -9,494 +8,189 @@ using Game.DungeonPersistence.Repository;
 using Game.Rules;
 using Game.Rules.Runtime;
 using NUnit.Framework;
-using UnityEditor;
 using UnityEngine;
+
+public sealed class DungeonPersistenceTestActionController : ActionController
+{
+    public override void EndTurn() { }
+}
 
 public sealed class DungeonActorStateAdapterTests
 {
-    private readonly List<GameObject> createdObjects = new();
+    private GameObject sourceObject;
+    private GameObject restoredObject;
+    private GameObject effectSourceObject;
 
     [TearDown]
     public void TearDown()
     {
-        foreach (GameObject createdObject in createdObjects)
-            UnityEngine.Object.DestroyImmediate(createdObject);
-        createdObjects.Clear();
+        UnityEngine.Object.DestroyImmediate(sourceObject);
+        UnityEngine.Object.DestroyImmediate(restoredObject);
+        UnityEngine.Object.DestroyImmediate(effectSourceObject);
     }
 
     [Test]
-    public void Capture_IsDeterministicAndIncludesDurableActorState()
+    public void CaptureAndRestorePreservesMutableActorStateWithoutSerializingInventory()
     {
-        TestActionController source = CreateActor("Source", 9, 9);
-        TestActionController target = CreateActor("Target", 7, 12);
-        ConditionSource sharedConditionSource = new();
-        source
-            .gameObject.AddComponent<Conditions>()
-            .AddPersistent("frightened", 1, sharedConditionSource);
-        ConfigureTargetState(target, source.gameObject, sharedConditionSource);
-
-        IReadOnlyList<DungeonCreatureSaveState> first = DungeonActorStateAdapter.Capture(
-            new[]
-            {
-                new DungeonActorCaptureTarget(target, "actor-b", "creature-b"),
-                new DungeonActorCaptureTarget(source, "actor-a", "creature-a"),
-            }
-        );
-        IReadOnlyList<DungeonCreatureSaveState> second = DungeonActorStateAdapter.Capture(
-            new[]
-            {
-                new DungeonActorCaptureTarget(source, "actor-a", "creature-a"),
-                new DungeonActorCaptureTarget(target, "actor-b", "creature-b"),
-            }
-        );
-
-        Assert.That(
-            first.Select(state => state.InstanceId),
-            Is.EqualTo(new[] { "actor-a", "actor-b" })
-        );
-        Assert.That(
-            first.Select(DungeonSaveJsonCodec.SerializeCreature),
-            Is.EqualTo(second.Select(DungeonSaveJsonCodec.SerializeCreature))
-        );
-        DungeonCreatureSaveState savedTarget = first.Single(state => state.InstanceId == "actor-b");
-        DungeonCreatureSaveState savedSource = first.Single(state => state.InstanceId == "actor-a");
-        Assert.That(savedTarget.Cell, Is.EqualTo(new DungeonSaveCell(2, -3)));
-        Assert.That(savedTarget.Health.CurrentHitPoints, Is.EqualTo(7));
-        Assert.That(savedTarget.Health.TemporaryHitPoints, Is.EqualTo(3));
-        Assert.That(savedTarget.Health.TemporaryHitPointSourceId, Is.EqualTo("false-life"));
-        Assert.That(
-            savedTarget.Health.TemporaryHitPointImmunitySourceIds,
-            Is.EqualTo(new[] { "rage" })
-        );
-        Assert.That(savedTarget.Conditions.Single().Value, Is.EqualTo(2));
-        Assert.That(
-            savedTarget.Conditions.Single().SourceInstanceId,
-            Is.EqualTo(savedSource.Conditions.Single().SourceInstanceId)
-        );
-        Assert.That(savedTarget.TimedEffects.Single().SourceCreatureId, Is.EqualTo("actor-a"));
-        Assert.That(savedTarget.TimedEffects.Single().RemainingTargetTurnStarts, Is.EqualTo(4));
-        Assert.That(savedTarget.PreparedRules.RollOptions, Does.Contain("custom:option"));
-        Assert.That(savedTarget.PreparedRules.ActiveEffects.Single().Slug, Is.EqualTo("effect-a"));
-        Assert.That(savedTarget.PreparedRules.SpellPools.Single().RemainingUses, Is.EqualTo(1));
-        Assert.That(savedTarget.Equipment.Items.Count, Is.EqualTo(3));
-        Assert.That(
-            savedTarget.Equipment.Items.Count(item => item.ItemDefinitionId == "crossbow"),
-            Is.EqualTo(2)
-        );
-        Assert.That(savedTarget.Equipment.Items.Count(item => !item.IsLoaded), Is.EqualTo(1));
-
-        string json = DungeonSaveJsonCodec.SerializeCreature(savedTarget);
-        Assert.That(json, Does.Not.Contain("ActionPoints"));
-        Assert.That(json, Does.Not.Contain("StrikePenalty"));
-        Assert.That(json, Does.Not.Contain("Reacted"));
-    }
-
-    [Test]
-    public void Restore_PreservesAbsentSourceIdsAndDuplicateWeaponLoading()
-    {
-        TestActionController source = CreateActor("Source", 9, 9);
-        TestActionController original = CreateActor("Original", 7, 12);
-        ConfigureTargetState(original, source.gameObject);
-        DungeonCreatureSaveState saved = WithNonCanonicalPersistenceIds(
-            DungeonActorStateAdapter
-                .Capture(
-                    new[]
-                    {
-                        new DungeonActorCaptureTarget(source, "actor-a", "creature-a"),
-                        new DungeonActorCaptureTarget(original, "actor-b", "creature-b"),
-                    }
-                )
-                .Single(state => state.InstanceId == "actor-b")
-        );
-
-        TestActionController restored = CreateActor("Restored", 12, 12);
-        CreatureComponent restoredCreature = restored.GetComponent<CreatureComponent>();
-        ConfigureDefinitionState(restoredCreature);
-        restored.transform.position = new Vector3(99, 6, 99);
-        DungeonActorStateAdapter.PreflightRestore(restored, saved).Apply();
-
-        Assert.That(restored.transform.position, Is.EqualTo(new Vector3(2, 6, -3)));
-        Assert.That(restoredCreature.Health.Current, Is.EqualTo(7));
-        Assert.That(restoredCreature.Health.Temporary, Is.EqualTo(3));
-        Assert.That(restoredCreature.Health.TemporarySource.Slug, Is.EqualTo("false-life"));
-        Assert.That(
-            restoredCreature.Health.TemporaryHitPointImmunities.Single().Slug,
-            Is.EqualTo("rage")
-        );
-        Assert.That(restoredCreature.weapons.Count, Is.EqualTo(2));
-        Assert.That(restoredCreature.IsWeaponLoaded(restoredCreature.weapons[0]), Is.True);
-        Assert.That(restoredCreature.IsWeaponLoaded(restoredCreature.weapons[1]), Is.False);
-        Assert.That(restoredCreature.Prepared.RollOptions, Does.Contain("custom:option"));
-        Assert.That(restoredCreature.Prepared.ActiveEffects.Single().Slug, Is.EqualTo("effect-a"));
-        Assert.That(
-            restoredCreature.Prepared.Spellcasting.Pools["rank-1"].UsesRemaining,
-            Is.EqualTo(1)
-        );
-
-        ActiveSpellEffect effect = restored.GetComponent<SpellEffectController>().Effects.Single();
-        Assert.That(effect.Source, Is.Null);
-        Assert.That(effect.PersistentSourceActorId, Is.EqualTo("actor-a"));
-        DungeonCreatureSaveState recaptured = DungeonActorStateAdapter.Capture(
-            restored,
-            "actor-b",
-            "creature-b"
-        );
-        Assert.That(recaptured.TimedEffects.Single().SourceCreatureId, Is.EqualTo("actor-a"));
-        Assert.That(
-            recaptured.Conditions.Single().SourceInstanceId,
-            Is.EqualTo(saved.Conditions.Single().SourceInstanceId)
-        );
-        Assert.That(
-            recaptured.Conditions.Single().ApplicationId,
-            Is.EqualTo(saved.Conditions.Single().ApplicationId)
-        );
-        Assert.That(
-            DungeonSaveJsonCodec.SerializeCreature(recaptured),
-            Is.EqualTo(DungeonSaveJsonCodec.SerializeCreature(saved)),
-            "Every meaningful actor value and stable schema identity must survive save-load-save."
-        );
-    }
-
-    [Test]
-    public void PreparedRuleRestoreNormalizesRollOptionWhitespaceBeforeIdentityValidation()
-    {
-        PreparedCharacter prepared = new(new CharacterBuild());
-
-        prepared.RestorePersistentRuleState(
-            new[] { "  custom:option  " },
-            Array.Empty<ActivePf2eEffect>()
-        );
-
-        Assert.That(prepared.RollOptions, Is.EqualTo(new[] { "custom:option" }));
-        Assert.Throws<ArgumentException>(() =>
-            prepared.RestorePersistentRuleState(
-                new[] { "custom:option", " custom:option " },
-                Array.Empty<ActivePf2eEffect>()
-            )
-        );
-        Assert.That(prepared.RollOptions, Is.EqualTo(new[] { "custom:option" }));
-    }
-
-    [Test]
-    public void PreflightRestore_DoesNotMutateWhenContentCannotResolve()
-    {
-        TestActionController original = CreateActor("Original", 7, 12);
-        ConfigureTargetState(original, original.gameObject);
-        DungeonCreatureSaveState saved = DungeonActorStateAdapter.Capture(
-            original,
-            "actor-a",
-            "creature-a"
-        );
-        TestActionController target = CreateActor("Target", 12, 12);
-        Vector3 originalPosition = new(44, 2, 55);
-        target.transform.position = originalPosition;
-
-        Assert.Throws<InvalidOperationException>(() =>
-            DungeonActorStateAdapter.PreflightRestore(target, saved)
-        );
-        Assert.That(target.transform.position, Is.EqualTo(originalPosition));
-        Assert.That(target.GetComponent<CreatureComponent>().Health.Current, Is.EqualTo(12));
-        Assert.That(target.GetComponent<Conditions>(), Is.Null);
-        Assert.That(target.GetComponent<SpellEffectController>(), Is.Null);
-    }
-
-    [Test]
-    public void Capture_OmitsConsumedLegacyTimedEffects()
-    {
-        TestActionController actor = CreateActor("Actor", 8, 8);
-        SpellEffectController effects = actor.gameObject.AddComponent<SpellEffectController>();
-        GuidanceSpellEffect guidance = new(actor.gameObject);
-        effects.AddOrRefresh(guidance);
-        guidance.GetModifiers(Pf2eStatistic.AttackRoll, effects).ToArray();
-
-        DungeonCreatureSaveState saved = DungeonActorStateAdapter.Capture(
-            actor,
-            "actor-a",
-            "creature-a"
-        );
-
-        Assert.That(
-            saved.TimedEffects.Select(effect => effect.Kind),
-            Is.EqualTo(new[] { "guidance-immunity" })
-        );
-    }
-
-    [Test]
-    public void ValidateForRestore_RejectsUnsupportedTimedEffectWithoutUnityMutation()
-    {
-        DungeonTimedEffectSaveState unsupported = new(
-            "actor-a/timed-effect/0000",
-            "future-effect",
-            "legacy-spell-effect/v1",
-            "missing-defeated-source",
-            "actor-a",
-            "actor-a",
-            0,
-            1,
-            "{}"
-        );
-        DungeonCreatureSaveState state = new(
-            "actor-a",
-            "creature-a",
-            new DungeonSaveCell(1, 2),
-            new DungeonHealthSaveState(5, 5, 0, string.Empty, Array.Empty<string>()),
-            isDefeated: false,
-            Array.Empty<DungeonConditionSaveState>(),
-            new[] { unsupported },
-            new DungeonPreparedRuleSaveState(
-                Array.Empty<string>(),
-                Array.Empty<DungeonPreparedEffectSaveState>(),
-                Array.Empty<DungeonSpellPoolSaveState>()
-            ),
-            new DungeonEquipmentSaveState(
-                Array.Empty<DungeonInventoryItemSaveState>(),
-                Array.Empty<DungeonAmmunitionSaveState>()
-            )
-        );
-
-        Assert.Throws<InvalidOperationException>(() =>
-            DungeonActorStateAdapter.ValidateForRestore(new[] { state })
-        );
-    }
-
-    [Test]
-    public void PartyIdentity_ValidatesAtomicallyAndConfiguresOnce()
-    {
-        GameObject owner = CreateObject("Identity");
-        DungeonPartyMemberIdentity identity = owner.AddComponent<DungeonPartyMemberIdentity>();
-
-        Assert.Throws<ArgumentException>(() => identity.Configure("slot-a", "actor-a", " "));
-        Assert.That(identity.IsConfigured, Is.False);
-        Assert.That(identity.RosterSlotId, Is.Empty);
-
-        identity.Configure("slot-a", "actor-a", "creature-a");
-        Assert.That(identity.RosterSlotId, Is.EqualTo("slot-a"));
-        Assert.That(identity.ActorInstanceId, Is.EqualTo("actor-a"));
-        Assert.That(identity.CreatureContentId, Is.EqualTo("creature-a"));
-        Assert.Throws<InvalidOperationException>(() =>
-            identity.Configure("slot-b", "actor-b", "creature-b")
-        );
-    }
-
-    [Test]
-    public void Conditions_NormalizeIdsForLookupAndRemoval()
-    {
-        Conditions conditions = CreateObject("Normalized conditions").AddComponent<Conditions>();
-        ConditionSource source = new();
-        conditions.AddPersistent("  frightened  ", 1, source);
-
-        Assert.That(conditions.Contains(" frightened "), Is.True);
-        Assert.That(conditions.Contains(" frightened ", source), Is.True);
-
-        conditions.Remove(" frightened ", source);
-
-        Assert.That(conditions.Contains("frightened"), Is.False);
-        Assert.That(conditions.CapturePersistentState(), Is.Empty);
-    }
-
-    /// <summary>Verifies source removal releases every restored reverse link after one pass.</summary>
-    [Test]
-    public void ConditionSource_RemoveClearsRestoredTargetLinks()
-    {
-        RecordingConditions conditions = CreateObject("Tracked conditions")
-            .AddComponent<RecordingConditions>();
-        ConditionSource source = new();
-        conditions.RestorePersistentState(
-            new[] { new ConditionPersistenceApplication("frightened", 1, source, "application-a") }
-        );
-
-        source.Remove();
-        source.Remove();
-
-        Assert.That(conditions.RemovalAttempts, Is.EqualTo(1));
-        Assert.That(conditions.Contains("frightened"), Is.False);
-    }
-
-    [Test]
-    public void AuthoredPlayerPrefabs_ProvideDistinctStableDungeonIdentities()
-    {
-        string[] paths =
-        {
-            "Assets/Prefabs/Creatures/Lena.prefab",
-            "Assets/Prefabs/Creatures/Torgrim.prefab",
-        };
-        DungeonPartyMemberIdentity[] identities = paths
-            .Select(path => AssetDatabase.LoadAssetAtPath<GameObject>(path))
-            .Select(prefab => prefab.GetComponent<DungeonPartyMemberIdentity>())
-            .ToArray();
-
-        Assert.That(identities, Has.All.Not.Null);
-        Assert.That(
-            identities,
-            Has.All.Matches<DungeonPartyMemberIdentity>(identity => identity.IsConfigured)
-        );
-        Assert.That(identities.Select(identity => identity.RosterSlotId), Is.Unique);
-        Assert.That(identities.Select(identity => identity.ActorInstanceId), Is.Unique);
-        Assert.That(identities.Select(identity => identity.CreatureContentId), Is.Unique);
-    }
-
-    private TestActionController CreateActor(string name, int currentHp, int maximumHp)
-    {
-        GameObject owner = CreateObject(name);
-        TestActionController controller = owner.AddComponent<TestActionController>();
-        CreatureComponent creature = owner.AddComponent<CreatureComponent>();
-        creature.InitializeHealthBeforeEncounter(currentHp, maximumHp);
-        return controller;
-    }
-
-    private GameObject CreateObject(string name)
-    {
-        GameObject created = new(name);
-        createdObjects.Add(created);
-        return created;
-    }
-
-    private static void ConfigureTargetState(
-        TestActionController target,
-        GameObject timedEffectSource,
-        ConditionSource conditionSource = null
-    )
-    {
-        CreatureComponent creature = target.GetComponent<CreatureComponent>();
-        creature.InitializeHealthBeforeEncounter(
+        effectSourceObject = new GameObject("Effect Source");
+        DungeonPersistenceTestActionController effectSource =
+            effectSourceObject.AddComponent<DungeonPersistenceTestActionController>();
+        SourceFixture source = CreateFixture("Source", out sourceObject);
+        source.Creature.InitializeHealthBeforeEncounter(
             new HealthState(
                 7,
                 12,
-                3,
-                RuleSource.FromSlug("false-life"),
+                4,
+                RuleSource.FromSlug("rage"),
                 new[] { RuleSource.FromSlug("rage") }
             )
         );
-        ConfigureDefinitionState(creature);
-        creature.MarkWeaponFired(creature.weapons[1]);
-        target.transform.position = new Vector3(2, 5, -3);
+        ConditionSource sharedConditionSource = new();
+        source.Conditions.Add("Off-Guard", sharedConditionSource);
+        source.Conditions.Add("Slowed", sharedConditionSource);
+        SpellEffectController
+            .GetOrAdd(sourceObject)
+            .AddOrRefresh(new BlessSpellEffect(effectSourceObject));
+        source.Creature.Prepared.RestoreActiveEffects(
+            new[] { new ActivePf2eEffect("Rage", "rage", "effect-rage") }
+        );
+        source.Creature.equippedRightHand = source.Weapons[1];
+        source.Creature.ammunition = new()
+        {
+            new AmmoCount { ammoName = "bolt", quantity = 3 },
+        };
+        source.Creature.unloadedWeapons = new() { "Heavy Crossbow" };
 
-        Conditions conditions = target.gameObject.AddComponent<Conditions>();
-        conditions.AddPersistent("frightened", 2, conditionSource ?? new ConditionSource());
-        SpellEffectController effects = target.gameObject.AddComponent<SpellEffectController>();
-        BlessSpellEffect bless = new(timedEffectSource);
-        bless.RestorePersistenceState(4, consumed: false);
-        effects.AddOrRefresh(bless);
+        DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
+            source.Controller,
+            actor =>
+                actor == effectSourceObject ? "source-slot" : throw new InvalidOperationException()
+        );
+        SourceFixture restored = CreateFixture("Restored", out restoredObject);
+        Action apply = DungeonActorStateAdapter.PrepareRestore(
+            restored.Controller,
+            captured,
+            currentHitPoints: 7,
+            isDefeated: false,
+            actorId => actorId == "source-slot" ? effectSourceObject : null
+        );
+
+        apply();
+
+        Assert.That(restored.Creature.Health.Current, Is.EqualTo(7));
+        Assert.That(restored.Creature.Health.Temporary, Is.EqualTo(4));
+        Assert.That(restored.Creature.Health.TemporarySource.Slug, Is.EqualTo("rage"));
+        Assert.That(
+            restored.Creature.GetTempHpImmunitySources(),
+            Is.EquivalentTo(new[] { "rage" })
+        );
+        Assert.That(
+            restored.Conditions.GetConditionNames(),
+            Is.EquivalentTo(new[] { "Off-Guard", "Slowed" })
+        );
+        ConditionApplicationSnapshot[] restoredConditions = restored
+            .Conditions.CaptureApplications()
+            .ToArray();
+        Assert.That(restoredConditions, Has.Length.EqualTo(2));
+        Assert.That(restoredConditions[0].Source, Is.SameAs(restoredConditions[1].Source));
+        BlessSpellEffect bless = restoredObject
+            .GetComponent<SpellEffectController>()
+            .Effects.OfType<BlessSpellEffect>()
+            .Single();
+        Assert.That(bless.Source, Is.SameAs(effectSourceObject));
+        Assert.That(bless.RemainingTargetTurnStarts, Is.EqualTo(10));
+        Assert.That(restored.Creature.Prepared.HasActiveEffect("rage"), Is.True);
+        Assert.That(restored.Creature.equippedRightHand, Is.SameAs(restored.Weapons[1]));
+        Assert.That(restored.Creature.GetAmmoQuantity("bolt"), Is.EqualTo(3));
+        Assert.That(restored.Creature.IsWeaponLoaded(restored.Weapons[1]), Is.False);
     }
 
-    private static void ConfigureDefinitionState(CreatureComponent creature)
+    [Test]
+    public void PrepareRestoreRejectsEquipmentThatAuthoredActorDoesNotContain()
     {
-        EquipmentWeapon first = NewCrossbow();
-        EquipmentWeapon second = NewCrossbow();
-        EquipmentArmor armor = new() { name = "Leather Armor" };
-        creature.weapons = new List<EquipmentWeapon> { first, second };
-        creature.armor = new List<EquipmentArmor> { armor };
-        creature.equippedLeftHand = first;
-        creature.equippedArmor = armor;
-        creature.ammunition = new List<AmmoCount>
-        {
-            new() { ammoName = "Bolt", quantity = 6 },
-        };
+        SourceFixture source = CreateFixture("Source", out sourceObject);
+        DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
+            source.Controller,
+            _ => "unused"
+        );
+        SourceFixture restored = CreateFixture("Restored", out restoredObject);
+        restored.Creature.weapons = new();
 
-        PreparedCharacter prepared = new(new CharacterBuild());
-        prepared.RollOptions.Add("custom:option");
-        prepared.ActiveEffects.Add(new ActivePf2eEffect("Effect A", "effect-a", "source-a"));
-        prepared.Spellcasting = new SpellcastingState();
-        SpellSlotPool pool = new("rank-1", SpellSlotKind.Prepared, 1, 2);
-        pool.Spend();
-        prepared.Spellcasting.AddPool(pool);
-        creature.Prepared = prepared;
-    }
-
-    private static EquipmentWeapon NewCrossbow() =>
-        new()
-        {
-            name = "Crossbow",
-            reload = "1",
-            ammo = "Bolt",
-            hands = 1,
-            damage = new Dice(1, 8, "piercing"),
-        };
-
-    private static DungeonCreatureSaveState WithNonCanonicalPersistenceIds(
-        DungeonCreatureSaveState state
-    )
-    {
-        DungeonConditionSaveState[] conditions = state
-            .Conditions.Select(
-                (condition, index) =>
-                    new DungeonConditionSaveState(
-                        $"condition-application-custom-{index}",
-                        condition.ConditionId,
-                        condition.SourceInstanceId,
-                        condition.Value
+        Assert.Throws<InvalidOperationException>(() =>
+            DungeonActorStateAdapter.PrepareRestore(
+                restored.Controller,
+                new DungeonActorSaveState(
+                    captured.TemporaryHitPoints,
+                    captured.TemporaryHitPointSource,
+                    captured.TemporaryHitPointImmunities,
+                    captured.Conditions,
+                    captured.TimedEffects,
+                    captured.PreparedEffects,
+                    new DungeonEquipmentSaveState(
+                        DungeonEquipmentReference.Empty,
+                        new DungeonEquipmentReference("Crossbow", 1),
+                        DungeonEquipmentReference.Empty,
+                        captured.Equipment.Ammunition,
+                        captured.Equipment.UnloadedWeaponIds
                     )
+                ),
+                12,
+                false,
+                _ => null
             )
-            .ToArray();
-        DungeonTimedEffectSaveState[] timedEffects = state
-            .TimedEffects.Select(
-                (effect, index) =>
-                    new DungeonTimedEffectSaveState(
-                        $"timed-effect-custom-{index}",
-                        effect.Kind,
-                        effect.StateDiscriminator,
-                        effect.SourceCreatureId,
-                        effect.OwnerCreatureId,
-                        effect.TargetCreatureId,
-                        100 + index,
-                        effect.RemainingTargetTurnStarts,
-                        effect.StateJson
-                    )
-            )
-            .ToArray();
-        DungeonPreparedEffectSaveState[] preparedEffects = state
-            .PreparedRules.ActiveEffects.Select(
-                (effect, index) =>
-                    new DungeonPreparedEffectSaveState(
-                        $"prepared-effect-custom-{index}",
-                        effect.Name,
-                        effect.Slug,
-                        effect.SourceSlug
-                    )
-            )
-            .ToArray();
-        DungeonInventoryItemSaveState[] items = state
-            .Equipment.Items.Select(
-                (item, index) =>
-                    new DungeonInventoryItemSaveState(
-                        $"inventory-entry-custom-{index}",
-                        item.ItemDefinitionId,
-                        item.Quantity,
-                        item.Slot,
-                        item.IsLoaded
-                    )
-            )
-            .ToArray();
-        return new DungeonCreatureSaveState(
-            state.InstanceId,
-            state.CreatureContentId,
-            state.Cell,
-            state.Health,
-            state.IsDefeated,
-            conditions,
-            timedEffects,
-            new DungeonPreparedRuleSaveState(
-                state.PreparedRules.RollOptions,
-                preparedEffects,
-                state.PreparedRules.SpellPools
-            ),
-            new DungeonEquipmentSaveState(items, state.Equipment.Ammunition)
         );
     }
 
-    private sealed class TestActionController : ActionController
+    private static SourceFixture CreateFixture(string name, out GameObject gameObject)
     {
-        public override void EndTurn() { }
+        gameObject = new GameObject(name);
+        DungeonPersistenceTestActionController controller =
+            gameObject.AddComponent<DungeonPersistenceTestActionController>();
+        CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
+        creature.InitializeHealthBeforeEncounter(12, 12);
+        EquipmentWeapon[] weapons =
+        {
+            new()
+            {
+                name = "Heavy Crossbow",
+                reload = "1",
+                ammo = "bolt",
+            },
+            new()
+            {
+                name = "Heavy Crossbow",
+                reload = "1",
+                ammo = "bolt",
+            },
+        };
+        creature.weapons = weapons.ToList();
+        creature.ammunition = new()
+        {
+            new AmmoCount { ammoName = "bolt", quantity = 5 },
+        };
+        creature.Prepared = new PreparedCharacter(new CharacterBuild());
+        Conditions conditions = gameObject.AddComponent<Conditions>();
+        return new SourceFixture(controller, creature, conditions, weapons);
     }
 
-    private sealed class RecordingConditions : Conditions, IConditionTarget
+    private sealed class SourceFixture
     {
-        internal int RemovalAttempts { get; private set; }
-
-        void IConditionTarget.Remove(string condition, ConditionSource source)
+        internal SourceFixture(
+            DungeonPersistenceTestActionController controller,
+            CreatureComponent creature,
+            Conditions conditions,
+            EquipmentWeapon[] weapons
+        )
         {
-            RemovalAttempts++;
-            base.Remove(condition, source);
+            Controller = controller;
+            Creature = creature;
+            Conditions = conditions;
+            Weapons = weapons;
         }
+
+        internal DungeonPersistenceTestActionController Controller { get; }
+        internal CreatureComponent Creature { get; }
+        internal Conditions Conditions { get; }
+        internal EquipmentWeapon[] Weapons { get; }
     }
 }

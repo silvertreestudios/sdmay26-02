@@ -105,9 +105,9 @@ namespace Game.Creature
         [SerializeField]
         private int _tempHp;
         private UnityHealthRulesBridge healthRules;
-        private CreatureId healthCreatureId;
         private HealthState initializedHealth;
         private bool hasInitializedHealth;
+        private CreatureId healthCreatureId;
 
         [SerializeField]
         private int _ac;
@@ -218,8 +218,6 @@ namespace Game.Creature
 
         [SerializeField]
         private List<string> _unloadedWeapons = new List<string>();
-        private readonly HashSet<EquipmentWeapon> unloadedWeaponInstances = new();
-        private bool hasInstanceWeaponLoadState;
 
         [SerializeField]
         private List<string> _armorList = new List<string>(); // Temp to display armor in inspector
@@ -276,17 +274,9 @@ namespace Game.Creature
         /// ownership begins and serialized initialization fields before that boundary.
         /// </summary>
         public HealthState Health =>
-            healthRules == null
-                ? hasInitializedHealth
-                    ? initializedHealth
-                    : new HealthState(_hp, _maxHp, _tempHp)
-                : healthRules.GetHealth(healthCreatureId);
-
-        /// <summary>
-        /// Gets whether durable health and defeat can still be restored before an encounter rules
-        /// bridge takes ownership.
-        /// </summary>
-        public bool CanRestoreHealthBeforeEncounter => healthRules == null && !defeated;
+            healthRules != null ? healthRules.GetHealth(healthCreatureId)
+            : hasInitializedHealth ? initializedHealth
+            : new HealthState(_hp, _maxHp, _tempHp);
 
         /// <summary>Gets authoritative current Hit Points.</summary>
         public int hp => Health.Current;
@@ -449,12 +439,7 @@ namespace Game.Creature
         public List<EquipmentWeapon> weapons
         {
             get => _weapons;
-            set
-            {
-                _weapons = value ?? new List<EquipmentWeapon>();
-                unloadedWeaponInstances.Clear();
-                hasInstanceWeaponLoadState = false;
-            }
+            set => _weapons = value ?? new List<EquipmentWeapon>();
         }
         public List<AmmoCount> ammunition
         {
@@ -464,12 +449,7 @@ namespace Game.Creature
         public List<string> unloadedWeapons
         {
             get => _unloadedWeapons;
-            set
-            {
-                _unloadedWeapons = value ?? new List<string>();
-                unloadedWeaponInstances.Clear();
-                hasInstanceWeaponLoadState = false;
-            }
+            set => _unloadedWeapons = value ?? new List<string>();
         }
         public List<string> armorList
         {
@@ -817,8 +797,7 @@ namespace Game.Creature
         {
             if (weapon == null || GetReloadCost(weapon) <= 0)
                 return true;
-            EnsureInstanceWeaponLoadState();
-            return !unloadedWeaponInstances.Contains(weapon);
+            return !_unloadedWeapons.Contains(NormalizeEquipmentKey(weapon.name));
         }
 
         public void MarkWeaponFired(EquipmentWeapon weapon)
@@ -826,8 +805,6 @@ namespace Game.Creature
             if (weapon == null || GetReloadCost(weapon) <= 0)
                 return;
 
-            EnsureInstanceWeaponLoadState();
-            unloadedWeaponInstances.Add(weapon);
             string key = NormalizeEquipmentKey(weapon.name);
             if (!_unloadedWeapons.Contains(key))
                 _unloadedWeapons.Add(key);
@@ -838,29 +815,8 @@ namespace Game.Creature
             if (weapon == null || GetReloadCost(weapon) <= 0 || !HasAmmoFor(weapon))
                 return false;
 
-            EnsureInstanceWeaponLoadState();
-            unloadedWeaponInstances.Remove(weapon);
-            string key = NormalizeEquipmentKey(weapon.name);
-            if (
-                !unloadedWeaponInstances.Any(candidate =>
-                    NormalizeEquipmentKey(candidate.name) == key
-                )
-            )
-                _unloadedWeapons.Remove(key);
+            _unloadedWeapons.Remove(NormalizeEquipmentKey(weapon.name));
             return true;
-        }
-
-        private void EnsureInstanceWeaponLoadState()
-        {
-            if (hasInstanceWeaponLoadState)
-                return;
-            unloadedWeaponInstances.Clear();
-            foreach (EquipmentWeapon weapon in _weapons)
-            {
-                if (weapon != null && _unloadedWeapons.Contains(NormalizeEquipmentKey(weapon.name)))
-                    unloadedWeaponInstances.Add(weapon);
-            }
-            hasInstanceWeaponLoadState = true;
         }
 
         public int GetReloadCost(EquipmentWeapon weapon)
@@ -1095,16 +1051,13 @@ namespace Game.Creature
             InitializeHealthBeforeEncounter(new HealthState(current, maximum, temporary));
         }
 
-        /// <summary>
-        /// Restores complete authoritative health, including temporary-HP ownership and immunity
-        /// sources, before encounter rules take ownership.
-        /// </summary>
-        /// <param name="health">The complete validated health value from durable state.</param>
+        /// <summary>Restores complete health before encounter rules take ownership.</summary>
+        /// <param name="health">Validated health including temporary-HP ownership and immunities.</param>
         public void InitializeHealthBeforeEncounter(HealthState health)
         {
-            if (!CanRestoreHealthBeforeEncounter)
+            if (healthRules != null)
                 throw new InvalidOperationException(
-                    "Health cannot be restored after encounter ownership or defeat."
+                    "Health cannot be initialized after RulesState takes ownership."
                 );
             initializedHealth = new HealthState(
                 health.Current,
@@ -1119,42 +1072,17 @@ namespace Game.Creature
             _tempHp = initializedHealth.Temporary;
         }
 
-        /// <summary>
-        /// Marks a zero-HP actor defeated during pre-encounter restoration without replaying a
-        /// death event, combat-log entry, animation, or encounter defeat notification.
-        /// </summary>
-        /// <remarks>
-        /// Existing grid and combat registrations are removed when present, allowing freshly
-        /// materialized party actors to restore after scene lifecycle registration but before
-        /// dungeon play resumes.
-        /// </remarks>
+        /// <summary>Restores a zero-HP party actor without replaying defeat presentation.</summary>
         public void RestoreDefeatBeforeEncounter()
         {
             if (healthRules != null)
                 throw new InvalidOperationException(
-                    "Defeat cannot be restored after encounter health ownership begins."
+                    "Defeat cannot be restored after encounter rules take ownership."
                 );
             if (Health.Current != 0)
                 throw new InvalidOperationException("Only a zero-HP actor can restore defeat.");
-            if (defeated)
-                return;
-
             defeated = true;
-            ActionController actionController = GetComponent<ActionController>();
-            if (
-                actionController != null
-                && CombatManagerInterface.TryGetInstance(out CombatManagerInterface combatManager)
-            )
-            {
-                combatManager.Remove(actionController);
-            }
-            Token gridToken = GetComponent<Token>();
-            if (
-                (gridToken == null || gridToken.IsRegistered)
-                && GridAPI.TryGetInstance(out GridAPI grid)
-            )
-                grid.DestroyToken(gameObject);
-            DisableGameplayInteraction(actionController);
+            DisableGameplayInteraction(GetComponent<ActionController>());
             gameObject.SetActive(false);
         }
 
@@ -1263,7 +1191,7 @@ namespace Game.Creature
         {
             if (healthRules != null)
                 return healthRules.GetHealth(healthCreatureId);
-            return new HealthState(_hp, _maxHp, _tempHp);
+            return hasInitializedHealth ? initializedHealth : new HealthState(_hp, _maxHp, _tempHp);
         }
 
         internal void AttachHealthRules(UnityHealthRulesBridge bridge, CreatureId creatureId)
@@ -1375,111 +1303,6 @@ namespace Game.Creature
         public void UnequipArmor()
         {
             equippedArmor = null;
-        }
-
-        /// <summary>
-        /// Atomically restores definition-resolved inventory, equipped references, ammunition,
-        /// and per-instance weapon loading state before gameplay resumes.
-        /// </summary>
-        /// <param name="weapons">Distinct weapon definition objects in saved inventory order.</param>
-        /// <param name="armor">Distinct armor definition objects in saved inventory order.</param>
-        /// <param name="ammunition">Complete ammunition pools.</param>
-        /// <param name="leftHand">A member of <paramref name="weapons"/>, or null.</param>
-        /// <param name="rightHand">A member of <paramref name="weapons"/>, or null.</param>
-        /// <param name="equippedArmorValue">A member of <paramref name="armor"/>, or null.</param>
-        /// <param name="unloadedWeaponsValue">The reload-capable weapon instances that are unloaded.</param>
-        public void RestoreEquipmentBeforeEncounter(
-            IEnumerable<EquipmentWeapon> weapons,
-            IEnumerable<EquipmentArmor> armor,
-            IEnumerable<AmmoCount> ammunition,
-            EquipmentWeapon leftHand,
-            EquipmentWeapon rightHand,
-            EquipmentArmor equippedArmorValue,
-            IEnumerable<EquipmentWeapon> unloadedWeaponsValue
-        )
-        {
-            if (weapons == null)
-                throw new ArgumentNullException(nameof(weapons));
-            if (armor == null)
-                throw new ArgumentNullException(nameof(armor));
-            if (ammunition == null)
-                throw new ArgumentNullException(nameof(ammunition));
-            if (unloadedWeaponsValue == null)
-                throw new ArgumentNullException(nameof(unloadedWeaponsValue));
-
-            EquipmentWeapon[] copiedWeapons = weapons.ToArray();
-            EquipmentArmor[] copiedArmor = armor.ToArray();
-            AmmoCount[] copiedAmmunition = ammunition.ToArray();
-            EquipmentWeapon[] copiedUnloaded = unloadedWeaponsValue.ToArray();
-            if (copiedWeapons.Any(weapon => weapon == null))
-                throw new ArgumentException("Weapons cannot contain null.", nameof(weapons));
-            if (copiedArmor.Any(item => item == null))
-                throw new ArgumentException("Armor cannot contain null.", nameof(armor));
-            if (copiedWeapons.Distinct().Count() != copiedWeapons.Length)
-                throw new ArgumentException("Weapon instances must be unique.", nameof(weapons));
-            if (copiedArmor.Distinct().Count() != copiedArmor.Length)
-                throw new ArgumentException("Armor instances must be unique.", nameof(armor));
-            if (leftHand != null && !copiedWeapons.Contains(leftHand))
-                throw new ArgumentException(
-                    "Left-hand weapon is not in inventory.",
-                    nameof(leftHand)
-                );
-            if (rightHand != null && !copiedWeapons.Contains(rightHand))
-                throw new ArgumentException(
-                    "Right-hand weapon is not in inventory.",
-                    nameof(rightHand)
-                );
-            if (equippedArmorValue != null && !copiedArmor.Contains(equippedArmorValue))
-                throw new ArgumentException(
-                    "Equipped armor is not in inventory.",
-                    nameof(equippedArmorValue)
-                );
-            if (
-                leftHand != null
-                && rightHand != null
-                && (leftHand.hands == 2 || rightHand.hands == 2)
-            )
-                throw new ArgumentException(
-                    "A two-handed weapon cannot share equipped hand slots."
-                );
-            if (copiedUnloaded.Any(weapon => weapon == null || !copiedWeapons.Contains(weapon)))
-                throw new ArgumentException(
-                    "Every unloaded weapon must belong to inventory.",
-                    nameof(unloadedWeaponsValue)
-                );
-            if (copiedUnloaded.Distinct().Count() != copiedUnloaded.Length)
-                throw new ArgumentException(
-                    "Unloaded weapon instances must be unique.",
-                    nameof(unloadedWeaponsValue)
-                );
-            if (
-                copiedAmmunition.Any(pool =>
-                    string.IsNullOrWhiteSpace(pool.ammoName) || pool.quantity < 0
-                )
-            )
-                throw new ArgumentException(
-                    "Ammunition requires a definition ID and non-negative quantity.",
-                    nameof(ammunition)
-                );
-
-            _weapons = copiedWeapons.ToList();
-            _weaponsList = copiedWeapons.Select(weapon => weapon.name).ToList();
-            _armor = copiedArmor.ToList();
-            _armorList = copiedArmor.Select(item => item.name).ToList();
-            _ammunition = copiedAmmunition.ToList();
-            _equippedLeftHand = leftHand;
-            _equippedRightHand = rightHand;
-            _equippedArmor = equippedArmorValue;
-            unloadedWeaponInstances.Clear();
-            foreach (EquipmentWeapon weapon in copiedUnloaded)
-                unloadedWeaponInstances.Add(weapon);
-            hasInstanceWeaponLoadState = true;
-            _unloadedWeapons = copiedUnloaded
-                .Select(weapon => NormalizeEquipmentKey(weapon.name))
-                .Distinct()
-                .ToList();
-            CalculateAC();
-            NotifyEquipmentChanged();
         }
 
         private void NotifyEquipmentChanged()

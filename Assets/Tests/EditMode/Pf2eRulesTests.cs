@@ -19,7 +19,6 @@ public class Pf2eRulesTests
             if (go != null)
                 Object.DestroyImmediate(go);
         created.Clear();
-        OnActorActionCompleted.RemoveAllListeners();
         Pf2eItemCatalog.ResetForTests();
     }
 
@@ -275,31 +274,15 @@ public class Pf2eRulesTests
             creature.gameObject.AddComponent<TestActionController>();
         actionController.ActionPoints = 3;
         actionController.IsTakingAction = true;
-        int completionCount = 0;
-        int temporaryHpAtCompletion = -1;
-        OnActorActionCompleted.AddListener(completedActor =>
-        {
-            if (completedActor != creature.gameObject)
-                return;
-            completionCount++;
-            temporaryHpAtCompletion = creature.tempHp;
-        });
 
         Rage rage = new(1);
         Assert.That(rage.UseRage(creature.gameObject), Is.True);
-        actionController.CompleteAction();
 
         Assert.That(creature.tempHp, Is.EqualTo(2));
         Assert.That(creature.Health.Temporary, Is.EqualTo(2));
         Assert.That(creature.Health.TemporarySource.Slug, Is.EqualTo("rage"));
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
         Assert.That(actionController.IsTakingAction, Is.False);
-        Assert.That(completionCount, Is.EqualTo(1));
-        Assert.That(
-            temporaryHpAtCompletion,
-            Is.EqualTo(2),
-            "Rage must apply its final persistent effect before publishing action completion."
-        );
 
         rage.EndRage(creature.gameObject);
         Assert.That(creature.tempHp, Is.EqualTo(0));

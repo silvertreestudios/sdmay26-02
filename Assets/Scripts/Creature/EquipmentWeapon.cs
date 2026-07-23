@@ -9,8 +9,6 @@ namespace Game.Creature
     [System.Serializable]
     public class EquipmentWeapon
     {
-        internal string DungeonPersistenceInstanceId { get; private set; } = string.Empty;
-
         public string name; // weapon name
         public string type; // e.g., weapon, armor.  Remove??
         public string group; // such as sword, axe, etc.
@@ -33,23 +31,5 @@ namespace Game.Creature
 
         // blank constructor
         public EquipmentWeapon() { }
-
-        internal void EnsureDungeonPersistenceIdentity(string instanceId)
-        {
-            string normalized = instanceId?.Trim() ?? string.Empty;
-            if (normalized.Length == 0)
-                throw new ArgumentException(
-                    "A weapon persistence identity is required.",
-                    nameof(instanceId)
-                );
-            if (
-                DungeonPersistenceInstanceId.Length > 0
-                && DungeonPersistenceInstanceId != normalized
-            )
-                throw new InvalidOperationException(
-                    "A weapon persistence identity cannot be replaced."
-                );
-            DungeonPersistenceInstanceId = normalized;
-        }
     }
 }

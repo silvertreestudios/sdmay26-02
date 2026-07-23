@@ -2,262 +2,426 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using Game.Combat.Spells;
+using Game.Creature;
+using Game.Creature.Rules;
 using Game.DungeonPersistence.Repository;
+using Game.Rules;
+using Game.Rules.Runtime;
 using UnityEngine;
 
 [assembly: InternalsVisibleTo("EditModeAssembly")]
-[assembly: InternalsVisibleTo("PlayModeAssembly")]
 
 namespace Game.DungeonPersistence.Actors
 {
-    /// <summary>Associates a live actor with the stable identities supplied by dungeon runtime.</summary>
-    internal sealed class DungeonActorCaptureTarget
+    internal static class DungeonActorStateAdapter
     {
-        /// <summary>Creates one explicitly identified capture target.</summary>
-        /// <param name="controller">The live actor controller.</param>
-        /// <param name="instanceId">Stable actor identity within the dungeon run.</param>
-        /// <param name="creatureContentId">Stable creature catalog identity.</param>
-        public DungeonActorCaptureTarget(
+        internal static DungeonActorSaveState Capture(
             ActionController controller,
-            string instanceId,
-            string creatureContentId
+            Func<GameObject, string> identifyActor
         )
         {
-            Controller =
-                controller != null
-                    ? controller
-                    : throw new ArgumentNullException(nameof(controller));
-            InstanceId = DungeonActorStateAdapter.RequireId(instanceId, nameof(instanceId));
-            CreatureContentId = DungeonActorStateAdapter.RequireId(
-                creatureContentId,
-                nameof(creatureContentId)
+            if (controller == null)
+                throw new ArgumentNullException(nameof(controller));
+            if (identifyActor == null)
+                throw new ArgumentNullException(nameof(identifyActor));
+            CreatureComponent creature = RequireCreature(controller);
+            HealthState health = creature.Health;
+
+            IReadOnlyList<DungeonConditionSaveState> conditions = CaptureConditions(controller);
+            IReadOnlyList<DungeonTimedEffectSaveState> timedEffects = CaptureTimedEffects(
+                controller,
+                identifyActor
+            );
+            IReadOnlyList<DungeonPreparedEffectSaveState> preparedEffects =
+                creature.Prepared == null
+                    ? Array.Empty<DungeonPreparedEffectSaveState>()
+                    : creature
+                        .Prepared.ActiveEffects.Select(effect => new DungeonPreparedEffectSaveState(
+                            effect.Name,
+                            effect.Slug,
+                            effect.SourceSlug
+                        ))
+                        .ToArray();
+
+            return new DungeonActorSaveState(
+                health.Temporary,
+                health.TemporarySource.Slug ?? string.Empty,
+                health.TemporaryHitPointImmunities.Select(source => source.Slug),
+                conditions,
+                timedEffects,
+                preparedEffects,
+                CaptureEquipment(creature)
             );
         }
 
-        /// <summary>Gets the live actor controller.</summary>
-        public ActionController Controller { get; }
-
-        /// <summary>Gets the stable actor identity.</summary>
-        public string InstanceId { get; }
-
-        /// <summary>Gets the stable creature catalog identity.</summary>
-        public string CreatureContentId { get; }
-    }
-
-    /// <summary>Associates a newly materialized live actor with its durable state.</summary>
-    internal sealed class DungeonActorRestoreTarget
-    {
-        /// <summary>Creates one restore target without deriving identity from its GameObject.</summary>
-        /// <param name="controller">The newly materialized actor controller.</param>
-        /// <param name="state">The complete actor state to restore.</param>
-        public DungeonActorRestoreTarget(
+        internal static Action PrepareRestore(
             ActionController controller,
-            DungeonCreatureSaveState state
+            DungeonActorSaveState saved,
+            int currentHitPoints,
+            bool isDefeated,
+            Func<string, GameObject> resolveActor
         )
         {
-            Controller =
-                controller != null
-                    ? controller
-                    : throw new ArgumentNullException(nameof(controller));
-            State = state ?? throw new ArgumentNullException(nameof(state));
-        }
+            if (controller == null)
+                throw new ArgumentNullException(nameof(controller));
+            if (saved == null)
+                throw new ArgumentNullException(nameof(saved));
+            if (resolveActor == null)
+                throw new ArgumentNullException(nameof(resolveActor));
 
-        /// <summary>Gets the newly materialized actor controller.</summary>
-        public ActionController Controller { get; }
-
-        /// <summary>Gets the complete durable actor state.</summary>
-        public DungeonCreatureSaveState State { get; }
-    }
-
-    /// <summary>
-    /// Converts between authoritative dungeon actor DTOs and newly materialized Unity actors.
-    /// Combat action points, reaction use, turn authority, and multiple-attack penalty are
-    /// deliberately excluded because encounter composition owns those transient values.
-    /// </summary>
-    internal static partial class DungeonActorStateAdapter
-    {
-        private const string LegacyEffectStateDiscriminator = "legacy-spell-effect/v1";
-        private const string EmptyEffectStateJson = "{}";
-
-        /// <summary>Captures one actor whose timed-effect sources are limited to itself.</summary>
-        /// <param name="controller">The live actor controller.</param>
-        /// <param name="instanceId">Stable actor identity within the dungeon run.</param>
-        /// <param name="creatureContentId">Stable creature catalog identity.</param>
-        /// <returns>A complete authoritative actor snapshot.</returns>
-        /// <remarks>
-        /// Use <see cref="Capture(IEnumerable{DungeonActorCaptureTarget})"/> when any timed effect
-        /// can refer to another actor.
-        /// </remarks>
-        public static DungeonCreatureSaveState Capture(
-            ActionController controller,
-            string instanceId,
-            string creatureContentId
-        ) =>
-            Capture(
-                    new[]
-                    {
-                        new DungeonActorCaptureTarget(controller, instanceId, creatureContentId),
-                    }
-                )
-                .Single();
-
-        /// <summary>
-        /// Captures an actor group in stable-ID order, preserving cross-actor spell and shared
-        /// condition-source identity.
-        /// </summary>
-        /// <param name="targets">Every actor that can participate in a captured reference.</param>
-        /// <returns>Snapshots ordered by stable actor identity.</returns>
-        public static IReadOnlyList<DungeonCreatureSaveState> Capture(
-            IEnumerable<DungeonActorCaptureTarget> targets
-        )
-        {
-            if (targets == null)
-                throw new ArgumentNullException(nameof(targets));
-            DungeonActorCaptureTarget[] copied = targets.ToArray();
-            if (copied.Any(target => target == null))
-                throw new ArgumentException(
-                    "Capture targets cannot contain null.",
-                    nameof(targets)
-                );
+            CreatureComponent creature = RequireCreature(controller);
             if (
-                copied.Select(target => target.InstanceId).Distinct(StringComparer.Ordinal).Count()
-                != copied.Length
+                currentHitPoints < 0
+                || currentHitPoints > creature.maxHp
+                || isDefeated != (currentHitPoints == 0)
             )
-                throw new ArgumentException("Actor instance IDs must be unique.", nameof(targets));
-            if (
-                copied
-                    .Select(target => target.Controller.gameObject)
-                    .Distinct(ReferenceEqualityComparer<GameObject>.Instance)
-                    .Count() != copied.Length
-            )
-                throw new ArgumentException(
-                    "A live actor cannot be captured under more than one identity.",
-                    nameof(targets)
+                throw new InvalidOperationException(
+                    $"Saved health is invalid for actor '{controller.name}'."
                 );
 
-            DungeonActorCaptureTarget[] ordered = copied
-                .OrderBy(target => target.InstanceId, StringComparer.Ordinal)
+            RuleSource temporarySource =
+                saved.TemporaryHitPointSource.Length == 0
+                    ? default
+                    : RuleSource.FromSlug(saved.TemporaryHitPointSource);
+            RuleSource[] immunities = saved
+                .TemporaryHitPointImmunities.Select(RuleSource.FromSlug)
                 .ToArray();
-            Dictionary<GameObject, string> actorIds = ordered.ToDictionary(
-                target => target.Controller.gameObject,
-                target => target.InstanceId,
-                ReferenceEqualityComparer<GameObject>.Instance
+            HealthState health = new(
+                currentHitPoints,
+                creature.maxHp,
+                saved.TemporaryHitPoints,
+                temporarySource,
+                immunities
             );
-            CaptureContext context = new(actorIds);
-            return Array.AsReadOnly(ordered.Select(context.Capture).ToArray());
-        }
 
-        /// <summary>Prevalidates a single newly materialized actor before restoring it.</summary>
-        /// <param name="controller">The newly materialized actor controller.</param>
-        /// <param name="state">The complete actor state to restore.</param>
-        /// <returns>A single-use, fully prevalidated restore plan.</returns>
-        /// <remarks>Use the grouped overload when effects can refer to a different actor.</remarks>
-        public static DungeonActorRestorePlan PreflightRestore(
-            ActionController controller,
-            DungeonCreatureSaveState state
-        ) => PreflightRestore(new[] { new DungeonActorRestoreTarget(controller, state) });
-
-        /// <summary>
-        /// Resolves every saved stable actor ID, then prevalidates the complete restore without
-        /// mutating live objects.
-        /// </summary>
-        /// <param name="states">Complete saved actor states.</param>
-        /// <param name="resolveController">Stable actor ID to materialized controller resolver.</param>
-        /// <returns>A single-use, fully prevalidated restore plan.</returns>
-        public static DungeonActorRestorePlan PreflightRestore(
-            IEnumerable<DungeonCreatureSaveState> states,
-            Func<string, ActionController> resolveController
-        )
-        {
-            if (states == null)
-                throw new ArgumentNullException(nameof(states));
-            if (resolveController == null)
-                throw new ArgumentNullException(nameof(resolveController));
-            DungeonCreatureSaveState[] copied = states.ToArray();
-            if (copied.Any(state => state == null))
-                throw new ArgumentException("Actor states cannot contain null.", nameof(states));
-            return PreflightRestore(
-                copied.Select(state => new DungeonActorRestoreTarget(
-                    resolveController(state.InstanceId),
-                    state
+            ConditionApplicationSnapshot[] conditions = PrepareConditions(saved.Conditions);
+            ActiveSpellEffect[] timedEffects = saved
+                .TimedEffects.Select(effect => RestoreTimedEffect(effect, resolveActor))
+                .ToArray();
+            ActivePf2eEffect[] preparedEffects = saved
+                .PreparedEffects.Select(effect => new ActivePf2eEffect(
+                    effect.Name,
+                    effect.Slug,
+                    effect.SourceSlug
                 ))
-            );
+                .ToArray();
+            if (preparedEffects.Length > 0 && creature.Prepared == null)
+                throw new InvalidOperationException(
+                    $"Actor '{controller.name}' cannot restore prepared effects without prepared rules."
+                );
+
+            EquipmentWeapon leftHand = ResolveWeapon(creature.weapons, saved.Equipment.LeftHand);
+            EquipmentWeapon rightHand = ResolveWeapon(creature.weapons, saved.Equipment.RightHand);
+            EquipmentArmor armor = ResolveArmor(creature.armor, saved.Equipment.Armor);
+            AmmoCount[] ammunition = PrepareAmmunition(creature, saved.Equipment.Ammunition);
+            string[] unloaded = saved.Equipment.UnloadedWeaponIds.ToArray();
+            foreach (string definitionId in unloaded)
+            {
+                if (
+                    !creature.weapons.Any(weapon =>
+                        weapon != null
+                        && string.Equals(
+                            NormalizeEquipmentId(weapon.name),
+                            definitionId,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                )
+                    throw new InvalidOperationException(
+                        $"Saved unloaded weapon '{definitionId}' is not in actor '{controller.name}' inventory."
+                    );
+            }
+
+            return () =>
+            {
+                creature.InitializeHealthBeforeEncounter(health);
+                Conditions conditionController =
+                    controller.GetComponent<Conditions>()
+                    ?? controller.gameObject.AddComponent<Conditions>();
+                conditionController.RestoreApplications(conditions);
+
+                SpellEffectController spellEffects =
+                    controller.GetComponent<SpellEffectController>();
+                if (spellEffects != null || timedEffects.Length > 0)
+                {
+                    (
+                        spellEffects ?? SpellEffectController.GetOrAdd(controller.gameObject)
+                    ).RestoreEffects(timedEffects);
+                }
+
+                creature.Prepared?.RestoreActiveEffects(preparedEffects);
+                creature.equippedLeftHand = leftHand;
+                creature.equippedRightHand = rightHand;
+                creature.equippedArmor = armor;
+                creature.ammunition = ammunition.ToList();
+                creature.unloadedWeapons = unloaded.ToList();
+                creature.CalculateAC();
+                if (isDefeated)
+                    creature.RestoreDefeatBeforeEncounter();
+            };
         }
 
-        /// <summary>Prevalidates all materialized actors and cross-actor references.</summary>
-        /// <param name="targets">Every actor participating in the restore.</param>
-        /// <returns>A single-use restore plan.</returns>
-        public static DungeonActorRestorePlan PreflightRestore(
-            IEnumerable<DungeonActorRestoreTarget> targets
+        private static IReadOnlyList<DungeonConditionSaveState> CaptureConditions(
+            ActionController controller
         )
         {
-            if (targets == null)
-                throw new ArgumentNullException(nameof(targets));
-            DungeonActorRestoreTarget[] copied = targets.ToArray();
-            if (copied.Any(target => target == null))
-                throw new ArgumentException(
-                    "Restore targets cannot contain null.",
-                    nameof(targets)
-                );
-            if (
-                copied
-                    .Select(target => target.State.InstanceId)
-                    .Distinct(StringComparer.Ordinal)
-                    .Count() != copied.Length
-            )
-                throw new ArgumentException("Actor state IDs must be unique.", nameof(targets));
-            if (
-                copied
-                    .Select(target => target.Controller.gameObject)
-                    .Distinct(ReferenceEqualityComparer<GameObject>.Instance)
-                    .Count() != copied.Length
-            )
-                throw new ArgumentException(
-                    "A live actor cannot restore more than one saved identity.",
-                    nameof(targets)
-                );
+            Conditions conditions = controller.GetComponent<Conditions>();
+            if (conditions == null)
+                return Array.Empty<DungeonConditionSaveState>();
 
-            ValidateForRestore(copied.Select(target => target.State));
+            Dictionary<ConditionSource, string> keys = new();
+            List<DungeonConditionSaveState> captured = new();
+            foreach (ConditionApplicationSnapshot application in conditions.CaptureApplications())
+            {
+                if (!keys.TryGetValue(application.Source, out string sourceKey))
+                {
+                    sourceKey = $"source-{keys.Count + 1:D4}";
+                    keys.Add(application.Source, sourceKey);
+                }
+                captured.Add(new DungeonConditionSaveState(application.ConditionId, sourceKey));
+            }
+            return captured;
+        }
 
-            DungeonActorRestoreTarget[] ordered = copied
-                .OrderBy(target => target.State.InstanceId, StringComparer.Ordinal)
+        private static ConditionApplicationSnapshot[] PrepareConditions(
+            IReadOnlyList<DungeonConditionSaveState> saved
+        )
+        {
+            Dictionary<string, ConditionSource> sources = new(StringComparer.Ordinal);
+            return saved
+                .Select(application =>
+                {
+                    if (!sources.TryGetValue(application.SourceKey, out ConditionSource source))
+                    {
+                        source = new ConditionSource();
+                        sources.Add(application.SourceKey, source);
+                    }
+                    return new ConditionApplicationSnapshot(application.ConditionId, source);
+                })
                 .ToArray();
-            Dictionary<string, ActionController> controllersById = ordered.ToDictionary(
-                target => target.State.InstanceId,
-                target => target.Controller,
-                StringComparer.Ordinal
+        }
+
+        private static IReadOnlyList<DungeonTimedEffectSaveState> CaptureTimedEffects(
+            ActionController controller,
+            Func<GameObject, string> identifyActor
+        )
+        {
+            SpellEffectController effects = controller.GetComponent<SpellEffectController>();
+            if (effects == null)
+                return Array.Empty<DungeonTimedEffectSaveState>();
+
+            return effects
+                .Effects.Where(effect => !effect.Consumed)
+                .Select(effect =>
+                {
+                    string sourceActorId =
+                        effect.Source != null
+                            ? identifyActor(effect.Source)
+                            : effect.PersistentSourceActorId;
+                    if (string.IsNullOrWhiteSpace(sourceActorId))
+                    {
+                        throw new InvalidOperationException(
+                            $"Timed effect '{effect.SourceLabel}' has no source actor."
+                        );
+                    }
+                    return new DungeonTimedEffectSaveState(
+                        GetEffectKind(effect),
+                        sourceActorId,
+                        effect.RemainingTargetTurnStarts
+                    );
+                })
+                .ToArray();
+        }
+
+        private static string GetEffectKind(ActiveSpellEffect effect)
+        {
+            return effect switch
+            {
+                ShieldSpellEffect => "shield",
+                GuidanceSpellEffect => "guidance",
+                GuidanceImmunitySpellEffect => "guidance-immunity",
+                BlessSpellEffect => "bless",
+                InfuseVitalitySpellEffect => "infuse-vitality",
+                _ => throw new InvalidOperationException(
+                    $"Timed effect type '{effect.GetType().Name}' is not persistable."
+                ),
+            };
+        }
+
+        private static ActiveSpellEffect RestoreTimedEffect(
+            DungeonTimedEffectSaveState saved,
+            Func<string, GameObject> resolveActor
+        )
+        {
+            GameObject source = resolveActor(saved.SourceActorId);
+            ActiveSpellEffect effect = saved.Kind switch
+            {
+                "shield" => new ShieldSpellEffect(source),
+                "guidance" => new GuidanceSpellEffect(source),
+                "guidance-immunity" => new GuidanceImmunitySpellEffect(source),
+                "bless" => new BlessSpellEffect(source),
+                "infuse-vitality" => new InfuseVitalitySpellEffect(source),
+                _ => throw new InvalidOperationException(
+                    $"Timed effect kind '{saved.Kind}' is not supported."
+                ),
+            };
+            effect.RestorePersistentSource(saved.SourceActorId, source);
+            effect.RemainingTargetTurnStarts = saved.RemainingTurnStarts;
+            return effect;
+        }
+
+        private static DungeonEquipmentSaveState CaptureEquipment(CreatureComponent creature)
+        {
+            return new DungeonEquipmentSaveState(
+                FindWeaponReference(creature.weapons, creature.equippedLeftHand),
+                FindWeaponReference(creature.weapons, creature.equippedRightHand),
+                FindArmorReference(creature.armor, creature.equippedArmor),
+                creature.ammunition.Select(pool => new DungeonAmmunitionSaveState(
+                    pool.ammoName,
+                    pool.quantity
+                )),
+                creature
+                    .unloadedWeapons.Select(NormalizeEquipmentId)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
             );
-            Dictionary<string, ConditionSource> conditionSources = new(StringComparer.Ordinal);
-            List<ActorRestorePlan> plans = new();
-            foreach (DungeonActorRestoreTarget target in ordered)
-                plans.Add(BuildRestorePlan(target, controllersById, conditionSources));
-            DungeonActorGridRestorePlan gridPlan = DungeonActorGridRestorePlan.Preflight(ordered);
-            return new DungeonActorRestorePlan(plans.AsReadOnly(), gridPlan);
         }
 
-        internal static string RequireId(string value, string parameterName)
+        private static DungeonEquipmentReference FindWeaponReference(
+            IReadOnlyList<EquipmentWeapon> inventory,
+            EquipmentWeapon selected
+        )
         {
-            string normalized = value?.Trim() ?? string.Empty;
-            if (normalized.Length == 0)
-                throw new ArgumentException("A stable identity is required.", parameterName);
-            return normalized;
+            if (selected == null)
+                return DungeonEquipmentReference.Empty;
+            int occurrence = 0;
+            foreach (EquipmentWeapon weapon in inventory)
+            {
+                if (
+                    weapon != null
+                    && string.Equals(weapon.name, selected.name, StringComparison.OrdinalIgnoreCase)
+                )
+                {
+                    if (ReferenceEquals(weapon, selected))
+                        return new DungeonEquipmentReference(selected.name, occurrence);
+                    occurrence++;
+                }
+            }
+            throw new InvalidOperationException("An equipped weapon is not in actor inventory.");
         }
 
-        private static string NormalizeDefinitionId(string value, string kind)
+        private static DungeonEquipmentReference FindArmorReference(
+            IReadOnlyList<EquipmentArmor> inventory,
+            EquipmentArmor selected
+        )
         {
-            if (string.IsNullOrWhiteSpace(value))
-                throw new InvalidOperationException($"A live {kind} has no definition name.");
-            return value.Trim().ToLowerInvariant().Replace(' ', '-');
+            if (selected == null)
+                return DungeonEquipmentReference.Empty;
+            int occurrence = 0;
+            foreach (EquipmentArmor item in inventory)
+            {
+                if (
+                    item != null
+                    && string.Equals(item.name, selected.name, StringComparison.OrdinalIgnoreCase)
+                )
+                {
+                    if (ReferenceEquals(item, selected))
+                        return new DungeonEquipmentReference(selected.name, occurrence);
+                    occurrence++;
+                }
+            }
+            throw new InvalidOperationException("Equipped armor is not in actor inventory.");
         }
 
-        private sealed class ReferenceEqualityComparer<T> : IEqualityComparer<T>
-            where T : class
+        private static EquipmentWeapon ResolveWeapon(
+            IReadOnlyList<EquipmentWeapon> inventory,
+            DungeonEquipmentReference reference
+        )
         {
-            internal static readonly ReferenceEqualityComparer<T> Instance = new();
+            if (reference.IsEmpty)
+                return null;
+            EquipmentWeapon[] matches = inventory
+                .Where(item =>
+                    item != null
+                    && string.Equals(
+                        item.name,
+                        reference.DefinitionId,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
+                .ToArray();
+            if (reference.Occurrence >= matches.Length)
+                throw new InvalidOperationException(
+                    $"Weapon '{reference.DefinitionId}' occurrence {reference.Occurrence} is unavailable."
+                );
+            return matches[reference.Occurrence];
+        }
 
-            public bool Equals(T left, T right) => ReferenceEquals(left, right);
+        private static EquipmentArmor ResolveArmor(
+            IReadOnlyList<EquipmentArmor> inventory,
+            DungeonEquipmentReference reference
+        )
+        {
+            if (reference.IsEmpty)
+                return null;
+            EquipmentArmor[] matches = inventory
+                .Where(item =>
+                    item != null
+                    && string.Equals(
+                        item.name,
+                        reference.DefinitionId,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
+                .ToArray();
+            if (reference.Occurrence >= matches.Length)
+                throw new InvalidOperationException(
+                    $"Armor '{reference.DefinitionId}' occurrence {reference.Occurrence} is unavailable."
+                );
+            return matches[reference.Occurrence];
+        }
 
-            public int GetHashCode(T value) => RuntimeHelpers.GetHashCode(value);
+        private static AmmoCount[] PrepareAmmunition(
+            CreatureComponent creature,
+            IReadOnlyList<DungeonAmmunitionSaveState> saved
+        )
+        {
+            HashSet<string> authored = new(
+                creature.ammunition.Select(pool => pool.ammoName),
+                StringComparer.OrdinalIgnoreCase
+            );
+            HashSet<string> restored = new(
+                saved.Select(pool => pool.DefinitionId),
+                StringComparer.OrdinalIgnoreCase
+            );
+            if (!authored.SetEquals(restored))
+                throw new InvalidOperationException(
+                    $"Saved ammunition does not match actor '{creature.name}' inventory."
+                );
+            return saved
+                .Select(pool => new AmmoCount
+                {
+                    ammoName = pool.DefinitionId,
+                    quantity = pool.Quantity,
+                })
+                .ToArray();
+        }
+
+        private static string NormalizeEquipmentId(string value)
+        {
+            return string.IsNullOrWhiteSpace(value)
+                ? string.Empty
+                : value.Trim().ToLowerInvariant().Replace(' ', '-');
+        }
+
+        private static CreatureComponent RequireCreature(ActionController controller)
+        {
+            CreatureComponent creature = controller.GetComponent<CreatureComponent>();
+            return creature != null
+                ? creature
+                : throw new InvalidOperationException(
+                    $"Actor '{controller.name}' has no CreatureComponent."
+                );
         }
     }
 }

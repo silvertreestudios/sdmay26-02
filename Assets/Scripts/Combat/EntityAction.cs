@@ -24,10 +24,7 @@ public abstract class EntityAction
     /// <param name="target">The calling gameobject</param>
     public virtual void Invoke(GameObject target)
     {
-        ActionController controller =
-            target != null ? target.GetComponent<ActionController>() : null;
         CombatManager.GetInstance().CheckForEndOfGame();
-        if (controller != null)
-            controller.CompleteAction();
+        OnActorActionCompleted.Invoke(target);
     }
 }

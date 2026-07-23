@@ -40,15 +40,6 @@ namespace Game.Combat.Spells
         }
 
         public void Restore() => UsesRemaining = MaxUses;
-
-        /// <summary>Restores a validated remaining-use count without changing pool definition data.</summary>
-        /// <param name="usesRemaining">The value from zero through <see cref="MaxUses"/>.</param>
-        public void RestoreUsesRemaining(int usesRemaining)
-        {
-            if (usesRemaining < 0 || usesRemaining > MaxUses)
-                throw new ArgumentOutOfRangeException(nameof(usesRemaining));
-            UsesRemaining = usesRemaining;
-        }
     }
 
     public sealed class PreparedSpell

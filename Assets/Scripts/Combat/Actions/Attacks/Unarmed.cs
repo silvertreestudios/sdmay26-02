@@ -80,6 +80,8 @@ namespace Game.Strikes
                     ac.StrikePenalty += 1;
                 }
             }
+            if (ac)
+                ac.IsTakingAction = false;
         }
 
         // adds default unarmed strike to creature, called from action controller awake()

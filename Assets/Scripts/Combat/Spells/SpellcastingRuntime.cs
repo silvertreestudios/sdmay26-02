@@ -142,6 +142,7 @@ namespace Game.Combat.Spells
                 controller.ActionPoints -= context.ActionCost;
                 if (context.Definition.AppliesMultipleAttackPenalty(context))
                     controller.StrikePenalty += 1;
+                controller.IsTakingAction = false;
             }
             result.Success = true;
             if (!creature.IsDefeated)
@@ -297,6 +298,8 @@ namespace Game.Combat.Spells
         {
             result.Success = false;
             result.Message = message;
+            if (controller != null)
+                controller.IsTakingAction = false;
             return result;
         }
     }

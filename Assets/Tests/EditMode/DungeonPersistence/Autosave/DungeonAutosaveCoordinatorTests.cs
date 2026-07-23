@@ -3,408 +3,250 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Game.Combat.Encounters;
+using Game.Creature;
+using Game.DungeonGeneration;
 using Game.DungeonPersistence;
+using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Autosave;
-using Game.DungeonPersistence.Floors;
 using Game.DungeonPersistence.Repository;
+using Game.KayKit;
+using GridPublic;
 using NUnit.Framework;
-using Tests.EditMode.DungeonPersistence.Repository;
+using UnityEditor;
 using UnityEngine;
 
-namespace Tests.EditMode.DungeonPersistence.Autosave
+public sealed class DungeonAutosaveCoordinatorTests
 {
-    public sealed class DungeonAutosaveCoordinatorTests
+    private readonly List<UnityEngine.Object> cleanup = new();
+    private string directory;
+
+    [SetUp]
+    public void SetUp()
     {
-        private readonly List<GameObject> createdObjects = new();
-        private string testRoot;
+        directory = Path.GetFullPath(
+            Path.Combine(".agent-temp", "coordinator-" + Guid.NewGuid().ToString("N"))
+        );
+    }
 
-        [SetUp]
-        public void SetUp()
+    [TearDown]
+    public void TearDown()
+    {
+        for (int index = cleanup.Count - 1; index >= 0; index--)
         {
-            OnActionComplete.RemoveAllListeners();
-            OnActorActionCompleted.RemoveAllListeners();
-            OnNextTurn.RemoveAllListeners();
-            testRoot = Path.Combine(
-                Directory.GetCurrentDirectory(),
-                ".agent-temp",
-                "ds-c",
-                Guid.NewGuid().ToString("N")
-            );
+            if (cleanup[index] != null)
+                UnityEngine.Object.DestroyImmediate(cleanup[index]);
         }
+        cleanup.Clear();
+        if (Directory.Exists(directory))
+            Directory.Delete(directory, recursive: true);
+    }
 
-        [TearDown]
-        public void TearDown()
-        {
-            foreach (GameObject created in createdObjects)
-            {
-                if (created != null)
-                    UnityEngine.Object.DestroyImmediate(created);
-            }
-            createdObjects.Clear();
-            OnActionComplete.RemoveAllListeners();
-            OnActorActionCompleted.RemoveAllListeners();
-            OnNextTurn.RemoveAllListeners();
-            if (Directory.Exists(testRoot))
-                Directory.Delete(testRoot, recursive: true);
-            else if (File.Exists(testRoot))
-                File.Delete(testRoot);
-        }
+    [Test]
+    public void ActionBoundaryDefersWhileBusyThenCommitsLatestStateOnceStable()
+    {
+        CombatManager manager = Track(new GameObject("Combat Manager"))
+            .AddComponent<CombatManager>();
+        GameObject partyObject = Track(new GameObject("Party"));
+        DungeonPersistenceTestActionController party =
+            partyObject.AddComponent<DungeonPersistenceTestActionController>();
+        CreatureComponent creature = partyObject.AddComponent<CreatureComponent>();
+        creature.InitializeHealthBeforeEncounter(12, 12);
+        partyObject.AddComponent<Conditions>();
+        partyObject.transform.position = new Vector3(1f, 0f, 1f);
+        DungeonPartyMemberIdentity identity =
+            partyObject.AddComponent<DungeonPartyMemberIdentity>();
+        identity.Configure("party-slot", "party-content");
+        GameObject runtimeRoot = Track(new GameObject("Runtime"));
+        DungeonEncounterRuntimeController runtime =
+            runtimeRoot.AddComponent<DungeonEncounterRuntimeController>();
+        DungeonLevelDocument document = Document();
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+        runtime.InitializePristine(
+            document,
+            catalog,
+            manager,
+            new[] { party },
+            new RecordingExplorationPresentation()
+        );
+        FileSystemDungeonSaveRepository repository = new(directory);
+        DungeonAutosaveCoordinator coordinator =
+            runtimeRoot.AddComponent<DungeonAutosaveCoordinator>();
+        coordinator.Initialize(
+            document,
+            repository,
+            runtime,
+            new[] { party },
+            saveImmediately: true
+        );
+        Assert.That(
+            repository.Load().Value.Manifest.Party.Members.Single().CurrentHitPoints,
+            Is.EqualTo(12)
+        );
 
-        [Test]
-        public void NewFloorInitializationImmediatelyCommitsCompleteRun()
-        {
-            TestComposition composition = CreateNewComposition();
-            List<DungeonAutosaveAttemptResult> published = new();
-            composition.Coordinator.AutosaveAttempted += published.Add;
+        creature.InitializeHealthBeforeEncounter(5, 12);
+        party.IsTakingAction = true;
+        OnActorActionCompleted.Invoke(partyObject);
 
-            composition.InitializeNew();
+        Assert.That(
+            repository.Load().Value.Manifest.Party.Members.Single().CurrentHitPoints,
+            Is.EqualTo(12)
+        );
 
-            Assert.That(composition.Source.NewCaptureCount, Is.EqualTo(1));
-            Assert.That(composition.Source.ExistingCaptureCount, Is.Zero);
-            Assert.That(composition.Coordinator.HasCommittedSave, Is.True);
-            Assert.That(composition.Coordinator.LastResult.IsSuccess, Is.True);
-            Assert.That(
-                composition.Coordinator.LastResult.Triggers,
-                Is.EqualTo(new[] { DungeonAutosaveTriggerKind.FloorGenerated })
-            );
-            Assert.That(published, Has.Count.EqualTo(1));
-            Assert.That(composition.Repository.Load().IsSuccess, Is.True);
-        }
+        party.IsTakingAction = false;
+        OnActorActionCompleted.Invoke(partyObject);
 
-        [Test]
-        public void RestoredFloorWaitsForNextDurableChangeBeforeRewriting()
-        {
-            DungeonRunSave save = DungeonSaveTestFactory.CreateRun();
-            FileSystemDungeonSaveRepository repository = new(testRoot);
-            Assert.That(repository.Save(save).IsSuccess, Is.True);
-            FakeCaptureSource source = new(CaptureForDepth(save, depth: 0));
-            DungeonAutosaveCoordinator coordinator = CreateCoordinator();
+        DungeonSaveResult<DungeonRunSave> saved = repository.Load();
+        Assert.That(saved.IsSuccess, Is.True);
+        Assert.That(saved.Value.Manifest.Party.Members.Single().CurrentHitPoints, Is.EqualTo(5));
+        Assert.That(coordinator.LastDiagnostics, Is.Empty);
+    }
 
-            coordinator.InitializeRestoredFloor(save, repository, source);
+    [Test]
+    public void MissingSaveBootstrapCreatesRuntimeAndCommitsInitialFloor()
+    {
+        CombatManager manager = Track(new GameObject("Bootstrap Combat Manager"))
+            .AddComponent<CombatManager>();
+        GameObject partyObject = Track(new GameObject("Bootstrap Party"));
+        DungeonPersistenceTestActionController party =
+            partyObject.AddComponent<DungeonPersistenceTestActionController>();
+        CreatureComponent creature = partyObject.AddComponent<CreatureComponent>();
+        creature.InitializeHealthBeforeEncounter(12, 12);
+        partyObject.AddComponent<Conditions>();
+        partyObject.transform.position = new Vector3(1f, 0f, 1f);
+        partyObject.AddComponent<Token>();
+        DungeonPartyMemberIdentity identity =
+            partyObject.AddComponent<DungeonPartyMemberIdentity>();
+        identity.Configure("party-slot", "party-content");
+        GameObject mapObject = Track(new GameObject("Map"));
+        Map map = mapObject.AddComponent<Map>();
+        GameObject runtimeRoot = Track(new GameObject("Runtime"));
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+        FileSystemDungeonSaveRepository repository = new(directory);
 
-            Assert.That(source.TotalCaptureCount, Is.Zero);
-            Assert.That(
-                coordinator.LastResult.Outcome,
-                Is.EqualTo(DungeonAutosaveAttemptOutcome.NotAttempted)
-            );
+        DungeonRunPersistenceBootstrapResult result = DungeonRunPersistenceBootstrap.Initialize(
+            map,
+            Document(),
+            catalog,
+            manager,
+            new[] { party },
+            new RecordingExplorationPresentation(),
+            runtimeRoot,
+            repository
+        );
 
-            source.RaisePersistentStateChanged(DungeonPersistentStateChangeKind.EncounterLifecycle);
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.That(result.RestoredExistingRun, Is.False);
+        Assert.That(result.Runtime.IsInitialized, Is.True);
+        Assert.That(repository.Load().IsSuccess, Is.True);
+    }
 
-            Assert.That(source.NewCaptureCount, Is.Zero);
-            Assert.That(source.ExistingCaptureCount, Is.EqualTo(1));
-            Assert.That(coordinator.LastResult.IsSuccess, Is.True);
-        }
+    [Test]
+    public void ExistingSaveRepopulatesCurrentFloorAndRestoresPartyState()
+    {
+        CombatManager manager = Track(new GameObject("Restore Combat Manager"))
+            .AddComponent<CombatManager>();
+        GameObject partyObject = Track(new GameObject("Restore Party"));
+        DungeonPersistenceTestActionController party =
+            partyObject.AddComponent<DungeonPersistenceTestActionController>();
+        CreatureComponent creature = partyObject.AddComponent<CreatureComponent>();
+        creature.InitializeHealthBeforeEncounter(12, 12);
+        partyObject.AddComponent<Conditions>();
+        partyObject.transform.position = new Vector3(1f, 0f, 1f);
+        partyObject.AddComponent<Token>();
+        partyObject
+            .AddComponent<DungeonPartyMemberIdentity>()
+            .Configure("party-slot", "party-content");
+        GameObject mapObject = Track(new GameObject("Restore Map"));
+        mapObject.SetActive(false);
+        Map map = mapObject.AddComponent<Map>();
+        KayKitDungeonCatalog mapCatalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset"
+        );
+        Assert.That(mapCatalog, Is.Not.Null);
+        DungeonLevelDocument document = Document();
+        map.ConfigureJson(
+            Track(new TextAsset(DungeonLevelJsonSerializer.Serialize(document))),
+            mapCatalog
+        );
+        DungeonEncounterCreatureCatalog encounterCatalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+        FileSystemDungeonSaveRepository repository = new(directory);
+        GameObject initialRoot = Track(new GameObject("Initial Runtime"));
+        initialRoot.transform.SetParent(map.transform, false);
+        DungeonRunPersistenceBootstrapResult created = DungeonRunPersistenceBootstrap.Initialize(
+            map,
+            document,
+            encounterCatalog,
+            manager,
+            new[] { party },
+            new RecordingExplorationPresentation(),
+            initialRoot,
+            repository
+        );
+        Assert.That(created.IsSuccess, Is.True);
+        UnityEngine.Object.DestroyImmediate(initialRoot);
+        partyObject.transform.position = new Vector3(2f, 0f, 2f);
+        creature.InitializeHealthBeforeEncounter(4, 12);
+        GameObject restoredRoot = Track(new GameObject("Restored Runtime"));
+        restoredRoot.transform.SetParent(map.transform, false);
 
-        [Test]
-        public void BusyActorsCoalesceOrdinaryTriggersUntilStableBoundary()
-        {
-            TestComposition composition = CreateNewComposition();
-            composition.InitializeNew();
-            composition.Source.AreActorsStable = false;
+        DungeonRunPersistenceBootstrapResult restored = DungeonRunPersistenceBootstrap.Initialize(
+            map,
+            document,
+            encounterCatalog,
+            manager,
+            new[] { party },
+            new RecordingExplorationPresentation(),
+            restoredRoot,
+            repository
+        );
 
-            composition.Source.RaisePersistentStateChanged(
-                DungeonPersistentStateChangeKind.DoorOpened
-            );
-            OnActorActionCompleted.Invoke(composition.Coordinator.gameObject);
-            OnNextTurn.Invoke(composition.Coordinator.gameObject);
+        Assert.That(
+            restored.IsSuccess,
+            Is.True,
+            string.Join(" ", restored.Diagnostics.Select(diagnostic => diagnostic.Message))
+        );
+        Assert.That(restored.RestoredExistingRun, Is.True);
+        Assert.That(partyObject.transform.position, Is.EqualTo(new Vector3(1f, 0f, 1f)));
+        Assert.That(creature.hp, Is.EqualTo(12));
+        Assert.That(map.UsesRuntimeJsonSource, Is.True);
+    }
 
-            Assert.That(composition.Source.TotalCaptureCount, Is.EqualTo(1));
-            Assert.That(composition.Coordinator.HasPendingAutosave, Is.True);
-            Assert.That(
-                composition.Coordinator.LastResult.Outcome,
-                Is.EqualTo(DungeonAutosaveAttemptOutcome.DeferredActorsBusy)
-            );
-            Assert.That(
-                composition.Coordinator.LastResult.Triggers,
-                Is.EquivalentTo(
-                    new[]
-                    {
-                        DungeonAutosaveTriggerKind.PersistentFloorStateChanged,
-                        DungeonAutosaveTriggerKind.ActionCompleted,
-                        DungeonAutosaveTriggerKind.TurnCompleted,
-                    }
-                )
-            );
+    private T Track<T>(T value)
+        where T : UnityEngine.Object
+    {
+        cleanup.Add(value);
+        return value;
+    }
 
-            composition.Coordinator.ProcessPendingAutosave();
-            Assert.That(composition.Source.TotalCaptureCount, Is.EqualTo(1));
+    private static DungeonLevelDocument Document()
+    {
+        return new DungeonLevelDocument(
+            new DungeonGenerationMetadata("test-generator", 123, 0, 0),
+            new[] { "...", "...", "..." },
+            new[] { new DungeonRoom(1, 0, 0, 2, 2) },
+            Array.Empty<DungeonDoor>(),
+            Array.Empty<DungeonStair>(),
+            new DungeonCell(1, 1),
+            new[] { new DungeonCell(1, 1) },
+            Array.Empty<DungeonObjectPlacement>(),
+            Array.Empty<DungeonEncounterPlan>()
+        );
+    }
 
-            composition.Source.AreActorsStable = true;
-            DungeonAutosaveAttemptResult committed =
-                composition.Coordinator.ProcessPendingAutosave();
+    private sealed class RecordingExplorationPresentation : IDungeonExplorationPresentation
+    {
+        public void ShowExploration(
+            IReadOnlyList<ActionController> party,
+            ActionController selected,
+            Func<ActionController, bool> trySelectLeader
+        ) { }
 
-            Assert.That(committed.IsSuccess, Is.True);
-            Assert.That(composition.Source.NewCaptureCount, Is.EqualTo(1));
-            Assert.That(composition.Source.ExistingCaptureCount, Is.EqualTo(1));
-            Assert.That(composition.Coordinator.HasPendingAutosave, Is.False);
-            Assert.That(
-                committed.Triggers,
-                Is.EquivalentTo(
-                    new[]
-                    {
-                        DungeonAutosaveTriggerKind.PersistentFloorStateChanged,
-                        DungeonAutosaveTriggerKind.ActionCompleted,
-                        DungeonAutosaveTriggerKind.TurnCompleted,
-                    }
-                )
-            );
-        }
-
-        [Test]
-        public void BusyToIdleActionBoundarySavesExactlyOnceAndIgnoresLegacyUiCompletion()
-        {
-            TestComposition composition = CreateNewComposition();
-            composition.InitializeNew();
-            int initialCaptures = composition.Source.TotalCaptureCount;
-            GameObject actor = new("action-boundary-actor");
-            createdObjects.Add(actor);
-            TestActionController controller = actor.AddComponent<TestActionController>();
-
-            controller.IsTakingAction = true;
-            OnActionComplete.Invoke();
-
-            Assert.That(composition.Source.TotalCaptureCount, Is.EqualTo(initialCaptures));
-
-            controller.CompleteAction();
-            controller.CompleteAction();
-            OnActionComplete.Invoke();
-
-            Assert.That(composition.Source.TotalCaptureCount, Is.EqualTo(initialCaptures + 1));
-            Assert.That(
-                composition.Coordinator.LastResult.Triggers,
-                Is.EqualTo(new[] { DungeonAutosaveTriggerKind.ActionCompleted })
-            );
-        }
-
-        [Test]
-        public void CaptureAndWriteFailuresPreservePriorCommittedSession()
-        {
-            TestComposition composition = CreateNewComposition();
-            composition.InitializeNew();
-            DungeonRunSave prior = composition.Coordinator.CommittedSave;
-            composition.Source.CaptureException = new InvalidOperationException(
-                "synthetic capture failure"
-            );
-
-            composition.Source.RaisePersistentStateChanged(
-                DungeonPersistentStateChangeKind.CreatureDefeated
-            );
-
-            Assert.That(
-                composition.Coordinator.LastResult.Outcome,
-                Is.EqualTo(DungeonAutosaveAttemptOutcome.CaptureFailed)
-            );
-            Assert.That(composition.Coordinator.CommittedSave, Is.SameAs(prior));
-            Assert.That(composition.Coordinator.HasPendingAutosave, Is.False);
-
-            composition.Source.CaptureException = NoCaptureException.Instance;
-            using (
-                FileStream lockedArchive = new(
-                    Path.Combine(testRoot, "autosave.zip"),
-                    FileMode.Open,
-                    FileAccess.ReadWrite,
-                    FileShare.None
-                )
-            )
-            {
-                composition.Source.RaisePersistentStateChanged(
-                    DungeonPersistentStateChangeKind.DoorOpened
-                );
-            }
-
-            Assert.That(
-                composition.Coordinator.LastResult.Outcome,
-                Is.EqualTo(DungeonAutosaveAttemptOutcome.WriteFailed)
-            );
-            Assert.That(
-                composition.Coordinator.LastResult.Diagnostics.Select(item => item.Code),
-                Does.Contain(DungeonSaveDiagnosticCode.IoFailure)
-            );
-            Assert.That(composition.Coordinator.CommittedSave, Is.SameAs(prior));
-            DungeonSaveResult<DungeonRunSave> loaded = composition.Repository.Load();
-            Assert.That(loaded.IsSuccess, Is.True);
-            Assert.That(
-                loaded.Value.Manifest.CurrentDepth,
-                Is.EqualTo(prior.Manifest.CurrentDepth)
-            );
-        }
-
-        [Test]
-        public void StairPauseAndOrderlyQuitEachAttemptCheckpoint()
-        {
-            TestComposition composition = CreateNewComposition();
-            composition.InitializeNew();
-            int initialCaptures = composition.Source.TotalCaptureCount;
-
-            DungeonAutosaveAttemptResult stair =
-                composition.Coordinator.TryAutosaveBeforeStairTravel();
-            composition.Coordinator.TryAutosaveForApplicationPause();
-            composition.Coordinator.TryAutosaveForApplicationQuit();
-
-            Assert.That(stair.IsSuccess, Is.True);
-            Assert.That(
-                stair.Triggers,
-                Is.EqualTo(new[] { DungeonAutosaveTriggerKind.StairTravel })
-            );
-            Assert.That(composition.Source.TotalCaptureCount, Is.EqualTo(initialCaptures + 3));
-            Assert.That(
-                composition.Coordinator.LastResult.Triggers,
-                Is.EqualTo(new[] { DungeonAutosaveTriggerKind.ApplicationQuit })
-            );
-        }
-
-        [Test]
-        public void DestroyRemovesRuntimeActionAndTurnSubscriptions()
-        {
-            TestComposition composition = CreateNewComposition();
-            composition.InitializeNew();
-            int initialCaptures = composition.Source.TotalCaptureCount;
-
-            UnityEngine.Object.DestroyImmediate(composition.Coordinator.gameObject);
-            GameObject unobservedActor = new("unobserved-actor");
-            createdObjects.Add(unobservedActor);
-            composition.Source.RaisePersistentStateChanged(
-                DungeonPersistentStateChangeKind.DoorOpened
-            );
-            OnActorActionCompleted.Invoke(unobservedActor);
-            OnActionComplete.Invoke();
-            OnNextTurn.Invoke(unobservedActor);
-
-            Assert.That(composition.Source.TotalCaptureCount, Is.EqualTo(initialCaptures));
-        }
-
-        [Test]
-        public void ProductionFactoryBuildsDedicatedChildOfInjectedPersistentRoot()
-        {
-            string root = DungeonAutosaveProductionRepositoryFactory.BuildAutosaveRootPath(
-                testRoot
-            );
-
-            Assert.That(
-                root,
-                Is.EqualTo(
-                    Path.GetFullPath(
-                        Path.Combine(
-                            testRoot,
-                            DungeonAutosaveProductionRepositoryFactory.AutosaveDirectoryName
-                        )
-                    )
-                )
-            );
-            Assert.That(Path.GetDirectoryName(root), Is.EqualTo(Path.GetFullPath(testRoot)));
-        }
-
-        private TestComposition CreateNewComposition()
-        {
-            DungeonRunSave save = DungeonSaveTestFactory.CreateRun();
-            FileSystemDungeonSaveRepository repository = new(testRoot);
-            FakeCaptureSource source = new(CaptureForDepth(save, depth: 0));
-            return new TestComposition(CreateCoordinator(), save, repository, source);
-        }
-
-        private DungeonAutosaveCoordinator CreateCoordinator()
-        {
-            GameObject owner = new(nameof(DungeonAutosaveCoordinatorTests));
-            createdObjects.Add(owner);
-            return owner.AddComponent<DungeonAutosaveCoordinator>();
-        }
-
-        private static DungeonCurrentFloorCapture CaptureForDepth(DungeonRunSave save, int depth) =>
-            new(save.Manifest.Party, save.Floors.Single(floor => floor.Depth == depth));
-
-        private sealed class TestComposition
-        {
-            internal TestComposition(
-                DungeonAutosaveCoordinator coordinator,
-                DungeonRunSave run,
-                FileSystemDungeonSaveRepository repository,
-                FakeCaptureSource source
-            )
-            {
-                Coordinator = coordinator;
-                Run = run;
-                Repository = repository;
-                Source = source;
-            }
-
-            internal DungeonAutosaveCoordinator Coordinator { get; }
-
-            internal DungeonRunSave Run { get; }
-
-            internal FileSystemDungeonSaveRepository Repository { get; }
-
-            internal FakeCaptureSource Source { get; }
-
-            internal void InitializeNew() =>
-                Coordinator.InitializeNewFloor(
-                    Run.Manifest.StartingSeed,
-                    Run.Manifest.GeneratorVersion,
-                    Repository,
-                    Source
-                );
-        }
-
-        private sealed class FakeCaptureSource : IDungeonAutosaveCaptureSource
-        {
-            private readonly DungeonCurrentFloorCapture capture;
-
-            internal FakeCaptureSource(DungeonCurrentFloorCapture capture)
-            {
-                this.capture = capture;
-                Depth = capture.Floor.Depth;
-            }
-
-            public event Action<DungeonPersistentStateChangeKind> PersistentStateChanged = delegate
-            { };
-
-            public int Depth { get; }
-
-            public bool AreActorsStable { get; set; } = true;
-
-            internal Exception CaptureException { get; set; } = NoCaptureException.Instance;
-
-            internal int NewCaptureCount { get; private set; }
-
-            internal int ExistingCaptureCount { get; private set; }
-
-            internal int TotalCaptureCount => NewCaptureCount + ExistingCaptureCount;
-
-            public DungeonCurrentFloorCapture CaptureNew()
-            {
-                NewCaptureCount++;
-                ThrowWhenConfigured();
-                return capture;
-            }
-
-            public DungeonCurrentFloorCapture CaptureExisting(DungeonFloorSaveState previousFloor)
-            {
-                ExistingCaptureCount++;
-                Assert.That(previousFloor.Depth, Is.EqualTo(Depth));
-                ThrowWhenConfigured();
-                return capture;
-            }
-
-            internal void RaisePersistentStateChanged(DungeonPersistentStateChangeKind change) =>
-                PersistentStateChanged(change);
-
-            private void ThrowWhenConfigured()
-            {
-                if (CaptureException is not NoCaptureException)
-                    throw CaptureException;
-            }
-        }
-
-        private sealed class NoCaptureException : Exception
-        {
-            internal static readonly NoCaptureException Instance = new();
-
-            private NoCaptureException() { }
-        }
-
-        private sealed class TestActionController : ActionController
-        {
-            /// <inheritdoc/>
-            public override void EndTurn() { }
-        }
+        public void HideExploration() { }
     }
 }

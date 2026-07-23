@@ -126,17 +126,9 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Vector3[] beforeSelection = fixture
             .Party.Select(member => member.GameObject.transform.position)
             .ToArray();
-        List<DungeonPersistentStateChangeKind> persistentChanges = new();
-        fixture.Runtime.PersistentStateChanged += persistentChanges.Add;
 
         Assert.That(fixture.Presentation.TrySelect(fixture.Party[2].Controller), Is.True);
-        Assert.That(fixture.Presentation.TrySelect(fixture.Party[2].Controller), Is.True);
         Assert.That(fixture.Presentation.Selected, Is.SameAs(fixture.Party[2].Controller));
-        Assert.That(
-            persistentChanges,
-            Is.EqualTo(new[] { DungeonPersistentStateChangeKind.ExplorationLeaderChanged }),
-            "Selecting a different leader is durable, while reselecting it is not a new change."
-        );
         Assert.That(fixture.Party[2].Controller.IsInDungeonExploration, Is.True);
         Assert.That(
             fixture
@@ -168,26 +160,6 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             );
             Assert.That(distance, Is.LessThanOrEqualTo(1), "A leader change cannot teleport a PC.");
         }
-        yield break;
-    }
-
-    /// <summary>
-    /// Verifies a party controller destroyed after initialization does not prevent a surviving
-    /// member from becoming the exploration leader.
-    /// </summary>
-    [UnityTest]
-    public IEnumerator LeaderSelectionIgnoresDestroyedPartyReference()
-    {
-        RuntimeFixture fixture = CreateRuntimeFixture(
-            new[] { new Vector3Int(2, 0, 1), new Vector3Int(1, 0, 1) }
-        );
-        ActionController survivingMember = fixture.Party[1].Controller;
-
-        Object.DestroyImmediate(fixture.Party[0].GameObject);
-
-        Assert.That(fixture.Runtime.CanSelectExplorationLeader(survivingMember), Is.True);
-        Assert.That(fixture.Presentation.TrySelect(survivingMember), Is.True);
-        Assert.That(survivingMember.IsInDungeonExploration, Is.True);
         yield break;
     }
 
@@ -347,22 +319,6 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             .Runtime.GetComponentsInChildren<DungeonEncounterMember>()
             .Single();
         Assert.That(enemy.transform.position, Is.EqualTo(new Vector3(7f, 0f, 3f)));
-        DungeonRuntimeState captured = fixture.Runtime.CaptureRuntimeState(controller =>
-            "captured:" + controller.name
-        );
-        DungeonCreatureRuntimeState capturedEnemy = captured.Creatures.Single();
-        Assert.That(captured.OpenDoorIds, Is.Empty);
-        Assert.That(captured.ResolvedEncounterIds, Is.Empty);
-        Assert.That(captured.DefeatedCreatureIds, Is.Empty);
-        Assert.That(capturedEnemy.InstanceId, Is.EqualTo(enemy.InstanceId));
-        Assert.That(capturedEnemy.CreatureId, Is.EqualTo(enemy.CreatureContentId));
-        Assert.That(capturedEnemy.EncounterId, Is.EqualTo(enemy.EncounterId));
-        Assert.That(capturedEnemy.Cell, Is.EqualTo(new DungeonCell(7, 3)));
-        Assert.That(
-            capturedEnemy.HitPoints,
-            Is.EqualTo(enemy.GetComponent<CreatureComponent>().hp)
-        );
-        Assert.That(capturedEnemy.State, Is.EqualTo("captured:" + enemy.name));
         Assert.That(manager.WhosTurn(), Is.Not.Null);
         Assert.That(
             manager.GetCombatants(),

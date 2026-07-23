@@ -9,8 +9,6 @@ namespace Game.Creature
     [System.Serializable]
     public class EquipmentArmor
     {
-        internal string DungeonPersistenceInstanceId { get; private set; } = string.Empty;
-
         public string name; // armor name
         public string type; // e.g., weapon, armor.  Remove??
         public string category; // e.g., light, medium, heavy, shield, etc.
@@ -26,23 +24,5 @@ namespace Game.Creature
         public List<string> armorTraits; // list of traits
 
         public EquipmentArmor() { }
-
-        internal void EnsureDungeonPersistenceIdentity(string instanceId)
-        {
-            string normalized = instanceId?.Trim() ?? string.Empty;
-            if (normalized.Length == 0)
-                throw new ArgumentException(
-                    "An armor persistence identity is required.",
-                    nameof(instanceId)
-                );
-            if (
-                DungeonPersistenceInstanceId.Length > 0
-                && DungeonPersistenceInstanceId != normalized
-            )
-                throw new InvalidOperationException(
-                    "An armor persistence identity cannot be replaced."
-                );
-            DungeonPersistenceInstanceId = normalized;
-        }
     }
 }

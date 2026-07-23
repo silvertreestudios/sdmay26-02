@@ -3,382 +3,240 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Security;
 using System.Text;
+using Game.DungeonGeneration;
 
 namespace Game.DungeonPersistence.Repository
 {
+    internal interface IDungeonSaveRepository
+    {
+        DungeonSaveResult<DungeonRunSave> Load();
+        DungeonSaveResult<bool> Save(DungeonRunSave save);
+    }
+
     /// <summary>
-    /// Stores one run as an atomic archive containing <c>manifest.json</c> and one versioned JSON
-    /// entry per generated depth.
+    /// Publishes one validated manifest-and-floor ZIP with an atomic filesystem replacement.
     /// </summary>
-    /// <remarks>
-    /// A save is written beside the current archive, reopened through the normal load path, and
-    /// only then atomically replaces the previous archive. The immediately previous valid archive
-    /// remains available as recovery data.
-    /// </remarks>
     internal sealed class FileSystemDungeonSaveRepository : IDungeonSaveRepository
     {
-        private const string CurrentFileName = "autosave.zip";
-        private const string BackupFileName = "autosave.backup.zip";
-        private const string ManifestEntryName = "manifest.json";
+        private const string AutosaveFileName = "autosave.zip";
+        private readonly string directory;
+        private readonly Action<string, string> publish;
 
-        private readonly object sync = new();
-        private readonly string rootPath;
-
-        /// <summary>Creates a repository rooted at an explicitly supplied autosave directory.</summary>
-        public FileSystemDungeonSaveRepository(string rootPath)
+        internal FileSystemDungeonSaveRepository(
+            string directory,
+            Action<string, string> publish = null
+        )
         {
-            if (string.IsNullOrWhiteSpace(rootPath))
-                throw new ArgumentException(
-                    "An explicit autosave root is required.",
-                    nameof(rootPath)
-                );
-            this.rootPath = Path.GetFullPath(rootPath);
+            this.directory = string.IsNullOrWhiteSpace(directory)
+                ? throw new ArgumentException(
+                    "An autosave directory is required.",
+                    nameof(directory)
+                )
+                : Path.GetFullPath(directory);
+            this.publish = publish ?? PublishAtomically;
         }
 
-        /// <summary>Gets the normalized autosave root supplied by the composition root.</summary>
-        public string RootPath => rootPath;
+        internal string AutosavePath => Path.Combine(directory, AutosaveFileName);
 
-        /// <inheritdoc/>
-        public DungeonSaveResult<bool> Save(DungeonRunSave save)
-        {
-            lock (sync)
-            {
-                IReadOnlyList<DungeonSaveDiagnostic> validation = DungeonRunSaveValidator.Validate(
-                    save
-                );
-                if (validation.Count > 0)
-                    return DungeonSaveResult<bool>.Failure(validation);
-
-                string temporaryPath = string.Empty;
-                try
-                {
-                    Directory.CreateDirectory(rootPath);
-                    temporaryPath = Path.Combine(rootPath, $"autosave-{Guid.NewGuid():N}.tmp");
-                    WriteArchive(temporaryPath, save);
-
-                    DungeonSaveResult<DungeonRunSave> staged = ReadArchive(
-                        temporaryPath,
-                        DungeonSaveDiagnosticCode.CorruptSave,
-                        "staged autosave"
-                    );
-                    if (!staged.IsSuccess)
-                        return DungeonSaveResult<bool>.Failure(staged.Diagnostics);
-
-                    Publish(temporaryPath);
-                    temporaryPath = string.Empty;
-                    return DungeonSaveResult<bool>.Success(true);
-                }
-                catch (Exception exception) when (IsFileSystemException(exception))
-                {
-                    return DungeonSaveResult<bool>.Failure(
-                        new[]
-                        {
-                            Diagnostic(
-                                DungeonSaveDiagnosticCode.IoFailure,
-                                DungeonSaveDiagnosticSeverity.Error,
-                                "autosave",
-                                "The autosave could not be committed: " + exception.Message
-                            ),
-                        }
-                    );
-                }
-                finally
-                {
-                    TryDelete(temporaryPath);
-                }
-            }
-        }
-
-        /// <inheritdoc/>
         public DungeonSaveResult<DungeonRunSave> Load()
         {
-            lock (sync)
+            if (!File.Exists(AutosavePath))
             {
-                DungeonSaveResult<DungeonRunSave> current = ReadArchive(
-                    CurrentPath,
+                return DungeonSaveResult<DungeonRunSave>.Failure(
                     DungeonSaveDiagnosticCode.MissingSave,
-                    CurrentFileName
-                );
-                if (current.IsSuccess)
-                    return current;
-                if (!File.Exists(BackupPath))
-                    return current;
-
-                DungeonSaveResult<DungeonRunSave> backup = ReadArchive(
-                    BackupPath,
-                    DungeonSaveDiagnosticCode.CorruptSave,
-                    BackupFileName
-                );
-                if (!backup.IsSuccess)
-                    return DungeonSaveResult<DungeonRunSave>.Failure(
-                        current.Diagnostics.Concat(backup.Diagnostics)
-                    );
-
-                DungeonSaveDiagnostic currentProblem = current.Diagnostics[0];
-                return DungeonSaveResult<DungeonRunSave>.Success(
-                    backup.Value,
-                    new[]
-                    {
-                        Diagnostic(
-                            currentProblem.Code,
-                            DungeonSaveDiagnosticSeverity.Warning,
-                            currentProblem.Path,
-                            currentProblem.Message
-                        ),
-                        Diagnostic(
-                            DungeonSaveDiagnosticCode.RecoveredPreviousGeneration,
-                            DungeonSaveDiagnosticSeverity.Warning,
-                            BackupFileName,
-                            "The current autosave was unusable, so the previous valid archive was recovered."
-                        ),
-                    }
+                    AutosavePath,
+                    "No dungeon autosave exists."
                 );
             }
+
+            return LoadArchive(AutosavePath);
         }
 
-        private string CurrentPath => Path.Combine(rootPath, CurrentFileName);
-
-        private string BackupPath => Path.Combine(rootPath, BackupFileName);
-
-        private void Publish(string temporaryPath)
+        public DungeonSaveResult<bool> Save(DungeonRunSave save)
         {
-            if (!File.Exists(CurrentPath))
+            if (save == null)
+                throw new ArgumentNullException(nameof(save));
+
+            Directory.CreateDirectory(directory);
+            string temporaryPath = AutosavePath + ".tmp";
+            try
             {
-                File.Move(temporaryPath, CurrentPath);
-                return;
-            }
+                if (File.Exists(temporaryPath))
+                    File.Delete(temporaryPath);
 
-            bool currentIsValid = ReadArchive(
-                CurrentPath,
-                DungeonSaveDiagnosticCode.CorruptSave,
-                CurrentFileName
-            ).IsSuccess;
-            bool backupIsValid =
-                File.Exists(BackupPath)
-                && ReadArchive(
-                    BackupPath,
-                    DungeonSaveDiagnosticCode.CorruptSave,
-                    BackupFileName
-                ).IsSuccess;
-
-            string backupPath = !currentIsValid && backupIsValid ? null : BackupPath;
-            File.Replace(temporaryPath, CurrentPath, backupPath, ignoreMetadataErrors: true);
-        }
-
-        private static void WriteArchive(string path, DungeonRunSave save)
-        {
-            using FileStream stream = new(
-                path,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None
-            );
-            using (
-                ZipArchive archive = new(
-                    stream,
-                    ZipArchiveMode.Create,
-                    leaveOpen: true,
-                    Encoding.UTF8
+                using (
+                    FileStream stream = new(
+                        temporaryPath,
+                        FileMode.CreateNew,
+                        FileAccess.ReadWrite,
+                        FileShare.None
+                    )
                 )
-            )
-            {
-                WriteEntry(
-                    archive,
-                    ManifestEntryName,
-                    DungeonSaveJsonCodec.SerializeRunManifest(save.Manifest)
-                );
-                IReadOnlyDictionary<int, DungeonFloorSaveState> floors = save.Floors.ToDictionary(
-                    floor => floor.Depth
-                );
-                foreach (DungeonFloorSaveReference reference in save.Manifest.GeneratedFloors)
                 {
-                    WriteEntry(
-                        archive,
-                        reference.RelativePath,
-                        DungeonSaveJsonCodec.SerializeFloor(floors[reference.Depth])
+                    using (ZipArchive archive = new(stream, ZipArchiveMode.Create, leaveOpen: true))
+                    {
+                        WriteEntry(
+                            archive,
+                            DungeonSaveSchema.ManifestPath,
+                            DungeonSaveJson.SerializeManifest(save.Manifest)
+                        );
+                        WriteEntry(
+                            archive,
+                            DungeonSaveSchema.FloorPath,
+                            DungeonLevelJsonSerializer.Serialize(save.FloorDocument)
+                        );
+                    }
+                    stream.Flush(flushToDisk: true);
+                }
+
+                DungeonSaveResult<DungeonRunSave> staged = LoadArchive(temporaryPath);
+                if (!staged.IsSuccess)
+                {
+                    return DungeonSaveResult<bool>.Failure(
+                        staged.Diagnostics[0].Code,
+                        staged.Diagnostics[0].Path,
+                        "The staged autosave failed validation: " + staged.Diagnostics[0].Message
                     );
                 }
+
+                publish(temporaryPath, AutosavePath);
+                return DungeonSaveResult<bool>.Success(true);
             }
-            stream.Flush(flushToDisk: true);
+            catch (Exception exception)
+                when (exception is IOException
+                    || exception is UnauthorizedAccessException
+                    || exception is InvalidDataException
+                )
+            {
+                return DungeonSaveResult<bool>.Failure(
+                    DungeonSaveDiagnosticCode.IoFailure,
+                    AutosavePath,
+                    exception.Message
+                );
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    try
+                    {
+                        File.Delete(temporaryPath);
+                    }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }
         }
 
-        private static void WriteEntry(ZipArchive archive, string name, string content)
+        private static DungeonSaveResult<DungeonRunSave> LoadArchive(string path)
         {
-            ZipArchiveEntry entry = archive.CreateEntry(name, CompressionLevel.Optimal);
+            try
+            {
+                using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using ZipArchive archive = new(stream, ZipArchiveMode.Read);
+                Dictionary<string, ZipArchiveEntry> entries = new(StringComparer.Ordinal);
+                foreach (ZipArchiveEntry entry in archive.Entries)
+                {
+                    if (!entries.TryAdd(entry.FullName, entry))
+                    {
+                        return DungeonSaveResult<DungeonRunSave>.Failure(
+                            DungeonSaveDiagnosticCode.CorruptSave,
+                            entry.FullName,
+                            "The archive contains a duplicate entry."
+                        );
+                    }
+                }
+
+                string[] expected = { DungeonSaveSchema.ManifestPath, DungeonSaveSchema.FloorPath };
+                if (
+                    entries.Count != expected.Length
+                    || expected.Any(entry => !entries.ContainsKey(entry))
+                )
+                {
+                    return DungeonSaveResult<DungeonRunSave>.Failure(
+                        DungeonSaveDiagnosticCode.CorruptSave,
+                        path,
+                        "The autosave must contain exactly manifest.json and floor.json."
+                    );
+                }
+
+                DungeonSaveResult<DungeonRunSaveManifest> manifest = DungeonSaveJson.ParseManifest(
+                    ReadEntry(entries[DungeonSaveSchema.ManifestPath])
+                );
+                if (!manifest.IsSuccess)
+                {
+                    DungeonSaveDiagnostic diagnostic = manifest.Diagnostics[0];
+                    return DungeonSaveResult<DungeonRunSave>.Failure(
+                        diagnostic.Code,
+                        diagnostic.Path,
+                        diagnostic.Message
+                    );
+                }
+
+                DungeonLevelParseResult floor = DungeonLevelJsonParser.Parse(
+                    ReadEntry(entries[DungeonSaveSchema.FloorPath])
+                );
+                if (!floor.IsSuccess)
+                {
+                    return DungeonSaveResult<DungeonRunSave>.Failure(
+                        DungeonSaveDiagnosticCode.CorruptSave,
+                        DungeonSaveSchema.FloorPath,
+                        string.Join(" ", floor.Diagnostics.Select(item => item.Message))
+                    );
+                }
+
+                return DungeonSaveResult<DungeonRunSave>.Success(
+                    new DungeonRunSave(manifest.Value, floor.Document)
+                );
+            }
+            catch (Exception exception)
+                when (exception is IOException
+                    || exception is UnauthorizedAccessException
+                    || exception is InvalidDataException
+                    || exception is ArgumentException
+                )
+            {
+                return DungeonSaveResult<DungeonRunSave>.Failure(
+                    exception is IOException || exception is UnauthorizedAccessException
+                        ? DungeonSaveDiagnosticCode.IoFailure
+                        : DungeonSaveDiagnosticCode.CorruptSave,
+                    path,
+                    exception.Message
+                );
+            }
+        }
+
+        private static void WriteEntry(ZipArchive archive, string path, string content)
+        {
+            ZipArchiveEntry entry = archive.CreateEntry(path, CompressionLevel.Optimal);
+            using Stream output = entry.Open();
             using StreamWriter writer = new(
-                entry.Open(),
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
+                output,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+                bufferSize: 1024,
+                leaveOpen: false
             );
             writer.Write(content);
         }
 
-        private static DungeonSaveResult<DungeonRunSave> ReadArchive(
-            string path,
-            DungeonSaveDiagnosticCode missingCode,
-            string logicalPath
-        )
-        {
-            if (!File.Exists(path))
-            {
-                return DungeonSaveResult<DungeonRunSave>.Failure(
-                    new[]
-                    {
-                        Diagnostic(
-                            missingCode,
-                            DungeonSaveDiagnosticSeverity.Error,
-                            logicalPath,
-                            missingCode == DungeonSaveDiagnosticCode.MissingSave
-                                ? "No committed dungeon autosave exists."
-                                : "The recovery autosave archive is missing."
-                        ),
-                    }
-                );
-            }
-
-            try
-            {
-                using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                using ZipArchive archive = new(
-                    stream,
-                    ZipArchiveMode.Read,
-                    leaveOpen: false,
-                    Encoding.UTF8
-                );
-                string duplicate = archive
-                    .Entries.GroupBy(entry => entry.FullName, StringComparer.Ordinal)
-                    .Where(group => group.Count() > 1)
-                    .Select(group => group.Key)
-                    .FirstOrDefault();
-                if (duplicate != null)
-                    return Corrupt(logicalPath, $"Archive entry '{duplicate}' is duplicated.");
-
-                ZipArchiveEntry manifestEntry = archive.GetEntry(ManifestEntryName);
-                if (manifestEntry == null)
-                    return Corrupt(logicalPath, "The run manifest is missing.");
-                DungeonSaveResult<DungeonRunSaveManifest> manifestResult =
-                    DungeonSaveJsonCodec.ParseRunManifest(ReadEntry(manifestEntry));
-                if (!manifestResult.IsSuccess)
-                    return DungeonSaveResult<DungeonRunSave>.Failure(manifestResult.Diagnostics);
-
-                HashSet<string> expectedEntries = new(StringComparer.Ordinal) { ManifestEntryName };
-                DungeonRunSaveManifest manifest = manifestResult.Value;
-                List<DungeonFloorSaveState> floors = new(manifest.GeneratedFloors.Count);
-                foreach (DungeonFloorSaveReference reference in manifest.GeneratedFloors)
-                {
-                    expectedEntries.Add(reference.RelativePath);
-                    ZipArchiveEntry floorEntry = archive.GetEntry(reference.RelativePath);
-                    if (floorEntry == null)
-                        return Corrupt(reference.RelativePath, "The indexed floor is missing.");
-
-                    DungeonSaveResult<DungeonFloorSaveState> floorResult =
-                        DungeonSaveJsonCodec.ParseFloor(ReadEntry(floorEntry));
-                    if (!floorResult.IsSuccess)
-                        return DungeonSaveResult<DungeonRunSave>.Failure(floorResult.Diagnostics);
-                    DungeonFloorSaveState floor = floorResult.Value;
-                    if (
-                        floor.Depth != reference.Depth
-                        || floor.DocumentVersion != reference.DocumentVersion
-                    )
-                    {
-                        return Corrupt(
-                            reference.RelativePath,
-                            "The floor depth or version does not match its manifest index."
-                        );
-                    }
-                    floors.Add(floor);
-                }
-
-                string unexpected = archive
-                    .Entries.Select(entry => entry.FullName)
-                    .FirstOrDefault(name => !expectedEntries.Contains(name));
-                if (unexpected != null)
-                    return Corrupt(logicalPath, $"Archive entry '{unexpected}' is not indexed.");
-
-                DungeonRunSave save = new(manifest, floors);
-                IReadOnlyList<DungeonSaveDiagnostic> validation = DungeonRunSaveValidator.Validate(
-                    save
-                );
-                return validation.Count == 0
-                    ? DungeonSaveResult<DungeonRunSave>.Success(save)
-                    : DungeonSaveResult<DungeonRunSave>.Failure(validation);
-            }
-            catch (Exception exception)
-                when (exception is InvalidDataException
-                    || exception is ArgumentException
-                    || exception is InvalidOperationException
-                    || exception is FormatException
-                    || exception is OverflowException
-                )
-            {
-                return Corrupt(
-                    logicalPath,
-                    "The autosave archive is incomplete or invalid: " + exception.Message
-                );
-            }
-            catch (Exception exception) when (IsFileSystemException(exception))
-            {
-                return DungeonSaveResult<DungeonRunSave>.Failure(
-                    new[]
-                    {
-                        Diagnostic(
-                            DungeonSaveDiagnosticCode.IoFailure,
-                            DungeonSaveDiagnosticSeverity.Error,
-                            logicalPath,
-                            "The autosave archive could not be read: " + exception.Message
-                        ),
-                    }
-                );
-            }
-        }
-
         private static string ReadEntry(ZipArchiveEntry entry)
         {
+            using Stream input = entry.Open();
             using StreamReader reader = new(
-                entry.Open(),
+                input,
                 Encoding.UTF8,
                 detectEncodingFromByteOrderMarks: true
             );
             return reader.ReadToEnd();
         }
 
-        private static DungeonSaveResult<DungeonRunSave> Corrupt(string path, string message) =>
-            DungeonSaveResult<DungeonRunSave>.Failure(
-                new[]
-                {
-                    Diagnostic(
-                        DungeonSaveDiagnosticCode.CorruptSave,
-                        DungeonSaveDiagnosticSeverity.Error,
-                        path,
-                        message
-                    ),
-                }
-            );
-
-        private static DungeonSaveDiagnostic Diagnostic(
-            DungeonSaveDiagnosticCode code,
-            DungeonSaveDiagnosticSeverity severity,
-            string path,
-            string message
-        ) => new(code, severity, path, message);
-
-        private static bool IsFileSystemException(Exception exception) =>
-            exception is IOException
-            || exception is UnauthorizedAccessException
-            || exception is NotSupportedException
-            || exception is SecurityException;
-
-        private static void TryDelete(string path)
+        private static void PublishAtomically(string temporaryPath, string autosavePath)
         {
-            if (string.IsNullOrEmpty(path))
-                return;
-            try
-            {
-                if (File.Exists(path))
-                    File.Delete(path);
-            }
-            catch (Exception exception) when (IsFileSystemException(exception)) { }
+            if (File.Exists(autosavePath))
+                File.Replace(temporaryPath, autosavePath, destinationBackupFileName: null, true);
+            else
+                File.Move(temporaryPath, autosavePath);
         }
     }
 }

@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Game.Combat.Encounters;
 using Game.DungeonPersistence;
-using Game.DungeonPersistence.Autosave;
 using Game.DungeonPersistence.Repository;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -117,17 +116,19 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
                     hud,
                     runtimeRoot
                 );
-            foreach (var diagnostic in bootstrap.Diagnostics)
-            {
-                string message =
-                    $"Dungeon persistence [{diagnostic.Code}] {diagnostic.Path}: {diagnostic.Message}";
-                if (diagnostic.Severity == DungeonSaveDiagnosticSeverity.Warning)
-                    Debug.LogWarning(message, map);
-                else
-                    Debug.LogError(message, map);
-            }
             if (!bootstrap.IsSuccess)
-                throw CreateDungeonPersistenceFailure(bootstrap.Diagnostics);
+            {
+                throw new InvalidOperationException(
+                    "The generated dungeon could not initialize persistence:"
+                        + Environment.NewLine
+                        + string.Join(
+                            Environment.NewLine,
+                            bootstrap.Diagnostics.Select(diagnostic =>
+                                $"[{diagnostic.Code}] {diagnostic.Path}: {diagnostic.Message}"
+                            )
+                        )
+                );
+            }
         }
         catch
         {
@@ -135,22 +136,6 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             throw;
         }
         yield return null;
-    }
-
-    private static InvalidOperationException CreateDungeonPersistenceFailure(
-        IReadOnlyList<DungeonSaveDiagnostic> diagnostics
-    )
-    {
-        const string summary = "The generated dungeon could not initialize its persistent run.";
-        string details = string.Join(
-            Environment.NewLine,
-            diagnostics.Select(diagnostic =>
-                $"[{diagnostic.Code}] {diagnostic.Path}: {diagnostic.Message}"
-            )
-        );
-        return new InvalidOperationException(
-            details.Length == 0 ? summary : summary + Environment.NewLine + details
-        );
     }
 
     private void NextLevel(string winningTeam)
