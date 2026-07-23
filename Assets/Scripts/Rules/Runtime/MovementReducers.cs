@@ -78,12 +78,20 @@ namespace Game.Rules.Runtime
     internal sealed class CommitMovementStepReducer
         : IOpReducer<CommitMovementStepOp, MovementStepCommitOutcome>
     {
-        private readonly GridTopology topology;
+        private readonly IGridTopologyProvider topologyProvider;
 
         public CommitMovementStepReducer(GridTopology topology)
+            : this(new FixedGridTopologyProvider(topology)) { }
+
+        public CommitMovementStepReducer(IGridTopologyProvider topologyProvider)
         {
-            this.topology = topology ?? throw new ArgumentNullException(nameof(topology));
+            this.topologyProvider =
+                topologyProvider ?? throw new ArgumentNullException(nameof(topologyProvider));
         }
+
+        private GridTopology Topology =>
+            topologyProvider.Current
+            ?? throw new InvalidOperationException("A topology provider returned no snapshot.");
 
         public ReductionResult<MovementStepCommitOutcome> Reduce(
             ReductionContext<CommitMovementStepOp> context,
@@ -217,7 +225,7 @@ namespace Game.Rules.Runtime
                 );
             if (budget.Id != op.BudgetId || budget.Owner != op.Mover)
                 return Failure(MovementFailureKind.BudgetMismatch, op);
-            if (!topology.Contains(op.To))
+            if (!Topology.Contains(op.To))
             {
                 return Failure(
                     op.IsDestination
@@ -230,7 +238,7 @@ namespace Game.Rules.Runtime
                 return Failure(MovementFailureKind.NonContiguous, op);
             if (BlocksDiagonalCorner(op.From, op.To))
                 return Failure(MovementFailureKind.CornerBlocked, op);
-            if (topology.IsBlocked(op.To))
+            if (Topology.IsBlocked(op.To))
             {
                 return Failure(
                     op.IsDestination
@@ -349,7 +357,7 @@ namespace Game.Rules.Runtime
             bool reservedOccupantPresent
         )
         {
-            TerrainCost terrain = topology.GetTerrainCost(op.To);
+            TerrainCost terrain = Topology.GetTerrainCost(op.To);
             if (reservedOccupantPresent)
                 terrain = MovementCostRules.ApplyOccupiedSpaceFloor(terrain);
             return MovementCostRules.Calculate(op.From, op.To, terrain, budget.DiagonalPhase);
@@ -379,7 +387,7 @@ namespace Game.Rules.Runtime
                 return false;
             GridPosition sideX = new GridPosition(from.X + dx, from.Y, from.Z);
             GridPosition sideZ = new GridPosition(from.X, from.Y, from.Z + dz);
-            return topology.IsBlocked(sideX) || topology.IsBlocked(sideZ);
+            return Topology.IsBlocked(sideX) || Topology.IsBlocked(sideZ);
         }
 
         private static MovementFailure Failure(MovementFailureKind kind, CommitMovementStepOp op) =>
@@ -489,12 +497,20 @@ namespace Game.Rules.Runtime
     internal sealed class CommitRelocationReducer
         : IOpReducer<CommitRelocationOp, RelocationOutcome>
     {
-        private readonly GridTopology topology;
+        private readonly IGridTopologyProvider topologyProvider;
 
         public CommitRelocationReducer(GridTopology topology)
+            : this(new FixedGridTopologyProvider(topology)) { }
+
+        public CommitRelocationReducer(IGridTopologyProvider topologyProvider)
         {
-            this.topology = topology ?? throw new ArgumentNullException(nameof(topology));
+            this.topologyProvider =
+                topologyProvider ?? throw new ArgumentNullException(nameof(topologyProvider));
         }
+
+        private GridTopology Topology =>
+            topologyProvider.Current
+            ?? throw new InvalidOperationException("A topology provider returned no snapshot.");
 
         public ReductionResult<RelocationOutcome> Reduce(
             ReductionContext<CommitRelocationOp> context,
@@ -552,7 +568,7 @@ namespace Game.Rules.Runtime
                     op.Destination
                 );
             }
-            if (!topology.Contains(op.Destination))
+            if (!Topology.Contains(op.Destination))
             {
                 return new MovementFailure(
                     MovementFailureKind.DestinationOutOfBounds,
@@ -560,7 +576,7 @@ namespace Game.Rules.Runtime
                     op.Destination
                 );
             }
-            if (topology.IsBlocked(op.Destination))
+            if (Topology.IsBlocked(op.Destination))
             {
                 return new MovementFailure(
                     MovementFailureKind.DestinationBlocked,

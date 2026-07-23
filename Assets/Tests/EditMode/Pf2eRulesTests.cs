@@ -472,7 +472,7 @@ public class Pf2eRulesTests
         created.Add(go);
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
-        Game.Rules.Unity.UnityHealthRulesBridge.Create(new[] { creature });
+        Game.Rules.Unity.UnityCombatRulesBridge.CreateHealthTestComposition(new[] { creature });
         creature.level = 1;
         creature.conMod = 1;
         creature.Build = new CharacterBuild

@@ -62,7 +62,7 @@ namespace TestsState
             GameObject target = CreateTarget("wounded target", 8, 12);
             TestActionController targetController = target.GetComponent<TestActionController>();
             MoveCombatant(tiles, target, targetCell);
-            UnityHealthRulesBridge.Create(
+            UnityCombatRulesBridge.CreateHealthTestComposition(
                 new[]
                 {
                     zombie.GetComponent<CreatureComponent>(),
@@ -470,7 +470,7 @@ namespace TestsState
             CreatureComponent[] encounterCreatures = combatants
                 .Select(combatant => combatant.GetComponent<CreatureComponent>())
                 .ToArray();
-            UnityHealthRulesBridge healthRules = GetPrivateField<UnityHealthRulesBridge>(
+            UnityCombatRulesBridge healthRules = GetPrivateField<UnityCombatRulesBridge>(
                 manager,
                 "healthRules"
             );
@@ -479,7 +479,9 @@ namespace TestsState
                 && !ContainsAllCreatures(healthRules, encounterCreatures)
             )
             {
-                healthRules = UnityHealthRulesBridge.Create(encounterCreatures);
+                healthRules = UnityCombatRulesBridge.CreateHealthTestComposition(
+                    encounterCreatures
+                );
                 SetPrivateField(manager, "healthRules", healthRules);
             }
 
@@ -489,7 +491,7 @@ namespace TestsState
         }
 
         private static bool ContainsAllCreatures(
-            UnityHealthRulesBridge healthRules,
+            UnityCombatRulesBridge healthRules,
             IEnumerable<CreatureComponent> creatures
         )
         {

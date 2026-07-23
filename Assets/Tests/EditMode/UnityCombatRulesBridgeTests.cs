@@ -8,13 +8,13 @@ using NUnit.Framework;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-public sealed class UnityHealthRulesBridgeTests
+public sealed class UnityCombatRulesBridgeTests
 {
     [Test]
     public void BridgeRejectsEmptyEncounterWithSpecificError()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
-            UnityHealthRulesBridge.Create(Array.Empty<CreatureComponent>())
+            UnityCombatRulesBridge.CreateHealthTestComposition(Array.Empty<CreatureComponent>())
         );
 
         StringAssert.Contains("requires at least one creature", error.Message);
@@ -24,7 +24,7 @@ public sealed class UnityHealthRulesBridgeTests
     public void BridgeRejectsNullEncounterCreatureWithSpecificError()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
-            UnityHealthRulesBridge.Create(new CreatureComponent[] { null })
+            UnityCombatRulesBridge.CreateHealthTestComposition(new CreatureComponent[] { null })
         );
 
         StringAssert.Contains("cannot contain a null creature", error.Message);
@@ -63,7 +63,9 @@ public sealed class UnityHealthRulesBridgeTests
             CreatureComponent second = secondObject.AddComponent<CreatureComponent>();
             first.InitializeHealthBeforeEncounter(10, 12);
             second.InitializeHealthBeforeEncounter(7, 7);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { first, second });
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateHealthTestComposition(
+                new[] { first, second }
+            );
 
             CreatureId firstId = bridge.GetCreatureId(first);
             CreatureId secondId = bridge.GetCreatureId(second);
@@ -78,8 +80,8 @@ public sealed class UnityHealthRulesBridgeTests
                 RuleSource.FromSlug("test-heal")
             );
 
-            Assert.That(firstId.Value, Is.EqualTo("health-creature-1"));
-            Assert.That(secondId.Value, Is.EqualTo("health-creature-2"));
+            Assert.That(firstId.Value, Is.EqualTo("combat-creature-1"));
+            Assert.That(secondId.Value, Is.EqualTo("combat-creature-2"));
             Assert.That(damage.Applied, Is.EqualTo(4));
             Assert.That(healing.Applied, Is.EqualTo(2));
             Assert.That(first.hp, Is.EqualTo(8));
@@ -109,7 +111,9 @@ public sealed class UnityHealthRulesBridgeTests
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateHealthTestComposition(
+                new[] { creature }
+            );
             CreatureId id = bridge.GetCreatureId(creature);
             RuleSource rage = RuleSource.FromSlug("rage");
 
@@ -141,7 +145,9 @@ public sealed class UnityHealthRulesBridgeTests
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateHealthTestComposition(
+                new[] { creature }
+            );
             InvalidOperationException expected = new InvalidOperationException(
                 "completed observer failure"
             );
@@ -173,7 +179,9 @@ public sealed class UnityHealthRulesBridgeTests
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityHealthRulesBridge bridge = UnityHealthRulesBridge.Create(new[] { creature });
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateHealthTestComposition(
+                new[] { creature }
+            );
             GetDispatcher(bridge).RegisterFactObserver<HealthFact>(observer);
 
             InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
@@ -184,7 +192,7 @@ public sealed class UnityHealthRulesBridgeTests
                 )
             );
 
-            StringAssert.Contains("must complete synchronously", error.Message);
+            StringAssert.Contains("cannot contain asynchronous callbacks", error.Message);
         }
         finally
         {
@@ -193,9 +201,49 @@ public sealed class UnityHealthRulesBridgeTests
         }
     }
 
-    private static RuleDispatcher GetDispatcher(UnityHealthRulesBridge bridge)
+    [Test]
+    public async Task CombatCompositionDispatchesDormantStrideThroughSharedState()
     {
-        FieldInfo field = typeof(UnityHealthRulesBridge).GetField(
+        GameObject creatureObject = new GameObject("stride-creature");
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            creature.InitializeHealthBeforeEncounter(10, 10);
+            creature.speed = 25;
+            BridgeTestActionController controller =
+                creatureObject.AddComponent<BridgeTestActionController>();
+            GridPrivate.Tile[,] tiles = new GridPrivate.Tile[3, 1];
+            for (int x = 0; x < tiles.GetLength(0); x++)
+                tiles[x, 0] = new GridPrivate.Tile();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new[] { controller },
+                tiles
+            );
+            CreatureId id = bridge.GetCreatureId(creature);
+            bridge.BeginTurn(id, 3);
+
+            OpResult<MovePathOutcome> result = await bridge.DispatchStride(
+                id,
+                new MovementPath(
+                    new GridPosition(0, 0, 0),
+                    new[] { new GridPosition(1, 0, 0), new GridPosition(2, 0, 0) }
+                )
+            );
+
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<MovePathOutcome>>());
+            Assert.That(bridge.Snapshot.Positions[id], Is.EqualTo(new GridPosition(2, 0, 0)));
+            Assert.That(bridge.Snapshot.ActionEconomy[id].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(controller.ActionPoints, Is.EqualTo(2));
+        }
+        finally
+        {
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    private static RuleDispatcher GetDispatcher(UnityCombatRulesBridge bridge)
+    {
+        FieldInfo field = typeof(UnityCombatRulesBridge).GetField(
             "dispatcher",
             BindingFlags.Instance | BindingFlags.NonPublic
         );
@@ -223,5 +271,10 @@ public sealed class UnityHealthRulesBridgeTests
             new ValueTask(completion.Task);
 
         public void Complete() => completion.TrySetResult(true);
+    }
+
+    private sealed class BridgeTestActionController : ActionController
+    {
+        public override void EndTurn() { }
     }
 }

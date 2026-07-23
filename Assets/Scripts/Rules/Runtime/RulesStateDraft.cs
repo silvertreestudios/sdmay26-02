@@ -11,6 +11,9 @@ namespace Game.Rules.Runtime
         public StateSliceDraft<CreatureId, HealthState> Health { get; }
         public StateSliceDraft<CreatureId, GridPosition> Positions { get; }
 
+        /// <summary>Gets transaction-scoped write access to authoritative land Speeds.</summary>
+        public StateSliceDraft<CreatureId, GridDistance> LandSpeeds { get; }
+
         /// <summary>
         /// Gets transaction-scoped write access to movement allowances and diagonal phases.
         /// </summary>
@@ -67,6 +70,10 @@ namespace Game.Rules.Runtime
                 data.Positions,
                 (id, value) => !id.IsEmpty
             );
+            LandSpeeds = new StateSliceDraft<CreatureId, GridDistance>(
+                data.LandSpeeds,
+                (id, value) => !id.IsEmpty
+            );
             MovementBudgets = new StateSliceDraft<CreatureId, MovementBudgetState>(
                 data.MovementBudgets,
                 (id, value) => !id.IsEmpty && id == value.Owner
@@ -118,6 +125,7 @@ namespace Game.Rules.Runtime
             || Statistics.IsDirty
             || Health.IsDirty
             || Positions.IsDirty
+            || LandSpeeds.IsDirty
             || MovementBudgets.IsDirty
             || ActionEconomy.IsDirty
             || SpellSlots.IsDirty
@@ -138,6 +146,7 @@ namespace Game.Rules.Runtime
                 Statistics.BuildCommittedValues(),
                 Health.BuildCommittedValues(),
                 Positions.BuildCommittedValues(),
+                LandSpeeds.BuildCommittedValues(),
                 MovementBudgets.BuildCommittedValues(),
                 ActionEconomy.BuildCommittedValues(),
                 SpellSlots.BuildCommittedValues(),

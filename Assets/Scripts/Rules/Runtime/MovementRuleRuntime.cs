@@ -17,16 +17,29 @@ namespace Game.Rules.Runtime
         public static RuleDispatcherBuilder UseMovementRules(
             this RuleDispatcherBuilder builder,
             GridTopology topology
+        ) => builder.UseMovementRules(new FixedGridTopologyProvider(topology));
+
+        /// <summary>
+        /// Adds movement rules whose immutable topology snapshot may be replaced between roots.
+        /// </summary>
+        /// <param name="builder">The dispatcher builder being composed.</param>
+        /// <param name="topologyProvider">
+        /// The provider that holds one stable topology throughout each active root.
+        /// </param>
+        /// <returns>The supplied builder for fluent composition.</returns>
+        public static RuleDispatcherBuilder UseMovementRules(
+            this RuleDispatcherBuilder builder,
+            IGridTopologyProvider topologyProvider
         )
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
-            if (topology == null)
-                throw new ArgumentNullException(nameof(topology));
+            if (topologyProvider == null)
+                throw new ArgumentNullException(nameof(topologyProvider));
 
-            MovementPathValidator validator = new MovementPathValidator(topology);
+            MovementPathValidator validator = new MovementPathValidator(topologyProvider);
             MovementPermission.Authority authority = new MovementPermission.Authority();
-            CommitMovementStepReducer stepReducer = new CommitMovementStepReducer(topology);
+            CommitMovementStepReducer stepReducer = new CommitMovementStepReducer(topologyProvider);
             return builder
                 .RegisterHandler<BeginMovementBudgetOp, MovementBudgetStartOutcome>(
                     new BeginMovementBudgetHandler(),
@@ -69,7 +82,7 @@ namespace Game.Rules.Runtime
                     InvocationPolicy.NestedOnly
                 )
                 .RegisterEngineReducer<CommitRelocationOp, RelocationOutcome>(
-                    new CommitRelocationReducer(topology),
+                    new CommitRelocationReducer(topologyProvider),
                     MovementSource
                 );
         }

@@ -12,6 +12,9 @@ namespace Game.Rules.Runtime
         public StateSliceSnapshot<CreatureId, HealthState> Health { get; }
         public StateSliceSnapshot<CreatureId, GridPosition> Positions { get; }
 
+        /// <summary>Gets authoritative land Speeds keyed by creature.</summary>
+        public StateSliceSnapshot<CreatureId, GridDistance> LandSpeeds { get; }
+
         /// <summary>
         /// Gets authoritative movement allowances and turn-persistent diagonal phases by creature.
         /// </summary>
@@ -59,6 +62,7 @@ namespace Game.Rules.Runtime
             );
             Health = new StateSliceSnapshot<CreatureId, HealthState>(data.Health);
             Positions = new StateSliceSnapshot<CreatureId, GridPosition>(data.Positions);
+            LandSpeeds = new StateSliceSnapshot<CreatureId, GridDistance>(data.LandSpeeds);
             MovementBudgets = new StateSliceSnapshot<CreatureId, MovementBudgetState>(
                 data.MovementBudgets
             );

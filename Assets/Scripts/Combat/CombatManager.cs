@@ -20,7 +20,7 @@ public class CombatManager : CombatManagerInterface
     private readonly HashSet<ActionController> actedThisRound = new();
     private bool combatActive;
     private bool dungeonDirectedCombat;
-    private UnityHealthRulesBridge healthRules;
+    private UnityCombatRulesBridge healthRules;
 
     // Events
     // See CombatEvents.cs for a list of events triggered by this class
@@ -168,7 +168,7 @@ public class CombatManager : CombatManagerInterface
             InsertReinforcement(reinforcement, waitsForNextRound);
         }
 
-        RebuildHealthRulesBridge();
+        healthRules.RegisterCombatants(additions);
         Pf2eRulesEngine.ApplyCombatStartRules(additions);
         LogInitiative(
             "Reinforcements",
@@ -231,7 +231,7 @@ public class CombatManager : CombatManagerInterface
         foreach (ActionController controller in activeCombatants)
             controller.ResetEncounterTurnState();
 
-        RebuildHealthRulesBridge();
+        RebuildCombatRulesBridge();
         RollInitiative(activeCombatants);
         Pf2eRulesEngine.ApplyCombatStartRules(activeCombatants);
         CombatActivityChanged.Invoke(true);
@@ -239,11 +239,48 @@ public class CombatManager : CombatManagerInterface
         NextTurn();
     }
 
-    private void RebuildHealthRulesBridge()
+    private void RebuildCombatRulesBridge()
     {
-        healthRules = UnityHealthRulesBridge.Create(
-            activeCombatants.Select(controller => controller.GetComponent<CreatureComponent>())
-        );
+        healthRules = UnityCombatRulesBridge.Create(activeCombatants, GetCurrentTilesOrFallback());
+    }
+
+    /// <inheritdoc/>
+    public override void RefreshRulesTopology()
+    {
+        if (healthRules != null && TryGetCurrentTiles(out Tile[,] tiles))
+        {
+            healthRules.RefreshTopology(tiles);
+        }
+    }
+
+    private static Tile[,] GetCurrentTilesOrFallback()
+    {
+        if (TryGetCurrentTiles(out Tile[,] tiles))
+            return tiles;
+
+        // Some focused combat tests intentionally construct no grid. Their actions never invoke
+        // rules-native movement, so a single open cell keeps the shared non-movement state usable
+        // without manufacturing a mutable or unbounded topology.
+        Tile[,] fallback = new Tile[1, 1];
+        fallback[0, 0] = new Tile();
+        return fallback;
+    }
+
+    private static bool TryGetCurrentTiles(out Tile[,] tiles)
+    {
+        if (
+            GridPublic.GridAPI.TryGetInstance(out GridPublic.GridAPI publicGrid)
+            && publicGrid is GridAPIPrivate grid
+            && grid.GetTiles() is Tile[,] current
+            && current.GetLength(0) > 0
+            && current.GetLength(1) > 0
+        )
+        {
+            tiles = current;
+            return true;
+        }
+        tiles = new Tile[0, 0];
+        return false;
     }
 
     /// <summary>
