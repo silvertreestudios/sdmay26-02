@@ -26,6 +26,7 @@ namespace Game.Combat.Spells
         public int RemainingTargetTurnStarts { get; set; }
         public bool ExpiresAtSourceTurnStart { get; private set; }
         public bool Consumed { get; protected set; }
+        internal string PersistentSourceActorId { get; private set; } = string.Empty;
         public virtual bool ExpiresWhenTargetTurnCounterReachesZero => false;
 
         public bool Matches(ActiveSpellEffect other)
@@ -47,6 +48,18 @@ namespace Game.Combat.Spells
             RemainingTargetTurnStarts = other.RemainingTargetTurnStarts;
             ExpiresAtSourceTurnStart = other.ExpiresAtSourceTurnStart;
             Consumed = false;
+        }
+
+        internal void RestorePersistentSource(string sourceActorId, GameObject source)
+        {
+            string normalized = sourceActorId?.Trim() ?? string.Empty;
+            if (normalized.Length == 0)
+                throw new ArgumentException(
+                    "A timed effect source identity is required.",
+                    nameof(sourceActorId)
+                );
+            Source = source;
+            PersistentSourceActorId = normalized;
         }
 
         public virtual IEnumerable<Pf2eModifier> GetModifiers(
@@ -219,6 +232,21 @@ namespace Game.Combat.Spells
                 effects.Add(effect);
             else
                 existing.RefreshFrom(effect);
+        }
+
+        internal void RestoreEffects(IEnumerable<ActiveSpellEffect> restoredEffects)
+        {
+            if (restoredEffects == null)
+                throw new ArgumentNullException(nameof(restoredEffects));
+            ActiveSpellEffect[] copied = new List<ActiveSpellEffect>(restoredEffects).ToArray();
+            if (Array.Exists(copied, effect => effect == null || effect.Consumed))
+                throw new ArgumentException(
+                    "Restored spell effects must be active.",
+                    nameof(restoredEffects)
+                );
+
+            effects.Clear();
+            effects.AddRange(copied);
         }
 
         public bool HasEffect<T>()

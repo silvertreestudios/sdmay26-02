@@ -105,6 +105,8 @@ namespace Game.Creature
         [SerializeField]
         private int _tempHp;
         private UnityCombatRulesBridge healthRules;
+        private HealthState initializedHealth;
+        private bool hasInitializedHealth;
         private CreatureId healthCreatureId;
 
         [SerializeField]
@@ -272,9 +274,9 @@ namespace Game.Creature
         /// ownership begins and serialized initialization fields before that boundary.
         /// </summary>
         public HealthState Health =>
-            healthRules == null
-                ? new HealthState(_hp, _maxHp, _tempHp)
-                : healthRules.GetHealth(healthCreatureId);
+            healthRules != null ? healthRules.GetHealth(healthCreatureId)
+            : hasInitializedHealth ? initializedHealth
+            : new HealthState(_hp, _maxHp, _tempHp);
 
         /// <summary>Gets authoritative current Hit Points.</summary>
         public int hp => Health.Current;
@@ -1046,14 +1048,42 @@ namespace Game.Creature
         /// <param name="temporary">Imported temporary Hit Points with no recoverable source.</param>
         public void InitializeHealthBeforeEncounter(int current, int maximum, int temporary = 0)
         {
+            InitializeHealthBeforeEncounter(new HealthState(current, maximum, temporary));
+        }
+
+        /// <summary>Restores complete health before encounter rules take ownership.</summary>
+        /// <param name="health">Validated health including temporary-HP ownership and immunities.</param>
+        public void InitializeHealthBeforeEncounter(HealthState health)
+        {
             if (healthRules != null)
                 throw new InvalidOperationException(
                     "Health cannot be initialized after RulesState takes ownership."
                 );
-            HealthState validated = new HealthState(current, maximum, temporary);
-            _hp = validated.Current;
-            _maxHp = validated.Maximum;
-            _tempHp = validated.Temporary;
+            initializedHealth = new HealthState(
+                health.Current,
+                health.Maximum,
+                health.Temporary,
+                health.TemporarySource,
+                health.TemporaryHitPointImmunities
+            );
+            hasInitializedHealth = true;
+            _hp = initializedHealth.Current;
+            _maxHp = initializedHealth.Maximum;
+            _tempHp = initializedHealth.Temporary;
+        }
+
+        /// <summary>Restores a zero-HP party actor without replaying defeat presentation.</summary>
+        public void RestoreDefeatBeforeEncounter()
+        {
+            if (healthRules != null)
+                throw new InvalidOperationException(
+                    "Defeat cannot be restored after encounter rules take ownership."
+                );
+            if (Health.Current != 0)
+                throw new InvalidOperationException("Only a zero-HP actor can restore defeat.");
+            defeated = true;
+            DisableGameplayInteraction(GetComponent<ActionController>());
+            gameObject.SetActive(false);
         }
 
         /// <summary>Commits already-final damage through the authoritative health dispatcher.</summary>
@@ -1161,7 +1191,7 @@ namespace Game.Creature
         {
             if (healthRules != null)
                 return healthRules.GetHealth(healthCreatureId);
-            return new HealthState(_hp, _maxHp, _tempHp);
+            return hasInitializedHealth ? initializedHealth : new HealthState(_hp, _maxHp, _tempHp);
         }
 
         internal void AttachHealthRules(UnityCombatRulesBridge bridge, CreatureId creatureId)
@@ -1180,6 +1210,8 @@ namespace Game.Creature
 
         internal void ProjectCommittedHealth(HealthState health)
         {
+            initializedHealth = health;
+            hasInitializedHealth = true;
             _hp = health.Current;
             _maxHp = health.Maximum;
             _tempHp = health.Temporary;

@@ -94,10 +94,34 @@ namespace Game.Creature.Rules
 
             ActivePf2eEffect active = new(item?.Name ?? slug, slug, item?.Slug ?? slug);
             ActiveEffects.Add(active);
-            RollOptions.Add($"self:effect:{slug}");
-            if (item != null)
-                RollOptions.Add($"self:effect:{item.Slug}");
+            AddEffectRollOptions(active);
             return active;
+        }
+
+        /// <summary>Replaces active prepared effects and only their derived roll options.</summary>
+        /// <param name="effects">The complete validated active-effect membership.</param>
+        public void RestoreActiveEffects(IEnumerable<ActivePf2eEffect> effects)
+        {
+            if (effects == null)
+                throw new ArgumentNullException(nameof(effects));
+            ActivePf2eEffect[] copied = effects.ToArray();
+            if (copied.Any(effect => effect == null))
+                throw new ArgumentException(
+                    "Restored prepared effects cannot contain null.",
+                    nameof(effects)
+                );
+
+            foreach (ActivePf2eEffect existing in ActiveEffects)
+            {
+                RollOptions.Remove($"self:effect:{existing.Slug}");
+                RollOptions.Remove($"self:effect:{existing.SourceSlug}");
+            }
+            ActiveEffects.Clear();
+            foreach (ActivePf2eEffect effect in copied)
+            {
+                ActiveEffects.Add(effect);
+                AddEffectRollOptions(effect);
+            }
         }
 
         /// <summary>
@@ -142,6 +166,12 @@ namespace Game.Creature.Rules
 
             if (item.Type == "action")
                 RollOptions.Add($"action:{item.Slug}");
+        }
+
+        private void AddEffectRollOptions(ActivePf2eEffect effect)
+        {
+            RollOptions.Add($"self:effect:{effect.Slug}");
+            RollOptions.Add($"self:effect:{effect.SourceSlug}");
         }
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Creature;
 using Game.DungeonGeneration;
 using UnityEngine;
 
@@ -115,6 +116,9 @@ namespace Game.Combat.Encounters
         /// <summary>Raised after one materialized encounter creature is permanently defeated.</summary>
         public event Action<DungeonCreatureDefeatResult> CreatureDefeated = delegate { };
 
+        /// <summary>Raised after an encounter lifecycle transition commits.</summary>
+        public event Action EncounterLifecycleChanged = delegate { };
+
         /// <summary>Gets the authoritative lifecycle state owned by this director.</summary>
         public DungeonEncounterStateMachine Lifecycle => lifecycle;
 
@@ -156,7 +160,10 @@ namespace Game.Combat.Encounters
 
             DungeonRoomEntryResult result = lifecycle.EnterRoom(roomId);
             if (result.CompletedImmediately || !result.StartsCombat && !result.JoinsRunningCombat)
+            {
+                NotifyLifecycleChange(before, lifecycle.GetRoomEncounter(roomId));
                 return result;
+            }
 
             DungeonEncounterMaterialization materialization = materializations[
                 result.Encounter.Plan.Id
@@ -193,6 +200,7 @@ namespace Game.Combat.Encounters
                 combatManager.AddDungeonReinforcements(livingEnemies);
             }
 
+            NotifyLifecycleChange(before, lifecycle.GetRoomEncounter(roomId));
             return result;
         }
 
@@ -237,6 +245,7 @@ namespace Game.Combat.Encounters
             if (result.Transition == DungeonEncounterSuspensionTransition.Suspended)
             {
                 combatManager.SuspendDungeonCombat();
+                EncounterLifecycleChanged();
             }
             return result;
         }
@@ -367,6 +376,65 @@ namespace Game.Combat.Encounters
             return lifecycle.CaptureSnapshot();
         }
 
+        /// <summary>Captures all living materialized enemies in stable identity order.</summary>
+        /// <param name="capturePersistentState">Captures child-owned state for each live actor.</param>
+        /// <returns>Complete live enemy runtime records for the floor document.</returns>
+        public IReadOnlyList<DungeonCreatureRuntimeState> CaptureLivingCreatureStates(
+            Func<ActionController, string> capturePersistentState
+        )
+        {
+            ThrowIfDisposed();
+            if (capturePersistentState == null)
+                throw new ArgumentNullException(nameof(capturePersistentState));
+
+            List<DungeonCreatureRuntimeState> captured = new();
+            foreach (
+                DungeonEncounterMaterialization materialization in materializations
+                    .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+                    .Select(entry => entry.Value)
+            )
+            {
+                if (materialization.Members.Count != materialization.Controllers.Count)
+                    throw new InvalidOperationException(
+                        "Encounter materialization identity and controllers are misaligned."
+                    );
+
+                for (int index = 0; index < materialization.Members.Count; index++)
+                {
+                    DungeonEncounterMember member = materialization.Members[index];
+                    ActionController controller = materialization.Controllers[index];
+                    if (member.DefeatWasReported)
+                        continue;
+
+                    CreatureComponent creature =
+                        controller.GetComponent<CreatureComponent>()
+                        ?? throw new InvalidOperationException(
+                            $"Encounter actor '{member.InstanceId}' has no creature state."
+                        );
+                    if (creature.IsDefeated || creature.hp <= 0)
+                        throw new InvalidOperationException(
+                            $"Living encounter actor '{member.InstanceId}' has invalid health."
+                        );
+
+                    Vector3Int position = Vector3Int.RoundToInt(controller.transform.position);
+                    captured.Add(
+                        new DungeonCreatureRuntimeState(
+                            member.InstanceId,
+                            member.CreatureContentId,
+                            member.EncounterId,
+                            new DungeonCell(position.x, position.z),
+                            creature.hp,
+                            capturePersistentState(controller) ?? string.Empty
+                        )
+                    );
+                }
+            }
+
+            return captured
+                .OrderBy(creature => creature.InstanceId, StringComparer.Ordinal)
+                .ToArray();
+        }
+
         /// <summary>Releases instance-event subscriptions owned by this director.</summary>
         public void Dispose()
         {
@@ -401,11 +469,20 @@ namespace Game.Combat.Encounters
                 return;
             DungeonCreatureDefeatResult result = lifecycle.MarkCreatureDefeated(member.InstanceId);
             CreatureDefeated.Invoke(result);
-            if (result.CurrentCombatCompleted && !HasActionInProgress())
+            if (result.CurrentCombatCompleted && !HasActionInProgress)
                 combatManager.CheckForEndOfGame();
         }
 
-        private bool HasActionInProgress() =>
+        private void NotifyLifecycleChange(
+            DungeonEncounterGroupView before,
+            DungeonEncounterGroupView after
+        )
+        {
+            if (before.State != after.State)
+                EncounterLifecycleChanged();
+        }
+
+        internal bool HasActionInProgress =>
             party.Any(controller => controller != null && controller.IsTakingAction)
             || materializations.Values.Any(materialization =>
                 materialization.Controllers.Any(controller =>

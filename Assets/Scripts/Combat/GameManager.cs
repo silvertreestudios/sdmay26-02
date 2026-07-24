@@ -3,6 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Game.Combat.Encounters;
+using Game.DungeonPersistence;
+using Game.DungeonPersistence.Repository;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
@@ -102,28 +104,29 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
                 throw new InvalidOperationException(
                     "A JSON dungeon with planned encounters requires an active HUDController."
                 );
-            DungeonEncounterRuntimeController runtime =
-                runtimeRoot.AddComponent<DungeonEncounterRuntimeController>();
             DungeonEncounterCreatureCatalog encounterCatalog =
                 DungeonEncounterCreatureCatalog.LoadDefaultOrThrow();
-            if (validation.JsonMap.LevelDocument.RuntimeState == null)
-            {
-                runtime.InitializePristine(
+            DungeonRunPersistenceBootstrapResult bootstrap =
+                DungeonRunPersistenceBootstrap.Initialize(
+                    map,
                     validation.JsonMap.LevelDocument,
                     encounterCatalog,
                     combatManager,
                     party,
-                    hud
+                    hud,
+                    runtimeRoot
                 );
-            }
-            else
+            if (!bootstrap.IsSuccess)
             {
-                runtime.InitializePersisted(
-                    validation.JsonMap.LevelDocument,
-                    encounterCatalog,
-                    combatManager,
-                    party,
-                    hud
+                throw new InvalidOperationException(
+                    "The generated dungeon could not initialize persistence:"
+                        + Environment.NewLine
+                        + string.Join(
+                            Environment.NewLine,
+                            bootstrap.Diagnostics.Select(diagnostic =>
+                                $"[{diagnostic.Code}] {diagnostic.Path}: {diagnostic.Message}"
+                            )
+                        )
                 );
             }
         }
