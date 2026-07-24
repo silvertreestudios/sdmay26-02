@@ -49,12 +49,24 @@ namespace Game.DungeonPersistence
     }
 
     /// <summary>
-    /// Loads or creates one current-floor autosave before generated dungeon play begins.
+    /// Starts or restores a current-schema dungeon run through explicit all-or-nothing operations.
     /// </summary>
+    /// <remarks>
+    /// Continue never migrates, repairs, regenerates, salvages, or partially accepts an autosave.
+    /// Any load failure is returned before scene population or runtime component creation.
+    /// </remarks>
     public static class DungeonRunPersistenceBootstrap
     {
-        /// <summary>Initializes production persistence for one generated JSON map.</summary>
-        public static DungeonRunPersistenceBootstrapResult Initialize(
+        /// <summary>Starts and commits a new generated run without inspecting an existing autosave.</summary>
+        /// <param name="map">The reusable generated-dungeon map in the active scene.</param>
+        /// <param name="initialDocument">The pristine generated floor that begins the run.</param>
+        /// <param name="encounterCatalog">The creature catalog used to initialize floor encounters.</param>
+        /// <param name="combatManager">The active scene combat scheduler.</param>
+        /// <param name="sceneParty">The complete authored party to persist.</param>
+        /// <param name="explorationPresentation">The movement-only exploration presentation.</param>
+        /// <param name="runtimeRoot">The object that will own persistence runtime components.</param>
+        /// <returns>The initialized new runtime or blocking capture/publication diagnostics.</returns>
+        public static DungeonRunPersistenceBootstrapResult StartNewRun(
             Map map,
             DungeonLevelDocument initialDocument,
             DungeonEncounterCreatureCatalog encounterCatalog,
@@ -68,7 +80,7 @@ namespace Game.DungeonPersistence
                 Application.persistentDataPath,
                 "DungeonAutosave"
             );
-            return Initialize(
+            return StartNewRun(
                 map,
                 initialDocument,
                 encounterCatalog,
@@ -80,7 +92,154 @@ namespace Game.DungeonPersistence
             );
         }
 
-        internal static DungeonRunPersistenceBootstrapResult Initialize(
+        /// <summary>Continues the complete current-schema autosave or returns its load diagnostics.</summary>
+        /// <param name="map">The reusable generated-dungeon map to populate with the indexed floor.</param>
+        /// <param name="initialDocument">A current-build document that identifies the supported generator.</param>
+        /// <param name="encounterCatalog">The creature catalog used to restore floor encounters.</param>
+        /// <param name="combatManager">The active scene combat scheduler.</param>
+        /// <param name="sceneParty">The complete authored party that must match the saved roster.</param>
+        /// <param name="explorationPresentation">The movement-only exploration presentation.</param>
+        /// <param name="runtimeRoot">The object that will own restored runtime components.</param>
+        /// <returns>The restored runtime or unchanged repository load diagnostics.</returns>
+        public static DungeonRunPersistenceBootstrapResult ContinueRun(
+            Map map,
+            DungeonLevelDocument initialDocument,
+            DungeonEncounterCreatureCatalog encounterCatalog,
+            CombatManagerInterface combatManager,
+            IEnumerable<ActionController> sceneParty,
+            IDungeonExplorationPresentation explorationPresentation,
+            GameObject runtimeRoot
+        )
+        {
+            string autosaveDirectory = Path.Combine(
+                Application.persistentDataPath,
+                "DungeonAutosave"
+            );
+            return ContinueRun(
+                map,
+                initialDocument,
+                encounterCatalog,
+                combatManager,
+                sceneParty,
+                explorationPresentation,
+                runtimeRoot,
+                new FileSystemDungeonSaveRepository(autosaveDirectory)
+            );
+        }
+
+        internal static DungeonRunPersistenceBootstrapResult StartNewRun(
+            Map map,
+            DungeonLevelDocument initialDocument,
+            DungeonEncounterCreatureCatalog encounterCatalog,
+            CombatManagerInterface combatManager,
+            IEnumerable<ActionController> sceneParty,
+            IDungeonExplorationPresentation explorationPresentation,
+            GameObject runtimeRoot,
+            IDungeonSaveRepository repository
+        )
+        {
+            ValidateArguments(
+                map,
+                initialDocument,
+                encounterCatalog,
+                combatManager,
+                sceneParty,
+                explorationPresentation,
+                runtimeRoot,
+                repository
+            );
+
+            ActionController[] party;
+            try
+            {
+                party = ValidateParty(sceneParty);
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Failure(
+                    DungeonSaveDiagnosticCode.InvalidSnapshot,
+                    "party",
+                    exception.Message
+                );
+            }
+
+            return CreateNew(
+                initialDocument,
+                encounterCatalog,
+                combatManager,
+                party,
+                explorationPresentation,
+                runtimeRoot,
+                repository
+            );
+        }
+
+        internal static DungeonRunPersistenceBootstrapResult ContinueRun(
+            Map map,
+            DungeonLevelDocument initialDocument,
+            DungeonEncounterCreatureCatalog encounterCatalog,
+            CombatManagerInterface combatManager,
+            IEnumerable<ActionController> sceneParty,
+            IDungeonExplorationPresentation explorationPresentation,
+            GameObject runtimeRoot,
+            IDungeonSaveRepository repository
+        )
+        {
+            ValidateArguments(
+                map,
+                initialDocument,
+                encounterCatalog,
+                combatManager,
+                sceneParty,
+                explorationPresentation,
+                runtimeRoot,
+                repository
+            );
+
+            DungeonSaveResult<DungeonRunSave> loaded = repository.Load();
+            if (!loaded.IsSuccess)
+                return DungeonRunPersistenceBootstrapResult.Failure(loaded.Diagnostics);
+
+            ActionController[] party;
+            try
+            {
+                party = ValidateParty(sceneParty);
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Failure(
+                    DungeonSaveDiagnosticCode.InvalidSnapshot,
+                    "party",
+                    exception.Message
+                );
+            }
+
+            try
+            {
+                return Restore(
+                    map,
+                    initialDocument,
+                    encounterCatalog,
+                    combatManager,
+                    party,
+                    explorationPresentation,
+                    runtimeRoot,
+                    repository,
+                    loaded.Value
+                );
+            }
+            catch (Exception exception)
+                when (exception is InvalidOperationException || exception is ArgumentException)
+            {
+                return Failure(
+                    DungeonSaveDiagnosticCode.InvalidSnapshot,
+                    "restore",
+                    exception.Message
+                );
+            }
+        }
+
+        private static void ValidateArguments(
             Map map,
             DungeonLevelDocument initialDocument,
             DungeonEncounterCreatureCatalog encounterCatalog,
@@ -107,65 +266,6 @@ namespace Game.DungeonPersistence
                 throw new ArgumentNullException(nameof(runtimeRoot));
             if (repository == null)
                 throw new ArgumentNullException(nameof(repository));
-
-            ActionController[] party;
-            try
-            {
-                party = ValidateParty(sceneParty);
-            }
-            catch (InvalidOperationException exception)
-            {
-                return Failure(
-                    DungeonSaveDiagnosticCode.InvalidSnapshot,
-                    "party",
-                    exception.Message
-                );
-            }
-
-            DungeonSaveResult<DungeonRunSave> loaded = repository.Load();
-            if (loaded.IsSuccess)
-            {
-                try
-                {
-                    return Restore(
-                        map,
-                        initialDocument,
-                        encounterCatalog,
-                        combatManager,
-                        party,
-                        explorationPresentation,
-                        runtimeRoot,
-                        repository,
-                        loaded.Value
-                    );
-                }
-                catch (Exception exception)
-                    when (exception is InvalidOperationException || exception is ArgumentException)
-                {
-                    return Failure(
-                        DungeonSaveDiagnosticCode.InvalidSnapshot,
-                        "restore",
-                        exception.Message
-                    );
-                }
-            }
-
-            if (
-                loaded.Diagnostics.Count == 1
-                && loaded.Diagnostics[0].Code == DungeonSaveDiagnosticCode.MissingSave
-            )
-            {
-                return CreateNew(
-                    initialDocument,
-                    encounterCatalog,
-                    combatManager,
-                    party,
-                    explorationPresentation,
-                    runtimeRoot,
-                    repository
-                );
-            }
-            return DungeonRunPersistenceBootstrapResult.Failure(loaded.Diagnostics);
         }
 
         private static DungeonRunPersistenceBootstrapResult CreateNew(
@@ -196,7 +296,7 @@ namespace Game.DungeonPersistence
             );
             DungeonAutosaveCoordinator coordinator =
                 runtimeRoot.AddComponent<DungeonAutosaveCoordinator>();
-            coordinator.Initialize(document, repository, runtime, party, saveImmediately: true);
+            coordinator.InitializeNewRun(document, repository, runtime, party);
             if (coordinator.LastDiagnostics.Count > 0)
                 return DungeonRunPersistenceBootstrapResult.Failure(coordinator.LastDiagnostics);
             return DungeonRunPersistenceBootstrapResult.Success(runtime, false);
@@ -214,9 +314,11 @@ namespace Game.DungeonPersistence
             DungeonRunSave save
         )
         {
+            DungeonRunSaveManifest manifest = save.Manifest;
+            DungeonLevelDocument currentFloor = save.GetFloor(manifest.CurrentDepth);
             if (
                 !string.Equals(
-                    save.Manifest.GeneratorVersion,
+                    manifest.GeneratorVersion,
                     initialDocument.Generation.Algorithm,
                     StringComparison.Ordinal
                 )
@@ -227,11 +329,11 @@ namespace Game.DungeonPersistence
                     "The autosave uses an unsupported dungeon generator."
                 );
 
-            ActionController[] orderedParty = OrderParty(party, save.Manifest.Party);
+            ActionController[] orderedParty = OrderParty(party, manifest.Party);
             Dictionary<string, DungeonActorSaveState> enemyState = ParseEnemyState(
-                save.FloorDocument.RuntimeState.Creatures
+                currentFloor.RuntimeState.Creatures
             );
-            ValidateTimedEffectSources(save, enemyState.Values);
+            ValidateTimedEffectSources(manifest, currentFloor, enemyState.Values);
             Dictionary<string, GameObject> preflightActors = orderedParty.ToDictionary(
                 controller => controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId,
                 controller => controller.gameObject,
@@ -252,7 +354,15 @@ namespace Game.DungeonPersistence
                 )
                 .ToArray();
 
-            if (!TryPopulateMap(map, save, orderedParty, out MapSourceValidationResult validation))
+            if (
+                !TryPopulateMap(
+                    map,
+                    currentFloor,
+                    manifest.Party,
+                    orderedParty,
+                    out MapSourceValidationResult validation
+                )
+            )
             {
                 return Failure(
                     DungeonSaveDiagnosticCode.InvalidSnapshot,
@@ -264,7 +374,7 @@ namespace Game.DungeonPersistence
             DungeonEncounterRuntimeController runtime =
                 runtimeRoot.AddComponent<DungeonEncounterRuntimeController>();
             runtime.InitializePersisted(
-                save.FloorDocument,
+                currentFloor,
                 encounterCatalog,
                 combatManager,
                 orderedParty,
@@ -309,10 +419,9 @@ namespace Game.DungeonPersistence
                         $"Materialized enemy '{member.InstanceId}' has no saved actor state."
                     );
                 ActionController controller = member.GetComponent<ActionController>();
-                DungeonCreatureRuntimeState outer =
-                    save.FloorDocument.RuntimeState.Creatures.Single(creature =>
-                        creature.InstanceId == member.InstanceId
-                    );
+                DungeonCreatureRuntimeState outer = currentFloor.RuntimeState.Creatures.Single(
+                    creature => creature.InstanceId == member.InstanceId
+                );
                 enemyRestores.Add(
                     DungeonActorStateAdapter.PrepareRestore(
                         controller,
@@ -335,13 +444,7 @@ namespace Game.DungeonPersistence
 
             DungeonAutosaveCoordinator coordinator =
                 runtimeRoot.AddComponent<DungeonAutosaveCoordinator>();
-            coordinator.Initialize(
-                save.FloorDocument,
-                repository,
-                runtime,
-                orderedParty,
-                saveImmediately: false
-            );
+            coordinator.InitializeLoadedRun(save, repository, runtime, orderedParty);
             return DungeonRunPersistenceBootstrapResult.Success(runtime, true);
         }
 
@@ -429,28 +532,27 @@ namespace Game.DungeonPersistence
         }
 
         private static void ValidateTimedEffectSources(
-            DungeonRunSave save,
+            DungeonRunSaveManifest manifest,
+            DungeonLevelDocument currentFloor,
             IEnumerable<DungeonActorSaveState> enemyStates
         )
         {
             HashSet<string> actorIds = new(StringComparer.Ordinal);
-            foreach (DungeonPartyMemberSaveState member in save.Manifest.Party)
+            foreach (DungeonPartyMemberSaveState member in manifest.Party)
             {
                 if (!actorIds.Add(member.RosterSlotId))
                     throw new InvalidOperationException(
                         $"Actor identity '{member.RosterSlotId}' is duplicated."
                     );
             }
-            foreach (
-                DungeonCreatureRuntimeState creature in save.FloorDocument.RuntimeState.Creatures
-            )
+            foreach (DungeonCreatureRuntimeState creature in currentFloor.RuntimeState.Creatures)
             {
                 if (!actorIds.Add(creature.InstanceId))
                     throw new InvalidOperationException(
                         $"Actor identity '{creature.InstanceId}' is duplicated."
                     );
             }
-            foreach (string defeatedId in save.FloorDocument.RuntimeState.DefeatedCreatureIds)
+            foreach (string defeatedId in currentFloor.RuntimeState.DefeatedCreatureIds)
             {
                 if (!actorIds.Add(defeatedId))
                     throw new InvalidOperationException(
@@ -458,8 +560,8 @@ namespace Game.DungeonPersistence
                     );
             }
 
-            IEnumerable<DungeonActorSaveState> allStates = save
-                .Manifest.Party.Select(member => member.State)
+            IEnumerable<DungeonActorSaveState> allStates = manifest
+                .Party.Select(member => member.State)
                 .Concat(enemyStates);
             foreach (
                 DungeonTimedEffectSaveState effect in allStates.SelectMany(state =>
@@ -485,7 +587,8 @@ namespace Game.DungeonPersistence
 
         private static bool TryPopulateMap(
             Map map,
-            DungeonRunSave save,
+            DungeonLevelDocument floor,
+            IReadOnlyList<DungeonPartyMemberSaveState> savedParty,
             IReadOnlyList<ActionController> party,
             out MapSourceValidationResult validation
         )
@@ -496,7 +599,7 @@ namespace Game.DungeonPersistence
 
             if (
                 !map.TryPopulateJson(
-                    DungeonLevelJsonSerializer.Serialize(save.FloorDocument),
+                    DungeonLevelJsonSerializer.Serialize(floor),
                     map.DungeonCatalog,
                     out validation
                 )
@@ -509,7 +612,7 @@ namespace Game.DungeonPersistence
 
             for (int index = 0; index < party.Count; index++)
             {
-                DungeonPartyMemberSaveState saved = save.Manifest.Party[index];
+                DungeonPartyMemberSaveState saved = savedParty[index];
                 Transform transform = party[index].transform;
                 transform.position = new Vector3(saved.CellX, transform.position.y, saved.CellZ);
                 party[index].gameObject.SetActive(!saved.IsDefeated);

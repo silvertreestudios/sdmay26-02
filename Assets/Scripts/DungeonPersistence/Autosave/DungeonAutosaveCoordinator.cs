@@ -15,28 +15,109 @@ namespace Game.DungeonPersistence.Autosave
     internal sealed class DungeonAutosaveCoordinator : MonoBehaviour
     {
         private IDungeonSaveRepository repository;
-        private DungeonLevelDocument sourceDocument;
+        private DungeonLevelDocument activeSourceDocument;
+        private DungeonRunSave lastCommitted;
+        private bool hasCommittedSnapshot;
         private DungeonEncounterRuntimeController runtime;
         private ActionController[] party = Array.Empty<ActionController>();
         private bool pending;
 
         internal bool IsInitialized { get; private set; }
+
+        internal DungeonRunSave LastCommittedSnapshot =>
+            hasCommittedSnapshot
+                ? lastCommitted
+                : throw new InvalidOperationException("No dungeon autosave has committed yet.");
         internal IReadOnlyList<DungeonSaveDiagnostic> LastDiagnostics { get; private set; } =
             Array.Empty<DungeonSaveDiagnostic>();
 
-        internal void Initialize(
+        internal void InitializeNewRun(
             DungeonLevelDocument document,
             IDungeonSaveRepository repository,
             DungeonEncounterRuntimeController runtime,
-            IEnumerable<ActionController> party,
-            bool saveImmediately
+            IEnumerable<ActionController> party
+        )
+        {
+            InitializeCore(document, repository, runtime, party);
+            DungeonSaveResult<DungeonRunSave> checkpoint = CheckpointCurrentFloor();
+            LastDiagnostics = checkpoint.Diagnostics;
+        }
+
+        internal void InitializeLoadedRun(
+            DungeonRunSave save,
+            IDungeonSaveRepository repository,
+            DungeonEncounterRuntimeController runtime,
+            IEnumerable<ActionController> party
+        )
+        {
+            if (save == null)
+                throw new ArgumentNullException(nameof(save));
+            DungeonRunSaveManifest manifest = save.Manifest;
+            InitializeCore(save.GetFloor(manifest.CurrentDepth), repository, runtime, party);
+            lastCommitted = save;
+            hasCommittedSnapshot = true;
+        }
+
+        internal DungeonSaveResult<DungeonRunSave> CheckpointCurrentFloor()
+        {
+            if (!IsInitialized || runtime == null || !runtime.IsInitialized)
+                return Failure("The dungeon runtime is not stable and initialized.");
+            if (runtime.HasActionInProgress)
+                return Failure("A dungeon action is still in progress.");
+
+            DungeonRunSave candidate;
+            try
+            {
+                (DungeonPartyMemberSaveState[] partyState, DungeonLevelDocument floor) =
+                    CaptureCurrentState();
+                candidate = !hasCommittedSnapshot
+                    ? DungeonRunSave.CreateNew(partyState, floor)
+                    : lastCommitted.WithCurrentCheckpoint(partyState, floor);
+            }
+            catch (Exception exception)
+                when (exception is ArgumentException || exception is InvalidOperationException)
+            {
+                return Failure(exception.Message);
+            }
+
+            DungeonSaveResult<bool> published;
+            try
+            {
+                published = repository.Save(candidate);
+            }
+            catch (Exception exception)
+            {
+                return Failure(exception.Message);
+            }
+            LastDiagnostics = published.Diagnostics;
+            if (!published.IsSuccess)
+            {
+                DungeonSaveDiagnostic diagnostic = published.Diagnostics[0];
+                return DungeonSaveResult<DungeonRunSave>.Failure(
+                    diagnostic.Code,
+                    diagnostic.Path,
+                    diagnostic.Message
+                );
+            }
+
+            lastCommitted = candidate;
+            hasCommittedSnapshot = true;
+            pending = false;
+            return DungeonSaveResult<DungeonRunSave>.Success(candidate);
+        }
+
+        private void InitializeCore(
+            DungeonLevelDocument document,
+            IDungeonSaveRepository repository,
+            DungeonEncounterRuntimeController runtime,
+            IEnumerable<ActionController> party
         )
         {
             if (IsInitialized)
                 throw new InvalidOperationException(
                     "The dungeon autosave coordinator can only initialize once."
                 );
-            sourceDocument = document ?? throw new ArgumentNullException(nameof(document));
+            activeSourceDocument = document ?? throw new ArgumentNullException(nameof(document));
             this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
             this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             if (party == null)
@@ -51,11 +132,17 @@ namespace Game.DungeonPersistence.Autosave
             runtime.PersistentStateChanged += RequestSave;
             OnGameplayStateCommitted.AddListener(HandleGameplayStateCommitted);
             IsInitialized = true;
-            if (saveImmediately)
-            {
-                RequestSave();
-                TrySavePending();
-            }
+        }
+
+        private DungeonSaveResult<DungeonRunSave> Failure(string message)
+        {
+            DungeonSaveResult<DungeonRunSave> result = DungeonSaveResult<DungeonRunSave>.Failure(
+                DungeonSaveDiagnosticCode.InvalidSnapshot,
+                "autosave.capture",
+                message
+            );
+            LastDiagnostics = result.Diagnostics;
+            return result;
         }
 
         private void Update()
@@ -103,30 +190,14 @@ namespace Game.DungeonPersistence.Autosave
             if (!pending || runtime == null || runtime.HasActionInProgress)
                 return;
 
-            DungeonSaveResult<bool> result;
-            try
-            {
-                result = repository.Save(Capture());
-            }
-            catch (Exception exception)
-            {
-                LastDiagnostics = new[]
-                {
-                    new DungeonSaveDiagnostic(
-                        DungeonSaveDiagnosticCode.InvalidSnapshot,
-                        "autosave.capture",
-                        exception.Message
-                    ),
-                };
-                return;
-            }
-
+            DungeonSaveResult<DungeonRunSave> result = CheckpointCurrentFloor();
             LastDiagnostics = result.Diagnostics;
-            if (result.IsSuccess)
-                pending = false;
         }
 
-        private DungeonRunSave Capture()
+        private (
+            DungeonPartyMemberSaveState[] Party,
+            DungeonLevelDocument Floor
+        ) CaptureCurrentState()
         {
             Dictionary<string, GameObject> actorsById = BuildActorIndex();
             string IdentifyActor(GameObject actor)
@@ -171,18 +242,8 @@ namespace Game.DungeonPersistence.Autosave
                     DungeonActorStateAdapter.Capture(controller, IdentifyActor)
                 )
             );
-            DungeonLevelDocument floor = BuildFloorDocument(sourceDocument, runtimeState);
-            DungeonRunSaveManifest manifest = new()
-            {
-                DocumentVersion = DungeonSaveSchema.Version,
-                StartingSeed = floor.Generation.RunSeed,
-                GeneratorVersion = floor.Generation.Algorithm,
-                CurrentDepth = floor.Generation.Depth,
-                CurrentFloorVersion = DungeonSaveSchema.Version,
-                CurrentFloorPath = DungeonSaveSchema.FloorPath,
-                Party = partyState,
-            };
-            return new DungeonRunSave(manifest, floor);
+            DungeonLevelDocument floor = BuildFloorDocument(activeSourceDocument, runtimeState);
+            return (partyState, floor);
         }
 
         private Dictionary<string, GameObject> BuildActorIndex()

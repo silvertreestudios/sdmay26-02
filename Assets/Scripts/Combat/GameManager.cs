@@ -107,7 +107,7 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             DungeonEncounterCreatureCatalog encounterCatalog =
                 DungeonEncounterCreatureCatalog.LoadDefaultOrThrow();
             DungeonRunPersistenceBootstrapResult bootstrap =
-                DungeonRunPersistenceBootstrap.Initialize(
+                DungeonRunPersistenceBootstrap.StartNewRun(
                     map,
                     validation.JsonMap.LevelDocument,
                     encounterCatalog,

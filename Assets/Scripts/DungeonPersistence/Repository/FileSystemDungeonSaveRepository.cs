@@ -10,7 +10,13 @@ namespace Game.DungeonPersistence.Repository
         DungeonSaveResult<bool> Save(DungeonRunSave save);
     }
 
-    /// <summary>Publishes one validated JSON autosave with an atomic filesystem replacement.</summary>
+    /// <summary>
+    /// Publishes one complete, validated run autosave with an atomic filesystem replacement.
+    /// </summary>
+    /// <remarks>
+    /// Loading accepts only the current complete schema. It never migrates, repairs, regenerates,
+    /// salvages, or partially accepts a run, and it never falls back to another file.
+    /// </remarks>
     internal sealed class FileSystemDungeonSaveRepository : IDungeonSaveRepository
     {
         private const string AutosaveFileName = "autosave.json";
