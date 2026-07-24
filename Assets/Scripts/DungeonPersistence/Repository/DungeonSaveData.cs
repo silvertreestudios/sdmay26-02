@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Game.Creature;
 using Game.DungeonGeneration;
@@ -49,8 +50,11 @@ namespace Game.DungeonPersistence.Repository
 
     internal static class DungeonSaveSchema
     {
-        internal const int Version = 1;
-        internal const string FloorPath = "current-floor";
+        internal const int ManifestVersion = 2;
+        internal const int FloorDocumentVersion = 1;
+
+        internal static string FloorPath(int depth) =>
+            "floors/" + depth.ToString(CultureInfo.InvariantCulture) + ".json";
     }
 
     internal sealed class DungeonSaveResult<T>
@@ -133,64 +137,377 @@ namespace Game.DungeonPersistence.Repository
     }
 
     [Serializable]
+    internal sealed class DungeonFloorSaveReference
+    {
+        public int Depth;
+        public int DocumentVersion;
+        public string Path;
+    }
+
+    [Serializable]
+    internal sealed class DungeonFloorSavePayload
+    {
+        public string Path;
+        public string FloorJson;
+    }
+
+    [Serializable]
     internal sealed class DungeonRunSaveManifest
     {
         public int DocumentVersion;
         public int StartingSeed;
         public string GeneratorVersion;
         public int CurrentDepth;
-        public int CurrentFloorVersion;
-        public string CurrentFloorPath;
+        public DungeonFloorSaveReference[] Floors;
         public DungeonPartyMemberSaveState[] Party;
     }
 
+    /// <summary>
+    /// Stores one immutable, current-schema dungeon run snapshot containing every visited floor.
+    /// </summary>
+    /// <remarks>
+    /// Construction validates the complete run as one unit. Loading never migrates, repairs,
+    /// regenerates, salvages, or partially accepts an autosave.
+    /// </remarks>
     internal sealed class DungeonRunSave
     {
-        internal DungeonRunSave(DungeonRunSaveManifest manifest, DungeonLevelDocument floorDocument)
+        private readonly DungeonRunSaveManifest manifest;
+        private readonly DungeonFloorSavePayload[] floorPayloads;
+        private readonly IReadOnlyDictionary<int, DungeonLevelDocument> floorsByDepth;
+
+        internal DungeonRunSave(
+            DungeonRunSaveManifest manifest,
+            IEnumerable<DungeonFloorSavePayload> floorPayloads
+        )
         {
-            DungeonSaveJson.ValidateManifest(manifest);
-            Manifest = manifest;
-            FloorDocument = floorDocument ?? throw new ArgumentNullException(nameof(floorDocument));
-            if (floorDocument.RuntimeState == null)
-                throw new ArgumentException("A saved floor requires runtime state.");
-            if (
-                floorDocument.Generation.RunSeed != manifest.StartingSeed
-                || floorDocument.Generation.Depth != manifest.CurrentDepth
-                || !string.Equals(
-                    floorDocument.Generation.Algorithm,
-                    manifest.GeneratorVersion,
-                    StringComparison.Ordinal
-                )
+            this.manifest = CloneManifest(
+                manifest ?? throw new ArgumentNullException(nameof(manifest))
+            );
+            this.floorPayloads = (
+                floorPayloads ?? throw new ArgumentNullException(nameof(floorPayloads))
             )
+                .Select(ClonePayload)
+                .ToArray();
+            floorsByDepth = ValidateRun(this.manifest, this.floorPayloads);
+        }
+
+        internal DungeonRunSaveManifest Manifest => CloneManifest(manifest);
+
+        internal IReadOnlyList<DungeonFloorSavePayload> FloorPayloads =>
+            Array.AsReadOnly(floorPayloads.Select(ClonePayload).ToArray());
+
+        internal static DungeonRunSave CreateNew(
+            IEnumerable<DungeonPartyMemberSaveState> party,
+            DungeonLevelDocument floor
+        )
+        {
+            if (floor == null)
+                throw new ArgumentNullException(nameof(floor));
+            string path = DungeonSaveSchema.FloorPath(floor.Generation.Depth);
+            return new DungeonRunSave(
+                new DungeonRunSaveManifest
+                {
+                    DocumentVersion = DungeonSaveSchema.ManifestVersion,
+                    StartingSeed = floor.Generation.RunSeed,
+                    GeneratorVersion = floor.Generation.Algorithm,
+                    CurrentDepth = floor.Generation.Depth,
+                    Floors = new[] { CreateReference(floor.Generation.Depth) },
+                    Party = CopyParty(party),
+                },
+                new[] { CreatePayload(path, floor) }
+            );
+        }
+
+        internal DungeonLevelDocument GetFloor(int depth)
+        {
+            if (!floorsByDepth.TryGetValue(depth, out DungeonLevelDocument floor))
+                throw new ArgumentOutOfRangeException(
+                    nameof(depth),
+                    depth,
+                    "The requested dungeon floor has not been visited."
+                );
+            return floor;
+        }
+
+        internal DungeonRunSave WithCurrentCheckpoint(
+            IEnumerable<DungeonPartyMemberSaveState> party,
+            DungeonLevelDocument floor
+        )
+        {
+            if (floor == null)
+                throw new ArgumentNullException(nameof(floor));
+            if (floor.Generation.Depth != manifest.CurrentDepth)
                 throw new ArgumentException(
-                    "Manifest generation metadata does not match the floor."
+                    "A current-floor checkpoint must match the selected depth.",
+                    nameof(floor)
                 );
 
+            DungeonRunSaveManifest candidateManifest = CloneManifest(manifest);
+            candidateManifest.Party = CopyParty(party);
+            string currentPath = DungeonSaveSchema.FloorPath(manifest.CurrentDepth);
+            DungeonFloorSavePayload[] candidatePayloads = floorPayloads
+                .Select(payload =>
+                    string.Equals(payload.Path, currentPath, StringComparison.Ordinal)
+                        ? CreatePayload(currentPath, floor)
+                        : ClonePayload(payload)
+                )
+                .ToArray();
+            return new DungeonRunSave(candidateManifest, candidatePayloads);
+        }
+
+        internal DungeonRunSave WithSelectedFloor(
+            int depth,
+            IEnumerable<DungeonPartyMemberSaveState> party
+        )
+        {
+            if (!floorsByDepth.ContainsKey(depth))
+                throw new ArgumentOutOfRangeException(
+                    nameof(depth),
+                    depth,
+                    "The selected dungeon floor has not been visited."
+                );
+            DungeonRunSaveManifest candidateManifest = CloneManifest(manifest);
+            candidateManifest.CurrentDepth = depth;
+            candidateManifest.Party = CopyParty(party);
+            return new DungeonRunSave(candidateManifest, floorPayloads);
+        }
+
+        internal DungeonRunSave WithAddedAndSelectedFloor(
+            IEnumerable<DungeonPartyMemberSaveState> party,
+            DungeonLevelDocument floor
+        )
+        {
+            if (floor == null)
+                throw new ArgumentNullException(nameof(floor));
+            int depth = floor.Generation.Depth;
+            if (floorsByDepth.ContainsKey(depth))
+                throw new ArgumentException(
+                    $"Dungeon depth {depth} has already been visited.",
+                    nameof(floor)
+                );
+
+            DungeonRunSaveManifest candidateManifest = CloneManifest(manifest);
+            candidateManifest.CurrentDepth = depth;
+            candidateManifest.Party = CopyParty(party);
+            candidateManifest.Floors = candidateManifest
+                .Floors.Append(CreateReference(depth))
+                .OrderBy(reference => reference.Depth)
+                .ToArray();
+            DungeonFloorSavePayload added = CreatePayload(
+                DungeonSaveSchema.FloorPath(depth),
+                floor
+            );
+            DungeonFloorSavePayload[] candidatePayloads = floorPayloads
+                .Append(added)
+                .OrderBy(payload => ParseCanonicalDepth(payload.Path))
+                .ToArray();
+            return new DungeonRunSave(candidateManifest, candidatePayloads);
+        }
+
+        private static IReadOnlyDictionary<int, DungeonLevelDocument> ValidateRun(
+            DungeonRunSaveManifest manifest,
+            IReadOnlyList<DungeonFloorSavePayload> payloads
+        )
+        {
+            DungeonSaveJson.ValidateManifest(manifest);
+            if (payloads.Count != manifest.Floors.Length)
+                throw new ArgumentException(
+                    "Every indexed floor requires exactly one matching payload."
+                );
+
+            Dictionary<int, DungeonLevelDocument> documents = new();
+            HashSet<string> referencePaths = new(StringComparer.Ordinal);
+            HashSet<string> payloadPaths = new(StringComparer.Ordinal);
+            int previousDepth = -1;
+            for (int index = 0; index < manifest.Floors.Length; index++)
+            {
+                DungeonFloorSaveReference reference = manifest.Floors[index];
+                if (reference == null || reference.Depth < 0 || reference.Depth <= previousDepth)
+                    throw new ArgumentException(
+                        "Saved floor depths must be nonnegative, unique, and strictly ordered."
+                    );
+                previousDepth = reference.Depth;
+                string canonicalPath = DungeonSaveSchema.FloorPath(reference.Depth);
+                if (
+                    reference.DocumentVersion != DungeonSaveSchema.FloorDocumentVersion
+                    || !string.Equals(reference.Path, canonicalPath, StringComparison.Ordinal)
+                    || !referencePaths.Add(reference.Path)
+                )
+                    throw new ArgumentException(
+                        $"Saved floor reference '{reference.Path}' is incomplete or incompatible."
+                    );
+
+                DungeonFloorSavePayload payload = payloads[index];
+                if (
+                    payload == null
+                    || string.IsNullOrWhiteSpace(payload.FloorJson)
+                    || !string.Equals(payload.Path, reference.Path, StringComparison.Ordinal)
+                    || !payloadPaths.Add(payload.Path)
+                )
+                    throw new ArgumentException(
+                        $"Saved floor payload at index {index} does not match its reference."
+                    );
+
+                DungeonLevelParseResult parsed = DungeonLevelJsonParser.Parse(payload.FloorJson);
+                if (!parsed.IsSuccess)
+                    throw new ArgumentException(
+                        $"Saved floor '{payload.Path}' is invalid: "
+                            + string.Join(" ", parsed.Diagnostics.Select(item => item.Message))
+                    );
+                DungeonLevelDocument floor = parsed.Document;
+                if (floor.RuntimeState == null)
+                    throw new ArgumentException(
+                        $"Saved floor '{payload.Path}' requires runtime state."
+                    );
+                if (
+                    floor.Generation.RunSeed != manifest.StartingSeed
+                    || floor.Generation.Depth != reference.Depth
+                    || !string.Equals(
+                        floor.Generation.Algorithm,
+                        manifest.GeneratorVersion,
+                        StringComparison.Ordinal
+                    )
+                )
+                    throw new ArgumentException(
+                        $"Manifest generation metadata does not match saved floor '{payload.Path}'."
+                    );
+                List<DungeonActorSaveState> enemyStates = new();
+                foreach (DungeonCreatureRuntimeState creature in floor.RuntimeState.Creatures)
+                {
+                    DungeonSaveResult<DungeonActorSaveState> actor = DungeonSaveJson.ParseActor(
+                        creature.State
+                    );
+                    if (!actor.IsSuccess)
+                        throw new ArgumentException(
+                            $"Living creature '{creature.InstanceId}' on '{payload.Path}' has invalid actor state: "
+                                + actor.Diagnostics[0].Message
+                        );
+                    enemyStates.Add(actor.Value);
+                }
+                ValidateActorGraph(manifest.Party, floor, enemyStates, payload.Path);
+                documents.Add(reference.Depth, floor);
+            }
+
+            if (!documents.TryGetValue(manifest.CurrentDepth, out DungeonLevelDocument current))
+                throw new ArgumentException("The selected dungeon depth is not indexed.");
+            ValidateCurrentFloorParty(manifest.Party, current);
+            return documents;
+        }
+
+        private static void ValidateActorGraph(
+            IReadOnlyList<DungeonPartyMemberSaveState> party,
+            DungeonLevelDocument floor,
+            IEnumerable<DungeonActorSaveState> enemyStates,
+            string floorPath
+        )
+        {
+            HashSet<string> actorIds = new(StringComparer.Ordinal);
+            foreach (DungeonPartyMemberSaveState member in party)
+            {
+                if (!actorIds.Add(member.RosterSlotId))
+                    throw new ArgumentException(
+                        $"Actor identity '{member.RosterSlotId}' is duplicated on '{floorPath}'."
+                    );
+            }
+            foreach (DungeonCreatureRuntimeState creature in floor.RuntimeState.Creatures)
+            {
+                if (!actorIds.Add(creature.InstanceId))
+                    throw new ArgumentException(
+                        $"Actor identity '{creature.InstanceId}' is duplicated on '{floorPath}'."
+                    );
+            }
+            foreach (string defeatedId in floor.RuntimeState.DefeatedCreatureIds)
+            {
+                if (!actorIds.Add(defeatedId))
+                    throw new ArgumentException(
+                        $"Actor identity '{defeatedId}' is duplicated on '{floorPath}'."
+                    );
+            }
+
+            IEnumerable<DungeonActorSaveState> allStates = party
+                .Select(member => member.State)
+                .Concat(enemyStates);
+            foreach (
+                DungeonTimedEffectSaveState effect in allStates.SelectMany(state =>
+                    state.TimedEffects
+                )
+            )
+            {
+                if (!actorIds.Contains(effect.SourceActorId))
+                    throw new ArgumentException(
+                        $"Timed effect source actor '{effect.SourceActorId}' is unavailable on '{floorPath}'."
+                    );
+            }
+        }
+
+        private static void ValidateCurrentFloorParty(
+            IReadOnlyList<DungeonPartyMemberSaveState> party,
+            DungeonLevelDocument floor
+        )
+        {
             HashSet<string> livingCells = new(
-                manifest
-                    .Party.Where(member => !member.IsDefeated)
+                party
+                    .Where(member => !member.IsDefeated)
                     .Select(member => member.CellX + ":" + member.CellZ),
                 StringComparer.Ordinal
             );
-            foreach (DungeonPartyMemberSaveState member in manifest.Party)
+            foreach (DungeonPartyMemberSaveState member in party)
             {
-                if (!IsWalkable(floorDocument.Rows, member.CellX, member.CellZ))
+                if (!IsWalkable(floor.Rows, member.CellX, member.CellZ))
                     throw new ArgumentException(
-                        $"Party member '{member.RosterSlotId}' is not on a walkable floor cell."
+                        $"Party member '{member.RosterSlotId}' is not on a walkable current-floor cell."
                     );
             }
             if (
-                floorDocument.RuntimeState.Creatures.Any(creature =>
+                floor.RuntimeState.Creatures.Any(creature =>
                     livingCells.Contains(creature.Cell.X + ":" + creature.Cell.Z)
                 )
             )
                 throw new ArgumentException(
-                    "A living party member and enemy cannot occupy the same floor cell."
+                    "A living party member and enemy cannot occupy the same current-floor cell."
                 );
         }
 
-        internal DungeonRunSaveManifest Manifest { get; }
-        internal DungeonLevelDocument FloorDocument { get; }
+        private static DungeonRunSaveManifest CloneManifest(DungeonRunSaveManifest source) =>
+            JsonUtility.FromJson<DungeonRunSaveManifest>(JsonUtility.ToJson(source));
+
+        private static DungeonFloorSavePayload ClonePayload(DungeonFloorSavePayload source)
+        {
+            if (source == null)
+                return null;
+            return new DungeonFloorSavePayload { Path = source.Path, FloorJson = source.FloorJson };
+        }
+
+        private static DungeonPartyMemberSaveState[] CopyParty(
+            IEnumerable<DungeonPartyMemberSaveState> party
+        )
+        {
+            if (party == null)
+                throw new ArgumentNullException(nameof(party));
+            return party.ToArray();
+        }
+
+        private static DungeonFloorSaveReference CreateReference(int depth) =>
+            new()
+            {
+                Depth = depth,
+                DocumentVersion = DungeonSaveSchema.FloorDocumentVersion,
+                Path = DungeonSaveSchema.FloorPath(depth),
+            };
+
+        private static DungeonFloorSavePayload CreatePayload(
+            string path,
+            DungeonLevelDocument floor
+        ) => new() { Path = path, FloorJson = DungeonLevelJsonSerializer.Serialize(floor) };
+
+        private static int ParseCanonicalDepth(string path)
+        {
+            string value = path.Substring("floors/".Length);
+            return int.Parse(
+                value.Substring(0, value.Length - ".json".Length),
+                CultureInfo.InvariantCulture
+            );
+        }
 
         private static bool IsWalkable(IReadOnlyList<string> rows, int x, int z)
         {
@@ -209,20 +526,15 @@ namespace Game.DungeonPersistence.Repository
         private sealed class SaveFile
         {
             public DungeonRunSaveManifest Manifest;
-            public string FloorJson;
+            public DungeonFloorSavePayload[] Floors;
         }
 
         internal static string Serialize(DungeonRunSave save)
         {
             if (save == null)
                 throw new ArgumentNullException(nameof(save));
-            ValidateManifest(save.Manifest);
             return JsonUtility.ToJson(
-                new SaveFile
-                {
-                    Manifest = save.Manifest,
-                    FloorJson = DungeonLevelJsonSerializer.Serialize(save.FloorDocument),
-                }
+                new SaveFile { Manifest = save.Manifest, Floors = save.FloorPayloads.ToArray() }
             );
         }
 
@@ -233,7 +545,7 @@ namespace Game.DungeonPersistence.Repository
                 SaveFile file = JsonUtility.FromJson<SaveFile>(json);
                 if (file?.Manifest == null)
                     throw new ArgumentException("The autosave manifest is missing.");
-                if (file.Manifest.DocumentVersion != DungeonSaveSchema.Version)
+                if (file.Manifest.DocumentVersion != DungeonSaveSchema.ManifestVersion)
                 {
                     return DungeonSaveResult<DungeonRunSave>.Failure(
                         file.Manifest.DocumentVersion == 0
@@ -243,17 +555,26 @@ namespace Game.DungeonPersistence.Repository
                         "The autosave manifest version is missing or unsupported."
                     );
                 }
-                ValidateManifest(file.Manifest);
-                if (string.IsNullOrWhiteSpace(file.FloorJson))
-                    throw new ArgumentException("The current-floor JSON is missing.");
-
-                DungeonLevelParseResult floor = DungeonLevelJsonParser.Parse(file.FloorJson);
-                if (!floor.IsSuccess)
-                    throw new ArgumentException(
-                        string.Join(" ", floor.Diagnostics.Select(item => item.Message))
+                if (file.Manifest.Floors != null)
+                {
+                    DungeonFloorSaveReference unsupported = file.Manifest.Floors.FirstOrDefault(
+                        reference =>
+                            reference != null
+                            && reference.DocumentVersion != DungeonSaveSchema.FloorDocumentVersion
                     );
+                    if (unsupported != null)
+                    {
+                        return DungeonSaveResult<DungeonRunSave>.Failure(
+                            unsupported.DocumentVersion == 0
+                                ? DungeonSaveDiagnosticCode.CorruptSave
+                                : DungeonSaveDiagnosticCode.IncompatibleVersion,
+                            "manifest.floors.documentVersion",
+                            "A floor document version is missing or unsupported."
+                        );
+                    }
+                }
                 return DungeonSaveResult<DungeonRunSave>.Success(
-                    new DungeonRunSave(file.Manifest, floor.Document)
+                    new DungeonRunSave(file.Manifest, file.Floors)
                 );
             }
             catch (Exception exception)
@@ -302,14 +623,11 @@ namespace Game.DungeonPersistence.Repository
         {
             if (
                 manifest == null
+                || manifest.DocumentVersion != DungeonSaveSchema.ManifestVersion
                 || string.IsNullOrWhiteSpace(manifest.GeneratorVersion)
                 || manifest.CurrentDepth < 0
-                || manifest.CurrentFloorVersion != DungeonSaveSchema.Version
-                || !string.Equals(
-                    manifest.CurrentFloorPath,
-                    DungeonSaveSchema.FloorPath,
-                    StringComparison.Ordinal
-                )
+                || manifest.Floors == null
+                || manifest.Floors.Length == 0
                 || manifest.Party == null
                 || manifest.Party.Length == 0
             )
