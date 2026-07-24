@@ -241,6 +241,197 @@ public sealed class UnityCombatRulesBridgeTests
         }
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task CombatStridePreservesDirectionalFriendshipAcrossRegistrationOrder(
+        bool moverRegisteredFirst
+    )
+    {
+        GameObject teamRulesObject = new GameObject("team-rules");
+        GameObject moverObject = new GameObject("directional-mover");
+        GameObject occupantObject = new GameObject("directional-occupant");
+        try
+        {
+            TeamRules teamRules = InitializeTeamRules(teamRulesObject);
+            teamRules.AddHostileTeam("mover-team");
+            teamRules.AddHostileTeam("occupant-team");
+            teamRules.OneWayFriendly("mover-team", "occupant-team");
+
+            BridgeTestActionController mover = ConfigureCombatant(
+                moverObject,
+                "mover-team",
+                new Vector3(0, 0, 0)
+            );
+            BridgeTestActionController occupant = ConfigureCombatant(
+                occupantObject,
+                "occupant-team",
+                new Vector3(1, 0, 0)
+            );
+            ActionController[] registrations = moverRegisteredFirst
+                ? new ActionController[] { mover, occupant }
+                : new ActionController[] { occupant, mover };
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                registrations,
+                CreateTiles(4)
+            );
+            CreatureId moverId = bridge.GetCreatureId(
+                moverObject.GetComponent<CreatureComponent>()
+            );
+            CreatureId occupantId = bridge.GetCreatureId(
+                occupantObject.GetComponent<CreatureComponent>()
+            );
+            PlayerId moverPlayer = bridge.Snapshot.Creatures[moverId].Player;
+            PlayerId occupantPlayer = bridge.Snapshot.Creatures[occupantId].Player;
+
+            Assert.That(TeamRules.TryGetInstance(out TeamRules activeRules), Is.True);
+            Assert.That(activeRules, Is.SameAs(teamRules));
+            Assert.That(teamRules.IsFriendly("mover-team", "occupant-team"), Is.True);
+            Assert.That(moverPlayer, Is.Not.EqualTo(occupantPlayer));
+
+            bridge.BeginTurn(moverId, 3);
+            OpResult<MovePathOutcome> forward = await bridge.DispatchStride(
+                moverId,
+                new MovementPath(
+                    new GridPosition(0, 0, 0),
+                    new[] { new GridPosition(1, 0, 0), new GridPosition(2, 0, 0) }
+                )
+            );
+
+            string forwardFailure = forward is InvalidOpResult<MovePathOutcome> invalidForward
+                ? invalidForward.Reason
+                : string.Empty;
+            Assert.That(forward, Is.TypeOf<ResolvedOpResult<MovePathOutcome>>(), forwardFailure);
+            Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(2, 0, 0)));
+            Assert.That(bridge.Snapshot.ActionEconomy[moverId].ActionsRemaining, Is.EqualTo(2));
+
+            bridge.BeginTurn(occupantId, 3);
+            OpResult<MovePathOutcome> reverse = await bridge.DispatchStride(
+                occupantId,
+                new MovementPath(
+                    new GridPosition(1, 0, 0),
+                    new[] { new GridPosition(2, 0, 0), new GridPosition(3, 0, 0) }
+                )
+            );
+
+            Assert.That(reverse, Is.TypeOf<InvalidOpResult<MovePathOutcome>>());
+            Assert.That(
+                bridge.Snapshot.Positions[occupantId],
+                Is.EqualTo(new GridPosition(1, 0, 0))
+            );
+            Assert.That(bridge.Snapshot.ActionEconomy[occupantId].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(occupant.ActionPoints, Is.EqualTo(3));
+        }
+        finally
+        {
+            Object.DestroyImmediate(moverObject);
+            Object.DestroyImmediate(occupantObject);
+            Object.DestroyImmediate(teamRulesObject);
+        }
+    }
+
+    [Test]
+    public async Task CombatStrideDoesNotTreatDirectionalFriendshipAsTransitive()
+    {
+        GameObject teamRulesObject = new GameObject("team-rules");
+        GameObject moverObject = new GameObject("non-transitive-mover");
+        GameObject middleObject = new GameObject("non-transitive-middle");
+        GameObject lastObject = new GameObject("non-transitive-last");
+        try
+        {
+            TeamRules teamRules = InitializeTeamRules(teamRulesObject);
+            teamRules.AddHostileTeam("mover-team");
+            teamRules.AddHostileTeam("middle-team");
+            teamRules.AddHostileTeam("last-team");
+            teamRules.OneWayFriendly("mover-team", "middle-team");
+            teamRules.OneWayFriendly("middle-team", "last-team");
+
+            BridgeTestActionController mover = ConfigureCombatant(
+                moverObject,
+                "mover-team",
+                new Vector3(0, 0, 0)
+            );
+            BridgeTestActionController middle = ConfigureCombatant(
+                middleObject,
+                "middle-team",
+                new Vector3(1, 0, 0)
+            );
+            BridgeTestActionController last = ConfigureCombatant(
+                lastObject,
+                "last-team",
+                new Vector3(2, 0, 0)
+            );
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { last, middle, mover },
+                CreateTiles(4)
+            );
+            CreatureId moverId = bridge.GetCreatureId(
+                moverObject.GetComponent<CreatureComponent>()
+            );
+            bridge.BeginTurn(moverId, 3);
+
+            OpResult<MovePathOutcome> result = await bridge.DispatchStride(
+                moverId,
+                new MovementPath(
+                    new GridPosition(0, 0, 0),
+                    new[]
+                    {
+                        new GridPosition(1, 0, 0),
+                        new GridPosition(2, 0, 0),
+                        new GridPosition(3, 0, 0),
+                    }
+                )
+            );
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<MovePathOutcome>>());
+            Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(0, 0, 0)));
+            Assert.That(bridge.Snapshot.ActionEconomy[moverId].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(mover.ActionPoints, Is.EqualTo(3));
+            Assert.That(result.Facts, Is.Empty);
+        }
+        finally
+        {
+            Object.DestroyImmediate(moverObject);
+            Object.DestroyImmediate(middleObject);
+            Object.DestroyImmediate(lastObject);
+            Object.DestroyImmediate(teamRulesObject);
+        }
+    }
+
+    private static BridgeTestActionController ConfigureCombatant(
+        GameObject combatant,
+        string teamName,
+        Vector3 position
+    )
+    {
+        combatant.transform.position = position;
+        CreatureComponent creature = combatant.AddComponent<CreatureComponent>();
+        creature.InitializeHealthBeforeEncounter(10, 10);
+        creature.speed = 25;
+        Team team = combatant.AddComponent<Team>();
+        team.Name = teamName;
+        return combatant.AddComponent<BridgeTestActionController>();
+    }
+
+    private static GridPrivate.Tile[,] CreateTiles(int width)
+    {
+        GridPrivate.Tile[,] tiles = new GridPrivate.Tile[width, 1];
+        for (int x = 0; x < width; x++)
+            tiles[x, 0] = new GridPrivate.Tile();
+        return tiles;
+    }
+
+    private static TeamRules InitializeTeamRules(GameObject owner)
+    {
+        TeamRules rules = owner.AddComponent<TeamRules>();
+        MethodInfo awake = typeof(TeamRules).BaseType.GetMethod(
+            "Awake",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(awake, Is.Not.Null);
+        awake.Invoke(rules, null);
+        return rules;
+    }
+
     private static RuleDispatcher GetDispatcher(UnityCombatRulesBridge bridge)
     {
         FieldInfo field = typeof(UnityCombatRulesBridge).GetField(

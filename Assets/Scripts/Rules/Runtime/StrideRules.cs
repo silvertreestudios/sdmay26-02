@@ -4,6 +4,23 @@ using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>
+    /// Determines whether one player's creature may Stride through another player's creature.
+    /// </summary>
+    /// <remarks>
+    /// The relationship is ordered: implementations may consider <paramref name="mover"/>
+    /// friendly toward <paramref name="occupant"/> without considering the reverse relationship
+    /// friendly.
+    /// </remarks>
+    public interface IStrideFriendshipProvider
+    {
+        /// <summary>Checks the mover-to-occupant friendship relationship.</summary>
+        /// <param name="mover">The player controlling the creature attempting to Stride.</param>
+        /// <param name="occupant">The player controlling an occupied intermediate square.</param>
+        /// <returns>Whether the mover may cross that occupant's square.</returns>
+        bool IsFriendly(PlayerId mover, PlayerId occupant);
+    }
+
     /// <summary>Defines the one-action Stride workflow and its immutable base profile.</summary>
     public sealed class StrideActionDefinition
         : IActionDefinition<MovementPath, StrideActionOp, MovePathOutcome>,
@@ -14,6 +31,7 @@ namespace Game.Rules.Runtime
             new[] { MoveTrait }
         );
         private readonly IGridTopologyProvider topologyProvider;
+        private readonly IStrideFriendshipProvider friendshipProvider;
         private readonly MovementPathValidator pathValidator;
 
         /// <summary>Gets Stride's stable action-definition identity.</summary>
@@ -24,10 +42,33 @@ namespace Game.Rules.Runtime
         /// The provider whose current immutable topology is captured for preview and read during
         /// authoritative validation.
         /// </param>
+        /// <remarks>
+        /// The default pure composition treats creatures controlled by the same
+        /// <see cref="PlayerId"/> as friendly.
+        /// </remarks>
         public StrideActionDefinition(IGridTopologyProvider topologyProvider)
+            : this(topologyProvider, SamePlayerStrideFriendshipProvider.Instance) { }
+
+        /// <summary>
+        /// Creates a Stride definition with an explicit ordered friendship relationship.
+        /// </summary>
+        /// <param name="topologyProvider">
+        /// The provider whose current immutable topology is captured for preview and read during
+        /// authoritative validation.
+        /// </param>
+        /// <param name="friendshipProvider">
+        /// The provider used to decide whether the mover may cross each occupied intermediate
+        /// square.
+        /// </param>
+        public StrideActionDefinition(
+            IGridTopologyProvider topologyProvider,
+            IStrideFriendshipProvider friendshipProvider
+        )
         {
             this.topologyProvider =
                 topologyProvider ?? throw new ArgumentNullException(nameof(topologyProvider));
+            this.friendshipProvider =
+                friendshipProvider ?? throw new ArgumentNullException(nameof(friendshipProvider));
             pathValidator = new MovementPathValidator(topologyProvider);
         }
 
@@ -79,6 +120,7 @@ namespace Game.Rules.Runtime
                     origin,
                     speed,
                     phase,
+                    friendshipProvider,
                     previewValidator
                 )
             );
@@ -100,7 +142,23 @@ namespace Game.Rules.Runtime
             RulesSnapshot snapshot,
             CreatureId actor,
             MovementPath path
-        ) => StridePathRules.Validate(pathValidator, snapshot, actor, path);
+        ) => StridePathRules.Validate(pathValidator, snapshot, actor, path, friendshipProvider);
+
+        internal bool AreAllFriendly(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            IReadOnlyList<CreatureId> occupants
+        ) => StridePathRules.AreAllFriendly(snapshot, actor, occupants, friendshipProvider);
+
+        private sealed class SamePlayerStrideFriendshipProvider : IStrideFriendshipProvider
+        {
+            public static SamePlayerStrideFriendshipProvider Instance { get; } = new();
+
+            private SamePlayerStrideFriendshipProvider() { }
+
+            /// <inheritdoc/>
+            public bool IsFriendly(PlayerId mover, PlayerId occupant) => mover == occupant;
+        }
     }
 
     /// <summary>Requests one complete path for a Stride preview.</summary>
@@ -108,6 +166,7 @@ namespace Game.Rules.Runtime
     {
         private readonly RulesSnapshot snapshot;
         private readonly DiagonalMovementPhase diagonalPhase;
+        private readonly IStrideFriendshipProvider friendshipProvider;
         private readonly MovementPathValidator pathValidator;
 
         internal StridePathSelectionRequest(
@@ -116,6 +175,7 @@ namespace Game.Rules.Runtime
             GridPosition origin,
             GridDistance maximumDistance,
             DiagonalMovementPhase diagonalPhase,
+            IStrideFriendshipProvider friendshipProvider,
             MovementPathValidator pathValidator
         )
         {
@@ -126,6 +186,8 @@ namespace Game.Rules.Runtime
             Origin = origin;
             MaximumDistance = maximumDistance;
             this.diagonalPhase = diagonalPhase;
+            this.friendshipProvider =
+                friendshipProvider ?? throw new ArgumentNullException(nameof(friendshipProvider));
             this.pathValidator =
                 pathValidator ?? throw new ArgumentNullException(nameof(pathValidator));
         }
@@ -145,7 +207,15 @@ namespace Game.Rules.Runtime
             if (selection == null || selection.Origin != Origin)
                 return false;
             return StridePathRules
-                .Validate(pathValidator, snapshot, Actor, selection, MaximumDistance, diagonalPhase)
+                .Validate(
+                    pathValidator,
+                    snapshot,
+                    Actor,
+                    selection,
+                    MaximumDistance,
+                    diagonalPhase,
+                    friendshipProvider
+                )
                 .IsValid;
         }
     }
@@ -181,7 +251,9 @@ namespace Game.Rules.Runtime
             if (definition == null)
                 throw new ArgumentNullException(nameof(definition));
             return builder
-                .RegisterHandler<StrideActionOp, MovePathOutcome>(new StrideActionHandler())
+                .RegisterHandler<StrideActionOp, MovePathOutcome>(
+                    new StrideActionHandler(definition)
+                )
                 .RegisterActionValidator(new StrideActionValidator(definition));
         }
     }
@@ -213,6 +285,10 @@ namespace Game.Rules.Runtime
     {
         private static readonly MovementPermissionPurpose FriendlyTraversal =
             MovementPermissionPurpose.FromSlug("friendly-traversal");
+        private readonly StrideActionDefinition definition;
+
+        public StrideActionHandler(StrideActionDefinition definition) =>
+            this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
 
         public async ValueTask<MovePathOutcome> Handle(
             OpFrame<StrideActionOp> frame,
@@ -250,7 +326,7 @@ namespace Game.Rules.Runtime
                     "Stride path"
                 );
             }
-            if (!StridePathRules.AreAllFriendly(context.Snapshot, op.Actor, occupants))
+            if (!definition.AreAllFriendly(context.Snapshot, op.Actor, occupants))
                 return Stopped(op.Path.Origin, MovementFailureKind.Occupied);
 
             MovementPermissionRequestOutcome permission = RequireResolved(
@@ -318,7 +394,8 @@ namespace Game.Rules.Runtime
             MovementPathValidator validator,
             RulesSnapshot snapshot,
             CreatureId actor,
-            MovementPath path
+            MovementPath path,
+            IStrideFriendshipProvider friendshipProvider
         )
         {
             if (!snapshot.LandSpeeds.TryGet(actor, out GridDistance speed))
@@ -333,7 +410,8 @@ namespace Game.Rules.Runtime
                 actor,
                 path,
                 speed,
-                GetDiagonalPhase(snapshot, actor)
+                GetDiagonalPhase(snapshot, actor),
+                friendshipProvider
             );
         }
 
@@ -343,11 +421,12 @@ namespace Game.Rules.Runtime
             CreatureId actor,
             MovementPath path,
             GridDistance speed,
-            DiagonalMovementPhase phase
+            DiagonalMovementPhase phase,
+            IStrideFriendshipProvider friendshipProvider
         )
         {
             IReadOnlyList<CreatureId> occupants = FindIntermediateOccupants(snapshot, actor, path);
-            if (!AreAllFriendly(snapshot, actor, occupants))
+            if (!AreAllFriendly(snapshot, actor, occupants, friendshipProvider))
             {
                 return MovementPathValidation.Rejected(
                     new MovementFailure(MovementFailureKind.Occupied, 0, path.Origin)
@@ -388,7 +467,8 @@ namespace Game.Rules.Runtime
         public static bool AreAllFriendly(
             RulesSnapshot snapshot,
             CreatureId actor,
-            IReadOnlyList<CreatureId> occupants
+            IReadOnlyList<CreatureId> occupants,
+            IStrideFriendshipProvider friendshipProvider
         )
         {
             if (!snapshot.Creatures.TryGet(actor, out CreatureState actorState))
@@ -397,7 +477,7 @@ namespace Game.Rules.Runtime
             {
                 if (
                     !snapshot.Creatures.TryGet(occupant, out CreatureState occupantState)
-                    || actorState.Player != occupantState.Player
+                    || !friendshipProvider.IsFriendly(actorState.Player, occupantState.Player)
                 )
                 {
                     return false;

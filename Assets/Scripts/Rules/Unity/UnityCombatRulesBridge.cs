@@ -25,6 +25,7 @@ namespace Game.Rules.Unity
         private readonly Dictionary<string, PlayerId> playerIds = new(
             StringComparer.OrdinalIgnoreCase
         );
+        private readonly UnityTeamStrideFriendshipProvider strideFriendshipProvider = new();
         private readonly Dictionary<HealthChangeOriginId, RuleSource> origins = new();
         private readonly MutableGridTopologyProvider topologyProvider;
         private readonly StrideActionDefinition strideDefinition;
@@ -61,7 +62,10 @@ namespace Game.Rules.Unity
         {
             supportsCombatActions = true;
             topologyProvider = new MutableGridTopologyProvider(CreateTopology(tiles));
-            strideDefinition = new StrideActionDefinition(topologyProvider);
+            strideDefinition = new StrideActionDefinition(
+                topologyProvider,
+                strideFriendshipProvider
+            );
             RulesStateSeed seed = new RulesStateSeed();
             foreach (ActionController controller in encounterControllers)
             {
@@ -336,20 +340,10 @@ namespace Game.Rules.Unity
             {
                 if (playerIds.TryGetValue(teamName, out PlayerId existing))
                     return existing;
-                if (TeamRules.TryGetInstance(out TeamRules rules) && rules.Contains(teamName))
-                {
-                    foreach (KeyValuePair<string, PlayerId> pair in playerIds)
-                    {
-                        if (rules.Contains(pair.Key) && rules.IsFriendly(teamName, pair.Key))
-                        {
-                            playerIds.Add(teamName, pair.Value);
-                            return pair.Value;
-                        }
-                    }
-                }
-                PlayerId grouped = new PlayerId($"combat-side-{playerIds.Count + 1}");
-                playerIds.Add(teamName, grouped);
-                return grouped;
+                PlayerId playerId = new PlayerId($"combat-side-{playerIds.Count + 1}");
+                playerIds.Add(teamName, playerId);
+                strideFriendshipProvider.Register(playerId, teamName);
+                return playerId;
             }
             return new PlayerId($"combat-side-unassigned-{nextCreatureId}");
         }
@@ -506,6 +500,31 @@ namespace Game.Rules.Unity
                 new GridBounds(new GridPosition(0, 0, 0), new GridPosition(0, 0, 0)),
                 Array.Empty<GridCell>()
             );
+
+        private sealed class UnityTeamStrideFriendshipProvider : IStrideFriendshipProvider
+        {
+            private readonly Dictionary<PlayerId, string> teamNames = new();
+
+            public void Register(PlayerId player, string teamName) =>
+                teamNames.Add(player, teamName);
+
+            /// <inheritdoc/>
+            public bool IsFriendly(PlayerId mover, PlayerId occupant)
+            {
+                if (
+                    teamNames.TryGetValue(mover, out string moverTeam)
+                    && teamNames.TryGetValue(occupant, out string occupantTeam)
+                    && TeamRules.TryGetInstance(out TeamRules rules)
+                    && rules.Contains(moverTeam)
+                    && rules.Contains(occupantTeam)
+                )
+                {
+                    return rules.IsFriendly(moverTeam, occupantTeam);
+                }
+
+                return mover == occupant;
+            }
+        }
 
         private sealed class MutableGridTopologyProvider : IGridTopologyProvider
         {
