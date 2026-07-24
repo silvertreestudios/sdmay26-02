@@ -333,7 +333,6 @@ namespace Game.DungeonPersistence
             Dictionary<string, DungeonActorSaveState> enemyState = ParseEnemyState(
                 currentFloor.RuntimeState.Creatures
             );
-            ValidateTimedEffectSources(manifest, currentFloor, enemyState.Values);
             Dictionary<string, GameObject> preflightActors = orderedParty.ToDictionary(
                 controller => controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId,
                 controller => controller.gameObject,
@@ -529,51 +528,6 @@ namespace Game.DungeonPersistence
                 states.Add(creature.InstanceId, parsed.Value);
             }
             return states;
-        }
-
-        private static void ValidateTimedEffectSources(
-            DungeonRunSaveManifest manifest,
-            DungeonLevelDocument currentFloor,
-            IEnumerable<DungeonActorSaveState> enemyStates
-        )
-        {
-            HashSet<string> actorIds = new(StringComparer.Ordinal);
-            foreach (DungeonPartyMemberSaveState member in manifest.Party)
-            {
-                if (!actorIds.Add(member.RosterSlotId))
-                    throw new InvalidOperationException(
-                        $"Actor identity '{member.RosterSlotId}' is duplicated."
-                    );
-            }
-            foreach (DungeonCreatureRuntimeState creature in currentFloor.RuntimeState.Creatures)
-            {
-                if (!actorIds.Add(creature.InstanceId))
-                    throw new InvalidOperationException(
-                        $"Actor identity '{creature.InstanceId}' is duplicated."
-                    );
-            }
-            foreach (string defeatedId in currentFloor.RuntimeState.DefeatedCreatureIds)
-            {
-                if (!actorIds.Add(defeatedId))
-                    throw new InvalidOperationException(
-                        $"Actor identity '{defeatedId}' is duplicated."
-                    );
-            }
-
-            IEnumerable<DungeonActorSaveState> allStates = manifest
-                .Party.Select(member => member.State)
-                .Concat(enemyStates);
-            foreach (
-                DungeonTimedEffectSaveState effect in allStates.SelectMany(state =>
-                    state.TimedEffects
-                )
-            )
-            {
-                if (!actorIds.Contains(effect.SourceActorId))
-                    throw new InvalidOperationException(
-                        $"Timed effect source actor '{effect.SourceActorId}' is unavailable."
-                    );
-            }
         }
 
         private static DungeonRunPersistenceBootstrapResult Failure(

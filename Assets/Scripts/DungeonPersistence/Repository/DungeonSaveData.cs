@@ -371,6 +371,7 @@ namespace Game.DungeonPersistence.Repository
                     throw new ArgumentException(
                         $"Manifest generation metadata does not match saved floor '{payload.Path}'."
                     );
+                List<DungeonActorSaveState> enemyStates = new();
                 foreach (DungeonCreatureRuntimeState creature in floor.RuntimeState.Creatures)
                 {
                     DungeonSaveResult<DungeonActorSaveState> actor = DungeonSaveJson.ParseActor(
@@ -381,7 +382,9 @@ namespace Game.DungeonPersistence.Repository
                             $"Living creature '{creature.InstanceId}' on '{payload.Path}' has invalid actor state: "
                                 + actor.Diagnostics[0].Message
                         );
+                    enemyStates.Add(actor.Value);
                 }
+                ValidateActorGraph(manifest.Party, floor, enemyStates, payload.Path);
                 documents.Add(reference.Depth, floor);
             }
 
@@ -389,6 +392,52 @@ namespace Game.DungeonPersistence.Repository
                 throw new ArgumentException("The selected dungeon depth is not indexed.");
             ValidateCurrentFloorParty(manifest.Party, current);
             return documents;
+        }
+
+        private static void ValidateActorGraph(
+            IReadOnlyList<DungeonPartyMemberSaveState> party,
+            DungeonLevelDocument floor,
+            IEnumerable<DungeonActorSaveState> enemyStates,
+            string floorPath
+        )
+        {
+            HashSet<string> actorIds = new(StringComparer.Ordinal);
+            foreach (DungeonPartyMemberSaveState member in party)
+            {
+                if (!actorIds.Add(member.RosterSlotId))
+                    throw new ArgumentException(
+                        $"Actor identity '{member.RosterSlotId}' is duplicated on '{floorPath}'."
+                    );
+            }
+            foreach (DungeonCreatureRuntimeState creature in floor.RuntimeState.Creatures)
+            {
+                if (!actorIds.Add(creature.InstanceId))
+                    throw new ArgumentException(
+                        $"Actor identity '{creature.InstanceId}' is duplicated on '{floorPath}'."
+                    );
+            }
+            foreach (string defeatedId in floor.RuntimeState.DefeatedCreatureIds)
+            {
+                if (!actorIds.Add(defeatedId))
+                    throw new ArgumentException(
+                        $"Actor identity '{defeatedId}' is duplicated on '{floorPath}'."
+                    );
+            }
+
+            IEnumerable<DungeonActorSaveState> allStates = party
+                .Select(member => member.State)
+                .Concat(enemyStates);
+            foreach (
+                DungeonTimedEffectSaveState effect in allStates.SelectMany(state =>
+                    state.TimedEffects
+                )
+            )
+            {
+                if (!actorIds.Contains(effect.SourceActorId))
+                    throw new ArgumentException(
+                        $"Timed effect source actor '{effect.SourceActorId}' is unavailable on '{floorPath}'."
+                    );
+            }
         }
 
         private static void ValidateCurrentFloorParty(

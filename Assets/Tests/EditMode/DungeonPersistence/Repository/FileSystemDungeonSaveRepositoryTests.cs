@@ -5,9 +5,17 @@ using Game.Creature;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence.Repository;
 using NUnit.Framework;
+using UnityEngine;
 
 public sealed class FileSystemDungeonSaveRepositoryTests
 {
+    [Serializable]
+    private sealed class SaveFile
+    {
+        public DungeonRunSaveManifest Manifest;
+        public DungeonFloorSavePayload[] Floors;
+    }
+
     private string directory;
 
     [SetUp]
@@ -201,6 +209,53 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
+    public void LoadRejectsInactiveFloorWithPartyEnemyIdentityCollision()
+    {
+        DungeonRunSave valid = DungeonRunSave
+            .CreateNew(Party(12), CreateFloor(0))
+            .WithAddedAndSelectedFloor(Party(10), CreateFloor(2, encounterId: "encounter-2"));
+        DungeonRunSaveManifest manifest = valid.Manifest;
+        manifest.Party[0].RosterSlotId = InstanceId("encounter-1", 1);
+
+        DungeonSaveResult<DungeonRunSave> result = ParseCandidate(
+            manifest,
+            valid.FloorPayloads.ToArray()
+        );
+
+        Assert.That(valid.Manifest.CurrentDepth, Is.EqualTo(2));
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(result.Diagnostics.Single().Message, Does.Contain("duplicated"));
+        Assert.That(result.Diagnostics.Single().Message, Does.Contain("floors/0.json"));
+    }
+
+    [Test]
+    public void LoadRejectsInactiveFloorWithUnresolvedTimedEffectSource()
+    {
+        DungeonRunSave valid = CreateRun(0, 2);
+        DungeonActorSaveState actor = ActorState(1, "floor-0");
+        actor.TimedEffects = new[]
+        {
+            new DungeonTimedEffectSaveState
+            {
+                Kind = "shield",
+                SourceActorId = "missing-actor",
+                RemainingTurnStarts = 1,
+            },
+        };
+        DungeonFloorSavePayload[] payloads = valid.FloorPayloads.ToArray();
+        payloads[0].FloorJson = DungeonLevelJsonSerializer.Serialize(
+            CreateFloor(0, embeddedActorState: DungeonSaveJson.SerializeActor(actor))
+        );
+
+        DungeonSaveResult<DungeonRunSave> result = ParseCandidate(valid.Manifest, payloads);
+
+        Assert.That(valid.Manifest.CurrentDepth, Is.EqualTo(2));
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(result.Diagnostics.Single().Message, Does.Contain("unavailable"));
+        Assert.That(result.Diagnostics.Single().Message, Does.Contain("floors/0.json"));
+    }
+
+    [Test]
     public void LoadRejectsOutdatedManifestAndUnsupportedFloorDocumentVersions()
     {
         FileSystemDungeonSaveRepository repository = new(directory);
@@ -296,6 +351,15 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         return save;
     }
 
+    private static DungeonSaveResult<DungeonRunSave> ParseCandidate(
+        DungeonRunSaveManifest manifest,
+        DungeonFloorSavePayload[] payloads
+    ) =>
+        DungeonSaveJson.Parse(
+            JsonUtility.ToJson(new SaveFile { Manifest = manifest, Floors = payloads }),
+            "memory"
+        );
+
     private static DungeonPartyMemberSaveState[] Party(int currentHitPoints) =>
         new[]
         {
@@ -315,7 +379,8 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         int depth,
         int actorTemporaryHitPoints = -1,
         int runSeed = 123,
-        string embeddedActorState = null
+        string embeddedActorState = null,
+        string encounterId = "encounter-1"
     )
     {
         int defeatedIndex = depth % 2;
@@ -338,7 +403,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
             new[]
             {
                 new DungeonEncounterPlan(
-                    "encounter-1",
+                    encounterId,
                     1,
                     DungeonEncounterThreat.Low,
                     60,
@@ -349,13 +414,13 @@ public sealed class FileSystemDungeonSaveRepositoryTests
             new DungeonRuntimeState(
                 doorOpen ? new[] { "door-0001" } : Array.Empty<string>(),
                 Array.Empty<string>(),
-                new[] { InstanceId(defeatedIndex) },
+                new[] { InstanceId(encounterId, defeatedIndex) },
                 new[]
                 {
                     new DungeonCreatureRuntimeState(
-                        InstanceId(livingIndex),
+                        InstanceId(encounterId, livingIndex),
                         livingIndex == 0 ? "creature-a" : "creature-b",
-                        "encounter-1",
+                        encounterId,
                         livingCell,
                         10 + depth,
                         actorJson
@@ -389,4 +454,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         };
 
     private static string InstanceId(int index) => $"encounter-1/creature-{index:0000}";
+
+    private static string InstanceId(string encounterId, int index) =>
+        $"{encounterId}/creature-{index:0000}";
 }
