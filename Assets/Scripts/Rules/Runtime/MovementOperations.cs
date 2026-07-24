@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
 
 namespace Game.Rules.Runtime
 {
@@ -90,9 +93,9 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// The operation retains the originating action and stable path-step trigger identity even
     /// when the action's frozen profile cannot trigger reactions. Middleware owns eligibility.
-    /// For an authorized occupied crossing, entry and exit timing operations both run while
-    /// the preceding legal square remains authoritative. Their two steps commit together while
-    /// the reserved occupant remains through exit timing; otherwise ordinary step commits resume.
+    /// For an authorized occupied run, each departure timing operation through its first legal
+    /// exit runs while the preceding legal square remains authoritative. Those steps commit
+    /// together while any reservation remains; otherwise ordinary step commits resume.
     /// </remarks>
     public sealed class MovementLeavingSquareOp : IRuleOp<MovementTriggerOutcome>
     {
@@ -146,10 +149,10 @@ namespace Game.Rules.Runtime
         public MovementTriggerKind Kind { get; }
     }
 
-    /// <summary>Requests engine authority for one occupied crossing on an exact path.</summary>
+    /// <summary>Requests engine authority for occupied crossings on one exact path.</summary>
     public sealed class RequestMovementPermissionOp : IRuleOp<MovementPermissionRequestOutcome>
     {
-        /// <summary>Initializes a nested occupied-space reservation request.</summary>
+        /// <summary>Initializes a nested request that reserves one occupied-space crossing.</summary>
         /// <param name="actionOpId">The ancestor action frame requesting authority.</param>
         /// <param name="mover">The creature that intends to cross the occupied cell.</param>
         /// <param name="occupant">The creature whose exact occupied cell is reserved.</param>
@@ -164,6 +167,26 @@ namespace Game.Rules.Runtime
             MovementPath path,
             MovementPermissionPurpose purpose
         )
+            : this(actionOpId, mover, new[] { occupant }, budgetId, path, purpose) { }
+
+        /// <summary>Initializes a nested request that reserves every occupied crossing.</summary>
+        /// <param name="actionOpId">The ancestor action frame requesting authority.</param>
+        /// <param name="mover">The creature that intends to cross the occupied cells.</param>
+        /// <param name="occupants">
+        /// The ordered occupants crossed by the path. Repeated entries represent repeated
+        /// crossings of the same creature's space.
+        /// </param>
+        /// <param name="budgetId">The current action-scoped movement budget.</param>
+        /// <param name="path">The exact path for which permission is requested.</param>
+        /// <param name="purpose">The non-ordinary rule use authorizing the crossings.</param>
+        public RequestMovementPermissionOp(
+            OpId actionOpId,
+            CreatureId mover,
+            IEnumerable<CreatureId> occupants,
+            MovementBudgetId budgetId,
+            MovementPath path,
+            MovementPermissionPurpose purpose
+        )
         {
             if (actionOpId.IsEmpty)
                 throw new ArgumentException(
@@ -172,8 +195,16 @@ namespace Game.Rules.Runtime
                 );
             if (mover.IsEmpty)
                 throw new ArgumentException("A mover is required.", nameof(mover));
-            if (occupant.IsEmpty)
-                throw new ArgumentException("An occupant is required.", nameof(occupant));
+            if (occupants == null)
+                throw new ArgumentNullException(nameof(occupants));
+            CreatureId[] requestedOccupants = occupants.ToArray();
+            if (requestedOccupants.Length == 0 || requestedOccupants.Any(value => value.IsEmpty))
+            {
+                throw new ArgumentException(
+                    "At least one non-empty occupant is required.",
+                    nameof(occupants)
+                );
+            }
             if (budgetId.IsEmpty)
                 throw new ArgumentException("A movement budget ID is required.", nameof(budgetId));
             if (purpose.IsEmpty || purpose == MovementPermissionPurpose.Ordinary)
@@ -183,7 +214,7 @@ namespace Game.Rules.Runtime
                 );
             ActionOpId = actionOpId;
             Mover = mover;
-            Occupant = occupant;
+            Occupants = new ReadOnlyCollection<CreatureId>(requestedOccupants);
             BudgetId = budgetId;
             Path = path ?? throw new ArgumentNullException(nameof(path));
             Purpose = purpose;
@@ -195,8 +226,8 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the creature that intends to cross the occupied cell.</summary>
         public CreatureId Mover { get; }
 
-        /// <summary>Gets the creature whose occupied cell is reserved.</summary>
-        public CreatureId Occupant { get; }
+        /// <summary>Gets the ordered creatures whose occupied cells are reserved.</summary>
+        public IReadOnlyList<CreatureId> Occupants { get; }
 
         /// <summary>Gets the movement budget to which authority is bound.</summary>
         public MovementBudgetId BudgetId { get; }
@@ -332,29 +363,53 @@ namespace Game.Rules.Runtime
         public bool IsDestination { get; }
     }
 
+    /// <summary>
+    /// Commits one or more reserved occupied entries through the first currently legal exit.
+    /// </summary>
+    /// <remarks>
+    /// The reducer validates the complete sequence before mutation so intermediate overlaps never
+    /// escape as authoritative snapshots, even when consecutive creatures occupy the path.
+    /// </remarks>
     internal sealed class CommitOccupiedMovementCrossingOp : IRuleOp<MovementCrossingCommitOutcome>
     {
         public CommitOccupiedMovementCrossingOp(
             CommitMovementStepOp entry,
             CommitMovementStepOp exit
         )
+            : this(new[] { entry, exit }) { }
+
+        public CommitOccupiedMovementCrossingOp(IEnumerable<CommitMovementStepOp> steps)
         {
-            Entry = entry ?? throw new ArgumentNullException(nameof(entry));
-            Exit = exit ?? throw new ArgumentNullException(nameof(exit));
-            if (!entry.Allowance.HasOccupant)
+            if (steps == null)
+                throw new ArgumentNullException(nameof(steps));
+            CommitMovementStepOp[] crossingSteps = steps.ToArray();
+            if (crossingSteps.Length < 2 || crossingSteps.Any(step => step == null))
+            {
+                throw new ArgumentException(
+                    "An occupied crossing requires at least two valid steps.",
+                    nameof(steps)
+                );
+            }
+            if (!crossingSteps[0].Allowance.HasOccupant)
                 throw new ArgumentException(
                     "An occupied crossing requires an authorized entry step.",
-                    nameof(entry)
+                    nameof(steps)
                 );
-            if (exit.Allowance.HasOccupant || entry.To != exit.From)
+            for (int index = 1; index < crossingSteps.Length; index++)
+            {
+                if (crossingSteps[index - 1].To == crossingSteps[index].From)
+                    continue;
                 throw new ArgumentException(
-                    "An occupied crossing requires the immediately following unoccupied exit step.",
-                    nameof(exit)
+                    "An occupied crossing requires one contiguous sequence of steps.",
+                    nameof(steps)
                 );
+            }
+            Steps = new ReadOnlyCollection<CommitMovementStepOp>(crossingSteps);
         }
 
-        public CommitMovementStepOp Entry { get; }
-        public CommitMovementStepOp Exit { get; }
+        public IReadOnlyList<CommitMovementStepOp> Steps { get; }
+        public CommitMovementStepOp Entry => Steps[0];
+        public CommitMovementStepOp Exit => Steps[Steps.Count - 1];
     }
 
     /// <summary>
@@ -546,14 +601,12 @@ namespace Game.Rules.Runtime
     internal readonly struct MovementCrossingCommitOutcome
     {
         public MovementCrossingCommitOutcome(
-            MovementStepCost entryCost,
-            MovementStepCost exitCost,
+            IEnumerable<MovementStepCost> costs,
             GridDistance remaining
         )
         {
             DidMove = true;
-            EntryCost = entryCost;
-            ExitCost = exitCost;
+            Costs = new ReadOnlyCollection<MovementStepCost>(costs.ToArray());
             Remaining = remaining;
             Failure = default;
         }
@@ -561,15 +614,13 @@ namespace Game.Rules.Runtime
         public MovementCrossingCommitOutcome(MovementFailure failure)
         {
             DidMove = false;
-            EntryCost = default;
-            ExitCost = default;
+            Costs = Array.AsReadOnly(Array.Empty<MovementStepCost>());
             Remaining = default;
             Failure = failure;
         }
 
         public bool DidMove { get; }
-        public MovementStepCost EntryCost { get; }
-        public MovementStepCost ExitCost { get; }
+        public IReadOnlyList<MovementStepCost> Costs { get; }
         public GridDistance Remaining { get; }
         public MovementFailure Failure { get; }
     }

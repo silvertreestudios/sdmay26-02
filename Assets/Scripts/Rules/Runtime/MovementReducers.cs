@@ -123,11 +123,11 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Purely prepares both halves of an occupied crossing against one committed snapshot.
+        /// Purely prepares a complete occupied run against one committed snapshot.
         /// </summary>
         /// <remarks>
         /// This uses the same contract as final reducer settlement so handlers can decide whether
-        /// exit timing may open without staging state or Facts.
+        /// later departure timing may open without staging state or Facts.
         /// </remarks>
         internal MovementFailure ValidateCrossing(
             CommitOccupiedMovementCrossingOp op,
@@ -146,20 +146,17 @@ namespace Game.Rules.Runtime
                 snapshot.Positions,
                 current,
                 budget,
-                out PreparedMovementStep _,
-                out PreparedMovementStep _
+                out List<PreparedMovementStep> _
             );
         }
 
         internal MovementFailure PrepareCrossing(
             CommitOccupiedMovementCrossingOp op,
             RulesStateDraft state,
-            out PreparedMovementStep preparedEntry,
-            out PreparedMovementStep preparedExit
+            out List<PreparedMovementStep> preparedSteps
         )
         {
-            preparedEntry = default;
-            preparedExit = default;
+            preparedSteps = new List<PreparedMovementStep>();
             if (!state.Positions.TryGet(op.Entry.Mover, out GridPosition current))
                 return Failure(MovementFailureKind.MissingPosition, op.Entry);
             if (!state.MovementBudgets.TryGet(op.Entry.Mover, out MovementBudgetState budget))
@@ -167,14 +164,7 @@ namespace Game.Rules.Runtime
                 return Failure(MovementFailureKind.MissingBudget, op.Entry);
             }
 
-            return PrepareCrossing(
-                op,
-                state.Positions,
-                current,
-                budget,
-                out preparedEntry,
-                out preparedExit
-            );
+            return PrepareCrossing(op, state.Positions, current, budget, out preparedSteps);
         }
 
         private MovementFailure PrepareCrossing(
@@ -182,29 +172,43 @@ namespace Game.Rules.Runtime
             IReadOnlyCollection<KeyValuePair<CreatureId, GridPosition>> positions,
             GridPosition current,
             MovementBudgetState budget,
-            out PreparedMovementStep preparedEntry,
-            out PreparedMovementStep preparedExit
+            out List<PreparedMovementStep> preparedSteps
         )
         {
-            preparedEntry = default;
-            preparedExit = default;
-            MovementFailure failure = PrepareStep(
-                op.Entry,
-                positions,
-                current,
-                budget,
-                out preparedEntry
-            );
-            if (failure.Kind != MovementFailureKind.None)
-                return failure;
+            preparedSteps = new List<PreparedMovementStep>(op.Steps.Count);
+            foreach (CommitMovementStepOp step in op.Steps)
+            {
+                MovementFailure failure = PrepareStep(
+                    step,
+                    positions,
+                    current,
+                    budget,
+                    out PreparedMovementStep prepared
+                );
+                if (failure.Kind != MovementFailureKind.None)
+                    return failure;
 
-            return PrepareStep(
-                op.Exit,
-                positions,
-                op.Entry.To,
-                preparedEntry.UpdatedBudget,
-                out preparedExit
-            );
+                preparedSteps.Add(prepared);
+                current = step.To;
+                budget = prepared.UpdatedBudget;
+            }
+
+            bool hasOccupiedTraversal = false;
+            for (int index = 0; index + 1 < preparedSteps.Count; index++)
+            {
+                hasOccupiedTraversal |= preparedSteps[index].ReservedOccupantPresent;
+            }
+            PreparedMovementStep preparedExit = preparedSteps[preparedSteps.Count - 1];
+            if (!hasOccupiedTraversal || preparedExit.ReservedOccupantPresent)
+            {
+                CommitMovementStepOp step = op.Exit;
+                return MovementPathValidator.PermissionFailure(
+                    MovementPermissionFailureKind.InvalidReservation,
+                    step.TriggerId.StepNumber,
+                    step.To
+                );
+            }
+            return default;
         }
 
         internal MovementFailure PrepareStep(
@@ -462,26 +466,29 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
-            CommitMovementStepOp entry = context.Op.Entry;
-            CommitMovementStepOp exit = context.Op.Exit;
             MovementFailure failure = stepReducer.PrepareCrossing(
                 context.Op,
                 state,
-                out CommitMovementStepReducer.PreparedMovementStep preparedEntry,
-                out CommitMovementStepReducer.PreparedMovementStep preparedExit
+                out List<CommitMovementStepReducer.PreparedMovementStep> preparedSteps
             );
             if (failure.Kind != MovementFailureKind.None)
                 return Rejected(failure);
 
-            // No draft mutation or Fact staging occurs until both halves validate. Observers then
-            // receive the ordered entry/traversal/exit Facts against the final legal exit snapshot.
-            CommitMovementStepReducer.CommitPreparedStep(entry, preparedEntry, state, facts);
-            CommitMovementStepReducer.CommitPreparedStep(exit, preparedExit, state, facts);
+            // No draft mutation or Fact staging occurs until the full crossing validates.
+            // Observers receive its ordered movement Facts against the final legal exit snapshot.
+            for (int index = 0; index < context.Op.Steps.Count; index++)
+            {
+                CommitMovementStepReducer.CommitPreparedStep(
+                    context.Op.Steps[index],
+                    preparedSteps[index],
+                    state,
+                    facts
+                );
+            }
             return ReductionResult<MovementCrossingCommitOutcome>.Accept(
                 new MovementCrossingCommitOutcome(
-                    preparedEntry.Cost,
-                    preparedExit.Cost,
-                    preparedExit.UpdatedBudget.Remaining
+                    preparedSteps.ConvertAll(prepared => prepared.Cost),
+                    preparedSteps[preparedSteps.Count - 1].UpdatedBudget.Remaining
                 )
             );
         }

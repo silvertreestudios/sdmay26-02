@@ -10,6 +10,7 @@ namespace Game.Tests.EditMode.RulesRuntime
     {
         private static readonly CreatureId Actor = new CreatureId("actor");
         private static readonly CreatureId Other = new CreatureId("other");
+        private static readonly CreatureId SecondOther = new CreatureId("second-other");
         private static readonly PlayerId Party = new PlayerId("party");
 
         [Test]
@@ -101,6 +102,46 @@ namespace Game.Tests.EditMode.RulesRuntime
             Assert.That(enemy.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
         }
 
+        [TestCase(2)]
+        [TestCase(3)]
+        public async Task OneStrideCrossesEveryFriendlyOccupiedSquare(int secondOccupiedX)
+        {
+            RulesStateSeed seed = SeedActor(30)
+                .SeedCreature(new CreatureState(Other, Party))
+                .SeedPosition(Other, new GridPosition(1, 0, 0))
+                .SeedCreature(new CreatureState(SecondOther, Party))
+                .SeedPosition(SecondOther, new GridPosition(secondOccupiedX, 0, 0));
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new TestTopologyProvider(CreateTopology()),
+                seed
+            );
+            GridPosition[] steps = Enumerable
+                .Range(1, secondOccupiedX + 1)
+                .Select(x => new GridPosition(x, 0, 0))
+                .ToArray();
+
+            ResolvedOpResult<MovePathOutcome> result = RequireResolved(
+                await dispatcher.Dispatch(
+                    new StrideActionOp(Actor, new MovementPath(new GridPosition(0, 0, 0), steps))
+                )
+            );
+
+            Assert.That(result.Value.ReachedDestination, Is.True);
+            Assert.That(
+                dispatcher.Snapshot.Positions[Actor],
+                Is.EqualTo(new GridPosition(secondOccupiedX + 1, 0, 0))
+            );
+            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(
+                result.Facts.OfType<OccupiedSpaceTraversedFact>().Select(fact => fact.Occupant),
+                Is.EqualTo(new[] { Other, SecondOther })
+            );
+            Assert.That(
+                result.Facts.OfType<TokenMovedFact>().Count(),
+                Is.EqualTo(secondOccupiedX + 1)
+            );
+        }
+
         [Test]
         public async Task ReplacementTopologyAppliesOnlyToLaterRoots()
         {
@@ -186,7 +227,10 @@ namespace Game.Tests.EditMode.RulesRuntime
 
         private static ResolvedOpResult<TResult> RequireResolved<TResult>(OpResult<TResult> result)
         {
-            Assert.That(result, Is.TypeOf<ResolvedOpResult<TResult>>());
+            string failure = result is InvalidOpResult<TResult> invalid
+                ? invalid.Reason
+                : "The operation did not resolve.";
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<TResult>>(), failure);
             return (ResolvedOpResult<TResult>)result;
         }
 

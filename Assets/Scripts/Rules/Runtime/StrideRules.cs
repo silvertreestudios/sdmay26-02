@@ -236,12 +236,12 @@ namespace Game.Rules.Runtime
                     started.Failure
                 );
 
-            CreatureId occupant = StridePathRules.FindIntermediateOccupant(
+            IReadOnlyList<CreatureId> occupants = StridePathRules.FindIntermediateOccupants(
                 context.Snapshot,
                 op.Actor,
                 op.Path
             );
-            if (occupant.IsEmpty)
+            if (occupants.Count == 0)
             {
                 return RequireResolved(
                     await context.Dispatch(
@@ -250,7 +250,7 @@ namespace Game.Rules.Runtime
                     "Stride path"
                 );
             }
-            if (!StridePathRules.AreFriendly(context.Snapshot, op.Actor, occupant))
+            if (!StridePathRules.AreAllFriendly(context.Snapshot, op.Actor, occupants))
                 return Stopped(op.Path.Origin, MovementFailureKind.Occupied);
 
             MovementPermissionRequestOutcome permission = RequireResolved(
@@ -258,7 +258,7 @@ namespace Game.Rules.Runtime
                     new RequestMovementPermissionOp(
                         frame.Id,
                         op.Actor,
-                        occupant,
+                        occupants,
                         started.Budget.Id,
                         op.Path,
                         FriendlyTraversal
@@ -346,25 +346,28 @@ namespace Game.Rules.Runtime
             DiagonalMovementPhase phase
         )
         {
-            CreatureId occupant = FindIntermediateOccupant(snapshot, actor, path);
-            if (!occupant.IsEmpty && !AreFriendly(snapshot, actor, occupant))
+            IReadOnlyList<CreatureId> occupants = FindIntermediateOccupants(snapshot, actor, path);
+            if (!AreAllFriendly(snapshot, actor, occupants))
             {
                 return MovementPathValidation.Rejected(
                     new MovementFailure(MovementFailureKind.Occupied, 0, path.Origin)
                 );
             }
-            OccupiedTraversalAllowance allowance = occupant.IsEmpty
-                ? OccupiedTraversalAllowance.None
-                : OccupiedTraversalAllowance.ForAnyPosition(occupant);
-            return validator.ValidateActionPath(snapshot, actor, path, speed, phase, allowance);
+            List<OccupiedTraversalAllowance> allowances = new List<OccupiedTraversalAllowance>(
+                occupants.Count
+            );
+            foreach (CreatureId occupant in occupants)
+                allowances.Add(OccupiedTraversalAllowance.ForAnyPosition(occupant));
+            return validator.ValidateActionPath(snapshot, actor, path, speed, phase, allowances);
         }
 
-        public static CreatureId FindIntermediateOccupant(
+        public static IReadOnlyList<CreatureId> FindIntermediateOccupants(
             RulesSnapshot snapshot,
             CreatureId actor,
             MovementPath path
         )
         {
+            List<CreatureId> occupants = new List<CreatureId>();
             for (int index = 0; index + 1 < path.Steps.Count; index++)
             {
                 if (
@@ -376,20 +379,32 @@ namespace Game.Rules.Runtime
                     )
                 )
                 {
-                    return occupant;
+                    occupants.Add(occupant);
                 }
             }
-            return default;
+            return occupants;
         }
 
-        public static bool AreFriendly(
+        public static bool AreAllFriendly(
             RulesSnapshot snapshot,
             CreatureId actor,
-            CreatureId occupant
-        ) =>
-            snapshot.Creatures.TryGet(actor, out CreatureState actorState)
-            && snapshot.Creatures.TryGet(occupant, out CreatureState occupantState)
-            && actorState.Player == occupantState.Player;
+            IReadOnlyList<CreatureId> occupants
+        )
+        {
+            if (!snapshot.Creatures.TryGet(actor, out CreatureState actorState))
+                return false;
+            foreach (CreatureId occupant in occupants)
+            {
+                if (
+                    !snapshot.Creatures.TryGet(occupant, out CreatureState occupantState)
+                    || actorState.Player != occupantState.Player
+                )
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
 
         public static DiagonalMovementPhase GetDiagonalPhase(
             RulesSnapshot snapshot,

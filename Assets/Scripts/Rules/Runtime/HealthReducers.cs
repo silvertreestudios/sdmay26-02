@@ -79,7 +79,10 @@ namespace Game.Rules.Runtime
                 );
             }
             if (health.Current > 0 && current == 0)
+            {
+                state.Positions.Remove(context.Op.Target);
                 facts.Stage(new CreatureReducedToZeroFact(context.Op.Target, context.Op.Origin));
+            }
             return ReductionResult<DamageOutcome>.Accept(outcome);
         }
     }

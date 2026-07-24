@@ -29,6 +29,23 @@ namespace Game.Rules.Runtime
             MovementBudgetId budgetId,
             MovementPath path,
             OccupiedTraversalAllowance allowance
+        ) =>
+            Validate(
+                snapshot,
+                mover,
+                budgetId,
+                path,
+                allowance.HasOccupant
+                    ? new[] { allowance }
+                    : Array.Empty<OccupiedTraversalAllowance>()
+            );
+
+        public MovementPathValidation Validate(
+            RulesSnapshot snapshot,
+            CreatureId mover,
+            MovementBudgetId budgetId,
+            MovementPath path,
+            IReadOnlyList<OccupiedTraversalAllowance> allowances
         )
         {
             if (!snapshot.MovementBudgets.TryGet(mover, out MovementBudgetState budget))
@@ -50,7 +67,7 @@ namespace Game.Rules.Runtime
                 path,
                 budget.Remaining,
                 budget.DiagonalPhase,
-                allowance
+                allowances
             );
         }
 
@@ -60,8 +77,8 @@ namespace Game.Rules.Runtime
             MovementPath path,
             GridDistance allowance,
             DiagonalMovementPhase diagonalPhase,
-            OccupiedTraversalAllowance occupiedTraversal
-        ) => ValidateCore(snapshot, mover, path, allowance, diagonalPhase, occupiedTraversal);
+            IReadOnlyList<OccupiedTraversalAllowance> occupiedTraversals
+        ) => ValidateCore(snapshot, mover, path, allowance, diagonalPhase, occupiedTraversals);
 
         private MovementPathValidation ValidateCore(
             RulesSnapshot snapshot,
@@ -69,7 +86,7 @@ namespace Game.Rules.Runtime
             MovementPath path,
             GridDistance allowance,
             DiagonalMovementPhase diagonalPhase,
-            OccupiedTraversalAllowance occupiedTraversal
+            IReadOnlyList<OccupiedTraversalAllowance> occupiedTraversals
         )
         {
             if (!snapshot.Positions.TryGet(mover, out GridPosition current))
@@ -95,7 +112,9 @@ namespace Game.Rules.Runtime
             GridPosition from = current;
             int remaining = allowance.Feet;
             DiagonalMovementPhase phase = diagonalPhase;
-            bool traversedAuthorizedOccupant = false;
+            int usedTraversalCount = 0;
+            List<OccupiedTraversalAllowance> committedTraversals =
+                new List<OccupiedTraversalAllowance>(occupiedTraversals.Count);
             for (int index = 0; index < path.Steps.Count; index++)
             {
                 int stepNumber = index + 1;
@@ -123,15 +142,38 @@ namespace Game.Rules.Runtime
                             )
                         );
                     }
-                    if (!occupiedTraversal.HasOccupant)
+                    if (occupiedTraversals.Count == 0)
                     {
                         return MovementPathValidation.Rejected(
                             new MovementFailure(MovementFailureKind.Occupied, stepNumber, to)
                         );
                     }
+                    if (usedTraversalCount >= occupiedTraversals.Count)
+                    {
+                        return MovementPathValidation.Rejected(
+                            PermissionFailure(
+                                MovementPermissionFailureKind.InvalidReservation,
+                                stepNumber,
+                                to
+                            )
+                        );
+                    }
+                    OccupiedTraversalAllowance matchedTraversal = occupiedTraversals[
+                        usedTraversalCount
+                    ];
+                    if (matchedTraversal.Occupant != occupant)
+                    {
+                        return MovementPathValidation.Rejected(
+                            PermissionFailure(
+                                MovementPermissionFailureKind.OccupantMismatch,
+                                stepNumber,
+                                to
+                            )
+                        );
+                    }
                     if (
-                        occupiedTraversal.HasReservedPosition
-                        && occupiedTraversal.ReservedPosition != to
+                        matchedTraversal.HasReservedPosition
+                        && matchedTraversal.ReservedPosition != to
                     )
                     {
                         return MovementPathValidation.Rejected(
@@ -142,20 +184,7 @@ namespace Game.Rules.Runtime
                             )
                         );
                     }
-                    if (traversedAuthorizedOccupant)
-                    {
-                        return MovementPathValidation.Rejected(
-                            PermissionFailure(
-                                MovementPermissionFailureKind.InvalidReservation,
-                                stepNumber,
-                                to
-                            )
-                        );
-                    }
-                    if (
-                        occupant != occupiedTraversal.Occupant
-                        || HasOtherOccupant(snapshot, mover, to, occupant)
-                    )
+                    if (HasOtherOccupant(snapshot, mover, to, matchedTraversal.Occupant))
                     {
                         return MovementPathValidation.Rejected(
                             PermissionFailure(
@@ -166,8 +195,11 @@ namespace Game.Rules.Runtime
                         );
                     }
 
-                    committedAllowance = occupiedTraversal;
-                    traversedAuthorizedOccupant = true;
+                    committedAllowance = matchedTraversal.HasReservedPosition
+                        ? matchedTraversal
+                        : OccupiedTraversalAllowance.ForReservedPosition(occupant, to);
+                    usedTraversalCount++;
+                    committedTraversals.Add(committedAllowance);
                 }
 
                 TerrainCost terrain = Topology.GetTerrainCost(to);
@@ -191,7 +223,7 @@ namespace Game.Rules.Runtime
                 from = to;
             }
 
-            if (occupiedTraversal.HasOccupant && !traversedAuthorizedOccupant)
+            if (usedTraversalCount != occupiedTraversals.Count)
             {
                 return MovementPathValidation.Rejected(
                     PermissionFailure(
@@ -202,13 +234,7 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            return MovementPathValidation.Accepted(
-                plans,
-                traversedAuthorizedOccupant,
-                traversedAuthorizedOccupant
-                    ? plans.Find(plan => plan.Allowance.HasOccupant).To
-                    : default
-            );
+            return MovementPathValidation.Accepted(plans, committedTraversals);
         }
 
         public MovementFailure ValidateRelocation(
@@ -344,43 +370,40 @@ namespace Game.Rules.Runtime
         private static readonly IReadOnlyList<MovementStepPlan> NoSteps = Array.AsReadOnly(
             Array.Empty<MovementStepPlan>()
         );
+        private static readonly IReadOnlyList<OccupiedTraversalAllowance> NoTraversals =
+            Array.AsReadOnly(Array.Empty<OccupiedTraversalAllowance>());
 
         private MovementPathValidation(
             bool isValid,
             IReadOnlyList<MovementStepPlan> steps,
             MovementFailure failure,
-            bool hasOccupiedTraversal,
-            GridPosition occupiedPosition
+            IReadOnlyList<OccupiedTraversalAllowance> occupiedTraversals
         )
         {
             IsValid = isValid;
             Steps = steps;
             Failure = failure;
-            HasOccupiedTraversal = hasOccupiedTraversal;
-            OccupiedPosition = occupiedPosition;
+            OccupiedTraversals = occupiedTraversals;
         }
 
         public bool IsValid { get; }
         public IReadOnlyList<MovementStepPlan> Steps { get; }
         public MovementFailure Failure { get; }
-        public bool HasOccupiedTraversal { get; }
-        public GridPosition OccupiedPosition { get; }
+        public IReadOnlyList<OccupiedTraversalAllowance> OccupiedTraversals { get; }
 
         public static MovementPathValidation Accepted(
             List<MovementStepPlan> steps,
-            bool hasOccupiedTraversal,
-            GridPosition occupiedPosition
+            List<OccupiedTraversalAllowance> occupiedTraversals
         ) =>
             new MovementPathValidation(
                 true,
                 Array.AsReadOnly(steps.ToArray()),
                 default,
-                hasOccupiedTraversal,
-                occupiedPosition
+                Array.AsReadOnly(occupiedTraversals.ToArray())
             );
 
         public static MovementPathValidation Rejected(MovementFailure failure) =>
-            new MovementPathValidation(false, NoSteps, failure, false, default);
+            new MovementPathValidation(false, NoSteps, failure, NoTraversals);
     }
 
     internal readonly struct MovementStepPlan

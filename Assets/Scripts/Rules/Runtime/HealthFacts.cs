@@ -165,6 +165,10 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>Records the single positive-current-HP to zero-current-HP transition.</summary>
+    /// <remarks>
+    /// The committing transaction removes any authoritative position entry without removing the
+    /// zero-HP health or creature-identity entries used by Fact and presentation consumers.
+    /// </remarks>
     public sealed class CreatureReducedToZeroFact : HealthFact
     {
         /// <summary>Initializes the committed positive-to-zero transition record.</summary>
