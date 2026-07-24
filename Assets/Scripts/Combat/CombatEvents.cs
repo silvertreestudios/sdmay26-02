@@ -30,3 +30,6 @@ public class OnActionConfirm : StaticUnityEvent<OnActionConfirm> { }
 
 /// <summary>UI Triggered upon action completion </summary>
 public class OnActionComplete : StaticUnityEvent<OnActionComplete> { }
+
+/// <summary>Raised after an action or turn boundary commits persistent gameplay state.</summary>
+public class OnGameplayStateCommitted : StaticUnityEvent<OnGameplayStateCommitted> { }

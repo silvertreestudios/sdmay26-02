@@ -82,6 +82,12 @@ namespace Game.Combat.Encounters
         /// <summary>Raised after a generated door opens and its navigation state is committed.</summary>
         public event Action<string> DoorOpened = delegate { };
 
+        /// <summary>Raised after any persistent generated-floor mutation commits.</summary>
+        public event Action PersistentStateChanged = delegate { };
+
+        /// <summary>Gets whether a party member or materialized enemy is completing an action.</summary>
+        public bool HasActionInProgress => IsInitialized && director.HasActionInProgress;
+
         /// <summary>Initializes pristine encounter state for a newly generated floor.</summary>
         /// <param name="document">The validated source document retained by the active map.</param>
         /// <param name="catalog">The validated runtime creature catalog.</param>
@@ -189,6 +195,31 @@ namespace Game.Combat.Encounters
             return director.CaptureSnapshot();
         }
 
+        /// <summary>Captures complete mutable runtime state for the current floor.</summary>
+        /// <param name="captureCreatureState">Captures child state for each living enemy.</param>
+        /// <returns>Door, encounter, defeat, and living-enemy state.</returns>
+        public DungeonRuntimeState CaptureRuntimeState(
+            Func<ActionController, string> captureCreatureState
+        )
+        {
+            if (!IsInitialized)
+                throw new InvalidOperationException(
+                    "The dungeon encounter runtime is not initialized."
+                );
+            if (captureCreatureState == null)
+                throw new ArgumentNullException(nameof(captureCreatureState));
+
+            DungeonEncounterLifecycleSnapshot snapshot = director.CaptureSnapshot();
+            return new DungeonRuntimeState(
+                CaptureOpenDoorIds(),
+                snapshot
+                    .Groups.Where(group => group.State == DungeonEncounterGroupState.Cleared)
+                    .Select(group => group.EncounterId),
+                snapshot.Groups.SelectMany(group => group.DefeatedCreatureInstanceIds),
+                director.CaptureLivingCreatureStates(captureCreatureState)
+            );
+        }
+
         /// <summary>Captures all currently open generated-door IDs in deterministic order.</summary>
         /// <returns>A copied stable-ID sequence suitable for the floor-state persistence contract.</returns>
         /// <exception cref="InvalidOperationException">The controller is not initialized.</exception>
@@ -270,6 +301,7 @@ namespace Game.Combat.Encounters
             actor.ActionPoints -= decision.ActionCost;
             openDoorIds.Add(door.StableId);
             DoorOpened(door.StableId);
+            PersistentStateChanged();
             return true;
         }
 
@@ -360,6 +392,8 @@ namespace Game.Combat.Encounters
             combatManager = manager;
             explorationPresentation = presenter;
             director = createdDirector;
+            director.EncounterLifecycleChanged += OnEncounterLifecycleChanged;
+            director.CreatureDefeated += OnCreatureDefeated;
             BindGeneratedDoors(document);
             combatManager.CombatActivityChanged += OnCombatActivityChanged;
             IsInitialized = true;
@@ -456,6 +490,11 @@ namespace Game.Combat.Encounters
                 gridInput.CellClicked -= OnGridCellClicked;
             if (grid != null)
                 grid.UnbindExplorationStrideCoordinator(this);
+            if (director != null)
+            {
+                director.EncounterLifecycleChanged -= OnEncounterLifecycleChanged;
+                director.CreatureDefeated -= OnCreatureDefeated;
+            }
             foreach (ActionController partyMember in party)
             {
                 if (partyMember != null)
@@ -681,6 +720,10 @@ namespace Game.Combat.Encounters
             long zDistance = Math.Abs((long)position.z - target.Z);
             return xDistance + zDistance == 1;
         }
+
+        private void OnEncounterLifecycleChanged() => PersistentStateChanged();
+
+        private void OnCreatureDefeated(DungeonCreatureDefeatResult _) => PersistentStateChanged();
 
         private static bool CanObserve(ActionController controller)
         {

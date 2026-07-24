@@ -1,6 +1,20 @@
 using System.Collections.Generic;
+using System.Linq;
 using Game.Rules;
 using UnityEngine;
+
+/// <summary>Pairs one condition identifier with its source object for persistence capture.</summary>
+internal readonly struct ConditionApplicationSnapshot
+{
+    internal ConditionApplicationSnapshot(string conditionId, ConditionSource source)
+    {
+        ConditionId = conditionId;
+        Source = source;
+    }
+
+    internal string ConditionId { get; }
+    internal ConditionSource Source { get; }
+}
 
 /// <summary>
 /// Tracks condition sources and exposes condition names to both rules snapshots and PF2e modifier providers.
@@ -104,6 +118,36 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
     public IEnumerable<Pf2eModifier> GetModifiers(Pf2eStatistic statistic)
     {
         return ConditionModifierRules.GetModifiers(ActiveConditionNames, statistic);
+    }
+
+    internal IReadOnlyList<ConditionApplicationSnapshot> CaptureApplications()
+    {
+        return AppliedConditions
+            .OrderBy(entry => entry.Key, System.StringComparer.Ordinal)
+            .SelectMany(entry =>
+                entry.Value.Select(source => new ConditionApplicationSnapshot(entry.Key, source))
+            )
+            .ToArray();
+    }
+
+    internal void RestoreApplications(IEnumerable<ConditionApplicationSnapshot> applications)
+    {
+        if (applications == null)
+            throw new System.ArgumentNullException(nameof(applications));
+        ConditionApplicationSnapshot[] copied = applications.ToArray();
+        if (
+            copied.Any(application =>
+                string.IsNullOrWhiteSpace(application.ConditionId) || application.Source == null
+            )
+        )
+            throw new System.ArgumentException(
+                "Restored condition applications require an identifier and source.",
+                nameof(applications)
+            );
+
+        AppliedConditions.Clear();
+        foreach (ConditionApplicationSnapshot application in copied)
+            Add(application.ConditionId, application.Source);
     }
 }
 

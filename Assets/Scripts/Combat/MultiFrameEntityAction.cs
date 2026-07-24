@@ -15,6 +15,7 @@ public abstract class MultiFrameEntityAction : EntityAction
     {
         yield return CoroutineRunner.Run(MFInvoke(target));
         CombatManager.GetInstance().CheckForEndOfGame();
+        OnGameplayStateCommitted.Invoke();
     }
 
     protected abstract IEnumerator MFInvoke(GameObject target);
