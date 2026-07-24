@@ -10,6 +10,7 @@ using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Autosave;
 using Game.DungeonPersistence.Repository;
 using Game.KayKit;
+using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEditor;
@@ -241,11 +242,12 @@ public sealed class DungeonAutosaveCoordinatorTests
     }
 
     [Test]
-    public void ContinueRestoresOnlyIndexedCurrentFloorAndRetainsCompleteBaseline()
+    public void ContinuePrepositionsPartyBeforeRebindingDestinationGrid()
     {
         CombatManager manager = Track(new GameObject("Continue Combat Manager"))
             .AddComponent<CombatManager>();
         DungeonPersistenceTestActionController party = CreateParty("Continue Party", 12);
+        party.transform.position = new Vector3(2f, 0f, 2f);
         GameObject mapObject = Track(new GameObject("Continue Map"));
         mapObject.SetActive(false);
         Map map = mapObject.AddComponent<Map>();
@@ -257,7 +259,23 @@ public sealed class DungeonAutosaveCoordinatorTests
             Track(new TextAsset(DungeonLevelJsonSerializer.Serialize(Document(0, false)))),
             mapCatalog
         );
-        DungeonRunSave saved = CreateRun(0, 2).WithSelectedFloor(2, PartyState(8));
+        GridBase grid = mapObject.AddComponent<GridBase>();
+        Assert.That(
+            grid.TryRebindMapData(
+                map.GetMapData(),
+                map.GetLineOfSightBlocks(),
+                out string initializationFailure
+            ),
+            Is.True,
+            initializationFailure
+        );
+        Token partyToken = party.GetComponent<Token>();
+        Assert.That(grid.IsInitialized, Is.True);
+        Assert.That(partyToken.IsRegistered, Is.True);
+
+        DungeonRunSave saved = DungeonRunSave
+            .CreateNew(PartyState(12), Document(0, persisted: true))
+            .WithAddedAndSelectedFloor(PartyState(8), BlockedDestinationDocument(2));
         RecordingRepository repository = new(saved);
         GameObject runtimeRoot = Track(new GameObject("Continue Runtime"));
         runtimeRoot.transform.SetParent(map.transform, false);
@@ -283,10 +301,82 @@ public sealed class DungeonAutosaveCoordinatorTests
         );
         Assert.That(result.RestoredExistingRun, Is.True);
         Assert.That(map.ValidateSource().JsonMap.LevelDocument.Generation.Depth, Is.EqualTo(2));
+        Assert.That(party.transform.position, Is.EqualTo(new Vector3(1f, 0f, 1f)));
+        Assert.That(party.gameObject.activeSelf, Is.True);
         DungeonAutosaveCoordinator coordinator =
             runtimeRoot.GetComponent<DungeonAutosaveCoordinator>();
         Assert.That(coordinator.LastCommittedSnapshot.Manifest.Floors.Length, Is.EqualTo(2));
         Assert.That(party.GetComponent<CreatureComponent>().hp, Is.EqualTo(8));
+    }
+
+    [Test]
+    public void ContinuePopulationFailureRestoresPartyPositionAndActivity()
+    {
+        CombatManager manager = Track(new GameObject("Failed Population Combat Manager"))
+            .AddComponent<CombatManager>();
+        DungeonPersistenceTestActionController party = CreateParty("Failed Population Party", 12);
+        Vector3 priorPosition = new(0f, 1.25f, 0f);
+        party.transform.position = priorPosition;
+
+        GameObject blocker = Track(new GameObject("Destination Rebind Blocker"));
+        blocker.transform.position = new Vector3(2f, 0f, 2f);
+        Token blockerToken = blocker.AddComponent<Token>();
+        GameObject mapObject = Track(new GameObject("Failed Population Map"));
+        mapObject.SetActive(false);
+        Map map = mapObject.AddComponent<Map>();
+        KayKitDungeonCatalog mapCatalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset"
+        );
+        Assert.That(mapCatalog, Is.Not.Null);
+        map.ConfigureJson(
+            Track(new TextAsset(DungeonLevelJsonSerializer.Serialize(Document(0, false)))),
+            mapCatalog
+        );
+        GridBase grid = mapObject.AddComponent<GridBase>();
+        Assert.That(
+            grid.TryRebindMapData(
+                map.GetMapData(),
+                map.GetLineOfSightBlocks(),
+                out string initializationFailure
+            ),
+            Is.True,
+            initializationFailure
+        );
+        Token partyToken = party.GetComponent<Token>();
+        Assert.That(grid.IsInitialized, Is.True);
+        Assert.That(partyToken.IsRegistered, Is.True);
+        Assert.That(blockerToken.IsRegistered, Is.True);
+        party.gameObject.SetActive(false);
+
+        DungeonRunSave saved = DungeonRunSave
+            .CreateNew(PartyState(12), Document(0, persisted: true))
+            .WithAddedAndSelectedFloor(PartyState(8), BlockedDestinationDocument(2));
+        RecordingRepository repository = new(saved);
+        GameObject runtimeRoot = Track(new GameObject("Failed Population Runtime"));
+        runtimeRoot.transform.SetParent(map.transform, false);
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+
+        DungeonRunPersistenceBootstrapResult result = DungeonRunPersistenceBootstrap.ContinueRun(
+            map,
+            Document(0, persisted: false),
+            catalog,
+            manager,
+            new[] { party },
+            new RecordingExplorationPresentation(),
+            runtimeRoot,
+            repository
+        );
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(result.Diagnostics.Single().Path, Is.EqualTo("floor"));
+        Assert.That(party.transform.position, Is.EqualTo(priorPosition));
+        Assert.That(party.gameObject.activeSelf, Is.False);
+        Assert.That(partyToken.IsRegistered, Is.True);
+        Assert.That(grid.GetTiles()[0, 0].Occupants, Does.Contain(party.gameObject));
+        Assert.That(map.ValidateSource().JsonMap.LevelDocument.Generation.Depth, Is.Zero);
+        Assert.That(runtimeRoot.GetComponent<DungeonEncounterRuntimeController>(), Is.Null);
     }
 
     [Test]
@@ -629,6 +719,24 @@ public sealed class DungeonAutosaveCoordinatorTests
                 : null
         );
     }
+
+    private static DungeonLevelDocument BlockedDestinationDocument(int depth) =>
+        new(
+            new DungeonGenerationMetadata("test-generator", 123, depth, depth),
+            new[] { "..#", "...", "..." },
+            new[] { new DungeonRoom(1, 0, 0, 1, 1) },
+            Array.Empty<DungeonDoor>(),
+            Array.Empty<DungeonStair>(),
+            new DungeonCell(1, 1),
+            new[] { new DungeonCell(1, 1) },
+            Array.Empty<DungeonObjectPlacement>(),
+            Array.Empty<DungeonEncounterPlan>(),
+            new DungeonRuntimeState(
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>()
+            )
+        );
 
     private static DungeonLevelDocument StairDocument(int depth)
     {

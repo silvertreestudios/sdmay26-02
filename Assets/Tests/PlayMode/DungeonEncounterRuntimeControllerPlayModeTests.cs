@@ -2,11 +2,15 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
+using Game.KayKit;
+using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
@@ -149,6 +153,112 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
             runtime.Lifecycle.GetRoomEncounter(1).State,
             Is.EqualTo(DungeonEncounterGroupState.Suspended)
         );
+    }
+
+    /// <summary>
+    /// Verifies a floor reset detaches suspended survivors before the destination grid rebinds.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator FloorResetDetachesSuspendedSurvivorsFromGridAndCombatManager()
+    {
+        Track(new GameObject("Test Combat Log")).AddComponent<RuntimeTestCombatLog>();
+        Track(new GameObject("Team Rules")).AddComponent<TeamRules>();
+        TrackingCombatManager manager = Track(new GameObject("Combat Manager"))
+            .AddComponent<TrackingCombatManager>();
+        KayKitDungeonCatalog mapCatalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset"
+        );
+        Assert.That(mapCatalog, Is.Not.Null);
+
+        GameObject mapObject = Track(new GameObject("Encounter Grid Map"));
+        mapObject.SetActive(false);
+        Map map = mapObject.AddComponent<Map>();
+        Assert.That(
+            map.TryPopulateJson(
+                DungeonLevelJsonSerializer.Serialize(Document()),
+                mapCatalog,
+                out MapSourceValidationResult initialValidation
+            ),
+            Is.True,
+            string.Join(" ", initialValidation.Errors)
+        );
+        GridBase grid = mapObject.AddComponent<GridBase>();
+        mapObject.SetActive(true);
+        Assert.That(grid.IsInitialized, Is.True);
+
+        RuntimeTestActionController player = CreatePlayer(manager);
+        player.transform.position = Vector3.zero;
+        Token playerToken = player.gameObject.AddComponent<Token>();
+        Assert.That(playerToken.IsRegistered, Is.True);
+
+        GameObject creaturePrefab = CreaturePrefab(new Vector3(1f, 0f, 0f));
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+        catalog.ReplaceEntries(
+            new[]
+            {
+                new DungeonEncounterCreatureCatalogEntry(
+                    "goblin-warrior",
+                    GoblinJson,
+                    creaturePrefab
+                ),
+            }
+        );
+        DungeonEncounterRuntimeController runtime = Track(
+                new GameObject("Dungeon Encounter Runtime")
+            )
+            .AddComponent<DungeonEncounterRuntimeController>();
+        runtime.transform.SetParent(map.transform, false);
+        runtime.InitializePristine(
+            Document(),
+            catalog,
+            manager,
+            new[] { player },
+            new RecordingExplorationPresentation()
+        );
+
+        player.transform.position = new Vector3(2f, 0f, 2f);
+        yield return null;
+        DungeonEncounterMember survivor = runtime
+            .GetComponentsInChildren<DungeonEncounterMember>()
+            .Single();
+        ActionController survivorController = survivor.GetComponent<ActionController>();
+        Token survivorToken = survivor.GetComponent<Token>();
+        Assert.That(survivorToken.IsRegistered, Is.True);
+        Assert.That(manager.RegisteredCombatants, Does.Contain(survivorController));
+
+        player.transform.position = Vector3.zero;
+        yield return null;
+        Assert.That(
+            runtime.Lifecycle.GetRoomEncounter(1).State,
+            Is.EqualTo(DungeonEncounterGroupState.Suspended)
+        );
+
+        MethodInfo reset = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "ResetForFloorTransition",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(reset, Is.Not.Null);
+        reset.Invoke(runtime, null);
+
+        Assert.That(survivorToken.IsRegistered, Is.False);
+        Assert.That(manager.RegisteredCombatants, Has.No.Member(survivorController));
+        Assert.That(manager.RegisteredCombatants, Does.Contain(player));
+        Assert.That(playerToken.IsRegistered, Is.True);
+        Assert.That(
+            map.TryPopulateJson(
+                DungeonLevelJsonSerializer.Serialize(EmptyDocument()),
+                mapCatalog,
+                out MapSourceValidationResult validation
+            ),
+            Is.True,
+            string.Join(" ", validation.Errors)
+        );
+        Assert.That(playerToken.IsRegistered, Is.True);
+
+        yield return null;
+        Assert.That(survivor == null, Is.True);
     }
 
     /// <summary>Verifies an encounter-free generated floor still grants exploration authority.</summary>
@@ -325,9 +435,12 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         return controller;
     }
 
-    private GameObject CreaturePrefab()
+    private GameObject CreaturePrefab() => CreaturePrefab(Vector3.zero);
+
+    private GameObject CreaturePrefab(Vector3 position)
     {
         GameObject prefab = Track(new GameObject("Encounter Creature Prefab"));
+        prefab.transform.position = position;
         prefab.AddComponent<RuntimeTestActionController>();
         Team team = prefab.AddComponent<Team>();
         team.Name = "Enemies";
@@ -414,6 +527,20 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
     private static void DestroyExistingRuntime()
     {
         foreach (
+            Token token in Object.FindObjectsByType<Token>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None
+            )
+        )
+            Object.DestroyImmediate(token.gameObject);
+        foreach (
+            GridAPI grid in Object.FindObjectsByType<GridAPI>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None
+            )
+        )
+            Object.DestroyImmediate(grid.gameObject);
+        foreach (
             GameManager gameManager in Object.FindObjectsByType<GameManager>(
                 FindObjectsInactive.Include,
                 FindObjectsSortMode.None
@@ -444,6 +571,11 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
             ResetEncounterTurnState();
             CombatManagerInterface.GetInstance().NextTurn();
         }
+    }
+
+    private sealed class TrackingCombatManager : CombatManager
+    {
+        internal IReadOnlyList<ActionController> RegisteredCombatants => Combatants;
     }
 
     private sealed class RecordingExplorationPresentation : IDungeonExplorationPresentation

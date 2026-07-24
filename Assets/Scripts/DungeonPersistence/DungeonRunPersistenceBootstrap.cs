@@ -905,30 +905,50 @@ namespace Game.DungeonPersistence
         )
         {
             bool[] wasActive = party.Select(member => member.gameObject.activeSelf).ToArray();
-            foreach (ActionController member in party)
-                member.gameObject.SetActive(false);
-
-            if (
-                !map.TryPopulateJson(
-                    DungeonLevelJsonSerializer.Serialize(floor),
-                    map.DungeonCatalog,
-                    out validation
-                )
-            )
+            Vector3[] priorPositions = party.Select(member => member.transform.position).ToArray();
+            bool populationSucceeded = false;
+            try
             {
                 for (int index = 0; index < party.Count; index++)
-                    party[index].gameObject.SetActive(wasActive[index]);
-                return false;
-            }
+                {
+                    ActionController member = party[index];
+                    member.gameObject.SetActive(false);
+                    DungeonPartyMemberSaveState saved = savedParty[index];
+                    Transform transform = member.transform;
+                    transform.position = new Vector3(
+                        saved.CellX,
+                        transform.position.y,
+                        saved.CellZ
+                    );
+                }
 
-            for (int index = 0; index < party.Count; index++)
-            {
-                DungeonPartyMemberSaveState saved = savedParty[index];
-                Transform transform = party[index].transform;
-                transform.position = new Vector3(saved.CellX, transform.position.y, saved.CellZ);
-                party[index].gameObject.SetActive(!saved.IsDefeated);
+                if (
+                    !map.TryPopulateJson(
+                        DungeonLevelJsonSerializer.Serialize(floor),
+                        map.DungeonCatalog,
+                        out validation
+                    )
+                )
+                {
+                    return false;
+                }
+
+                populationSucceeded = true;
+                for (int index = 0; index < party.Count; index++)
+                    party[index].gameObject.SetActive(!savedParty[index].IsDefeated);
+                return true;
             }
-            return true;
+            finally
+            {
+                if (!populationSucceeded)
+                {
+                    for (int index = 0; index < party.Count; index++)
+                    {
+                        party[index].transform.position = priorPositions[index];
+                        party[index].gameObject.SetActive(wasActive[index]);
+                    }
+                }
+            }
         }
     }
 }

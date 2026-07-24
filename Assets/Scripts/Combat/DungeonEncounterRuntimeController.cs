@@ -7,6 +7,7 @@ using Game.Creature;
 using Game.DungeonGeneration;
 using Game.KayKit;
 using GridPrivate;
+using GridPublic;
 using UnityEngine;
 
 namespace Game.Combat.Encounters
@@ -521,16 +522,29 @@ namespace Game.Combat.Encounters
             }
             director?.Dispose();
 
-            if (destroyEncounterActors)
-            {
-                foreach (
-                    DungeonEncounterMember member in GetComponentsInChildren<DungeonEncounterMember>(
-                        includeInactive: true
-                    )
+            foreach (
+                DungeonEncounterMember member in GetComponentsInChildren<DungeonEncounterMember>(
+                    includeInactive: true
                 )
+            )
+            {
+                if (member == null)
+                    continue;
+
+                ActionController controller = member.GetComponent<ActionController>();
+                if (controller != null && combatManager != null)
+                    combatManager.Remove(controller);
+
+                Token token = member.GetComponent<Token>();
+                if (token != null && grid != null)
                 {
-                    if (member == null)
-                        continue;
+                    if (token.IsRegistered)
+                        grid.DestroyToken(member.gameObject);
+                    token.DetachFromGrid(grid);
+                }
+
+                if (destroyEncounterActors)
+                {
                     member.gameObject.SetActive(false);
                     member.transform.SetParent(null, true);
                     Destroy(member.gameObject);
