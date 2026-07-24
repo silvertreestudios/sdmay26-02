@@ -19,7 +19,15 @@ namespace Game.DungeonPersistence.Actors
             !string.IsNullOrWhiteSpace(rosterSlotId)
             && !string.IsNullOrWhiteSpace(creatureContentId);
 
-        internal void Configure(string rosterId, string contentId)
+        /// <summary>
+        /// Configures a runtime-created party actor with the same stable identity contract used
+        /// by authored prefabs. Identity is immutable after the first successful call.
+        /// </summary>
+        /// <param name="rosterId">The non-empty stable slot within the player party.</param>
+        /// <param name="contentId">The non-empty creature content identifier.</param>
+        /// <exception cref="InvalidOperationException">The component is already configured.</exception>
+        /// <exception cref="ArgumentException">Either identifier is blank.</exception>
+        public void Configure(string rosterId, string contentId)
         {
             if (IsConfigured)
                 throw new InvalidOperationException(

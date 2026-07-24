@@ -179,16 +179,17 @@ public sealed class DungeonAutosaveCoordinatorTests
             )
         );
 
-        DungeonRunPersistenceBootstrapResult result = DungeonRunPersistenceBootstrap.StartNewRun(
-            map,
-            Document(0, persisted: false),
-            catalog,
-            manager,
-            new[] { party },
-            new RecordingExplorationPresentation(),
-            runtimeRoot,
-            repository
-        );
+        DungeonRunPersistenceBootstrapResult result =
+            DungeonRunPersistenceBootstrap.StartPreparedRunForTests(
+                map,
+                Document(0, persisted: false),
+                catalog,
+                manager,
+                new[] { party },
+                new RecordingExplorationPresentation(),
+                runtimeRoot,
+                repository
+            );
 
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(result.RestoredExistingRun, Is.False);
@@ -288,6 +289,255 @@ public sealed class DungeonAutosaveCoordinatorTests
         Assert.That(party.GetComponent<CreatureComponent>().hp, Is.EqualTo(8));
     }
 
+    [Test]
+    public void StairTravelRequiresConfirmationAndEveryLivingPartyMember()
+    {
+        DungeonTraversalFixture fixture = CreateTraversalFixture();
+        DungeonStairMarker stair = CreateStairMarker(fixture.Map, DungeonStairKind.Down);
+
+        DungeonTravelResult unconfirmed = fixture.Controller.TryUseStair(stair, confirmed: false);
+
+        Assert.That(unconfirmed.IsSuccess, Is.False);
+        Assert.That(
+            unconfirmed.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.ConfirmationRequired)
+        );
+        fixture.Party.transform.position = Vector3.zero;
+
+        DungeonTravelResult missing = fixture.Controller.TryUseStair(stair, confirmed: true);
+
+        Assert.That(missing.IsSuccess, Is.False);
+        Assert.That(
+            missing.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.PartyMissing)
+        );
+        Assert.That(missing.MissingPartyMembers, Is.EqualTo(new[] { "party-slot" }));
+        Assert.That(fixture.Repository.Current.Manifest.CurrentDepth, Is.Zero);
+    }
+
+    [Test]
+    public void StairActivationPresentsMissingPartyAndRequiresExplicitConfirmation()
+    {
+        DungeonTraversalFixture fixture = CreateTraversalFixture();
+        DungeonStairMarker stair = CreateStairMarker(fixture.Map, DungeonStairKind.Down);
+        fixture.Party.transform.position = Vector3.zero;
+
+        fixture.Controller.RequestUseStair(stair);
+
+        Assert.That(fixture.Presentation.LastPrompt, Is.Not.Null);
+        Assert.That(fixture.Presentation.LastPrompt.CanConfirm, Is.False);
+        Assert.That(
+            fixture.Presentation.LastPrompt.MissingPartyMembers,
+            Is.EqualTo(new[] { "party-slot" })
+        );
+        Assert.That(
+            fixture.Controller.LastDiagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.PartyMissing)
+        );
+
+        fixture.Party.transform.position = new Vector3(stair.Cell.X, 0f, stair.Cell.Z);
+        fixture.Presentation.ConfirmNext = false;
+        fixture.Controller.RequestUseStair(stair);
+
+        Assert.That(fixture.Presentation.LastPrompt.CanConfirm, Is.True);
+        Assert.That(
+            fixture.Controller.LastDiagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.ConfirmationRequired)
+        );
+
+        fixture.Controller.ReplaceGenerationForTests(
+            new SequenceDungeonGenerator(),
+            new DungeonEncounterPlanner(),
+            Array.Empty<DungeonEncounterCandidate>()
+        );
+        fixture.Presentation.ConfirmNext = true;
+        fixture.Controller.RequestUseStair(stair);
+
+        Assert.That(
+            fixture.Controller.LastDiagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.PopulationFailed),
+            "A confirmed production activation must invoke the traversal pipeline."
+        );
+        Assert.That(fixture.Controller.CurrentDepth, Is.Zero);
+    }
+
+    [Test]
+    public void IdenticalStartingSeedsProduceIdenticalValidatedFloorSequences()
+    {
+        DungeonPersistenceTestActionController party = CreateParty("Sequence Party", 12);
+        string[] first = AcquireSequence(157, party);
+        string[] second = AcquireSequence(157, party);
+
+        Assert.That(second, Is.EqualTo(first));
+        DungeonLevelParseResult depthZero = DungeonLevelJsonParser.Parse(first[0]);
+        Assert.That(depthZero.IsSuccess, Is.True);
+        Assert.That(
+            depthZero.Document.Stairs.Select(stair => stair.Kind),
+            Is.EqualTo(new[] { DungeonStairKind.Down })
+        );
+    }
+
+    [Test]
+    public void GenerationFailureKeepsCurrentFloorSelectedAndReportsStage()
+    {
+        DungeonTraversalFixture fixture = CreateTraversalFixture();
+        fixture.Controller.ReplaceGenerationForTests(
+            new FailingDungeonGenerator(),
+            new DungeonEncounterPlanner(),
+            Array.Empty<DungeonEncounterCandidate>()
+        );
+        DungeonStairMarker stair = CreateStairMarker(fixture.Map, DungeonStairKind.Down);
+
+        DungeonTravelResult result = fixture.Controller.TryUseStair(stair, confirmed: true);
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(
+            result.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.GenerationFailed)
+        );
+        Assert.That(result.Depth, Is.Zero);
+        Assert.That(fixture.Controller.CurrentDepth, Is.Zero);
+        Assert.That(fixture.Runtime.IsInitialized, Is.True);
+        Assert.That(fixture.Repository.Current.Manifest.CurrentDepth, Is.Zero);
+    }
+
+    [Test]
+    public void ReparseValidationFailureKeepsCurrentFloorPlayable()
+    {
+        DungeonTraversalFixture fixture = CreateTraversalFixture();
+        fixture.Controller.ReplaceGenerationForTests(
+            new InvalidDocumentGenerator(),
+            new DungeonEncounterPlanner(),
+            Array.Empty<DungeonEncounterCandidate>()
+        );
+        DungeonStairMarker stair = CreateStairMarker(fixture.Map, DungeonStairKind.Down);
+
+        DungeonTravelResult result = fixture.Controller.TryUseStair(stair, confirmed: true);
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(
+            result.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.ValidationFailed)
+        );
+        Assert.That(fixture.Controller.CurrentDepth, Is.Zero);
+        Assert.That(fixture.Runtime.IsInitialized, Is.True);
+        Assert.That(fixture.Repository.Current.Manifest.CurrentDepth, Is.Zero);
+    }
+
+    [Test]
+    public void SaveFailureKeepsCurrentFloorPlayableAndSelected()
+    {
+        DungeonTraversalFixture fixture = CreateTraversalFixture();
+        fixture.Repository.FailSave = true;
+        DungeonStairMarker stair = CreateStairMarker(fixture.Map, DungeonStairKind.Down);
+
+        DungeonTravelResult result = fixture.Controller.TryUseStair(stair, confirmed: true);
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(
+            result.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.SaveFailed)
+        );
+        Assert.That(fixture.Controller.CurrentDepth, Is.Zero);
+        Assert.That(fixture.Runtime.IsInitialized, Is.True);
+        Assert.That(fixture.Repository.Current.Manifest.CurrentDepth, Is.Zero);
+    }
+
+    [Test]
+    public void PopulationFailureRollsPublishedSelectionBackToPlayableFloor()
+    {
+        DungeonTraversalFixture fixture = CreateTraversalFixture();
+        fixture.Controller.ReplaceGenerationForTests(
+            new SequenceDungeonGenerator(),
+            new DungeonEncounterPlanner(),
+            Array.Empty<DungeonEncounterCandidate>()
+        );
+        DungeonStairMarker stair = CreateStairMarker(fixture.Map, DungeonStairKind.Down);
+
+        DungeonTravelResult result = fixture.Controller.TryUseStair(stair, confirmed: true);
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(
+            result.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.PopulationFailed)
+        );
+        Assert.That(fixture.Controller.CurrentDepth, Is.Zero);
+        Assert.That(fixture.Runtime.IsInitialized, Is.True);
+        Assert.That(fixture.Repository.Current.Manifest.CurrentDepth, Is.Zero);
+        Assert.That(fixture.Repository.Current.Manifest.Floors, Has.Length.EqualTo(1));
+    }
+
+    private DungeonTraversalFixture CreateTraversalFixture()
+    {
+        CombatManager manager = Track(new GameObject("Traversal Combat Manager"))
+            .AddComponent<CombatManager>();
+        DungeonPersistenceTestActionController party = CreateParty("Traversal Party", 12);
+        party.transform.position = new Vector3(5f, 0f, 1f);
+        Map map = Track(new GameObject("Traversal Map")).AddComponent<Map>();
+        GameObject runtimeRoot = Track(new GameObject("Traversal Runtime"));
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+        RecordingRepository repository = new((DungeonRunSave)null);
+        RecordingExplorationPresentation presentation = new();
+        DungeonRunPersistenceBootstrapResult bootstrap =
+            DungeonRunPersistenceBootstrap.StartPreparedRunForTests(
+                map,
+                StairDocument(0),
+                catalog,
+                manager,
+                new[] { party },
+                presentation,
+                runtimeRoot,
+                repository
+            );
+        Assert.That(
+            bootstrap.IsSuccess,
+            Is.True,
+            string.Join(" ", bootstrap.Diagnostics.Select(item => item.Message))
+        );
+        return new DungeonTraversalFixture(
+            map,
+            party,
+            bootstrap.Runtime,
+            bootstrap.Controller,
+            repository,
+            presentation
+        );
+    }
+
+    private static string[] AcquireSequence(int seed, DungeonPersistenceTestActionController party)
+    {
+        List<string> floors = new();
+        for (int depth = 0; depth <= 3; depth++)
+        {
+            DungeonTravelDiagnostic diagnostic = DungeonRunController.AcquireFirstVisit(
+                new DeterministicDungeonGenerator(),
+                new DungeonEncounterPlanner(),
+                Array.Empty<DungeonEncounterCandidate>(),
+                new[] { party },
+                seed,
+                depth,
+                width: 31,
+                height: 31,
+                out DungeonLevelDocument document
+            );
+            Assert.That(diagnostic, Is.Null, diagnostic?.Message);
+            floors.Add(DungeonLevelJsonSerializer.Serialize(document));
+        }
+        return floors.ToArray();
+    }
+
+    private DungeonStairMarker CreateStairMarker(Map map, DungeonStairKind kind)
+    {
+        GameObject stairObject = Track(new GameObject("Traversal Stair"));
+        stairObject.transform.SetParent(map.transform, false);
+        DungeonStair stair = StairDocument(0).Stairs.Single(item => item.Kind == kind);
+        DungeonStairMarker marker = stairObject.AddComponent<DungeonStairMarker>();
+        marker.Configure(stair.Id, stair.Kind, stair.Cell, stair.ArrivalCell);
+        return marker;
+    }
+
     private DungeonPersistenceTestActionController CreateParty(string name, int hitPoints)
     {
         GameObject partyObject = Track(new GameObject(name));
@@ -380,8 +630,122 @@ public sealed class DungeonAutosaveCoordinatorTests
         );
     }
 
-    private sealed class RecordingExplorationPresentation : IDungeonExplorationPresentation
+    private static DungeonLevelDocument StairDocument(int depth)
     {
+        DungeonStair[] stairs =
+            depth == 0
+                ? new[]
+                {
+                    new DungeonStair(
+                        "stair-down",
+                        DungeonStairKind.Down,
+                        new DungeonCell(5, 1),
+                        new DungeonCell(4, 1)
+                    ),
+                }
+                : new[]
+                {
+                    new DungeonStair(
+                        "stair-down",
+                        DungeonStairKind.Down,
+                        new DungeonCell(5, 1),
+                        new DungeonCell(4, 1)
+                    ),
+                    new DungeonStair(
+                        "stair-up",
+                        DungeonStairKind.Up,
+                        new DungeonCell(0, 1),
+                        new DungeonCell(1, 1)
+                    ),
+                };
+        return new DungeonLevelDocument(
+            new DungeonGenerationMetadata("test-generator", 123, depth, 0),
+            new[] { ".......", ".......", "......." },
+            new[] { new DungeonRoom(1, 0, 0, 2, 2), new DungeonRoom(2, 4, 0, 6, 2) },
+            Array.Empty<DungeonDoor>(),
+            stairs,
+            new DungeonCell(1, 1),
+            new[] { new DungeonCell(1, 1) },
+            Array.Empty<DungeonObjectPlacement>(),
+            Array.Empty<DungeonEncounterPlan>()
+        );
+    }
+
+    private sealed class DungeonTraversalFixture
+    {
+        internal DungeonTraversalFixture(
+            Map map,
+            DungeonPersistenceTestActionController party,
+            DungeonEncounterRuntimeController runtime,
+            DungeonRunController controller,
+            RecordingRepository repository,
+            RecordingExplorationPresentation presentation
+        )
+        {
+            Map = map;
+            Party = party;
+            Runtime = runtime;
+            Controller = controller;
+            Repository = repository;
+            Presentation = presentation;
+        }
+
+        internal Map Map { get; }
+        internal DungeonPersistenceTestActionController Party { get; }
+        internal DungeonEncounterRuntimeController Runtime { get; }
+        internal DungeonRunController Controller { get; }
+        internal RecordingRepository Repository { get; }
+        internal RecordingExplorationPresentation Presentation { get; }
+    }
+
+    private sealed class FailingDungeonGenerator : IDungeonGenerator
+    {
+        public DungeonGenerationResult Generate(DungeonGenerationRequest request) =>
+            new(
+                null,
+                new[]
+                {
+                    new DungeonGenerationDiagnostic(
+                        DungeonGenerationDiagnosticCode.RetryLimitExhausted,
+                        "topology",
+                        "Simulated generation failure."
+                    ),
+                }
+            );
+    }
+
+    private sealed class SequenceDungeonGenerator : IDungeonGenerator
+    {
+        public DungeonGenerationResult Generate(DungeonGenerationRequest request) =>
+            new(StairDocument(request.Depth), Array.Empty<DungeonGenerationDiagnostic>());
+    }
+
+    private sealed class InvalidDocumentGenerator : IDungeonGenerator
+    {
+        public DungeonGenerationResult Generate(DungeonGenerationRequest request) =>
+            new(
+                new DungeonLevelDocument(
+                    new DungeonGenerationMetadata("invalid-generator", 123, request.Depth, 0),
+                    Array.Empty<string>(),
+                    Array.Empty<DungeonRoom>(),
+                    Array.Empty<DungeonDoor>(),
+                    Array.Empty<DungeonStair>(),
+                    new DungeonCell(0, 0),
+                    Array.Empty<DungeonCell>(),
+                    Array.Empty<DungeonObjectPlacement>(),
+                    Array.Empty<DungeonEncounterPlan>()
+                ),
+                Array.Empty<DungeonGenerationDiagnostic>()
+            );
+    }
+
+    private sealed class RecordingExplorationPresentation
+        : IDungeonExplorationPresentation,
+            IDungeonStairTraversalPresentation
+    {
+        internal bool ConfirmNext { get; set; }
+        internal DungeonStairTraversalPrompt LastPrompt { get; private set; }
+
         public void ShowExploration(
             IReadOnlyList<ActionController> party,
             ActionController selected,
@@ -389,6 +753,14 @@ public sealed class DungeonAutosaveCoordinatorTests
         ) { }
 
         public void HideExploration() { }
+
+        public void PresentStairTraversal(DungeonStairTraversalPrompt prompt, Action<bool> respond)
+        {
+            LastPrompt = prompt;
+            respond(ConfirmNext);
+        }
+
+        public void DismissStairTraversal() { }
     }
 
     private sealed class RecordingRepository : IDungeonSaveRepository

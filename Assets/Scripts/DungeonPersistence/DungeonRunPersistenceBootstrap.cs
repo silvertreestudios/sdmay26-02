@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Game.Combat.Encounters;
+using Game.Creature;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Autosave;
@@ -17,11 +18,13 @@ namespace Game.DungeonPersistence
     {
         private DungeonRunPersistenceBootstrapResult(
             DungeonEncounterRuntimeController runtime,
+            DungeonRunController controller,
             bool restoredExistingRun,
             IEnumerable<DungeonSaveDiagnostic> diagnostics
         )
         {
             Runtime = runtime;
+            Controller = controller;
             RestoredExistingRun = restoredExistingRun;
             Diagnostics = Array.AsReadOnly(diagnostics.ToArray());
         }
@@ -35,17 +38,21 @@ namespace Game.DungeonPersistence
         /// <summary>Gets the initialized current-floor runtime on success.</summary>
         public DungeonEncounterRuntimeController Runtime { get; }
 
+        /// <summary>Gets the initialized multi-floor traversal owner on success.</summary>
+        public DungeonRunController Controller { get; }
+
         /// <summary>Gets structured blocking diagnostics.</summary>
         public IReadOnlyList<DungeonSaveDiagnostic> Diagnostics { get; }
 
         internal static DungeonRunPersistenceBootstrapResult Success(
             DungeonEncounterRuntimeController runtime,
+            DungeonRunController controller,
             bool restoredExistingRun
-        ) => new(runtime, restoredExistingRun, Array.Empty<DungeonSaveDiagnostic>());
+        ) => new(runtime, controller, restoredExistingRun, Array.Empty<DungeonSaveDiagnostic>());
 
         internal static DungeonRunPersistenceBootstrapResult Failure(
             IEnumerable<DungeonSaveDiagnostic> diagnostics
-        ) => new(null, false, diagnostics);
+        ) => new(null, null, false, diagnostics);
     }
 
     /// <summary>
@@ -57,9 +64,9 @@ namespace Game.DungeonPersistence
     /// </remarks>
     public static class DungeonRunPersistenceBootstrap
     {
-        /// <summary>Starts and commits a new generated run without inspecting an existing autosave.</summary>
+        /// <summary>Generates and commits depth zero without inspecting an existing autosave.</summary>
         /// <param name="map">The reusable generated-dungeon map in the active scene.</param>
-        /// <param name="initialDocument">The pristine generated floor that begins the run.</param>
+        /// <param name="initialDocument">The authored template supplying seed and dimensions.</param>
         /// <param name="encounterCatalog">The creature catalog used to initialize floor encounters.</param>
         /// <param name="combatManager">The active scene combat scheduler.</param>
         /// <param name="sceneParty">The complete authored party to persist.</param>
@@ -88,7 +95,51 @@ namespace Game.DungeonPersistence
                 sceneParty,
                 explorationPresentation,
                 runtimeRoot,
-                new FileSystemDungeonSaveRepository(autosaveDirectory)
+                autosaveDirectory
+            );
+        }
+
+        /// <summary>
+        /// Generates and commits depth zero to an explicit autosave directory. This overload lets
+        /// automated and embedded hosts isolate run persistence from the player's default save.
+        /// </summary>
+        /// <param name="map">The reusable generated-dungeon map in the active scene.</param>
+        /// <param name="initialDocument">The authored template supplying seed and dimensions.</param>
+        /// <param name="encounterCatalog">The creature catalog used to initialize encounters.</param>
+        /// <param name="combatManager">The active scene combat scheduler.</param>
+        /// <param name="sceneParty">The complete authored party to persist.</param>
+        /// <param name="explorationPresentation">Exploration and stair-travel presentation.</param>
+        /// <param name="runtimeRoot">The object that owns persistence runtime components.</param>
+        /// <param name="autosaveDirectory">A non-empty directory dedicated to this run.</param>
+        /// <returns>The initialized new runtime or blocking staged diagnostics.</returns>
+        public static DungeonRunPersistenceBootstrapResult StartNewRun(
+            Map map,
+            DungeonLevelDocument initialDocument,
+            DungeonEncounterCreatureCatalog encounterCatalog,
+            CombatManagerInterface combatManager,
+            IEnumerable<ActionController> sceneParty,
+            IDungeonExplorationPresentation explorationPresentation,
+            GameObject runtimeRoot,
+            string autosaveDirectory
+        )
+        {
+            if (string.IsNullOrWhiteSpace(autosaveDirectory))
+                throw new ArgumentException(
+                    "An autosave directory is required.",
+                    nameof(autosaveDirectory)
+                );
+            return StartGeneratedRun(
+                map,
+                initialDocument,
+                encounterCatalog,
+                combatManager,
+                sceneParty,
+                explorationPresentation,
+                runtimeRoot,
+                new FileSystemDungeonSaveRepository(autosaveDirectory),
+                new DeterministicDungeonGenerator(),
+                new DungeonEncounterPlanner(),
+                DungeonRunController.LoadEncounterCandidates()
             );
         }
 
@@ -127,7 +178,7 @@ namespace Game.DungeonPersistence
             );
         }
 
-        internal static DungeonRunPersistenceBootstrapResult StartNewRun(
+        internal static DungeonRunPersistenceBootstrapResult StartPreparedRunForTests(
             Map map,
             DungeonLevelDocument initialDocument,
             DungeonEncounterCreatureCatalog encounterCatalog,
@@ -163,7 +214,8 @@ namespace Game.DungeonPersistence
                 );
             }
 
-            return CreateNew(
+            return CreatePrepared(
+                map,
                 initialDocument,
                 encounterCatalog,
                 combatManager,
@@ -239,6 +291,135 @@ namespace Game.DungeonPersistence
             }
         }
 
+        private static DungeonRunPersistenceBootstrapResult StartGeneratedRun(
+            Map map,
+            DungeonLevelDocument template,
+            DungeonEncounterCreatureCatalog encounterCatalog,
+            CombatManagerInterface combatManager,
+            IEnumerable<ActionController> sceneParty,
+            IDungeonExplorationPresentation explorationPresentation,
+            GameObject runtimeRoot,
+            IDungeonSaveRepository repository,
+            IDungeonGenerator generator,
+            DungeonEncounterPlanner encounterPlanner,
+            IReadOnlyList<DungeonEncounterCandidate> encounterCandidates
+        )
+        {
+            ValidateArguments(
+                map,
+                template,
+                encounterCatalog,
+                combatManager,
+                sceneParty,
+                explorationPresentation,
+                runtimeRoot,
+                repository
+            );
+
+            ActionController[] party;
+            try
+            {
+                party = ValidateParty(sceneParty)
+                    .OrderBy(
+                        controller =>
+                            controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId,
+                        StringComparer.Ordinal
+                    )
+                    .ToArray();
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Failure(
+                    DungeonSaveDiagnosticCode.InvalidSnapshot,
+                    "party",
+                    exception.Message
+                );
+            }
+
+            DungeonTravelDiagnostic acquisition = DungeonRunController.AcquireFirstVisit(
+                generator,
+                encounterPlanner,
+                encounterCandidates,
+                party,
+                template.Generation.RunSeed,
+                depth: 0,
+                template.Width,
+                template.Height,
+                out DungeonLevelDocument floor
+            );
+            if (acquisition != null)
+            {
+                return Failure(
+                    DungeonSaveDiagnosticCode.InvalidSnapshot,
+                    acquisition.Stage,
+                    acquisition.Message
+                );
+            }
+
+            DungeonPartyMemberSaveState[] savedParty;
+            DungeonRunSave candidate;
+            try
+            {
+                savedParty = CreateInitialPartyState(party, floor);
+                candidate = DungeonRunSave.CreateNew(savedParty, floor);
+            }
+            catch (Exception exception)
+                when (exception is ArgumentException || exception is InvalidOperationException)
+            {
+                return Failure(
+                    DungeonSaveDiagnosticCode.InvalidSnapshot,
+                    "initial-party",
+                    exception.Message
+                );
+            }
+
+            DungeonSaveResult<bool> published = repository.Save(candidate);
+            if (!published.IsSuccess)
+                return DungeonRunPersistenceBootstrapResult.Failure(published.Diagnostics);
+            if (
+                !TryPopulateMap(
+                    map,
+                    floor,
+                    savedParty,
+                    party,
+                    out MapSourceValidationResult validation
+                )
+            )
+            {
+                return Failure(
+                    DungeonSaveDiagnosticCode.InvalidSnapshot,
+                    "population",
+                    string.Join(" ", validation.Errors)
+                );
+            }
+
+            DungeonEncounterRuntimeController runtime =
+                runtimeRoot.AddComponent<DungeonEncounterRuntimeController>();
+            RestoreFloorRuntime(
+                floor,
+                savedParty,
+                encounterCatalog,
+                combatManager,
+                party,
+                explorationPresentation,
+                runtime
+            );
+            DungeonAutosaveCoordinator coordinator =
+                runtimeRoot.AddComponent<DungeonAutosaveCoordinator>();
+            coordinator.InitializeLoadedRun(candidate, repository, runtime, party);
+            DungeonRunController controller = CreateRunController(
+                runtimeRoot,
+                map,
+                encounterCatalog,
+                combatManager,
+                party,
+                explorationPresentation,
+                runtime,
+                coordinator
+            );
+            return DungeonRunPersistenceBootstrapResult.Success(runtime, controller, false);
+        }
+
         private static void ValidateArguments(
             Map map,
             DungeonLevelDocument initialDocument,
@@ -268,7 +449,8 @@ namespace Game.DungeonPersistence
                 throw new ArgumentNullException(nameof(repository));
         }
 
-        private static DungeonRunPersistenceBootstrapResult CreateNew(
+        private static DungeonRunPersistenceBootstrapResult CreatePrepared(
+            Map map,
             DungeonLevelDocument document,
             DungeonEncounterCreatureCatalog encounterCatalog,
             CombatManagerInterface combatManager,
@@ -299,7 +481,17 @@ namespace Game.DungeonPersistence
             coordinator.InitializeNewRun(document, repository, runtime, party);
             if (coordinator.LastDiagnostics.Count > 0)
                 return DungeonRunPersistenceBootstrapResult.Failure(coordinator.LastDiagnostics);
-            return DungeonRunPersistenceBootstrapResult.Success(runtime, false);
+            DungeonRunController controller = CreateRunController(
+                runtimeRoot,
+                map,
+                encounterCatalog,
+                combatManager,
+                party,
+                explorationPresentation,
+                runtime,
+                coordinator
+            );
+            return DungeonRunPersistenceBootstrapResult.Success(runtime, controller, false);
         }
 
         private static DungeonRunPersistenceBootstrapResult Restore(
@@ -330,28 +522,7 @@ namespace Game.DungeonPersistence
                 );
 
             ActionController[] orderedParty = OrderParty(party, manifest.Party);
-            Dictionary<string, DungeonActorSaveState> enemyState = ParseEnemyState(
-                currentFloor.RuntimeState.Creatures
-            );
-            Dictionary<string, GameObject> preflightActors = orderedParty.ToDictionary(
-                controller => controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId,
-                controller => controller.gameObject,
-                StringComparer.Ordinal
-            );
-            GameObject ResolvePreflightActor(string actorId) =>
-                preflightActors.TryGetValue(actorId, out GameObject actor) ? actor : null;
-            _ = save
-                .Manifest.Party.Select(
-                    (member, index) =>
-                        DungeonActorStateAdapter.PrepareRestore(
-                            orderedParty[index],
-                            member.State,
-                            member.CurrentHitPoints,
-                            member.IsDefeated,
-                            ResolvePreflightActor
-                        )
-                )
-                .ToArray();
+            PreflightFloorRuntime(currentFloor, manifest.Party, orderedParty);
 
             if (
                 !TryPopulateMap(
@@ -372,17 +543,92 @@ namespace Game.DungeonPersistence
 
             DungeonEncounterRuntimeController runtime =
                 runtimeRoot.AddComponent<DungeonEncounterRuntimeController>();
-            runtime.InitializePersisted(
+            RestoreFloorRuntime(
                 currentFloor,
+                manifest.Party,
                 encounterCatalog,
                 combatManager,
                 orderedParty,
+                explorationPresentation,
+                runtime
+            );
+
+            DungeonAutosaveCoordinator coordinator =
+                runtimeRoot.AddComponent<DungeonAutosaveCoordinator>();
+            coordinator.InitializeLoadedRun(save, repository, runtime, orderedParty);
+            DungeonRunController controller = CreateRunController(
+                runtimeRoot,
+                map,
+                encounterCatalog,
+                combatManager,
+                orderedParty,
+                explorationPresentation,
+                runtime,
+                coordinator
+            );
+            return DungeonRunPersistenceBootstrapResult.Success(runtime, controller, true);
+        }
+
+        private static DungeonRunController CreateRunController(
+            GameObject runtimeRoot,
+            Map map,
+            DungeonEncounterCreatureCatalog encounterCatalog,
+            CombatManagerInterface combatManager,
+            IReadOnlyList<ActionController> party,
+            IDungeonExplorationPresentation explorationPresentation,
+            DungeonEncounterRuntimeController runtime,
+            DungeonAutosaveCoordinator coordinator
+        )
+        {
+            DungeonRunController controller = runtimeRoot.AddComponent<DungeonRunController>();
+            controller.Initialize(
+                map,
+                encounterCatalog,
+                combatManager,
+                party,
+                explorationPresentation,
+                runtime,
+                coordinator,
+                new DeterministicDungeonGenerator(),
+                new DungeonEncounterPlanner(),
+                DungeonRunController.LoadEncounterCandidates()
+            );
+            return controller;
+        }
+
+        /// <summary>
+        /// Recreates one floor runtime and restores the complete actor graph from a saved envelope.
+        /// </summary>
+        internal static void RestoreFloorRuntime(
+            DungeonLevelDocument floor,
+            IReadOnlyList<DungeonPartyMemberSaveState> savedParty,
+            DungeonEncounterCreatureCatalog encounterCatalog,
+            CombatManagerInterface combatManager,
+            IReadOnlyList<ActionController> party,
+            IDungeonExplorationPresentation explorationPresentation,
+            DungeonEncounterRuntimeController runtime
+        )
+        {
+            PreflightFloorRuntime(floor, savedParty, party);
+            Dictionary<string, DungeonActorSaveState> enemyState = ParseEnemyState(
+                floor.RuntimeState.Creatures
+            );
+            Dictionary<string, GameObject> preflightActors = party.ToDictionary(
+                controller => controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId,
+                controller => controller.gameObject,
+                StringComparer.Ordinal
+            );
+            runtime.InitializePersisted(
+                floor,
+                encounterCatalog,
+                combatManager,
+                party,
                 explorationPresentation
             );
 
             Dictionary<string, GameObject> actors = new(preflightActors, StringComparer.Ordinal);
             foreach (
-                DungeonEncounterMember member in runtimeRoot.GetComponentsInChildren<DungeonEncounterMember>(
+                DungeonEncounterMember member in runtime.GetComponentsInChildren<DungeonEncounterMember>(
                     includeInactive: true
                 )
             )
@@ -393,11 +639,11 @@ namespace Game.DungeonPersistence
             GameObject ResolveActor(string actorId) =>
                 actors.TryGetValue(actorId, out GameObject actor) ? actor : null;
 
-            Action[] partyRestores = save
-                .Manifest.Party.Select(
+            Action[] partyRestores = savedParty
+                .Select(
                     (member, index) =>
                         DungeonActorStateAdapter.PrepareRestore(
-                            orderedParty[index],
+                            party[index],
                             member.State,
                             member.CurrentHitPoints,
                             member.IsDefeated,
@@ -408,7 +654,7 @@ namespace Game.DungeonPersistence
 
             List<Action> enemyRestores = new();
             foreach (
-                DungeonEncounterMember member in runtimeRoot
+                DungeonEncounterMember member in runtime
                     .GetComponentsInChildren<DungeonEncounterMember>(includeInactive: true)
                     .OrderBy(member => member.InstanceId, StringComparer.Ordinal)
             )
@@ -418,8 +664,8 @@ namespace Game.DungeonPersistence
                         $"Materialized enemy '{member.InstanceId}' has no saved actor state."
                     );
                 ActionController controller = member.GetComponent<ActionController>();
-                DungeonCreatureRuntimeState outer = currentFloor.RuntimeState.Creatures.Single(
-                    creature => creature.InstanceId == member.InstanceId
+                DungeonCreatureRuntimeState outer = floor.RuntimeState.Creatures.Single(creature =>
+                    creature.InstanceId == member.InstanceId
                 );
                 enemyRestores.Add(
                     DungeonActorStateAdapter.PrepareRestore(
@@ -440,11 +686,122 @@ namespace Game.DungeonPersistence
                 restore();
             foreach (Action restore in enemyRestores)
                 restore();
+        }
 
-            DungeonAutosaveCoordinator coordinator =
-                runtimeRoot.AddComponent<DungeonAutosaveCoordinator>();
-            coordinator.InitializeLoadedRun(save, repository, runtime, orderedParty);
-            return DungeonRunPersistenceBootstrapResult.Success(runtime, true);
+        private static void PreflightFloorRuntime(
+            DungeonLevelDocument floor,
+            IReadOnlyList<DungeonPartyMemberSaveState> savedParty,
+            IReadOnlyList<ActionController> party
+        )
+        {
+            _ = ParseEnemyState(floor.RuntimeState.Creatures);
+            Dictionary<string, GameObject> actors = party.ToDictionary(
+                controller => controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId,
+                controller => controller.gameObject,
+                StringComparer.Ordinal
+            );
+            GameObject ResolveActor(string actorId) =>
+                actors.TryGetValue(actorId, out GameObject actor) ? actor : null;
+            _ = savedParty
+                .Select(
+                    (member, index) =>
+                        DungeonActorStateAdapter.PrepareRestore(
+                            party[index],
+                            member.State,
+                            member.CurrentHitPoints,
+                            member.IsDefeated,
+                            ResolveActor
+                        )
+                )
+                .ToArray();
+        }
+
+        private static DungeonPartyMemberSaveState[] CreateInitialPartyState(
+            IReadOnlyList<ActionController> party,
+            DungeonLevelDocument floor
+        )
+        {
+            DungeonRoom initialRoom = floor.Rooms.Single(room => Contains(room, floor.StartCell));
+            HashSet<DungeonCell> blocked = new(floor.Objects.Select(placement => placement.Cell));
+            foreach (DungeonStair stair in floor.Stairs)
+            {
+                blocked.Add(stair.Cell);
+                blocked.Add(stair.ArrivalCell);
+            }
+            foreach (DungeonEncounterPlan plan in floor.EncounterPlans)
+            foreach (DungeonCell cell in plan.SpawnCells)
+                blocked.Add(cell);
+
+            DungeonCell[] cells = Cells(initialRoom)
+                .Where(cell => IsWalkable(floor.Rows, cell) && !blocked.Contains(cell))
+                .OrderBy(cell => cell == floor.StartCell ? 0 : 1)
+                .ThenBy(cell =>
+                    Math.Abs(cell.X - floor.StartCell.X) + Math.Abs(cell.Z - floor.StartCell.Z)
+                )
+                .ThenBy(cell => cell.Z)
+                .ThenBy(cell => cell.X)
+                .ToArray();
+            int livingCount = party.Count(controller =>
+                !controller.GetComponent<CreatureComponent>().IsDefeated
+            );
+            if (cells.Length < livingCount)
+                throw new InvalidOperationException(
+                    "The encounter-free initial room has too few unique party cells."
+                );
+
+            Dictionary<GameObject, string> actorIds = party.ToDictionary(
+                controller => controller.gameObject,
+                controller => controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId
+            );
+            string IdentifyActor(GameObject actor) =>
+                actor != null && actorIds.TryGetValue(actor, out string id)
+                    ? id
+                    : throw new InvalidOperationException(
+                        $"Actor '{actor?.name}' has no dungeon persistence identity."
+                    );
+
+            int livingIndex = 0;
+            return party
+                .Select(controller =>
+                {
+                    DungeonPartyMemberIdentity identity =
+                        controller.GetComponent<DungeonPartyMemberIdentity>();
+                    CreatureComponent creature = controller.GetComponent<CreatureComponent>();
+                    bool defeated = creature.IsDefeated;
+                    DungeonCell cell = defeated ? floor.StartCell : cells[livingIndex++];
+                    return new DungeonPartyMemberSaveState
+                    {
+                        RosterSlotId = identity.RosterSlotId,
+                        CreatureContentId = identity.CreatureContentId,
+                        CellX = cell.X,
+                        CellZ = cell.Z,
+                        CurrentHitPoints = creature.hp,
+                        IsDefeated = defeated,
+                        State = DungeonActorStateAdapter.Capture(controller, IdentifyActor),
+                    };
+                })
+                .ToArray();
+        }
+
+        private static IEnumerable<DungeonCell> Cells(DungeonRoom room)
+        {
+            for (int z = room.MinimumZ; z <= room.MaximumZ; z++)
+            for (int x = room.MinimumX; x <= room.MaximumX; x++)
+                yield return new DungeonCell(x, z);
+        }
+
+        private static bool Contains(DungeonRoom room, DungeonCell cell) =>
+            cell.X >= room.MinimumX
+            && cell.X <= room.MaximumX
+            && cell.Z >= room.MinimumZ
+            && cell.Z <= room.MaximumZ;
+
+        private static bool IsWalkable(IReadOnlyList<string> rows, DungeonCell cell)
+        {
+            if (rows.Count == 0 || cell.Z < 0 || cell.Z >= rows.Count || cell.X < 0)
+                return false;
+            string row = rows[rows.Count - 1 - cell.Z];
+            return cell.X < row.Length && (row[cell.X] == '.' || row[cell.X] == 'D');
         }
 
         private static ActionController[] ValidateParty(IEnumerable<ActionController> sceneParty)

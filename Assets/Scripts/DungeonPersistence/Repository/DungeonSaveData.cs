@@ -229,6 +229,9 @@ namespace Game.DungeonPersistence.Repository
             return floor;
         }
 
+        /// <summary>Returns whether the complete run envelope contains a visited depth.</summary>
+        internal bool HasFloor(int depth) => floorsByDepth.ContainsKey(depth);
+
         internal DungeonRunSave WithCurrentCheckpoint(
             IEnumerable<DungeonPartyMemberSaveState> party,
             DungeonLevelDocument floor
@@ -455,7 +458,8 @@ namespace Game.DungeonPersistence.Repository
             {
                 if (!IsWalkable(floor.Rows, member.CellX, member.CellZ))
                     throw new ArgumentException(
-                        $"Party member '{member.RosterSlotId}' is not on a walkable current-floor cell."
+                        $"Party member '{member.RosterSlotId}' is not on a walkable current-floor "
+                            + $"cell ({member.CellX}, {member.CellZ})."
                     );
             }
             if (
