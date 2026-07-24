@@ -13,6 +13,8 @@ namespace Game.Rules.Runtime
             new Dictionary<CreatureId, HealthState>();
         internal Dictionary<CreatureId, GridPosition> Positions { get; } =
             new Dictionary<CreatureId, GridPosition>();
+        internal Dictionary<CreatureId, GridDistance> LandSpeeds { get; } =
+            new Dictionary<CreatureId, GridDistance>();
         internal Dictionary<CreatureId, MovementBudgetState> MovementBudgets { get; } =
             new Dictionary<CreatureId, MovementBudgetState>();
         internal Dictionary<CreatureId, ActionEconomyState> ActionEconomy { get; } =
@@ -69,6 +71,17 @@ namespace Game.Rules.Runtime
         {
             RequireCreatureId(creature, nameof(creature));
             Positions[creature] = value;
+            return this;
+        }
+
+        /// <summary>Seeds one creature's authoritative land Speed.</summary>
+        /// <param name="creature">The creature that owns the Speed.</param>
+        /// <param name="value">The non-negative land Speed used by movement actions.</param>
+        /// <returns>This seed so initial state can be composed fluently.</returns>
+        public RulesStateSeed SeedLandSpeed(CreatureId creature, GridDistance value)
+        {
+            RequireCreatureId(creature, nameof(creature));
+            LandSpeeds[creature] = value;
             return this;
         }
 

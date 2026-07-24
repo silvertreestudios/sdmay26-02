@@ -29,9 +29,8 @@ public class PlayerActionController : ActionController
     [ContextMenu("End Turn")]
     public override void EndTurn()
     {
-        if (IsTurn && !IsTakingAction)
+        if (TryCompleteTurn())
         {
-            IsTurn = false;
             Debug.Log("Turn End: " + this.gameObject.name);
             CombatLog.GetInstance().Log("- " + this.gameObject.name + " ended their turn.");
             // Clean up turn state

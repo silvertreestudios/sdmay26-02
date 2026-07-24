@@ -104,7 +104,7 @@ namespace Game.Creature
 
         [SerializeField]
         private int _tempHp;
-        private UnityHealthRulesBridge healthRules;
+        private UnityCombatRulesBridge healthRules;
         private HealthState initializedHealth;
         private bool hasInitializedHealth;
         private CreatureId healthCreatureId;
@@ -1194,7 +1194,7 @@ namespace Game.Creature
             return hasInitializedHealth ? initializedHealth : new HealthState(_hp, _maxHp, _tempHp);
         }
 
-        internal void AttachHealthRules(UnityHealthRulesBridge bridge, CreatureId creatureId)
+        internal void AttachHealthRules(UnityCombatRulesBridge bridge, CreatureId creatureId)
         {
             if (bridge == null)
                 throw new ArgumentNullException(nameof(bridge));
@@ -1222,7 +1222,7 @@ namespace Game.Creature
             GetComponent<CreaturePresentation>()?.PlayHit();
         }
 
-        private UnityHealthRulesBridge RequireHealthRules()
+        private UnityCombatRulesBridge RequireHealthRules()
         {
             if (healthRules == null)
             {

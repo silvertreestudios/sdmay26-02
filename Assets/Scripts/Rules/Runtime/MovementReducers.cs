@@ -78,12 +78,20 @@ namespace Game.Rules.Runtime
     internal sealed class CommitMovementStepReducer
         : IOpReducer<CommitMovementStepOp, MovementStepCommitOutcome>
     {
-        private readonly GridTopology topology;
+        private readonly IGridTopologyProvider topologyProvider;
 
         public CommitMovementStepReducer(GridTopology topology)
+            : this(new FixedGridTopologyProvider(topology)) { }
+
+        public CommitMovementStepReducer(IGridTopologyProvider topologyProvider)
         {
-            this.topology = topology ?? throw new ArgumentNullException(nameof(topology));
+            this.topologyProvider =
+                topologyProvider ?? throw new ArgumentNullException(nameof(topologyProvider));
         }
+
+        private GridTopology Topology =>
+            topologyProvider.Current
+            ?? throw new InvalidOperationException("A topology provider returned no snapshot.");
 
         public ReductionResult<MovementStepCommitOutcome> Reduce(
             ReductionContext<CommitMovementStepOp> context,
@@ -115,11 +123,11 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Purely prepares both halves of an occupied crossing against one committed snapshot.
+        /// Purely prepares a complete occupied run against one committed snapshot.
         /// </summary>
         /// <remarks>
         /// This uses the same contract as final reducer settlement so handlers can decide whether
-        /// exit timing may open without staging state or Facts.
+        /// later departure timing may open without staging state or Facts.
         /// </remarks>
         internal MovementFailure ValidateCrossing(
             CommitOccupiedMovementCrossingOp op,
@@ -138,20 +146,17 @@ namespace Game.Rules.Runtime
                 snapshot.Positions,
                 current,
                 budget,
-                out PreparedMovementStep _,
-                out PreparedMovementStep _
+                out List<PreparedMovementStep> _
             );
         }
 
         internal MovementFailure PrepareCrossing(
             CommitOccupiedMovementCrossingOp op,
             RulesStateDraft state,
-            out PreparedMovementStep preparedEntry,
-            out PreparedMovementStep preparedExit
+            out List<PreparedMovementStep> preparedSteps
         )
         {
-            preparedEntry = default;
-            preparedExit = default;
+            preparedSteps = new List<PreparedMovementStep>();
             if (!state.Positions.TryGet(op.Entry.Mover, out GridPosition current))
                 return Failure(MovementFailureKind.MissingPosition, op.Entry);
             if (!state.MovementBudgets.TryGet(op.Entry.Mover, out MovementBudgetState budget))
@@ -159,14 +164,7 @@ namespace Game.Rules.Runtime
                 return Failure(MovementFailureKind.MissingBudget, op.Entry);
             }
 
-            return PrepareCrossing(
-                op,
-                state.Positions,
-                current,
-                budget,
-                out preparedEntry,
-                out preparedExit
-            );
+            return PrepareCrossing(op, state.Positions, current, budget, out preparedSteps);
         }
 
         private MovementFailure PrepareCrossing(
@@ -174,29 +172,43 @@ namespace Game.Rules.Runtime
             IReadOnlyCollection<KeyValuePair<CreatureId, GridPosition>> positions,
             GridPosition current,
             MovementBudgetState budget,
-            out PreparedMovementStep preparedEntry,
-            out PreparedMovementStep preparedExit
+            out List<PreparedMovementStep> preparedSteps
         )
         {
-            preparedEntry = default;
-            preparedExit = default;
-            MovementFailure failure = PrepareStep(
-                op.Entry,
-                positions,
-                current,
-                budget,
-                out preparedEntry
-            );
-            if (failure.Kind != MovementFailureKind.None)
-                return failure;
+            preparedSteps = new List<PreparedMovementStep>(op.Steps.Count);
+            foreach (CommitMovementStepOp step in op.Steps)
+            {
+                MovementFailure failure = PrepareStep(
+                    step,
+                    positions,
+                    current,
+                    budget,
+                    out PreparedMovementStep prepared
+                );
+                if (failure.Kind != MovementFailureKind.None)
+                    return failure;
 
-            return PrepareStep(
-                op.Exit,
-                positions,
-                op.Entry.To,
-                preparedEntry.UpdatedBudget,
-                out preparedExit
-            );
+                preparedSteps.Add(prepared);
+                current = step.To;
+                budget = prepared.UpdatedBudget;
+            }
+
+            bool hasOccupiedTraversal = false;
+            for (int index = 0; index + 1 < preparedSteps.Count; index++)
+            {
+                hasOccupiedTraversal |= preparedSteps[index].ReservedOccupantPresent;
+            }
+            PreparedMovementStep preparedExit = preparedSteps[preparedSteps.Count - 1];
+            if (!hasOccupiedTraversal || preparedExit.ReservedOccupantPresent)
+            {
+                CommitMovementStepOp step = op.Exit;
+                return MovementPathValidator.PermissionFailure(
+                    MovementPermissionFailureKind.InvalidReservation,
+                    step.TriggerId.StepNumber,
+                    step.To
+                );
+            }
+            return default;
         }
 
         internal MovementFailure PrepareStep(
@@ -217,7 +229,7 @@ namespace Game.Rules.Runtime
                 );
             if (budget.Id != op.BudgetId || budget.Owner != op.Mover)
                 return Failure(MovementFailureKind.BudgetMismatch, op);
-            if (!topology.Contains(op.To))
+            if (!Topology.Contains(op.To))
             {
                 return Failure(
                     op.IsDestination
@@ -230,7 +242,7 @@ namespace Game.Rules.Runtime
                 return Failure(MovementFailureKind.NonContiguous, op);
             if (BlocksDiagonalCorner(op.From, op.To))
                 return Failure(MovementFailureKind.CornerBlocked, op);
-            if (topology.IsBlocked(op.To))
+            if (Topology.IsBlocked(op.To))
             {
                 return Failure(
                     op.IsDestination
@@ -349,7 +361,7 @@ namespace Game.Rules.Runtime
             bool reservedOccupantPresent
         )
         {
-            TerrainCost terrain = topology.GetTerrainCost(op.To);
+            TerrainCost terrain = Topology.GetTerrainCost(op.To);
             if (reservedOccupantPresent)
                 terrain = MovementCostRules.ApplyOccupiedSpaceFloor(terrain);
             return MovementCostRules.Calculate(op.From, op.To, terrain, budget.DiagonalPhase);
@@ -379,7 +391,7 @@ namespace Game.Rules.Runtime
                 return false;
             GridPosition sideX = new GridPosition(from.X + dx, from.Y, from.Z);
             GridPosition sideZ = new GridPosition(from.X, from.Y, from.Z + dz);
-            return topology.IsBlocked(sideX) || topology.IsBlocked(sideZ);
+            return Topology.IsBlocked(sideX) || Topology.IsBlocked(sideZ);
         }
 
         private static MovementFailure Failure(MovementFailureKind kind, CommitMovementStepOp op) =>
@@ -454,26 +466,29 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
-            CommitMovementStepOp entry = context.Op.Entry;
-            CommitMovementStepOp exit = context.Op.Exit;
             MovementFailure failure = stepReducer.PrepareCrossing(
                 context.Op,
                 state,
-                out CommitMovementStepReducer.PreparedMovementStep preparedEntry,
-                out CommitMovementStepReducer.PreparedMovementStep preparedExit
+                out List<CommitMovementStepReducer.PreparedMovementStep> preparedSteps
             );
             if (failure.Kind != MovementFailureKind.None)
                 return Rejected(failure);
 
-            // No draft mutation or Fact staging occurs until both halves validate. Observers then
-            // receive the ordered entry/traversal/exit Facts against the final legal exit snapshot.
-            CommitMovementStepReducer.CommitPreparedStep(entry, preparedEntry, state, facts);
-            CommitMovementStepReducer.CommitPreparedStep(exit, preparedExit, state, facts);
+            // No draft mutation or Fact staging occurs until the full crossing validates.
+            // Observers receive its ordered movement Facts against the final legal exit snapshot.
+            for (int index = 0; index < context.Op.Steps.Count; index++)
+            {
+                CommitMovementStepReducer.CommitPreparedStep(
+                    context.Op.Steps[index],
+                    preparedSteps[index],
+                    state,
+                    facts
+                );
+            }
             return ReductionResult<MovementCrossingCommitOutcome>.Accept(
                 new MovementCrossingCommitOutcome(
-                    preparedEntry.Cost,
-                    preparedExit.Cost,
-                    preparedExit.UpdatedBudget.Remaining
+                    preparedSteps.ConvertAll(prepared => prepared.Cost),
+                    preparedSteps[preparedSteps.Count - 1].UpdatedBudget.Remaining
                 )
             );
         }
@@ -489,12 +504,20 @@ namespace Game.Rules.Runtime
     internal sealed class CommitRelocationReducer
         : IOpReducer<CommitRelocationOp, RelocationOutcome>
     {
-        private readonly GridTopology topology;
+        private readonly IGridTopologyProvider topologyProvider;
 
         public CommitRelocationReducer(GridTopology topology)
+            : this(new FixedGridTopologyProvider(topology)) { }
+
+        public CommitRelocationReducer(IGridTopologyProvider topologyProvider)
         {
-            this.topology = topology ?? throw new ArgumentNullException(nameof(topology));
+            this.topologyProvider =
+                topologyProvider ?? throw new ArgumentNullException(nameof(topologyProvider));
         }
+
+        private GridTopology Topology =>
+            topologyProvider.Current
+            ?? throw new InvalidOperationException("A topology provider returned no snapshot.");
 
         public ReductionResult<RelocationOutcome> Reduce(
             ReductionContext<CommitRelocationOp> context,
@@ -552,7 +575,7 @@ namespace Game.Rules.Runtime
                     op.Destination
                 );
             }
-            if (!topology.Contains(op.Destination))
+            if (!Topology.Contains(op.Destination))
             {
                 return new MovementFailure(
                     MovementFailureKind.DestinationOutOfBounds,
@@ -560,7 +583,7 @@ namespace Game.Rules.Runtime
                     op.Destination
                 );
             }
-            if (topology.IsBlocked(op.Destination))
+            if (Topology.IsBlocked(op.Destination))
             {
                 return new MovementFailure(
                     MovementFailureKind.DestinationBlocked,

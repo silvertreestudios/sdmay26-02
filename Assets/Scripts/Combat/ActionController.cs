@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using Game.Combat.Spells;
 using Game.Creature;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using Game.Strikes;
 using NUnit.Framework;
 using UnityEngine;
@@ -12,6 +14,8 @@ public abstract class ActionController : MonoBehaviour
     protected List<EntityAction> Movements = new();
     protected List<EntityAction> Reactions = new();
     protected bool IsTurn = false;
+    private UnityCombatRulesBridge combatRules;
+    private CreatureId rulesCreatureId;
     public bool IsTakingAction { get; set; } = false;
 
     /// <summary>Gets whether this controller currently has movement-only exploration authority.</summary>
@@ -42,7 +46,15 @@ public abstract class ActionController : MonoBehaviour
         IsTurn = true;
         Ref<uint> newActionPoints = new(3);
         ResetActionPointsEvent.Invoke(newActionPoints);
-        ActionPoints = newActionPoints.Value;
+        if (combatRules == null)
+        {
+            ActionPoints = newActionPoints.Value;
+        }
+        else
+        {
+            combatRules.BeginTurn(rulesCreatureId, checked((int)newActionPoints.Value));
+            SyncActionPointsFromRules();
+        }
         StrikePenalty = 0;
         SpellEffectController.ExpireAtStartOfTurn(gameObject);
     }
@@ -57,11 +69,64 @@ public abstract class ActionController : MonoBehaviour
     /// </remarks>
     public virtual void ResetEncounterTurnState()
     {
+        if (combatRules != null)
+            combatRules.EndTurn(rulesCreatureId);
         IsTurn = false;
         IsTakingAction = false;
         ActionPoints = 0;
         Reacted = false;
         StrikePenalty = 0;
+    }
+
+    /// <summary>Spends actions through the encounter store when combat rules are attached.</summary>
+    /// <param name="amount">The action count paid by a legacy action, including a free action.</param>
+    /// <exception cref="System.InvalidOperationException">
+    /// The controller cannot afford the requested positive cost.
+    /// </exception>
+    public void SpendActions(uint amount)
+    {
+        if (amount == 0)
+            return;
+        if (amount > ActionPoints)
+            throw new System.InvalidOperationException("The controller cannot afford this action.");
+        if (combatRules == null)
+        {
+            ActionPoints -= amount;
+            return;
+        }
+        combatRules.SpendLegacyActions(rulesCreatureId, checked((int)amount));
+        SyncActionPointsFromRules();
+    }
+
+    /// <summary>Clears authoritative turn state before the scheduler advances.</summary>
+    /// <returns>Whether this controller owned an idle turn that could be completed.</returns>
+    protected bool TryCompleteTurn()
+    {
+        if (!IsTurn || IsTakingAction)
+            return false;
+        if (combatRules != null)
+            combatRules.EndTurn(rulesCreatureId);
+        ActionPoints = 0;
+        IsTurn = false;
+        return true;
+    }
+
+    internal void AttachCombatRules(UnityCombatRulesBridge bridge, CreatureId creatureId)
+    {
+        combatRules = bridge ?? throw new System.ArgumentNullException(nameof(bridge));
+        if (creatureId.IsEmpty)
+            throw new System.ArgumentException(
+                "A rules creature ID is required.",
+                nameof(creatureId)
+            );
+        rulesCreatureId = creatureId;
+        SyncActionPointsFromRules();
+    }
+
+    internal void SyncActionPointsFromRules()
+    {
+        if (combatRules != null)
+            ActionPoints = checked((uint)combatRules.GetActionsRemaining(rulesCreatureId));
     }
 
     /// <summary>Enables or disables movement-only authority between dungeon encounters.</summary>

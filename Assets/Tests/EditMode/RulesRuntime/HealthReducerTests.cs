@@ -118,6 +118,27 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task ReductionToZeroVacatesPositionButPreservesHealthAndIdentity()
+        {
+            GridPosition occupiedPosition = new GridPosition(2, 0, 3);
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedCreature(new CreatureState(Creature, new PlayerId("party")))
+                .SeedHealth(Creature, new HealthState(2, 10))
+                .SeedPosition(Creature, occupiedPosition);
+            RuleDispatcher dispatcher = CreateDispatcher(seed);
+
+            OpResult<DamageOutcome> result = await dispatcher.Dispatch(
+                Damage(2, Strike, "vacate-on-defeat")
+            );
+
+            Assert.That(RequireResolved(result).Value.AppliedToCurrent, Is.EqualTo(2));
+            Assert.That(dispatcher.Snapshot.Positions.Contains(Creature), Is.False);
+            Assert.That(dispatcher.Snapshot.Health[Creature], Is.EqualTo(new HealthState(0, 10)));
+            Assert.That(dispatcher.Snapshot.Creatures[Creature].Id, Is.EqualTo(Creature));
+            Assert.That(result.Facts.OfType<CreatureReducedToZeroFact>().Count(), Is.EqualTo(1));
+        }
+
+        [Test]
         public async Task HealingCommitsOnlyAmountToMaximumAndThenBecomesNoOp()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new HealthState(8, 10));
@@ -242,11 +263,10 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private static RuleDispatcher CreateDispatcher(HealthState health) =>
-            new RuleDispatcherBuilder(
-                new InMemoryRulesStore(new RulesStateSeed().SeedHealth(Creature, health))
-            )
-                .UseHealthRules()
-                .Build();
+            CreateDispatcher(new RulesStateSeed().SeedHealth(Creature, health));
+
+        private static RuleDispatcher CreateDispatcher(RulesStateSeed seed) =>
+            new RuleDispatcherBuilder(new InMemoryRulesStore(seed)).UseHealthRules().Build();
 
         private static ApplyDamageOp Damage(int amount, RuleSource source, string origin) =>
             new ApplyDamageOp(Creature, amount, new HealthChangeOriginId(origin), source);

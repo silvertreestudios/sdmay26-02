@@ -9,6 +9,7 @@ namespace Game.Rules.Runtime
         public Dictionary<CreatureId, CreatureStatisticsState> Statistics { get; }
         public Dictionary<CreatureId, HealthState> Health { get; }
         public Dictionary<CreatureId, GridPosition> Positions { get; }
+        public Dictionary<CreatureId, GridDistance> LandSpeeds { get; }
         public Dictionary<CreatureId, MovementBudgetState> MovementBudgets { get; }
         public Dictionary<CreatureId, ActionEconomyState> ActionEconomy { get; }
         public Dictionary<SpellSlotPoolId, SpellSlotState> SpellSlots { get; }
@@ -28,6 +29,7 @@ namespace Game.Rules.Runtime
                 new Dictionary<CreatureId, CreatureStatisticsState>(seed.Statistics),
                 new Dictionary<CreatureId, HealthState>(seed.Health),
                 new Dictionary<CreatureId, GridPosition>(seed.Positions),
+                new Dictionary<CreatureId, GridDistance>(seed.LandSpeeds),
                 new Dictionary<CreatureId, MovementBudgetState>(seed.MovementBudgets),
                 new Dictionary<CreatureId, ActionEconomyState>(seed.ActionEconomy),
                 new Dictionary<SpellSlotPoolId, SpellSlotState>(seed.SpellSlots),
@@ -47,6 +49,7 @@ namespace Game.Rules.Runtime
             Dictionary<CreatureId, CreatureStatisticsState> statistics,
             Dictionary<CreatureId, HealthState> health,
             Dictionary<CreatureId, GridPosition> positions,
+            Dictionary<CreatureId, GridDistance> landSpeeds,
             Dictionary<CreatureId, MovementBudgetState> movementBudgets,
             Dictionary<CreatureId, ActionEconomyState> actionEconomy,
             Dictionary<SpellSlotPoolId, SpellSlotState> spellSlots,
@@ -65,6 +68,7 @@ namespace Game.Rules.Runtime
             Statistics = statistics;
             Health = health;
             Positions = positions;
+            LandSpeeds = landSpeeds;
             MovementBudgets = movementBudgets;
             ActionEconomy = actionEconomy;
             SpellSlots = spellSlots;

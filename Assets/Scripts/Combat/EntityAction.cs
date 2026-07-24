@@ -14,7 +14,7 @@ public abstract class EntityAction
     protected void PayCost(ActionController ac)
     {
         if (ac != null && !ac.IsInDungeonExploration)
-            ac.ActionPoints -= ActionCost;
+            ac.SpendActions(ActionCost);
     }
 
     /// <summary>

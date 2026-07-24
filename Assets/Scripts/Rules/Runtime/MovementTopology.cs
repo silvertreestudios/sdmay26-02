@@ -4,6 +4,27 @@ using System.Collections.ObjectModel;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>Supplies the immutable topology snapshot used by one rules resolution.</summary>
+    /// <remarks>
+    /// Implementations may replace <see cref="Current"/> between root operations, such as after a
+    /// door opens, but must return the same instance for the full lifetime of an active root.
+    /// </remarks>
+    public interface IGridTopologyProvider
+    {
+        /// <summary>Gets the non-null topology snapshot for the current or next root.</summary>
+        GridTopology Current { get; }
+    }
+
+    internal sealed class FixedGridTopologyProvider : IGridTopologyProvider
+    {
+        private readonly GridTopology topology;
+
+        public FixedGridTopologyProvider(GridTopology topology) =>
+            this.topology = topology ?? throw new ArgumentNullException(nameof(topology));
+
+        public GridTopology Current => topology;
+    }
+
     /// <summary>
     /// Identifies the PF2e terrain category that adds movement cost when a creature enters a cell.
     /// </summary>

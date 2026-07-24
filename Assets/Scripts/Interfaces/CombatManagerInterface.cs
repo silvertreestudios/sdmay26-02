@@ -32,6 +32,11 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     public abstract void SuspendDungeonCombat();
 
     /// <summary>
+    /// Refreshes the immutable rules topology after the live grid changes between actions.
+    /// </summary>
+    public virtual void RefreshRulesTopology() { }
+
+    /// <summary>
     /// Checks whether fewer than two active teams remain and completes the active combat through
     /// its legacy or dungeon-directed outcome channel.
     /// </summary>

@@ -212,26 +212,29 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Represents opaque engine authority to traverse one reserved occupied-space path.
+    /// Represents opaque engine authority to traverse reserved occupied spaces on one path.
     /// </summary>
     /// <remarks>
     /// Callers can hold this immutable value but cannot construct an authorized instance. The
-    /// movement runtime issues it for one root, parent frame, mover, occupant, budget, exact path,
-    /// and purpose, then consumes it after the authorized occupied entry and exit commit together.
+    /// movement runtime issues it for one root, parent frame, mover, ordered reservations, budget,
+    /// exact path, and purpose. Committing any reserved traversal consumes the whole path authority,
+    /// while the active movement operation may finish its remaining reservations.
     /// </remarks>
     public sealed class MovementPermission
     {
+        private static readonly IReadOnlyList<OccupiedTraversalAllowance> NoReservations =
+            Array.AsReadOnly(Array.Empty<OccupiedTraversalAllowance>());
+
         /// <summary>Gets the ordinary value that permits no occupied-space traversal.</summary>
         public static MovementPermission None { get; } = new MovementPermission();
 
-        private MovementPermission() { }
+        private MovementPermission() => Reservations = NoReservations;
 
         private MovementPermission(
             OpId rootId,
             OpId parentFrameId,
             CreatureId mover,
-            CreatureId occupant,
-            GridPosition reservedPosition,
+            IEnumerable<OccupiedTraversalAllowance> reservations,
             MovementBudgetId budgetId,
             MovementPath path,
             MovementPermissionPurpose purpose
@@ -240,8 +243,9 @@ namespace Game.Rules.Runtime
             RootId = rootId;
             ParentFrameId = parentFrameId;
             Mover = mover;
-            Occupant = occupant;
-            ReservedPosition = reservedPosition;
+            Reservations = new ReadOnlyCollection<OccupiedTraversalAllowance>(
+                reservations.ToArray()
+            );
             BudgetId = budgetId;
             Path = path;
             Purpose = purpose;
@@ -251,8 +255,7 @@ namespace Game.Rules.Runtime
         internal OpId RootId { get; }
         internal OpId ParentFrameId { get; }
         internal CreatureId Mover { get; }
-        internal CreatureId Occupant { get; }
-        internal GridPosition ReservedPosition { get; }
+        internal IReadOnlyList<OccupiedTraversalAllowance> Reservations { get; }
         internal MovementBudgetId BudgetId { get; }
         internal MovementPath Path { get; }
         internal MovementPermissionPurpose Purpose { get; }
@@ -269,8 +272,7 @@ namespace Game.Rules.Runtime
                 OpId rootId,
                 OpId parentFrameId,
                 CreatureId mover,
-                CreatureId occupant,
-                GridPosition reservedPosition,
+                IEnumerable<OccupiedTraversalAllowance> reservations,
                 MovementBudgetId budgetId,
                 MovementPath path,
                 MovementPermissionPurpose purpose
@@ -280,8 +282,7 @@ namespace Game.Rules.Runtime
                     rootId,
                     parentFrameId,
                     mover,
-                    occupant,
-                    reservedPosition,
+                    reservations,
                     budgetId,
                     path,
                     purpose
@@ -444,22 +445,22 @@ namespace Game.Rules.Runtime
 
         /// <summary>
         /// The movement timing operation requested interruption at this departure. An authorized
-        /// occupied crossing whose reservation remains occupied settles its atomic entry and exit
-        /// before returning this stop.
+        /// occupied run with a remaining reservation settles through its first legal exit before
+        /// returning this stop.
         /// </summary>
         TriggerInterrupted,
 
         /// <summary>
         /// The movement timing operation became invalid at this departure. An authorized occupied
-        /// crossing whose reservation remains occupied settles its atomic entry and exit before
-        /// returning this stop.
+        /// run with a remaining reservation settles through its first legal exit before returning
+        /// this stop.
         /// </summary>
         TriggerInvalid,
 
         /// <summary>
         /// The movement timing operation was cancelled at this departure. An authorized occupied
-        /// crossing whose reservation remains occupied settles its atomic entry and exit before
-        /// returning this stop.
+        /// run with a remaining reservation settles through its first legal exit before returning
+        /// this stop.
         /// </summary>
         TriggerCancelled,
 
@@ -621,9 +622,9 @@ namespace Game.Rules.Runtime
         Continue,
 
         /// <summary>
-        /// The path requests a stop at this departure. For a reserved crossing's exit timing, the
-        /// atomic entry and exit commit before the stop is returned while the reservation remains
-        /// occupied; if its occupant vacates first, only the ordinary committed prefix remains.
+        /// The path requests a stop at this departure. Within a reserved occupied run, movement
+        /// commits through its first legal exit before the stop is returned while any reservation
+        /// remains occupied; if all occupants vacate first, only the ordinary prefix remains.
         /// </summary>
         Interrupted,
     }

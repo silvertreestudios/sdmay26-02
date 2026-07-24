@@ -298,7 +298,8 @@ namespace Game.Combat.Encounters
             if (!decision.IsAllowed || !door.TryOpen())
                 return false;
 
-            actor.ActionPoints -= decision.ActionCost;
+            actor.SpendActions(decision.ActionCost);
+            combatManager.RefreshRulesTopology();
             openDoorIds.Add(door.StableId);
             DoorOpened(door.StableId);
             PersistentStateChanged();
