@@ -403,20 +403,15 @@ namespace Game.Combat.Encounters
                 {
                     DungeonEncounterMember member = materialization.Members[index];
                     ActionController controller = materialization.Controllers[index];
-                    if (
-                        member == null
-                        || controller == null
-                        || !member.IsConfigured
-                        || member.GetComponent<ActionController>() != controller
-                    )
-                        throw new InvalidOperationException(
-                            "A materialized encounter actor lost its stable identity."
-                        );
                     if (member.DefeatWasReported)
                         continue;
 
-                    CreatureComponent creature = controller.GetComponent<CreatureComponent>();
-                    if (creature == null || creature.IsDefeated || creature.hp <= 0)
+                    CreatureComponent creature =
+                        controller.GetComponent<CreatureComponent>()
+                        ?? throw new InvalidOperationException(
+                            $"Encounter actor '{member.InstanceId}' has no creature state."
+                        );
+                    if (creature.IsDefeated || creature.hp <= 0)
                         throw new InvalidOperationException(
                             $"Living encounter actor '{member.InstanceId}' has invalid health."
                         );
@@ -435,19 +430,9 @@ namespace Game.Combat.Encounters
                 }
             }
 
-            DungeonCreatureRuntimeState[] ordered = captured
+            return captured
                 .OrderBy(creature => creature.InstanceId, StringComparer.Ordinal)
                 .ToArray();
-            if (
-                ordered
-                    .Select(creature => creature.InstanceId)
-                    .Distinct(StringComparer.Ordinal)
-                    .Count() != ordered.Length
-            )
-                throw new InvalidOperationException(
-                    "Materialized encounter actor identities must be unique."
-                );
-            return Array.AsReadOnly(ordered);
         }
 
         /// <summary>Releases instance-event subscriptions owned by this director.</summary>

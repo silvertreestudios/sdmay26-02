@@ -119,21 +119,23 @@ public sealed class DungeonActorStateAdapterTests
         Assert.Throws<InvalidOperationException>(() =>
             DungeonActorStateAdapter.PrepareRestore(
                 restored.Controller,
-                new DungeonActorSaveState(
-                    captured.TemporaryHitPoints,
-                    captured.TemporaryHitPointSource,
-                    captured.TemporaryHitPointImmunities,
-                    captured.Conditions,
-                    captured.TimedEffects,
-                    captured.PreparedEffects,
-                    new DungeonEquipmentSaveState(
-                        DungeonEquipmentReference.Empty,
-                        new DungeonEquipmentReference("Crossbow", 1),
-                        DungeonEquipmentReference.Empty,
-                        captured.Equipment.Ammunition,
-                        captured.Equipment.UnloadedWeaponIds
-                    )
-                ),
+                new DungeonActorSaveState
+                {
+                    TemporaryHitPoints = captured.TemporaryHitPoints,
+                    TemporaryHitPointSource = captured.TemporaryHitPointSource,
+                    TemporaryHitPointImmunities = captured.TemporaryHitPointImmunities,
+                    Conditions = captured.Conditions,
+                    TimedEffects = captured.TimedEffects,
+                    PreparedEffects = captured.PreparedEffects,
+                    Equipment = new DungeonEquipmentSaveState
+                    {
+                        LeftHandId = string.Empty,
+                        RightHandId = "Missing Weapon",
+                        ArmorId = string.Empty,
+                        Ammunition = captured.Equipment.Ammunition,
+                        UnloadedWeaponIds = captured.Equipment.UnloadedWeaponIds,
+                    },
+                },
                 12,
                 false,
                 _ => null
@@ -152,9 +154,9 @@ public sealed class DungeonActorStateAdapterTests
         {
             new()
             {
-                name = "Heavy Crossbow",
-                reload = "1",
-                ammo = "bolt",
+                name = "Dagger",
+                reload = string.Empty,
+                ammo = string.Empty,
             },
             new()
             {

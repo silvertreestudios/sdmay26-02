@@ -49,8 +49,7 @@ namespace Game.DungeonPersistence.Autosave
                 );
 
             runtime.PersistentStateChanged += RequestSave;
-            OnActorActionCompleted.AddListener(HandleActorActionCompleted);
-            OnTurnCompleted.AddListener(HandleTurnCompleted);
+            OnGameplayStateCommitted.AddListener(HandleGameplayStateCommitted);
             IsInitialized = true;
             if (saveImmediately)
             {
@@ -68,8 +67,7 @@ namespace Game.DungeonPersistence.Autosave
         {
             if (runtime != null)
                 runtime.PersistentStateChanged -= RequestSave;
-            OnActorActionCompleted.RemoveListener(HandleActorActionCompleted);
-            OnTurnCompleted.RemoveListener(HandleTurnCompleted);
+            OnGameplayStateCommitted.RemoveListener(HandleGameplayStateCommitted);
             IsInitialized = false;
         }
 
@@ -88,13 +86,7 @@ namespace Game.DungeonPersistence.Autosave
             TrySavePending();
         }
 
-        private void HandleActorActionCompleted(GameObject _)
-        {
-            RequestSave();
-            TrySavePending();
-        }
-
-        private void HandleTurnCompleted(GameObject _)
+        private void HandleGameplayStateCommitted()
         {
             RequestSave();
             TrySavePending();
@@ -160,15 +152,16 @@ namespace Game.DungeonPersistence.Autosave
                             $"Party actor '{controller.name}' has incomplete persistence identity."
                         );
                     Vector3Int cell = Vector3Int.RoundToInt(controller.transform.position);
-                    return new DungeonPartyMemberSaveState(
-                        identity.RosterSlotId,
-                        identity.CreatureContentId,
-                        cell.x,
-                        cell.z,
-                        creature.hp,
-                        creature.IsDefeated,
-                        DungeonActorStateAdapter.Capture(controller, IdentifyActor)
-                    );
+                    return new DungeonPartyMemberSaveState
+                    {
+                        RosterSlotId = identity.RosterSlotId,
+                        CreatureContentId = identity.CreatureContentId,
+                        CellX = cell.x,
+                        CellZ = cell.z,
+                        CurrentHitPoints = creature.hp,
+                        IsDefeated = creature.IsDefeated,
+                        State = DungeonActorStateAdapter.Capture(controller, IdentifyActor),
+                    };
                 })
                 .OrderBy(member => member.RosterSlotId, StringComparer.Ordinal)
                 .ToArray();
@@ -179,17 +172,16 @@ namespace Game.DungeonPersistence.Autosave
                 )
             );
             DungeonLevelDocument floor = BuildFloorDocument(sourceDocument, runtimeState);
-            DungeonRunSaveManifest manifest = new(
-                DungeonSaveSchema.Version,
-                floor.Generation.RunSeed,
-                floor.Generation.Algorithm,
-                floor.Generation.Depth,
-                new DungeonFloorSaveReference(
-                    DungeonSaveSchema.Version,
-                    DungeonSaveSchema.FloorPath
-                ),
-                new DungeonPartySaveState(partyState)
-            );
+            DungeonRunSaveManifest manifest = new()
+            {
+                DocumentVersion = DungeonSaveSchema.Version,
+                StartingSeed = floor.Generation.RunSeed,
+                GeneratorVersion = floor.Generation.Algorithm,
+                CurrentDepth = floor.Generation.Depth,
+                CurrentFloorVersion = DungeonSaveSchema.Version,
+                CurrentFloorPath = DungeonSaveSchema.FloorPath,
+                Party = partyState,
+            };
             return new DungeonRunSave(manifest, floor);
         }
 

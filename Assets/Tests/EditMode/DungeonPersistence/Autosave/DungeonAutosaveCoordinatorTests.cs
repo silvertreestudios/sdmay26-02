@@ -81,25 +81,25 @@ public sealed class DungeonAutosaveCoordinatorTests
             saveImmediately: true
         );
         Assert.That(
-            repository.Load().Value.Manifest.Party.Members.Single().CurrentHitPoints,
+            repository.Load().Value.Manifest.Party.Single().CurrentHitPoints,
             Is.EqualTo(12)
         );
 
         creature.InitializeHealthBeforeEncounter(5, 12);
         party.IsTakingAction = true;
-        OnActorActionCompleted.Invoke(partyObject);
+        OnGameplayStateCommitted.Invoke();
 
         Assert.That(
-            repository.Load().Value.Manifest.Party.Members.Single().CurrentHitPoints,
+            repository.Load().Value.Manifest.Party.Single().CurrentHitPoints,
             Is.EqualTo(12)
         );
 
         party.IsTakingAction = false;
-        OnActorActionCompleted.Invoke(partyObject);
+        OnGameplayStateCommitted.Invoke();
 
         DungeonSaveResult<DungeonRunSave> saved = repository.Load();
         Assert.That(saved.IsSuccess, Is.True);
-        Assert.That(saved.Value.Manifest.Party.Members.Single().CurrentHitPoints, Is.EqualTo(5));
+        Assert.That(saved.Value.Manifest.Party.Single().CurrentHitPoints, Is.EqualTo(5));
         Assert.That(coordinator.LastDiagnostics, Is.Empty);
     }
 

@@ -31,8 +31,5 @@ public class OnActionConfirm : StaticUnityEvent<OnActionConfirm> { }
 /// <summary>UI Triggered upon action completion </summary>
 public class OnActionComplete : StaticUnityEvent<OnActionComplete> { }
 
-/// <summary>Raised after an actor action completes and all gameplay state is committed.</summary>
-public class OnActorActionCompleted : StaticUnityEvent<OnActorActionCompleted, GameObject> { }
-
-/// <summary>Raised after an actor ends its turn and the scheduler commits the next turn.</summary>
-public class OnTurnCompleted : StaticUnityEvent<OnTurnCompleted, GameObject> { }
+/// <summary>Raised after an action or turn boundary commits persistent gameplay state.</summary>
+public class OnGameplayStateCommitted : StaticUnityEvent<OnGameplayStateCommitted> { }

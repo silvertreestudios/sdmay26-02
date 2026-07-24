@@ -240,7 +240,7 @@ namespace Game.DungeonPersistence
             GameObject ResolvePreflightActor(string actorId) =>
                 preflightActors.TryGetValue(actorId, out GameObject actor) ? actor : null;
             _ = save
-                .Manifest.Party.Members.Select(
+                .Manifest.Party.Select(
                     (member, index) =>
                         DungeonActorStateAdapter.PrepareRestore(
                             orderedParty[index],
@@ -252,16 +252,8 @@ namespace Game.DungeonPersistence
                 )
                 .ToArray();
 
-            PartyStaging staging = PartyStaging.Stage(orderedParty, save.Manifest.Party.Members);
-            if (
-                !map.TryPopulateJson(
-                    DungeonLevelJsonSerializer.Serialize(save.FloorDocument),
-                    map.DungeonCatalog,
-                    out MapSourceValidationResult validation
-                )
-            )
+            if (!TryPopulateMap(map, save, orderedParty, out MapSourceValidationResult validation))
             {
-                staging.Rollback();
                 return Failure(
                     DungeonSaveDiagnosticCode.InvalidSnapshot,
                     "floor",
@@ -293,7 +285,7 @@ namespace Game.DungeonPersistence
                 actors.TryGetValue(actorId, out GameObject actor) ? actor : null;
 
             Action[] partyRestores = save
-                .Manifest.Party.Members.Select(
+                .Manifest.Party.Select(
                     (member, index) =>
                         DungeonActorStateAdapter.PrepareRestore(
                             orderedParty[index],
@@ -380,20 +372,20 @@ namespace Game.DungeonPersistence
 
         private static ActionController[] OrderParty(
             IReadOnlyList<ActionController> party,
-            DungeonPartySaveState saved
+            IReadOnlyList<DungeonPartyMemberSaveState> saved
         )
         {
             Dictionary<string, ActionController> available = party.ToDictionary(
                 controller => controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId,
                 StringComparer.Ordinal
             );
-            if (available.Count != saved.Members.Count)
+            if (available.Count != saved.Count)
                 throw new InvalidOperationException(
                     "The authored party does not match the saved roster."
                 );
 
             return saved
-                .Members.Select(member =>
+                .Select(member =>
                 {
                     if (!available.Remove(member.RosterSlotId, out ActionController controller))
                         throw new InvalidOperationException(
@@ -442,7 +434,7 @@ namespace Game.DungeonPersistence
         )
         {
             HashSet<string> actorIds = new(StringComparer.Ordinal);
-            foreach (DungeonPartyMemberSaveState member in save.Manifest.Party.Members)
+            foreach (DungeonPartyMemberSaveState member in save.Manifest.Party)
             {
                 if (!actorIds.Add(member.RosterSlotId))
                     throw new InvalidOperationException(
@@ -467,7 +459,7 @@ namespace Game.DungeonPersistence
             }
 
             IEnumerable<DungeonActorSaveState> allStates = save
-                .Manifest.Party.Members.Select(member => member.State)
+                .Manifest.Party.Select(member => member.State)
                 .Concat(enemyStates);
             foreach (
                 DungeonTimedEffectSaveState effect in allStates.SelectMany(state =>
@@ -491,96 +483,38 @@ namespace Game.DungeonPersistence
                 new[] { new DungeonSaveDiagnostic(code, path, message) }
             );
 
-        private sealed class PartyStaging
+        private static bool TryPopulateMap(
+            Map map,
+            DungeonRunSave save,
+            IReadOnlyList<ActionController> party,
+            out MapSourceValidationResult validation
+        )
         {
-            private readonly Entry[] entries;
+            bool[] wasActive = party.Select(member => member.gameObject.activeSelf).ToArray();
+            foreach (ActionController member in party)
+                member.gameObject.SetActive(false);
 
-            private PartyStaging(Entry[] entries)
-            {
-                this.entries = entries;
-            }
-
-            internal static PartyStaging Stage(
-                IReadOnlyList<ActionController> party,
-                IReadOnlyList<DungeonPartyMemberSaveState> saved
+            if (
+                !map.TryPopulateJson(
+                    DungeonLevelJsonSerializer.Serialize(save.FloorDocument),
+                    map.DungeonCatalog,
+                    out validation
+                )
             )
             {
-                GridAPI.TryGetInstance(out GridAPI grid);
-                Entry[] entries = party
-                    .Select((controller, index) => new Entry(controller, saved[index], grid))
-                    .ToArray();
-                PartyStaging staging = new(entries);
-                try
-                {
-                    foreach (Entry entry in entries)
-                        entry.Stage();
-                    return staging;
-                }
-                catch
-                {
-                    staging.Rollback();
-                    throw;
-                }
+                for (int index = 0; index < party.Count; index++)
+                    party[index].gameObject.SetActive(wasActive[index]);
+                return false;
             }
 
-            internal void Rollback()
+            for (int index = 0; index < party.Count; index++)
             {
-                for (int index = entries.Length - 1; index >= 0; index--)
-                    entries[index].Rollback();
+                DungeonPartyMemberSaveState saved = save.Manifest.Party[index];
+                Transform transform = party[index].transform;
+                transform.position = new Vector3(saved.CellX, transform.position.y, saved.CellZ);
+                party[index].gameObject.SetActive(!saved.IsDefeated);
             }
-
-            private sealed class Entry
-            {
-                private readonly ActionController controller;
-                private readonly DungeonPartyMemberSaveState saved;
-                private readonly GridAPI grid;
-                private readonly Token token;
-                private readonly Vector3 originalPosition;
-                private readonly bool wasActive;
-                private readonly bool wasRegistered;
-
-                internal Entry(
-                    ActionController controller,
-                    DungeonPartyMemberSaveState saved,
-                    GridAPI grid
-                )
-                {
-                    this.controller = controller;
-                    this.saved = saved;
-                    this.grid = grid;
-                    token = controller.GetComponent<Token>();
-                    originalPosition = controller.transform.position;
-                    wasActive = controller.gameObject.activeSelf;
-                    wasRegistered = token.IsRegistered;
-                }
-
-                internal void Stage()
-                {
-                    if (
-                        saved.IsDefeated
-                        && wasRegistered
-                        && (grid == null || !grid.DestroyToken(controller.gameObject))
-                    )
-                        throw new InvalidOperationException(
-                            $"Defeated party actor '{saved.RosterSlotId}' could not leave the grid."
-                        );
-                    controller.transform.position = new Vector3(
-                        saved.CellX,
-                        originalPosition.y,
-                        saved.CellZ
-                    );
-                    if (saved.IsDefeated)
-                        controller.gameObject.SetActive(false);
-                }
-
-                internal void Rollback()
-                {
-                    controller.transform.position = originalPosition;
-                    controller.gameObject.SetActive(wasActive);
-                    if (wasRegistered && !token.IsRegistered)
-                        token.TryRegisterWithGrid(grid);
-                }
-            }
+            return true;
         }
     }
 }

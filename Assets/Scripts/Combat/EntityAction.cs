@@ -25,6 +25,6 @@ public abstract class EntityAction
     public virtual void Invoke(GameObject target)
     {
         CombatManager.GetInstance().CheckForEndOfGame();
-        OnActorActionCompleted.Invoke(target);
+        OnGameplayStateCommitted.Invoke();
     }
 }

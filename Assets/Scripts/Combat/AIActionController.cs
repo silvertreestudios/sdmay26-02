@@ -41,7 +41,7 @@ public abstract class AIActionController : ActionController
             // Clean up turn state
             // I.E. UI, etc
             CombatManagerInterface.GetInstance().NextTurn();
-            OnTurnCompleted.Invoke(gameObject);
+            OnGameplayStateCommitted.Invoke();
         }
     }
 

@@ -37,22 +37,26 @@ namespace Game.DungeonPersistence.Actors
                 creature.Prepared == null
                     ? Array.Empty<DungeonPreparedEffectSaveState>()
                     : creature
-                        .Prepared.ActiveEffects.Select(effect => new DungeonPreparedEffectSaveState(
-                            effect.Name,
-                            effect.Slug,
-                            effect.SourceSlug
-                        ))
+                        .Prepared.ActiveEffects.Select(effect => new DungeonPreparedEffectSaveState
+                        {
+                            Name = effect.Name,
+                            Slug = effect.Slug,
+                            SourceSlug = effect.SourceSlug,
+                        })
                         .ToArray();
 
-            return new DungeonActorSaveState(
-                health.Temporary,
-                health.TemporarySource.Slug ?? string.Empty,
-                health.TemporaryHitPointImmunities.Select(source => source.Slug),
-                conditions,
-                timedEffects,
-                preparedEffects,
-                CaptureEquipment(creature)
-            );
+            return new DungeonActorSaveState
+            {
+                TemporaryHitPoints = health.Temporary,
+                TemporaryHitPointSource = health.TemporarySource.Slug ?? string.Empty,
+                TemporaryHitPointImmunities = health
+                    .TemporaryHitPointImmunities.Select(source => source.Slug)
+                    .ToArray(),
+                Conditions = conditions.ToArray(),
+                TimedEffects = timedEffects.ToArray(),
+                PreparedEffects = preparedEffects.ToArray(),
+                Equipment = CaptureEquipment(creature),
+            };
         }
 
         internal static Action PrepareRestore(
@@ -111,9 +115,12 @@ namespace Game.DungeonPersistence.Actors
                     $"Actor '{controller.name}' cannot restore prepared effects without prepared rules."
                 );
 
-            EquipmentWeapon leftHand = ResolveWeapon(creature.weapons, saved.Equipment.LeftHand);
-            EquipmentWeapon rightHand = ResolveWeapon(creature.weapons, saved.Equipment.RightHand);
-            EquipmentArmor armor = ResolveArmor(creature.armor, saved.Equipment.Armor);
+            EquipmentWeapon leftHand = ResolveWeapon(creature.weapons, saved.Equipment.LeftHandId);
+            EquipmentWeapon rightHand = ResolveWeapon(
+                creature.weapons,
+                saved.Equipment.RightHandId
+            );
+            EquipmentArmor armor = ResolveArmor(creature.armor, saved.Equipment.ArmorId);
             AmmoCount[] ammunition = PrepareAmmunition(creature, saved.Equipment.Ammunition);
             string[] unloaded = saved.Equipment.UnloadedWeaponIds.ToArray();
             foreach (string definitionId in unloaded)
@@ -179,7 +186,13 @@ namespace Game.DungeonPersistence.Actors
                     sourceKey = $"source-{keys.Count + 1:D4}";
                     keys.Add(application.Source, sourceKey);
                 }
-                captured.Add(new DungeonConditionSaveState(application.ConditionId, sourceKey));
+                captured.Add(
+                    new DungeonConditionSaveState
+                    {
+                        ConditionId = application.ConditionId,
+                        SourceKey = sourceKey,
+                    }
+                );
             }
             return captured;
         }
@@ -225,11 +238,12 @@ namespace Game.DungeonPersistence.Actors
                             $"Timed effect '{effect.SourceLabel}' has no source actor."
                         );
                     }
-                    return new DungeonTimedEffectSaveState(
-                        GetEffectKind(effect),
-                        sourceActorId,
-                        effect.RemainingTargetTurnStarts
-                    );
+                    return new DungeonTimedEffectSaveState
+                    {
+                        Kind = GetEffectKind(effect),
+                        SourceActorId = sourceActorId,
+                        RemainingTurnStarts = effect.RemainingTargetTurnStarts,
+                    };
                 })
                 .ToArray();
         }
@@ -273,117 +287,75 @@ namespace Game.DungeonPersistence.Actors
 
         private static DungeonEquipmentSaveState CaptureEquipment(CreatureComponent creature)
         {
-            return new DungeonEquipmentSaveState(
-                FindWeaponReference(creature.weapons, creature.equippedLeftHand),
-                FindWeaponReference(creature.weapons, creature.equippedRightHand),
-                FindArmorReference(creature.armor, creature.equippedArmor),
-                creature.ammunition.Select(pool => new DungeonAmmunitionSaveState(
-                    pool.ammoName,
-                    pool.quantity
-                )),
-                creature
+            return new DungeonEquipmentSaveState
+            {
+                LeftHandId = FindWeaponId(creature.weapons, creature.equippedLeftHand),
+                RightHandId = FindWeaponId(creature.weapons, creature.equippedRightHand),
+                ArmorId = FindArmorId(creature.armor, creature.equippedArmor),
+                Ammunition = creature.ammunition.ToArray(),
+                UnloadedWeaponIds = creature
                     .unloadedWeapons.Select(NormalizeEquipmentId)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-            );
+                    .ToArray(),
+            };
         }
 
-        private static DungeonEquipmentReference FindWeaponReference(
+        private static string FindWeaponId(
             IReadOnlyList<EquipmentWeapon> inventory,
             EquipmentWeapon selected
         )
         {
             if (selected == null)
-                return DungeonEquipmentReference.Empty;
-            int occurrence = 0;
-            foreach (EquipmentWeapon weapon in inventory)
-            {
-                if (
-                    weapon != null
-                    && string.Equals(weapon.name, selected.name, StringComparison.OrdinalIgnoreCase)
-                )
-                {
-                    if (ReferenceEquals(weapon, selected))
-                        return new DungeonEquipmentReference(selected.name, occurrence);
-                    occurrence++;
-                }
-            }
-            throw new InvalidOperationException("An equipped weapon is not in actor inventory.");
+                return string.Empty;
+            return inventory.Contains(selected)
+                ? selected.name
+                : throw new InvalidOperationException(
+                    "An equipped weapon is not in actor inventory."
+                );
         }
 
-        private static DungeonEquipmentReference FindArmorReference(
+        private static string FindArmorId(
             IReadOnlyList<EquipmentArmor> inventory,
             EquipmentArmor selected
         )
         {
             if (selected == null)
-                return DungeonEquipmentReference.Empty;
-            int occurrence = 0;
-            foreach (EquipmentArmor item in inventory)
-            {
-                if (
-                    item != null
-                    && string.Equals(item.name, selected.name, StringComparison.OrdinalIgnoreCase)
-                )
-                {
-                    if (ReferenceEquals(item, selected))
-                        return new DungeonEquipmentReference(selected.name, occurrence);
-                    occurrence++;
-                }
-            }
-            throw new InvalidOperationException("Equipped armor is not in actor inventory.");
+                return string.Empty;
+            return inventory.Contains(selected)
+                ? selected.name
+                : throw new InvalidOperationException("Equipped armor is not in actor inventory.");
         }
 
         private static EquipmentWeapon ResolveWeapon(
             IReadOnlyList<EquipmentWeapon> inventory,
-            DungeonEquipmentReference reference
+            string definitionId
         )
         {
-            if (reference.IsEmpty)
+            if (string.IsNullOrEmpty(definitionId))
                 return null;
-            EquipmentWeapon[] matches = inventory
-                .Where(item =>
+            return inventory.FirstOrDefault(item =>
                     item != null
-                    && string.Equals(
-                        item.name,
-                        reference.DefinitionId,
-                        StringComparison.OrdinalIgnoreCase
-                    )
+                    && string.Equals(item.name, definitionId, StringComparison.OrdinalIgnoreCase)
                 )
-                .ToArray();
-            if (reference.Occurrence >= matches.Length)
-                throw new InvalidOperationException(
-                    $"Weapon '{reference.DefinitionId}' occurrence {reference.Occurrence} is unavailable."
-                );
-            return matches[reference.Occurrence];
+                ?? throw new InvalidOperationException($"Weapon '{definitionId}' is unavailable.");
         }
 
         private static EquipmentArmor ResolveArmor(
             IReadOnlyList<EquipmentArmor> inventory,
-            DungeonEquipmentReference reference
+            string definitionId
         )
         {
-            if (reference.IsEmpty)
+            if (string.IsNullOrEmpty(definitionId))
                 return null;
-            EquipmentArmor[] matches = inventory
-                .Where(item =>
+            return inventory.FirstOrDefault(item =>
                     item != null
-                    && string.Equals(
-                        item.name,
-                        reference.DefinitionId,
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                )
-                .ToArray();
-            if (reference.Occurrence >= matches.Length)
-                throw new InvalidOperationException(
-                    $"Armor '{reference.DefinitionId}' occurrence {reference.Occurrence} is unavailable."
-                );
-            return matches[reference.Occurrence];
+                    && string.Equals(item.name, definitionId, StringComparison.OrdinalIgnoreCase)
+                ) ?? throw new InvalidOperationException($"Armor '{definitionId}' is unavailable.");
         }
 
         private static AmmoCount[] PrepareAmmunition(
             CreatureComponent creature,
-            IReadOnlyList<DungeonAmmunitionSaveState> saved
+            IReadOnlyList<AmmoCount> saved
         )
         {
             HashSet<string> authored = new(
@@ -391,20 +363,14 @@ namespace Game.DungeonPersistence.Actors
                 StringComparer.OrdinalIgnoreCase
             );
             HashSet<string> restored = new(
-                saved.Select(pool => pool.DefinitionId),
+                saved.Select(pool => pool.ammoName),
                 StringComparer.OrdinalIgnoreCase
             );
             if (!authored.SetEquals(restored))
                 throw new InvalidOperationException(
                     $"Saved ammunition does not match actor '{creature.name}' inventory."
                 );
-            return saved
-                .Select(pool => new AmmoCount
-                {
-                    ammoName = pool.DefinitionId,
-                    quantity = pool.Quantity,
-                })
-                .ToArray();
+            return saved.ToArray();
         }
 
         private static string NormalizeEquipmentId(string value)

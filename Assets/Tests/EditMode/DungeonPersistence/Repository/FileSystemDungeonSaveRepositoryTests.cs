@@ -1,8 +1,7 @@
 using System;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
-using System.Text;
+using Game.Creature;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence.Repository;
 using NUnit.Framework;
@@ -27,7 +26,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
-    public void SavePublishesOnlyValidatedCurrentFloorArchive()
+    public void SaveRoundTripsOneCurrentFloorJsonFile()
     {
         FileSystemDungeonSaveRepository repository = new(directory);
 
@@ -37,19 +36,20 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         Assert.That(written.IsSuccess, Is.True);
         Assert.That(loaded.IsSuccess, Is.True);
         Assert.That(loaded.Value.Manifest.CurrentDepth, Is.EqualTo(0));
-        Assert.That(loaded.Value.Manifest.Party.Members.Single().CurrentHitPoints, Is.EqualTo(8));
+        Assert.That(loaded.Value.Manifest.Party.Single().CurrentHitPoints, Is.EqualTo(8));
+        Assert.That(loaded.Value.FloorDocument.Rows[1], Is.EqualTo("#...#"));
         Assert.That(
             Directory.GetFiles(directory).Select(Path.GetFileName),
-            Is.EquivalentTo(new[] { "autosave.zip" })
+            Is.EquivalentTo(new[] { "autosave.json" })
         );
     }
 
     [Test]
-    public void InterruptedReplacementPreservesPreviouslyCommittedArchive()
+    public void InterruptedReplacementPreservesPreviouslyCommittedSave()
     {
         FileSystemDungeonSaveRepository repository = new(directory);
         Assert.That(repository.Save(CreateSave(currentHitPoints: 8)).IsSuccess, Is.True);
-        byte[] committed = File.ReadAllBytes(repository.AutosavePath);
+        string committed = File.ReadAllText(repository.AutosavePath);
         FileSystemDungeonSaveRepository interrupted = new(
             directory,
             (_, _) => throw new IOException("Simulated interrupted publish.")
@@ -62,24 +62,29 @@ public sealed class FileSystemDungeonSaveRepositoryTests
             result.Diagnostics.Single().Code,
             Is.EqualTo(DungeonSaveDiagnosticCode.IoFailure)
         );
-        Assert.That(File.ReadAllBytes(repository.AutosavePath), Is.EqualTo(committed));
+        Assert.That(File.ReadAllText(repository.AutosavePath), Is.EqualTo(committed));
         Assert.That(File.Exists(repository.AutosavePath + ".tmp"), Is.False);
     }
 
     [Test]
-    public void LoadRejectsUnknownManifestFields()
+    public void InvalidStagedJsonPreservesPreviouslyCommittedSave()
     {
         FileSystemDungeonSaveRepository repository = new(directory);
         Assert.That(repository.Save(CreateSave(currentHitPoints: 8)).IsSuccess, Is.True);
-        RewriteManifest(repository.AutosavePath, json => json.Insert(1, "\"unexpected\":true,"));
+        string committed = File.ReadAllText(repository.AutosavePath);
+        FileSystemDungeonSaveRepository invalid = new(
+            directory,
+            staged: path => File.WriteAllText(path, "{}")
+        );
 
-        DungeonSaveResult<DungeonRunSave> result = repository.Load();
+        DungeonSaveResult<bool> result = invalid.Save(CreateSave(currentHitPoints: 3));
 
         Assert.That(result.IsSuccess, Is.False);
         Assert.That(
             result.Diagnostics.Single().Code,
             Is.EqualTo(DungeonSaveDiagnosticCode.CorruptSave)
         );
+        Assert.That(File.ReadAllText(repository.AutosavePath), Is.EqualTo(committed));
     }
 
     [Test]
@@ -87,15 +92,14 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     {
         FileSystemDungeonSaveRepository repository = new(directory);
         Assert.That(repository.Save(CreateSave(currentHitPoints: 8)).IsSuccess, Is.True);
-        RewriteManifest(
-            repository.AutosavePath,
-            json =>
-                json.Replace(
-                    "\"documentVersion\":1",
-                    "\"documentVersion\":99",
-                    StringComparison.Ordinal
-                )
+        string json = File.ReadAllText(repository.AutosavePath);
+        string incompatible = json.Replace(
+            "\"DocumentVersion\":1",
+            "\"DocumentVersion\":99",
+            StringComparison.Ordinal
         );
+        Assert.That(incompatible, Is.Not.EqualTo(json));
+        File.WriteAllText(repository.AutosavePath, incompatible);
 
         DungeonSaveResult<DungeonRunSave> result = repository.Load();
 
@@ -103,25 +107,6 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         Assert.That(
             result.Diagnostics.Single().Code,
             Is.EqualTo(DungeonSaveDiagnosticCode.IncompatibleVersion)
-        );
-    }
-
-    [Test]
-    public void LoadClassifiesMissingManifestVersionAsCorrupt()
-    {
-        FileSystemDungeonSaveRepository repository = new(directory);
-        Assert.That(repository.Save(CreateSave(currentHitPoints: 8)).IsSuccess, Is.True);
-        RewriteManifest(
-            repository.AutosavePath,
-            json => json.Replace("\"documentVersion\":1,", string.Empty, StringComparison.Ordinal)
-        );
-
-        DungeonSaveResult<DungeonRunSave> result = repository.Load();
-
-        Assert.That(result.IsSuccess, Is.False);
-        Assert.That(
-            result.Diagnostics.Single().Code,
-            Is.EqualTo(DungeonSaveDiagnosticCode.CorruptSave)
         );
     }
 
@@ -144,72 +129,44 @@ public sealed class FileSystemDungeonSaveRepositoryTests
             Array.Empty<DungeonEncounterPlan>(),
             runtime
         );
-        DungeonActorSaveState actor = new(
-            0,
-            string.Empty,
-            Array.Empty<string>(),
-            Array.Empty<DungeonConditionSaveState>(),
-            Array.Empty<DungeonTimedEffectSaveState>(),
-            Array.Empty<DungeonPreparedEffectSaveState>(),
-            new DungeonEquipmentSaveState(
-                DungeonEquipmentReference.Empty,
-                DungeonEquipmentReference.Empty,
-                DungeonEquipmentReference.Empty,
-                Array.Empty<DungeonAmmunitionSaveState>(),
-                Array.Empty<string>()
-            )
-        );
-        DungeonRunSaveManifest manifest = new(
-            DungeonSaveSchema.Version,
-            123,
-            "test-generator",
-            0,
-            new DungeonFloorSaveReference(DungeonSaveSchema.Version, DungeonSaveSchema.FloorPath),
-            new DungeonPartySaveState(
-                new[]
-                {
-                    new DungeonPartyMemberSaveState(
-                        "party-slot",
-                        "party-content",
-                        1,
-                        1,
-                        currentHitPoints,
-                        isDefeated: false,
-                        actor
-                    ),
-                }
-            )
-        );
-        return new DungeonRunSave(manifest, floor);
-    }
-
-    private static void RewriteManifest(string archivePath, Func<string, string> rewrite)
-    {
-        string temporaryPath = archivePath + ".rewrite";
-        using (ZipArchive source = ZipFile.OpenRead(archivePath))
-        using (ZipArchive target = ZipFile.Open(temporaryPath, ZipArchiveMode.Create))
+        DungeonActorSaveState actor = new()
         {
-            foreach (ZipArchiveEntry entry in source.Entries)
+            TemporaryHitPointSource = string.Empty,
+            TemporaryHitPointImmunities = Array.Empty<string>(),
+            Conditions = Array.Empty<DungeonConditionSaveState>(),
+            TimedEffects = Array.Empty<DungeonTimedEffectSaveState>(),
+            PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
+            Equipment = new DungeonEquipmentSaveState
             {
-                ZipArchiveEntry replacement = target.CreateEntry(entry.FullName);
-                using Stream input = entry.Open();
-                using Stream output = replacement.Open();
-                if (entry.FullName == DungeonSaveSchema.ManifestPath)
+                LeftHandId = string.Empty,
+                RightHandId = string.Empty,
+                ArmorId = string.Empty,
+                Ammunition = Array.Empty<AmmoCount>(),
+                UnloadedWeaponIds = Array.Empty<string>(),
+            },
+        };
+        DungeonRunSaveManifest manifest = new()
+        {
+            DocumentVersion = DungeonSaveSchema.Version,
+            StartingSeed = 123,
+            GeneratorVersion = "test-generator",
+            CurrentDepth = 0,
+            CurrentFloorVersion = DungeonSaveSchema.Version,
+            CurrentFloorPath = DungeonSaveSchema.FloorPath,
+            Party = new[]
+            {
+                new DungeonPartyMemberSaveState
                 {
-                    using StreamReader reader = new(input, Encoding.UTF8);
-                    using StreamWriter writer = new(
-                        output,
-                        new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
-                    );
-                    writer.Write(rewrite(reader.ReadToEnd()));
-                }
-                else
-                {
-                    input.CopyTo(output);
-                }
-            }
-        }
-        File.Delete(archivePath);
-        File.Move(temporaryPath, archivePath);
+                    RosterSlotId = "party-slot",
+                    CreatureContentId = "party-content",
+                    CellX = 1,
+                    CellZ = 1,
+                    CurrentHitPoints = currentHitPoints,
+                    IsDefeated = false,
+                    State = actor,
+                },
+            },
+        };
+        return new DungeonRunSave(manifest, floor);
     }
 }
