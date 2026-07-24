@@ -337,6 +337,17 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(teamRules.IsFriendly("mover-team", "occupant-team"), Is.True);
             Assert.That(moverPlayer, Is.Not.EqualTo(occupantPlayer));
 
+            GridPrivate.Tile directionalTile = new GridPrivate.Tile();
+            directionalTile.Occupants.Add(occupantObject);
+            Assert.That(directionalTile.CanStrideOn(moverObject), Is.True);
+            directionalTile.Occupants.Clear();
+            directionalTile.Occupants.Add(moverObject);
+            Assert.That(
+                directionalTile.CanStrideOn(occupantObject),
+                Is.False,
+                "Path discovery must use the mover-to-occupant friendship direction."
+            );
+
             bridge.BeginTurn(moverId, 3);
             OpResult<MovePathOutcome> forward = await bridge.DispatchStride(
                 moverId,

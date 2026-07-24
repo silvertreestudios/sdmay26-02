@@ -84,9 +84,10 @@ public class MindlessController : AIActionController
         while (ActionPoints > 0)
         {
             //Debug.Log(ActionPoints + " action points remaining");
-            EntityAction action = MindlessDecision();
+            EntityAction action = SelectNextAction();
             if (action != null)
             {
+                uint actionsBeforeInvocation = ActionPoints;
                 //wait for half a second as to not spam attacks
                 yield return new WaitForSeconds(1f);
                 // yield return waits for the TakeAction coroutine to completely finish
@@ -104,6 +105,12 @@ public class MindlessController : AIActionController
                     TakeAction(action);
                 }
                 yield return new WaitUntil(() => !IsTakingAction); // Wait until the action is fully resolved before continuing
+                if (ActionPoints >= actionsBeforeInvocation)
+                {
+                    // A rejected selection or dispatch makes no rules progress. Retrying the same
+                    // deterministic decision would otherwise keep this turn alive forever.
+                    break;
+                }
                 //Debug.Log("AI action finished");
             }
             else
@@ -116,6 +123,14 @@ public class MindlessController : AIActionController
         EndTurn();
         yield return null;
     }
+
+    /// <summary>Selects the next action for the turn loop.</summary>
+    /// <returns>The action to invoke, or no action when the turn should end.</returns>
+    /// <remarks>
+    /// Derived AI tests and future planners may replace the decision source without replacing the
+    /// rules-progress guard owned by the turn loop.
+    /// </remarks>
+    protected virtual EntityAction SelectNextAction() => MindlessDecision();
 
     private void CancelTurnSequence()
     {

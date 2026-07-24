@@ -27,11 +27,18 @@ namespace GridPrivate
         public bool IsObstructing { get; protected set; }
 
         /// <summary>
-        /// Returns true if the given token can stride
-        /// on this cell
+        /// Returns whether the given moving token may traverse this cell.
         /// </summary>
-        /// <param name="token"></param>
-        /// <returns></returns>
+        /// <param name="token">The token attempting to Stride through the cell.</param>
+        /// <returns>
+        /// <see langword="true"/> when the cell is empty or the mover considers an occupant
+        /// friendly; otherwise, <see langword="false"/>.
+        /// </returns>
+        /// <remarks>
+        /// Team relationships are directional. The mover must therefore be the first argument to
+        /// <see cref="TeamRules.IsFriendly(string, string)"/>, matching the authoritative Stride
+        /// selection request.
+        /// </remarks>
         public bool CanStrideOn(GameObject token)
         {
             if (Occupants.Count == 0)
@@ -40,7 +47,7 @@ namespace GridPrivate
             {
                 Team team = occupant.GetComponent<Team>();
                 Team team2 = token.GetComponent<Team>();
-                if (team && team2 && TeamRules.GetInstance().IsFriendly(team.Name, team2.Name))
+                if (team && team2 && TeamRules.GetInstance().IsFriendly(team2.Name, team.Name))
                     return true;
             }
             return false;
