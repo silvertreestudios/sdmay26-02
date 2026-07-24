@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using Game.DungeonGeneration;
+using Game.Rules.Runtime;
 using GridPublic;
 using UnityEngine;
 using UnityEngine.TextCore.Text;
@@ -83,6 +84,9 @@ namespace GridPrivate
             if (ReferenceEquals(explorationStrideCoordinator, coordinator))
                 explorationStrideCoordinator = NoExplorationStrideCoordinator.Instance;
         }
+
+        internal IExplorationStrideCoordinator ExplorationStrideCoordinator =>
+            explorationStrideCoordinator;
 
         protected override void Awake()
         {
@@ -339,13 +343,21 @@ namespace GridPrivate
             return true;
         }
 
-        /// <summary>
-        /// wrapper for stride state, tranistions FSM to stride
-        /// </summary>
-        public override IEnumerator Stride(GameObject character)
+        /// <inheritdoc/>
+        public override IEnumerator SelectStridePath(
+            GameObject character,
+            StridePathSelectionRequest request,
+            CoroutineResult<SelectionOutcome<MovementPath>> selection
+        )
         {
-            if (Fsm.ChangeState(new StateStride(character, Fsm, explorationStrideCoordinator)))
+            if (selection == null)
+                throw new System.ArgumentNullException(nameof(selection));
+            if (Fsm.ChangeState(new StateStride(character, request, selection)))
                 yield return new WaitUntil(() => Fsm.CurrentState is StateIdle);
+            else
+                selection.Value = SelectionOutcome<MovementPath>.Invalid(
+                    "The grid is already resolving another selection."
+                );
         }
 
         public override IEnumerator GetStrikeTarget(

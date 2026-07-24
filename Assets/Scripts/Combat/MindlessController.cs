@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using Game.Creature;
+using Game.Rules.Unity;
 using Game.Strikes;
 using GridPrivate;
 using NUnit.Framework;
@@ -18,6 +19,7 @@ public class MindlessController : AIActionController
     protected IPathfinder Pathfinder;
     protected Tile[,] Tiles;
     private Coroutine turnSequence;
+    private List<PathNode> plannedStridePath;
 
     private static readonly Vector3Int[] CardinalDirections = new[]
     {
@@ -60,7 +62,7 @@ public class MindlessController : AIActionController
         GridAPI = grid;
         Tiles = grid.GetTiles();
         Pathfinder = grid.GetPathfinder();
-        BestPath = null;
+        plannedStridePath = null;
         BestTarget = null;
     }
 
@@ -88,7 +90,19 @@ public class MindlessController : AIActionController
                 //wait for half a second as to not spam attacks
                 yield return new WaitForSeconds(1f);
                 // yield return waits for the TakeAction coroutine to completely finish
-                TakeAction(action);
+                if (action is RulesStrideAction)
+                {
+                    TakeAction(
+                        action,
+                        new PlannedStrideSelectionResolver(
+                            plannedStridePath.Select(node => node.Location)
+                        )
+                    );
+                }
+                else
+                {
+                    TakeAction(action);
+                }
                 yield return new WaitUntil(() => !IsTakingAction); // Wait until the action is fully resolved before continuing
                 //Debug.Log("AI action finished");
             }
@@ -117,7 +131,7 @@ public class MindlessController : AIActionController
     public EntityAction MindlessDecision()
     {
         // Reset persistent fields so stale paths from prior decisions don't affect this call
-        BestPath = null;
+        plannedStridePath = null;
         BestTarget = null;
 
         Vector3Int currentCell = Vector3Int.RoundToInt(transform.position);
@@ -160,7 +174,7 @@ public class MindlessController : AIActionController
                 if (path != null && path.Count > 0 && path.Count < minDistance)
                 {
                     minDistance = path.Count;
-                    BestPath = path;
+                    plannedStridePath = path;
                     BestTarget = target;
                 }
             }
@@ -185,13 +199,13 @@ public class MindlessController : AIActionController
             }
         }
 
-        if (BestPath == null || BestPath.Count == 0)
+        if (plannedStridePath == null || plannedStridePath.Count == 0)
             return null;
 
         // Move towards the best target — select the furthest tile in path within movement range
         int maxMoveDist = this.gameObject.GetComponent<CreatureComponent>()?.speed ?? 0;
 
-        if (BestPath.Count > maxMoveDist / 5.0f * 3) // if the furthest reachable tile is beyound the total movement range for this turn take the shorter blocked path instead
+        if (plannedStridePath.Count > maxMoveDist / 5.0f * 3) // if the furthest reachable tile is beyound the total movement range for this turn take the shorter blocked path instead
         {
             Vector3Int targetCellAlt = Vector3Int.RoundToInt(BestTarget.transform.position);
             List<PathNode> altPath = DecideDetour(currentCell, targetCellAlt);
@@ -199,30 +213,13 @@ public class MindlessController : AIActionController
             {
                 return null;
             }
-            else if (altPath.Count > 0 && altPath.Count < BestPath.Count)
+            else if (altPath.Count > 0 && altPath.Count < plannedStridePath.Count)
             {
-                BestPath = altPath;
+                plannedStridePath = altPath;
             }
         }
 
-        // Get cells within distance
-        List<Vector3Int> reachableTiles = GetReachableCells(maxMoveDist, BestPath);
-
-        int cellIndex = reachableTiles.Count - 1;
-        while (cellIndex >= 0)
-        {
-            Vector3Int cell = reachableTiles[cellIndex];
-            if (Tiles[cell.x, cell.z].Occupants.Count > 0)
-                reachableTiles.RemoveAt(cellIndex);
-            else
-                break;
-            cellIndex--;
-        }
-
-        int tileIndex = BestPath.FindLastIndex(tile => reachableTiles.Contains(tile.Location));
-        SelectedTile = BestPath[tileIndex].Location;
-        BestPath = BestPath.GetRange(0, tileIndex + 1);
-        return Movements[0];
+        return Actions.Find(action => action is RulesStrideAction);
     }
 
     private EntityAction BestLegalStrike(string myTeam)
@@ -291,25 +288,9 @@ public class MindlessController : AIActionController
         // If the direct path is fully blocked by other entities, use best path instead
         Pathfinder.Search(this.gameObject, from);
         List<PathNode> bestAltPath = Pathfinder.Find(lastCell);
-        if (bestAltPath.Count < BestPath.Count && bestAltPath != null)
+        if (bestAltPath != null && bestAltPath.Count < plannedStridePath.Count)
             return bestAltPath;
         else
-            return BestPath;
-    }
-
-    /// <summary>
-    /// Returns the list of cells in the path that are within movement range. Assumes each step in the path is 5ft.
-    /// </summary>
-    private List<Vector3Int> GetReachableCells(int maxMoveDist, List<PathNode> Path)
-    {
-        List<Vector3Int> reachableCells = new();
-        for (int i = 0; i < Path.Count; i++)
-        {
-            if (Path[i].Dist <= maxMoveDist / 5.0f)
-                reachableCells.Add(Path[i].Location);
-            else
-                break;
-        }
-        return reachableCells;
+            return plannedStridePath;
     }
 }

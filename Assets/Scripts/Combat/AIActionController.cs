@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using Game.Creature;
 using Game.Strikes;
 using GridPrivate;
@@ -10,15 +9,13 @@ using UnityEngine;
 public abstract class AIActionController : ActionController
 {
     public GameObject BestTarget { get; protected set; }
-    public List<PathNode> BestPath { get; protected set; }
     public Vector3Int SelectedTile { get; protected set; }
 
     protected void Awake()
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);
 
-        Stride strideAction = new Stride(1); // Cost of 1 action point
-        Movements.Add(strideAction);
+        AddAction(new RulesStrideAction());
     }
 
     /// <summary>
@@ -45,40 +42,17 @@ public abstract class AIActionController : ActionController
     }
 
     /// <summary>
-    /// Temporary function to invoke the Stride movement action for testing.
-    /// Can be triggered from the Unity editor during runtime via right-click menu.
-    /// </summary>
-    [ContextMenu("Test Invoke Stride")]
-    public void TestStride()
-    {
-        if (!IsTurn)
-        {
-            Debug.LogWarning("Cannot use Stride - it's not this character's turn!");
-            return;
-        }
-
-        if (Movements.Count > 0)
-        {
-            Debug.Log("Invoking Stride action...");
-            TakeAction(Movements[0]);
-        }
-        else
-        {
-            Debug.LogWarning("Stride action is not initialized!");
-        }
-    }
-
-    /// <summary>
     /// Temporary function to invoke the strike action for testing.
     /// Can be triggered from the Unity editor during runtime via right-click menu.
     /// </summary>
     [ContextMenu("Test Strike")]
     public void TestStrike()
     {
-        if (Actions.Count > 0)
+        EntityAction strike = Actions.Find(action => action is Unarmed || action is StrikeWeapon);
+        if (strike != null)
         {
             Debug.Log("Invoking Strike action...");
-            TakeAction(Actions[0]);
+            TakeAction(strike);
         }
     }
 

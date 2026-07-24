@@ -31,12 +31,14 @@ namespace Game.Rules.Unity
         private readonly StrideActionDefinition strideDefinition;
         private readonly RuleDispatcher dispatcher;
         private readonly bool supportsCombatActions;
+        private readonly bool projectsActionPoints;
         private long nextCreatureId;
         private long nextOriginId;
 
         private UnityCombatRulesBridge(IReadOnlyList<CreatureComponent> encounterCreatures)
         {
             supportsCombatActions = false;
+            projectsActionPoints = false;
             topologyProvider = new MutableGridTopologyProvider(CreateHealthTestTopology());
             strideDefinition = new StrideActionDefinition(topologyProvider);
             RulesStateSeed seed = new RulesStateSeed();
@@ -57,10 +59,12 @@ namespace Game.Rules.Unity
 
         private UnityCombatRulesBridge(
             IReadOnlyList<ActionController> encounterControllers,
-            Tile[,] tiles
+            Tile[,] tiles,
+            bool attachControllers
         )
         {
             supportsCombatActions = true;
+            projectsActionPoints = attachControllers;
             topologyProvider = new MutableGridTopologyProvider(CreateTopology(tiles));
             strideDefinition = new StrideActionDefinition(
                 topologyProvider,
@@ -81,10 +85,13 @@ namespace Game.Rules.Unity
                 .UseMovementRules(topologyProvider)
                 .UseStrideRules(strideDefinition)
                 .Build();
-            RegisterHealthProjection();
-            AttachCreatures();
-            foreach (KeyValuePair<ActionController, CreatureId> entry in controllerIds)
-                entry.Key.AttachCombatRules(this, entry.Value);
+            if (attachControllers)
+            {
+                RegisterHealthProjection();
+                AttachCreatures();
+                foreach (KeyValuePair<ActionController, CreatureId> entry in controllerIds)
+                    entry.Key.AttachCombatRules(this, entry.Value);
+            }
         }
 
         /// <summary>Creates the complete rules composition for one combat encounter.</summary>
@@ -101,7 +108,35 @@ namespace Game.Rules.Unity
             ActionController[] copied = encounterControllers.ToArray();
             ValidateControllers(copied, nameof(encounterControllers));
             ValidateTiles(tiles);
-            return new UnityCombatRulesBridge(copied, tiles);
+            return new UnityCombatRulesBridge(copied, tiles, true);
+        }
+
+        /// <summary>
+        /// Creates an isolated one-action Stride composition for movement outside initiative.
+        /// </summary>
+        /// <param name="controller">The exploration leader selecting and committing the Stride.</param>
+        /// <param name="tiles">The initialized live grid used for immutable topology.</param>
+        /// <returns>A temporary rules composition that is not attached as combat authority.</returns>
+        /// <remarks>
+        /// Exploration has no combat action economy. The temporary action exists only so the same
+        /// Stride definition, validation, operation, reducers, and Facts own the selected path.
+        /// A later encounter composition is seeded from the fully projected boundary position.
+        /// </remarks>
+        public static UnityCombatRulesBridge CreateExplorationStride(
+            ActionController controller,
+            Tile[,] tiles
+        )
+        {
+            if (controller == null)
+                throw new ArgumentNullException(nameof(controller));
+            ValidateTiles(tiles);
+            UnityCombatRulesBridge bridge = new UnityCombatRulesBridge(
+                new[] { controller },
+                tiles,
+                false
+            );
+            bridge.BeginTurn(bridge.GetCreatureId(controller), ActionCost.One.Amount);
+            return bridge;
         }
 
         /// <summary>
@@ -148,6 +183,20 @@ namespace Game.Rules.Unity
             if (!creatureIds.TryGetValue(creature, out CreatureId id))
                 throw new InvalidOperationException(
                     "Creature is not registered in this encounter."
+                );
+            return id;
+        }
+
+        /// <summary>Gets the stable rules ID assigned to a registered controller.</summary>
+        /// <param name="controller">The registered Unity action controller.</param>
+        /// <returns>The encounter-stable rules identifier.</returns>
+        public CreatureId GetCreatureId(ActionController controller)
+        {
+            if (controller == null)
+                throw new ArgumentNullException(nameof(controller));
+            if (!controllerIds.TryGetValue(controller, out CreatureId id))
+                throw new InvalidOperationException(
+                    "Controller is not registered in this rules composition."
                 );
             return id;
         }
@@ -213,7 +262,25 @@ namespace Game.Rules.Unity
             }
         }
 
-        /// <summary>Dispatches the dormant rules-native Stride path for integration tests.</summary>
+        /// <summary>Gets current rules-native Stride availability for a registered creature.</summary>
+        /// <param name="creature">The registered mover.</param>
+        /// <returns>The typed available or unavailable preview state.</returns>
+        public ActionAvailability GetStrideAvailability(CreatureId creature)
+        {
+            RequireCombatComposition();
+            return strideDefinition.GetAvailability(Snapshot, creature);
+        }
+
+        /// <summary>Creates the frozen typed selection workflow for a registered mover.</summary>
+        /// <param name="creature">The registered mover.</param>
+        /// <returns>The Stride path-selection workflow.</returns>
+        public SelectionWorkflow<MovementPath> CreateStrideSelectionWorkflow(CreatureId creature)
+        {
+            RequireCombatComposition();
+            return strideDefinition.CreateSelectionWorkflow(Snapshot, creature);
+        }
+
+        /// <summary>Dispatches one rules-native Stride path.</summary>
         /// <param name="creature">The registered mover.</param>
         /// <param name="path">The exact path selected before dispatch.</param>
         /// <returns>The structural root result and committed movement facts.</returns>
@@ -226,22 +293,68 @@ namespace Game.Rules.Unity
             topologyProvider.BeginResolution();
             try
             {
-                OpResult<MovePathOutcome> result = await dispatcher.Dispatch(
-                    new StrideActionOp(creature, path)
-                );
-                foreach (KeyValuePair<ActionController, CreatureId> entry in controllerIds)
-                {
-                    if (entry.Value == creature)
-                    {
-                        entry.Key.SyncActionPointsFromRules();
-                        break;
-                    }
-                }
-                return result;
+                return await dispatcher.Dispatch(new StrideActionOp(creature, path));
             }
             finally
             {
-                topologyProvider.EndResolution();
+                try
+                {
+                    if (projectsActionPoints)
+                    {
+                        foreach (KeyValuePair<ActionController, CreatureId> entry in controllerIds)
+                        {
+                            if (entry.Value == creature)
+                            {
+                                entry.Key.SyncActionPointsFromRules();
+                                break;
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    topologyProvider.EndResolution();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Dispatches Stride while awaiting one Unity projection for each committed movement Fact.
+        /// </summary>
+        /// <param name="creature">The registered mover.</param>
+        /// <param name="path">The exact completed selection.</param>
+        /// <param name="projection">The projection observer retained for this root only.</param>
+        /// <returns>
+        /// Whether the rules root resolved, including a boundary step whose obsolete exploration
+        /// suffix was intentionally abandoned after combat took authority.
+        /// </returns>
+        public async ValueTask<bool> DispatchProjectedStride(
+            CreatureId creature,
+            MovementPath path,
+            IFactObserver<TokenMovedFact> projection
+        )
+        {
+            if (projection == null)
+                throw new ArgumentNullException(nameof(projection));
+            dispatcher.RegisterFactObserver(projection);
+            try
+            {
+                try
+                {
+                    OpResult<MovePathOutcome> result = await DispatchStride(creature, path);
+                    return result is ResolvedOpResult<MovePathOutcome>;
+                }
+                catch (ExplorationStrideProjectionInterruptedException)
+                {
+                    // The committed boundary step has already been projected. Encounter startup
+                    // creates the next authoritative composition from that Unity position, so the
+                    // temporary exploration root must not project its uncommitted path suffix.
+                    return true;
+                }
+            }
+            finally
+            {
+                dispatcher.UnregisterFactObserver(projection);
             }
         }
 

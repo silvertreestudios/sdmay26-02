@@ -74,5 +74,18 @@ namespace GridPrivate
             if (!prevented.Value)
                 Occupants.Remove(token);
         }
+
+        /// <summary>Updates projected occupancy for an already-committed departure.</summary>
+        /// <param name="token">The token whose authoritative position has changed.</param>
+        /// <returns>Whether the token was present in this projected cell.</returns>
+        internal bool ProjectCommittedDeparture(GameObject token) => Occupants.Remove(token);
+
+        /// <summary>Updates projected occupancy for an already-committed arrival.</summary>
+        /// <param name="token">The token whose authoritative position has changed.</param>
+        internal void ProjectCommittedArrival(GameObject token)
+        {
+            if (!Occupants.Contains(token))
+                Occupants.Add(token);
+        }
     }
 }

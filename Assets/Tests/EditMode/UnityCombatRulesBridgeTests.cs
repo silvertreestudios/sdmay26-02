@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Threading.Tasks;
 using Game.Creature;
@@ -241,6 +242,54 @@ public sealed class UnityCombatRulesBridgeTests
         }
     }
 
+    [Test]
+    public async Task ExplorationStrideProjectsRulesFactsWithoutClaimingCombatActionPoints()
+    {
+        GameObject creatureObject = new GameObject("exploration-stride-creature");
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            creature.InitializeHealthBeforeEncounter(10, 10);
+            creature.speed = 25;
+            BridgeTestActionController controller =
+                creatureObject.AddComponent<BridgeTestActionController>();
+            controller.ActionPoints = 7;
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
+                controller,
+                CreateTiles(3)
+            );
+            CreatureId id = bridge.GetCreatureId(controller);
+            RecordingMovementObserver observer = new RecordingMovementObserver();
+
+            bool resolved = await bridge.DispatchProjectedStride(
+                id,
+                new MovementPath(
+                    new GridPosition(0, 0, 0),
+                    new[] { new GridPosition(1, 0, 0), new GridPosition(2, 0, 0) }
+                ),
+                observer
+            );
+
+            Assert.That(resolved, Is.True);
+            Assert.That(observer.Facts, Has.Count.EqualTo(2));
+            Assert.That(observer.Facts[0].From, Is.EqualTo(new GridPosition(0, 0, 0)));
+            Assert.That(observer.Facts[0].To, Is.EqualTo(new GridPosition(1, 0, 0)));
+            Assert.That(observer.Facts[1].From, Is.EqualTo(new GridPosition(1, 0, 0)));
+            Assert.That(observer.Facts[1].To, Is.EqualTo(new GridPosition(2, 0, 0)));
+            Assert.That(bridge.Snapshot.Positions[id], Is.EqualTo(new GridPosition(2, 0, 0)));
+            Assert.That(bridge.Snapshot.ActionEconomy[id].ActionsRemaining, Is.Zero);
+            Assert.That(
+                controller.ActionPoints,
+                Is.EqualTo(7),
+                "Exploration Stride must not overwrite the controller's combat AP projection."
+            );
+        }
+        finally
+        {
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task CombatStridePreservesDirectionalFriendshipAcrossRegistrationOrder(
@@ -462,6 +511,17 @@ public sealed class UnityCombatRulesBridgeTests
             new ValueTask(completion.Task);
 
         public void Complete() => completion.TrySetResult(true);
+    }
+
+    private sealed class RecordingMovementObserver : IFactObserver<TokenMovedFact>
+    {
+        public List<TokenMovedFact> Facts { get; } = new List<TokenMovedFact>();
+
+        public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
+        {
+            Facts.Add(fact);
+            return default;
+        }
     }
 
     private sealed class BridgeTestActionController : ActionController
