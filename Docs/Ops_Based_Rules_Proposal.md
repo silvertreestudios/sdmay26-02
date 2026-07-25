@@ -574,6 +574,11 @@ current immutable snapshot, but no context or dispatch authority. They run outsi
 and are awaited, allowing a Unity adapter to start an attack animation after `ResolveStrikeOp`
 settles but before its parent dispatches `ApplyDamageOp`.
 
+The synchronous Unity dispatch boundary requires every observer `ValueTask` to complete
+synchronously and quickly. An observer must not yield, await a later frame, or otherwise remain
+incomplete for frame-delayed work. It may start presentation immediately, but it must not wait for
+an animation to finish before completing.
+
 Resolved-operation observation is not a third rules-message category and must not replace Facts. A
 resolved roll or calculation says that an operation completed legally; it does not prove that HP,
 position, ammunition, or any other authoritative state changed. Rules behavior responding to such a

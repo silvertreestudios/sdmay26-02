@@ -246,6 +246,50 @@ public sealed class RulesStrikeUnityTests
     }
 
     [Test]
+    public void SameNamedTeamsRejectStrikeWithoutTeamRulesBeforeMutation()
+    {
+        CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
+        CreatureComponent target = CreateCreature("Target", "heroes", 20, 10);
+        TestActionController attackerController =
+            attacker.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        Place(attacker.gameObject, 0);
+        Place(target.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, attacker.gameObject);
+        Occupy(tiles, target.gameObject);
+        ScriptedRollService rolls = new(20);
+
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { attackerController, targetController },
+            tiles,
+            rolls
+        );
+        CreatureId actor = bridge.GetCreatureId(attacker);
+        CreatureId targetId = bridge.GetCreatureId(target);
+        bridge.BeginTurn(actor, 3);
+        RulesStrikeAction action = attackerController
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(candidate => candidate.ActionName == "Unarmed Strike");
+
+        Assert.That(TeamRules.TryGetInstance(out _), Is.False);
+
+        OpResult<StrikeOutcome> result = bridge.Dispatch(
+            new StrikeActionOp(actor, action.Item.Item, targetId)
+        );
+
+        Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeOutcome>>());
+        Assert.That(((InvalidOpResult<StrikeOutcome>)result).Reason, Does.Contain("legal enemy"));
+        Assert.That(attackerController.ActionPoints, Is.EqualTo(3));
+        Assert.That(attackerController.StrikePenalty, Is.Zero);
+        Assert.That(target.hp, Is.EqualTo(20));
+        Assert.That(rolls.Remaining, Is.EqualTo(1));
+        Assert.That(result.Facts, Is.Empty);
+    }
+
+    [Test]
     public void ValidMissDispatchPublishesMissWithoutDamageAndEmitsStructuredAttackLog()
     {
         CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);

@@ -139,13 +139,25 @@ namespace Game.Rules.Unity.Strike
                 return StrikeTargetingOutcome.Invalid("The selected creature is unavailable.");
             Team attackerTeam = attacker.GetComponent<Team>();
             Team defenderTeam = defender.GetComponent<Team>();
+            bool hasTeamComponents = attackerTeam != null && defenderTeam != null;
+            bool hasSameNamedTeam =
+                hasTeamComponents
+                && !string.IsNullOrWhiteSpace(attackerTeam.Name)
+                && !string.IsNullOrWhiteSpace(defenderTeam.Name)
+                && string.Equals(
+                    attackerTeam.Name,
+                    defenderTeam.Name,
+                    StringComparison.OrdinalIgnoreCase
+                );
             if (
-                attackerTeam != null
-                && defenderTeam != null
-                && TeamRules.TryGetInstance(out TeamRules teamRules)
-                && teamRules.Contains(attackerTeam.Name)
-                && teamRules.Contains(defenderTeam.Name)
-                && teamRules.IsFriendly(attackerTeam.Name, defenderTeam.Name)
+                hasSameNamedTeam
+                || (
+                    hasTeamComponents
+                    && TeamRules.TryGetInstance(out TeamRules teamRules)
+                    && teamRules.Contains(attackerTeam.Name)
+                    && teamRules.Contains(defenderTeam.Name)
+                    && teamRules.IsFriendly(attackerTeam.Name, defenderTeam.Name)
+                )
             )
                 return StrikeTargetingOutcome.Invalid("The target is not a legal enemy.");
 
