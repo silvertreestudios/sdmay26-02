@@ -862,6 +862,7 @@ public class HUDController
         Label message = new();
         message.style.whiteSpace = WhiteSpace.Normal;
         message.style.unityTextAlign = TextAnchor.MiddleCenter;
+        message.style.color = Color.white;
         message.style.marginBottom = 16;
         message.text = prompt.CanConfirm
             ? $"{char.ToUpperInvariant(direction[0])}{direction.Substring(1)} to dungeon depth {prompt.TargetDepth}?"
