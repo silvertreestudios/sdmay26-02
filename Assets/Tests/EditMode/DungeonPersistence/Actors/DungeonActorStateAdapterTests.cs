@@ -7,6 +7,8 @@ using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Repository;
 using Game.Rules;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
+using GridPrivate;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -41,8 +43,8 @@ public sealed class DungeonActorStateAdapterTests
                 7,
                 12,
                 4,
-                RuleSource.FromSlug("rage"),
-                new[] { RuleSource.FromSlug("rage") }
+                RuleSource.FromSlug("blessing"),
+                new[] { RuleSource.FromSlug("ward") }
             )
         );
         ConditionSource sharedConditionSource = new();
@@ -79,10 +81,10 @@ public sealed class DungeonActorStateAdapterTests
 
         Assert.That(restored.Creature.Health.Current, Is.EqualTo(7));
         Assert.That(restored.Creature.Health.Temporary, Is.EqualTo(4));
-        Assert.That(restored.Creature.Health.TemporarySource.Slug, Is.EqualTo("rage"));
+        Assert.That(restored.Creature.Health.TemporarySource.Slug, Is.EqualTo("blessing"));
         Assert.That(
             restored.Creature.GetTempHpImmunitySources(),
-            Is.EquivalentTo(new[] { "rage" })
+            Is.EquivalentTo(new[] { "ward" })
         );
         Assert.That(
             restored.Conditions.GetConditionNames(),
@@ -103,6 +105,55 @@ public sealed class DungeonActorStateAdapterTests
         Assert.That(restored.Creature.equippedRightHand, Is.SameAs(restored.Weapons[1]));
         Assert.That(restored.Creature.GetAmmoQuantity("bolt"), Is.EqualTo(3));
         Assert.That(restored.Creature.IsWeaponLoaded(restored.Weapons[1]), Is.False);
+    }
+
+    [Test]
+    public void RageAutosaveRoundTripRemovesTemporaryHitPointsWithoutRestoringTheEffect()
+    {
+        sourceObject = CreatureJsonConverter.CreateFromFile("DataFiles/playerCharacters/Torgrim");
+        CreatureComponent sourceCreature = sourceObject.GetComponent<CreatureComponent>();
+        sourceObject.AddComponent<Conditions>();
+        DungeonPersistenceTestActionController sourceController =
+            sourceObject.AddComponent<DungeonPersistenceTestActionController>();
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { sourceController },
+            CreateTiles()
+        );
+        CreatureId actor = bridge.GetCreatureId(sourceCreature);
+        bridge.BeginTurn(actor, 3);
+        Assert.That(
+            bridge.Dispatch(new RageActionOp(actor)),
+            Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+        );
+
+        DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
+            sourceController,
+            _ => throw new InvalidOperationException()
+        );
+        DungeonSaveResult<DungeonActorSaveState> parsed = DungeonSaveJson.ParseActor(
+            DungeonSaveJson.SerializeActor(captured)
+        );
+        Assert.That(parsed.IsSuccess, Is.True);
+        Assert.That(parsed.Value.RageWasActive, Is.True);
+
+        restoredObject = CreatureJsonConverter.CreateFromFile("DataFiles/playerCharacters/Torgrim");
+        CreatureComponent restoredCreature = restoredObject.GetComponent<CreatureComponent>();
+        DungeonPersistenceTestActionController restoredController =
+            restoredObject.AddComponent<DungeonPersistenceTestActionController>();
+        Action apply = DungeonActorStateAdapter.PrepareRestore(
+            restoredController,
+            parsed.Value,
+            sourceCreature.Health.Current,
+            isDefeated: false,
+            _ => null
+        );
+
+        apply();
+
+        Assert.That(restoredCreature.Health.Temporary, Is.Zero);
+        Assert.That(restoredCreature.Health.TemporarySource.IsEmpty, Is.True);
+        Assert.That(restoredCreature.HasTempHpImmunity("rage"), Is.True);
+        Assert.That(restoredCreature.Prepared.HasActiveEffect("rage"), Is.False);
     }
 
     [Test]
@@ -173,6 +224,13 @@ public sealed class DungeonActorStateAdapterTests
         creature.Prepared = new PreparedCharacter(new CharacterBuild());
         Conditions conditions = gameObject.AddComponent<Conditions>();
         return new SourceFixture(controller, creature, conditions, weapons);
+    }
+
+    private static Tile[,] CreateTiles()
+    {
+        Tile[,] tiles = new Tile[1, 1];
+        tiles[0, 0] = new Tile();
+        return tiles;
     }
 
     private sealed class SourceFixture

@@ -59,7 +59,18 @@ public class Pf2eBarbarianSmokeTests
 
         CreatureComponent torgrimCreature = torgrim.GetComponent<CreatureComponent>();
         Assert.That(torgrimCreature.Prepared.HasOwnedItem("quick-tempered"), Is.True);
-        Assert.That(torgrimCreature.Prepared.HasActiveEffect("rage"), Is.True);
+        Assert.That(
+            torgrim
+                .GetComponent<ActionController>()
+                .GetActions()
+                .Exists(action => action is RulesRageAction),
+            Is.True
+        );
+        Assert.That(
+            torgrimCreature.Prepared.HasActiveEffect("rage"),
+            Is.False,
+            "Rage must be owned by the encounter rules store, not PreparedCharacter."
+        );
         Assert.That(
             torgrimCreature.tempHp,
             Is.EqualTo(torgrimCreature.level + torgrimCreature.conMod)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
@@ -12,17 +13,34 @@ namespace Game.Rules.Runtime
         /// <param name="health">The participant's current authoritative health.</param>
         /// <param name="position">The participant's current grid position.</param>
         /// <param name="landSpeed">The participant's land Speed.</param>
+        /// <param name="ruleBindings">
+        /// The participant-owned rule bindings that are active when registration commits.
+        /// </param>
         public CombatantRulesState(
             CreatureState creature,
             HealthState health,
             GridPosition position,
-            GridDistance landSpeed
+            GridDistance landSpeed,
+            IReadOnlyList<ActiveRuleBinding> ruleBindings
         )
         {
             Creature = creature ?? throw new ArgumentNullException(nameof(creature));
+            if (ruleBindings == null)
+                throw new ArgumentNullException(nameof(ruleBindings));
+            if (ruleBindings.Any(binding => binding == null || binding.Owner != creature.Id))
+                throw new ArgumentException(
+                    "Initial rule bindings must be non-null and owned by the combatant.",
+                    nameof(ruleBindings)
+                );
+            if (ruleBindings.Select(binding => binding.Id).Distinct().Count() != ruleBindings.Count)
+                throw new ArgumentException(
+                    "Initial rule bindings must have unique IDs.",
+                    nameof(ruleBindings)
+                );
             Health = health;
             Position = position;
             LandSpeed = landSpeed;
+            RuleBindings = Array.AsReadOnly(ruleBindings.ToArray());
         }
 
         /// <summary>Gets the participant's stable identity and controlling side.</summary>
@@ -36,6 +54,9 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the participant's authoritative land Speed.</summary>
         public GridDistance LandSpeed { get; }
+
+        /// <summary>Gets participant-owned rule bindings activated by registration.</summary>
+        public IReadOnlyList<ActiveRuleBinding> RuleBindings { get; }
     }
 
     /// <summary>Registers a reinforcement without replacing the encounter rules store.</summary>
@@ -112,6 +133,38 @@ namespace Game.Rules.Runtime
         public int Amount { get; }
     }
 
+    /// <summary>Publishes that a registered creature's initiative roll completed.</summary>
+    public sealed class InitiativeRolledOp : IRuleOp<CombatRuntimeOutcome>
+    {
+        /// <summary>Creates an initiative-roll notification.</summary>
+        /// <param name="actor">The creature whose initiative was rolled.</param>
+        public InitiativeRolledOp(CreatureId actor)
+        {
+            if (actor.IsEmpty)
+                throw new ArgumentException("An initiative actor is required.", nameof(actor));
+            Actor = actor;
+        }
+
+        /// <summary>Gets the creature whose initiative was rolled.</summary>
+        public CreatureId Actor { get; }
+    }
+
+    /// <summary>Publishes that a registered creature is leaving encounter state.</summary>
+    public sealed class EncounterEndedOp : IRuleOp<CombatRuntimeOutcome>
+    {
+        /// <summary>Creates an encounter-end notification.</summary>
+        /// <param name="actor">The creature leaving the encounter.</param>
+        public EncounterEndedOp(CreatureId actor)
+        {
+            if (actor.IsEmpty)
+                throw new ArgumentException("An encounter actor is required.", nameof(actor));
+            Actor = actor;
+        }
+
+        /// <summary>Gets the creature leaving the encounter.</summary>
+        public CreatureId Actor { get; }
+    }
+
     /// <summary>Reports whether a combat-runtime state transition committed.</summary>
     public sealed class CombatRuntimeOutcome
     {
@@ -172,6 +225,37 @@ namespace Game.Rules.Runtime
         public CombatRuntimeChangeKind Kind { get; }
     }
 
+    /// <summary>Proves that a registered creature's initiative roll completed.</summary>
+    public sealed class InitiativeRolledFact : RuleFact
+    {
+        internal InitiativeRolledFact(CreatureId creature)
+        {
+            if (creature.IsEmpty)
+                throw new ArgumentException(
+                    "An initiative creature is required.",
+                    nameof(creature)
+                );
+            Creature = creature;
+        }
+
+        /// <summary>Gets the creature whose initiative was rolled.</summary>
+        public CreatureId Creature { get; }
+    }
+
+    /// <summary>Proves that a registered creature is leaving encounter state.</summary>
+    public sealed class EncounterEndedFact : RuleFact
+    {
+        internal EncounterEndedFact(CreatureId creature)
+        {
+            if (creature.IsEmpty)
+                throw new ArgumentException("An encounter creature is required.", nameof(creature));
+            Creature = creature;
+        }
+
+        /// <summary>Gets the creature leaving encounter state.</summary>
+        public CreatureId Creature { get; }
+    }
+
     /// <summary>Registers the minimum shared encounter-state transitions used by Unity.</summary>
     public static class CombatRuntimeRuleDispatcherExtensions
     {
@@ -198,6 +282,12 @@ namespace Game.Rules.Runtime
                 )
                 .RegisterHandler<SpendLegacyActionsOp, CombatRuntimeOutcome>(
                     new CombatRuntimeRootHandler<SpendLegacyActionsOp>()
+                )
+                .RegisterHandler<InitiativeRolledOp, CombatRuntimeOutcome>(
+                    new CombatRuntimeRootHandler<InitiativeRolledOp>()
+                )
+                .RegisterHandler<EncounterEndedOp, CombatRuntimeOutcome>(
+                    new CombatRuntimeRootHandler<EncounterEndedOp>()
                 )
                 .RegisterEngineReducer<CommitCombatRuntimeOp, CombatRuntimeOutcome>(
                     new CommitCombatRuntimeReducer(),
@@ -248,6 +338,8 @@ namespace Game.Rules.Runtime
                 BeginCombatTurnOp begin => BeginTurn(begin, state),
                 EndCombatTurnOp end => EndTurn(end.Actor, state),
                 SpendLegacyActionsOp spend => Spend(spend, state),
+                InitiativeRolledOp initiative => Notify(initiative.Actor, state),
+                EncounterEndedOp encounter => Notify(encounter.Actor, state),
                 _ => CombatRuntimeOutcome.Rejected("Unknown combat-runtime transition."),
             };
             if (outcome.Succeeded)
@@ -255,9 +347,7 @@ namespace Game.Rules.Runtime
             return ReductionResult<CombatRuntimeOutcome>.Accept(outcome);
         }
 
-        private static CombatRuntimeChangedFact CreateFact(
-            IRuleOp<CombatRuntimeOutcome> requested
-        ) =>
+        private static RuleFact CreateFact(IRuleOp<CombatRuntimeOutcome> requested) =>
             requested switch
             {
                 RegisterCombatantOp register => new CombatRuntimeChangedFact(
@@ -276,6 +366,8 @@ namespace Game.Rules.Runtime
                     spend.Actor,
                     CombatRuntimeChangeKind.LegacyActionsSpent
                 ),
+                InitiativeRolledOp initiative => new InitiativeRolledFact(initiative.Actor),
+                EncounterEndedOp encounter => new EncounterEndedFact(encounter.Actor),
                 _ => throw new InvalidOperationException(
                     "A successful combat-runtime transition requires a known Fact payload."
                 ),
@@ -298,13 +390,30 @@ namespace Game.Rules.Runtime
                 return CombatRuntimeOutcome.Rejected("The combatant is already registered.");
             }
 
+            foreach (ActiveRuleBinding binding in combatant.RuleBindings)
+            {
+                if (state.RuleBindings.Contains(binding.Id))
+                {
+                    return CombatRuntimeOutcome.Rejected(
+                        "A combatant rule binding is already registered."
+                    );
+                }
+            }
+
             state.Creatures.Set(id, combatant.Creature);
             state.Health.Set(id, combatant.Health);
             state.Positions.Set(id, combatant.Position);
             state.LandSpeeds.Set(id, combatant.LandSpeed);
             state.ActionEconomy.Set(id, new ActionEconomyState(0, false));
+            foreach (ActiveRuleBinding binding in combatant.RuleBindings)
+                state.RuleBindings.Set(binding.Id, binding);
             return CombatRuntimeOutcome.Success;
         }
+
+        private static CombatRuntimeOutcome Notify(CreatureId actor, RulesStateDraft state) =>
+            state.Creatures.Contains(actor)
+                ? CombatRuntimeOutcome.Success
+                : CombatRuntimeOutcome.Rejected("The combatant is not registered.");
 
         private static CombatRuntimeOutcome BeginTurn(BeginCombatTurnOp op, RulesStateDraft state)
         {

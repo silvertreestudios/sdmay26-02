@@ -1,0 +1,137 @@
+using System.Collections.Generic;
+using Game.Creature;
+using Game.Creature.Rules;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
+using GridPrivate;
+using NUnit.Framework;
+using UnityEngine;
+using Object = UnityEngine.Object;
+
+public sealed class RulesRageUnityTests
+{
+    private readonly List<GameObject> created = new List<GameObject>();
+
+    [TearDown]
+    public void TearDown()
+    {
+        foreach (GameObject gameObject in created)
+        {
+            if (gameObject != null)
+                Object.DestroyImmediate(gameObject);
+        }
+        created.Clear();
+        Pf2eItemCatalog.ResetForTests();
+    }
+
+    [Test]
+    public void PreparedBarbarianReceivesOneRulesRageAction()
+    {
+        CreatureComponent creature = CreateBarbarian();
+        RageTestActionController controller =
+            creature.gameObject.AddComponent<RageTestActionController>();
+
+        creature.InitializeRuntimeActions();
+        creature.InitializeRuntimeActions();
+
+        Assert.That(
+            controller.GetActions().FindAll(action => action is RulesRageAction),
+            Has.Count.EqualTo(1)
+        );
+    }
+
+    [Test]
+    public void RageListenersOwnQuickTemperedCleanupOneShotAndLaterRageCost()
+    {
+        CreatureComponent creature = CreateBarbarian();
+        creature.gameObject.AddComponent<Conditions>();
+        RageTestActionController controller =
+            creature.gameObject.AddComponent<RageTestActionController>();
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { controller },
+            CreateTiles()
+        );
+        CreatureId actor = bridge.GetCreatureId(creature);
+        bridge.BeginTurn(actor, 3);
+
+        OpResult<CombatRuntimeOutcome> initiative = bridge.Dispatch(new InitiativeRolledOp(actor));
+
+        Assert.That(initiative, Is.TypeOf<ResolvedOpResult<CombatRuntimeOutcome>>());
+        Assert.That(RageRules.IsRaging(bridge.Snapshot, actor), Is.True);
+        Assert.That(controller.ActionPoints, Is.EqualTo(3));
+        Assert.That(creature.tempHp, Is.EqualTo(creature.level + creature.conMod));
+        Assert.That(
+            creature.Prepared.HasActiveEffect("rage"),
+            Is.False,
+            "PreparedCharacter must not become a second active-effect authority."
+        );
+
+        OpResult<RageEndOutcome> ended = bridge.Dispatch(new EndRageOp(actor));
+        OpResult<CombatRuntimeOutcome> repeatedTrigger = bridge.Dispatch(
+            new InitiativeRolledOp(actor)
+        );
+        OpResult<RageStartOutcome> ordinary = bridge.Dispatch(new RageActionOp(actor));
+
+        Assert.That(ended, Is.TypeOf<ResolvedOpResult<RageEndOutcome>>());
+        Assert.That(((ResolvedOpResult<RageEndOutcome>)ended).Value.Ended, Is.True);
+        Assert.That(repeatedTrigger, Is.TypeOf<ResolvedOpResult<CombatRuntimeOutcome>>());
+        Assert.That(ordinary, Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
+        Assert.That(controller.ActionPoints, Is.EqualTo(2));
+        Assert.That(creature.tempHp, Is.Zero);
+        Assert.That(creature.HasTempHpImmunity("rage"), Is.True);
+    }
+
+    [Test]
+    public void LowercaseImportedConditionsBlockRageAndQuickTempered()
+    {
+        CreatureComponent fatiguedCreature = CreateBarbarian();
+        Conditions fatiguedConditions = fatiguedCreature.gameObject.AddComponent<Conditions>();
+        fatiguedConditions.Add("fatigued", new ConditionSource());
+        RageTestActionController fatiguedController =
+            fatiguedCreature.gameObject.AddComponent<RageTestActionController>();
+        CreatureComponent encumberedCreature = CreateBarbarian();
+        Conditions encumberedConditions = encumberedCreature.gameObject.AddComponent<Conditions>();
+        encumberedConditions.Add("encumbered", new ConditionSource());
+        RageTestActionController encumberedController =
+            encumberedCreature.gameObject.AddComponent<RageTestActionController>();
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { fatiguedController, encumberedController },
+            CreateTiles()
+        );
+        CreatureId fatiguedActor = bridge.GetCreatureId(fatiguedCreature);
+        CreatureId encumberedActor = bridge.GetCreatureId(encumberedCreature);
+        bridge.BeginTurn(fatiguedActor, 3);
+        bridge.BeginTurn(encumberedActor, 3);
+
+        Assert.That(
+            bridge.Dispatch(new RageActionOp(fatiguedActor)),
+            Is.TypeOf<InvalidOpResult<RageStartOutcome>>()
+        );
+        Assert.That(
+            bridge.Dispatch(new InitiativeRolledOp(encumberedActor)),
+            Is.TypeOf<ResolvedOpResult<CombatRuntimeOutcome>>()
+        );
+        Assert.That(RageRules.IsRaging(bridge.Snapshot, encumberedActor), Is.False);
+    }
+
+    private CreatureComponent CreateBarbarian()
+    {
+        GameObject barbarian = CreatureJsonConverter.CreateFromFile(
+            "DataFiles/playerCharacters/Torgrim"
+        );
+        created.Add(barbarian);
+        return barbarian.GetComponent<CreatureComponent>();
+    }
+
+    private static Tile[,] CreateTiles()
+    {
+        Tile[,] tiles = new Tile[1, 1];
+        tiles[0, 0] = new Tile();
+        return tiles;
+    }
+
+    private sealed class RageTestActionController : ActionController
+    {
+        public override void EndTurn() { }
+    }
+}

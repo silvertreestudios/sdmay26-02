@@ -925,7 +925,8 @@ namespace Game.Creature
             if (Prepared == null && Build != null)
                 Prepared = Pf2eCharacterPreparer.Prepare(this, Build);
 
-            if (gameObject.GetComponent<ActionController>() == null)
+            ActionController actionController = gameObject.GetComponent<ActionController>();
+            if (actionController == null)
             {
                 Debug.LogWarning(
                     $"No ActionController found on {name}, cannot add default strikes"
@@ -934,6 +935,8 @@ namespace Game.Creature
             }
 
             runtimeActionsInitialized = true;
+            if (Prepared != null && Prepared.HasOwnedItem("rage"))
+                actionController.AddAction(new RulesRageAction());
             Unarmed.AddUnarmedStrike(gameObject);
             StrikeWeapon.WeaponStrikeAdderAutomatic(gameObject);
             CastSpellAction.AddSpellActions(gameObject);
