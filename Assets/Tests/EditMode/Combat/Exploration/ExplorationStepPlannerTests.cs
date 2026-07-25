@@ -33,7 +33,7 @@ namespace Game.Tests.Combat.Exploration
                 Is.EqualTo(new[] { "a", "b", "c", "d" })
             );
             Assert.That(Cells(plan.ResultingParty), Is.EqualTo(new[] { 1, 0, 0, 0, -1, 0, -2, 0 }));
-            AssertEveryMoveIsCardinal(plan);
+            AssertEveryMoveIsAdjacent(plan);
         }
 
         /// <summary>Verifies followers turn a corner by consuming predecessor prior cells.</summary>
@@ -59,7 +59,27 @@ namespace Game.Tests.Combat.Exploration
             );
 
             Assert.That(Cells(north.ResultingParty), Is.EqualTo(new[] { 1, 1, 1, 0, 0, 0 }));
-            AssertEveryMoveIsCardinal(north);
+            AssertEveryMoveIsAdjacent(north);
+        }
+
+        /// <summary>Verifies diagonal leader and follower steps preserve the connected party trail.</summary>
+        [Test]
+        public void Plan_DiagonalStepMovesFollowerIntoLeaderPriorCell()
+        {
+            ExplorationPartyState party = Party("a", Member("a", 1, 1), Member("b", 0, 0));
+
+            AcceptedExplorationStepPlan plan = Accepted(
+                ExplorationStepPlanner.Plan(
+                    new ExplorationStepRequest(party, Cell(2, 2), OpenCells())
+                )
+            );
+
+            Assert.That(
+                plan.Moves.Select(move => move.MemberId.Value),
+                Is.EqualTo(new[] { "a", "b" })
+            );
+            Assert.That(Cells(plan.ResultingParty), Is.EqualTo(new[] { 2, 2, 1, 1 }));
+            AssertEveryMoveIsAdjacent(plan);
         }
 
         /// <summary>
@@ -99,8 +119,8 @@ namespace Game.Tests.Combat.Exploration
                 Is.EqualTo(new[] { "c", "b", "a" })
             );
             Assert.That(Cells(second.ResultingParty), Is.EqualTo(new[] { -1, 0, -1, 1, -1, 2 }));
-            AssertEveryMoveIsCardinal(first);
-            AssertEveryMoveIsCardinal(second);
+            AssertEveryMoveIsAdjacent(first);
+            AssertEveryMoveIsAdjacent(second);
         }
 
         /// <summary>Verifies a reserved follower target holds that follower and the remaining tail.</summary>
@@ -130,7 +150,7 @@ namespace Game.Tests.Combat.Exploration
                 plan.ResultingParty.Members.Select(member => member.Cell).Distinct().Count(),
                 Is.EqualTo(4)
             );
-            AssertEveryMoveIsCardinal(plan);
+            AssertEveryMoveIsAdjacent(plan);
         }
 
         /// <summary>Verifies a closed or otherwise unwalkable leader destination rejects all movement.</summary>
@@ -175,21 +195,21 @@ namespace Game.Tests.Combat.Exploration
             );
         }
 
-        /// <summary>Verifies non-cardinal leader movement is rejected instead of teleporting.</summary>
+        /// <summary>Verifies a non-adjacent leader step is rejected instead of teleporting.</summary>
         [Test]
-        public void Plan_NonCardinalLeaderStepIsRejected()
+        public void Plan_NonAdjacentLeaderStepIsRejected()
         {
             ExplorationPartyState party = Party("a", Member("a", 0, 0));
 
             RejectedExplorationStepPlan rejected = Rejected(
                 ExplorationStepPlanner.Plan(
-                    new ExplorationStepRequest(party, Cell(1, 1), OpenCells())
+                    new ExplorationStepRequest(party, Cell(2, 0), OpenCells())
                 )
             );
 
             Assert.That(
                 rejected.Reason,
-                Is.EqualTo(ExplorationStepRejectionReason.LeaderStepIsNotCardinal)
+                Is.EqualTo(ExplorationStepRejectionReason.LeaderStepIsNotAdjacent)
             );
         }
 
@@ -259,12 +279,15 @@ namespace Game.Tests.Combat.Exploration
             return (RejectedExplorationStepPlan)outcome;
         }
 
-        private static void AssertEveryMoveIsCardinal(AcceptedExplorationStepPlan plan)
+        private static void AssertEveryMoveIsAdjacent(AcceptedExplorationStepPlan plan)
         {
             Assert.That(
                 plan.Moves.All(move =>
-                    Math.Abs(move.From.X - move.To.X) + Math.Abs(move.From.Z - move.To.Z) == 1
-                ),
+                {
+                    int xDistance = Math.Abs(move.From.X - move.To.X);
+                    int zDistance = Math.Abs(move.From.Z - move.To.Z);
+                    return xDistance <= 1 && zDistance <= 1 && xDistance + zDistance > 0;
+                }),
                 Is.True
             );
         }

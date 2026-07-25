@@ -52,8 +52,8 @@ namespace Game.Combat.Exploration
     /// <summary>Identifies why a proposed leader step cannot begin.</summary>
     public enum ExplorationStepRejectionReason
     {
-        /// <summary>The leader destination is not exactly one cardinal cell away.</summary>
-        LeaderStepIsNotCardinal,
+        /// <summary>The leader destination is not exactly one adjacent cell away.</summary>
+        LeaderStepIsNotAdjacent,
 
         /// <summary>The leader destination is currently occupied by another party member.</summary>
         LeaderDestinationOccupied,
@@ -62,7 +62,7 @@ namespace Game.Combat.Exploration
         LeaderDestinationUnavailable,
     }
 
-    /// <summary>Describes one cardinal member move in deterministic execution order.</summary>
+    /// <summary>Describes one adjacent member move in deterministic execution order.</summary>
     public readonly struct ExplorationMemberMove
     {
         internal ExplorationMemberMove(
@@ -82,7 +82,7 @@ namespace Game.Combat.Exploration
         /// <summary>Gets the member's cell before this party step.</summary>
         public DungeonCell From { get; }
 
-        /// <summary>Gets the member's cardinally adjacent destination.</summary>
+        /// <summary>Gets the member's adjacent destination.</summary>
         public DungeonCell To { get; }
     }
 
@@ -119,7 +119,8 @@ namespace Game.Combat.Exploration
 
         /// <summary>
         /// Gets moved members in execution order: leader first, then each follower selected by
-        /// stable roster order from the members adjacent to its predecessor's prior cell.
+        /// cardinal proximity, then stable roster order, from members adjacent to its
+        /// predecessor's prior cell.
         /// </summary>
         public IReadOnlyList<ExplorationMemberMove> Moves => moves;
 
@@ -140,8 +141,9 @@ namespace Game.Combat.Exploration
     }
 
     /// <summary>
-    /// Plans one cardinal leader move followed by a deterministic chain into each predecessor's
-    /// prior cell. Stable roster order breaks ties when multiple followers could extend the chain.
+    /// Plans one adjacent leader move followed by a deterministic chain into each predecessor's
+    /// prior cell. Cardinal followers extend the existing trail before diagonal followers, and
+    /// stable roster order breaks ties within either group.
     /// </summary>
     public static class ExplorationStepPlanner
     {
@@ -160,10 +162,10 @@ namespace Game.Combat.Exploration
             ExplorationPartyState party = request.Party;
             ExplorationPartyMember leader = party.SelectedLeader;
             DungeonCell destination = request.LeaderDestination;
-            if (!AreCardinalNeighbors(leader.Cell, destination))
+            if (!AreAdjacent(leader.Cell, destination))
             {
                 return new RejectedExplorationStepPlan(
-                    ExplorationStepRejectionReason.LeaderStepIsNotCardinal
+                    ExplorationStepRejectionReason.LeaderStepIsNotAdjacent
                 );
             }
             if (party.Members.Any(member => member.Id != leader.Id && member.Cell == destination))
@@ -190,9 +192,7 @@ namespace Game.Combat.Exploration
                 .ToList();
             while (followers.Count > 0)
             {
-                int followerIndex = followers.FindIndex(follower =>
-                    AreCardinalNeighbors(follower.Cell, predecessorPriorCell)
-                );
+                int followerIndex = FindFollowerIndex(followers, predecessorPriorCell);
                 if (followerIndex < 0 || !request.Availability.CanOccupy(predecessorPriorCell))
                 {
                     break;
@@ -233,11 +233,36 @@ namespace Game.Combat.Exploration
             );
         }
 
+        private static bool AreAdjacent(DungeonCell first, DungeonCell second)
+        {
+            long xDistance = Math.Abs((long)first.X - second.X);
+            long zDistance = Math.Abs((long)first.Z - second.Z);
+            return xDistance <= 1 && zDistance <= 1 && xDistance + zDistance > 0;
+        }
+
         private static bool AreCardinalNeighbors(DungeonCell first, DungeonCell second)
         {
             long xDistance = Math.Abs((long)first.X - second.X);
             long zDistance = Math.Abs((long)first.Z - second.Z);
             return xDistance + zDistance == 1;
+        }
+
+        private static int FindFollowerIndex(
+            IReadOnlyList<ExplorationPartyMember> followers,
+            DungeonCell predecessorPriorCell
+        )
+        {
+            for (int index = 0; index < followers.Count; index++)
+            {
+                if (AreCardinalNeighbors(followers[index].Cell, predecessorPriorCell))
+                    return index;
+            }
+            for (int index = 0; index < followers.Count; index++)
+            {
+                if (AreAdjacent(followers[index].Cell, predecessorPriorCell))
+                    return index;
+            }
+            return -1;
         }
     }
 }

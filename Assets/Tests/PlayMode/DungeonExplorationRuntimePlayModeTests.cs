@@ -450,6 +450,73 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
+    /// Verifies repeated rules-backed Strides cross a generated two-room floor, open its connecting
+    /// door, and continue to the center of the second room without losing exploration authority.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator RulesBackedExplorationCrossesTwoRoomsThroughDoorAcrossRepeatedStrides()
+    {
+        DungeonRoom firstRoom = new(1, 1, 1, 9, 9);
+        DungeonRoom secondRoom = new(2, 11, 1, 21, 9);
+        DoorSpec door = new("two-room-door", new DungeonCell(10, 5));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(2, 0, 2), new Vector3Int(1, 0, 2) },
+            doors: new[] { door },
+            rooms: new[] { firstRoom, secondRoom },
+            customGridData: TwoRoomGrid()
+        );
+        Track(new GameObject("Two Room Stride Test Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        Combatant leader = fixture.Party[0];
+        RulesStrideAction stride = new RulesStrideAction();
+        leader.Controller.AddAction(stride);
+
+        yield return ExecuteRulesStride(
+            leader,
+            stride,
+            new DungeonCell(3, 2),
+            new DungeonCell(4, 2),
+            new DungeonCell(5, 3)
+        );
+        AssertPartyCells(fixture, new DungeonCell(5, 3), new DungeonCell(4, 2));
+
+        yield return ExecuteRulesStride(
+            leader,
+            stride,
+            new DungeonCell(6, 4),
+            new DungeonCell(7, 5),
+            new DungeonCell(8, 5),
+            new DungeonCell(9, 5)
+        );
+        AssertPartyCells(fixture, new DungeonCell(9, 5), new DungeonCell(8, 5));
+
+        Assert.That(fixture.Runtime.TryOpenDoor(door.Cell), Is.True);
+        AssertDoorOpen(fixture, door.Cell);
+
+        yield return ExecuteRulesStride(
+            leader,
+            stride,
+            new DungeonCell(10, 5),
+            new DungeonCell(11, 5),
+            new DungeonCell(12, 5),
+            new DungeonCell(13, 5),
+            new DungeonCell(14, 5)
+        );
+        AssertPartyCells(fixture, new DungeonCell(14, 5), new DungeonCell(13, 5));
+
+        yield return ExecuteRulesStride(
+            leader,
+            stride,
+            new DungeonCell(15, 5),
+            new DungeonCell(16, 5)
+        );
+
+        Assert.That(manager.IsCombatActive, Is.False);
+        Assert.That(leader.Controller.IsInDungeonExploration, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(16, 5), new DungeonCell(15, 5));
+    }
+
+    /// <summary>
     /// Verifies adjacent exploration doors open for free, immediately update topology and visuals,
     /// capture in ordinal order, and publish exactly one event per committed door.
     /// </summary>
@@ -572,7 +639,8 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         IReadOnlyList<DoorSpec> doors = null,
         IReadOnlyList<DungeonRoom> rooms = null,
         IReadOnlyList<DungeonEncounterPlan> encounterPlans = null,
-        Action<IReadOnlyList<TestActionController>> configurePartyBeforeInitialization = null
+        Action<IReadOnlyList<TestActionController>> configurePartyBeforeInitialization = null,
+        TileType[,] customGridData = null
     )
     {
         doors ??= Array.Empty<DoorSpec>();
@@ -584,7 +652,9 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                 nameof(partyCells)
             );
 
-        TileType[,] gridData = GroundGrid(width, height);
+        TileType[,] gridData = customGridData ?? GroundGrid(width, height);
+        width = gridData.GetLength(0);
+        height = gridData.GetLength(1);
         bool[,] lineOfSight = new bool[width, height];
         foreach (DoorSpec door in doors)
         {
@@ -738,6 +808,35 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         if (!manager.IsCombatActive)
             leader.Controller.IsTakingAction = false;
         return continuePath;
+    }
+
+    private static IEnumerator ExecuteRulesStride(
+        Combatant leader,
+        RulesStrideAction stride,
+        params DungeonCell[] destinations
+    )
+    {
+        Assert.That(destinations, Is.Not.Empty);
+        Assert.That(stride.IsAvailable(leader.Controller), Is.True);
+        Vector3Int from = Vector3Int.RoundToInt(leader.GameObject.transform.position);
+        leader.Controller.TakeAction(
+            stride,
+            new FixedMovementPathResolver(
+                new MovementPath(
+                    new GridPosition(from.x, from.y, from.z),
+                    destinations.Select(cell => new GridPosition(cell.X, from.y, cell.Z))
+                )
+            )
+        );
+
+        int remainingFrames = 240;
+        while (leader.Controller.IsTakingAction && remainingFrames-- > 0)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "The exploration Stride timed out.");
+        Assert.That(leader.Controller.IsTakingAction, Is.False);
+        DungeonCell expected = destinations[^1];
+        Assert.That(CellOf(leader.GameObject), Is.EqualTo(expected));
     }
 
     private void RunToCompletion(IEnumerator root)
@@ -1206,5 +1305,28 @@ public sealed class DungeonExplorationRuntimePlayModeTests
 
         /// <inheritdoc/>
         public override List<string> GetMessages() => new();
+    }
+
+    private static TileType[,] TwoRoomGrid()
+    {
+        TileType[,] data = new TileType[23, 11];
+        for (int x = 0; x < data.GetLength(0); x++)
+        {
+            for (int z = 0; z < data.GetLength(1); z++)
+                data[x, z] = TileType.Wall;
+        }
+        FillRoom(1, 9, 1, 9);
+        FillRoom(11, 21, 1, 9);
+        data[10, 5] = TileType.ClosedDoor;
+        return data;
+
+        void FillRoom(int minimumX, int maximumX, int minimumZ, int maximumZ)
+        {
+            for (int x = minimumX; x <= maximumX; x++)
+            {
+                for (int z = minimumZ; z <= maximumZ; z++)
+                    data[x, z] = TileType.Ground;
+            }
+        }
     }
 }
