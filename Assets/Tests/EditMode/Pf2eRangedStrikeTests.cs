@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Game.AbilityActions;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules.Unity;
 using Game.Strikes;
 using GridPrivate;
 using GridPublic;
@@ -399,11 +399,9 @@ namespace TestsCombat
             {
                 CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
                 creatureObject.AddComponent<Conditions>();
-                Game.Rules.Unity.UnityCombatRulesBridge.CreateHealthTestComposition(
-                    new[] { creature }
-                );
                 creature.level = 1;
                 creature.conMod = 1;
+                creature.InitializeHealthBeforeEncounter(10, 10);
                 creature.Build = new CharacterBuild
                 {
                     ClassName = "Barbarian",
@@ -411,7 +409,19 @@ namespace TestsCombat
                     ClassFeatName = "Raging Intimidation",
                 };
                 creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
-                Assert.IsTrue(new Rage(0).UseRage(creatureObject));
+                TestActionController controller =
+                    creatureObject.AddComponent<TestActionController>();
+                Tile[,] tiles = BuildTiles(1, 1);
+                UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                    new ActionController[] { controller },
+                    tiles
+                );
+                Game.Rules.Runtime.CreatureId actor = bridge.GetCreatureId(creature);
+                bridge.BeginTurn(actor, 3);
+                Assert.That(
+                    bridge.DispatchRage(actor),
+                    Is.TypeOf<Game.Rules.Runtime.ResolvedOpResult<Game.Rules.Runtime.RageStartOutcome>>()
+                );
 
                 StrikeProfile projectileStrike = new StrikeProfile(
                     new List<Dice> { new Dice(1, 6, "piercing") },

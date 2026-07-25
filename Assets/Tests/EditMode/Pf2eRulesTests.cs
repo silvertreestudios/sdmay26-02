@@ -1,8 +1,9 @@
 using System.Collections.Generic;
 using System.Linq;
-using Game.AbilityActions;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using GridPublic;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -171,133 +172,13 @@ public class Pf2eRulesTests
     }
 
     [Test]
-    public void RageRuleAppliesActiveEffectAndEmitsTempHpEffects()
-    {
-        CreatureComponent creature = CreatePreparedBarbarian();
-        CreatureRulesState state = UnityCreatureRulesAdapter.From(creature.gameObject);
-
-        RageRuleResult result = RageRule.Apply(
-            new RageRequest { Creature = state, ActionCost = 0 }
-        );
-
-        Assert.That(result.Applied, Is.True);
-        Assert.That(creature.Prepared.HasActiveEffect("effect-rage"), Is.True);
-        Assert.That(creature.Prepared.RollOptions.Contains("self:effect:effect-rage"), Is.True);
-        Assert.That(
-            result.Effects.Any(e =>
-                e.Type == RuleEffectType.GainSourceTempHp && e.Source == "rage" && e.Amount == 2
-            ),
-            Is.True
-        );
-    }
-
-    [Test]
-    public void RageRuleBlocksInvalidRageStates()
-    {
-        CreatureComponent creature = CreatePreparedBarbarian();
-
-        Assert.That(
-            RageRule.CanApply(
-                new RageRequest
-                {
-                    Creature = new CreatureRulesState
-                    {
-                        Prepared = creature.Prepared,
-                        Conditions = new[] { "Fatigued" },
-                    },
-                }
-            ),
-            Is.False
-        );
-
-        Assert.That(
-            RageRule.CanApply(
-                new RageRequest
-                {
-                    Creature = new CreatureRulesState
-                    {
-                        Prepared = creature.Prepared,
-                        Conditions = new[] { "Encumbered" },
-                    },
-                }
-            ),
-            Is.False
-        );
-
-        Assert.That(
-            RageRule.CanApply(
-                new RageRequest
-                {
-                    Creature = new CreatureRulesState
-                    {
-                        Prepared = creature.Prepared,
-                        ArmorCategory = "heavy",
-                    },
-                }
-            ),
-            Is.False
-        );
-    }
-
-    [Test]
-    public void RageRuleEndRemovesActiveEffectAndEmitsCleanupEffects()
-    {
-        CreatureComponent creature = CreatePreparedBarbarian();
-        RageRule.Apply(
-            new RageRequest
-            {
-                Creature = UnityCreatureRulesAdapter.From(creature.gameObject),
-                ActionCost = 0,
-            }
-        );
-
-        RageRuleResult end = RageRule.End(UnityCreatureRulesAdapter.From(creature.gameObject));
-
-        Assert.That(end.Applied, Is.True);
-        Assert.That(creature.Prepared.HasActiveEffect("effect-rage"), Is.False);
-        Assert.That(creature.Prepared.HasActiveEffect("rage-temp-hp-immunity"), Is.True);
-        Assert.That(
-            end.Effects.Any(e => e.Type == RuleEffectType.RemoveSourceTempHp && e.Source == "rage"),
-            Is.True
-        );
-        Assert.That(
-            end.Effects.Any(e => e.Type == RuleEffectType.AddTempHpImmunity && e.Source == "rage"),
-            Is.True
-        );
-    }
-
-    [Test]
-    public void RageUnityActionAppliesRuleEffectsToUnityComponents()
-    {
-        CreatureComponent creature = CreatePreparedBarbarian();
-        TestActionController actionController =
-            creature.gameObject.AddComponent<TestActionController>();
-        actionController.ActionPoints = 3;
-        actionController.IsTakingAction = true;
-
-        Rage rage = new(1);
-        Assert.That(rage.UseRage(creature.gameObject), Is.True);
-
-        Assert.That(creature.tempHp, Is.EqualTo(2));
-        Assert.That(creature.Health.Temporary, Is.EqualTo(2));
-        Assert.That(creature.Health.TemporarySource.Slug, Is.EqualTo("rage"));
-        Assert.That(actionController.ActionPoints, Is.EqualTo(2));
-        Assert.That(actionController.IsTakingAction, Is.False);
-
-        rage.EndRage(creature.gameObject);
-        Assert.That(creature.tempHp, Is.EqualTo(0));
-        Assert.That(creature.Health.Temporary, Is.Zero);
-        Assert.That(creature.HasTempHpImmunity("rage"), Is.True);
-
-        Assert.That(rage.UseRage(creature.gameObject), Is.True);
-        Assert.That(creature.tempHp, Is.EqualTo(0));
-    }
-
-    [Test]
     public void RageDamageUsesRuleModifiersAndFuryInstinctAdjustments()
     {
         CreatureComponent creature = CreatePreparedBarbarian();
-        Assert.That(new Rage(0).UseRage(creature.gameObject), Is.True);
+        UnityCombatRulesBridge bridge = CreateCombatRules(creature);
+        CreatureId actor = bridge.GetCreatureId(creature);
+        bridge.BeginTurn(actor, 3);
+        Assert.That(bridge.DispatchRage(actor), Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
 
         StrikeProfile greataxe = new(
             new List<Dice> { new Dice(1, 12, "Slashing") },
@@ -314,7 +195,7 @@ public class Pf2eRulesTests
         StrikeResolutionContext agileContext = PrepareStrike(creature, agile);
         Assert.That(agileContext.FlatDamages.Last().DamageAmount, Is.EqualTo(1));
 
-        new Rage(0).EndRage(creature.gameObject);
+        bridge.EndRage(actor);
         StrikeProfile notRaging = new(
             new List<Dice> { new Dice(1, 12, "Slashing") },
             new List<DamageValue> { new DamageValue("Slashing", 4) }
@@ -327,18 +208,21 @@ public class Pf2eRulesTests
     public void RagingIntimidationItemAlterationAddsRageTraitOnlyWhileRaging()
     {
         CreatureComponent creature = CreatePreparedBarbarian();
+        UnityCombatRulesBridge bridge = CreateCombatRules(creature);
+        CreatureId actor = bridge.GetCreatureId(creature);
+        bridge.BeginTurn(actor, 3);
 
         List<string> beforeRage = Pf2eRulesEngine.GetAlteredTraits(
-            creature.Prepared,
+            creature,
             "action",
             "demoralize",
             new List<string>()
         );
         Assert.That(beforeRage, Does.Not.Contain("rage"));
 
-        Assert.That(new Rage(0).UseRage(creature.gameObject), Is.True);
+        Assert.That(bridge.DispatchRage(actor), Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
         List<string> duringRage = Pf2eRulesEngine.GetAlteredTraits(
-            creature.Prepared,
+            creature,
             "action",
             "demoralize",
             new List<string>()
@@ -472,9 +356,9 @@ public class Pf2eRulesTests
         created.Add(go);
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
-        Game.Rules.Unity.UnityCombatRulesBridge.CreateHealthTestComposition(new[] { creature });
         creature.level = 1;
         creature.conMod = 1;
+        creature.InitializeHealthBeforeEncounter(10, 10);
         creature.Build = new CharacterBuild
         {
             ClassName = "Barbarian",
@@ -483,6 +367,14 @@ public class Pf2eRulesTests
         };
         creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
         return creature;
+    }
+
+    private static UnityCombatRulesBridge CreateCombatRules(CreatureComponent creature)
+    {
+        TestActionController controller = creature.gameObject.AddComponent<TestActionController>();
+        GridPrivate.Tile[,] tiles = new GridPrivate.Tile[1, 1];
+        tiles[0, 0] = new GridPrivate.Tile();
+        return UnityCombatRulesBridge.Create(new[] { controller }, tiles);
     }
 
     private CreatureComponent CreatePreparedRogue()

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Game.Creature;
+using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using GridPrivate;
 using UnityEngine;
@@ -29,6 +30,7 @@ namespace Game.Rules.Unity
         private readonly Dictionary<HealthChangeOriginId, RuleSource> origins = new();
         private readonly MutableGridTopologyProvider topologyProvider;
         private readonly StrideActionDefinition strideDefinition;
+        private readonly RageActionDefinition rageDefinition;
         private readonly RuleDispatcher dispatcher;
         private readonly bool supportsCombatActions;
         private readonly bool projectsActionPoints;
@@ -49,6 +51,7 @@ namespace Game.Rules.Unity
                 creatures.Add(id, creature);
                 seed.SeedHealth(id, creature.GetHealthInitializationState());
             }
+            rageDefinition = new RageActionDefinition(new UnityRageActorStateProvider(creatures));
 
             dispatcher = new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
                 .UseHealthRules()
@@ -77,13 +80,23 @@ namespace Game.Rules.Unity
                 AddRegistrationMaps(registration);
                 Seed(seed, registration.State);
             }
+            rageDefinition = new RageActionDefinition(new UnityRageActorStateProvider(creatures));
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
+            registryBuilder.Define(RageActionDefinition.EffectDefinitionId);
+            RuleRegistry registry = registryBuilder.Build();
+            CombatActionCatalog actionCatalog = new CombatActionCatalog(
+                strideDefinition,
+                rageDefinition
+            );
 
             dispatcher = new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
                 .UseHealthRules()
                 .UseCombatRuntimeRules()
-                .UseActionLifecycle(strideDefinition)
+                .UseActiveEffectRules(registry)
+                .UseActionLifecycle(actionCatalog)
                 .UseMovementRules(topologyProvider)
                 .UseStrideRules(strideDefinition)
+                .UseRageRules(rageDefinition)
                 .Build();
             if (attachControllers)
             {
@@ -278,6 +291,65 @@ namespace Game.Rules.Unity
         {
             RequireCombatComposition();
             return strideDefinition.CreateSelectionWorkflow(Snapshot, creature);
+        }
+
+        /// <summary>Gets current rules-native Rage availability for a registered creature.</summary>
+        /// <param name="creature">The registered creature considering Rage.</param>
+        /// <returns>The typed available or unavailable preview state.</returns>
+        public ActionAvailability GetRageAvailability(CreatureId creature)
+        {
+            RequireCombatComposition();
+            return rageDefinition.GetAvailability(Snapshot, creature);
+        }
+
+        /// <summary>Dispatches one ordinary rules-native Rage action.</summary>
+        /// <param name="creature">The registered creature attempting to Rage.</param>
+        /// <returns>The structural action result and committed Rage Facts.</returns>
+        public OpResult<RageStartOutcome> DispatchRage(CreatureId creature)
+        {
+            RequireCombatComposition();
+            try
+            {
+                return DispatchResultNow(new RageActionOp(creature));
+            }
+            finally
+            {
+                SyncActionPoints(creature);
+            }
+        }
+
+        /// <summary>Attempts the Quick-Tempered free-action Rage at combat start.</summary>
+        /// <param name="creature">The registered creature whose initiative was rolled.</param>
+        /// <returns>The structural action result and committed Rage Facts.</returns>
+        public OpResult<RageStartOutcome> DispatchQuickTemperedRage(CreatureId creature)
+        {
+            RequireCombatComposition();
+            try
+            {
+                return DispatchResultNow(rageDefinition.CreateQuickTemperedOp(creature));
+            }
+            finally
+            {
+                SyncActionPoints(creature);
+            }
+        }
+
+        /// <summary>Ends active Rage and applies its temporary Hit Point cleanup.</summary>
+        /// <param name="creature">The registered creature leaving Rage.</param>
+        /// <returns>Whether an active Rage was removed.</returns>
+        public RageEndOutcome EndRage(CreatureId creature)
+        {
+            RequireCombatComposition();
+            return DispatchNow(new EndRageOp(creature));
+        }
+
+        /// <summary>Checks authoritative rules state for an active Rage.</summary>
+        /// <param name="creature">The registered creature to inspect.</param>
+        /// <returns>Whether the creature is currently raging.</returns>
+        public bool IsRaging(CreatureId creature)
+        {
+            RequireCombatComposition();
+            return RageRules.IsRaging(Snapshot, creature);
         }
 
         /// <summary>Dispatches one rules-native Stride path.</summary>
@@ -479,6 +551,16 @@ namespace Game.Rules.Unity
 
         private TResult DispatchNow<TResult>(IRuleOp<TResult> operation)
         {
+            OpResult<TResult> result = DispatchResultNow(operation);
+            if (result is ResolvedOpResult<TResult> resolved)
+                return resolved.Value;
+            if (result is InvalidOpResult<TResult> invalid)
+                throw new InvalidOperationException(invalid.Reason);
+            throw new InvalidOperationException("The synchronous rules request did not resolve.");
+        }
+
+        private OpResult<TResult> DispatchResultNow<TResult>(IRuleOp<TResult> operation)
+        {
             topologyProvider.BeginResolution();
             try
             {
@@ -489,18 +571,24 @@ namespace Game.Rules.Unity
                         "Synchronous Unity rules requests cannot contain asynchronous callbacks."
                     );
                 }
-                OpResult<TResult> result = pending.GetAwaiter().GetResult();
-                if (result is ResolvedOpResult<TResult> resolved)
-                    return resolved.Value;
-                if (result is InvalidOpResult<TResult> invalid)
-                    throw new InvalidOperationException(invalid.Reason);
-                throw new InvalidOperationException(
-                    "The synchronous rules request did not resolve."
-                );
+                return pending.GetAwaiter().GetResult();
             }
             finally
             {
                 topologyProvider.EndResolution();
+            }
+        }
+
+        private void SyncActionPoints(CreatureId creature)
+        {
+            if (!projectsActionPoints)
+                return;
+            foreach (KeyValuePair<ActionController, CreatureId> entry in controllerIds)
+            {
+                if (entry.Value != creature)
+                    continue;
+                entry.Key.SyncActionPointsFromRules();
+                return;
             }
         }
 
@@ -636,6 +724,58 @@ namespace Game.Rules.Unity
                 }
 
                 return mover == occupant;
+            }
+        }
+
+        private sealed class UnityRageActorStateProvider : IRageActorStateProvider
+        {
+            private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
+
+            public UnityRageActorStateProvider(
+                IReadOnlyDictionary<CreatureId, CreatureComponent> creatures
+            ) => this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
+
+            /// <inheritdoc/>
+            public RageActorState Get(CreatureId actor)
+            {
+                if (!creatures.TryGetValue(actor, out CreatureComponent creature))
+                    throw new InvalidOperationException(
+                        "Rage actor facts require a registered Unity creature."
+                    );
+
+                PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
+                Conditions conditions = creature.GetComponent<Conditions>();
+                string armorCategory = creature.equippedArmor?.category ?? string.Empty;
+                return new RageActorState(
+                    prepared.HasOwnedItem("rage"),
+                    prepared.HasOwnedItem("quick-tempered"),
+                    conditions != null && conditions.Contains("Fatigued"),
+                    conditions != null && conditions.Contains("Encumbered"),
+                    string.Equals(armorCategory, "heavy", StringComparison.OrdinalIgnoreCase),
+                    prepared.RollOptions.Contains("feat:invulnerable-rager"),
+                    Math.Max(0, creature.level),
+                    creature.conMod
+                );
+            }
+        }
+
+        private sealed class CombatActionCatalog : IActionCatalog
+        {
+            private readonly StrideActionDefinition stride;
+            private readonly RageActionDefinition rage;
+
+            public CombatActionCatalog(StrideActionDefinition stride, RageActionDefinition rage)
+            {
+                this.stride = stride ?? throw new ArgumentNullException(nameof(stride));
+                this.rage = rage ?? throw new ArgumentNullException(nameof(rage));
+            }
+
+            /// <inheritdoc/>
+            public ActionProfile GetBaseProfile(ActionDefinitionId definitionId)
+            {
+                if (definitionId == StrideActionDefinition.DefinitionId)
+                    return stride.GetBaseProfile(definitionId);
+                return rage.GetBaseProfile(definitionId);
             }
         }
 
