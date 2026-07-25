@@ -377,7 +377,10 @@ namespace Game.Rules.Runtime
             this.resistances = Copy(resistances, nameof(resistances));
         }
 
-        /// <summary>Gets target AC before Strike-specific cover and off-guard modifiers.</summary>
+        /// <summary>
+        /// Gets target AC after the resolution provider applies Strike-specific cover and
+        /// off-guard modifiers.
+        /// </summary>
         public int ArmorClass { get; }
 
         /// <summary>Gets current actor modifiers excluding the item base, MAP, and range.</summary>
