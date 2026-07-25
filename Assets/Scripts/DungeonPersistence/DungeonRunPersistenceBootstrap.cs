@@ -296,7 +296,7 @@ namespace Game.DungeonPersistence
             }
         }
 
-        private static DungeonRunPersistenceBootstrapResult StartGeneratedRun(
+        internal static DungeonRunPersistenceBootstrapResult StartGeneratedRun(
             Map map,
             DungeonLevelDocument template,
             DungeonEncounterCreatureCatalog encounterCatalog,
@@ -830,10 +830,11 @@ namespace Game.DungeonPersistence
                     identity == null
                     || !identity.IsConfigured
                     || !slots.Add(identity.RosterSlotId)
+                    || controller.GetComponent<CreatureComponent>() == null
                     || controller.GetComponent<Token>() == null
                 )
                     throw new InvalidOperationException(
-                        $"Party actor '{controller.name}' requires unique authored dungeon identity and a grid Token."
+                        $"Party actor '{controller.name}' requires unique authored dungeon identity, a CreatureComponent, and a grid Token."
                     );
             }
             return party;

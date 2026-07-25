@@ -244,6 +244,54 @@ public sealed class DungeonAutosaveCoordinatorTests
     }
 
     [Test]
+    public void NewRunRejectsPartyWithoutCreatureStateBeforeAnyMutation()
+    {
+        CombatManager manager = Track(new GameObject("Invalid New Party Combat Manager"))
+            .AddComponent<CombatManager>();
+        DungeonPersistenceTestActionController party = CreatePartyWithoutCreatureState(
+            "Invalid New Party"
+        );
+        Vector3 priorPosition = new(2f, 0f, 1f);
+        party.transform.position = priorPosition;
+        Map map = Track(new GameObject("Invalid New Party Map")).AddComponent<Map>();
+        GameObject runtimeRoot = Track(new GameObject("Invalid New Party Runtime"));
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+        RecordingRepository repository = new((DungeonRunSave)null);
+
+        DungeonRunPersistenceBootstrapResult result =
+            DungeonRunPersistenceBootstrap.StartGeneratedRun(
+                map,
+                Document(0, persisted: false),
+                catalog,
+                manager,
+                new[] { party },
+                new RecordingExplorationPresentation(),
+                runtimeRoot,
+                repository,
+                new SequenceDungeonGenerator(),
+                new DungeonEncounterPlanner(),
+                Array.Empty<DungeonEncounterCandidate>()
+            );
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(
+            result.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonSaveDiagnosticCode.InvalidSnapshot)
+        );
+        Assert.That(result.Diagnostics.Single().Path, Is.EqualTo("party"));
+        Assert.That(result.Diagnostics.Single().Message, Does.Contain(nameof(CreatureComponent)));
+        Assert.That(repository.LoadCount, Is.Zero);
+        Assert.That(repository.SaveCount, Is.Zero);
+        Assert.That(repository.Current, Is.Null);
+        Assert.That(map.UsesRuntimeJsonSource, Is.False);
+        Assert.That(party.transform.position, Is.EqualTo(priorPosition));
+        Assert.That(party.gameObject.activeSelf, Is.True);
+        Assert.That(runtimeRoot.GetComponents<Component>(), Has.Length.EqualTo(1));
+    }
+
+    [Test]
     public void ContinueRejectsIncompatiblePresenterBeforeLoadOrSceneMutation()
     {
         CombatManager manager = Track(new GameObject("Invalid Continue Presenter Combat Manager"))
@@ -276,6 +324,51 @@ public sealed class DungeonAutosaveCoordinatorTests
         );
 
         Assert.That(repository.LoadCount, Is.Zero);
+        Assert.That(repository.SaveCount, Is.Zero);
+        Assert.That(repository.Current, Is.SameAs(saved));
+        Assert.That(map.UsesRuntimeJsonSource, Is.False);
+        Assert.That(party.transform.position, Is.EqualTo(priorPosition));
+        Assert.That(party.gameObject.activeSelf, Is.True);
+        Assert.That(runtimeRoot.GetComponents<Component>(), Has.Length.EqualTo(1));
+    }
+
+    [Test]
+    public void ContinueRejectsPartyWithoutCreatureStateBeforeSceneMutation()
+    {
+        CombatManager manager = Track(new GameObject("Invalid Continue Party Combat Manager"))
+            .AddComponent<CombatManager>();
+        DungeonPersistenceTestActionController party = CreatePartyWithoutCreatureState(
+            "Invalid Continue Party"
+        );
+        Vector3 priorPosition = new(2f, 0f, 1f);
+        party.transform.position = priorPosition;
+        Map map = Track(new GameObject("Invalid Continue Party Map")).AddComponent<Map>();
+        GameObject runtimeRoot = Track(new GameObject("Invalid Continue Party Runtime"));
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+        DungeonRunSave saved = CreateRun(0);
+        RecordingRepository repository = new(saved);
+
+        DungeonRunPersistenceBootstrapResult result = DungeonRunPersistenceBootstrap.ContinueRun(
+            map,
+            Document(0, persisted: false),
+            catalog,
+            manager,
+            new[] { party },
+            new RecordingExplorationPresentation(),
+            runtimeRoot,
+            repository
+        );
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(
+            result.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonSaveDiagnosticCode.InvalidSnapshot)
+        );
+        Assert.That(result.Diagnostics.Single().Path, Is.EqualTo("party"));
+        Assert.That(result.Diagnostics.Single().Message, Does.Contain(nameof(CreatureComponent)));
+        Assert.That(repository.LoadCount, Is.EqualTo(1));
         Assert.That(repository.SaveCount, Is.Zero);
         Assert.That(repository.Current, Is.SameAs(saved));
         Assert.That(map.UsesRuntimeJsonSource, Is.False);
@@ -849,6 +942,19 @@ public sealed class DungeonAutosaveCoordinatorTests
         partyObject
             .AddComponent<DungeonPartyMemberIdentity>()
             .Configure(rosterSlotId, creatureContentId);
+        return party;
+    }
+
+    private DungeonPersistenceTestActionController CreatePartyWithoutCreatureState(string name)
+    {
+        GameObject partyObject = Track(new GameObject(name));
+        DungeonPersistenceTestActionController party =
+            partyObject.AddComponent<DungeonPersistenceTestActionController>();
+        partyObject.AddComponent<Conditions>();
+        partyObject.AddComponent<Token>();
+        partyObject
+            .AddComponent<DungeonPartyMemberIdentity>()
+            .Configure("party-slot", "party-content");
         return party;
     }
 
