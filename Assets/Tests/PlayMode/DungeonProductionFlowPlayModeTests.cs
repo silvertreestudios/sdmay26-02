@@ -104,6 +104,60 @@ public sealed class DungeonProductionFlowPlayModeTests
         yield return WaitForMainMenu();
     }
 
+    /// <summary>Shows a player-facing defeat message with a working menu recovery control.</summary>
+    [UnityTest]
+    public IEnumerator DungeonDefeatPresentsMainMenuRecovery()
+    {
+        string directory = TrackDirectory("defeat-presentation");
+        yield return LaunchNewRun(directory, "157");
+        yield return WaitForTransitionIdle();
+
+        OnCombatOutcome.Invoke(false);
+        yield return null;
+
+        Label status = RequireDungeonStatus();
+        Assert.That(status.text, Does.Contain("defeated"));
+        Assert.That(status.ClassListContains("dungeon-run-status--error"), Is.True);
+        Button mainMenuButton = Object
+            .FindObjectsByType<UIDocument>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
+            .Select(document => document.rootVisualElement.Q<Button>("DungeonMainMenuButton"))
+            .FirstOrDefault(button => button != null);
+        Assert.That(mainMenuButton, Is.Not.Null);
+        Assert.That(mainMenuButton.resolvedStyle.display, Is.EqualTo(DisplayStyle.Flex));
+        Assert.That(mainMenuButton.enabledSelf, Is.True);
+    }
+
+    /// <summary>Restores the player's prior speed when the required return checkpoint fails.</summary>
+    [UnityTest]
+    public IEnumerator FailedReturnCheckpointRestoresPriorTimeScale()
+    {
+        string directory = TrackDirectory("failed-return-checkpoint");
+        yield return LaunchNewRun(directory, "158");
+        yield return WaitForTransitionIdle();
+
+        DungeonEncounterRuntimeController runtime =
+            Object.FindFirstObjectByType<DungeonEncounterRuntimeController>();
+        Assert.That(runtime, Is.Not.Null);
+        Object.Destroy(runtime);
+        yield return null;
+
+        Button mainMenuButton = Object
+            .FindObjectsByType<UIDocument>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
+            .Select(document => document.rootVisualElement.Q<Button>("DungeonMainMenuButton"))
+            .FirstOrDefault(button => button != null);
+        Assert.That(mainMenuButton, Is.Not.Null);
+        Time.timeScale = 3f;
+
+        PushButton(mainMenuButton);
+        yield return null;
+
+        Assert.That(SceneManager.GetActiveScene().name, Is.EqualTo(DungeonScene));
+        Assert.That(SceneTransitionManager.IsTransitioning, Is.False);
+        Assert.That(Time.timeScale, Is.EqualTo(3f));
+        Assert.That(mainMenuButton.enabledSelf, Is.True);
+        Assert.That(RequireDungeonStatus().text, Does.Contain("could not be saved"));
+    }
+
     /// <summary>Waits for an active action and checkpoints before leaving the dungeon.</summary>
     [UnityTest]
     public IEnumerator DungeonReturnWaitsForActionAndCheckpointsBeforeLeaving()

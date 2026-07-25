@@ -185,6 +185,8 @@ public class HUDController
         }
         dungeonMainMenuButton.style.display = DisplayStyle.None;
         dungeonMainMenuButton.clicked += ReturnToMainMenu;
+        OnCombatOutcome.AddListener(OnCombatOutcomeChanged);
+
         if (dungeonRunStatusLabel != null)
             dungeonRunStatusLabel.style.display = DisplayStyle.None;
         if (pauseButton != null)
@@ -234,6 +236,8 @@ public class HUDController
     {
         //Debug.Log("OnDisable called");
         OnNextTurn.RemoveListener(OnTurnChanged);
+        OnCombatOutcome.RemoveListener(OnCombatOutcomeChanged);
+
         if (toggleAutoCameraAction != null)
             toggleAutoCameraAction.performed -= OnToggleAutoCamera;
         if (logToggleButton != null)
@@ -304,6 +308,17 @@ public class HUDController
         dungeonRunStatusLabel.text = message;
         dungeonRunStatusLabel.style.display = DisplayStyle.Flex;
         dungeonMainMenuButton.style.display = DisplayStyle.Flex;
+    }
+
+    private void OnCombatOutcomeChanged(bool playerWon)
+    {
+        if (playerWon || FindFirstObjectByType<DungeonRunController>() == null)
+            return;
+
+        ShowDungeonRunError(
+            "Your party has been defeated. Return to the Main Menu to start a new run."
+        );
+        dungeonMainMenuButton.SetEnabled(true);
     }
 
     public static void Setup()
@@ -625,6 +640,7 @@ public class HUDController
     private IEnumerator ReturnToMainMenuAfterCheckpoint()
     {
         isReturningToMainMenu = true;
+        float priorTimeScale = Time.timeScale;
         Time.timeScale = 1f;
         dungeonMainMenuButton.SetEnabled(false);
 
@@ -639,6 +655,7 @@ public class HUDController
             DungeonSaveResult<DungeonRunSave> checkpoint = autosave.CheckpointCurrentFloor();
             if (!checkpoint.IsSuccess)
             {
+                Time.timeScale = priorTimeScale;
                 ShowDungeonRunError("The dungeon run could not be saved. Try again.");
                 dungeonMainMenuButton.SetEnabled(true);
                 isReturningToMainMenu = false;
@@ -652,7 +669,7 @@ public class HUDController
         if (SceneTransitionManager.FadeAndLoad("MainMenuScene"))
             yield break;
 
-        Time.timeScale = 1f;
+        Time.timeScale = priorTimeScale;
         dungeonMainMenuButton.SetEnabled(true);
         isReturningToMainMenu = false;
         ShowDungeonRunError("Another scene transition is already in progress. Try again.");
