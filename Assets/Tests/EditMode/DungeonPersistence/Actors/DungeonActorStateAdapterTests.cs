@@ -121,7 +121,10 @@ public sealed class DungeonActorStateAdapterTests
         );
         CreatureId actor = bridge.GetCreatureId(sourceCreature);
         bridge.BeginTurn(actor, 3);
-        Assert.That(bridge.DispatchRage(actor), Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
+        Assert.That(
+            bridge.Dispatch(new RageActionOp(actor)),
+            Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+        );
 
         DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
             sourceController,

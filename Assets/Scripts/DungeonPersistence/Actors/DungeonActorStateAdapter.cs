@@ -57,7 +57,7 @@ namespace Game.DungeonPersistence.Actors
                     controller.TryGetCombatRules(
                         out UnityCombatRulesBridge bridge,
                         out CreatureId creatureId
-                    ) && bridge.IsRaging(creatureId),
+                    ) && RageRules.IsRaging(bridge.Snapshot, creatureId),
                 Conditions = conditions.ToArray(),
                 TimedEffects = timedEffects.ToArray(),
                 PreparedEffects = preparedEffects.ToArray(),

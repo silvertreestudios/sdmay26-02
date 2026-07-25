@@ -41,7 +41,7 @@ public sealed class RulesRageUnityTests
     }
 
     [Test]
-    public void BridgeOwnsQuickTemperedRageCleanupOneShotAndLaterRageCost()
+    public void RageListenersOwnQuickTemperedCleanupOneShotAndLaterRageCost()
     {
         CreatureComponent creature = CreateBarbarian();
         creature.gameObject.AddComponent<Conditions>();
@@ -54,10 +54,10 @@ public sealed class RulesRageUnityTests
         CreatureId actor = bridge.GetCreatureId(creature);
         bridge.BeginTurn(actor, 3);
 
-        OpResult<RageStartOutcome> quickTempered = bridge.ResolveInitiativeRollRage(actor);
+        OpResult<CombatRuntimeOutcome> initiative = bridge.Dispatch(new InitiativeRolledOp(actor));
 
-        Assert.That(quickTempered, Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
-        Assert.That(bridge.IsRaging(actor), Is.True);
+        Assert.That(initiative, Is.TypeOf<ResolvedOpResult<CombatRuntimeOutcome>>());
+        Assert.That(RageRules.IsRaging(bridge.Snapshot, actor), Is.True);
         Assert.That(controller.ActionPoints, Is.EqualTo(3));
         Assert.That(creature.tempHp, Is.EqualTo(creature.level + creature.conMod));
         Assert.That(
@@ -66,12 +66,15 @@ public sealed class RulesRageUnityTests
             "PreparedCharacter must not become a second active-effect authority."
         );
 
-        RageEndOutcome ended = bridge.EndRage(actor);
-        OpResult<RageStartOutcome> repeatedTrigger = bridge.ResolveInitiativeRollRage(actor);
-        OpResult<RageStartOutcome> ordinary = bridge.DispatchRage(actor);
+        OpResult<RageEndOutcome> ended = bridge.Dispatch(new EndRageOp(actor));
+        OpResult<CombatRuntimeOutcome> repeatedTrigger = bridge.Dispatch(
+            new InitiativeRolledOp(actor)
+        );
+        OpResult<RageStartOutcome> ordinary = bridge.Dispatch(new RageActionOp(actor));
 
-        Assert.That(ended.Ended, Is.True);
-        Assert.That(repeatedTrigger, Is.TypeOf<InvalidOpResult<RageStartOutcome>>());
+        Assert.That(ended, Is.TypeOf<ResolvedOpResult<RageEndOutcome>>());
+        Assert.That(((ResolvedOpResult<RageEndOutcome>)ended).Value.Ended, Is.True);
+        Assert.That(repeatedTrigger, Is.TypeOf<ResolvedOpResult<CombatRuntimeOutcome>>());
         Assert.That(ordinary, Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
         Assert.That(controller.ActionPoints, Is.EqualTo(2));
         Assert.That(creature.tempHp, Is.Zero);
@@ -101,13 +104,14 @@ public sealed class RulesRageUnityTests
         bridge.BeginTurn(encumberedActor, 3);
 
         Assert.That(
-            bridge.DispatchRage(fatiguedActor),
+            bridge.Dispatch(new RageActionOp(fatiguedActor)),
             Is.TypeOf<InvalidOpResult<RageStartOutcome>>()
         );
         Assert.That(
-            bridge.ResolveInitiativeRollRage(encumberedActor),
-            Is.TypeOf<InvalidOpResult<RageStartOutcome>>()
+            bridge.Dispatch(new InitiativeRolledOp(encumberedActor)),
+            Is.TypeOf<ResolvedOpResult<CombatRuntimeOutcome>>()
         );
+        Assert.That(RageRules.IsRaging(bridge.Snapshot, encumberedActor), Is.False);
     }
 
     private CreatureComponent CreateBarbarian()

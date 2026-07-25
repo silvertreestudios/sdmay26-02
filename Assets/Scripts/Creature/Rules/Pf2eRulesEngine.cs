@@ -52,13 +52,13 @@ namespace Game.Creature.Rules
                     )
                 )
                 {
-                    bridge.EndRage(creature);
+                    bridge.Dispatch(new EncounterEndedOp(creature));
                 }
             }
         }
 
         /// <summary>
-        /// Applies combat-start rule hooks such as auto-starting Rage for matching prepared character options.
+        /// Imports passive abilities and publishes combat-start facts for each registered combatant.
         /// </summary>
         /// <param name="combatants">The combatants entering encounter state.</param>
         public static void ApplyCombatStartRules(IEnumerable<ActionController> combatants)
@@ -81,7 +81,7 @@ namespace Game.Creature.Rules
                     )
                 )
                 {
-                    bridge.ResolveInitiativeRollRage(rulesCreature);
+                    bridge.Dispatch(new InitiativeRolledOp(rulesCreature));
                 }
             }
         }
@@ -388,17 +388,18 @@ namespace Game.Creature.Rules
         {
             ActionController controller = actor?.GetComponent<ActionController>();
             if (
-                controller != null
-                && controller.TryGetCombatRules(
+                controller == null
+                || !controller.TryGetCombatRules(
                     out UnityCombatRulesBridge bridge,
                     out CreatureId creature
                 )
-                && bridge.IsRaging(creature)
             )
             {
-                AddOption(options, "self:effect:rage");
-                AddOption(options, "self:effect:effect-rage");
+                return;
             }
+
+            foreach (string option in RageRules.GetActiveRollOptions(bridge.Snapshot, creature))
+                AddOption(options, option);
         }
 
         private static bool MatchesAlteration(

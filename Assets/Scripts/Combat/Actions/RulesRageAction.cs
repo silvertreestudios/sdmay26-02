@@ -1,4 +1,5 @@
 using System;
+using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using UnityEngine;
@@ -17,10 +18,27 @@ public sealed class RulesRageAction : EntityAction
     public override string ActionName => "Rage";
 
     /// <inheritdoc/>
-    public override bool IsAvailable(ActionController controller) =>
-        controller != null
-        && controller.TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId creature)
-        && bridge.GetRageAvailability(creature) is AvailableActionAvailability;
+    public override bool IsAvailable(ActionController controller)
+    {
+        if (
+            controller == null
+            || !controller.TryGetCombatRules(
+                out UnityCombatRulesBridge bridge,
+                out CreatureId creature
+            )
+        )
+        {
+            return false;
+        }
+
+        CreatureComponent actor = controller.GetComponent<CreatureComponent>();
+        return actor != null
+            && RageRules.GetAvailability(
+                bridge.Snapshot,
+                creature,
+                UnityRageActorStateProvider.CreateState(actor)
+            ) is AvailableActionAvailability;
+    }
 
     /// <inheritdoc/>
     public override void Invoke(GameObject target)
@@ -43,7 +61,7 @@ public sealed class RulesRageAction : EntityAction
                 return;
             }
 
-            OpResult<RageStartOutcome> result = bridge.DispatchRage(creature);
+            OpResult<RageStartOutcome> result = bridge.Dispatch(new RageActionOp(creature));
             if (result is ResolvedOpResult<RageStartOutcome>)
             {
                 CombatLog.GetInstance().Log("- " + target.name + " used Rage");

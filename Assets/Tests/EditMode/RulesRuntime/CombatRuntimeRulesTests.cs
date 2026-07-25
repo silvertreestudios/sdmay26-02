@@ -30,14 +30,23 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         [Test]
-        public async Task ReinforcementRegistrationAddsOnlyTheStrideStateSlice()
+        public async Task ReinforcementRegistrationAddsCompleteSharedStateSlice()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new RulesStateSeed());
+            ActiveRuleBinding initialBinding = new ActiveRuleBinding(
+                new BindingId("actor-feature"),
+                new RuleDefinitionId("actor-feature"),
+                Actor,
+                default,
+                RuleSource.FromSlug("actor-feature"),
+                0
+            );
             CombatantRulesState combatant = new CombatantRulesState(
                 new CreatureState(Actor, new PlayerId("party")),
                 new HealthState(8, 10),
                 new GridPosition(2, 0, 3),
-                new GridDistance(25)
+                new GridDistance(25),
+                new[] { initialBinding }
             );
 
             AssertSuccess(await dispatcher.Dispatch(new RegisterCombatantOp(combatant)));
@@ -50,6 +59,28 @@ namespace Game.Tests.EditMode.RulesRuntime
             );
             Assert.That(dispatcher.Snapshot.LandSpeeds[Actor], Is.EqualTo(new GridDistance(25)));
             Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.Zero);
+            Assert.That(
+                dispatcher.Snapshot.RuleBindings[initialBinding.Id],
+                Is.EqualTo(initialBinding)
+            );
+        }
+
+        [Test]
+        public async Task InitiativeAndEncounterNotificationsCommitTypedFacts()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new RulesStateSeed().SeedCreature(new CreatureState(Actor, new PlayerId("party")))
+            );
+
+            ResolvedOpResult<CombatRuntimeOutcome> initiative =
+                (ResolvedOpResult<CombatRuntimeOutcome>)
+                    await dispatcher.Dispatch(new InitiativeRolledOp(Actor));
+            ResolvedOpResult<CombatRuntimeOutcome> encounter =
+                (ResolvedOpResult<CombatRuntimeOutcome>)
+                    await dispatcher.Dispatch(new EncounterEndedOp(Actor));
+
+            Assert.That(initiative.Facts, Has.Exactly(1).TypeOf<InitiativeRolledFact>());
+            Assert.That(encounter.Facts, Has.Exactly(1).TypeOf<EncounterEndedFact>());
         }
 
         private static RuleDispatcher CreateDispatcher(RulesStateSeed seed) =>

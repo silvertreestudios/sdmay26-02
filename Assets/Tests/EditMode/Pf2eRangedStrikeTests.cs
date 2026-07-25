@@ -10,6 +10,7 @@ using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
+using RageActionOp = Game.Rules.Runtime.RageActionOp;
 
 namespace TestsCombat
 {
@@ -419,7 +420,7 @@ namespace TestsCombat
                 Game.Rules.Runtime.CreatureId actor = bridge.GetCreatureId(creature);
                 bridge.BeginTurn(actor, 3);
                 Assert.That(
-                    bridge.DispatchRage(actor),
+                    bridge.Dispatch(new RageActionOp(actor)),
                     Is.TypeOf<Game.Rules.Runtime.ResolvedOpResult<Game.Rules.Runtime.RageStartOutcome>>()
                 );
 

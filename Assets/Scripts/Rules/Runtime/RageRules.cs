@@ -198,20 +198,8 @@ namespace Game.Rules.Runtime
         /// <param name="snapshot">The authoritative rules snapshot.</param>
         /// <param name="actor">The creature considering Rage.</param>
         /// <returns>A typed availability result with a reason when unavailable.</returns>
-        public ActionAvailability GetAvailability(RulesSnapshot snapshot, CreatureId actor)
-        {
-            ActionValidationResult validation = Validate(snapshot, actor, false);
-            if (validation is ActionValidationResult.InvalidActionValidationResult invalid)
-                return ActionAvailability.Unavailable(invalid.Reason);
-            if (
-                !snapshot.ActionEconomy.TryGet(actor, out ActionEconomyState economy)
-                || economy.ActionsRemaining < ActionCost.One.Amount
-            )
-            {
-                return ActionAvailability.Unavailable("The actor does not have an action.");
-            }
-            return ActionAvailability.Available;
-        }
+        public ActionAvailability GetAvailability(RulesSnapshot snapshot, CreatureId actor) =>
+            RageRules.GetAvailability(snapshot, actor, actorStateProvider.Get(actor));
 
         /// <inheritdoc/>
         public ActionProfile GetBaseProfile(ActionDefinitionId definitionId)
@@ -223,48 +211,13 @@ namespace Game.Rules.Runtime
             throw new KeyNotFoundException($"Unknown action definition '{definitionId}'.");
         }
 
-        /// <summary>Creates the rules-owned Quick-Tempered combat-start operation.</summary>
-        /// <param name="actor">The creature whose initiative was rolled.</param>
-        /// <returns>
-        /// An operation that preserves the internal Quick-Tempered action type while exposing only
-        /// the common dispatch contract to host assemblies.
-        /// </returns>
-        public IRuleOp<RageStartOutcome> CreateQuickTemperedOp(CreatureId actor) =>
-            new QuickTemperedRageActionOp(actor);
-
         internal RageActorState GetActorState(CreatureId actor) => actorStateProvider.Get(actor);
 
         internal ActionValidationResult Validate(
             RulesSnapshot snapshot,
             CreatureId actor,
             bool quickTempered
-        )
-        {
-            if (snapshot == null)
-                throw new ArgumentNullException(nameof(snapshot));
-            if (actor.IsEmpty)
-                throw new ArgumentException("An actor is required.", nameof(actor));
-            if (!snapshot.Creatures.Contains(actor))
-                return ActionValidationResult.Invalid("The actor is not registered.");
-
-            RageActorState state = actorStateProvider.Get(actor);
-            if (!state.OwnsRage)
-                return ActionValidationResult.Invalid("The actor does not own Rage.");
-            if (RageRules.IsRaging(snapshot, actor))
-                return ActionValidationResult.Invalid("The actor is already raging.");
-            if (state.IsFatigued)
-                return ActionValidationResult.Invalid("The actor is fatigued.");
-
-            if (!quickTempered)
-                return ActionValidationResult.Valid;
-            if (!state.OwnsQuickTempered)
-                return ActionValidationResult.Invalid("The actor does not own Quick-Tempered.");
-            if (state.IsEncumbered)
-                return ActionValidationResult.Invalid("The actor is encumbered.");
-            if (state.WearsHeavyArmor && !state.HasInvulnerableRager)
-                return ActionValidationResult.Invalid("The actor is wearing heavy armor.");
-            return ActionValidationResult.Valid;
-        }
+        ) => RageRules.Validate(snapshot, actor, actorStateProvider.Get(actor), quickTempered);
     }
 
     /// <summary>Requests the complete ordinary one-action Rage workflow.</summary>
@@ -280,6 +233,74 @@ namespace Game.Rules.Runtime
     {
         public QuickTemperedRageActionOp(CreatureId actor)
             : base(actor, RageActionDefinition.QuickTemperedDefinitionId) { }
+    }
+
+    internal sealed class ResolveQuickTemperedTriggerOp : IRuleOp<QuickTemperedTriggerOutcome>
+    {
+        public ResolveQuickTemperedTriggerOp(CreatureId actor, BindingId binding)
+        {
+            if (actor.IsEmpty)
+                throw new ArgumentException("A Quick-Tempered actor is required.", nameof(actor));
+            if (binding.IsEmpty)
+                throw new ArgumentException(
+                    "A Quick-Tempered binding is required.",
+                    nameof(binding)
+                );
+            Actor = actor;
+            Binding = binding;
+        }
+
+        public CreatureId Actor { get; }
+
+        public BindingId Binding { get; }
+    }
+
+    internal readonly struct QuickTemperedTriggerOutcome
+    {
+        public QuickTemperedTriggerOutcome(bool startedRage) => StartedRage = startedRage;
+
+        public bool StartedRage { get; }
+    }
+
+    internal sealed class ConsumeQuickTemperedTriggerOp
+        : IRuleOp<QuickTemperedTriggerConsumedOutcome>
+    {
+        public ConsumeQuickTemperedTriggerOp(CreatureId actor, BindingId binding)
+        {
+            if (actor.IsEmpty)
+                throw new ArgumentException("A Quick-Tempered actor is required.", nameof(actor));
+            if (binding.IsEmpty)
+                throw new ArgumentException(
+                    "A Quick-Tempered binding is required.",
+                    nameof(binding)
+                );
+            Actor = actor;
+            Binding = binding;
+        }
+
+        public CreatureId Actor { get; }
+
+        public BindingId Binding { get; }
+    }
+
+    internal readonly struct QuickTemperedTriggerConsumedOutcome
+    {
+        public QuickTemperedTriggerConsumedOutcome(BindingId binding) => Binding = binding;
+
+        public BindingId Binding { get; }
+    }
+
+    internal sealed class QuickTemperedTriggerConsumedFact : RuleFact
+    {
+        public QuickTemperedTriggerConsumedFact(CreatureId actor, BindingId binding)
+        {
+            Actor = actor;
+            Binding = binding;
+        }
+
+        public CreatureId Actor { get; }
+
+        public BindingId Binding { get; }
     }
 
     /// <summary>Requests Rage cleanup without exposing active-effect mutation to a host layer.</summary>
@@ -302,6 +323,128 @@ namespace Game.Rules.Runtime
     public static class RageRules
     {
         internal static readonly RuleSource Source = RuleSource.FromSlug("rage");
+        internal static readonly RuleDefinitionId QuickTemperedRuleDefinitionId =
+            new RuleDefinitionId("quick-tempered");
+        internal static readonly RuleSource QuickTemperedSource = RuleSource.FromSlug(
+            "quick-tempered"
+        );
+        private static readonly IReadOnlyList<ActiveRuleBinding> NoInitialBindings =
+            Array.AsReadOnly(Array.Empty<ActiveRuleBinding>());
+        private static readonly IReadOnlyList<string> ActiveRollOptions = Array.AsReadOnly(
+            new[] { "self:effect:rage", "self:effect:effect-rage" }
+        );
+
+        /// <summary>Gets ordinary Rage availability from authoritative and immutable actor state.</summary>
+        /// <param name="snapshot">The authoritative rules snapshot.</param>
+        /// <param name="actor">The creature considering Rage.</param>
+        /// <param name="state">The creature's current immutable Rage inputs.</param>
+        /// <returns>A typed available or unavailable preview state.</returns>
+        public static ActionAvailability GetAvailability(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            RageActorState state
+        )
+        {
+            ActionValidationResult validation = Validate(snapshot, actor, state, false);
+            if (validation is ActionValidationResult.InvalidActionValidationResult invalid)
+                return ActionAvailability.Unavailable(invalid.Reason);
+            if (
+                !snapshot.ActionEconomy.TryGet(actor, out ActionEconomyState economy)
+                || economy.ActionsRemaining < ActionCost.One.Amount
+            )
+            {
+                return ActionAvailability.Unavailable("The actor does not have an action.");
+            }
+            return ActionAvailability.Available;
+        }
+
+        /// <summary>Creates Rage-owned persistent bindings present when an actor registers.</summary>
+        /// <param name="actor">The registering creature.</param>
+        /// <param name="state">The creature's immutable Rage inputs.</param>
+        /// <returns>The actor's initial Rage-owned bindings, or an empty collection.</returns>
+        public static IReadOnlyList<ActiveRuleBinding> CreateInitialBindings(
+            CreatureId actor,
+            RageActorState state
+        )
+        {
+            if (actor.IsEmpty)
+                throw new ArgumentException("A Rage actor is required.", nameof(actor));
+            if (state == null)
+                throw new ArgumentNullException(nameof(state));
+            if (!state.OwnsQuickTempered)
+                return NoInitialBindings;
+            return Array.AsReadOnly(
+                new[]
+                {
+                    new ActiveRuleBinding(
+                        new BindingId($"quick-tempered-{actor.Value}"),
+                        QuickTemperedRuleDefinitionId,
+                        actor,
+                        default,
+                        QuickTemperedSource,
+                        0
+                    ),
+                }
+            );
+        }
+
+        /// <summary>Gets roll options contributed by the actor's active Rage.</summary>
+        /// <param name="snapshot">The authoritative rules snapshot.</param>
+        /// <param name="actor">The creature whose options are requested.</param>
+        /// <returns>Rage roll options while active, otherwise an empty collection.</returns>
+        public static IReadOnlyList<string> GetActiveRollOptions(
+            RulesSnapshot snapshot,
+            CreatureId actor
+        ) => IsRaging(snapshot, actor) ? ActiveRollOptions : Array.Empty<string>();
+
+        internal static ActionValidationResult Validate(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            RageActorState state,
+            bool quickTempered
+        )
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            if (actor.IsEmpty)
+                throw new ArgumentException("An actor is required.", nameof(actor));
+            if (state == null)
+                throw new ArgumentNullException(nameof(state));
+            if (!snapshot.Creatures.Contains(actor))
+                return ActionValidationResult.Invalid("The actor is not registered.");
+            if (!state.OwnsRage)
+                return ActionValidationResult.Invalid("The actor does not own Rage.");
+            if (IsRaging(snapshot, actor))
+                return ActionValidationResult.Invalid("The actor is already raging.");
+            if (state.IsFatigued)
+                return ActionValidationResult.Invalid("The actor is fatigued.");
+
+            if (!quickTempered)
+                return ActionValidationResult.Valid;
+            if (!state.OwnsQuickTempered)
+                return ActionValidationResult.Invalid("The actor does not own Quick-Tempered.");
+            if (state.IsEncumbered)
+                return ActionValidationResult.Invalid("The actor is encumbered.");
+            if (state.WearsHeavyArmor && !state.HasInvulnerableRager)
+                return ActionValidationResult.Invalid("The actor is wearing heavy armor.");
+            return ActionValidationResult.Valid;
+        }
+
+        /// <summary>Adds Rage and Quick-Tempered binding listeners to a rule registry.</summary>
+        /// <param name="builder">The shared registry builder being composed.</param>
+        /// <returns>The supplied builder for continued composition.</returns>
+        public static RuleRegistryBuilder DefineRuleBindings(RuleRegistryBuilder builder)
+        {
+            if (builder == null)
+                throw new ArgumentNullException(nameof(builder));
+            builder
+                .Define(RageActionDefinition.EffectDefinitionId)
+                .FactListener(RuleLifecyclePhase.Reaction, new EndRageOnEncounterEndListener());
+            builder
+                .Define(QuickTemperedRuleDefinitionId)
+                .FactListener(RuleLifecyclePhase.Reaction, new QuickTemperedInitiativeListener());
+            return builder;
+        }
 
         /// <summary>Checks whether a creature has an active Rage effect in rules state.</summary>
         /// <param name="snapshot">The authoritative rules snapshot.</param>
@@ -375,9 +518,106 @@ namespace Game.Rules.Runtime
                 .RegisterHandler<QuickTemperedRageActionOp, RageStartOutcome>(
                     new QuickTemperedRageActionHandler(definition)
                 )
+                .RegisterHandler<ResolveQuickTemperedTriggerOp, QuickTemperedTriggerOutcome>(
+                    new ResolveQuickTemperedTriggerHandler()
+                )
                 .RegisterHandler<EndRageOp, RageEndOutcome>(new EndRageHandler())
+                .RegisterReducer<
+                    ConsumeQuickTemperedTriggerOp,
+                    QuickTemperedTriggerConsumedOutcome
+                >(new ConsumeQuickTemperedTriggerReducer(), QuickTemperedSource)
                 .RegisterActionValidator(new RageActionValidator(definition))
                 .RegisterActionValidator(new QuickTemperedRageActionValidator(definition));
+        }
+    }
+
+    internal sealed class QuickTemperedInitiativeListener : IRuleFactListener<InitiativeRolledFact>
+    {
+        public async ValueTask OnFactCommitted(InitiativeRolledFact fact, FactContext context)
+        {
+            if (fact.Creature != context.Binding.Owner)
+                return;
+            await RageHandlerSupport.RequireResolved(
+                context.Dispatch(
+                    new ResolveQuickTemperedTriggerOp(fact.Creature, context.Binding.Id)
+                )
+            );
+        }
+    }
+
+    internal sealed class EndRageOnEncounterEndListener : IRuleFactListener<EncounterEndedFact>
+    {
+        public async ValueTask OnFactCommitted(EncounterEndedFact fact, FactContext context)
+        {
+            if (fact.Creature != context.Binding.Owner)
+                return;
+            await RageHandlerSupport.RequireResolved(
+                context.Dispatch(new EndRageOp(fact.Creature))
+            );
+        }
+    }
+
+    internal sealed class ResolveQuickTemperedTriggerHandler
+        : IOpHandler<ResolveQuickTemperedTriggerOp, QuickTemperedTriggerOutcome>
+    {
+        public async ValueTask<QuickTemperedTriggerOutcome> Handle(
+            OpFrame<ResolveQuickTemperedTriggerOp> frame,
+            OpHandlerContext context
+        )
+        {
+            if (
+                !context.Snapshot.RuleBindings.TryGet(
+                    frame.Op.Binding,
+                    out ActiveRuleBinding binding
+                )
+                || !binding.IsEnabled
+                || binding.Owner != frame.Op.Actor
+                || binding.DefinitionId != RageRules.QuickTemperedRuleDefinitionId
+            )
+            {
+                throw new InvalidOperationException(
+                    "Quick-Tempered resolution requires its active actor-owned binding."
+                );
+            }
+
+            OpResult<RageStartOutcome> rage = await context.Dispatch(
+                new QuickTemperedRageActionOp(frame.Op.Actor)
+            );
+            await RageHandlerSupport.RequireResolved(
+                context.Dispatch(
+                    new ConsumeQuickTemperedTriggerOp(frame.Op.Actor, frame.Op.Binding)
+                )
+            );
+            return new QuickTemperedTriggerOutcome(rage is ResolvedOpResult<RageStartOutcome>);
+        }
+    }
+
+    internal sealed class ConsumeQuickTemperedTriggerReducer
+        : IOpReducer<ConsumeQuickTemperedTriggerOp, QuickTemperedTriggerConsumedOutcome>
+    {
+        public ReductionResult<QuickTemperedTriggerConsumedOutcome> Reduce(
+            ReductionContext<ConsumeQuickTemperedTriggerOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            if (
+                !state.RuleBindings.TryGet(context.Op.Binding, out ActiveRuleBinding binding)
+                || !binding.IsEnabled
+                || binding.Owner != context.Op.Actor
+                || binding.DefinitionId != RageRules.QuickTemperedRuleDefinitionId
+            )
+            {
+                return ReductionResult<QuickTemperedTriggerConsumedOutcome>.Reject(
+                    "The Quick-Tempered opportunity is not active."
+                );
+            }
+
+            state.RuleBindings.Set(binding.Id, binding.WithEnabled(false));
+            facts.Stage(new QuickTemperedTriggerConsumedFact(context.Op.Actor, binding.Id));
+            return ReductionResult<QuickTemperedTriggerConsumedOutcome>.Accept(
+                new QuickTemperedTriggerConsumedOutcome(binding.Id)
+            );
         }
     }
 

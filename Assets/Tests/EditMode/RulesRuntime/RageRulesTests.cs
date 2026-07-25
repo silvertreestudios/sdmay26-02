@@ -141,42 +141,67 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         [Test]
-        public async Task QuickTemperedIsFreeAndOwnsItsAdditionalRequirements()
+        public async Task InitiativeFactOwnsQuickTemperedRequirementsAndOneShot()
         {
             TestRageActorStateProvider allowedProvider = new TestRageActorStateProvider(
                 CreateActorState()
             );
             RuleDispatcher allowed = CreateDispatcher(allowedProvider);
-            TestRageActorStateProvider encumberedProvider = new TestRageActorStateProvider(
-                CreateActorState(isEncumbered: true)
+            RuleDispatcher encumbered = CreateDispatcher(
+                new TestRageActorStateProvider(CreateActorState(isEncumbered: true))
             );
-            RuleDispatcher encumbered = CreateDispatcher(encumberedProvider);
-            TestRageActorStateProvider heavyProvider = new TestRageActorStateProvider(
-                CreateActorState(wearsHeavyArmor: true)
+            RuleDispatcher heavy = CreateDispatcher(
+                new TestRageActorStateProvider(CreateActorState(wearsHeavyArmor: true))
             );
-            RuleDispatcher heavy = CreateDispatcher(heavyProvider);
-            TestRageActorStateProvider armoredExceptionProvider = new TestRageActorStateProvider(
-                CreateActorState(wearsHeavyArmor: true, hasInvulnerableRager: true)
-            );
-            RuleDispatcher armoredException = CreateDispatcher(armoredExceptionProvider);
-
-            ResolvedOpResult<RageStartOutcome> result = RequireResolved(
-                await allowed.Dispatch(new QuickTemperedRageActionOp(Actor))
+            RuleDispatcher armoredException = CreateDispatcher(
+                new TestRageActorStateProvider(
+                    CreateActorState(wearsHeavyArmor: true, hasInvulnerableRager: true)
+                )
             );
 
-            Assert.That(result.Value.StartedByQuickTempered, Is.True);
+            await allowed.Dispatch(new InitiativeRolledOp(Actor));
+            await encumbered.Dispatch(new InitiativeRolledOp(Actor));
+            await heavy.Dispatch(new InitiativeRolledOp(Actor));
+            await armoredException.Dispatch(new InitiativeRolledOp(Actor));
+
+            Assert.That(RageRules.IsRaging(allowed.Snapshot, Actor), Is.True);
             Assert.That(allowed.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(RageRules.IsRaging(encumbered.Snapshot, Actor), Is.False);
+            Assert.That(RageRules.IsRaging(heavy.Snapshot, Actor), Is.False);
+            Assert.That(RageRules.IsRaging(armoredException.Snapshot, Actor), Is.True);
+
+            await allowed.Dispatch(new EndRageOp(Actor));
+            await allowed.Dispatch(new InitiativeRolledOp(Actor));
             Assert.That(
-                await encumbered.Dispatch(new QuickTemperedRageActionOp(Actor)),
-                Is.TypeOf<InvalidOpResult<RageStartOutcome>>()
+                RageRules.IsRaging(allowed.Snapshot, Actor),
+                Is.False,
+                "The consumed Quick-Tempered binding must not react twice."
             );
             Assert.That(
-                await heavy.Dispatch(new QuickTemperedRageActionOp(Actor)),
-                Is.TypeOf<InvalidOpResult<RageStartOutcome>>()
-            );
-            Assert.That(
-                await armoredException.Dispatch(new QuickTemperedRageActionOp(Actor)),
+                await allowed.Dispatch(new RageActionOp(Actor)),
                 Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+            );
+            Assert.That(allowed.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+        }
+
+        [Test]
+        public async Task EncounterEndedFactLetsRageOwnItsCleanup()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new TestRageActorStateProvider(CreateActorState())
+            );
+            await dispatcher.Dispatch(new RageActionOp(Actor));
+
+            OpResult<CombatRuntimeOutcome> result = await dispatcher.Dispatch(
+                new EncounterEndedOp(Actor)
+            );
+
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<CombatRuntimeOutcome>>());
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.False);
+            Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.Zero);
+            Assert.That(
+                dispatcher.Snapshot.Health[Actor].HasTemporaryHitPointImmunity(RageRules.Source),
+                Is.True
             );
         }
 
@@ -213,16 +238,24 @@ namespace Game.Tests.EditMode.RulesRuntime
         {
             RageActionDefinition definition = new RageActionDefinition(provider);
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
-            registryBuilder.Define(RageActionDefinition.EffectDefinitionId);
-            return new RuleDispatcherBuilder(
-                new InMemoryRulesStore(
-                    new RulesStateSeed()
-                        .SeedCreature(new CreatureState(Actor, Party))
-                        .SeedHealth(Actor, new HealthState(10, 10))
-                        .SeedActionEconomy(Actor, new ActionEconomyState(3, true))
+            RageRules.DefineRuleBindings(registryBuilder);
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedCreature(new CreatureState(Actor, Party))
+                .SeedHealth(Actor, new HealthState(10, 10))
+                .SeedActionEconomy(Actor, new ActionEconomyState(3, true));
+            foreach (
+                ActiveRuleBinding binding in RageRules.CreateInitialBindings(
+                    Actor,
+                    provider.Get(Actor)
                 )
             )
+            {
+                seed.SeedRuleBinding(binding);
+            }
+
+            return new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
                 .UseHealthRules()
+                .UseCombatRuntimeRules()
                 .UseActiveEffectRules(registryBuilder.Build())
                 .UseActionLifecycle(definition)
                 .UseRageRules(definition)

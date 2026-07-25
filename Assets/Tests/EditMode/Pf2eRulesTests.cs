@@ -178,7 +178,10 @@ public class Pf2eRulesTests
         UnityCombatRulesBridge bridge = CreateCombatRules(creature);
         CreatureId actor = bridge.GetCreatureId(creature);
         bridge.BeginTurn(actor, 3);
-        Assert.That(bridge.DispatchRage(actor), Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
+        Assert.That(
+            bridge.Dispatch(new RageActionOp(actor)),
+            Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+        );
 
         StrikeProfile greataxe = new(
             new List<Dice> { new Dice(1, 12, "Slashing") },
@@ -195,7 +198,7 @@ public class Pf2eRulesTests
         StrikeResolutionContext agileContext = PrepareStrike(creature, agile);
         Assert.That(agileContext.FlatDamages.Last().DamageAmount, Is.EqualTo(1));
 
-        bridge.EndRage(actor);
+        bridge.Dispatch(new EndRageOp(actor));
         StrikeProfile notRaging = new(
             new List<Dice> { new Dice(1, 12, "Slashing") },
             new List<DamageValue> { new DamageValue("Slashing", 4) }
@@ -220,7 +223,10 @@ public class Pf2eRulesTests
         );
         Assert.That(beforeRage, Does.Not.Contain("rage"));
 
-        Assert.That(bridge.DispatchRage(actor), Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
+        Assert.That(
+            bridge.Dispatch(new RageActionOp(actor)),
+            Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+        );
         List<string> duringRage = Pf2eRulesEngine.GetAlteredTraits(
             creature,
             "action",

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Game.Creature;
-using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using GridPrivate;
 using UnityEngine;
@@ -15,7 +14,7 @@ namespace Game.Rules.Unity
     /// </summary>
     /// <remarks>
     /// Combat initiative remains scheduled by <see cref="CombatManager"/>. This bridge owns only
-    /// the shared state required by the first vertical action slice: health, actions, positions,
+    /// the shared state required by rules-backed action slices: health, actions, positions,
     /// land Speeds, movement budgets, and immutable topology snapshots.
     /// </remarks>
     public sealed class UnityCombatRulesBridge
@@ -23,7 +22,6 @@ namespace Game.Rules.Unity
         private readonly Dictionary<CreatureComponent, CreatureId> creatureIds = new();
         private readonly Dictionary<CreatureId, CreatureComponent> creatures = new();
         private readonly Dictionary<ActionController, CreatureId> controllerIds = new();
-        private readonly HashSet<CreatureId> resolvedInitiativeRageTriggers = new();
         private readonly Dictionary<string, PlayerId> playerIds = new(
             StringComparer.OrdinalIgnoreCase
         );
@@ -31,7 +29,6 @@ namespace Game.Rules.Unity
         private readonly Dictionary<HealthChangeOriginId, RuleSource> origins = new();
         private readonly MutableGridTopologyProvider topologyProvider;
         private readonly StrideActionDefinition strideDefinition;
-        private readonly RageActionDefinition rageDefinition;
         private readonly RuleDispatcher dispatcher;
         private readonly bool supportsCombatActions;
         private readonly bool projectsActionPoints;
@@ -52,8 +49,6 @@ namespace Game.Rules.Unity
                 creatures.Add(id, creature);
                 seed.SeedHealth(id, creature.GetHealthInitializationState());
             }
-            rageDefinition = new RageActionDefinition(new UnityRageActorStateProvider(creatures));
-
             dispatcher = new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
                 .UseHealthRules()
                 .Build();
@@ -81,9 +76,11 @@ namespace Game.Rules.Unity
                 AddRegistrationMaps(registration);
                 Seed(seed, registration.State);
             }
-            rageDefinition = new RageActionDefinition(new UnityRageActorStateProvider(creatures));
+            RageActionDefinition rageDefinition = new RageActionDefinition(
+                new UnityRageActorStateProvider(creatures)
+            );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
-            registryBuilder.Define(RageActionDefinition.EffectDefinitionId);
+            RageRules.DefineRuleBindings(registryBuilder);
             RuleRegistry registry = registryBuilder.Build();
             CombatActionCatalog actionCatalog = new CombatActionCatalog(
                 strideDefinition,
@@ -254,6 +251,29 @@ namespace Game.Rules.Unity
         public void SpendLegacyActions(CreatureId creature, int amount) =>
             RequireSuccess(DispatchNow(new SpendLegacyActionsOp(creature, amount)));
 
+        /// <summary>Dispatches one synchronous typed rules operation.</summary>
+        /// <typeparam name="TResult">The operation's structural result type.</typeparam>
+        /// <param name="operation">The feature-owned immutable operation to dispatch.</param>
+        /// <returns>The resolved, invalid, interrupted, or cancelled structural result.</returns>
+        /// <remarks>
+        /// Feature adapters construct their own operations. The bridge owns only synchronous Unity
+        /// dispatch boundaries, topology stability, and projection of shared action economy.
+        /// </remarks>
+        public OpResult<TResult> Dispatch<TResult>(IRuleOp<TResult> operation)
+        {
+            if (operation == null)
+                throw new ArgumentNullException(nameof(operation));
+            RequireCombatComposition();
+            try
+            {
+                return DispatchResultNow(operation);
+            }
+            finally
+            {
+                SyncAllActionPoints();
+            }
+        }
+
         /// <summary>Registers dungeon reinforcements in the existing encounter store.</summary>
         /// <param name="reinforcements">New, unique controllers not already registered.</param>
         public void RegisterCombatants(IEnumerable<ActionController> reinforcements)
@@ -292,73 +312,6 @@ namespace Game.Rules.Unity
         {
             RequireCombatComposition();
             return strideDefinition.CreateSelectionWorkflow(Snapshot, creature);
-        }
-
-        /// <summary>Gets current rules-native Rage availability for a registered creature.</summary>
-        /// <param name="creature">The registered creature considering Rage.</param>
-        /// <returns>The typed available or unavailable preview state.</returns>
-        public ActionAvailability GetRageAvailability(CreatureId creature)
-        {
-            RequireCombatComposition();
-            return rageDefinition.GetAvailability(Snapshot, creature);
-        }
-
-        /// <summary>Dispatches one ordinary rules-native Rage action.</summary>
-        /// <param name="creature">The registered creature attempting to Rage.</param>
-        /// <returns>The structural action result and committed Rage Facts.</returns>
-        public OpResult<RageStartOutcome> DispatchRage(CreatureId creature)
-        {
-            RequireCombatComposition();
-            try
-            {
-                return DispatchResultNow(new RageActionOp(creature));
-            }
-            finally
-            {
-                SyncActionPoints(creature);
-            }
-        }
-
-        /// <summary>Resolves the one Quick-Tempered opportunity created by an initiative roll.</summary>
-        /// <param name="creature">The registered creature whose initiative was rolled.</param>
-        /// <returns>The structural action result and committed Rage Facts.</returns>
-        internal OpResult<RageStartOutcome> ResolveInitiativeRollRage(CreatureId creature)
-        {
-            RequireCombatComposition();
-            if (!creatures.ContainsKey(creature))
-                return OpResult<RageStartOutcome>.Invalid("The actor is not registered.");
-            if (!resolvedInitiativeRageTriggers.Add(creature))
-            {
-                return OpResult<RageStartOutcome>.Invalid(
-                    "The actor's initiative-roll Rage opportunity was already resolved."
-                );
-            }
-            try
-            {
-                return DispatchResultNow(rageDefinition.CreateQuickTemperedOp(creature));
-            }
-            finally
-            {
-                SyncActionPoints(creature);
-            }
-        }
-
-        /// <summary>Ends active Rage and applies its temporary Hit Point cleanup.</summary>
-        /// <param name="creature">The registered creature leaving Rage.</param>
-        /// <returns>Whether an active Rage was removed.</returns>
-        public RageEndOutcome EndRage(CreatureId creature)
-        {
-            RequireCombatComposition();
-            return DispatchNow(new EndRageOp(creature));
-        }
-
-        /// <summary>Checks authoritative rules state for an active Rage.</summary>
-        /// <param name="creature">The registered creature to inspect.</param>
-        /// <returns>Whether the creature is currently raging.</returns>
-        public bool IsRaging(CreatureId creature)
-        {
-            RequireCombatComposition();
-            return RageRules.IsRaging(Snapshot, creature);
         }
 
         /// <summary>Dispatches one rules-native Stride path.</summary>
@@ -517,11 +470,13 @@ namespace Game.Rules.Unity
             PlayerId playerId = GetPlayerId(controller);
             Vector3Int position = Vector3Int.RoundToInt(controller.transform.position);
             int speedFeet = Mathf.Max(0, Mathf.RoundToInt(creature.speed));
+            RageActorState rageState = UnityRageActorStateProvider.CreateState(creature);
             CombatantRulesState state = new CombatantRulesState(
                 new CreatureState(creatureId, playerId),
                 creature.GetHealthInitializationState(),
                 new GridPosition(position.x, position.y, position.z),
-                new GridDistance(speedFeet)
+                new GridDistance(speedFeet),
+                RageRules.CreateInitialBindings(creatureId, rageState)
             );
             return new CombatantRegistration(controller, creature, state);
         }
@@ -588,6 +543,14 @@ namespace Game.Rules.Unity
             }
         }
 
+        private void SyncAllActionPoints()
+        {
+            if (!projectsActionPoints)
+                return;
+            foreach (ActionController controller in controllerIds.Keys)
+                controller.SyncActionPointsFromRules();
+        }
+
         private void SyncActionPoints(CreatureId creature)
         {
             if (!projectsActionPoints)
@@ -644,6 +607,8 @@ namespace Game.Rules.Unity
                 .SeedPosition(id, state.Position)
                 .SeedLandSpeed(id, state.LandSpeed)
                 .SeedActionEconomy(id, new ActionEconomyState(0, false));
+            foreach (ActiveRuleBinding binding in state.RuleBindings)
+                seed.SeedRuleBinding(binding);
         }
 
         private static void ValidateControllers(
@@ -734,44 +699,6 @@ namespace Game.Rules.Unity
 
                 return mover == occupant;
             }
-        }
-
-        private sealed class UnityRageActorStateProvider : IRageActorStateProvider
-        {
-            private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
-
-            public UnityRageActorStateProvider(
-                IReadOnlyDictionary<CreatureId, CreatureComponent> creatures
-            ) => this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
-
-            /// <inheritdoc/>
-            public RageActorState Get(CreatureId actor)
-            {
-                if (!creatures.TryGetValue(actor, out CreatureComponent creature))
-                    throw new InvalidOperationException(
-                        "Rage actor facts require a registered Unity creature."
-                    );
-
-                PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
-                Conditions conditions = creature.GetComponent<Conditions>();
-                string armorCategory = creature.equippedArmor?.category ?? string.Empty;
-                return new RageActorState(
-                    prepared.HasOwnedItem("rage"),
-                    prepared.HasOwnedItem("quick-tempered"),
-                    HasCondition(conditions, "Fatigued"),
-                    HasCondition(conditions, "Encumbered"),
-                    string.Equals(armorCategory, "heavy", StringComparison.OrdinalIgnoreCase),
-                    prepared.RollOptions.Contains("feat:invulnerable-rager"),
-                    Math.Max(0, creature.level),
-                    creature.conMod
-                );
-            }
-
-            private static bool HasCondition(Conditions conditions, string expected) =>
-                conditions != null
-                && conditions.ActiveConditionNames.Any(condition =>
-                    string.Equals(condition, expected, StringComparison.OrdinalIgnoreCase)
-                );
         }
 
         private sealed class CombatActionCatalog : IActionCatalog
