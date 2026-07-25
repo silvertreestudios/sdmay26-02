@@ -12,14 +12,8 @@ EditorBuildSettings:
     path: Assets/Scenes/CharacterCreationScene.unity
     guid: dd848519b15e2dc4c86649f394d9e923
   - enabled: 1
-    path: Assets/Scenes/Level1.unity
-    guid: 99c9720ab356a0642a771bea13969a05
-  - enabled: 1
-    path: Assets/Scenes/Level2.unity
-    guid: b205fa0e25755554d8f007fb8b8e1e8d
-  - enabled: 1
-    path: Assets/Scenes/Level3.unity
-    guid: 2eaf3bf161374a04390045445bfe9ce4
+    path: Assets/Scenes/ProceduralDungeon.unity
+    guid: be2885c4f66794a43abaf5c7d11254a9
   - enabled: 1
     path: Assets/Scenes/UnitTestingScene.unity
     guid: d7065cb91ea126f43bd6b5cfc97369da

@@ -1,8 +1,13 @@
 using System.Collections;
+using Game.DungeonPersistence;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 
+/// <summary>
+/// Owns the persistent fade overlay and the one-shot dungeon launch request consumed by the
+/// procedural gameplay scene.
+/// </summary>
 public class SceneTransitionManager : MonoBehaviour
 {
     private static SceneTransitionManager _instance;
@@ -12,6 +17,7 @@ public class SceneTransitionManager : MonoBehaviour
 
     private UIDocument _doc;
     private VisualElement _overlay;
+    private DungeonRunLaunchRequest pendingDungeonRun = DungeonRunLaunchRequest.None;
 
     private void Awake()
     {
@@ -55,13 +61,41 @@ public class SceneTransitionManager : MonoBehaviour
     public static void FadeAndLoad(string sceneName, float duration = 1f)
     {
         EnsureInstance();
+        _instance.pendingDungeonRun = DungeonRunLaunchRequest.None;
         _instance.StartCoroutine(_instance.FadeRoutine(sceneName, null, duration));
     }
 
     public static void FadeAndLoad(int buildIndex, float duration = 1f)
     {
         EnsureInstance();
+        _instance.pendingDungeonRun = DungeonRunLaunchRequest.None;
         _instance.StartCoroutine(_instance.FadeRoutine(null, buildIndex, duration));
+    }
+
+    internal static void FadeAndLoadDungeon(DungeonRunLaunchRequest request, float duration = 1f)
+    {
+        if (request == null || !request.IsPending)
+            throw new System.ArgumentException(
+                "A pending dungeon launch request is required.",
+                nameof(request)
+            );
+
+        EnsureInstance();
+        _instance.pendingDungeonRun = request;
+        _instance.StartCoroutine(_instance.FadeRoutine("ProceduralDungeon", null, duration));
+    }
+
+    internal static bool TryConsumeDungeonRunLaunch(out DungeonRunLaunchRequest request)
+    {
+        if (_instance == null)
+        {
+            request = DungeonRunLaunchRequest.None;
+            return false;
+        }
+
+        request = _instance.pendingDungeonRun;
+        _instance.pendingDungeonRun = DungeonRunLaunchRequest.None;
+        return request.IsPending;
     }
 
     private static void EnsureInstance()

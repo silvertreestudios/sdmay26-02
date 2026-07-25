@@ -110,6 +110,8 @@ namespace Game.DungeonPersistence.Actors
                     effect.SourceSlug
                 ))
                 .ToArray();
+            if (preparedEffects.Length > 0 && creature.Prepared == null && creature.Build != null)
+                creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
             if (preparedEffects.Length > 0 && creature.Prepared == null)
                 throw new InvalidOperationException(
                     $"Actor '{controller.name}' cannot restore prepared effects without prepared rules."
@@ -305,10 +307,14 @@ namespace Game.DungeonPersistence.Actors
             EquipmentWeapon selected
         )
         {
-            if (selected == null)
+            if (selected == null || string.IsNullOrWhiteSpace(selected.name))
                 return string.Empty;
-            return inventory.Contains(selected)
-                ? selected.name
+            EquipmentWeapon authored = inventory.FirstOrDefault(item =>
+                item != null
+                && string.Equals(item.name, selected.name, StringComparison.OrdinalIgnoreCase)
+            );
+            return authored != null
+                ? authored.name
                 : throw new InvalidOperationException(
                     "An equipped weapon is not in actor inventory."
                 );
@@ -319,10 +325,14 @@ namespace Game.DungeonPersistence.Actors
             EquipmentArmor selected
         )
         {
-            if (selected == null)
+            if (selected == null || string.IsNullOrWhiteSpace(selected.name))
                 return string.Empty;
-            return inventory.Contains(selected)
-                ? selected.name
+            EquipmentArmor authored = inventory.FirstOrDefault(item =>
+                item != null
+                && string.Equals(item.name, selected.name, StringComparison.OrdinalIgnoreCase)
+            );
+            return authored != null
+                ? authored.name
                 : throw new InvalidOperationException("Equipped armor is not in actor inventory.");
         }
 

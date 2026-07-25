@@ -75,6 +75,22 @@ namespace Game.DungeonGeneration
     {
         private const int SeedMultiplier = 397;
 
+        /// <summary>
+        /// Normalizes a player-facing signed 64-bit seed into the generator's signed 32-bit run
+        /// seed. Values already in range retain their exact representation; larger values fold
+        /// both halves so every supplied bit participates in the deterministic result.
+        /// </summary>
+        /// <param name="suppliedSeed">The signed decimal seed accepted by the production menu.</param>
+        /// <returns>The stable run seed stored in generated documents and autosaves.</returns>
+        public static int NormalizeRunSeed(long suppliedSeed)
+        {
+            if (suppliedSeed >= int.MinValue && suppliedSeed <= int.MaxValue)
+                return (int)suppliedSeed;
+
+            ulong bits = unchecked((ulong)suppliedSeed);
+            return unchecked((int)(bits ^ (bits >> 32)));
+        }
+
         /// <summary>Returns the seed assigned to a dungeon depth.</summary>
         /// <param name="runSeed">The run seed supplied to generation.</param>
         /// <param name="depth">The nonnegative dungeon depth.</param>

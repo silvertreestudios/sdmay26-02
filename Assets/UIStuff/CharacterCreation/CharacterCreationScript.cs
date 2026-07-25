@@ -769,7 +769,7 @@ public class CharacterCreationScript : MonoBehaviour
         //change scene to gameplay
         if (ready)
         {
-            SceneTransitionManager.FadeAndLoad("Level1");
+            SceneTransitionManager.FadeAndLoad("MainMenuScene");
         }
     }
 

@@ -335,7 +335,7 @@ public sealed class DungeonRunTraversalPlayModeTests
     private static ActionController[] LivingParty() =>
         Object
             .FindObjectsByType<ActionController>(
-                FindObjectsInactive.Include,
+                FindObjectsInactive.Exclude,
                 FindObjectsSortMode.InstanceID
             )
             .Where(member =>

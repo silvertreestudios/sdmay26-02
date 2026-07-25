@@ -189,6 +189,12 @@ namespace Game.DungeonPersistence
         /// <summary>Gets the selected nonnegative depth.</summary>
         public int CurrentDepth { get; private set; }
 
+        /// <summary>Gets the normalized seed shared by every generated floor in this run.</summary>
+        public int StartingSeed { get; private set; }
+
+        /// <summary>Raised after initialization and each successful floor transition.</summary>
+        public event Action<int> CurrentDepthChanged = delegate { };
+
         /// <summary>Gets diagnostics from the most recent rejected or failed attempt.</summary>
         public IReadOnlyList<DungeonTravelDiagnostic> LastDiagnostics { get; private set; } =
             Array.Empty<DungeonTravelDiagnostic>();
@@ -245,11 +251,13 @@ namespace Game.DungeonPersistence
             );
             width = current.Width;
             height = current.Height;
+            StartingSeed = manifest.StartingSeed;
             CurrentDepth = manifest.CurrentDepth;
             gridInput = map.GetComponent<GridInput>();
             if (gridInput != null)
                 gridInput.CellClicked += OnGridCellClicked;
             IsInitialized = true;
+            CurrentDepthChanged.Invoke(CurrentDepth);
         }
 
         internal static IReadOnlyList<DungeonEncounterCandidate> LoadEncounterCandidates()
@@ -507,6 +515,7 @@ namespace Game.DungeonPersistence
 
             autosave.AdoptPublishedFloor(candidate, target, runtime);
             CurrentDepth = targetDepth;
+            CurrentDepthChanged.Invoke(CurrentDepth);
             stairPresentation.DismissStairTraversal();
             LastDiagnostics = Array.Empty<DungeonTravelDiagnostic>();
             return new DungeonTravelResult(

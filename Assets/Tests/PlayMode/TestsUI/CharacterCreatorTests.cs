@@ -84,33 +84,32 @@ namespace TestsUI
         }
 
         /// <summary>
-        /// Tests that selecting the "Default Barbarian" option and clicking "Finish" transitions to the Level1 scene
+        /// Tests that finishing a default character returns to the procedural-run menu.
         /// </summary>
         [UnityTest]
         public IEnumerator DefaultBarbarianTest()
         {
             Button button = root.Q<Button>("SkipTutorialButton");
             PushButton(button);
-            yield return null; // Wait a frame for the UI to update
+            yield return null;
 
             button = root.Q<Button>("DefaultBarbarianButton");
             PushButton(button);
-            yield return null; // Wait a frame for the UI to update
+            yield return null;
 
             button = root.Q<Button>("FinishCharacterCreationButton");
             PushButton(button);
-            yield return null; // Wait a frame for the UI to update
+            yield return null;
 
-            //check that the scene has changed to level 1, wait for transition to complete
             float timeoutTime = Time.realtimeSinceStartup + 5f;
             yield return new WaitUntil(() =>
-                SceneManager.GetActiveScene().name == "Level1"
+                SceneManager.GetActiveScene().name == "MainMenuScene"
                 || Time.realtimeSinceStartup > timeoutTime
             );
             Assert.AreEqual(
-                "Level1",
+                "MainMenuScene",
                 SceneManager.GetActiveScene().name,
-                "Scene should transition to Level1 after finishing character creation"
+                "Character creation should return to the procedural-run menu."
             );
         }
     }

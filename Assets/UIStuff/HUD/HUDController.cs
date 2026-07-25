@@ -53,6 +53,7 @@ public class HUDController
     private float resizeStartHeight;
     private VisualElement stairTraversalOverlay;
     private Action<bool> stairTraversalResponse;
+    private Label dungeonRunStatusLabel;
 
     private const float LogMinHeight = 150f;
     private const float LogMaxHeight = 800f;
@@ -162,6 +163,9 @@ public class HUDController
         speed3xButton = ui.Q<Button>("Speed3xButton");
         speedToggleButton = ui.Q<Button>("SpeedToggleButton");
         speedButtonsBox = ui.Q<VisualElement>("SpeedButtonsBox");
+        dungeonRunStatusLabel = ui.Q<Label>("DungeonRunStatusLabel");
+        if (dungeonRunStatusLabel != null)
+            dungeonRunStatusLabel.style.display = DisplayStyle.None;
         if (pauseButton != null)
             pauseButton.clicked += OnPauseClicked;
         if (speed2xButton != null)
@@ -230,6 +234,15 @@ public class HUDController
         IsPointerOverLog = false;
         _hudHoverCount = 0;
         IsPointerOverHUD = false;
+
+        if (TryGetInstance(out HUDController instance) && instance == this)
+        {
+            IsActive = false;
+            Players = null;
+            currentTurnAC = null;
+            isDungeonExploration = false;
+            trySelectExplorationLeader = _ => false;
+        }
         SettingsMenuControl.OnLogOpacityChanged -= ApplyLogOpacity;
         DismissStairTraversal();
     }
@@ -237,6 +250,35 @@ public class HUDController
     public void EnableUi()
     {
         this.enabled = true;
+    }
+
+    /// <summary>Shows the normalized run seed and selected floor depth in the gameplay HUD.</summary>
+    /// <param name="seed">The normalized deterministic run seed.</param>
+    /// <param name="depth">The selected nonnegative dungeon depth.</param>
+    public void ShowDungeonRunStatus(int seed, int depth)
+    {
+        if (dungeonRunStatusLabel == null)
+            dungeonRunStatusLabel = ui.Q<Label>("DungeonRunStatusLabel");
+        if (dungeonRunStatusLabel == null)
+            throw new InvalidOperationException("The HUD is missing DungeonRunStatusLabel.");
+
+        dungeonRunStatusLabel.RemoveFromClassList("dungeon-run-status--error");
+        dungeonRunStatusLabel.text = $"Seed {seed}  •  Depth {depth}";
+        dungeonRunStatusLabel.style.display = DisplayStyle.Flex;
+    }
+
+    /// <summary>Shows a blocking dungeon launch diagnostic without exposing repository details.</summary>
+    /// <param name="message">The concise player-facing failure message.</param>
+    public void ShowDungeonRunError(string message)
+    {
+        if (dungeonRunStatusLabel == null)
+            dungeonRunStatusLabel = ui.Q<Label>("DungeonRunStatusLabel");
+        if (dungeonRunStatusLabel == null)
+            throw new InvalidOperationException("The HUD is missing DungeonRunStatusLabel.");
+
+        dungeonRunStatusLabel.AddToClassList("dungeon-run-status--error");
+        dungeonRunStatusLabel.text = message;
+        dungeonRunStatusLabel.style.display = DisplayStyle.Flex;
     }
 
     public static void Setup()

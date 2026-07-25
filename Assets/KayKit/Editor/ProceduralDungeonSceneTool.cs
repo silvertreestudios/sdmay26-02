@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using Game.DungeonGeneration;
+using Game.DungeonPersistence.Actors;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -22,6 +23,8 @@ namespace Game.KayKit.Editor
         public const string ScenePath = "Assets/Scenes/ProceduralDungeon.unity";
 
         private const string SourceScenePath = "Assets/Scenes/UnitTestingScene.unity";
+        private const string LenaPrefabPath = "Assets/Prefabs/Creatures/Lena.prefab";
+        private const string TorgrimPrefabPath = "Assets/Prefabs/Creatures/Torgrim.prefab";
         private const int FixtureSeed = 156;
         private const int FixtureSize = 31;
         private const int FixtureMinimumRoomSize = 5;
@@ -114,21 +117,11 @@ namespace Game.KayKit.Editor
                 );
 
             RemoveCombatants(scene);
-            RemoveNamedRoot(scene, "GameManager");
-            RemoveNamedRoot(scene, "UIDocument");
+            RemoveMissingScripts(scene);
             RemoveNamedRoot(scene, "Grass");
+            CreatePlayableParty(plannedDocument);
             ConfigureCamera(plannedDocument.Width, plannedDocument.Height);
             ConfigureLighting();
-            if (
-                EditorBuildSettings.scenes.Any(entry =>
-                    string.Equals(entry.path, ScenePath, StringComparison.OrdinalIgnoreCase)
-                )
-            )
-            {
-                throw new InvalidOperationException(
-                    "ProceduralDungeon remains excluded from build settings until production-flow integration."
-                );
-            }
 
             EditorSceneManager.MarkSceneDirty(scene);
             if (!EditorSceneManager.SaveScene(scene, ScenePath, false))
@@ -157,6 +150,88 @@ namespace Game.KayKit.Editor
                 if (root.GetComponent<ActionController>() != null)
                     Object.DestroyImmediate(root);
             }
+        }
+
+        private static void RemoveMissingScripts(Scene scene)
+        {
+            foreach (GameObject root in scene.GetRootGameObjects())
+            {
+                foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
+                    GameObjectUtility.RemoveMonoBehavioursWithMissingScript(child.gameObject);
+            }
+        }
+
+        private static void CreatePlayableParty(DungeonLevelDocument document)
+        {
+            DungeonCell[] cells = new[] { document.StartCell }
+                .Concat(document.SafeCells)
+                .Concat(
+                    Enumerable
+                        .Range(0, document.Height)
+                        .SelectMany(z =>
+                            Enumerable.Range(0, document.Width).Select(x => new DungeonCell(x, z))
+                        )
+                        .Where(cell => IsWalkable(document, cell))
+                )
+                .Distinct()
+                .Take(2)
+                .ToArray();
+            if (cells.Length != 2)
+                throw new InvalidOperationException(
+                    "The procedural fixture requires two authored party cells."
+                );
+
+            InstantiatePartyMember(LenaPrefabPath, "Lena", cells[0]);
+            InstantiatePartyMember(TorgrimPrefabPath, "Torgrim", cells[1]);
+        }
+
+        private static void InstantiatePartyMember(
+            string prefabPath,
+            string instanceName,
+            DungeonCell cell
+        )
+        {
+            GameObject prefab = RequireAsset<GameObject>(prefabPath);
+            GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+            instance.name = instanceName;
+            instance.transform.SetPositionAndRotation(
+                new Vector3(cell.X, 0f, cell.Z),
+                Quaternion.identity
+            );
+            Team team = instance.GetComponent<Team>();
+            DungeonPartyMemberIdentity identity =
+                instance.GetComponent<DungeonPartyMemberIdentity>();
+            if (team != null)
+                team.Name = "Players";
+            if (
+                team == null
+                || !string.Equals(team.Name, "Players", StringComparison.OrdinalIgnoreCase)
+                || identity == null
+                || !IsConfigured(identity)
+            )
+            {
+                Object.DestroyImmediate(instance);
+                throw new InvalidOperationException(
+                    $"Party prefab is missing Players team or dungeon identity: {prefabPath}"
+                );
+            }
+
+            instance.SetActive(false);
+        }
+
+        private static bool IsConfigured(DungeonPartyMemberIdentity identity)
+        {
+            SerializedObject serialized = new(identity);
+            return !string.IsNullOrWhiteSpace(serialized.FindProperty("rosterSlotId").stringValue)
+                && !string.IsNullOrWhiteSpace(
+                    serialized.FindProperty("creatureContentId").stringValue
+                );
+        }
+
+        private static bool IsWalkable(DungeonLevelDocument document, DungeonCell cell)
+        {
+            char value = document.Rows[document.Height - 1 - cell.Z][cell.X];
+            return value == '.' || value == 'D';
         }
 
         private static void RemoveNamedRoot(Scene scene, string name)
@@ -197,7 +272,7 @@ namespace Game.KayKit.Editor
             CameraManager manager = Object.FindFirstObjectByType<CameraManager>();
             if (manager != null)
             {
-                manager.enabled = false;
+                manager.enabled = true;
                 manager.minCamearYLimit = 6f;
                 manager.maxCameraYLimit = 35f;
                 EditorUtility.SetDirty(manager);

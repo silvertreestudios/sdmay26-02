@@ -1,18 +1,27 @@
+using System;
 using System.Collections;
+using System.IO;
+using Game.DungeonPersistence;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
+using Object = UnityEngine.Object;
 
 namespace TestsUI
 {
     public class MainMenuTests : PlayModeBase
     {
+        private string autosaveDirectory;
+        private DungeonRunLaunchRequest capturedLaunch = DungeonRunLaunchRequest.None;
+        private MainMenuControl menu;
+
         [UnitySetUp]
         public override IEnumerator Setup()
         {
             Time.timeScale = 1f;
+            capturedLaunch = DungeonRunLaunchRequest.None;
             yield return SceneManager.LoadSceneAsync("MainMenuScene");
 
             doc = Object.FindFirstObjectByType<UIDocument>();
@@ -20,6 +29,17 @@ namespace TestsUI
 
             root = doc.rootVisualElement;
             Assert.IsNotNull(root, "Root VisualElement not found in UIDocument");
+
+            autosaveDirectory = Path.Combine(
+                Application.temporaryCachePath,
+                "issue-154-menu-" + Guid.NewGuid().ToString("N")
+            );
+            menu = Object.FindFirstObjectByType<MainMenuControl>();
+            Assert.That(menu, Is.Not.Null);
+            menu.ConfigureForTests(
+                new DungeonRunMenuService(autosaveDirectory, () => 0x00000001FFFFFFFFL),
+                request => capturedLaunch = request
+            );
         }
 
         [UnityTearDown]
@@ -32,6 +52,8 @@ namespace TestsUI
                 Object.Destroy(transitionManager);
                 yield return null; // Wait a frame for destruction to apply
             }
+            if (Directory.Exists(autosaveDirectory))
+                Directory.Delete(autosaveDirectory, recursive: true);
         }
 
         /// <summary>
@@ -50,11 +72,11 @@ namespace TestsUI
         [UnityTest]
         public IEnumerator AllButtonsExist()
         {
-            Assert.IsNotNull(
-                root.Q<Button>("CharacterCreationButton"),
-                "Character Creation button not found"
-            );
-            Assert.IsNotNull(root.Q<Button>("QuickPlayButton"), "Quick Play button not found");
+            Assert.IsNotNull(root.Q<TextField>("SeedField"), "Seed field not found");
+            Assert.IsNotNull(root.Q<Button>("NewRunButton"), "New Run button not found");
+            Assert.IsNotNull(root.Q<Button>("ContinueButton"), "Continue button not found");
+            Assert.IsNotNull(root.Q<Label>("MenuStatusLabel"), "Menu status not found");
+            Assert.IsNotNull(root.Q("OverwriteConfirmationOverlay"), "Confirmation not found");
             Assert.IsNotNull(root.Q<Button>("OptionsButton"), "Options button not found");
             Assert.IsNotNull(root.Q<Button>("ExitButton"), "Exit button not found");
 
@@ -68,12 +90,12 @@ namespace TestsUI
         public IEnumerator ButtonsAreInteractable()
         {
             Assert.IsTrue(
-                root.Q<Button>("CharacterCreationButton").enabledSelf,
-                "Character Creation button should be interactable"
+                root.Q<Button>("NewRunButton").enabledSelf,
+                "New Run button should be interactable"
             );
-            Assert.IsTrue(
-                root.Q<Button>("QuickPlayButton").enabledSelf,
-                "Quick Play button should be interactable"
+            Assert.IsFalse(
+                root.Q<Button>("ContinueButton").enabledSelf,
+                "Continue must be disabled without an autosave"
             );
             Assert.IsTrue(
                 root.Q<Button>("OptionsButton").enabledSelf,
@@ -88,59 +110,100 @@ namespace TestsUI
         }
 
         /// <summary>
-        /// Tests that clicking the Character Creation button loads the CharacterCreationScene
+        /// Tests that an explicit signed 64-bit seed is normalized before launch.
         /// </summary>
         [UnityTest]
-        public IEnumerator CharacterCreationButtonClick()
+        public IEnumerator ExplicitSeedNewRunCreatesLaunchRequest()
         {
-            var button = root.Q<Button>("CharacterCreationButton");
-            Assert.IsNotNull(button, "Character Creation button not found");
+            root.Q<TextField>("SeedField").value = "9223372036854775807";
 
-            // Simulate button click
-            PushButton(button);
+            PushButton(root.Q<Button>("NewRunButton"));
+            yield return null;
 
-            // Wait until the scene changes or it times out
-            float timeoutTime = Time.realtimeSinceStartup + 5f;
-            yield return new WaitUntil(() =>
-                SceneManager.GetActiveScene().name == "CharacterCreationScene"
-                || Time.realtimeSinceStartup > timeoutTime
-            );
-
-            // Check if scene changed according to MainMenuControl.NewGame()
-            string currentScene = SceneManager.GetActiveScene().name;
-            Assert.AreEqual(
-                "CharacterCreationScene",
-                currentScene,
-                "Scene should change to CharacterCreationScene after clicking New Game"
-            );
+            Assert.That(capturedLaunch.Mode, Is.EqualTo(DungeonRunLaunchMode.NewRun));
+            Assert.That(capturedLaunch.NormalizedSeed, Is.EqualTo(int.MinValue));
+            Assert.That(root.Q<Label>("MenuStatusLabel").text, Does.Contain("-2147483648"));
         }
 
         /// <summary>
-        /// Tests that clicking the Quick Play button loads the Level1 scene
+        /// Tests that a blank field uses the injected entropy source.
         /// </summary>
         [UnityTest]
-        public IEnumerator QuickPlayButtonClick()
+        public IEnumerator BlankSeedNewRunUsesAutomaticSeed()
         {
-            var button = root.Q<Button>("QuickPlayButton");
-            Assert.IsNotNull(button, "Quick Play button not found");
+            root.Q<TextField>("SeedField").value = string.Empty;
 
-            // Simulate button click
-            PushButton(button);
+            PushButton(root.Q<Button>("NewRunButton"));
+            yield return null;
 
-            // Wait until the scene changes or it times out
-            float timeoutTime = Time.realtimeSinceStartup + 5f;
-            yield return new WaitUntil(() =>
-                SceneManager.GetActiveScene().name == "Level1"
-                || Time.realtimeSinceStartup > timeoutTime
+            Assert.That(capturedLaunch.Mode, Is.EqualTo(DungeonRunLaunchMode.NewRun));
+            Assert.That(capturedLaunch.NormalizedSeed, Is.EqualTo(-2));
+        }
+
+        /// <summary>Tests that malformed and overflowing seeds remain on the menu.</summary>
+        [UnityTest]
+        public IEnumerator InvalidSeedShowsPlayerFacingMessage()
+        {
+            root.Q<TextField>("SeedField").value = "9223372036854775808";
+
+            PushButton(root.Q<Button>("NewRunButton"));
+            yield return null;
+
+            Assert.That(capturedLaunch.Mode, Is.EqualTo(DungeonRunLaunchMode.None));
+            Label status = root.Q<Label>("MenuStatusLabel");
+            Assert.That(status.text, Does.Contain("whole-number seed"));
+            Assert.That(status.ClassListContains("menu-status--error"), Is.True);
+        }
+
+        /// <summary>
+        /// Tests that an existing invalid autosave still requires explicit replacement and that
+        /// cancel leaves the file untouched.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator ExistingAutosaveRequiresConfirmationBeforeReplacement()
+        {
+            Directory.CreateDirectory(autosaveDirectory);
+            string autosavePath = Path.Combine(autosaveDirectory, "autosave.json");
+            File.WriteAllText(autosavePath, "{}");
+            menu.ConfigureForTests(
+                new DungeonRunMenuService(autosaveDirectory, () => 41L),
+                request => capturedLaunch = request
             );
 
-            // Check if scene changed according to MainMenuControl.LoadGame()
-            string currentScene = SceneManager.GetActiveScene().name;
-            Assert.AreEqual(
-                "Level1",
-                currentScene,
-                "Scene should change to Level1 after clicking Load Game"
+            PushButton(root.Q<Button>("NewRunButton"));
+            yield return null;
+
+            VisualElement overlay = root.Q("OverwriteConfirmationOverlay");
+            Assert.That(overlay.resolvedStyle.display, Is.EqualTo(DisplayStyle.Flex));
+            Assert.That(capturedLaunch.Mode, Is.EqualTo(DungeonRunLaunchMode.None));
+
+            PushButton(root.Q<Button>("CancelOverwriteButton"));
+            yield return null;
+            Assert.That(File.Exists(autosavePath), Is.True);
+            Assert.That(overlay.resolvedStyle.display, Is.EqualTo(DisplayStyle.None));
+
+            PushButton(root.Q<Button>("NewRunButton"));
+            PushButton(root.Q<Button>("ConfirmOverwriteButton"));
+            yield return null;
+            Assert.That(capturedLaunch.Mode, Is.EqualTo(DungeonRunLaunchMode.NewRun));
+            Assert.That(capturedLaunch.NormalizedSeed, Is.EqualTo(41));
+        }
+
+        /// <summary>Tests that a corrupt autosave disables Continue with a concise explanation.</summary>
+        [UnityTest]
+        public IEnumerator CorruptAutosaveDisablesContinue()
+        {
+            Directory.CreateDirectory(autosaveDirectory);
+            File.WriteAllText(Path.Combine(autosaveDirectory, "autosave.json"), "{}");
+            menu.ConfigureForTests(
+                new DungeonRunMenuService(autosaveDirectory, () => 41L),
+                request => capturedLaunch = request
             );
+
+            yield return null;
+
+            Assert.That(root.Q<Button>("ContinueButton").enabledSelf, Is.False);
+            Assert.That(root.Q<Label>("MenuStatusLabel").text, Does.Contain("corrupt"));
         }
 
         /// <summary>
@@ -171,12 +234,11 @@ namespace TestsUI
         {
             var button = root.Q<Button>("ExitButton");
             Assert.IsNotNull(button, "Exit button not found");
+            LogAssert.Expect(LogType.Log, "Clicked Exit button");
+
             // Simulate button click
             PushButton(button);
             yield return null;
-
-            // Expect the specific debug log message
-            LogAssert.Expect(LogType.Log, "Clicked Exit button");
         }
     }
 }
