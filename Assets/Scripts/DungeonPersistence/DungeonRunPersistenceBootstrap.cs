@@ -8,6 +8,7 @@ using Game.DungeonGeneration;
 using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Autosave;
 using Game.DungeonPersistence.Repository;
+using GridPrivate;
 using GridPublic;
 using UnityEngine;
 
@@ -70,7 +71,9 @@ namespace Game.DungeonPersistence
         /// <param name="encounterCatalog">The creature catalog used to initialize floor encounters.</param>
         /// <param name="combatManager">The active scene combat scheduler.</param>
         /// <param name="sceneParty">The complete authored party to persist.</param>
-        /// <param name="explorationPresentation">The movement-only exploration presentation.</param>
+        /// <param name="explorationPresentation">
+        /// The combined exploration and stair-traversal presentation.
+        /// </param>
         /// <param name="runtimeRoot">The object that will own persistence runtime components.</param>
         /// <returns>The initialized new runtime or blocking capture/publication diagnostics.</returns>
         public static DungeonRunPersistenceBootstrapResult StartNewRun(
@@ -149,7 +152,9 @@ namespace Game.DungeonPersistence
         /// <param name="encounterCatalog">The creature catalog used to restore floor encounters.</param>
         /// <param name="combatManager">The active scene combat scheduler.</param>
         /// <param name="sceneParty">The complete authored party that must match the saved roster.</param>
-        /// <param name="explorationPresentation">The movement-only exploration presentation.</param>
+        /// <param name="explorationPresentation">
+        /// The combined exploration and stair-traversal presentation.
+        /// </param>
         /// <param name="runtimeRoot">The object that will own restored runtime components.</param>
         /// <returns>The restored runtime or unchanged repository load diagnostics.</returns>
         public static DungeonRunPersistenceBootstrapResult ContinueRun(
@@ -443,6 +448,11 @@ namespace Game.DungeonPersistence
                 throw new ArgumentNullException(nameof(sceneParty));
             if (explorationPresentation == null)
                 throw new ArgumentNullException(nameof(explorationPresentation));
+            if (explorationPresentation is not IDungeonStairTraversalPresentation)
+                throw new ArgumentException(
+                    "Dungeon exploration presentation must also present stair traversal.",
+                    nameof(explorationPresentation)
+                );
             if (runtimeRoot == null)
                 throw new ArgumentNullException(nameof(runtimeRoot));
             if (repository == null)
@@ -906,6 +916,10 @@ namespace Game.DungeonPersistence
         {
             bool[] wasActive = party.Select(member => member.gameObject.activeSelf).ToArray();
             Vector3[] priorPositions = party.Select(member => member.transform.position).ToArray();
+            bool[] wasRegistered = party
+                .Select(member => member.GetComponent<Token>()?.IsRegistered ?? false)
+                .ToArray();
+            GridBase grid = map.GetComponent<GridBase>();
             bool populationSucceeded = false;
             try
             {
@@ -915,6 +929,8 @@ namespace Game.DungeonPersistence
                     member.gameObject.SetActive(false);
                     DungeonPartyMemberSaveState saved = savedParty[index];
                     Transform transform = member.transform;
+                    if (saved.IsDefeated)
+                        DetachPartyToken(member, grid);
                     transform.position = new Vector3(
                         saved.CellX,
                         transform.position.y,
@@ -935,7 +951,11 @@ namespace Game.DungeonPersistence
 
                 populationSucceeded = true;
                 for (int index = 0; index < party.Count; index++)
+                {
                     party[index].gameObject.SetActive(!savedParty[index].IsDefeated);
+                    if (!savedParty[index].IsDefeated && grid != null)
+                        party[index].GetComponent<Token>()?.TryRegisterWithGrid(grid);
+                }
                 return true;
             }
             finally
@@ -946,9 +966,21 @@ namespace Game.DungeonPersistence
                     {
                         party[index].transform.position = priorPositions[index];
                         party[index].gameObject.SetActive(wasActive[index]);
+                        if (wasRegistered[index] && grid != null)
+                            party[index].GetComponent<Token>()?.TryRegisterWithGrid(grid);
                     }
                 }
             }
+        }
+
+        private static void DetachPartyToken(ActionController member, GridBase grid)
+        {
+            Token token = member.GetComponent<Token>();
+            if (token == null || grid == null)
+                return;
+            if (token.IsRegistered)
+                grid.DestroyToken(member.gameObject);
+            token.DetachFromGrid(grid);
         }
     }
 }

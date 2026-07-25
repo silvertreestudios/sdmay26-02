@@ -203,6 +203,87 @@ public sealed class DungeonAutosaveCoordinatorTests
         );
     }
 
+    [Test]
+    public void NewRunRejectsIncompatiblePresenterBeforeAnyMutation()
+    {
+        CombatManager manager = Track(new GameObject("Invalid New Presenter Combat Manager"))
+            .AddComponent<CombatManager>();
+        DungeonPersistenceTestActionController party = CreateParty(
+            "Invalid New Presenter Party",
+            12
+        );
+        Vector3 priorPosition = new(2f, 0f, 1f);
+        party.transform.position = priorPosition;
+        Map map = Track(new GameObject("Invalid New Presenter Map")).AddComponent<Map>();
+        GameObject runtimeRoot = Track(new GameObject("Invalid New Presenter Runtime"));
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+        RecordingRepository repository = new((DungeonRunSave)null);
+
+        Assert.Throws<ArgumentException>(() =>
+            DungeonRunPersistenceBootstrap.StartPreparedRunForTests(
+                map,
+                Document(0, persisted: false),
+                catalog,
+                manager,
+                new[] { party },
+                new ExplorationOnlyPresentation(),
+                runtimeRoot,
+                repository
+            )
+        );
+
+        Assert.That(repository.LoadCount, Is.Zero);
+        Assert.That(repository.SaveCount, Is.Zero);
+        Assert.That(repository.Current, Is.Null);
+        Assert.That(map.UsesRuntimeJsonSource, Is.False);
+        Assert.That(party.transform.position, Is.EqualTo(priorPosition));
+        Assert.That(party.gameObject.activeSelf, Is.True);
+        Assert.That(runtimeRoot.GetComponents<Component>(), Has.Length.EqualTo(1));
+    }
+
+    [Test]
+    public void ContinueRejectsIncompatiblePresenterBeforeLoadOrSceneMutation()
+    {
+        CombatManager manager = Track(new GameObject("Invalid Continue Presenter Combat Manager"))
+            .AddComponent<CombatManager>();
+        DungeonPersistenceTestActionController party = CreateParty(
+            "Invalid Continue Presenter Party",
+            12
+        );
+        Vector3 priorPosition = new(2f, 0f, 1f);
+        party.transform.position = priorPosition;
+        Map map = Track(new GameObject("Invalid Continue Presenter Map")).AddComponent<Map>();
+        GameObject runtimeRoot = Track(new GameObject("Invalid Continue Presenter Runtime"));
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+        DungeonRunSave saved = CreateRun(0);
+        RecordingRepository repository = new(saved);
+
+        Assert.Throws<ArgumentException>(() =>
+            DungeonRunPersistenceBootstrap.ContinueRun(
+                map,
+                Document(0, persisted: false),
+                catalog,
+                manager,
+                new[] { party },
+                new ExplorationOnlyPresentation(),
+                runtimeRoot,
+                repository
+            )
+        );
+
+        Assert.That(repository.LoadCount, Is.Zero);
+        Assert.That(repository.SaveCount, Is.Zero);
+        Assert.That(repository.Current, Is.SameAs(saved));
+        Assert.That(map.UsesRuntimeJsonSource, Is.False);
+        Assert.That(party.transform.position, Is.EqualTo(priorPosition));
+        Assert.That(party.gameObject.activeSelf, Is.True);
+        Assert.That(runtimeRoot.GetComponents<Component>(), Has.Length.EqualTo(1));
+    }
+
     [TestCase(DungeonSaveDiagnosticCode.MissingSave)]
     [TestCase(DungeonSaveDiagnosticCode.CorruptSave)]
     [TestCase(DungeonSaveDiagnosticCode.IncompatibleVersion)]
@@ -377,6 +458,127 @@ public sealed class DungeonAutosaveCoordinatorTests
         Assert.That(grid.GetTiles()[0, 0].Occupants, Does.Contain(party.gameObject));
         Assert.That(map.ValidateSource().JsonMap.LevelDocument.Generation.Depth, Is.Zero);
         Assert.That(runtimeRoot.GetComponent<DungeonEncounterRuntimeController>(), Is.Null);
+    }
+
+    [Test]
+    public void ContinueKeepsDefeatedPartyDetachedAcrossDescentAndBacktracking()
+    {
+        CombatManager manager = Track(new GameObject("Casualty Continue Combat Manager"))
+            .AddComponent<CombatManager>();
+        DungeonPersistenceTestActionController living = CreateParty(
+            "Living Continue Party",
+            12,
+            "party-slot-living",
+            "party-content-living"
+        );
+        DungeonPersistenceTestActionController defeated = CreateParty(
+            "Defeated Continue Party",
+            12,
+            "party-slot-defeated",
+            "party-content-defeated"
+        );
+        living.transform.position = new Vector3(5f, 0f, 1f);
+        defeated.transform.position = new Vector3(1f, 0f, 1f);
+
+        GameObject mapObject = Track(new GameObject("Casualty Continue Map"));
+        mapObject.SetActive(false);
+        Map map = mapObject.AddComponent<Map>();
+        KayKitDungeonCatalog mapCatalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
+            "Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset"
+        );
+        Assert.That(mapCatalog, Is.Not.Null);
+        map.ConfigureJson(
+            Track(new TextAsset(DungeonLevelJsonSerializer.Serialize(StairDocument(0)))),
+            mapCatalog
+        );
+        GridBase grid = mapObject.AddComponent<GridBase>();
+        Assert.That(
+            grid.TryRebindMapData(
+                map.GetMapData(),
+                map.GetLineOfSightBlocks(),
+                out string initializationFailure
+            ),
+            Is.True,
+            initializationFailure
+        );
+        mapObject.SetActive(true);
+        Assert.That(living.GetComponent<Token>().IsRegistered, Is.True);
+        Assert.That(defeated.GetComponent<Token>().IsRegistered, Is.True);
+
+        DungeonRunSave saved = DungeonRunSave.CreateNew(
+            CasualtyPartyState(),
+            PersistedStairDocument(0)
+        );
+        RecordingRepository repository = new(saved);
+        GameObject runtimeRoot = Track(new GameObject("Casualty Continue Runtime"));
+        runtimeRoot.transform.SetParent(map.transform, false);
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+
+        DungeonRunPersistenceBootstrapResult continued = DungeonRunPersistenceBootstrap.ContinueRun(
+            map,
+            StairDocument(0),
+            catalog,
+            manager,
+            new[] { living, defeated },
+            new RecordingExplorationPresentation(),
+            runtimeRoot,
+            repository
+        );
+
+        Assert.That(
+            continued.IsSuccess,
+            Is.True,
+            string.Join(" ", continued.Diagnostics.Select(item => item.Message))
+        );
+        Assert.That(defeated.gameObject.activeSelf, Is.False);
+        Assert.That(defeated.GetComponent<Token>().IsRegistered, Is.False);
+        continued.Controller.ReplaceGenerationForTests(
+            new SequenceDungeonGenerator(),
+            new DungeonEncounterPlanner(),
+            Array.Empty<DungeonEncounterCandidate>()
+        );
+
+        DungeonStairMarker down = map.GetComponentsInChildren<DungeonStairMarker>(
+                includeInactive: false
+            )
+            .Single(stair => stair.Kind == DungeonStairKind.Down);
+        DungeonTravelResult descent = continued.Controller.TryUseStair(down, confirmed: true);
+
+        Assert.That(
+            descent.IsSuccess,
+            Is.True,
+            string.Join(" ", descent.Diagnostics.Select(item => item.Message))
+        );
+        Assert.That(descent.Depth, Is.EqualTo(1));
+        Assert.That(defeated.gameObject.activeSelf, Is.False);
+        Assert.That(defeated.GetComponent<Token>().IsRegistered, Is.False);
+
+        DungeonStairMarker up = map.GetComponentsInChildren<DungeonStairMarker>(
+                includeInactive: false
+            )
+            .Single(stair => stair.Kind == DungeonStairKind.Up);
+        DungeonTravelResult backtrack = continued.Controller.TryUseStair(up, confirmed: true);
+
+        Assert.That(
+            backtrack.IsSuccess,
+            Is.True,
+            string.Join(" ", backtrack.Diagnostics.Select(item => item.Message))
+        );
+        Assert.That(backtrack.Depth, Is.Zero);
+        Assert.That(living.gameObject.activeSelf, Is.True);
+        Assert.That(defeated.gameObject.activeSelf, Is.False);
+        Assert.That(defeated.GetComponent<Token>().IsRegistered, Is.False);
+        DungeonPartyMemberSaveState persistedCasualty = repository.Current.Manifest.Party.Single(
+            member => member.RosterSlotId == "party-slot-defeated"
+        );
+        Assert.That(persistedCasualty.IsDefeated, Is.True);
+        Assert.That(persistedCasualty.CurrentHitPoints, Is.Zero);
+        Assert.That(
+            defeated.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId,
+            Is.EqualTo(persistedCasualty.RosterSlotId)
+        );
     }
 
     [Test]
@@ -628,7 +830,12 @@ public sealed class DungeonAutosaveCoordinatorTests
         return marker;
     }
 
-    private DungeonPersistenceTestActionController CreateParty(string name, int hitPoints)
+    private DungeonPersistenceTestActionController CreateParty(
+        string name,
+        int hitPoints,
+        string rosterSlotId = "party-slot",
+        string creatureContentId = "party-content"
+    )
     {
         GameObject partyObject = Track(new GameObject(name));
         DungeonPersistenceTestActionController party =
@@ -641,7 +848,7 @@ public sealed class DungeonAutosaveCoordinatorTests
         partyObject.transform.position = new Vector3(1f, 0f, 1f);
         partyObject
             .AddComponent<DungeonPartyMemberIdentity>()
-            .Configure("party-slot", "party-content");
+            .Configure(rosterSlotId, creatureContentId);
         return party;
     }
 
@@ -676,6 +883,31 @@ public sealed class DungeonAutosaveCoordinatorTests
                 CellZ = 1,
                 CurrentHitPoints = hitPoints,
                 IsDefeated = false,
+                State = EmptyActorState(),
+            },
+        };
+
+    private static DungeonPartyMemberSaveState[] CasualtyPartyState() =>
+        new[]
+        {
+            new DungeonPartyMemberSaveState
+            {
+                RosterSlotId = "party-slot-living",
+                CreatureContentId = "party-content-living",
+                CellX = 5,
+                CellZ = 1,
+                CurrentHitPoints = 12,
+                IsDefeated = false,
+                State = EmptyActorState(),
+            },
+            new DungeonPartyMemberSaveState
+            {
+                RosterSlotId = "party-slot-defeated",
+                CreatureContentId = "party-content-defeated",
+                CellX = 1,
+                CellZ = 1,
+                CurrentHitPoints = 0,
+                IsDefeated = true,
                 State = EmptyActorState(),
             },
         };
@@ -779,6 +1011,27 @@ public sealed class DungeonAutosaveCoordinatorTests
         );
     }
 
+    private static DungeonLevelDocument PersistedStairDocument(int depth)
+    {
+        DungeonLevelDocument source = StairDocument(depth);
+        return new DungeonLevelDocument(
+            source.Generation,
+            source.Rows,
+            source.Rooms,
+            source.Doors,
+            source.Stairs,
+            source.StartCell,
+            source.SafeCells,
+            source.Objects,
+            source.EncounterPlans,
+            new DungeonRuntimeState(
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>()
+            )
+        );
+    }
+
     private sealed class DungeonTraversalFixture
     {
         internal DungeonTraversalFixture(
@@ -869,6 +1122,17 @@ public sealed class DungeonAutosaveCoordinatorTests
         }
 
         public void DismissStairTraversal() { }
+    }
+
+    private sealed class ExplorationOnlyPresentation : IDungeonExplorationPresentation
+    {
+        public void ShowExploration(
+            IReadOnlyList<ActionController> party,
+            ActionController selected,
+            Func<ActionController, bool> trySelectLeader
+        ) { }
+
+        public void HideExploration() { }
     }
 
     private sealed class RecordingRepository : IDungeonSaveRepository

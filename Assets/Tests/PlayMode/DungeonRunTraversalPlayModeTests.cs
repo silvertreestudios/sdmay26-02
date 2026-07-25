@@ -141,7 +141,14 @@ public sealed class DungeonRunTraversalPlayModeTests
                 string.Join(" ", result.Diagnostics.Select(item => item.Message))
             );
             Assert.That(result.Depth, Is.EqualTo(targetDepth));
-            AssertPartyNear(RequireStair(DungeonStairKind.Up), LivingParty());
+            DungeonStairMarker upArrival = RequireStair(DungeonStairKind.Up);
+            AssertPartyInRegion(upArrival, LivingParty());
+            DungeonTravelResult eligibility = controller.TryUseStair(upArrival, confirmed: false);
+            Assert.That(
+                eligibility.Diagnostics.Single().Code,
+                Is.EqualTo(DungeonTravelDiagnosticCode.ConfirmationRequired),
+                "All arrived PCs must immediately be eligible at the paired stair."
+            );
             yield return null;
 
             if (targetDepth == 1)
@@ -178,7 +185,7 @@ public sealed class DungeonRunTraversalPlayModeTests
                 string.Join(" ", result.Diagnostics.Select(item => item.Message))
             );
             Assert.That(result.Depth, Is.EqualTo(targetDepth));
-            AssertPartyNear(RequireStair(DungeonStairKind.Down), LivingParty());
+            AssertPartyInRegion(RequireStair(DungeonStairKind.Down), LivingParty());
             yield return null;
 
             if (targetDepth == 1)
@@ -214,6 +221,81 @@ public sealed class DungeonRunTraversalPlayModeTests
         yield return null;
     }
 
+    /// <summary>
+    /// Verifies a standard four-PC party receives unique cells and is immediately eligible at the
+    /// paired, encounter-free Up stair after descending.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator FourLivingPartyMembersArriveEligibleAtPairedStair()
+    {
+        AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
+            ScenePath,
+            new LoadSceneParameters(LoadSceneMode.Single)
+        );
+        while (!load.isDone)
+            yield return null;
+
+        Map map = Object.FindFirstObjectByType<Map>();
+        Assert.That(map, Is.Not.Null);
+        DungeonLevelDocument initialTemplate = map.ValidateSource().JsonMap.LevelDocument;
+        TrackRuntimeDependencies(out CombatManager manager);
+        TraversalTestActionController[] party =
+        {
+            CreateParty(initialTemplate, "four-party-slot-a"),
+            CreateParty(initialTemplate, "four-party-slot-b"),
+            CreateParty(initialTemplate, "four-party-slot-c"),
+            CreateParty(initialTemplate, "four-party-slot-d"),
+        };
+        GameObject runtimeRoot = new("Four-PC Dungeon Traversal Runtime");
+        runtimeRoot.transform.SetParent(map.transform, false);
+        string autosaveDirectory = Path.Combine(
+            Application.temporaryCachePath,
+            "issue-157-four-party-" + Guid.NewGuid().ToString("N")
+        );
+        autosaveDirectories.Add(autosaveDirectory);
+        DungeonRunPersistenceBootstrapResult bootstrap = DungeonRunPersistenceBootstrap.StartNewRun(
+            map,
+            initialTemplate,
+            DungeonEncounterCreatureCatalog.LoadDefaultOrThrow(),
+            manager,
+            party,
+            new RecordingExplorationPresentation(),
+            runtimeRoot,
+            autosaveDirectory
+        );
+        Assert.That(
+            bootstrap.IsSuccess,
+            Is.True,
+            string.Join(" ", bootstrap.Diagnostics.Select(item => item.Message))
+        );
+
+        DungeonStairMarker down = RequireStair(DungeonStairKind.Down);
+        PlaceLivingPartyAt(down, party);
+        DungeonTravelResult descent = bootstrap.Controller.TryUseStair(down, confirmed: true);
+
+        Assert.That(
+            descent.IsSuccess,
+            Is.True,
+            string.Join(" ", descent.Diagnostics.Select(item => item.Message))
+        );
+        DungeonStairMarker pairedUp = RequireStair(DungeonStairKind.Up);
+        AssertPartyInRegion(pairedUp, party);
+        DungeonTravelResult eligibility = bootstrap.Controller.TryUseStair(
+            pairedUp,
+            confirmed: false
+        );
+        Assert.That(
+            eligibility.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.ConfirmationRequired),
+            "All four arrived PCs must immediately be eligible at the paired stair."
+        );
+
+        Object.Destroy(runtimeRoot);
+        foreach (TraversalTestActionController member in party)
+            Object.Destroy(member.gameObject);
+        yield return null;
+    }
+
     private static void TrackRuntimeDependencies(out CombatManager manager)
     {
         if (Object.FindFirstObjectByType<TeamRules>() == null)
@@ -228,7 +310,7 @@ public sealed class DungeonRunTraversalPlayModeTests
         string rosterSlotId
     )
     {
-        GameObject actor = new("Traversal Party");
+        GameObject actor = new("Traversal Party " + rosterSlotId);
         actor.SetActive(false);
         TraversalTestActionController controller =
             actor.AddComponent<TraversalTestActionController>();
@@ -279,27 +361,11 @@ public sealed class DungeonRunTraversalPlayModeTests
             .GetComponentInParent<Map>()
             .ValidateSource()
             .JsonMap.LevelDocument;
-        DungeonCell[] available =
-        {
-            stair.ArrivalCell,
-            stair.Cell,
-            new(stair.Cell.X + 1, stair.Cell.Z),
-            new(stair.Cell.X, stair.Cell.Z + 1),
-            new(stair.Cell.X - 1, stair.Cell.Z),
-            new(stair.Cell.X, stair.Cell.Z - 1),
-        };
-        DungeonCell[] walkable = available
-            .Distinct()
-            .Where(cell =>
-                cell.Z >= 0
-                && cell.Z < document.Rows.Count
-                && cell.X >= 0
-                && cell.X < document.Rows[document.Rows.Count - 1 - cell.Z].Length
-                && (
-                    document.Rows[document.Rows.Count - 1 - cell.Z][cell.X] == '.'
-                    || document.Rows[document.Rows.Count - 1 - cell.Z][cell.X] == 'D'
-                )
-            )
+        DungeonStair documented = document.Stairs.Single(candidate =>
+            string.Equals(candidate.Id, stair.StableId, StringComparison.Ordinal)
+        );
+        DungeonCell[] walkable = DungeonStairInteractionRegion
+            .SelectCells(document, documented, BlockedStairCells(document), livingParty.Length)
             .ToArray();
         Assert.That(livingParty, Is.Not.Empty);
         Assert.That(livingParty.Length, Is.LessThanOrEqualTo(walkable.Length));
@@ -312,18 +378,56 @@ public sealed class DungeonRunTraversalPlayModeTests
         Physics.SyncTransforms();
     }
 
-    private static void AssertPartyNear(DungeonStairMarker stair, ActionController[] livingParty)
+    private static void AssertPartyInRegion(
+        DungeonStairMarker stair,
+        ActionController[] livingParty
+    )
     {
+        DungeonLevelDocument document = stair
+            .GetComponentInParent<Map>()
+            .ValidateSource()
+            .JsonMap.LevelDocument;
+        DungeonStair documented = document.Stairs.Single(candidate =>
+            string.Equals(candidate.Id, stair.StableId, StringComparison.Ordinal)
+        );
+        HashSet<DungeonCell> expected = new(
+            DungeonStairInteractionRegion.SelectCells(
+                document,
+                documented,
+                BlockedStairCells(document),
+                livingParty.Length
+            )
+        );
         foreach (ActionController member in livingParty)
         {
             Vector3Int cell = Vector3Int.RoundToInt(member.transform.position);
-            int distance = Math.Abs(cell.x - stair.Cell.X) + Math.Abs(cell.z - stair.Cell.Z);
             Assert.That(
-                distance,
-                Is.LessThanOrEqualTo(1),
-                $"Party member '{member.name}' did not arrive beside {stair.Kind}."
+                expected,
+                Does.Contain(new DungeonCell(cell.x, cell.z)),
+                $"Party member '{member.name}' did not arrive in the {stair.Kind} region."
             );
         }
+        Assert.That(
+            livingParty
+                .Select(member => Vector3Int.RoundToInt(member.transform.position))
+                .Distinct()
+                .Count(),
+            Is.EqualTo(livingParty.Length),
+            "Living arrivals must occupy unique cells."
+        );
+    }
+
+    private static IEnumerable<DungeonCell> BlockedStairCells(DungeonLevelDocument document)
+    {
+        foreach (DungeonObjectPlacement placement in document.Objects)
+            yield return placement.Cell;
+        foreach (DungeonEncounterPlan plan in document.EncounterPlans)
+        foreach (DungeonCell spawn in plan.SpawnCells)
+            yield return spawn;
+        if (document.RuntimeState == null)
+            yield break;
+        foreach (DungeonCreatureRuntimeState creature in document.RuntimeState.Creatures)
+            yield return creature.Cell;
     }
 
     private sealed class TraversalTestActionController : ActionController

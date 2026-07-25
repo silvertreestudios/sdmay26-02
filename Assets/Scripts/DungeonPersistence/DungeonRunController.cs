@@ -9,6 +9,7 @@ using Game.DungeonPersistence.Autosave;
 using Game.DungeonPersistence.Repository;
 using Game.KayKit;
 using GridPrivate;
+using GridPublic;
 using UnityEngine;
 
 namespace Game.DungeonPersistence
@@ -300,7 +301,7 @@ namespace Game.DungeonPersistence
                 return;
             }
 
-            string[] missing = FindMissingLivingParty(documented.Cell);
+            string[] missing = FindMissingLivingParty(current, documented);
             int targetDepth =
                 documented.Kind == DungeonStairKind.Down
                     ? CurrentDepth == int.MaxValue
@@ -375,13 +376,13 @@ namespace Game.DungeonPersistence
                     "Dungeon stair travel requires an inactive combat and no action in progress."
                 );
 
-            string[] missing = FindMissingLivingParty(documented.Cell);
+            string[] missing = FindMissingLivingParty(current, documented);
             if (missing.Length > 0)
             {
                 DungeonTravelDiagnostic diagnostic = new(
                     DungeonTravelDiagnosticCode.PartyMissing,
                     "eligibility.party",
-                    "Every living party member must be on or orthogonally adjacent to the stair."
+                    "Every living party member must gather in the stair interaction region."
                 );
                 LastDiagnostics = new[] { diagnostic };
                 return new DungeonTravelResult(false, CurrentDepth, missing, LastDiagnostics);
@@ -412,6 +413,7 @@ namespace Game.DungeonPersistence
             if (!checkpoint.IsSuccess)
                 return SaveFailure("capture", checkpoint.Diagnostics);
             baseline = checkpoint.Value;
+            party = OrderParty(party, baseline.Manifest.Party);
 
             DungeonLevelDocument target;
             bool firstVisit = !baseline.HasFloor(targetDepth);
@@ -636,7 +638,7 @@ namespace Game.DungeonPersistence
                     );
                 }
 
-                contractFailure = ValidateFirstVisitContract(planned, depth);
+                contractFailure = ValidateFirstVisitContract(planned, depth, party.Count);
                 if (string.IsNullOrEmpty(contractFailure))
                     break;
                 planned = null;
@@ -672,7 +674,11 @@ namespace Game.DungeonPersistence
             return null;
         }
 
-        private static string ValidateFirstVisitContract(DungeonLevelDocument document, int depth)
+        private static string ValidateFirstVisitContract(
+            DungeonLevelDocument document,
+            int depth,
+            int partyCapacity
+        )
         {
             int expectedStairs = depth == 0 ? 1 : 2;
             if (
@@ -696,6 +702,22 @@ namespace Game.DungeonPersistence
                 return $"Depth {depth} arrival region has no reachable generated room.";
             if (document.EncounterPlans.Any(plan => plan.RoomId == arrivalRoomId.Value))
                 return $"Depth {depth} arrival room contains an encounter plan.";
+            HashSet<DungeonCell> blocked = BuildBlockedStairCells(
+                document,
+                includeRuntimeCreatures: true
+            );
+            foreach (DungeonStair stair in document.Stairs)
+            {
+                if (
+                    DungeonStairInteractionRegion
+                        .SelectCells(document, stair, blocked, partyCapacity)
+                        .Count < partyCapacity
+                )
+                {
+                    return $"Depth {depth} stair '{stair.Id}' cannot accommodate the "
+                        + $"complete {partyCapacity}-member authored party.";
+                }
+            }
             DungeonStair down = document.Stairs.Single(stair =>
                 stair.Kind == DungeonStairKind.Down
             );
@@ -799,12 +821,15 @@ namespace Game.DungeonPersistence
         {
             bool[] wasActive = party.Select(member => member.gameObject.activeSelf).ToArray();
             Vector3[] priorPositions = party.Select(member => member.transform.position).ToArray();
+            GridBase grid = map.GetComponent<GridBase>();
             foreach (ActionController member in party)
                 member.gameObject.SetActive(false);
             for (int index = 0; index < party.Length; index++)
             {
                 Transform actor = party[index].transform;
                 DungeonPartyMemberSaveState saved = savedParty[index];
+                if (saved.IsDefeated)
+                    DetachPartyToken(party[index], grid);
                 actor.position = new Vector3(saved.CellX, actor.position.y, saved.CellZ);
             }
 
@@ -855,13 +880,19 @@ namespace Game.DungeonPersistence
                     $"Depth {target.Generation.Depth} has no {arrivalKind} arrival stair."
                 );
 
-            HashSet<DungeonCell> blocked = new(
-                target.RuntimeState.Creatures.Select(creature => creature.Cell)
+            HashSet<DungeonCell> blocked = BuildBlockedStairCells(
+                target,
+                includeRuntimeCreatures: true
             );
-            foreach (DungeonObjectPlacement placement in target.Objects)
-                blocked.Add(placement.Cell);
             int livingCount = source.Count(member => !member.IsDefeated);
-            DungeonCell[] cells = ArrivalCells(target, stair, blocked, livingCount).ToArray();
+            DungeonCell[] cells = DungeonStairInteractionRegion
+                .SelectCells(target, stair, blocked, livingCount)
+                .ToArray();
+            if (cells.Length < livingCount)
+                throw new InvalidOperationException(
+                    "The destination stair interaction region has too few unique non-blocked "
+                        + "walkable cells for the living party."
+                );
             int livingIndex = 0;
             return source
                 .Select(member =>
@@ -881,42 +912,20 @@ namespace Game.DungeonPersistence
                 .ToArray();
         }
 
-        private static IEnumerable<DungeonCell> ArrivalCells(
-            DungeonLevelDocument target,
-            DungeonStair stair,
-            ISet<DungeonCell> blocked,
-            int partyCount
-        )
-        {
-            DungeonCell[] available =
-            {
-                stair.ArrivalCell,
-                stair.Cell,
-                new(stair.Cell.X, stair.Cell.Z + 1),
-                new(stair.Cell.X + 1, stair.Cell.Z),
-                new(stair.Cell.X, stair.Cell.Z - 1),
-                new(stair.Cell.X - 1, stair.Cell.Z),
-            };
-            DungeonCell[] selected = available
-                .Distinct()
-                .Where(cell => IsWalkable(target.Rows, cell) && !blocked.Contains(cell))
-                .Take(partyCount)
-                .ToArray();
-            if (selected.Length < partyCount)
-                throw new InvalidOperationException(
-                    "The destination stair has too few unique walkable on-or-adjacent cells for the living party."
-                );
-            return selected;
-        }
-
         private void PlaceParty(IReadOnlyList<DungeonPartyMemberSaveState> savedParty)
         {
+            GridBase grid = map.GetComponent<GridBase>();
             for (int index = 0; index < party.Length; index++)
             {
                 DungeonPartyMemberSaveState saved = savedParty[index];
                 Transform actor = party[index].transform;
                 actor.position = new Vector3(saved.CellX, actor.position.y, saved.CellZ);
                 party[index].gameObject.SetActive(!saved.IsDefeated);
+                Token token = party[index].GetComponent<Token>();
+                if (saved.IsDefeated)
+                    DetachPartyToken(party[index], grid);
+                else if (token != null && grid != null)
+                    token.TryRegisterWithGrid(grid);
             }
         }
 
@@ -938,24 +947,79 @@ namespace Game.DungeonPersistence
             return documented != null && marker.GetComponentInParent<Map>() == map;
         }
 
-        private string[] FindMissingLivingParty(DungeonCell stair)
+        private string[] FindMissingLivingParty(DungeonLevelDocument document, DungeonStair stair)
         {
-            return party
+            ActionController[] living = party
                 .Where(member =>
                 {
                     CreatureComponent creature = member.GetComponent<CreatureComponent>();
-                    if (creature != null && creature.IsDefeated)
-                        return false;
+                    return creature == null || !creature.IsDefeated;
+                })
+                .ToArray();
+            HashSet<DungeonCell> blocked = BuildBlockedStairCells(
+                document,
+                includeRuntimeCreatures: false
+            );
+            foreach (
+                DungeonEncounterMember member in runtime.GetComponentsInChildren<DungeonEncounterMember>(
+                    includeInactive: true
+                )
+            )
+            {
+                CreatureComponent creature = member.GetComponent<CreatureComponent>();
+                if (member.IsConfigured && (creature == null || !creature.IsDefeated))
+                {
                     Vector3Int cell = Vector3Int.RoundToInt(member.transform.position);
-                    long distance =
-                        Math.Abs((long)cell.x - stair.X) + Math.Abs((long)cell.z - stair.Z);
-                    return !member.gameObject.activeInHierarchy || distance > 1;
+                    blocked.Add(new DungeonCell(cell.x, cell.z));
+                }
+            }
+            HashSet<DungeonCell> region = new(
+                DungeonStairInteractionRegion.SelectCells(document, stair, blocked, living.Length)
+            );
+            HashSet<DungeonCell> occupied = new();
+            return living
+                .Where(member =>
+                {
+                    Vector3Int position = Vector3Int.RoundToInt(member.transform.position);
+                    DungeonCell cell = new(position.x, position.z);
+                    return !member.gameObject.activeInHierarchy
+                        || !region.Contains(cell)
+                        || !occupied.Add(cell);
                 })
                 .Select(member =>
                     member.GetComponent<DungeonPartyMemberIdentity>()?.RosterSlotId ?? member.name
                 )
                 .OrderBy(id => id, StringComparer.Ordinal)
                 .ToArray();
+        }
+
+        private static HashSet<DungeonCell> BuildBlockedStairCells(
+            DungeonLevelDocument document,
+            bool includeRuntimeCreatures
+        )
+        {
+            HashSet<DungeonCell> blocked = new(
+                document.Objects.Select(placement => placement.Cell)
+            );
+            foreach (DungeonEncounterPlan plan in document.EncounterPlans)
+            foreach (DungeonCell spawn in plan.SpawnCells)
+                blocked.Add(spawn);
+            if (includeRuntimeCreatures && document.RuntimeState != null)
+            {
+                foreach (DungeonCreatureRuntimeState creature in document.RuntimeState.Creatures)
+                    blocked.Add(creature.Cell);
+            }
+            return blocked;
+        }
+
+        private static void DetachPartyToken(ActionController member, GridBase grid)
+        {
+            Token token = member.GetComponent<Token>();
+            if (token == null || grid == null)
+                return;
+            if (token.IsRegistered)
+                grid.DestroyToken(member.gameObject);
+            token.DetachFromGrid(grid);
         }
 
         private DungeonTravelResult SaveFailure(
@@ -994,14 +1058,6 @@ namespace Game.DungeonPersistence
                 StringComparer.Ordinal
             );
             return saved.Select(member => bySlot[member.RosterSlotId]).ToArray();
-        }
-
-        private static bool IsWalkable(IReadOnlyList<string> rows, DungeonCell cell)
-        {
-            if (rows.Count == 0 || cell.Z < 0 || cell.Z >= rows.Count || cell.X < 0)
-                return false;
-            string row = rows[rows.Count - 1 - cell.Z];
-            return cell.X < row.Length && (row[cell.X] == '.' || row[cell.X] == 'D');
         }
     }
 }

@@ -865,7 +865,7 @@ public class HUDController
         message.style.marginBottom = 16;
         message.text = prompt.CanConfirm
             ? $"{char.ToUpperInvariant(direction[0])}{direction.Substring(1)} to dungeon depth {prompt.TargetDepth}?"
-            : "The full living party must be on or beside the stair. Missing: "
+            : "The full living party must gather in the stair landing. Missing: "
                 + string.Join(", ", prompt.MissingPartyMembers);
         dialog.Add(message);
 
