@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Linq;
 using Game.Combat.Encounters;
 using Game.Creature;
+using Game.DungeonGeneration;
+using Game.DungeonPersistence;
 using Game.Strikes;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -11,7 +13,10 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using UniversalEvents;
 
-public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExplorationPresentation
+public class HUDController
+    : SingletonMonoBehaviour<HUDController>,
+        IDungeonExplorationPresentation,
+        IDungeonStairTraversalPresentation
 {
     public VisualElement ui;
     public Button endTurnButton;
@@ -46,6 +51,8 @@ public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExpl
     private bool isResizing = false;
     private float resizeStartY;
     private float resizeStartHeight;
+    private VisualElement stairTraversalOverlay;
+    private Action<bool> stairTraversalResponse;
 
     private const float LogMinHeight = 150f;
     private const float LogMaxHeight = 800f;
@@ -224,6 +231,7 @@ public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExpl
         _hudHoverCount = 0;
         IsPointerOverHUD = false;
         SettingsMenuControl.OnLogOpacityChanged -= ApplyLogOpacity;
+        DismissStairTraversal();
     }
 
     public void EnableUi()
@@ -804,6 +812,89 @@ public class HUDController : SingletonMonoBehaviour<HUDController>, IDungeonExpl
         SetSelectedButton(null);
         ClearAllRows();
         UpdateHudButtonStates();
+    }
+
+    /// <inheritdoc/>
+    public void PresentStairTraversal(DungeonStairTraversalPrompt prompt, Action<bool> respond)
+    {
+        if (prompt == null)
+            throw new ArgumentNullException(nameof(prompt));
+        if (respond == null)
+            throw new ArgumentNullException(nameof(respond));
+
+        DismissStairTraversal();
+        stairTraversalResponse = respond;
+        stairTraversalOverlay = new VisualElement { name = "DungeonStairTraversalOverlay" };
+        stairTraversalOverlay.style.position = Position.Absolute;
+        stairTraversalOverlay.style.left = 0;
+        stairTraversalOverlay.style.right = 0;
+        stairTraversalOverlay.style.top = 0;
+        stairTraversalOverlay.style.bottom = 0;
+        stairTraversalOverlay.style.alignItems = Align.Center;
+        stairTraversalOverlay.style.justifyContent = Justify.Center;
+        stairTraversalOverlay.style.backgroundColor = new Color(0f, 0f, 0f, 0.65f);
+
+        VisualElement dialog = new() { name = "DungeonStairTraversalDialog" };
+        dialog.style.minWidth = 360;
+        dialog.style.maxWidth = 600;
+        dialog.style.paddingLeft = 24;
+        dialog.style.paddingRight = 24;
+        dialog.style.paddingTop = 20;
+        dialog.style.paddingBottom = 20;
+        dialog.style.backgroundColor = new Color(0.11f, 0.09f, 0.08f, 0.98f);
+
+        string direction = prompt.Kind == DungeonStairKind.Down ? "descend" : "ascend";
+        Label message = new();
+        message.style.whiteSpace = WhiteSpace.Normal;
+        message.style.unityTextAlign = TextAnchor.MiddleCenter;
+        message.style.color = Color.white;
+        message.style.marginBottom = 16;
+        message.text = prompt.CanConfirm
+            ? $"{char.ToUpperInvariant(direction[0])}{direction.Substring(1)} to dungeon depth {prompt.TargetDepth}?"
+            : "The full living party must gather in the stair landing. Missing: "
+                + string.Join(", ", prompt.MissingPartyMembers);
+        dialog.Add(message);
+
+        VisualElement buttons = new();
+        buttons.style.flexDirection = FlexDirection.Row;
+        buttons.style.justifyContent = Justify.Center;
+        if (prompt.CanConfirm)
+        {
+            Button confirm = new(() => CompleteStairTraversal(true)) { text = "Confirm" };
+            confirm.name = "DungeonStairConfirmButton";
+            confirm.AddToClassList("btn-general");
+            buttons.Add(confirm);
+        }
+        Button cancel = new(() => CompleteStairTraversal(false))
+        {
+            text = prompt.CanConfirm ? "Cancel" : "Close",
+        };
+        cancel.name = "DungeonStairCancelButton";
+        cancel.AddToClassList("btn-cancel");
+        buttons.Add(cancel);
+        dialog.Add(buttons);
+        stairTraversalOverlay.Add(dialog);
+        ui.Add(stairTraversalOverlay);
+        _hudHoverCount++;
+        IsPointerOverHUD = true;
+    }
+
+    /// <inheritdoc/>
+    public void DismissStairTraversal()
+    {
+        stairTraversalResponse = null;
+        if (stairTraversalOverlay != null)
+            _hudHoverCount = Mathf.Max(0, _hudHoverCount - 1);
+        stairTraversalOverlay?.RemoveFromHierarchy();
+        stairTraversalOverlay = null;
+        IsPointerOverHUD = _hudHoverCount > 0;
+    }
+
+    private void CompleteStairTraversal(bool confirmed)
+    {
+        Action<bool> respond = stairTraversalResponse;
+        DismissStairTraversal();
+        respond?.Invoke(confirmed);
     }
 
     private IEnumerator ExplorationTransitionRoutine(ActionController selected)

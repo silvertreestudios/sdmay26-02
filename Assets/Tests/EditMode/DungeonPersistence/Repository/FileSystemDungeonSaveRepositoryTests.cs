@@ -321,6 +321,35 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
+    public void CheckpointRestoresExactExistingOrMissingRepositoryContents()
+    {
+        FileSystemDungeonSaveRepository repository = new(directory);
+        Directory.CreateDirectory(directory);
+        const string priorContents = "unparsed prior autosave bytes";
+        File.WriteAllText(repository.AutosavePath, priorContents);
+        DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> existing =
+            repository.CaptureCheckpoint();
+        Assert.That(existing.IsSuccess, Is.True);
+        Assert.That(repository.Save(CreateRun(0)).IsSuccess, Is.True);
+
+        DungeonSaveResult<bool> restoredExisting = repository.RestoreCheckpoint(existing.Value);
+
+        Assert.That(restoredExisting.IsSuccess, Is.True);
+        Assert.That(File.ReadAllText(repository.AutosavePath), Is.EqualTo(priorContents));
+
+        File.Delete(repository.AutosavePath);
+        DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> missing =
+            repository.CaptureCheckpoint();
+        Assert.That(missing.IsSuccess, Is.True);
+        Assert.That(repository.Save(CreateRun(0)).IsSuccess, Is.True);
+
+        DungeonSaveResult<bool> restoredMissing = repository.RestoreCheckpoint(missing.Value);
+
+        Assert.That(restoredMissing.IsSuccess, Is.True);
+        Assert.That(File.Exists(repository.AutosavePath), Is.False);
+    }
+
+    [Test]
     public void InvalidStagedEnvelopePreservesPreviouslyCommittedCurrentDepth()
     {
         FileSystemDungeonSaveRepository repository = new(directory);

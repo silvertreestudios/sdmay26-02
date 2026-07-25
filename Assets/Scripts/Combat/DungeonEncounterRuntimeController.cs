@@ -7,6 +7,7 @@ using Game.Creature;
 using Game.DungeonGeneration;
 using Game.KayKit;
 using GridPrivate;
+using GridPublic;
 using UnityEngine;
 
 namespace Game.Combat.Encounters
@@ -485,6 +486,24 @@ namespace Game.Combat.Encounters
 
         private void OnDestroy()
         {
+            ResetRuntime(destroyEncounterActors: false);
+        }
+
+        /// <summary>
+        /// Releases one floor's bindings so the same component can initialize the next floor.
+        /// </summary>
+        /// <remarks>
+        /// The reusable dungeon scene keeps this controller component alive across depth changes.
+        /// Encounter actors are owned by the floor runtime and are therefore removed here, while
+        /// authored party actors remain available for placement on the destination floor.
+        /// </remarks>
+        internal void ResetForFloorTransition()
+        {
+            ResetRuntime(destroyEncounterActors: true);
+        }
+
+        private void ResetRuntime(bool destroyEncounterActors)
+        {
             if (combatManager != null)
                 combatManager.CombatActivityChanged -= OnCombatActivityChanged;
             if (gridInput != null)
@@ -502,6 +521,57 @@ namespace Game.Combat.Encounters
                     partyMember.SetDungeonExploration(false);
             }
             director?.Dispose();
+
+            foreach (
+                DungeonEncounterMember member in GetComponentsInChildren<DungeonEncounterMember>(
+                    includeInactive: true
+                )
+            )
+            {
+                if (member == null)
+                    continue;
+
+                ActionController controller = member.GetComponent<ActionController>();
+                if (controller != null && combatManager != null)
+                    combatManager.Remove(controller);
+
+                Token token = member.GetComponent<Token>();
+                if (token != null && grid != null)
+                {
+                    if (token.IsRegistered)
+                        grid.DestroyToken(member.gameObject);
+                    token.DetachFromGrid(grid);
+                }
+
+                if (destroyEncounterActors)
+                {
+                    member.gameObject.SetActive(false);
+                    member.transform.SetParent(null, true);
+                    Destroy(member.gameObject);
+                }
+            }
+
+            rooms = Array.Empty<DungeonRoom>();
+            party = Array.Empty<ActionController>();
+            encounterRoomIds.Clear();
+            pendingEncounterRooms.Clear();
+            previousRoomByParty.Clear();
+            livingPartyBuffer.Clear();
+            livingPartySet.Clear();
+            stalePartyObservations.Clear();
+            occupiedRooms.Clear();
+            currentRoomByParty.Clear();
+            livingPartyPositions.Clear();
+            doorsByCell.Clear();
+            openDoorIds.Clear();
+            presentedExplorationParty = Array.Empty<ActionController>();
+            selectedLeader = null;
+            director = null;
+            combatManager = null;
+            explorationPresentation = null;
+            gridInput = null;
+            grid = null;
+            explorationMovement = NoExplorationStrideCoordinator.Instance;
             IsInitialized = false;
         }
 

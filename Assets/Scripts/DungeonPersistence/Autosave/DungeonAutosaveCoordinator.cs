@@ -80,6 +80,29 @@ namespace Game.DungeonPersistence.Autosave
                 return Failure(exception.Message);
             }
 
+            DungeonSaveResult<DungeonRunSave> published = Publish(candidate);
+            if (!published.IsSuccess)
+                return published;
+
+            lastCommitted = candidate;
+            hasCommittedSnapshot = true;
+            pending = false;
+            return DungeonSaveResult<DungeonRunSave>.Success(candidate);
+        }
+
+        /// <summary>
+        /// Publishes a validated run envelope without changing which floor this coordinator owns.
+        /// </summary>
+        /// <remarks>
+        /// Stair traversal uses this two-phase boundary to satisfy save-before-populate ordering.
+        /// The candidate becomes authoritative in memory only after the reusable map and runtime
+        /// have switched successfully.
+        /// </remarks>
+        internal DungeonSaveResult<DungeonRunSave> Publish(DungeonRunSave candidate)
+        {
+            if (candidate == null)
+                throw new ArgumentNullException(nameof(candidate));
+
             DungeonSaveResult<bool> published;
             try
             {
@@ -99,11 +122,35 @@ namespace Game.DungeonPersistence.Autosave
                     diagnostic.Message
                 );
             }
+            return DungeonSaveResult<DungeonRunSave>.Success(candidate);
+        }
 
-            lastCommitted = candidate;
+        /// <summary>Adopts a successfully populated floor after its run envelope was published.</summary>
+        internal void AdoptPublishedFloor(
+            DungeonRunSave save,
+            DungeonLevelDocument document,
+            DungeonEncounterRuntimeController newRuntime
+        )
+        {
+            if (save == null)
+                throw new ArgumentNullException(nameof(save));
+            if (document == null)
+                throw new ArgumentNullException(nameof(document));
+            if (newRuntime == null || !newRuntime.IsInitialized)
+                throw new ArgumentException(
+                    "The adopted dungeon runtime must be initialized.",
+                    nameof(newRuntime)
+                );
+
+            if (runtime != null)
+                runtime.PersistentStateChanged -= RequestSave;
+            runtime = newRuntime;
+            activeSourceDocument = document;
+            runtime.PersistentStateChanged += RequestSave;
+            lastCommitted = save;
             hasCommittedSnapshot = true;
             pending = false;
-            return DungeonSaveResult<DungeonRunSave>.Success(candidate);
+            LastDiagnostics = Array.Empty<DungeonSaveDiagnostic>();
         }
 
         private void InitializeCore(

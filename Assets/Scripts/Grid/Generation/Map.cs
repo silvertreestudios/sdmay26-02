@@ -186,6 +186,36 @@ public class Map : MonoBehaviour
         InvalidateCache();
     }
 
+    /// <summary>
+    /// Reinstates authored JSON source metadata after transaction rollback has already repopulated
+    /// that exact document. Unlike <see cref="ConfigureJson"/>, this preserves the live map arrays
+    /// that were just rebound to <see cref="GridBase"/>.
+    /// </summary>
+    /// <param name="source">The authored JSON asset that supplied the restored document.</param>
+    /// <param name="catalog">The catalog used to recreate the restored generated hierarchy.</param>
+    /// <param name="tileSpacing">The authored source spacing to reinstate.</param>
+    internal void RestoreAuthoredJsonSourceAfterRuntimeRollback(
+        TextAsset source,
+        KayKitDungeonCatalog catalog,
+        float tileSpacing
+    )
+    {
+        if (source == null)
+            throw new ArgumentNullException(nameof(source));
+        if (catalog == null)
+            throw new ArgumentNullException(nameof(catalog));
+        if (tileSpacing <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(tileSpacing));
+
+        sourceMode = MapSourceMode.Json;
+        previousSourceMode = sourceMode;
+        usesRuntimeJsonSource = false;
+        runtimeJsonSource = string.Empty;
+        jsonSource = source;
+        dungeonCatalog = catalog;
+        spacing = tileSpacing;
+    }
+
     public MapSourceValidationResult ValidateSource()
     {
         return sourceMode == MapSourceMode.Json ? ValidateJson() : ValidateBitmap();

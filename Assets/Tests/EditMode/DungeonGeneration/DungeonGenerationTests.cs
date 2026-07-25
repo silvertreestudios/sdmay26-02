@@ -172,6 +172,56 @@ public sealed class DungeonGenerationTests
         );
     }
 
+    [Test]
+    public void StairInteractionRegionStartsAtArrivalAndNeverSelectsStairCell()
+    {
+        DungeonStair stair = new(
+            "stair-down",
+            DungeonStairKind.Down,
+            new DungeonCell(1, 1),
+            new DungeonCell(2, 1)
+        );
+        DungeonLevelDocument document = new(
+            new DungeonGenerationMetadata("test-generator", 157, 0, 1),
+            new[] { ".....", ".....", "....." },
+            new[] { new DungeonRoom(1, 0, 0, 4, 2) },
+            Array.Empty<DungeonDoor>(),
+            new[] { stair },
+            new DungeonCell(4, 1),
+            new[] { new DungeonCell(4, 1) },
+            Array.Empty<DungeonObjectPlacement>(),
+            Array.Empty<DungeonEncounterPlan>()
+        );
+
+        IReadOnlyList<DungeonCell> one = DungeonStairInteractionRegion.SelectCells(
+            document,
+            stair,
+            Array.Empty<DungeonCell>(),
+            1
+        );
+        IReadOnlyList<DungeonCell> four = DungeonStairInteractionRegion.SelectCells(
+            document,
+            stair,
+            Array.Empty<DungeonCell>(),
+            4
+        );
+
+        Assert.That(one, Is.EqualTo(new[] { stair.ArrivalCell }));
+        Assert.That(
+            four,
+            Is.EqualTo(
+                new[]
+                {
+                    stair.ArrivalCell,
+                    new DungeonCell(2, 0),
+                    new DungeonCell(3, 1),
+                    new DungeonCell(2, 2),
+                }
+            )
+        );
+        Assert.That(four.Contains(stair.Cell), Is.False);
+    }
+
     [TestCase(0)]
     [TestCase(1)]
     [TestCase(2)]

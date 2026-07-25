@@ -112,7 +112,7 @@ namespace Game.DungeonGeneration
                 if (up != null)
                     arrivalAnchor = up.ArrivalCell;
             }
-            int? excludedRoomId = FindNearestRoomId(source, arrivalAnchor);
+            int? excludedRoomId = FindArrivalRoomId(source, arrivalAnchor);
 
             List<DungeonEncounterPlan> plans = new();
             foreach (DungeonRoom room in source.Rooms.OrderBy(candidate => candidate.Id))
@@ -164,8 +164,17 @@ namespace Game.DungeonGeneration
             );
         }
 
-        private static int? FindNearestRoomId(DungeonLevelDocument source, DungeonCell anchor)
+        /// <summary>
+        /// Resolves the reachable room that owns an arrival region, preferring shortest path and
+        /// then stable room ID when a generated stair ends in a corridor outside room bounds.
+        /// </summary>
+        /// <param name="source">The generated floor whose room graph is queried.</param>
+        /// <param name="anchor">The walkable start or stair-arrival cell.</param>
+        /// <returns>The nearest reachable room ID, or absence when no room is reachable.</returns>
+        public static int? FindArrivalRoomId(DungeonLevelDocument source, DungeonCell anchor)
         {
+            if (source == null)
+                throw new ArgumentNullException(nameof(source));
             Dictionary<DungeonCell, int> distances = Distances(source.Rows, anchor);
             return source
                 .Rooms.Select(room => new
