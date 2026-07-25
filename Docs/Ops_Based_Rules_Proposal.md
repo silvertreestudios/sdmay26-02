@@ -2337,9 +2337,9 @@ When implementing a new rule, answer these questions in order:
     extraction or presentation in its feature module. Let shared code publish generic timing Facts,
     dispatch generic Ops, and register modules without learning the feature's rules.
 
-If a feature needs a central `switch` on its definition ID, or a feature-named method, cache, or
-trigger flag in a shared bridge or facade, stop and check whether it belongs in a binding, typed state
-record, handler registration, selector, or feature adapter instead.
+    If a feature needs a central `switch` on its definition ID, or a feature-named method, cache, or
+    trigger flag in a shared bridge or facade, stop and check whether it belongs in a binding, typed
+    state record, handler registration, selector, or feature adapter instead.
 
 ---
 
