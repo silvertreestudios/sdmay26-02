@@ -519,29 +519,12 @@ namespace Game.Rules.Unity
             int speedFeet = Mathf.Max(0, Mathf.RoundToInt(creature.speed));
             CombatantRulesState state = new CombatantRulesState(
                 new CreatureState(creatureId, playerId),
-                CreateEncounterHealthSeed(creature.GetHealthInitializationState()),
+                creature.GetHealthInitializationState(),
                 new GridPosition(position.x, position.y, position.z),
                 new GridDistance(speedFeet)
             );
             return new CombatantRegistration(controller, creature, state);
         }
-
-        /// <summary>
-        /// Carries persistent Hit Point state into a replacement encounter without carrying
-        /// encounter-local temporary-HP immunities.
-        /// </summary>
-        /// <remarks>
-        /// The bridge is the lifetime boundary for one encounter. Until the rules runtime has a
-        /// cross-encounter duration clock, copying a Rage immunity here would make it permanent.
-        /// </remarks>
-        private static HealthState CreateEncounterHealthSeed(HealthState health) =>
-            new HealthState(
-                health.Current,
-                health.Maximum,
-                health.Temporary,
-                health.TemporarySource,
-                Array.Empty<RuleSource>()
-            );
 
         private PlayerId GetPlayerId(ActionController controller)
         {
@@ -775,14 +758,20 @@ namespace Game.Rules.Unity
                 return new RageActorState(
                     prepared.HasOwnedItem("rage"),
                     prepared.HasOwnedItem("quick-tempered"),
-                    conditions != null && conditions.Contains("Fatigued"),
-                    conditions != null && conditions.Contains("Encumbered"),
+                    HasCondition(conditions, "Fatigued"),
+                    HasCondition(conditions, "Encumbered"),
                     string.Equals(armorCategory, "heavy", StringComparison.OrdinalIgnoreCase),
                     prepared.RollOptions.Contains("feat:invulnerable-rager"),
                     Math.Max(0, creature.level),
                     creature.conMod
                 );
             }
+
+            private static bool HasCondition(Conditions conditions, string expected) =>
+                conditions != null
+                && conditions.ActiveConditionNames.Any(condition =>
+                    string.Equals(condition, expected, StringComparison.OrdinalIgnoreCase)
+                );
         }
 
         private sealed class CombatActionCatalog : IActionCatalog

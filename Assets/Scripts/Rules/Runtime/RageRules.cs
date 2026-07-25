@@ -320,6 +320,43 @@ namespace Game.Rules.Runtime
             );
         }
 
+        /// <summary>
+        /// Normalizes health restored outside an active encounter when Rage owned the saved
+        /// temporary Hit Point pool.
+        /// </summary>
+        /// <param name="health">The validated saved health state.</param>
+        /// <param name="rageWasActive">
+        /// Whether the discarded encounter rules store reported an active Rage.
+        /// </param>
+        /// <returns>
+        /// Health with an orphaned Rage pool removed and Rage immunity applied, or the unchanged
+        /// state when Rage was inactive and another source owns the pool.
+        /// </returns>
+        /// <remarks>
+        /// Dungeon saves do not resume an active encounter or its rules store. Restoring
+        /// Rage-owned temporary Hit Points without the matching active effect would create a
+        /// second, ownerless source of truth, so restoration resolves the same health cleanup as
+        /// ending Rage.
+        /// </remarks>
+        public static HealthState NormalizeRestoredHealth(HealthState health, bool rageWasActive)
+        {
+            bool rageOwnsTemporaryHitPoints = health.TemporarySource == Source;
+            if (!rageWasActive && !rageOwnsTemporaryHitPoints)
+                return health;
+
+            RuleSource[] immunities = health
+                .TemporaryHitPointImmunities.Append(Source)
+                .Distinct()
+                .ToArray();
+            return new HealthState(
+                health.Current,
+                health.Maximum,
+                rageOwnsTemporaryHitPoints ? 0 : health.Temporary,
+                rageOwnsTemporaryHitPoints ? default : health.TemporarySource,
+                immunities
+            );
+        }
+
         /// <summary>Adds ordinary Rage, Quick-Tempered Rage, and cleanup handlers.</summary>
         /// <param name="builder">The dispatcher builder being composed.</param>
         /// <param name="definition">The shared Rage definition and actor-facts boundary.</param>

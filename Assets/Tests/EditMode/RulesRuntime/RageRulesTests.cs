@@ -35,6 +35,38 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         [Test]
+        public void RestoreNormalizationEndsAnOrphanedRagePool()
+        {
+            HealthState restored = RageRules.NormalizeRestoredHealth(
+                new HealthState(7, 10, 3, RuleSource.FromSlug("rage"), Array.Empty<RuleSource>()),
+                rageWasActive: true
+            );
+
+            Assert.That(restored.Current, Is.EqualTo(7));
+            Assert.That(restored.Temporary, Is.Zero);
+            Assert.That(restored.TemporarySource.IsEmpty, Is.True);
+            Assert.That(
+                restored.HasTemporaryHitPointImmunity(RuleSource.FromSlug("rage")),
+                Is.True
+            );
+        }
+
+        [Test]
+        public void RestoreNormalizationRecordsEndedRageAfterItsPoolWasConsumed()
+        {
+            HealthState restored = RageRules.NormalizeRestoredHealth(
+                new HealthState(7, 10),
+                rageWasActive: true
+            );
+
+            Assert.That(restored.Temporary, Is.Zero);
+            Assert.That(
+                restored.HasTemporaryHitPointImmunity(RuleSource.FromSlug("rage")),
+                Is.True
+            );
+        }
+
+        [Test]
         public async Task OrdinaryRageOwnsActionCostEffectAndTemporaryHitPoints()
         {
             TestRageActorStateProvider provider = new TestRageActorStateProvider(
