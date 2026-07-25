@@ -1259,6 +1259,7 @@ namespace Game.DungeonPersistence
             out MapSourceValidationResult validation
         )
         {
+            validation = new MapSourceValidationResult(Array.Empty<string>());
             bool[] wasActive = party.Select(member => member.gameObject.activeSelf).ToArray();
             Vector3[] priorPositions = party.Select(member => member.transform.position).ToArray();
             bool[] wasRegistered = party
@@ -1266,6 +1267,7 @@ namespace Game.DungeonPersistence
                 .ToArray();
             GridBase grid = map.GetComponent<GridBase>();
             bool populationSucceeded = false;
+            List<string> rollbackErrors = new();
             try
             {
                 for (int index = 0; index < party.Count; index++)
@@ -1313,20 +1315,53 @@ namespace Game.DungeonPersistence
                         if (wasRegistered[index] && grid != null)
                         {
                             if (
-                                party[index]
-                                    .GetComponent<Token>()
-                                    ?.RestoreRegistrationWithGrid(grid) != true
+                                !TryRestorePartyReservation(
+                                    party[index],
+                                    grid,
+                                    out string reservationFailure
+                                )
                             )
-                            {
-                                throw new InvalidOperationException(
-                                    $"Party actor '{party[index].name}' could not restore its prior grid reservation."
-                                );
-                            }
+                                rollbackErrors.Add(reservationFailure);
                         }
                         party[index].gameObject.SetActive(wasActive[index]);
                     }
+
+                    if (rollbackErrors.Count > 0)
+                    {
+                        validation = new MapSourceValidationResult(
+                            validation.Errors.Concat(rollbackErrors),
+                            validation.JsonMap
+                        );
+                    }
                 }
             }
+        }
+
+        private static bool TryRestorePartyReservation(
+            ActionController member,
+            GridBase grid,
+            out string failure
+        )
+        {
+            try
+            {
+                if (member.GetComponent<Token>()?.RestoreRegistrationWithGrid(grid) == true)
+                {
+                    failure = string.Empty;
+                    return true;
+                }
+
+                failure =
+                    $"Party actor '{member.name}' could not restore its prior grid reservation.";
+            }
+            catch (Exception exception)
+            {
+                failure =
+                    $"Party actor '{member.name}' could not restore its prior grid reservation "
+                    + $"({exception.GetType().Name}: {exception.Message}).";
+            }
+
+            return false;
         }
 
         private static void DetachPartyToken(ActionController member, GridBase grid)

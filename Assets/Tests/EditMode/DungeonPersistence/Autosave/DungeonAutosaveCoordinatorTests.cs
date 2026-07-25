@@ -792,6 +792,65 @@ public sealed class DungeonAutosaveCoordinatorTests
     }
 
     [Test]
+    public void ContinuePopulationFailureReportsReservationRollbackFailure()
+    {
+        CombatManager manager = Track(new GameObject("Blocked Rollback Combat Manager"))
+            .AddComponent<CombatManager>();
+        DungeonPersistenceTestActionController party = CreateParty("Blocked Rollback Party", 12);
+        Vector3 priorPosition = Vector3.zero;
+        party.transform.position = priorPosition;
+        GameObject blocker = Track(new GameObject("Blocked Rollback Reservation"));
+        blocker.transform.position = new Vector3(2f, 0f, 2f);
+        Token blockerToken = blocker.AddComponent<Token>();
+        Map map = CreateRuntimeReadyMap(
+            "Blocked Rollback Map",
+            Document(0, persisted: false),
+            out GridBase grid
+        );
+        Token partyToken = party.GetComponent<Token>();
+        Assert.That(partyToken.IsRegistered, Is.True);
+        Assert.That(blockerToken.IsRegistered, Is.True);
+        // Simulate another actor claiming the captured cell after the transaction snapshots the
+        // party reservation but before rollback attempts to restore it.
+        grid.GetTiles()[0, 0].Occupants.Add(blocker);
+
+        DungeonRunSave saved = DungeonRunSave
+            .CreateNew(PartyState(12), Document(0, persisted: true))
+            .WithAddedAndSelectedFloor(DefeatedPartyState(), BlockedDestinationDocument(2));
+        RecordingRepository repository = new(saved);
+        GameObject runtimeRoot = Track(new GameObject("Blocked Rollback Runtime"));
+        runtimeRoot.transform.SetParent(map.transform, false);
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+
+        DungeonRunPersistenceBootstrapResult result = DungeonRunPersistenceBootstrap.ContinueRun(
+            map,
+            Document(0, persisted: false),
+            catalog,
+            manager,
+            new[] { party },
+            new RecordingExplorationPresentation(),
+            runtimeRoot,
+            repository
+        );
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(result.Diagnostics.Single().Path, Is.EqualTo("floor"));
+        Assert.That(
+            result.Diagnostics.Single().Message,
+            Does.Contain("could not restore its prior grid reservation")
+        );
+        Assert.That(party.transform.position, Is.EqualTo(priorPosition));
+        Assert.That(party.gameObject.activeSelf, Is.True);
+        Assert.That(partyToken.IsRegistered, Is.False);
+        Assert.That(blockerToken.IsRegistered, Is.True);
+        Assert.That(grid.GetTiles()[0, 0].Occupants, Does.Contain(blocker));
+        Assert.That(map.ValidateSource().JsonMap.LevelDocument.Generation.Depth, Is.Zero);
+        Assert.That(runtimeRoot.GetComponents<Component>(), Has.Length.EqualTo(1));
+    }
+
+    [Test]
     public void ContinueKeepsDefeatedPartyDetachedAcrossDescentAndBacktracking()
     {
         CombatManager manager = Track(new GameObject("Casualty Continue Combat Manager"))
