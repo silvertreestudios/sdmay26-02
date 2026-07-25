@@ -406,6 +406,11 @@ public sealed class DungeonRunTraversalPlayModeTests
                 Does.Contain(new DungeonCell(cell.x, cell.z)),
                 $"Party member '{member.name}' did not arrive in the {stair.Kind} region."
             );
+            Assert.That(
+                new DungeonCell(cell.x, cell.z),
+                Is.Not.EqualTo(documented.Cell),
+                $"Party member '{member.name}' was placed on the {stair.Kind} stair model."
+            );
         }
         Assert.That(
             livingParty

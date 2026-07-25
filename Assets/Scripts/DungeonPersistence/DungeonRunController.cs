@@ -408,6 +408,15 @@ namespace Game.DungeonPersistence
                     "eligibility.depth",
                     "An Up stair cannot traverse above dungeon depth zero."
                 );
+            if (documented.Kind == DungeonStairKind.Up && !baseline.HasFloor(targetDepth))
+            {
+                return Failure(
+                    DungeonTravelDiagnosticCode.ValidationFailed,
+                    "history",
+                    $"Dungeon history is missing saved shallower depth {targetDepth}; "
+                        + "Up travel can only revisit an indexed floor."
+                );
+            }
 
             DungeonSaveResult<DungeonRunSave> checkpoint = autosave.CheckpointCurrentFloor();
             if (!checkpoint.IsSuccess)
@@ -416,7 +425,8 @@ namespace Game.DungeonPersistence
             party = OrderParty(party, baseline.Manifest.Party);
 
             DungeonLevelDocument target;
-            bool firstVisit = !baseline.HasFloor(targetDepth);
+            bool firstVisit =
+                documented.Kind == DungeonStairKind.Down && !baseline.HasFloor(targetDepth);
             if (firstVisit)
             {
                 DungeonTravelResult acquisitionFailure = TryAcquireFirstVisit(

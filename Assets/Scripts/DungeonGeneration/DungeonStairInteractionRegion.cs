@@ -10,10 +10,11 @@ namespace Game.DungeonGeneration
     /// </summary>
     /// <remarks>
     /// The region contains at most the requested number of ground cells. Cells must be reachable
-    /// from the stair endpoint without crossing a supplied blocked cell and are ordered by shortest
-    /// orthogonal topology distance, then Z, then X. Door cells may connect that topology but are
-    /// never selected because a closed generated door cannot host a token. This lets narrow stair
-    /// runways expand into their nearest room without imposing a fixed party-size limit.
+    /// from the documented arrival cell without crossing a supplied blocked cell or the stair
+    /// endpoint and are ordered by shortest orthogonal topology distance, then Z, then X. Door
+    /// cells may connect that topology but are never selected because a closed generated door
+    /// cannot host a token. This lets narrow stair runways expand into their nearest room without
+    /// imposing a fixed party-size limit or placing a creature on the stair model.
     /// </remarks>
     public static class DungeonStairInteractionRegion
     {
@@ -77,14 +78,17 @@ namespace Game.DungeonGeneration
             if (requestedCellCount == 0)
                 return Array.Empty<DungeonCell>();
 
-            HashSet<DungeonCell> blocked = new(blockedCells);
+            HashSet<DungeonCell> blocked = new(blockedCells) { stair.Cell };
             Dictionary<DungeonCell, int> distances = new();
-            if (blocked.Contains(stair.Cell) || !IsWalkable(document.Rows, stair.Cell))
+            if (
+                blocked.Contains(stair.ArrivalCell)
+                || !IsOccupiable(document.Rows, stair.ArrivalCell)
+            )
                 return Array.Empty<DungeonCell>();
 
             Queue<DungeonCell> pending = new();
-            distances.Add(stair.Cell, 0);
-            pending.Enqueue(stair.Cell);
+            distances.Add(stair.ArrivalCell, 0);
+            pending.Enqueue(stair.ArrivalCell);
             while (pending.Count > 0)
             {
                 DungeonCell current = pending.Dequeue();

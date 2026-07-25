@@ -8,6 +8,7 @@ using Game.DungeonGeneration;
 using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Autosave;
 using Game.DungeonPersistence.Repository;
+using Game.KayKit;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
@@ -65,6 +66,54 @@ namespace Game.DungeonPersistence
     /// </remarks>
     public static class DungeonRunPersistenceBootstrap
     {
+        private readonly struct PartySceneState
+        {
+            internal PartySceneState(Vector3 position, bool wasActive, bool wasRegistered)
+            {
+                Position = position;
+                WasActive = wasActive;
+                WasRegistered = wasRegistered;
+            }
+
+            internal Vector3 Position { get; }
+            internal bool WasActive { get; }
+            internal bool WasRegistered { get; }
+        }
+
+        /// <summary>
+        /// Retains the authored scene state that a generated New Run temporarily replaces. The
+        /// repository checkpoint stays opaque so New Run never parses or adopts an old autosave.
+        /// </summary>
+        private sealed class GeneratedRunRollbackState
+        {
+            internal GeneratedRunRollbackState(
+                string mapJson,
+                TextAsset jsonSource,
+                KayKitDungeonCatalog mapCatalog,
+                float mapSpacing,
+                bool usedRuntimeJson,
+                PartySceneState[] party,
+                IDungeonSaveRepositoryCheckpoint repository
+            )
+            {
+                MapJson = mapJson;
+                JsonSource = jsonSource;
+                MapCatalog = mapCatalog;
+                MapSpacing = mapSpacing;
+                UsedRuntimeJson = usedRuntimeJson;
+                Party = party;
+                Repository = repository;
+            }
+
+            internal string MapJson { get; }
+            internal TextAsset JsonSource { get; }
+            internal KayKitDungeonCatalog MapCatalog { get; }
+            internal float MapSpacing { get; }
+            internal bool UsedRuntimeJson { get; }
+            internal PartySceneState[] Party { get; }
+            internal IDungeonSaveRepositoryCheckpoint Repository { get; }
+        }
+
         /// <summary>Generates and commits depth zero without inspecting an existing autosave.</summary>
         /// <param name="map">The reusable generated-dungeon map in the active scene.</param>
         /// <param name="initialDocument">The authored template supplying seed and dimensions.</param>
@@ -75,7 +124,7 @@ namespace Game.DungeonPersistence
         /// The combined exploration and stair-traversal presentation.
         /// </param>
         /// <param name="runtimeRoot">The object that will own persistence runtime components.</param>
-        /// <returns>The initialized new runtime or blocking capture/publication diagnostics.</returns>
+        /// <returns>The initialized new runtime or blocking staged diagnostics.</returns>
         public static DungeonRunPersistenceBootstrapResult StartNewRun(
             Map map,
             DungeonLevelDocument initialDocument,
@@ -378,9 +427,52 @@ namespace Game.DungeonPersistence
                 );
             }
 
-            DungeonSaveResult<bool> published = repository.Save(candidate);
+            GeneratedRunRollbackState rollbackState;
+            try
+            {
+                PreflightGeneratedRunRuntime(map, floor, savedParty, party, runtimeRoot);
+                DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> checkpoint =
+                    repository.CaptureCheckpoint();
+                if (!checkpoint.IsSuccess)
+                    return DungeonRunPersistenceBootstrapResult.Failure(checkpoint.Diagnostics);
+                rollbackState = CaptureGeneratedRunRollbackState(map, party, checkpoint.Value);
+            }
+            catch (Exception exception)
+                when (exception is ArgumentException || exception is InvalidOperationException)
+            {
+                return Failure(
+                    DungeonSaveDiagnosticCode.InvalidSnapshot,
+                    "runtime.preflight",
+                    exception.Message
+                );
+            }
+
+            DungeonSaveResult<bool> published;
+            try
+            {
+                published = repository.Save(candidate);
+            }
+            catch (Exception exception)
+            {
+                return RollBackGeneratedRunPublication(
+                    repository,
+                    rollbackState.Repository,
+                    DungeonSaveDiagnosticCode.IoFailure,
+                    "publication",
+                    exception.Message
+                );
+            }
             if (!published.IsSuccess)
-                return DungeonRunPersistenceBootstrapResult.Failure(published.Diagnostics);
+            {
+                DungeonSaveDiagnostic diagnostic = published.Diagnostics[0];
+                return RollBackGeneratedRunPublication(
+                    repository,
+                    rollbackState.Repository,
+                    diagnostic.Code,
+                    diagnostic.Path,
+                    diagnostic.Message
+                );
+            }
             if (
                 !TryPopulateMap(
                     map,
@@ -391,38 +483,55 @@ namespace Game.DungeonPersistence
                 )
             )
             {
-                return Failure(
+                return RollBackGeneratedRunPublication(
+                    repository,
+                    rollbackState.Repository,
                     DungeonSaveDiagnosticCode.InvalidSnapshot,
                     "population",
                     string.Join(" ", validation.Errors)
                 );
             }
 
-            DungeonEncounterRuntimeController runtime =
-                runtimeRoot.AddComponent<DungeonEncounterRuntimeController>();
-            RestoreFloorRuntime(
-                floor,
-                savedParty,
-                encounterCatalog,
-                combatManager,
-                party,
-                explorationPresentation,
-                runtime
-            );
-            DungeonAutosaveCoordinator coordinator =
-                runtimeRoot.AddComponent<DungeonAutosaveCoordinator>();
-            coordinator.InitializeLoadedRun(candidate, repository, runtime, party);
-            DungeonRunController controller = CreateRunController(
-                runtimeRoot,
-                map,
-                encounterCatalog,
-                combatManager,
-                party,
-                explorationPresentation,
-                runtime,
-                coordinator
-            );
-            return DungeonRunPersistenceBootstrapResult.Success(runtime, controller, false);
+            try
+            {
+                DungeonEncounterRuntimeController runtime =
+                    runtimeRoot.AddComponent<DungeonEncounterRuntimeController>();
+                RestoreFloorRuntime(
+                    floor,
+                    savedParty,
+                    encounterCatalog,
+                    combatManager,
+                    party,
+                    explorationPresentation,
+                    runtime
+                );
+                DungeonAutosaveCoordinator coordinator =
+                    runtimeRoot.AddComponent<DungeonAutosaveCoordinator>();
+                coordinator.InitializeLoadedRun(candidate, repository, runtime, party);
+                DungeonRunController controller = CreateRunController(
+                    runtimeRoot,
+                    map,
+                    encounterCatalog,
+                    combatManager,
+                    party,
+                    explorationPresentation,
+                    runtime,
+                    coordinator
+                );
+                return DungeonRunPersistenceBootstrapResult.Success(runtime, controller, false);
+            }
+            catch (Exception exception)
+            {
+                return RollBackGeneratedRun(
+                    map,
+                    party,
+                    explorationPresentation,
+                    runtimeRoot,
+                    repository,
+                    rollbackState,
+                    exception
+                );
+            }
         }
 
         private static void ValidateArguments(
@@ -457,6 +566,241 @@ namespace Game.DungeonPersistence
                 throw new ArgumentNullException(nameof(runtimeRoot));
             if (repository == null)
                 throw new ArgumentNullException(nameof(repository));
+        }
+
+        private static void PreflightGeneratedRunRuntime(
+            Map map,
+            DungeonLevelDocument floor,
+            IReadOnlyList<DungeonPartyMemberSaveState> savedParty,
+            IReadOnlyList<ActionController> party,
+            GameObject runtimeRoot
+        )
+        {
+            PreflightFloorRuntime(floor, savedParty, party);
+            MapSourceValidationResult source = map.ValidateSource();
+            if (map.SourceMode != MapSourceMode.Json || !source.IsValid)
+                throw new InvalidOperationException(
+                    "A generated New Run requires a valid current JSON map for rollback. "
+                        + string.Join(" ", source.Errors)
+                );
+            if (map.DungeonCatalog == null)
+                throw new InvalidOperationException(
+                    "A generated New Run requires the current map's dungeon catalog."
+                );
+            GridBase grid = map.GetComponent<GridBase>();
+            if (grid == null || !grid.IsInitialized || map.GetComponent<GridInput>() == null)
+                throw new InvalidOperationException(
+                    "A generated New Run requires GridInput and an initialized GridBase before publication."
+                );
+            if (runtimeRoot.GetComponentInParent<Map>() != map)
+                throw new InvalidOperationException(
+                    "The dungeon runtime root must be parented beneath the reusable map."
+                );
+            if (
+                runtimeRoot.GetComponent<DungeonEncounterRuntimeController>() != null
+                || runtimeRoot.GetComponent<DungeonAutosaveCoordinator>() != null
+                || runtimeRoot.GetComponent<DungeonRunController>() != null
+            )
+            {
+                throw new InvalidOperationException(
+                    "The dungeon runtime root already owns persistence runtime components."
+                );
+            }
+        }
+
+        private static GeneratedRunRollbackState CaptureGeneratedRunRollbackState(
+            Map map,
+            IReadOnlyList<ActionController> party,
+            IDungeonSaveRepositoryCheckpoint repository
+        )
+        {
+            MapSourceValidationResult source = map.ValidateSource();
+            PartySceneState[] partyState = party
+                .Select(member => new PartySceneState(
+                    member.transform.position,
+                    member.gameObject.activeSelf,
+                    member.GetComponent<Token>().IsRegistered
+                ))
+                .ToArray();
+            return new GeneratedRunRollbackState(
+                DungeonLevelJsonSerializer.Serialize(source.JsonMap.LevelDocument),
+                map.JsonSource,
+                map.DungeonCatalog,
+                map.Spacing,
+                map.UsesRuntimeJsonSource,
+                partyState,
+                repository
+            );
+        }
+
+        private static DungeonRunPersistenceBootstrapResult RollBackGeneratedRunPublication(
+            IDungeonSaveRepository repository,
+            IDungeonSaveRepositoryCheckpoint checkpoint,
+            DungeonSaveDiagnosticCode code,
+            string path,
+            string message
+        )
+        {
+            DungeonSaveResult<bool> restored = repository.RestoreCheckpoint(checkpoint);
+            string combined = restored.IsSuccess
+                ? message
+                : message
+                    + " Repository rollback failed: "
+                    + string.Join(" ", restored.Diagnostics.Select(item => item.Message));
+            return Failure(code, path, combined);
+        }
+
+        private static DungeonRunPersistenceBootstrapResult RollBackGeneratedRun(
+            Map map,
+            IReadOnlyList<ActionController> party,
+            IDungeonExplorationPresentation explorationPresentation,
+            GameObject runtimeRoot,
+            IDungeonSaveRepository repository,
+            GeneratedRunRollbackState rollback,
+            Exception failure
+        )
+        {
+            List<string> failures = new() { failure.Message };
+            DungeonEncounterRuntimeController runtime =
+                runtimeRoot.GetComponent<DungeonEncounterRuntimeController>();
+            try
+            {
+                runtime?.ResetForFloorTransition();
+            }
+            catch (Exception exception)
+            {
+                failures.Add("Runtime cleanup failed: " + exception.Message);
+            }
+            try
+            {
+                explorationPresentation.HideExploration();
+            }
+            catch (Exception exception)
+            {
+                failures.Add("Presentation cleanup failed: " + exception.Message);
+            }
+
+            DestroyRuntimeComponent(runtimeRoot.GetComponent<DungeonRunController>(), failures);
+            DestroyRuntimeComponent(
+                runtimeRoot.GetComponent<DungeonAutosaveCoordinator>(),
+                failures
+            );
+            DestroyRuntimeComponent(runtime, failures);
+
+            GridBase grid = map.GetComponent<GridBase>();
+            try
+            {
+                PreparePartyForMapRollback(party, rollback.Party, grid);
+                if (
+                    !map.TryPopulateJson(
+                        rollback.MapJson,
+                        rollback.MapCatalog,
+                        out MapSourceValidationResult validation
+                    )
+                )
+                {
+                    failures.Add("Map rollback failed: " + string.Join(" ", validation.Errors));
+                }
+                else if (!rollback.UsedRuntimeJson)
+                {
+                    map.RestoreAuthoredJsonSourceAfterRuntimeRollback(
+                        rollback.JsonSource,
+                        rollback.MapCatalog,
+                        rollback.MapSpacing
+                    );
+                }
+            }
+            catch (Exception exception)
+            {
+                failures.Add("Map rollback failed: " + exception.Message);
+            }
+
+            try
+            {
+                RestorePartySceneState(party, rollback.Party, grid);
+            }
+            catch (Exception exception)
+            {
+                failures.Add("Party rollback failed: " + exception.Message);
+            }
+
+            DungeonSaveResult<bool> repositoryRestore = repository.RestoreCheckpoint(
+                rollback.Repository
+            );
+            if (!repositoryRestore.IsSuccess)
+            {
+                failures.Add(
+                    "Repository rollback failed: "
+                        + string.Join(
+                            " ",
+                            repositoryRestore.Diagnostics.Select(item => item.Message)
+                        )
+                );
+            }
+            return Failure(
+                DungeonSaveDiagnosticCode.InvalidSnapshot,
+                "runtime",
+                string.Join(" ", failures)
+            );
+        }
+
+        private static void DestroyRuntimeComponent(
+            Component component,
+            ICollection<string> failures
+        )
+        {
+            if (component == null)
+                return;
+            try
+            {
+                UnityEngine.Object.DestroyImmediate(component);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(
+                    $"Runtime component cleanup for '{component.GetType().Name}' failed: "
+                        + exception.Message
+                );
+            }
+        }
+
+        private static void PreparePartyForMapRollback(
+            IReadOnlyList<ActionController> party,
+            IReadOnlyList<PartySceneState> prior,
+            GridBase grid
+        )
+        {
+            for (int index = 0; index < party.Count; index++)
+            {
+                ActionController member = party[index];
+                member.gameObject.SetActive(false);
+                DetachPartyToken(member, grid);
+                member.transform.position = prior[index].Position;
+            }
+        }
+
+        private static void RestorePartySceneState(
+            IReadOnlyList<ActionController> party,
+            IReadOnlyList<PartySceneState> prior,
+            GridBase grid
+        )
+        {
+            for (int index = 0; index < party.Count; index++)
+            {
+                ActionController member = party[index];
+                PartySceneState state = prior[index];
+                member.transform.position = state.Position;
+                if (state.WasRegistered && grid != null)
+                {
+                    if (!member.GetComponent<Token>().RestoreRegistrationWithGrid(grid))
+                    {
+                        throw new InvalidOperationException(
+                            $"Party actor '{member.name}' could not restore its prior grid reservation."
+                        );
+                    }
+                }
+                member.gameObject.SetActive(state.WasActive);
+            }
         }
 
         private static DungeonRunPersistenceBootstrapResult CreatePrepared(
@@ -966,9 +1310,20 @@ namespace Game.DungeonPersistence
                     for (int index = 0; index < party.Count; index++)
                     {
                         party[index].transform.position = priorPositions[index];
-                        party[index].gameObject.SetActive(wasActive[index]);
                         if (wasRegistered[index] && grid != null)
-                            party[index].GetComponent<Token>()?.TryRegisterWithGrid(grid);
+                        {
+                            if (
+                                party[index]
+                                    .GetComponent<Token>()
+                                    ?.RestoreRegistrationWithGrid(grid) != true
+                            )
+                            {
+                                throw new InvalidOperationException(
+                                    $"Party actor '{party[index].name}' could not restore its prior grid reservation."
+                                );
+                            }
+                        }
+                        party[index].gameObject.SetActive(wasActive[index]);
                     }
                 }
             }

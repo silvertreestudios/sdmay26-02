@@ -4,10 +4,17 @@ using System.Text;
 
 namespace Game.DungeonPersistence.Repository
 {
+    /// <summary>
+    /// Represents repository-owned state captured without parsing or adopting an existing save.
+    /// </summary>
+    internal interface IDungeonSaveRepositoryCheckpoint { }
+
     internal interface IDungeonSaveRepository
     {
         DungeonSaveResult<DungeonRunSave> Load();
         DungeonSaveResult<bool> Save(DungeonRunSave save);
+        DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> CaptureCheckpoint();
+        DungeonSaveResult<bool> RestoreCheckpoint(IDungeonSaveRepositoryCheckpoint checkpoint);
     }
 
     /// <summary>
@@ -23,6 +30,18 @@ namespace Game.DungeonPersistence.Repository
         private readonly string directory;
         private readonly Action<string, string> publish;
         private readonly Action<string> staged;
+
+        private sealed class Checkpoint : IDungeonSaveRepositoryCheckpoint
+        {
+            internal Checkpoint(bool existed, byte[] contents)
+            {
+                Existed = existed;
+                Contents = contents;
+            }
+
+            internal bool Existed { get; }
+            internal byte[] Contents { get; }
+        }
 
         internal FileSystemDungeonSaveRepository(
             string directory,
@@ -112,6 +131,91 @@ namespace Game.DungeonPersistence.Repository
                     );
                 }
 
+                publish(temporaryPath, AutosavePath);
+                return DungeonSaveResult<bool>.Success(true);
+            }
+            catch (Exception exception)
+                when (exception is IOException || exception is UnauthorizedAccessException)
+            {
+                return DungeonSaveResult<bool>.Failure(
+                    DungeonSaveDiagnosticCode.IoFailure,
+                    AutosavePath,
+                    exception.Message
+                );
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    try
+                    {
+                        File.Delete(temporaryPath);
+                    }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }
+        }
+
+        public DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> CaptureCheckpoint()
+        {
+            try
+            {
+                bool existed = File.Exists(AutosavePath);
+                byte[] contents = existed ? File.ReadAllBytes(AutosavePath) : Array.Empty<byte>();
+                return DungeonSaveResult<IDungeonSaveRepositoryCheckpoint>.Success(
+                    new Checkpoint(existed, contents)
+                );
+            }
+            catch (Exception exception)
+                when (exception is IOException || exception is UnauthorizedAccessException)
+            {
+                return DungeonSaveResult<IDungeonSaveRepositoryCheckpoint>.Failure(
+                    DungeonSaveDiagnosticCode.IoFailure,
+                    AutosavePath,
+                    exception.Message
+                );
+            }
+        }
+
+        public DungeonSaveResult<bool> RestoreCheckpoint(
+            IDungeonSaveRepositoryCheckpoint checkpoint
+        )
+        {
+            if (checkpoint is not Checkpoint captured)
+            {
+                return DungeonSaveResult<bool>.Failure(
+                    DungeonSaveDiagnosticCode.InvalidSnapshot,
+                    AutosavePath,
+                    "The repository checkpoint belongs to a different repository implementation."
+                );
+            }
+
+            string temporaryPath = AutosavePath + ".rollback.tmp";
+            try
+            {
+                if (!captured.Existed)
+                {
+                    if (File.Exists(AutosavePath))
+                        File.Delete(AutosavePath);
+                    return DungeonSaveResult<bool>.Success(true);
+                }
+
+                Directory.CreateDirectory(directory);
+                if (File.Exists(temporaryPath))
+                    File.Delete(temporaryPath);
+                using (
+                    FileStream stream = new(
+                        temporaryPath,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None
+                    )
+                )
+                {
+                    stream.Write(captured.Contents, 0, captured.Contents.Length);
+                    stream.Flush(flushToDisk: true);
+                }
                 publish(temporaryPath, AutosavePath);
                 return DungeonSaveResult<bool>.Success(true);
             }

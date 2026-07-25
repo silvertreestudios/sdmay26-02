@@ -34,12 +34,12 @@ namespace GridPublic
             return GridAPI.TryGetInstance(out GridAPI grid) && TryRegister(grid);
         }
 
-        private bool TryRegister(GridAPI grid)
+        private bool TryRegister(GridAPI grid, bool requireActive = true)
         {
             if (
                 registered
                 || detachedFromGrid
-                || !isActiveAndEnabled
+                || requireActive && !isActiveAndEnabled
                 || (registeredGrid != null && registeredGrid != grid)
                 || grid is not GridAPIPrivate privateGrid
             )
@@ -82,6 +82,21 @@ namespace GridPublic
         {
             detachedFromGrid = false;
             TryRegister(grid);
+        }
+
+        /// <summary>
+        /// Restores a previously captured reservation without enabling an inactive actor. This is
+        /// reserved for transaction rollback, where invoking Unity activation callbacks would
+        /// mutate actor lifecycle state while the original scene is being reinstated.
+        /// </summary>
+        /// <param name="grid">The grid that owned the token before the failed transaction.</param>
+        /// <returns>Whether the prior cell reservation is owned by the grid again.</returns>
+        internal bool RestoreRegistrationWithGrid(GridAPI grid)
+        {
+            if (registered)
+                return registeredGrid == grid;
+            detachedFromGrid = false;
+            return TryRegister(grid, requireActive: false);
         }
 
         internal bool TryGetRebindCell(GridAPI grid, out Vector3Int cell)
