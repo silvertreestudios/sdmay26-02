@@ -140,10 +140,16 @@ namespace Game.Combat.Spells
                 return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
             if (controller != null && context.SpendActions)
             {
-                controller.SpendActions(context.ActionCost);
-                if (context.Definition.AppliesMultipleAttackPenalty(context))
-                    UnityAttackStateAdapter.Advance(controller);
-                controller.IsTakingAction = false;
+                try
+                {
+                    controller.SpendActions(context.ActionCost);
+                    if (context.Definition.AppliesMultipleAttackPenalty(context))
+                        UnityAttackStateAdapter.Advance(controller);
+                }
+                finally
+                {
+                    controller.IsTakingAction = false;
+                }
             }
             result.Success = true;
             if (!creature.IsDefeated)
