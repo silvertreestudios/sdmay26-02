@@ -196,7 +196,7 @@ public class MindlessController : AIActionController
             }
         }
 
-        EntityAction legalStrike = BestLegalStrike(myTeam);
+        EntityAction legalStrike = BestLegalStrike();
         if (legalStrike != null)
             return legalStrike;
 
@@ -238,7 +238,7 @@ public class MindlessController : AIActionController
         return Actions.Find(action => action is RulesStrideAction);
     }
 
-    private EntityAction BestLegalStrike(string myTeam)
+    private EntityAction BestLegalStrike()
     {
         if (!TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor))
             return null;
@@ -248,10 +248,7 @@ public class MindlessController : AIActionController
 
         foreach (GameObject target in CombatManagerInterface.GetInstance().GetCombatants())
         {
-            if (
-                target == this.gameObject
-                || TeamRules.GetInstance().IsFriendly(myTeam, target.GetComponent<Team>().Name)
-            )
+            if (target == this.gameObject)
                 continue;
 
             foreach (EntityAction action in Actions)

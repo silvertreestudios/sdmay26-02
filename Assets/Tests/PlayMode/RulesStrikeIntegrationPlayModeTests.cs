@@ -260,6 +260,61 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator BestLegalStrikeWithoutLegacyTeamsSelectsRulesLegalTarget()
+    {
+        InstallCombatManager();
+        CreatureComponent actor = CreateCreature("Actor", "strike-test-ai", 20, 10);
+        MindlessController ai = actor.gameObject.AddComponent<MindlessController>();
+        CreatureComponent target = CreateCreature("Target", "strike-test-target", 20, 10);
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        Object.DestroyImmediate(target.GetComponent<Team>());
+        Place(actor.gameObject, 0);
+        Place(target.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, actor.gameObject);
+        Occupy(tiles, target.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { ai, targetController },
+            tiles,
+            new ScriptedRollService()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor);
+        bridge.BeginTurn(actorId, 3);
+        RulesStrikeAction legalStrike = ai.GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(action => action.ActionName == "Unarmed Strike");
+        CombatManager manager = (CombatManager)CombatManagerInterface.GetInstance();
+        manager.AddCombatant(targetController);
+        FieldInfo activeCombatantsField = typeof(CombatManager).GetField(
+            "activeCombatants",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(activeCombatantsField, Is.Not.Null);
+        List<ActionController> activeCombatants =
+            (List<ActionController>)activeCombatantsField.GetValue(manager);
+        activeCombatants.Add(ai);
+        activeCombatants.Add(targetController);
+        manager.AddEvent(new TurnStep(ai));
+        manager.AddEvent(new TurnStep(targetController));
+        Assert.That(TeamRules.TryGetInstance(out _), Is.False);
+        Assert.That(target.GetComponent<Team>(), Is.Null);
+        MethodInfo bestLegalStrike = typeof(MindlessController).GetMethod(
+            "BestLegalStrike",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(bestLegalStrike, Is.Not.Null);
+
+        EntityAction selected = (EntityAction)
+            bestLegalStrike.Invoke(ai, System.Array.Empty<object>());
+
+        Assert.That(selected, Is.SameAs(legalStrike));
+        Assert.That(ai.BestTarget, Is.SameAs(target.gameObject));
+        Assert.That(ai.SelectedTile, Is.EqualTo(new Vector3Int(1, 0, 0)));
+        yield return null;
+    }
+
+    [UnityTest]
     public IEnumerator AiRangedStrikeRejectsInvalidThenProjectsValidAmmoLoadHealthAndReload()
     {
         InstallCombatManager();
