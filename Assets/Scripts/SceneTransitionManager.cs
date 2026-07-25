@@ -160,10 +160,28 @@ public class SceneTransitionManager : MonoBehaviour
         _overlay.style.opacity = 1f;
 
         // Start async load, hold activation until fade completes
-        AsyncOperation op =
-            sceneName != null
-                ? SceneManager.LoadSceneAsync(sceneName)
-                : SceneManager.LoadSceneAsync(buildIndex.Value);
+        string target = sceneName ?? $"build index {buildIndex.Value}";
+        AsyncOperation op;
+        try
+        {
+            op =
+                sceneName != null
+                    ? SceneManager.LoadSceneAsync(sceneName)
+                    : SceneManager.LoadSceneAsync(buildIndex.Value);
+        }
+        catch (System.ArgumentException exception)
+        {
+            RecoverFromLoadFailure(target, exception.Message);
+            yield break;
+        }
+
+        // Unity's API contract returns an operation or throws, but keep the framework boundary
+        // defensive so an unavailable scene can never leave the persistent overlay blocking input.
+        if (op == null)
+        {
+            RecoverFromLoadFailure(target, "Unity did not return a scene load operation.");
+            yield break;
+        }
 
         op.allowSceneActivation = false;
         while (op.progress < 0.9f)
@@ -180,6 +198,15 @@ public class SceneTransitionManager : MonoBehaviour
             _overlay.style.opacity = 1f - Mathf.Clamp01(elapsed / duration);
             yield return null;
         }
+        _overlay.style.opacity = 0f;
+        _overlay.pickingMode = PickingMode.Ignore;
+        isTransitioning = false;
+    }
+
+    private void RecoverFromLoadFailure(string target, string reason)
+    {
+        Debug.LogError($"Scene transition to '{target}' failed to start: {reason}");
+        pendingDungeonRun = DungeonRunLaunchRequest.None;
         _overlay.style.opacity = 0f;
         _overlay.pickingMode = PickingMode.Ignore;
         isTransitioning = false;

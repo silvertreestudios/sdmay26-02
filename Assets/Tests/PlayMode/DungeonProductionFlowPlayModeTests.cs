@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Game.Combat.Encounters;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence;
@@ -234,6 +235,26 @@ public sealed class DungeonProductionFlowPlayModeTests
         Assert.That(mainMenuButton.enabledSelf, Is.True);
 
         yield return WaitForMainMenu();
+    }
+
+    /// <summary>Releases the blocking overlay when Unity rejects a scene load request.</summary>
+    [UnityTest]
+    public IEnumerator FailedSceneLoadReleasesTransitionOverlay()
+    {
+        string activeScene = SceneManager.GetActiveScene().name;
+        const string missingScene = "MissingSceneForTransitionRecoveryTest";
+        LogAssert.Expect(LogType.Error, new Regex($"^Scene '{missingScene}' couldn't be loaded"));
+        LogAssert.Expect(
+            LogType.Error,
+            new Regex($"^Scene transition to '{missingScene}' failed to start:")
+        );
+
+        Assert.That(SceneTransitionManager.FadeAndLoad(missingScene, duration: 0f), Is.True);
+        yield return WaitForTransitionIdle();
+
+        Assert.That(SceneManager.GetActiveScene().name, Is.EqualTo(activeScene));
+        Assert.That(SceneTransitionManager.FadeAndLoad(MainMenuScene, duration: 0f), Is.True);
+        yield return WaitForTransitionIdle();
     }
 
     /// <summary>Shows a player-facing defeat message with a working menu recovery control.</summary>
@@ -1031,7 +1052,6 @@ public sealed class DungeonProductionFlowPlayModeTests
         Assert.That(grid.Fsm.CurrentState, Is.TypeOf<StateStride>());
 
         OnHover.Invoke(new List<Vector3Int> { destination });
-        yield return null;
         grid.Fsm.CurrentState.Leftclick();
 
         float movementDeadline = Time.realtimeSinceStartup + 10f;
