@@ -106,8 +106,14 @@ public sealed class DungeonProductionFlowPlayModeTests
         Assert.That(File.Exists(repository.AutosavePath), Is.False);
 
         actor.IsTakingAction = false;
+        yield return null;
+
+        Assert.That(SceneTransitionManager.IsTransitioning, Is.True);
+        Assert.That(Time.timeScale, Is.Zero);
+
         yield return WaitForMainMenu();
 
+        Assert.That(Time.timeScale, Is.EqualTo(1f));
         DungeonSaveResult<DungeonRunSave> checkpoint = repository.Load();
         Assert.That(
             checkpoint.IsSuccess,

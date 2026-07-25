@@ -29,6 +29,9 @@ public class MainMenuControl : MonoBehaviour
 
     private void Awake()
     {
+        // Dungeon departure freezes simulation after its final checkpoint. Restore normal time
+        // as soon as the destination menu activates while the fade continues on unscaled time.
+        Time.timeScale = 1f;
         ui = GetComponent<UIDocument>().rootVisualElement;
         menuService ??= DungeonRunMenuService.CreateDefault();
     }

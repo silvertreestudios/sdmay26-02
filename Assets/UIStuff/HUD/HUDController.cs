@@ -646,6 +646,9 @@ public class HUDController
             }
         }
 
+        // The fade advances on unscaled time. Freeze the departing dungeon only after any
+        // required checkpoint so AI and other gameplay coroutines cannot make it stale.
+        Time.timeScale = 0f;
         SceneTransitionManager.FadeAndLoad("MainMenuScene");
     }
 
