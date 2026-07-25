@@ -612,6 +612,81 @@ namespace Game.Rules.Runtime
                 return ActionAvailability.Unavailable("The required ammunition is unavailable.");
             return ActionAvailability.Available;
         }
+
+        /// <summary>
+        /// Checks whether one fully selected Strike can legally begin without changing rules state.
+        /// </summary>
+        /// <param name="snapshot">The current rules snapshot to inspect.</param>
+        /// <param name="operation">The actor, item, and target selected for the Strike.</param>
+        /// <param name="catalog">The feature catalog that owns the selected item.</param>
+        /// <param name="targeting">The feature targeting provider for current geometry.</param>
+        /// <param name="resolutionData">
+        /// The feature provider that validates prepared character and defense inputs.
+        /// </param>
+        /// <returns>A valid result or the first reason the Strike cannot legally begin.</returns>
+        /// <remarks>
+        /// Presentation may call this method immediately before starting an attack animation. The
+        /// action lifecycle calls the same method again as the authoritative validator before it
+        /// commits costs, so preview acceptance never grants permission or bypasses dispatch.
+        /// </remarks>
+        public ActionValidationResult Validate(
+            RulesSnapshot snapshot,
+            StrikeActionOp operation,
+            IStrikeActionCatalog catalog,
+            IStrikeTargetingProvider targeting,
+            IStrikeResolutionDataProvider resolutionData
+        )
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            if (operation == null)
+                throw new ArgumentNullException(nameof(operation));
+            if (catalog == null)
+                throw new ArgumentNullException(nameof(catalog));
+            if (targeting == null)
+                throw new ArgumentNullException(nameof(targeting));
+            if (resolutionData == null)
+                throw new ArgumentNullException(nameof(resolutionData));
+
+            StrikeItemDefinition item;
+            try
+            {
+                item = catalog.GetStrikeItem(operation.Item);
+            }
+            catch (KeyNotFoundException)
+            {
+                return ActionValidationResult.Invalid("The selected Strike item is unknown.");
+            }
+            ActionAvailability availability = GetAvailability(snapshot, operation.Actor, item);
+            if (availability is UnavailableActionAvailability unavailable)
+                return ActionValidationResult.Invalid(unavailable.Reason);
+            if (
+                !snapshot.Creatures.TryGet(operation.Actor, out CreatureState actor)
+                || !snapshot.Creatures.TryGet(operation.Target, out CreatureState target)
+                || actor.Player == target.Player
+            )
+                return ActionValidationResult.Invalid("The target is not a legal enemy.");
+            if (
+                !snapshot.Health.TryGet(operation.Target, out HealthState health)
+                || health.Current == 0
+            )
+                return ActionValidationResult.Invalid("The target is defeated.");
+            StrikeTargetingOutcome result = targeting.Evaluate(
+                snapshot,
+                operation.Actor,
+                item,
+                operation.Target
+            );
+            if (result is InvalidStrikeTargetingOutcome invalid)
+                return ActionValidationResult.Invalid(invalid.Reason);
+            return resolutionData.Validate(
+                snapshot,
+                operation.Actor,
+                item,
+                operation.Target,
+                (LegalStrikeTargetingOutcome)result
+            );
+        }
     }
 
     /// <summary>Advances the rules-owned MAP shared by every attack action.</summary>
@@ -923,51 +998,7 @@ namespace Game.Rules.Runtime
         public ActionValidationResult Validate(
             OpFrame<StrikeActionOp> frame,
             RulesSnapshot snapshot
-        )
-        {
-            StrikeItemDefinition item;
-            try
-            {
-                item = catalog.GetStrikeItem(frame.Op.Item);
-            }
-            catch (KeyNotFoundException)
-            {
-                return ActionValidationResult.Invalid("The selected Strike item is unknown.");
-            }
-            ActionAvailability availability = definition.GetAvailability(
-                snapshot,
-                frame.Op.Actor,
-                item
-            );
-            if (availability is UnavailableActionAvailability unavailable)
-                return ActionValidationResult.Invalid(unavailable.Reason);
-            if (
-                !snapshot.Creatures.TryGet(frame.Op.Actor, out CreatureState actor)
-                || !snapshot.Creatures.TryGet(frame.Op.Target, out CreatureState target)
-                || actor.Player == target.Player
-            )
-                return ActionValidationResult.Invalid("The target is not a legal enemy.");
-            if (
-                !snapshot.Health.TryGet(frame.Op.Target, out HealthState health)
-                || health.Current == 0
-            )
-                return ActionValidationResult.Invalid("The target is defeated.");
-            StrikeTargetingOutcome result = targeting.Evaluate(
-                snapshot,
-                frame.Op.Actor,
-                item,
-                frame.Op.Target
-            );
-            if (result is InvalidStrikeTargetingOutcome invalid)
-                return ActionValidationResult.Invalid(invalid.Reason);
-            return resolutionData.Validate(
-                snapshot,
-                frame.Op.Actor,
-                item,
-                frame.Op.Target,
-                (LegalStrikeTargetingOutcome)result
-            );
-        }
+        ) => definition.Validate(snapshot, frame.Op, catalog, targeting, resolutionData);
     }
 
     internal sealed class StrikeActionHandler : IOpHandler<StrikeActionOp, StrikeOutcome>

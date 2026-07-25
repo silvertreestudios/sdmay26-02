@@ -5,6 +5,7 @@ using System.Reflection;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.KayKit;
 using Game.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
@@ -12,6 +13,7 @@ using Game.Strikes;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
@@ -68,6 +70,162 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         Assert.That(controller.IsTakingAction, Is.False);
         Assert.That(controller.ActionPoints, Is.EqualTo(3));
         Assert.That(gameplayCommitCount, Is.EqualTo(1));
+    }
+
+    [UnityTest]
+    public IEnumerator StrikeBeginsAttackBeforeHitAndDefeatPresentations()
+    {
+        InstallCombatManager();
+        InstallCoroutineRunner();
+        InstallCombatLog();
+        InstallTeamRules();
+        SelectingGridApi grid = InstallSelectingGrid();
+        CreatureComponent actor = LoadPrefabCreature(
+            "DataFiles/playerCharacters/Lena",
+            "Assets/Prefabs/Creatures/Lena.prefab"
+        );
+        actor.GetComponent<Team>().Name = "presentation-heroes";
+        ActionController actorController = actor.GetComponent<ActionController>();
+        CreatureComponent hitTarget = CreateCreature("Hit Target", "presentation-enemies", 20, 10);
+        CreatureComponent defeatTarget = CreateCreature(
+            "Defeat Target",
+            "presentation-enemies",
+            1,
+            10
+        );
+        TestActionController hitController =
+            hitTarget.gameObject.AddComponent<TestActionController>();
+        TestActionController defeatController =
+            defeatTarget.gameObject.AddComponent<TestActionController>();
+        CreaturePresentation actorPresentation = actor.GetComponent<CreaturePresentation>();
+        Assert.That(actorPresentation, Is.Not.Null);
+        yield return null;
+        Assert.That(actorPresentation.AnimationController, Is.Not.Null);
+        CreatureAnimationController sharedAnimation = actorPresentation.AnimationController;
+        hitTarget
+            .gameObject.AddComponent<CreaturePresentation>()
+            .Bind(sharedAnimation, equipmentVisuals: null);
+        defeatTarget
+            .gameObject.AddComponent<CreaturePresentation>()
+            .Bind(sharedAnimation, equipmentVisuals: null);
+        Place(actor.gameObject, 0);
+        Place(hitTarget.gameObject, 1);
+        Place(defeatTarget.gameObject, 2);
+        Tile[,] tiles = CreateTiles(3);
+        Occupy(tiles, actor.gameObject);
+        Occupy(tiles, hitTarget.gameObject);
+        Occupy(tiles, defeatTarget.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { actorController, hitController, defeatController },
+            tiles,
+            new ScriptedRollService(10, 4, 10, 4)
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor);
+        RulesStrikeAction shortbow = actorController
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(action => action.ActionName == "Shortbow");
+        sharedAnimation.StopAction();
+
+        bridge.BeginTurn(actorId, 3);
+        grid.Target = hitTarget.gameObject;
+        actorController.IsTakingAction = true;
+        shortbow.Invoke(actor.gameObject);
+        for (int frame = 0; frame < 10 && actorController.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(actorController.IsTakingAction, Is.False);
+        Assert.That(hitTarget.hp, Is.LessThan(20));
+        Assert.That(
+            sharedAnimation.CurrentClipId,
+            Is.EqualTo("animation/general/hit_a"),
+            "The hit reaction must be the last presentation started after the shared attack."
+        );
+
+        sharedAnimation.StopAction();
+        bridge.BeginTurn(actorId, 3);
+        grid.Target = defeatTarget.gameObject;
+        actorController.IsTakingAction = true;
+        shortbow.Invoke(actor.gameObject);
+        for (int frame = 0; frame < 10 && actorController.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(actorController.IsTakingAction, Is.False);
+        Assert.That(defeatTarget.hp, Is.Zero);
+        Assert.That(
+            sharedAnimation.CurrentClipId,
+            Is.EqualTo("animation/general/death_a"),
+            "The defeat reaction must be the last presentation started after the shared attack."
+        );
+    }
+
+    [UnityTest]
+    public IEnumerator RejectedSelectedStrikeDoesNotAnimateOrMutate()
+    {
+        InstallCombatManager();
+        InstallCoroutineRunner();
+        InstallCombatLog();
+        InstallTeamRules();
+        SelectingGridApi grid = InstallSelectingGrid();
+        CreatureComponent actor = LoadPrefabCreature(
+            "DataFiles/playerCharacters/Lena",
+            "Assets/Prefabs/Creatures/Lena.prefab"
+        );
+        actor.GetComponent<Team>().Name = "presentation-heroes";
+        ActionController actorController = actor.GetComponent<ActionController>();
+        CreatureComponent friendlyTarget = CreateCreature(
+            "Friendly Target",
+            "presentation-heroes",
+            20,
+            10
+        );
+        TestActionController targetController =
+            friendlyTarget.gameObject.AddComponent<TestActionController>();
+        Place(actor.gameObject, 0);
+        Place(friendlyTarget.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, actor.gameObject);
+        Occupy(tiles, friendlyTarget.gameObject);
+        ScriptedRollService rolls = new(20, 4);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { actorController, targetController },
+            tiles,
+            rolls
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor);
+        RulesStrikeAction shortbow = actorController
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(action => action.ActionName == "Shortbow");
+        CreaturePresentation presentation = actor.GetComponent<CreaturePresentation>();
+        Assert.That(presentation, Is.Not.Null);
+        yield return null;
+        CreatureAnimationController animation = presentation.AnimationController;
+        Assert.That(animation, Is.Not.Null);
+        animation.StopAction();
+        bridge.BeginTurn(actorId, 3);
+        int startingAmmo = actor.GetAmmoQuantity("arrows");
+        bool startingLoad = bridge.Snapshot.Equipment[shortbow.Item.Item].IsLoaded;
+        int startingHp = friendlyTarget.hp;
+        grid.Target = friendlyTarget.gameObject;
+        LogAssert.Expect(LogType.Warning, "Strike was rejected: The target is not a legal enemy.");
+
+        actorController.IsTakingAction = true;
+        shortbow.Invoke(actor.gameObject);
+        for (int frame = 0; frame < 10 && actorController.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(actorController.IsTakingAction, Is.False);
+        Assert.That(animation.CurrentClipId, Is.Null);
+        Assert.That(actorController.ActionPoints, Is.EqualTo(3));
+        Assert.That(actor.GetAmmoQuantity("arrows"), Is.EqualTo(startingAmmo));
+        Assert.That(
+            bridge.Snapshot.Equipment[shortbow.Item.Item].IsLoaded,
+            Is.EqualTo(startingLoad)
+        );
+        Assert.That(friendlyTarget.hp, Is.EqualTo(startingHp));
+        Assert.That(actorController.StrikePenalty, Is.Zero);
+        Assert.That(rolls.Remaining, Is.EqualTo(2));
     }
 
     [UnityTest]
@@ -214,6 +372,15 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         return creature;
     }
 
+    private CreatureComponent LoadPrefabCreature(string jsonPath, string prefabPath)
+    {
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+        Assert.That(prefab, Is.Not.Null, prefabPath);
+        GameObject gameObject = CreatureJsonConverter.CreateFromFile(jsonPath, prefab);
+        created.Add(gameObject);
+        return gameObject.GetComponent<CreatureComponent>();
+    }
+
     private void InstallCombatLog()
     {
         GameObject gameObject = new("Strike PlayMode Combat Log");
@@ -234,6 +401,13 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         gameObject.AddComponent<CombatManager>();
     }
 
+    private void InstallTeamRules()
+    {
+        GameObject gameObject = new("Strike PlayMode Team Rules");
+        created.Add(gameObject);
+        gameObject.AddComponent<TeamRules>();
+    }
+
     private void InstallCoroutineRunner()
     {
         GameObject gameObject = new("Strike PlayMode Coroutine Runner");
@@ -248,6 +422,15 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         GameObject gameObject = new("Strike PlayMode Canceling Grid");
         created.Add(gameObject);
         gameObject.AddComponent<CancelingGridApi>();
+    }
+
+    private SelectingGridApi InstallSelectingGrid()
+    {
+        if (GridAPI.TryGetInstance(out GridAPI activeGrid))
+            Object.DestroyImmediate(activeGrid.gameObject);
+        GameObject gameObject = new("Strike PlayMode Selecting Grid");
+        created.Add(gameObject);
+        return gameObject.AddComponent<SelectingGridApi>();
     }
 
     private void CountGameplayCommit() => gameplayCommitCount++;
@@ -348,6 +531,41 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         }
 
         public override bool DestroyToken(GameObject token) => false;
+    }
+
+    private sealed class SelectingGridApi : GridAPI
+    {
+        public GameObject Target { get; set; }
+
+        public override IEnumerator SelectStridePath(
+            GameObject character,
+            StridePathSelectionRequest request,
+            CoroutineResult<SelectionOutcome<MovementPath>> selection
+        )
+        {
+            yield break;
+        }
+
+        public override IEnumerator GetStrikeTarget(
+            GameObject attacker,
+            StrikeTargetRequest request,
+            CoroutineResult<StrikeTargetResult> target
+        )
+        {
+            target.Value = new StrikeTargetResult { Target = this.Target };
+            yield break;
+        }
+
+        public override IEnumerator GetAreaTarget(
+            AreaTargetSource source,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> target
+        )
+        {
+            yield break;
+        }
+
+        public override bool DestroyToken(GameObject token) => true;
     }
 }
 

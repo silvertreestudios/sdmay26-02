@@ -17,6 +17,7 @@ namespace Game.Strikes
     /// </summary>
     public sealed class RulesStrikeAction : MultiFrameEntityAction
     {
+        private readonly StrikeActionDefinition definition = new();
         private readonly StrikeItemDefinition item;
         private readonly UnityStrikeContext strikeContext;
 
@@ -102,12 +103,30 @@ namespace Game.Strikes
                 try
                 {
                     CreatureId target = bridge.GetCreatureId(targetCreature);
-                    OpResult<StrikeOutcome> result = bridge.Dispatch(
-                        new StrikeActionOp(actor, item.Item, target)
+                    StrikeActionOp operation = new StrikeActionOp(actor, item.Item, target);
+                    ActionValidationResult preflight = definition.Validate(
+                        bridge.Snapshot,
+                        operation,
+                        strikeContext,
+                        strikeContext,
+                        strikeContext
                     );
+                    if (
+                        preflight
+                        is ActionValidationResult.InvalidActionValidationResult invalidPreflight
+                    )
+                    {
+                        Debug.LogWarning(
+                            $"Strike was rejected: {invalidPreflight.Reason}",
+                            attacker
+                        );
+                        yield break;
+                    }
+
+                    PresentAttack(attacker, selection.Value.Target);
+                    OpResult<StrikeOutcome> result = bridge.Dispatch(operation);
                     if (result is ResolvedOpResult<StrikeOutcome> resolved)
                     {
-                        PresentAttack(attacker, selection.Value.Target);
                         PresentResolvedOutcome(attacker, selection.Value.Target, resolved.Value);
                     }
                     else if (result is InvalidOpResult<StrikeOutcome> invalid)
