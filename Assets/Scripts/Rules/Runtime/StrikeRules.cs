@@ -570,6 +570,41 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>Resolves the nested targeting, roll, degree, and damage calculation for a Strike.</summary>
+    /// <remarks>
+    /// This operation is nested-only. A validated <see cref="StrikeActionOp"/> dispatches it after
+    /// action costs commit, and the dispatcher observes its resolved value before parent
+    /// continuation can apply authoritative damage.
+    /// </remarks>
+    public sealed class ResolveStrikeOp : IRuleOp<StrikeResolution>
+    {
+        /// <summary>Creates the calculation request for one already-begun Strike.</summary>
+        /// <param name="actor">The attacking creature.</param>
+        /// <param name="item">The selected Strike item.</param>
+        /// <param name="target">The selected target creature.</param>
+        public ResolveStrikeOp(CreatureId actor, ItemId item, CreatureId target)
+        {
+            if (actor.IsEmpty)
+                throw new ArgumentException("A Strike actor is required.", nameof(actor));
+            if (item.IsEmpty)
+                throw new ArgumentException("A Strike item is required.", nameof(item));
+            if (target.IsEmpty)
+                throw new ArgumentException("A Strike target is required.", nameof(target));
+            Actor = actor;
+            Item = item;
+            Target = target;
+        }
+
+        /// <summary>Gets the attacking creature.</summary>
+        public CreatureId Actor { get; }
+
+        /// <summary>Gets the selected Strike item.</summary>
+        public ItemId Item { get; }
+
+        /// <summary>Gets the selected target creature.</summary>
+        public CreatureId Target { get; }
+    }
+
     /// <summary>Owns normal Strike availability and stable action identity.</summary>
     public sealed class StrikeActionDefinition
     {
@@ -945,8 +980,10 @@ namespace Game.Rules.Runtime
             StrikeActionDefinition strike = new StrikeActionDefinition();
             ReloadActionDefinition reload = new ReloadActionDefinition();
             return builder
-                .RegisterHandler<StrikeActionOp, StrikeOutcome>(
-                    new StrikeActionHandler(catalog, targeting, resolutionData)
+                .RegisterHandler<StrikeActionOp, StrikeOutcome>(new StrikeActionHandler(catalog))
+                .RegisterHandler<ResolveStrikeOp, StrikeResolution>(
+                    new ResolveStrikeHandler(catalog, targeting, resolutionData),
+                    InvocationPolicy.NestedOnly
                 )
                 .RegisterActionValidator(
                     new StrikeActionValidator(strike, catalog, targeting, resolutionData)
@@ -1007,18 +1044,10 @@ namespace Game.Rules.Runtime
     internal sealed class StrikeActionHandler : IOpHandler<StrikeActionOp, StrikeOutcome>
     {
         private readonly IStrikeActionCatalog catalog;
-        private readonly IStrikeTargetingProvider targeting;
-        private readonly IStrikeResolutionDataProvider resolutionData;
 
-        public StrikeActionHandler(
-            IStrikeActionCatalog catalog,
-            IStrikeTargetingProvider targeting,
-            IStrikeResolutionDataProvider resolutionData
-        )
+        public StrikeActionHandler(IStrikeActionCatalog catalog)
         {
             this.catalog = catalog;
-            this.targeting = targeting;
-            this.resolutionData = resolutionData;
         }
 
         public async ValueTask<StrikeOutcome> Handle(
@@ -1027,31 +1056,12 @@ namespace Game.Rules.Runtime
         )
         {
             StrikeItemDefinition item = catalog.GetStrikeItem(frame.Op.Item);
-            StrikeTargetingOutcome target = targeting.Evaluate(
-                context.Snapshot,
-                frame.Op.Actor,
-                item,
-                frame.Op.Target
+            OpResult<StrikeResolution> resolvedStrike = await context.Dispatch(
+                new ResolveStrikeOp(frame.Op.Actor, frame.Op.Item, frame.Op.Target)
             );
-            if (target is not LegalStrikeTargetingOutcome legal)
-                throw new InvalidOperationException(
-                    "Strike targeting changed after action validation."
-                );
-            StrikeResolutionData data = resolutionData.Capture(
-                context.Snapshot,
-                frame.Op.Actor,
-                item,
-                frame.Op.Target,
-                legal
-            );
-            int priorAttacks = context.Snapshot.MultipleAttackPenalty.TryGet(
-                frame.Op.Actor,
-                out MultipleAttackPenaltyState map
-            )
-                ? map.AttackCount
-                : 0;
-            int mapPenalty = MultipleAttackPenaltyResolver.Resolve(priorAttacks, item.IsAgile);
-            StrikeResolution resolution = Resolve(item, data, legal, mapPenalty, context.Rolls);
+            if (resolvedStrike is not ResolvedOpResult<StrikeResolution> resolved)
+                throw new InvalidOperationException("Strike resolution did not resolve.");
+            StrikeResolution resolution = resolved.Value;
 
             if (resolution.Hit && resolution.FinalDamage > 0)
             {
@@ -1082,6 +1092,59 @@ namespace Game.Rules.Runtime
             if (advanced is not ResolvedOpResult<MultipleAttackPenaltyState> resolvedMap)
                 throw new InvalidOperationException("Strike MAP advancement did not resolve.");
             return new StrikeOutcome(resolution, resolvedMap.Value.AttackCount);
+        }
+    }
+
+    internal sealed class ResolveStrikeHandler : IOpHandler<ResolveStrikeOp, StrikeResolution>
+    {
+        private readonly IStrikeActionCatalog catalog;
+        private readonly IStrikeTargetingProvider targeting;
+        private readonly IStrikeResolutionDataProvider resolutionData;
+
+        public ResolveStrikeHandler(
+            IStrikeActionCatalog catalog,
+            IStrikeTargetingProvider targeting,
+            IStrikeResolutionDataProvider resolutionData
+        )
+        {
+            this.catalog = catalog;
+            this.targeting = targeting;
+            this.resolutionData = resolutionData;
+        }
+
+        public ValueTask<StrikeResolution> Handle(
+            OpFrame<ResolveStrikeOp> frame,
+            OpHandlerContext context
+        )
+        {
+            StrikeItemDefinition item = catalog.GetStrikeItem(frame.Op.Item);
+            StrikeTargetingOutcome target = targeting.Evaluate(
+                context.Snapshot,
+                frame.Op.Actor,
+                item,
+                frame.Op.Target
+            );
+            if (target is not LegalStrikeTargetingOutcome legal)
+                throw new InvalidOperationException(
+                    "Strike targeting changed after action validation."
+                );
+            StrikeResolutionData data = resolutionData.Capture(
+                context.Snapshot,
+                frame.Op.Actor,
+                item,
+                frame.Op.Target,
+                legal
+            );
+            int priorAttacks = context.Snapshot.MultipleAttackPenalty.TryGet(
+                frame.Op.Actor,
+                out MultipleAttackPenaltyState map
+            )
+                ? map.AttackCount
+                : 0;
+            int mapPenalty = MultipleAttackPenaltyResolver.Resolve(priorAttacks, item.IsAgile);
+            StrikeResolution resolution = Resolve(item, data, legal, mapPenalty, context.Rolls);
+
+            return new ValueTask<StrikeResolution>(resolution);
         }
 
         private static StrikeResolution Resolve(

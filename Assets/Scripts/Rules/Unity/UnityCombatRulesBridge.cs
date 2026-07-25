@@ -24,6 +24,7 @@ namespace Game.Rules.Unity
         private readonly Dictionary<CreatureComponent, CreatureId> creatureIds = new();
         private readonly Dictionary<CreatureId, CreatureComponent> creatures = new();
         private readonly Dictionary<ActionController, CreatureId> controllerIds = new();
+        private readonly Dictionary<CreatureId, ActionController> controllers = new();
         private readonly Dictionary<string, PlayerId> playerIds = new(
             StringComparer.OrdinalIgnoreCase
         );
@@ -111,6 +112,14 @@ namespace Game.Rules.Unity
             dispatcher.RegisterFactObserver<StrikeItemLoadedChangedFact>(strikeContext);
             if (attachControllers)
             {
+                UnityStrikePresentationObserver strikePresentation =
+                    new UnityStrikePresentationObserver(controllers, creatures, strikeContext);
+                dispatcher.RegisterResolvedOpObserver<ResolveStrikeOp, StrikeResolution>(
+                    strikePresentation
+                );
+                dispatcher.RegisterResolvedOpObserver<StrikeActionOp, StrikeOutcome>(
+                    strikePresentation
+                );
                 RegisterHealthProjection();
                 AttachCreatures();
                 foreach (KeyValuePair<ActionController, CreatureId> entry in controllerIds)
@@ -657,6 +666,7 @@ namespace Game.Rules.Unity
         {
             CreatureId id = registration.State.Creature.Id;
             controllerIds.Add(registration.Controller, id);
+            controllers.Add(id, registration.Controller);
             creatureIds.Add(registration.Creature, id);
             creatures.Add(id, registration.Creature);
         }

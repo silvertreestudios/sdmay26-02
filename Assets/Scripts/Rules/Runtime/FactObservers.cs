@@ -76,46 +76,59 @@ namespace Game.Rules.Runtime
     /// The first failure preserves its original stack when rethrown. A list is created only when
     /// a second failure requires an <see cref="AggregateException"/>.
     /// </remarks>
-    internal abstract class FactObserverFailureState
+    internal abstract class ObserverFailureState
     {
-        public static FactObserverFailureState Empty { get; } = new EmptyFailureState();
+        public static ObserverFailureState CreateEmpty(string aggregateMessage) =>
+            new EmptyFailureState(aggregateMessage);
 
-        public abstract FactObserverFailureState Add(Exception exception);
+        public abstract ObserverFailureState Add(Exception exception);
         public abstract void ThrowIfAny();
 
-        private sealed class EmptyFailureState : FactObserverFailureState
+        private sealed class EmptyFailureState : ObserverFailureState
         {
-            public override FactObserverFailureState Add(Exception exception) =>
-                new SingleFailureState(exception);
+            private readonly string aggregateMessage;
+
+            public EmptyFailureState(string aggregateMessage)
+            {
+                this.aggregateMessage =
+                    aggregateMessage ?? throw new ArgumentNullException(nameof(aggregateMessage));
+            }
+
+            public override ObserverFailureState Add(Exception exception) =>
+                new SingleFailureState(aggregateMessage, exception);
 
             public override void ThrowIfAny() { }
         }
 
-        private sealed class SingleFailureState : FactObserverFailureState
+        private sealed class SingleFailureState : ObserverFailureState
         {
+            private readonly string aggregateMessage;
             private readonly Exception failure;
 
-            public SingleFailureState(Exception failure)
+            public SingleFailureState(string aggregateMessage, Exception failure)
             {
+                this.aggregateMessage = aggregateMessage;
                 this.failure = failure;
             }
 
-            public override FactObserverFailureState Add(Exception exception) =>
-                new MultipleFailureState(failure, exception);
+            public override ObserverFailureState Add(Exception exception) =>
+                new MultipleFailureState(aggregateMessage, failure, exception);
 
             public override void ThrowIfAny() => ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
-        private sealed class MultipleFailureState : FactObserverFailureState
+        private sealed class MultipleFailureState : ObserverFailureState
         {
+            private readonly string aggregateMessage;
             private readonly List<Exception> failures;
 
-            public MultipleFailureState(Exception first, Exception second)
+            public MultipleFailureState(string aggregateMessage, Exception first, Exception second)
             {
+                this.aggregateMessage = aggregateMessage;
                 failures = new List<Exception> { first, second };
             }
 
-            public override FactObserverFailureState Add(Exception exception)
+            public override ObserverFailureState Add(Exception exception)
             {
                 failures.Add(exception);
                 return this;
@@ -123,16 +136,18 @@ namespace Game.Rules.Runtime
 
             public override void ThrowIfAny()
             {
-                throw new AggregateException(
-                    "Multiple Fact observers failed after the reduction committed.",
-                    failures
-                );
+                throw new AggregateException(aggregateMessage, failures);
             }
         }
     }
 
     public sealed partial class RuleDispatcher
     {
+        private static readonly ObserverFailureState EmptyFactObserverFailures =
+            ObserverFailureState.CreateEmpty(
+                "Multiple Fact observers failed after the reduction committed."
+            );
+
         private readonly List<FactObserverRegistration> factObservers =
             new List<FactObserverRegistration>();
 
@@ -224,7 +239,7 @@ namespace Game.Rules.Runtime
                 observerPlan = factObservers.ToArray();
             }
 
-            FactObserverFailureState failures = FactObserverFailureState.Empty;
+            ObserverFailureState failures = EmptyFactObserverFailures;
             foreach (RuleFact fact in committedFacts)
             {
                 foreach (FactObserverRegistration observer in observerPlan)

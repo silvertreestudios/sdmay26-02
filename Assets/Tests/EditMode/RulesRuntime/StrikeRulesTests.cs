@@ -139,6 +139,21 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void ResolveStrikeRejectsExternalDispatchBeforeRolling()
+        {
+            TestRuntime runtime = CreateRuntime(new ScriptedRollService(20, 4));
+
+            InvalidOperationException failure = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await runtime.Dispatcher.Dispatch(new ResolveStrikeOp(Actor, Weapon, Target))
+            );
+
+            Assert.That(failure.Message, Does.Contain("nested-only"));
+            Assert.That(runtime.Rolls.Remaining, Is.EqualTo(2));
+            Assert.That(runtime.Dispatcher.Snapshot.Health[Target].Current, Is.EqualTo(20));
+        }
+
+        [Test]
         public async Task InvalidArmorClassSpendsNothingAndDoesNotPartiallyResolveStrike()
         {
             StrikeItemDefinition ranged = CreateItem(

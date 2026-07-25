@@ -15,16 +15,22 @@ using Object = UnityEngine.Object;
 public sealed class RulesStrikeUnityTests
 {
     private readonly List<GameObject> created = new();
+    private int damageEventCount;
+    private int missEventCount;
 
     [TearDown]
     public void TearDown()
     {
+        OnDamageDealt.RemoveListener(CountDamage);
+        OnAttackMiss.RemoveListener(CountMiss);
         foreach (GameObject gameObject in created)
         {
             if (gameObject != null)
                 Object.DestroyImmediate(gameObject);
         }
         created.Clear();
+        damageEventCount = 0;
+        missEventCount = 0;
         Pf2eItemCatalog.ResetForTests();
     }
 
@@ -163,6 +169,8 @@ public sealed class RulesStrikeUnityTests
         Occupy(tiles, archer.gameObject);
         Occupy(tiles, target.gameObject);
         TestCombatLog log = InstallCombatLog();
+        OnDamageDealt.AddListener(CountDamage);
+        OnAttackMiss.AddListener(CountMiss);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { archerController, targetController },
             tiles,
@@ -176,10 +184,7 @@ public sealed class RulesStrikeUnityTests
             .OfType<RulesStrikeAction>()
             .Single(candidate => candidate.ActionName == "Sling");
 
-        ResolvedOpResult<StrikeOutcome> strike = RequireResolved(
-            bridge.Dispatch(new StrikeActionOp(actor, action.Item.Item, targetId))
-        );
-        action.PresentResolvedOutcome(archer.gameObject, target.gameObject, strike.Value);
+        RequireResolved(bridge.Dispatch(new StrikeActionOp(actor, action.Item.Item, targetId)));
 
         Assert.That(archerController.ActionPoints, Is.EqualTo(2));
         Assert.That(archer.GetAmmoQuantity("sling-bullets"), Is.EqualTo(1));
@@ -187,6 +192,8 @@ public sealed class RulesStrikeUnityTests
         Assert.That(archerController.StrikePenalty, Is.EqualTo(1));
         Assert.That(target.hp, Is.EqualTo(16));
         Assert.That(log.Messages.Any(message => message.Contains("vs AC 10")), Is.True);
+        Assert.That(damageEventCount, Is.EqualTo(1));
+        Assert.That(missEventCount, Is.Zero);
 
         ResolvedOpResult<ReloadOutcome> reload = RequireResolved(
             bridge.Dispatch(new ReloadActionOp(actor, action.Item.Item))
@@ -194,6 +201,47 @@ public sealed class RulesStrikeUnityTests
         Assert.That(reload.Value.IsLoaded, Is.True);
         Assert.That(archerController.ActionPoints, Is.EqualTo(1));
         Assert.That(archer.IsWeaponLoaded(sling), Is.True);
+    }
+
+    [Test]
+    public void ValidMissDispatchPublishesMissWithoutDamageAndEmitsStructuredAttackLog()
+    {
+        CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
+        CreatureComponent target = CreateCreature("Target", "enemies", 20, 30);
+        TestActionController attackerController =
+            attacker.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        Place(attacker.gameObject, 0);
+        Place(target.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, attacker.gameObject);
+        Occupy(tiles, target.gameObject);
+        TestCombatLog log = InstallCombatLog();
+        OnDamageDealt.AddListener(CountDamage);
+        OnAttackMiss.AddListener(CountMiss);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { attackerController, targetController },
+            tiles,
+            new ScriptedRollService(2)
+        );
+        CreatureId actor = bridge.GetCreatureId(attacker);
+        CreatureId targetId = bridge.GetCreatureId(target);
+        bridge.BeginTurn(actor, 3);
+        RulesStrikeAction action = attackerController
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(candidate => candidate.ActionName == "Unarmed Strike");
+
+        ResolvedOpResult<StrikeOutcome> result = RequireResolved(
+            bridge.Dispatch(new StrikeActionOp(actor, action.Item.Item, targetId))
+        );
+
+        Assert.That(result.Value.Resolution.Hit, Is.False);
+        Assert.That(missEventCount, Is.EqualTo(1));
+        Assert.That(damageEventCount, Is.Zero);
+        Assert.That(log.Entries, Has.Count.EqualTo(1));
+        Assert.That(log.Entries[0].Kind, Is.EqualTo(CombatLogEntryKind.Attack));
     }
 
     [Test]
@@ -219,6 +267,9 @@ public sealed class RulesStrikeUnityTests
             target.gameObject.AddComponent<TestActionController>();
         Place(archer.gameObject, 0);
         Place(target.gameObject, 1);
+        TestCombatLog log = InstallCombatLog();
+        OnDamageDealt.AddListener(CountDamage);
+        OnAttackMiss.AddListener(CountMiss);
         Tile[,] tiles = CreateTiles(2);
         Occupy(tiles, archer.gameObject);
         Occupy(tiles, target.gameObject);
@@ -249,7 +300,14 @@ public sealed class RulesStrikeUnityTests
         Assert.That(archerController.StrikePenalty, Is.Zero);
         Assert.That(rolls.Remaining, Is.EqualTo(1));
         Assert.That(result.Facts, Is.Empty);
+        Assert.That(log.Messages, Is.Empty);
+        Assert.That(damageEventCount, Is.Zero);
+        Assert.That(missEventCount, Is.Zero);
     }
+
+    private void CountDamage(string damageType) => damageEventCount++;
+
+    private void CountMiss(GameObject attacker) => missEventCount++;
 
     private CreatureComponent Load(string path)
     {
@@ -316,6 +374,7 @@ public sealed class RulesStrikeUnityTests
     private sealed class TestCombatLog : CombatLogInterface
     {
         public readonly List<string> Messages = new();
+        public readonly List<CombatLogEntry> Entries = new();
 
         public override void DevMode() { }
 
@@ -336,6 +395,12 @@ public sealed class RulesStrikeUnityTests
         public override void Log(string msg, string tag) => Messages.Add(msg);
 
         public override void Log(string msg, List<string> tags) => Messages.Add(msg);
+
+        public override void LogEntry(CombatLogEntry entry)
+        {
+            Entries.Add(entry);
+            base.LogEntry(entry);
+        }
 
         public override List<string> GetMessages() => new(Messages);
     }

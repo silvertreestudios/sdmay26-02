@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using Game.Creature;
-using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Strike;
@@ -17,7 +16,6 @@ namespace Game.Strikes
     /// </summary>
     public sealed class RulesStrikeAction : MultiFrameEntityAction
     {
-        private readonly StrikeActionDefinition definition = new();
         private readonly StrikeItemDefinition item;
         private readonly UnityStrikeContext strikeContext;
 
@@ -104,39 +102,15 @@ namespace Game.Strikes
                 {
                     CreatureId target = bridge.GetCreatureId(targetCreature);
                     StrikeActionOp operation = new StrikeActionOp(actor, item.Item, target);
-                    ActionValidationResult preflight = definition.Validate(
-                        bridge.Snapshot,
-                        operation,
-                        strikeContext,
-                        strikeContext,
-                        strikeContext
-                    );
-                    if (
-                        preflight
-                        is ActionValidationResult.InvalidActionValidationResult invalidPreflight
-                    )
-                    {
-                        Debug.LogWarning(
-                            $"Strike was rejected: {invalidPreflight.Reason}",
-                            attacker
-                        );
-                        yield break;
-                    }
-
-                    PresentAttack(attacker, selection.Value.Target);
                     OpResult<StrikeOutcome> result = bridge.Dispatch(operation);
-                    if (result is ResolvedOpResult<StrikeOutcome> resolved)
-                    {
-                        PresentResolvedOutcome(attacker, selection.Value.Target, resolved.Value);
-                    }
-                    else if (result is InvalidOpResult<StrikeOutcome> invalid)
-                    {
+                    if (result is InvalidOpResult<StrikeOutcome> invalid)
                         Debug.LogWarning($"Strike was rejected: {invalid.Reason}", attacker);
-                    }
-                    else
-                    {
-                        Debug.LogWarning("Strike did not complete.", attacker);
-                    }
+                    else if (result is InterruptedOpResult<StrikeOutcome>)
+                        Debug.LogWarning("Strike was interrupted.", attacker);
+                    else if (result is CancelledOpResult<StrikeOutcome>)
+                        Debug.LogWarning("Strike was cancelled.", attacker);
+                    else if (result is not ResolvedOpResult<StrikeOutcome>)
+                        Debug.LogWarning("Strike returned an unknown structural result.", attacker);
                 }
                 catch (Exception exception)
                 {
@@ -150,116 +124,6 @@ namespace Game.Strikes
                 OnActionComplete.Invoke();
             }
         }
-
-        private void PresentAttack(GameObject attacker, GameObject target)
-        {
-            CombatLog
-                .GetInstance()
-                .Log($"- {attacker.name} strikes {target.name} with {item.Label}.");
-            CreaturePresentation presentation = attacker.GetComponent<CreaturePresentation>();
-            if (strikeContext.TryGetWeapon(item.Item, out EquipmentWeapon weapon))
-                presentation?.PlayAttack(weapon, target.transform.position);
-            else
-                presentation?.PlayAttack(AnimationStyle.Unarmed, target.transform.position);
-        }
-
-        /// <summary>
-        /// Projects a committed Strike outcome into combat events and structured logging.
-        /// </summary>
-        /// <param name="attacker">The Unity attacker presentation root.</param>
-        /// <param name="target">The Unity target presentation root.</param>
-        /// <param name="outcome">The already committed rules-owned outcome.</param>
-        public void PresentResolvedOutcome(
-            GameObject attacker,
-            GameObject target,
-            StrikeOutcome outcome
-        )
-        {
-            StrikeResolution resolution = outcome.Resolution;
-            if (resolution.Hit)
-            {
-                string damageType =
-                    resolution.Damage.Count == 0 ? "untyped" : resolution.Damage[0].DamageType;
-                OnDamageDealt.Invoke(damageType);
-            }
-            else
-            {
-                OnAttackMiss.Invoke(attacker);
-            }
-
-            CombatLogEntry entry = new CombatLogEntry
-            {
-                Kind = CombatLogEntryKind.Attack,
-                Outcome = ToCombatLogOutcome(resolution.Degree),
-                Actor = attacker.name,
-                Target = target.name,
-                Action = item.Label,
-                Roll = new CombatLogRoll
-                {
-                    NaturalRoll = resolution.AttackRoll.Values[0],
-                    TotalModifier = resolution.AttackModifier,
-                    Total = resolution.AttackRoll.Total + resolution.AttackModifier,
-                    DifficultyClass = resolution.ArmorClass,
-                },
-                Damage = BuildDamage(resolution),
-            };
-            entry.Tags.Add("attack");
-            entry.Details.Add(
-                new CombatLogDetail(
-                    "D20 Roll",
-                    $"{entry.Roll.Total} ({entry.Roll.NaturalRoll} + {entry.Roll.TotalModifier})"
-                )
-            );
-            entry.Details.Add(new CombatLogDetail("Target AC", resolution.ArmorClass.ToString()));
-            entry.Details.Add(
-                new CombatLogDetail(
-                    "MAP",
-                    resolution.MultipleAttackPenalty == 0
-                        ? "none"
-                        : resolution.MultipleAttackPenalty.ToString()
-                )
-            );
-            entry.Details.Add(
-                new CombatLogDetail(
-                    "Range Penalty",
-                    resolution.RangePenalty == 0 ? "none" : resolution.RangePenalty.ToString()
-                )
-            );
-            entry.Details.Add(
-                new CombatLogDetail(
-                    "Cover",
-                    resolution.CoverBonus == 0 ? "none" : $"+{resolution.CoverBonus} AC"
-                )
-            );
-            entry.Details.Add(new CombatLogDetail("Result", resolution.Degree.ToString()));
-            entry.Details.Add(
-                new CombatLogDetail("Total Damage", $"{resolution.FinalDamage} damage")
-            );
-            CombatLog.GetInstance().LogEntry(entry);
-        }
-
-        private static CombatLogDamage BuildDamage(StrikeResolution resolution)
-        {
-            CombatLogDamage damage = new CombatLogDamage { Total = resolution.FinalDamage };
-            foreach (StrikeDamagePart part in resolution.Damage)
-                damage.Parts.Add(
-                    new CombatLogDamagePart(part.DamageType.ToLowerInvariant(), part.Amount)
-                );
-            return damage;
-        }
-
-        private static CombatLogOutcome ToCombatLogOutcome(
-            Game.Rules.Runtime.DegreeOfSuccess degree
-        ) =>
-            degree switch
-            {
-                Game.Rules.Runtime.DegreeOfSuccess.CriticalSuccess =>
-                    CombatLogOutcome.CriticalSuccess,
-                Game.Rules.Runtime.DegreeOfSuccess.Success => CombatLogOutcome.Success,
-                Game.Rules.Runtime.DegreeOfSuccess.CriticalFailure =>
-                    CombatLogOutcome.CriticalFailure,
-                _ => CombatLogOutcome.Failure,
-            };
     }
 
     /// <summary>Presents feature-owned Reload through the generic rules dispatch boundary.</summary>
