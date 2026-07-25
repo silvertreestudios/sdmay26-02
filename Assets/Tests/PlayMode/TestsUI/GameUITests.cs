@@ -478,7 +478,7 @@ namespace TestsUI
             ActionController actionController = player.GetComponent<ActionController>();
             Assert.IsNotNull(actionController, "Current player has no ActionController.");
 
-            actionController.ActionPoints = 0;
+            actionController.SpendActions(actionController.ActionPoints);
             yield return null;
 
             Assert.AreEqual(
@@ -512,7 +512,8 @@ namespace TestsUI
                 "End Turn should remain available when no action is running."
             );
 
-            actionController.ActionPoints = 1;
+            actionController.StartTurn();
+            actionController.SpendActions(2);
             yield return null;
 
             Assert.IsTrue(

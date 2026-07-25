@@ -84,6 +84,31 @@ namespace TestsState
         }
 
         [UnityTest]
+        public IEnumerator AiEndsTurnWhenSelectedActionMakesNoRulesProgress()
+        {
+            yield return base.Setup();
+            yield return null;
+
+            GameObject enemy = new GameObject("no-progress-ai-test-enemy");
+            enemy.SetActive(false);
+            enemy.AddComponent<CreatureComponent>();
+            NoProgressMindlessController controller =
+                enemy.AddComponent<NoProgressMindlessController>();
+            enemy.SetActive(true);
+
+            controller.StartTurn();
+            yield return WaitUntilWithTimeout(timeout, () => controller.EndedTurn);
+
+            Assert.That(controller.EndedTurn, Is.True, "The AI turn did not terminate.");
+            Assert.That(controller.DecisionCount, Is.EqualTo(1));
+            Assert.That(
+                controller.ActionPoints,
+                Is.EqualTo(3),
+                "The rejected action should not manufacture or spend rules actions."
+            );
+        }
+
+        [UnityTest]
         public IEnumerator EnemyExecutesLegalRangedStrikeConsumesAmmoAndDamagesTarget()
         {
             // PF2e source for Strike as a one-action ranged attack: https://2e.aonprd.com/Rules.aspx?ID=2343
@@ -451,6 +476,40 @@ namespace TestsState
             combatant.transform.position = new Vector3(cell.x, cell.y, cell.z);
             if (!tiles[cell.x, cell.z].Occupants.Contains(combatant))
                 tiles[cell.x, cell.z].Occupants.Add(combatant);
+        }
+
+        private sealed class NoProgressMindlessController : MindlessController
+        {
+            private readonly EntityAction noProgressAction = new NoProgressAction();
+
+            public bool EndedTurn { get; private set; }
+
+            public int DecisionCount { get; private set; }
+
+            /// <inheritdoc/>
+            protected override EntityAction SelectNextAction()
+            {
+                DecisionCount++;
+                return noProgressAction;
+            }
+
+            /// <inheritdoc/>
+            public override void EndTurn() => EndedTurn = true;
+        }
+
+        private sealed class NoProgressAction : EntityAction
+        {
+            public NoProgressAction()
+                : base(1) { }
+
+            /// <inheritdoc/>
+            public override string ActionName => "Rejected test action";
+
+            /// <inheritdoc/>
+            public override void Invoke(GameObject target)
+            {
+                target.GetComponent<ActionController>().IsTakingAction = false;
+            }
         }
     }
 }

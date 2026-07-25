@@ -303,9 +303,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         int movementCalls = 0;
         int attackCalls = 0;
-        TestEntityAction movement = new("Stride", 1, () => movementCalls++);
+        TestEntityAction movement = new("Stride", 1, () => movementCalls++, true);
         TestEntityAction attack = new("Strike", 1, () => attackCalls++);
-        player.Controller.AddTestMovement(movement);
+        player.Controller.AddAction(movement);
         player.Controller.AddAction(attack);
         player.Controller.ActionPoints = 2;
         player.Controller.Reacted = true;
@@ -428,8 +428,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
     {
         public int StartTurnCount { get; private set; }
 
-        public void AddTestMovement(EntityAction movement) => Movements.Add(movement);
-
         public override void StartTurn()
         {
             StartTurnCount++;
@@ -450,15 +448,24 @@ public sealed class DungeonEncounterCombatPlayModeTests
     private sealed class TestEntityAction : EntityAction
     {
         private readonly Action invocation;
+        private readonly bool isExplorationAction;
 
-        public TestEntityAction(string name, uint cost, Action invocation)
+        public TestEntityAction(
+            string name,
+            uint cost,
+            Action invocation,
+            bool isExplorationAction = false
+        )
             : base(cost)
         {
             ActionName = name;
             this.invocation = invocation;
+            this.isExplorationAction = isExplorationAction;
         }
 
         public override string ActionName { get; }
+
+        public override bool IsExplorationAction => isExplorationAction;
 
         /// <inheritdoc/>
         public override void Invoke(GameObject target)
@@ -501,8 +508,13 @@ public sealed class DungeonEncounterCombatPlayModeTests
     {
         public List<GameObject> DestroyedTokens { get; } = new();
 
-        public override IEnumerator Stride(GameObject character)
+        public override IEnumerator SelectStridePath(
+            GameObject character,
+            StridePathSelectionRequest request,
+            CoroutineResult<SelectionOutcome<MovementPath>> selection
+        )
         {
+            selection.Value = SelectionOutcome<MovementPath>.Cancelled;
             yield break;
         }
 

@@ -40,7 +40,7 @@ public class HUDController
     private ActionController currentTurnAC;
     private bool isDungeonExploration;
     private Func<ActionController, bool> trySelectExplorationLeader = _ => false;
-    private Dictionary<Button, uint> buttonCostMap = new();
+    private Dictionary<Button, EntityAction> buttonActionMap = new();
     private Button selectedActionButton;
     private Color selectedButtonBaseColor;
     private const float GlowSpeed = 3f;
@@ -436,8 +436,7 @@ public class HUDController
             foreach (EntityAction a in actions)
                 log += "[" + a.ActionName + "] ";
             Debug.Log(log);
-            BuildActionButtons(turnTaker, actions);
-            BuildMovementButtons(turnTaker, ac.GetMovements(), true);
+            BuildActionButtons(turnTaker, actions, true);
         }
 
         // Slide back in for player turns only
@@ -632,7 +631,7 @@ public class HUDController
     private void ClearAllRows()
     {
         selectedActionButton = null;
-        buttonCostMap.Clear();
+        buttonActionMap.Clear();
         if (buttonGrid == null)
             return;
         buttonGrid.Query<VisualElement>(className: "btn-row").ForEach(r => r.RemoveFromHierarchy());
@@ -708,14 +707,12 @@ public class HUDController
     {
         bool actionRunning = isActionRunning();
 
-        foreach (var (btn, cost) in buttonCostMap)
+        foreach (var (btn, action) in buttonActionMap)
         {
             btn.style.display = DisplayStyle.Flex;
             SetHudButtonEnabled(
                 btn,
-                currentTurnAC != null
-                    && !actionRunning
-                    && (isDungeonExploration || cost <= currentTurnAC.ActionPoints)
+                currentTurnAC != null && !actionRunning && currentTurnAC.CanTakeAction(action)
             );
         }
 
@@ -741,38 +738,26 @@ public class HUDController
             btn.style.backgroundColor = StyleKeyword.Null;
     }
 
-    private void BuildActionButtons(GameObject turnTaker, List<EntityAction> actions)
+    private void BuildActionButtons(
+        GameObject turnTaker,
+        List<EntityAction> actions,
+        bool includeEndTurn
+    )
     {
         ClearAllRows();
         foreach (EntityAction action in actions)
         {
             EntityAction captured = action;
-            Button btn = AddButtonToGrid(captured.ActionName, "btn-action");
-            buttonCostMap[btn] = captured.ActionCost;
+            bool isMovement = captured.Presentation == EntityActionPresentation.Movement;
+            Button btn = AddButtonToGrid(
+                captured.ActionName,
+                isMovement ? "btn-movement" : "btn-action"
+            );
+            buttonActionMap[btn] = captured;
             btn.clicked += () =>
             {
                 UniversalEvents.OnCancel.Invoke();
-                SetSelectedButton(btn, ActionButtonColor);
-                turnTaker.GetComponent<ActionController>().TakeAction(captured);
-            };
-        }
-    }
-
-    private void BuildMovementButtons(
-        GameObject turnTaker,
-        List<EntityAction> movements,
-        bool includeEndTurn
-    )
-    {
-        foreach (EntityAction movement in movements)
-        {
-            EntityAction captured = movement;
-            Button btn = AddButtonToGrid(captured.ActionName, "btn-movement");
-            buttonCostMap[btn] = captured.ActionCost;
-            btn.clicked += () =>
-            {
-                UniversalEvents.OnCancel.Invoke();
-                SetSelectedButton(btn, MovementButtonColor);
+                SetSelectedButton(btn, isMovement ? MovementButtonColor : ActionButtonColor);
                 turnTaker.GetComponent<ActionController>().TakeAction(captured);
             };
         }
@@ -916,7 +901,7 @@ public class HUDController
     {
         yield return StartCoroutine(Slide(false));
         ClearAllRows();
-        BuildMovementButtons(selected.gameObject, selected.GetMovements(), false);
+        BuildActionButtons(selected.gameObject, selected.GetExplorationActions(), false);
         yield return StartCoroutine(Slide(true));
         slideCoroutine = null;
     }

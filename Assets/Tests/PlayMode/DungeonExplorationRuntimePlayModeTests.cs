@@ -2,6 +2,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
@@ -339,6 +341,70 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
+    /// Verifies the real rules-backed action commits the boundary step, abandons the obsolete
+    /// exploration root, and preserves the newly granted combat actions.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator RulesBackedExplorationStrideHandsBoundaryCellToCombatAuthority()
+    {
+        DungeonRoom room = new(1, 4, 2, 7, 4);
+        DungeonEncounterPlan plan = new(
+            "rules-stride-boundary",
+            room.Id,
+            DungeonEncounterThreat.Trivial,
+            40,
+            new[] { new DungeonCell(7, 3) },
+            new[] { "goblin-warrior" }
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[]
+            {
+                new Vector3Int(4, 0, 1),
+                new Vector3Int(3, 0, 1),
+                new Vector3Int(2, 0, 1),
+                new Vector3Int(1, 0, 1),
+            },
+            width: 10,
+            height: 10,
+            rooms: new[] { room },
+            encounterPlans: new[] { plan },
+            configurePartyBeforeInitialization: party =>
+                party[0].GetComponent<CreatureComponent>().initiative = 1000
+        );
+        Track(new GameObject("Rules Stride Test Coroutine Runner")).AddComponent<CoroutineRunner>();
+        TestActionController leader = fixture.Party[0].Controller;
+        RulesStrideAction stride = new RulesStrideAction();
+        leader.AddAction(stride);
+        Vector3Int from = Vector3Int.RoundToInt(leader.transform.position);
+        Vector3Int destination = new Vector3Int(4, 0, 2);
+
+        leader.TakeAction(
+            stride,
+            new FixedMovementPathResolver(
+                new MovementPath(
+                    new GridPosition(from.x, from.y, from.z),
+                    new[] { new GridPosition(destination.x, destination.y, destination.z) }
+                )
+            )
+        );
+        int remainingFrames = 120;
+        while (leader.IsTakingAction && remainingFrames-- > 0)
+            yield return null;
+
+        Assert.That(leader.IsTakingAction, Is.False, "The boundary Stride did not finish.");
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(manager.WhosTurn(), Is.SameAs(leader.gameObject));
+        Assert.That(leader.ActionPoints, Is.EqualTo(3u));
+        AssertPartyCells(
+            fixture,
+            new DungeonCell(4, 2),
+            new DungeonCell(3, 1),
+            new DungeonCell(2, 1),
+            new DungeonCell(1, 1)
+        );
+    }
+
+    /// <summary>
     /// Verifies adjacent exploration doors open for free, immediately update topology and visuals,
     /// capture in ordinal order, and publish exactly one event per committed door.
     /// </summary>
@@ -452,67 +518,6 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(fixture.Runtime.TryOpenDoor(deadActorDoor.Cell), Is.False);
         Assert.That(fixture.Doors[deadActorDoor.Cell].Controller.IsOpen, Is.False);
         yield break;
-    }
-
-    /// <summary>
-    /// Verifies a Stride that began in exploration remains free when its grid coroutine starts
-    /// combat, clears exploration authority, and returns under normal initiative authority.
-    /// </summary>
-    [UnityTest]
-    public IEnumerator ExplorationStrideThatStartsCombatBeforeReturningStillCostsZeroActions()
-    {
-        Combatant player = CreateCombatant(
-            "Stride Boundary Player",
-            "Players",
-            Vector3Int.zero,
-            initiative: 1000,
-            addToken: false
-        );
-        Combatant enemy = CreateCombatant(
-            "Stride Boundary Enemy",
-            "Enemies",
-            new Vector3Int(1, 0, 0),
-            initiative: 0,
-            addToken: false
-        );
-        CombatStartingGrid grid = Track(new GameObject("Combat Starting Grid"))
-            .AddComponent<CombatStartingGrid>();
-        grid.Configure(manager, new[] { player.Controller, enemy.Controller });
-        Track(new GameObject("Exploration Test Coroutine Runner")).AddComponent<CoroutineRunner>();
-        Stride stride = new(1);
-        player.Controller.AddTestMovement(stride);
-        player.Controller.SetDungeonExploration(true);
-        Action<bool> clearExploration = active =>
-        {
-            if (active)
-                player.Controller.SetDungeonExploration(false);
-        };
-        manager.CombatActivityChanged += clearExploration;
-
-        try
-        {
-            player.Controller.TakeAction(stride);
-            int remainingFrames = 30;
-            while (player.Controller.IsTakingAction && remainingFrames-- > 0)
-                yield return null;
-
-            Assert.That(player.Controller.IsTakingAction, Is.False);
-            Assert.That(grid.StrideCallCount, Is.EqualTo(1));
-            Assert.That(manager.IsCombatActive, Is.True);
-            Assert.That(manager.WhosTurn(), Is.SameAs(player.GameObject));
-            Assert.That(player.Controller.IsInDungeonExploration, Is.False);
-            Assert.That(
-                player.Controller.ActionPoints,
-                Is.EqualTo(3u),
-                "Combat granted three actions; the exploration-origin Stride must not subtract one."
-            );
-            Assert.That(enemy.Controller.StartTurnCount, Is.Zero);
-        }
-        finally
-        {
-            manager.CombatActivityChanged -= clearExploration;
-            OnActionCancel.RemoveAllListeners();
-        }
     }
 
     private RuntimeFixture CreateRuntimeFixture(
@@ -676,8 +681,9 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         leader.Controller.IsTakingAction = true;
         Ref<bool> continuePath = new(true);
         RunToCompletion(
-            coordinator.ExecuteStep(
+            coordinator.ProjectCommittedStep(
                 leader.GameObject,
+                Vector3Int.RoundToInt(leader.GameObject.transform.position),
                 destination,
                 fixture.Grid.GetTiles(),
                 movement,
@@ -1041,8 +1047,6 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             StrikePenalty = strikePenalty;
         }
 
-        internal void AddTestMovement(EntityAction action) => Movements.Add(action);
-
         /// <inheritdoc/>
         public override void StartTurn()
         {
@@ -1057,6 +1061,40 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                 return;
             ResetEncounterTurnState();
             CombatManagerInterface.GetInstance().NextTurn();
+        }
+    }
+
+    private sealed class FixedMovementPathResolver : ISelectionResolver
+    {
+        private readonly MovementPath path;
+
+        internal FixedMovementPathResolver(MovementPath path) => this.path = path;
+
+        public ValueTask<SelectionOutcome<TSelection>> Select<TSelection>(
+            ActionSelectionRequest<TSelection> request,
+            CancellationToken cancellationToken
+        )
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return new ValueTask<SelectionOutcome<TSelection>>(
+                    SelectionOutcome<TSelection>.Cancelled
+                );
+            if (
+                request is not StridePathSelectionRequest
+                || typeof(TSelection) != typeof(MovementPath)
+            )
+            {
+                return new ValueTask<SelectionOutcome<TSelection>>(
+                    SelectionOutcome<TSelection>.Invalid("Expected a Stride path request.")
+                );
+            }
+
+            SelectionOutcome<MovementPath> completed = SelectionOutcome<MovementPath>.Completed(
+                path
+            );
+            return new ValueTask<SelectionOutcome<TSelection>>(
+                (SelectionOutcome<TSelection>)(object)completed
+            );
         }
     }
 
@@ -1087,51 +1125,6 @@ public sealed class DungeonExplorationRuntimePlayModeTests
 
         /// <inheritdoc/>
         public void HideExploration() { }
-    }
-
-    private sealed class CombatStartingGrid : GridAPI
-    {
-        private CombatManager manager;
-        private IReadOnlyList<ActionController> participants = Array.Empty<ActionController>();
-
-        internal int StrideCallCount { get; private set; }
-
-        internal void Configure(CombatManager manager, IReadOnlyList<ActionController> participants)
-        {
-            this.manager = manager;
-            this.participants = participants;
-        }
-
-        /// <inheritdoc/>
-        public override IEnumerator Stride(GameObject character)
-        {
-            StrideCallCount++;
-            manager.StartDungeonCombat(participants);
-            yield break;
-        }
-
-        /// <inheritdoc/>
-        public override IEnumerator GetStrikeTarget(
-            GameObject attacker,
-            StrikeTargetRequest request,
-            CoroutineResult<StrikeTargetResult> target
-        )
-        {
-            yield break;
-        }
-
-        /// <inheritdoc/>
-        public override IEnumerator GetAreaTarget(
-            AreaTargetSource source,
-            AreaTargetRequest request,
-            CoroutineResult<AreaTargetResult> target
-        )
-        {
-            yield break;
-        }
-
-        /// <inheritdoc/>
-        public override bool DestroyToken(GameObject token) => false;
     }
 
     private sealed class RuntimeTestCombatLog : CombatLogInterface

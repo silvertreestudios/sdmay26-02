@@ -1,4 +1,5 @@
 using System.Collections;
+using Game.Rules.Runtime;
 using UnityEngine;
 
 // Public specifications
@@ -6,12 +7,16 @@ namespace GridPublic
 {
     public abstract class GridAPI : SingletonMonoBehaviour<GridAPI>
     {
-        /// <summary>
-        /// The given character performs a stride action
-        /// </summary>
-        /// <param name="character"></param>
-        /// <returns></returns>
-        public abstract IEnumerator Stride(GameObject character);
+        /// <summary>Collects a complete Stride path without applying movement or rules.</summary>
+        /// <param name="character">The token selecting a path.</param>
+        /// <param name="request">The immutable rules preview constraints.</param>
+        /// <param name="selection">The completed, cancelled, or invalid selection result.</param>
+        /// <returns>A coroutine that finishes when path selection leaves the grid FSM.</returns>
+        public abstract IEnumerator SelectStridePath(
+            GameObject character,
+            StridePathSelectionRequest request,
+            CoroutineResult<SelectionOutcome<MovementPath>> selection
+        );
 
         /// <summary>
         /// The given character selects a target for a Strike-style action.

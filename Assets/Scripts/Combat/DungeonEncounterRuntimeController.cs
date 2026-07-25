@@ -652,13 +652,22 @@ namespace Game.Combat.Encounters
         bool IExplorationStrideCoordinator.Handles(GameObject character) =>
             IsInitialized && explorationMovement.Handles(character);
 
-        IEnumerator IExplorationStrideCoordinator.ExecuteStep(
+        IEnumerator IExplorationStrideCoordinator.ProjectCommittedStep(
             GameObject leader,
+            Vector3Int from,
             Vector3Int destination,
             Tile[,] tiles,
             TokenMovement movement,
             Ref<bool> continuePath
-        ) => explorationMovement.ExecuteStep(leader, destination, tiles, movement, continuePath);
+        ) =>
+            explorationMovement.ProjectCommittedStep(
+                leader,
+                from,
+                destination,
+                tiles,
+                movement,
+                continuePath
+            );
 
         private bool ProcessImmediateExplorationBoundary()
         {

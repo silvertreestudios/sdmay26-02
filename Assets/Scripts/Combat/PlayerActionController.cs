@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Game.Creature;
+using Game.Strikes;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -9,8 +10,7 @@ public class PlayerActionController : ActionController
     {
         CombatManagerInterface.GetInstance().AddCombatant(this);
 
-        Stride strideAction = new Stride(1); // Cost of 1 action point
-        Movements.Add(strideAction);
+        AddAction(new RulesStrideAction());
     }
 
     /// <summary>
@@ -53,10 +53,10 @@ public class PlayerActionController : ActionController
             return;
         }
 
-        if (Movements.Count > 0)
+        EntityAction stride = Actions.Find(action => action is RulesStrideAction);
+        if (stride != null)
         {
-            //Debug.Log("Invoking Stride action...");
-            TakeAction(Movements[0]);
+            TakeAction(stride);
         }
         else
         {
@@ -71,10 +71,11 @@ public class PlayerActionController : ActionController
     [ContextMenu("Test Strike")]
     public void TestStrike()
     {
-        if (Actions.Count > 0)
+        EntityAction strike = Actions.Find(action => action is Unarmed || action is StrikeWeapon);
+        if (strike != null)
         {
             //Debug.Log("Invoking Strike action...");
-            TakeAction(Actions[0]);
+            TakeAction(strike);
         }
     }
 }
