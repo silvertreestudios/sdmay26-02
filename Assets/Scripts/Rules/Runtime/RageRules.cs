@@ -168,10 +168,11 @@ namespace Game.Rules.Runtime
             Trait.FromSlug("emotion"),
             Trait.FromSlug("mental"),
         };
+        private static readonly Trait[] QuickTemperedTraits = { Trait.FromSlug("barbarian") };
         private static readonly ActionProfile RageProfile = ActionProfile.OneAction(RageTraits);
         private static readonly ActionProfile QuickTemperedProfile = ActionProfile.Create(
             ActionCost.FreeAction,
-            RageTraits
+            QuickTemperedTraits
         );
         private readonly IRageActorStateProvider actorStateProvider;
 

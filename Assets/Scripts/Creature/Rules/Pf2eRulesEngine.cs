@@ -81,7 +81,7 @@ namespace Game.Creature.Rules
                     )
                 )
                 {
-                    bridge.DispatchQuickTemperedRage(rulesCreature);
+                    bridge.ResolveInitiativeRollRage(rulesCreature);
                 }
             }
         }

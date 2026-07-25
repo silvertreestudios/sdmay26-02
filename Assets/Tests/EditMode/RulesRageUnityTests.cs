@@ -41,7 +41,7 @@ public sealed class RulesRageUnityTests
     }
 
     [Test]
-    public void BridgeOwnsQuickTemperedRageCleanupAndLaterRageCost()
+    public void BridgeOwnsQuickTemperedRageCleanupOneShotAndLaterRageCost()
     {
         CreatureComponent creature = CreateBarbarian();
         creature.gameObject.AddComponent<Conditions>();
@@ -54,7 +54,7 @@ public sealed class RulesRageUnityTests
         CreatureId actor = bridge.GetCreatureId(creature);
         bridge.BeginTurn(actor, 3);
 
-        OpResult<RageStartOutcome> quickTempered = bridge.DispatchQuickTemperedRage(actor);
+        OpResult<RageStartOutcome> quickTempered = bridge.ResolveInitiativeRollRage(actor);
 
         Assert.That(quickTempered, Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
         Assert.That(bridge.IsRaging(actor), Is.True);
@@ -67,13 +67,53 @@ public sealed class RulesRageUnityTests
         );
 
         RageEndOutcome ended = bridge.EndRage(actor);
+        OpResult<RageStartOutcome> repeatedTrigger = bridge.ResolveInitiativeRollRage(actor);
         OpResult<RageStartOutcome> ordinary = bridge.DispatchRage(actor);
 
         Assert.That(ended.Ended, Is.True);
+        Assert.That(repeatedTrigger, Is.TypeOf<InvalidOpResult<RageStartOutcome>>());
         Assert.That(ordinary, Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
         Assert.That(controller.ActionPoints, Is.EqualTo(2));
         Assert.That(creature.tempHp, Is.Zero);
         Assert.That(creature.HasTempHpImmunity("rage"), Is.True);
+    }
+
+    [Test]
+    public void NewEncounterClearsRageTemporaryHitPointImmunity()
+    {
+        CreatureComponent creature = CreateBarbarian();
+        creature.gameObject.AddComponent<Conditions>();
+        RageTestActionController controller =
+            creature.gameObject.AddComponent<RageTestActionController>();
+        UnityCombatRulesBridge firstEncounter = UnityCombatRulesBridge.Create(
+            new[] { controller },
+            CreateTiles()
+        );
+        CreatureId firstActor = firstEncounter.GetCreatureId(creature);
+        firstEncounter.BeginTurn(firstActor, 3);
+        Assert.That(
+            firstEncounter.DispatchRage(firstActor),
+            Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+        );
+        firstEncounter.EndRage(firstActor);
+        Assert.That(creature.HasTempHpImmunity("rage"), Is.True);
+
+        controller.ResetEncounterTurnState();
+        UnityCombatRulesBridge nextEncounter = UnityCombatRulesBridge.Create(
+            new[] { controller },
+            CreateTiles()
+        );
+        CreatureId nextActor = nextEncounter.GetCreatureId(creature);
+        nextEncounter.BeginTurn(nextActor, 3);
+        OpResult<RageStartOutcome> restarted = nextEncounter.DispatchRage(nextActor);
+
+        Assert.That(restarted, Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
+        Assert.That(
+            ((ResolvedOpResult<RageStartOutcome>)restarted).Value.TemporaryHitPointsGranted,
+            Is.True
+        );
+        Assert.That(creature.tempHp, Is.EqualTo(creature.level + creature.conMod));
+        Assert.That(creature.HasTempHpImmunity("rage"), Is.False);
     }
 
     private CreatureComponent CreateBarbarian()

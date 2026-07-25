@@ -23,6 +23,7 @@ namespace Game.Rules.Unity
         private readonly Dictionary<CreatureComponent, CreatureId> creatureIds = new();
         private readonly Dictionary<CreatureId, CreatureComponent> creatures = new();
         private readonly Dictionary<ActionController, CreatureId> controllerIds = new();
+        private readonly HashSet<CreatureId> resolvedInitiativeRageTriggers = new();
         private readonly Dictionary<string, PlayerId> playerIds = new(
             StringComparer.OrdinalIgnoreCase
         );
@@ -318,12 +319,20 @@ namespace Game.Rules.Unity
             }
         }
 
-        /// <summary>Attempts the Quick-Tempered free-action Rage at combat start.</summary>
+        /// <summary>Resolves the one Quick-Tempered opportunity created by an initiative roll.</summary>
         /// <param name="creature">The registered creature whose initiative was rolled.</param>
         /// <returns>The structural action result and committed Rage Facts.</returns>
-        public OpResult<RageStartOutcome> DispatchQuickTemperedRage(CreatureId creature)
+        internal OpResult<RageStartOutcome> ResolveInitiativeRollRage(CreatureId creature)
         {
             RequireCombatComposition();
+            if (!creatures.ContainsKey(creature))
+                return OpResult<RageStartOutcome>.Invalid("The actor is not registered.");
+            if (!resolvedInitiativeRageTriggers.Add(creature))
+            {
+                return OpResult<RageStartOutcome>.Invalid(
+                    "The actor's initiative-roll Rage opportunity was already resolved."
+                );
+            }
             try
             {
                 return DispatchResultNow(rageDefinition.CreateQuickTemperedOp(creature));
@@ -510,12 +519,29 @@ namespace Game.Rules.Unity
             int speedFeet = Mathf.Max(0, Mathf.RoundToInt(creature.speed));
             CombatantRulesState state = new CombatantRulesState(
                 new CreatureState(creatureId, playerId),
-                creature.GetHealthInitializationState(),
+                CreateEncounterHealthSeed(creature.GetHealthInitializationState()),
                 new GridPosition(position.x, position.y, position.z),
                 new GridDistance(speedFeet)
             );
             return new CombatantRegistration(controller, creature, state);
         }
+
+        /// <summary>
+        /// Carries persistent Hit Point state into a replacement encounter without carrying
+        /// encounter-local temporary-HP immunities.
+        /// </summary>
+        /// <remarks>
+        /// The bridge is the lifetime boundary for one encounter. Until the rules runtime has a
+        /// cross-encounter duration clock, copying a Rage immunity here would make it permanent.
+        /// </remarks>
+        private static HealthState CreateEncounterHealthSeed(HealthState health) =>
+            new HealthState(
+                health.Current,
+                health.Maximum,
+                health.Temporary,
+                health.TemporarySource,
+                Array.Empty<RuleSource>()
+            );
 
         private PlayerId GetPlayerId(ActionController controller)
         {

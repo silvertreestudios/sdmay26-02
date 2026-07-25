@@ -12,6 +12,29 @@ namespace Game.Tests.EditMode.RulesRuntime
         private static readonly PlayerId Party = new PlayerId("party");
 
         [Test]
+        public void ActionProfilesKeepQuickTemperedTraitsDistinctFromRage()
+        {
+            RageActionDefinition definition = new RageActionDefinition(
+                new TestRageActorStateProvider(CreateActorState())
+            );
+
+            ActionProfile rage = definition.GetBaseProfile(RageActionDefinition.DefinitionId);
+            ActionProfile quickTempered = definition.GetBaseProfile(
+                RageActionDefinition.QuickTemperedDefinitionId
+            );
+
+            Assert.That(
+                rage.Traits.Select(trait => trait.Slug),
+                Is.EquivalentTo(new[] { "barbarian", "concentrate", "emotion", "mental" })
+            );
+            Assert.That(
+                quickTempered.Traits.Select(trait => trait.Slug),
+                Is.EqualTo(new[] { "barbarian" })
+            );
+            Assert.That(quickTempered.Cost, Is.EqualTo(ActionCost.FreeAction));
+        }
+
+        [Test]
         public async Task OrdinaryRageOwnsActionCostEffectAndTemporaryHitPoints()
         {
             TestRageActorStateProvider provider = new TestRageActorStateProvider(
