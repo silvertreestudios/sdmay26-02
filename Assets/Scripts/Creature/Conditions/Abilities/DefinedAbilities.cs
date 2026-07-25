@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Game.AbilityActions;
 using Game.Creature;
 using Game.Strikes;
 using Unity.VisualScripting;
@@ -60,17 +59,6 @@ public static class DefinedAbilities
         }
     );
 
-    private static Ability QuickTempered = new(
-        "Quick-Tempered",
-        (GameObject g) =>
-        {
-            // On combat start, IF conditions met, instantly use rage with no action point cost
-            Debug.Log("Applying Quick-Tempered to " + g.name);
-            Rage rageAction = new Rage(0);
-            rageAction.UseRage(g);
-        }
-    );
-
     private static Ability FuryInstinct = new(
         "Fury-Instinct",
         (GameObject g) =>
@@ -102,7 +90,6 @@ public static class DefinedAbilities
     private static Dictionary<string, Ability> Abilities = new()
     {
         { "Slow", Slow },
-        { "Quick-Tempered", QuickTempered },
         { "Fury-Instinct", FuryInstinct },
         { "Zombie-Fist", ZombieFist },
     };

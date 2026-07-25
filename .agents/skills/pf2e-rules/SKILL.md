@@ -18,9 +18,16 @@ Use this skill when changing Pathfinder 2e rules behavior or data in this reposi
 
 1. Locate the affected JSON under `Assets/Resources/DataFiles` and the loading/mapping code in `Assets/Scripts/Creature`.
 2. Locate the runtime calculation path in combat, creature, equipment, action, or condition code.
-3. Add deterministic tests for rules math before refactoring broad behavior.
-4. Cover PF2e-sensitive areas: degree of success, multiple attack penalty, action economy, damage dice, resistances/weaknesses, conditions, proficiency, and item bonuses.
-5. Keep UI labels and player-facing text short and source-safe.
+3. Identify the cohesive feature module that should own the rule-specific operations, validation,
+   handlers, listeners, selectors, state, and Unity adapter code. Follow the boundary in `AGENTS.md`
+   and `Docs/Ops_Based_Rules_Proposal.md`.
+4. Keep shared engines, bridges, managers, and facades feature-agnostic. Prefer publishing generic
+   timing Facts or dispatching generic Ops so the feature module can decide how its rule responds.
+5. Add horizontal infrastructure only when the current vertical slice requires it, and keep the
+   shared API free of feature terminology.
+6. Add deterministic tests for rules math before refactoring broad behavior.
+7. Cover PF2e-sensitive areas: degree of success, multiple attack penalty, action economy, damage dice, resistances/weaknesses, conditions, proficiency, and item bonuses.
+8. Keep UI labels and player-facing text short and source-safe.
 
 ## Data Rules
 

@@ -14,7 +14,7 @@ namespace Game.Rules.Unity
     /// </summary>
     /// <remarks>
     /// Combat initiative remains scheduled by <see cref="CombatManager"/>. This bridge owns only
-    /// the shared state required by the first vertical action slice: health, actions, positions,
+    /// the shared state required by rules-backed action slices: health, actions, positions,
     /// land Speeds, movement budgets, and immutable topology snapshots.
     /// </remarks>
     public sealed class UnityCombatRulesBridge
@@ -49,7 +49,6 @@ namespace Game.Rules.Unity
                 creatures.Add(id, creature);
                 seed.SeedHealth(id, creature.GetHealthInitializationState());
             }
-
             dispatcher = new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
                 .UseHealthRules()
                 .Build();
@@ -77,13 +76,25 @@ namespace Game.Rules.Unity
                 AddRegistrationMaps(registration);
                 Seed(seed, registration.State);
             }
+            RageActionDefinition rageDefinition = new RageActionDefinition(
+                new UnityRageActorStateProvider(creatures)
+            );
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
+            RageRules.DefineRuleBindings(registryBuilder);
+            RuleRegistry registry = registryBuilder.Build();
+            CombatActionCatalog actionCatalog = new CombatActionCatalog(
+                strideDefinition,
+                rageDefinition
+            );
 
             dispatcher = new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
                 .UseHealthRules()
                 .UseCombatRuntimeRules()
-                .UseActionLifecycle(strideDefinition)
+                .UseActiveEffectRules(registry)
+                .UseActionLifecycle(actionCatalog)
                 .UseMovementRules(topologyProvider)
                 .UseStrideRules(strideDefinition)
+                .UseRageRules(rageDefinition)
                 .Build();
             if (attachControllers)
             {
@@ -240,6 +251,29 @@ namespace Game.Rules.Unity
         /// <param name="amount">The positive action count to spend.</param>
         public void SpendLegacyActions(CreatureId creature, int amount) =>
             RequireSuccess(DispatchNow(new SpendLegacyActionsOp(creature, amount)));
+
+        /// <summary>Dispatches one synchronous typed rules operation.</summary>
+        /// <typeparam name="TResult">The operation's structural result type.</typeparam>
+        /// <param name="operation">The feature-owned immutable operation to dispatch.</param>
+        /// <returns>The resolved, invalid, interrupted, or cancelled structural result.</returns>
+        /// <remarks>
+        /// Feature adapters construct their own operations. The bridge owns only synchronous Unity
+        /// dispatch boundaries, topology stability, and projection of shared action economy.
+        /// </remarks>
+        public OpResult<TResult> Dispatch<TResult>(IRuleOp<TResult> operation)
+        {
+            if (operation == null)
+                throw new ArgumentNullException(nameof(operation));
+            RequireCombatComposition();
+            try
+            {
+                return DispatchResultNow(operation);
+            }
+            finally
+            {
+                SyncAllActionPoints();
+            }
+        }
 
         /// <summary>Registers dungeon reinforcements in the existing encounter store.</summary>
         /// <param name="reinforcements">New, unique controllers not already registered.</param>
@@ -437,11 +471,13 @@ namespace Game.Rules.Unity
             PlayerId playerId = GetPlayerId(controller);
             Vector3Int position = Vector3Int.RoundToInt(controller.transform.position);
             int speedFeet = Mathf.Max(0, Mathf.RoundToInt(creature.speed));
+            RageActorState rageState = UnityRageActorStateProvider.CreateState(creature);
             CombatantRulesState state = new CombatantRulesState(
                 new CreatureState(creatureId, playerId),
                 creature.GetHealthInitializationState(),
                 new GridPosition(position.x, position.y, position.z),
-                new GridDistance(speedFeet)
+                new GridDistance(speedFeet),
+                RageRules.CreateInitialBindings(creatureId, rageState)
             );
             return new CombatantRegistration(controller, creature, state);
         }
@@ -480,6 +516,16 @@ namespace Game.Rules.Unity
 
         private TResult DispatchNow<TResult>(IRuleOp<TResult> operation)
         {
+            OpResult<TResult> result = DispatchResultNow(operation);
+            if (result is ResolvedOpResult<TResult> resolved)
+                return resolved.Value;
+            if (result is InvalidOpResult<TResult> invalid)
+                throw new InvalidOperationException(invalid.Reason);
+            throw new InvalidOperationException("The synchronous rules request did not resolve.");
+        }
+
+        private OpResult<TResult> DispatchResultNow<TResult>(IRuleOp<TResult> operation)
+        {
             topologyProvider.BeginResolution();
             try
             {
@@ -490,18 +536,32 @@ namespace Game.Rules.Unity
                         "Synchronous Unity rules requests cannot contain asynchronous callbacks."
                     );
                 }
-                OpResult<TResult> result = pending.GetAwaiter().GetResult();
-                if (result is ResolvedOpResult<TResult> resolved)
-                    return resolved.Value;
-                if (result is InvalidOpResult<TResult> invalid)
-                    throw new InvalidOperationException(invalid.Reason);
-                throw new InvalidOperationException(
-                    "The synchronous rules request did not resolve."
-                );
+                return pending.GetAwaiter().GetResult();
             }
             finally
             {
                 topologyProvider.EndResolution();
+            }
+        }
+
+        private void SyncAllActionPoints()
+        {
+            if (!projectsActionPoints)
+                return;
+            foreach (ActionController controller in controllerIds.Keys)
+                controller.SyncActionPointsFromRules();
+        }
+
+        private void SyncActionPoints(CreatureId creature)
+        {
+            if (!projectsActionPoints)
+                return;
+            foreach (KeyValuePair<ActionController, CreatureId> entry in controllerIds)
+            {
+                if (entry.Value != creature)
+                    continue;
+                entry.Key.SyncActionPointsFromRules();
+                return;
             }
         }
 
@@ -548,6 +608,8 @@ namespace Game.Rules.Unity
                 .SeedPosition(id, state.Position)
                 .SeedLandSpeed(id, state.LandSpeed)
                 .SeedActionEconomy(id, new ActionEconomyState(0, false));
+            foreach (ActiveRuleBinding binding in state.RuleBindings)
+                seed.SeedRuleBinding(binding);
         }
 
         private static void ValidateControllers(
@@ -640,6 +702,26 @@ namespace Game.Rules.Unity
                 }
 
                 return mover == occupant;
+            }
+        }
+
+        private sealed class CombatActionCatalog : IActionCatalog
+        {
+            private readonly StrideActionDefinition stride;
+            private readonly RageActionDefinition rage;
+
+            public CombatActionCatalog(StrideActionDefinition stride, RageActionDefinition rage)
+            {
+                this.stride = stride ?? throw new ArgumentNullException(nameof(stride));
+                this.rage = rage ?? throw new ArgumentNullException(nameof(rage));
+            }
+
+            /// <inheritdoc/>
+            public ActionProfile GetBaseProfile(ActionDefinitionId definitionId)
+            {
+                if (definitionId == StrideActionDefinition.DefinitionId)
+                    return stride.GetBaseProfile(definitionId);
+                return rage.GetBaseProfile(definitionId);
             }
         }
 

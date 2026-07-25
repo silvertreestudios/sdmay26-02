@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Game.AbilityActions;
 using Game.Combat.Rules;
 using Game.Creature;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using UnityEngine;
 
 namespace Game.Creature.Rules
@@ -25,6 +26,7 @@ namespace Game.Creature.Rules
                 context.AttackerCreature
             );
             List<string> itemOptions = BuildStrikeItemOptions(prepared, context);
+            AddActiveActorOptions(context.AttackerObject, itemOptions);
             context.ItemOptions = itemOptions;
             ApplyAbilityDamageModifiers(context, prepared, itemOptions);
             ApplyFlatStrikeDamageModifiers(context, prepared, itemOptions);
@@ -41,11 +43,22 @@ namespace Game.Creature.Rules
                 return;
 
             foreach (ActionController controller in combatants)
-                new Rage(0).EndRage(controller?.gameObject);
+            {
+                if (
+                    controller != null
+                    && controller.TryGetCombatRules(
+                        out UnityCombatRulesBridge bridge,
+                        out CreatureId creature
+                    )
+                )
+                {
+                    bridge.Dispatch(new EncounterEndedOp(creature));
+                }
+            }
         }
 
         /// <summary>
-        /// Applies combat-start rule hooks such as auto-starting Rage for matching prepared character options.
+        /// Imports passive abilities and publishes combat-start facts for each registered combatant.
         /// </summary>
         /// <param name="combatants">The combatants entering encounter state.</param>
         public static void ApplyCombatStartRules(IEnumerable<ActionController> combatants)
@@ -61,9 +74,15 @@ namespace Game.Creature.Rules
 
                 ApplyImportedPassiveAbilities(controller, creature);
 
-                PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
-                if (prepared.HasOwnedItem("quick-tempered"))
-                    new Rage(0).UseRage(controller.gameObject);
+                if (
+                    controller.TryGetCombatRules(
+                        out UnityCombatRulesBridge bridge,
+                        out CreatureId rulesCreature
+                    )
+                )
+                {
+                    bridge.Dispatch(new InitiativeRolledOp(rulesCreature));
+                }
             }
         }
 
@@ -88,23 +107,27 @@ namespace Game.Creature.Rules
         /// <summary>
         /// Applies supported PF2e item trait alteration rules without modifying the item data itself.
         /// </summary>
-        /// <param name="prepared">The prepared character whose item alteration rules are evaluated.</param>
+        /// <param name="creature">
+        /// The creature whose prepared rules and authoritative active effects are evaluated.
+        /// </param>
         /// <param name="itemType">The PF2e item type being altered.</param>
         /// <param name="itemSlug">The slug of the item being altered.</param>
         /// <param name="existingTraits">The traits already present on the item.</param>
         /// <returns>A new trait list containing existing traits plus any matching additions.</returns>
         public static List<string> GetAlteredTraits(
-            PreparedCharacter prepared,
+            CreatureComponent creature,
             string itemType,
             string itemSlug,
             IEnumerable<string> existingTraits
         )
         {
+            if (creature == null)
+                throw new ArgumentNullException(nameof(creature));
+            PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
             List<string> traits = new(existingTraits ?? Enumerable.Empty<string>());
-            if (prepared == null)
-                return traits;
 
             List<string> itemOptions = BuildItemOptions(itemSlug, null, false, traits, null);
+            AddActiveActorOptions(creature.gameObject, itemOptions);
             foreach (ItemAlterationRule alteration in prepared.ItemAlterations)
             {
                 if (!MatchesAlteration(alteration, itemType, "traits"))
@@ -359,6 +382,24 @@ namespace Game.Creature.Rules
         {
             if (!options.Contains(option, StringComparer.OrdinalIgnoreCase))
                 options.Add(option);
+        }
+
+        private static void AddActiveActorOptions(GameObject actor, List<string> options)
+        {
+            ActionController controller = actor?.GetComponent<ActionController>();
+            if (
+                controller == null
+                || !controller.TryGetCombatRules(
+                    out UnityCombatRulesBridge bridge,
+                    out CreatureId creature
+                )
+            )
+            {
+                return;
+            }
+
+            foreach (string option in RageRules.GetActiveRollOptions(bridge.Snapshot, creature))
+                AddOption(options, option);
         }
 
         private static bool MatchesAlteration(

@@ -8,6 +8,7 @@ using Game.Creature.Rules;
 using Game.DungeonPersistence.Repository;
 using Game.Rules;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using UnityEngine;
 
 [assembly: InternalsVisibleTo("EditModeAssembly")]
@@ -52,6 +53,11 @@ namespace Game.DungeonPersistence.Actors
                 TemporaryHitPointImmunities = health
                     .TemporaryHitPointImmunities.Select(source => source.Slug)
                     .ToArray(),
+                RageWasActive =
+                    controller.TryGetCombatRules(
+                        out UnityCombatRulesBridge bridge,
+                        out CreatureId creatureId
+                    ) && RageRules.IsRaging(bridge.Snapshot, creatureId),
                 Conditions = conditions.ToArray(),
                 TimedEffects = timedEffects.ToArray(),
                 PreparedEffects = preparedEffects.ToArray(),
@@ -91,12 +97,15 @@ namespace Game.DungeonPersistence.Actors
             RuleSource[] immunities = saved
                 .TemporaryHitPointImmunities.Select(RuleSource.FromSlug)
                 .ToArray();
-            HealthState health = new(
-                currentHitPoints,
-                creature.maxHp,
-                saved.TemporaryHitPoints,
-                temporarySource,
-                immunities
+            HealthState health = RageRules.NormalizeRestoredHealth(
+                new HealthState(
+                    currentHitPoints,
+                    creature.maxHp,
+                    saved.TemporaryHitPoints,
+                    temporarySource,
+                    immunities
+                ),
+                saved.RageWasActive
             );
 
             ConditionApplicationSnapshot[] conditions = PrepareConditions(saved.Conditions);

@@ -118,6 +118,7 @@ namespace Game.DungeonPersistence.Repository
         public int TemporaryHitPoints;
         public string TemporaryHitPointSource;
         public string[] TemporaryHitPointImmunities;
+        public bool RageWasActive;
         public DungeonConditionSaveState[] Conditions;
         public DungeonTimedEffectSaveState[] TimedEffects;
         public DungeonPreparedEffectSaveState[] PreparedEffects;

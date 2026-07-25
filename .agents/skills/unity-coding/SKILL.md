@@ -22,6 +22,12 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
 - Do not raw-edit scenes, prefabs, materials, or serialized assets for gameplay refactors.
 - Follow the C# XML documentation requirements in `AGENTS.md` for new or modified public APIs and complex internal behavior; keep existing documentation synchronized with every behavior change.
 - Avoid new global state. If existing singleton/static-event behavior is involved, isolate it behind a seam before expanding it.
+- Follow the feature-ownership boundary in `AGENTS.md` and
+  `Docs/Ops_Based_Rules_Proposal.md`: feature modules own feature-specific operations, validation,
+  handlers, listeners, selectors, state, and Unity adapters.
+- Keep Unity bridges, managers, and facades feature-agnostic. Composition may install a named
+  feature, but shared code must not implement its conditions or workflow. Prefer feature-created Ops
+  and feature listeners for generic Facts over feature-specific bridge helpers.
 - Save and restore random state in tests that touch randomness.
 - Keep generated Unity files and results out of version control.
 - Remove the task worktree after the work is merged, closed, or abandoned.
