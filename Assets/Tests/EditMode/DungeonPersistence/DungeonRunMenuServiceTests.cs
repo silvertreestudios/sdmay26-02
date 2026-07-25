@@ -184,7 +184,7 @@ public sealed class DungeonRunMenuServiceTests
         }
     }
 
-    private static DungeonRunSave CreateValidSave(int seed, int depth)
+    private static DungeonRunSave CreateValidSave(int seed, int depth, bool isDefeated = false)
     {
         DungeonGenerationResult generated = new DeterministicDungeonGenerator().Generate(
             new DungeonGenerationRequest
@@ -239,10 +239,31 @@ public sealed class DungeonRunMenuServiceTests
             CreatureContentId = "party-content",
             CellX = floor.StartCell.X,
             CellZ = floor.StartCell.Z,
-            CurrentHitPoints = 12,
-            IsDefeated = false,
+            CurrentHitPoints = isDefeated ? 0 : 12,
+            IsDefeated = isDefeated,
             State = actorState,
         };
         return DungeonRunSave.CreateNew(new[] { party }, floor);
+    }
+
+    [Test]
+    public void TotalPartyDefeatDisablesContinue()
+    {
+        DungeonRunMenuService service = new(autosaveDirectory, () => 42L);
+        FileSystemDungeonSaveRepository repository = new(autosaveDirectory);
+        DungeonSaveResult<bool> saved = repository.Save(CreateValidSave(73, 0, isDefeated: true));
+        Assert.That(
+            saved.IsSuccess,
+            Is.True,
+            saved.IsSuccess
+                ? string.Empty
+                : $"{saved.Diagnostics[0].Code}: {saved.Diagnostics[0].Path}: {saved.Diagnostics[0].Message}"
+        );
+
+        DungeonRunMenuStatus terminal = service.InspectAutosave();
+
+        Assert.That(terminal.HasAutosave, Is.True);
+        Assert.That(terminal.CanContinue, Is.False);
+        Assert.That(terminal.Message, Does.Contain("defeated"));
     }
 }

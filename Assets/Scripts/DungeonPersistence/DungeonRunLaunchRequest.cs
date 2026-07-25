@@ -133,6 +133,27 @@ namespace Game.DungeonPersistence
                     );
                 }
 
+                bool hasLivingPartyMember = false;
+                foreach (DungeonPartyMemberSaveState member in manifest.Party)
+                {
+                    if (member.IsDefeated)
+                        continue;
+
+                    hasLivingPartyMember = true;
+                    break;
+                }
+
+                if (!hasLivingPartyMember)
+                {
+                    return new DungeonRunMenuStatus(
+                        true,
+                        false,
+                        0,
+                        0,
+                        "Continue unavailable: the saved party was defeated."
+                    );
+                }
+
                 return new DungeonRunMenuStatus(
                     true,
                     true,
