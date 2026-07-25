@@ -53,8 +53,9 @@ namespace Game.Combat.Exploration
         }
 
         /// <inheritdoc/>
-        public IEnumerator ExecuteStep(
+        public IEnumerator ProjectCommittedStep(
             GameObject leader,
+            Vector3Int from,
             Vector3Int destination,
             Tile[,] tiles,
             TokenMovement movement,
@@ -64,7 +65,12 @@ namespace Game.Combat.Exploration
             if (continuePath == null)
                 throw new ArgumentNullException(nameof(continuePath));
             continuePath.Value = false;
-            if (!Handles(leader) || tiles == null || movement == null)
+            if (
+                !Handles(leader)
+                || tiles == null
+                || movement == null
+                || Vector3Int.RoundToInt(leader.transform.position) != from
+            )
                 yield break;
 
             ActionController[] livingParty = party.Where(canParticipate).ToArray();
@@ -162,10 +168,19 @@ namespace Game.Combat.Exploration
                 yield break;
             }
 
-            Ref<bool> prevented = new(false);
-            yield return source.RemoveToken(controller.gameObject, prevented);
-            if (prevented.Value)
-                yield break;
+            if (isLeader)
+            {
+                if (!source.ProjectCommittedDeparture(controller.gameObject))
+                    yield break;
+                target.ProjectCommittedArrival(controller.gameObject);
+            }
+            else
+            {
+                Ref<bool> prevented = new(false);
+                yield return source.RemoveToken(controller.gameObject, prevented);
+                if (prevented.Value)
+                    yield break;
+            }
 
             CreaturePresentation presentation = controller.GetComponent<CreaturePresentation>();
             float movementSpeed = controller.GetComponent<CreatureComponent>()?.speed ?? 25.0f;
@@ -177,7 +192,8 @@ namespace Game.Combat.Exploration
                     yield return movement.Walk(controller.transform, destination);
                 else
                     yield return movement.Hop(controller.transform, destination);
-                yield return target.PlaceToken(controller.gameObject);
+                if (!isLeader)
+                    yield return target.PlaceToken(controller.gameObject);
                 moved.Value = true;
             }
             finally

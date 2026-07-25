@@ -5,6 +5,7 @@ using System.Reflection;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
@@ -361,7 +362,11 @@ public sealed class KayKitDungeonExamplePlayModeTests
         GridBase grid = Object.FindFirstObjectByType<GridBase>();
         GridVisuals visuals = grid.GetComponent<GridVisuals>();
         ActionController lena = FindCombatant("Lena");
-        Assert.That(grid.Fsm.ChangeState(new StateStride(lena.gameObject, grid.Fsm)), Is.True);
+        if (!lena.HasTurnAuthority)
+            lena.StartTurn();
+        EntityAction stride = lena.GetActions().Single(action => action is RulesStrideAction);
+        lena.TakeAction(stride);
+        yield return new WaitUntil(() => grid.Fsm.CurrentState is StateStride);
         yield return null;
 
         FieldInfo rangePoolField = typeof(GridVisuals).GetField(
@@ -398,11 +403,10 @@ public sealed class KayKitDungeonExamplePlayModeTests
         foreach (string name in representatives)
         {
             ActionController controller = FindCombatant(name);
-            Assert.That(controller.GetMovements(), Is.Not.Empty, $"{name} needs Stride.");
             Assert.That(
-                controller.GetActions(),
-                Is.Not.Empty,
-                $"{name} needs at least one combat action."
+                controller.GetActions().Any(action => action is RulesStrideAction),
+                Is.True,
+                $"{name} needs Stride in the shared action list."
             );
             controller.StartTurn();
             Assert.That(

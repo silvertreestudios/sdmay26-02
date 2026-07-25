@@ -11,7 +11,7 @@ namespace TestsState
     public class StrideTests : PlayModeBase
     {
         /// <summary>
-        /// Resets the scene and then presses the Stride button before every test, waits for the state machine to transition into the stride state
+        /// Resets the scene, presses the Stride button, and waits for path selection to begin.
         /// </summary>
         [UnitySetUp]
         public override IEnumerator Setup()
@@ -58,6 +58,7 @@ namespace TestsState
             //get active player object, click move, select tile that is pos.x, pos.y, pos.z + 1, check that player is now at that position
             GameObject player = CombatManagerInterface.GetInstance().WhosTurn();
             Vector3 startPos = player.transform.position;
+            Vector3Int startCell = Vector3Int.RoundToInt(startPos);
             Vector3Int targetPos = new Vector3Int(
                 Mathf.RoundToInt(startPos.x) + 3,
                 Mathf.RoundToInt(startPos.y),
@@ -73,19 +74,28 @@ namespace TestsState
             // Get FSM and simulate left click
             GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
             CreaturePresentation presentation = player.GetComponent<CreaturePresentation>();
+            ActionController actionController = player.GetComponent<ActionController>();
+            uint startingActions = actionController.ActionPoints;
+            Tile startTile = gridBase.GetTiles()[startCell.x, startCell.z];
+            Tile targetTile = gridBase.GetTiles()[targetPos.x, targetPos.z];
+            Assert.That(startTile.Occupants.Contains(player), Is.True);
+            Assert.That(targetTile.Occupants.Contains(player), Is.False);
             Assert.That(presentation.AnimationController, Is.Not.Null);
             gridBase.Fsm.CurrentState.Leftclick();
 
             yield return null;
             Assert.That(presentation.AnimationController.IsMoving, Is.True);
+            Assert.That(
+                root.Q<Button>("CancelActionButton").resolvedStyle.display,
+                Is.EqualTo(DisplayStyle.None),
+                "Committed movement must not expose the selection-cancel control."
+            );
 
             // Wait for movement to finish while proving the animated model stays
             // level instead of using the legacy token hop.
             float maxHeight = player.transform.position.y;
             float deadline = Time.realtimeSinceStartup + timeout;
-            while (
-                !(gridBase.Fsm.CurrentState is StateIdle) && Time.realtimeSinceStartup < deadline
-            )
+            while (actionController.IsTakingAction && Time.realtimeSinceStartup < deadline)
             {
                 maxHeight = Mathf.Max(maxHeight, player.transform.position.y);
                 yield return null;
@@ -93,8 +103,9 @@ namespace TestsState
 
             Assert.IsTrue(
                 gridBase.Fsm.CurrentState is StateIdle,
-                "FSM did not return to StateIdle after movement."
+                "The selector FSM did not return to StateIdle after path confirmation."
             );
+            Assert.That(actionController.IsTakingAction, Is.False, "Stride did not finish.");
             Vector3 endPos = player.transform.position;
             Assert.AreEqual(
                 targetPos,
@@ -107,6 +118,13 @@ namespace TestsState
                 "Animated stride should not hop above the grid."
             );
             Assert.That(presentation.AnimationController.IsMoving, Is.False);
+            Assert.That(
+                actionController.ActionPoints,
+                Is.EqualTo(startingActions - 1),
+                "The rules action economy should spend one action for Stride."
+            );
+            Assert.That(startTile.Occupants.Contains(player), Is.False);
+            Assert.That(targetTile.Occupants.Contains(player), Is.True);
         }
 
         /// <summary>
@@ -117,21 +135,10 @@ namespace TestsState
         {
             GameObject player = CombatManagerInterface.GetInstance().WhosTurn();
             Vector3 startPos = player.transform.position;
-            // hover over enemy tile and try to move there, check that player did not move
-            Vector3Int targetPos = new Vector3Int(
-                Mathf.RoundToInt(startPos.x) + 1,
-                Mathf.RoundToInt(startPos.y),
-                Mathf.RoundToInt(startPos.z)
-            );
-            OnHover.Invoke(new System.Collections.Generic.List<Vector3Int> { targetPos });
-
             GridBase gridBase = Object.FindFirstObjectByType<GridBase>();
-            gridBase.Fsm.CurrentState.Leftclick();
-
-            // Wait a frame for events to process
-            yield return null;
-
-            targetPos = new Vector3Int(0, 0, 0); // null tile
+            ActionController actionController = player.GetComponent<ActionController>();
+            uint startingActions = actionController.ActionPoints;
+            Vector3Int targetPos = Vector3Int.RoundToInt(startPos);
 
             OnHover.Invoke(new System.Collections.Generic.List<Vector3Int> { targetPos });
             gridBase.Fsm.CurrentState.Leftclick();
@@ -149,6 +156,11 @@ namespace TestsState
                 player.transform.position,
                 "Player should not have moved when attempting to move to an invalid tile."
             );
+            Assert.That(actionController.ActionPoints, Is.EqualTo(startingActions));
+
+            UniversalEvents.OnCancel.Invoke();
+            yield return WaitUntilWithTimeout(timeout, () => !actionController.IsTakingAction);
+            Assert.That(actionController.ActionPoints, Is.EqualTo(startingActions));
         }
     }
 }

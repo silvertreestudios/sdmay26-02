@@ -11,7 +11,6 @@ public abstract class ActionController : MonoBehaviour
 {
     // Fields
     protected List<EntityAction> Actions = new();
-    protected List<EntityAction> Movements = new();
     protected List<EntityAction> Reactions = new();
     protected bool IsTurn = false;
     private UnityCombatRulesBridge combatRules;
@@ -32,7 +31,6 @@ public abstract class ActionController : MonoBehaviour
     //Events
     public OnResetActionPoints ResetActionPointsEvent { get; protected set; } = new();
     public OnGetActions GetActionsEvent { get; protected set; } = new();
-    public OnGetMovements GetMovementsEvent { get; protected set; } = new();
     public OnGetReactions GetReactionsEvent { get; protected set; } = new();
 
     [SerializeField]
@@ -129,6 +127,13 @@ public abstract class ActionController : MonoBehaviour
             ActionPoints = checked((uint)combatRules.GetActionsRemaining(rulesCreatureId));
     }
 
+    internal bool TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId creatureId)
+    {
+        bridge = combatRules;
+        creatureId = rulesCreatureId;
+        return !IsInDungeonExploration && bridge != null && !creatureId.IsEmpty;
+    }
+
     /// <summary>Enables or disables movement-only authority between dungeon encounters.</summary>
     /// <param name="enabled">
     /// Whether the controller may repeatedly invoke its movement actions without initiative or
@@ -147,9 +152,7 @@ public abstract class ActionController : MonoBehaviour
 
     public abstract void EndTurn();
 
-    /// <summary>
-    /// Returns a copied list of all actions the controller can perform, excluding movements
-    /// </summary>
+    /// <summary>Returns a copied list of all action-bar entries the controller can perform.</summary>
     /// <returns></returns>
     public List<EntityAction> GetActions()
     {
@@ -158,16 +161,10 @@ public abstract class ActionController : MonoBehaviour
         return available;
     }
 
-    /// <summary>
-    /// Returns a copied list of all movements the controller can perform
-    /// </summary>
-    /// <returns></returns>
-    public List<EntityAction> GetMovements()
-    {
-        List<EntityAction> available = new(Movements);
-        GetMovementsEvent.Invoke(available);
-        return available;
-    }
+    /// <summary>Returns the action-bar entries that exploration authority may offer.</summary>
+    /// <returns>A copied movement-only view of the shared action list.</returns>
+    public List<EntityAction> GetExplorationActions() =>
+        GetActions().FindAll(action => action.IsExplorationAction);
 
     /// <summary>
     /// Returns a copied list of all reactions the controller can perform
@@ -178,6 +175,18 @@ public abstract class ActionController : MonoBehaviour
         List<EntityAction> available = new(Reactions);
         GetReactionsEvent.Invoke(available);
         return available;
+    }
+
+    /// <summary>Checks whether an action can begin under this controller's current authority.</summary>
+    /// <param name="action">The movement or combat action to authorize and invoke.</param>
+    /// <returns>Whether the action may begin now.</returns>
+    public bool CanTakeAction(EntityAction action)
+    {
+        if (action == null || IsTakingAction)
+            return false;
+        if (IsInDungeonExploration)
+            return action.IsExplorationAction && action.IsAvailable(this);
+        return IsTurn && action.IsAvailable(this);
     }
 
     /// <summary>Starts an action when this controller has authority in its current mode.</summary>
@@ -196,21 +205,39 @@ public abstract class ActionController : MonoBehaviour
             return;
         }
         //Debug.Log("Attempting to take action: " + action);
-        if (IsTakingAction)
+        if (!CanTakeAction(action))
             return;
-
-        if (IsInDungeonExploration)
-        {
-            if (!GetMovements().Contains(action))
-                return;
-        }
-        else if (!IsTurn || action.ActionCost > ActionPoints)
-        {
-            return;
-        }
 
         IsTakingAction = true;
         action.Invoke(this.gameObject);
+    }
+
+    /// <summary>
+    /// Starts a typed-selection action with a resolver supplied by an AI, replay, or test.
+    /// </summary>
+    /// <param name="action">The registered action to authorize.</param>
+    /// <param name="resolver">The resolver that supplies the action's typed selection.</param>
+    public void TakeAction(EntityAction action, ISelectionResolver resolver)
+    {
+        if (action == null)
+        {
+            Debug.LogWarning("No action provided to TakeAction!");
+            return;
+        }
+        if (resolver == null)
+            throw new System.ArgumentNullException(nameof(resolver));
+        if (action is not ISelectionDrivenEntityAction selectionDriven)
+        {
+            throw new System.ArgumentException(
+                "The supplied action does not accept a selection resolver.",
+                nameof(action)
+            );
+        }
+        if (!CanTakeAction(action))
+            return;
+
+        IsTakingAction = true;
+        selectionDriven.Invoke(gameObject, resolver);
     }
 
     public uint GetInitiative()
