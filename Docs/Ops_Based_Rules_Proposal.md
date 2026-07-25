@@ -949,6 +949,36 @@ The main Unity assembly provides a configurable generic `MonoBehaviour` helper i
 
 Each concrete observer handles one typed transition. For example, a `TokenMovedFact` supplies its old and new squares for animation while `currentSnapshot` supplies the token's authoritative current position and any derived current aura or UI state. This keeps transition history in Facts, current-state lookup in the snapshot, and Unity concerns outside the rules authority.
 
+### 7.3 Feature modules own feature semantics
+
+A rule, feat, spell, or action owns the code that explains what that feature means. Its cohesive
+feature module contains its feature-specific Ops, validation, handlers, binding listeners, selectors,
+persistent state, and any Unity adapter that extracts or presents feature data. These responsibilities
+may be split across several focused classes; feature ownership is a dependency-boundary rule, not a
+requirement to create one oversized class.
+
+Shared runtime and Unity integration code provide mechanisms expressed in domain-neutral vocabulary:
+dispatching an `IRuleOp<TResult>`, publishing a timing Fact, registering a binding, reading a snapshot,
+or projecting committed state. They do not provide shortcuts such as `DispatchSpecificFeat`, remember
+whether one feat's trigger was consumed, or decide whether one spell's conditions match.
+
+A composition root is the narrow exception. It may name a feature module to register its definitions,
+handlers, listeners, or initial bindings. That reference selects installed behavior; it must not
+reimplement the feature's validation or workflow.
+
+For example, general encounter code can publish an `InitiativeRolledFact`. A Quick-Tempered binding
+can listen for that Fact and own the decision to start Rage. Likewise, a Rage action-bar adapter can
+construct `RageActionOp` and pass it through a generic dispatch boundary; the bridge does not need a
+Rage-specific dispatch method.
+
+Before adding a feature-named member to a shared bridge, manager, dispatcher, facade, or catalog, ask
+whether the feature can instead:
+
+- construct and dispatch its own typed Op;
+- react to an existing generic lifecycle Op or committed Fact;
+- expose a feature-owned selector over `RulesSnapshot`; or
+- register feature-owned behavior or bindings at the composition root.
+
 ---
 
 ## 8. Worked example: normal Strike
@@ -2101,6 +2131,7 @@ These rules should be enforced in code review and tests:
 15. **Rules assemblies contain no Unity scene-object references.**
 16. **Each operation result is one sealed structural case; only Resolved exposes a value and only Invalid exposes a reason.**
 17. **Attaching descendant Facts preserves the operation result's concrete case.**
+18. **Feature-specific semantics stay in the feature module; shared runtime and Unity integration expose only generic mechanisms and composition.**
 
 ---
 
@@ -2300,7 +2331,15 @@ When implementing a new rule, answer these questions in order:
 
     Test the committed Facts and state, not only the returned outcome.
 
-If a feature needs a central `switch` on its definition ID, stop and check whether it belongs in a binding, typed state record, handler registration, or data definition instead.
+11. **Where does the feature-specific knowledge live?**
+
+    Keep the feature's operations, validation, handlers, listeners, selectors, state, and Unity
+    extraction or presentation in its feature module. Let shared code publish generic timing Facts,
+    dispatch generic Ops, and register modules without learning the feature's rules.
+
+If a feature needs a central `switch` on its definition ID, or a feature-named method, cache, or
+trigger flag in a shared bridge or facade, stop and check whether it belongs in a binding, typed state
+record, handler registration, selector, or feature adapter instead.
 
 ---
 
