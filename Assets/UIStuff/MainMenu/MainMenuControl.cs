@@ -24,6 +24,7 @@ public class MainMenuControl : MonoBehaviour
     private VisualElement overwriteConfirmation;
     private DungeonRunMenuService menuService;
     private DungeonRunLaunchRequest pendingNewRun = DungeonRunLaunchRequest.None;
+    private bool launchRequested;
     private Action<DungeonRunLaunchRequest> launchDungeon = LaunchDungeon;
 
     private void Awake()
@@ -34,6 +35,10 @@ public class MainMenuControl : MonoBehaviour
 
     private void OnEnable()
     {
+        ui ??= GetComponent<UIDocument>().rootVisualElement;
+        menuService ??= DungeonRunMenuService.CreateDefault();
+        launchRequested = false;
+        ui.SetEnabled(true);
         seedField = ui.Q<TextField>("SeedField");
         newRunButton = ui.Q<Button>("NewRunButton");
         continueButton = ui.Q<Button>("ContinueButton");
@@ -167,13 +172,28 @@ public class MainMenuControl : MonoBehaviour
 
     private void Launch(DungeonRunLaunchRequest request)
     {
+        if (launchRequested)
+            return;
+
+        launchRequested = true;
         DisplayStatus(
             request.Mode == DungeonRunLaunchMode.NewRun
                 ? $"Starting dungeon run with seed {request.NormalizedSeed}."
                 : "Continuing saved dungeon run.",
             isError: false
         );
-        launchDungeon(request);
+        ui.SetEnabled(false);
+
+        try
+        {
+            launchDungeon(request);
+        }
+        catch
+        {
+            launchRequested = false;
+            ui.SetEnabled(true);
+            throw;
+        }
     }
 
     private void DisplayStatus(string message, bool isError)

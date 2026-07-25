@@ -57,6 +57,27 @@ public sealed class DungeonProductionFlowPlayModeTests
         UnityEngine.Random.state = randomState;
     }
 
+    /// <summary>Returns from a launched procedural dungeon to the production main menu.</summary>
+    [UnityTest]
+    public IEnumerator DungeonHudReturnsToMainMenu()
+    {
+        string directory = TrackDirectory("return-to-menu");
+        yield return LaunchNewRun(directory, "154");
+
+        Button mainMenuButton = Object
+            .FindObjectsByType<UIDocument>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
+            .Select(document => document.rootVisualElement.Q<Button>("DungeonMainMenuButton"))
+            .FirstOrDefault(button => button != null);
+        Assert.That(mainMenuButton, Is.Not.Null);
+        Assert.That(mainMenuButton.resolvedStyle.display, Is.EqualTo(DisplayStyle.Flex));
+
+        PushButton(mainMenuButton);
+        yield return WaitForMainMenu();
+
+        Assert.That(SceneManager.GetActiveScene().name, Is.EqualTo(MainMenuScene));
+        Assert.That(SceneTransitionManager.IsTransitioning, Is.False);
+    }
+
     /// <summary>
     /// Launches two separate runs from the same displayed signed seed and compares their complete
     /// initial floor documents.
@@ -335,6 +356,24 @@ public sealed class DungeonProductionFlowPlayModeTests
         }
 
         Assert.Fail("The production procedural dungeon did not initialize within 30 seconds.");
+    }
+
+    private static IEnumerator WaitForMainMenu()
+    {
+        float deadline = Time.realtimeSinceStartup + 10f;
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            if (
+                SceneManager.GetActiveScene().name == MainMenuScene
+                && !SceneTransitionManager.IsTransitioning
+            )
+            {
+                yield break;
+            }
+            yield return null;
+        }
+
+        Assert.Fail("The production main menu did not finish loading within 10 seconds.");
     }
 
     private string TrackDirectory(string suffix)

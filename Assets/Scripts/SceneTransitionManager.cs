@@ -18,6 +18,9 @@ public class SceneTransitionManager : MonoBehaviour
     private UIDocument _doc;
     private VisualElement _overlay;
     private DungeonRunLaunchRequest pendingDungeonRun = DungeonRunLaunchRequest.None;
+    private bool isTransitioning;
+
+    internal static bool IsTransitioning => _instance != null && _instance.isTransitioning;
 
     private void Awake()
     {
@@ -58,18 +61,22 @@ public class SceneTransitionManager : MonoBehaviour
         _doc.rootVisualElement.Add(_overlay);
     }
 
+    /// <summary>Fades to and loads the named scene unless another transition is in progress.</summary>
+    /// <param name="sceneName">The build-settings scene name to load.</param>
+    /// <param name="duration">The duration of each fade, in unscaled seconds.</param>
     public static void FadeAndLoad(string sceneName, float duration = 1f)
     {
         EnsureInstance();
-        _instance.pendingDungeonRun = DungeonRunLaunchRequest.None;
-        _instance.StartCoroutine(_instance.FadeRoutine(sceneName, null, duration));
+        _instance.TryBeginTransition(sceneName, null, duration, DungeonRunLaunchRequest.None);
     }
 
+    /// <summary>Fades to and loads the indexed scene unless another transition is in progress.</summary>
+    /// <param name="buildIndex">The build-settings index to load.</param>
+    /// <param name="duration">The duration of each fade, in unscaled seconds.</param>
     public static void FadeAndLoad(int buildIndex, float duration = 1f)
     {
         EnsureInstance();
-        _instance.pendingDungeonRun = DungeonRunLaunchRequest.None;
-        _instance.StartCoroutine(_instance.FadeRoutine(null, buildIndex, duration));
+        _instance.TryBeginTransition(null, buildIndex, duration, DungeonRunLaunchRequest.None);
     }
 
     internal static void FadeAndLoadDungeon(DungeonRunLaunchRequest request, float duration = 1f)
@@ -81,8 +88,7 @@ public class SceneTransitionManager : MonoBehaviour
             );
 
         EnsureInstance();
-        _instance.pendingDungeonRun = request;
-        _instance.StartCoroutine(_instance.FadeRoutine("ProceduralDungeon", null, duration));
+        _instance.TryBeginTransition("ProceduralDungeon", null, duration, request);
     }
 
     internal static bool TryConsumeDungeonRunLaunch(out DungeonRunLaunchRequest request)
@@ -104,6 +110,23 @@ public class SceneTransitionManager : MonoBehaviour
             return;
         var go = new GameObject("SceneTransitionManager");
         go.AddComponent<SceneTransitionManager>();
+    }
+
+    private bool TryBeginTransition(
+        string sceneName,
+        int? buildIndex,
+        float duration,
+        DungeonRunLaunchRequest request
+    )
+    {
+        if (isTransitioning)
+            return false;
+
+        isTransitioning = true;
+        pendingDungeonRun = request;
+        _overlay.pickingMode = PickingMode.Position;
+        StartCoroutine(FadeRoutine(sceneName, buildIndex, duration));
+        return true;
     }
 
     private IEnumerator FadeRoutine(string sceneName, int? buildIndex, float duration)
@@ -140,5 +163,7 @@ public class SceneTransitionManager : MonoBehaviour
             yield return null;
         }
         _overlay.style.opacity = 0f;
+        _overlay.pickingMode = PickingMode.Ignore;
+        isTransitioning = false;
     }
 }

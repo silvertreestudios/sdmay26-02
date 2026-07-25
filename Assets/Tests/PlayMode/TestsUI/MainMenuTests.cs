@@ -15,12 +15,14 @@ namespace TestsUI
     {
         private string autosaveDirectory;
         private DungeonRunLaunchRequest capturedLaunch = DungeonRunLaunchRequest.None;
+        private int launchCount;
         private MainMenuControl menu;
 
         [UnitySetUp]
         public override IEnumerator Setup()
         {
             Time.timeScale = 1f;
+            launchCount = 0;
             capturedLaunch = DungeonRunLaunchRequest.None;
             yield return SceneManager.LoadSceneAsync("MainMenuScene");
 
@@ -38,7 +40,11 @@ namespace TestsUI
             Assert.That(menu, Is.Not.Null);
             menu.ConfigureForTests(
                 new DungeonRunMenuService(autosaveDirectory, () => 0x00000001FFFFFFFFL),
-                request => capturedLaunch = request
+                request =>
+                {
+                    launchCount++;
+                    capturedLaunch = request;
+                }
             );
         }
 
@@ -153,6 +159,20 @@ namespace TestsUI
             Label status = root.Q<Label>("MenuStatusLabel");
             Assert.That(status.text, Does.Contain("whole-number seed"));
             Assert.That(status.ClassListContains("menu-status--error"), Is.True);
+        }
+
+        /// <summary>Tests that repeated launch input cannot enqueue multiple scene loads.</summary>
+        [UnityTest]
+        public IEnumerator RepeatedNewRunInputLaunchesOnlyOnce()
+        {
+            root.Q<TextField>("SeedField").value = "154";
+
+            menu.StartNewRun();
+            menu.StartNewRun();
+            yield return null;
+
+            Assert.That(launchCount, Is.EqualTo(1));
+            Assert.That(root.enabledSelf, Is.False);
         }
 
         /// <summary>

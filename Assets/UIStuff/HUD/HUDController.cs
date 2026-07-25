@@ -54,6 +54,7 @@ public class HUDController
     private VisualElement stairTraversalOverlay;
     private Action<bool> stairTraversalResponse;
     private Label dungeonRunStatusLabel;
+    private Button dungeonMainMenuButton;
 
     private const float LogMinHeight = 150f;
     private const float LogMaxHeight = 800f;
@@ -164,6 +165,23 @@ public class HUDController
         speedToggleButton = ui.Q<Button>("SpeedToggleButton");
         speedButtonsBox = ui.Q<VisualElement>("SpeedButtonsBox");
         dungeonRunStatusLabel = ui.Q<Label>("DungeonRunStatusLabel");
+        dungeonMainMenuButton = ui.Q<Button>("DungeonMainMenuButton");
+        if (dungeonMainMenuButton == null)
+        {
+            if (speedButtonsBox == null)
+                throw new InvalidOperationException("The HUD is missing SpeedButtonsBox.");
+
+            dungeonMainMenuButton = new Button
+            {
+                name = "DungeonMainMenuButton",
+                text = "Main Menu",
+            };
+            dungeonMainMenuButton.AddToClassList("btn-speed");
+            dungeonMainMenuButton.style.width = 120f;
+            speedButtonsBox.Add(dungeonMainMenuButton);
+        }
+        dungeonMainMenuButton.style.display = DisplayStyle.None;
+        dungeonMainMenuButton.clicked += ReturnToMainMenu;
         if (dungeonRunStatusLabel != null)
             dungeonRunStatusLabel.style.display = DisplayStyle.None;
         if (pauseButton != null)
@@ -225,6 +243,8 @@ public class HUDController
             speed3xButton.clicked -= OnSpeed3xClicked;
         if (speedToggleButton != null)
             speedToggleButton.clicked -= ToggleSpeedBar;
+        if (dungeonMainMenuButton != null)
+            dungeonMainMenuButton.clicked -= ReturnToMainMenu;
         if (resizeHandle != null)
         {
             resizeHandle.UnregisterCallback<PointerDownEvent>(OnResizeStart);
@@ -265,6 +285,7 @@ public class HUDController
         dungeonRunStatusLabel.RemoveFromClassList("dungeon-run-status--error");
         dungeonRunStatusLabel.text = $"Seed {seed}  •  Depth {depth}";
         dungeonRunStatusLabel.style.display = DisplayStyle.Flex;
+        dungeonMainMenuButton.style.display = DisplayStyle.Flex;
     }
 
     /// <summary>Shows a blocking dungeon launch diagnostic without exposing repository details.</summary>
@@ -279,6 +300,7 @@ public class HUDController
         dungeonRunStatusLabel.AddToClassList("dungeon-run-status--error");
         dungeonRunStatusLabel.text = message;
         dungeonRunStatusLabel.style.display = DisplayStyle.Flex;
+        dungeonMainMenuButton.style.display = DisplayStyle.Flex;
     }
 
     public static void Setup()
@@ -588,6 +610,13 @@ public class HUDController
     }
 
     private void OnPauseClicked() => ToggleSpeed(0f);
+
+    private void ReturnToMainMenu()
+    {
+        Time.timeScale = 1f;
+        dungeonMainMenuButton.SetEnabled(false);
+        SceneTransitionManager.FadeAndLoad("MainMenuScene");
+    }
 
     private void OnSpeed2xClicked() => ToggleSpeed(2f);
 
