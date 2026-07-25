@@ -78,6 +78,44 @@ public sealed class DungeonProductionFlowPlayModeTests
         Assert.That(SceneTransitionManager.IsTransitioning, Is.False);
     }
 
+    /// <summary>Waits for an active action and checkpoints before leaving the dungeon.</summary>
+    [UnityTest]
+    public IEnumerator DungeonReturnWaitsForActionAndCheckpointsBeforeLeaving()
+    {
+        string directory = TrackDirectory("return-after-action");
+        yield return LaunchNewRun(directory, "155");
+        yield return WaitForTransitionIdle();
+
+        ActionController actor = ProductionParty()[0];
+        actor.IsTakingAction = true;
+        Button mainMenuButton = Object
+            .FindObjectsByType<UIDocument>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
+            .Select(document => document.rootVisualElement.Q<Button>("DungeonMainMenuButton"))
+            .FirstOrDefault(button => button != null);
+        Assert.That(mainMenuButton, Is.Not.Null);
+
+        PushButton(mainMenuButton);
+        yield return null;
+
+        Assert.That(SceneManager.GetActiveScene().name, Is.EqualTo(DungeonScene));
+        Assert.That(SceneTransitionManager.IsTransitioning, Is.False);
+        Assert.That(mainMenuButton.enabledSelf, Is.False);
+
+        FileSystemDungeonSaveRepository repository = new(directory);
+        File.Delete(repository.AutosavePath);
+        Assert.That(File.Exists(repository.AutosavePath), Is.False);
+
+        actor.IsTakingAction = false;
+        yield return WaitForMainMenu();
+
+        DungeonSaveResult<DungeonRunSave> checkpoint = repository.Load();
+        Assert.That(
+            checkpoint.IsSuccess,
+            Is.True,
+            string.Join(" ", checkpoint.Diagnostics.Select(item => item.Message))
+        );
+    }
+
     /// <summary>
     /// Launches two separate runs from the same displayed signed seed and compares their complete
     /// initial floor documents.
@@ -574,5 +612,14 @@ public sealed class DungeonProductionFlowPlayModeTests
         using NavigationSubmitEvent submit = NavigationSubmitEvent.GetPooled();
         submit.target = button;
         button.SendEvent(submit);
+    }
+
+    private static IEnumerator WaitForTransitionIdle()
+    {
+        float deadline = Time.realtimeSinceStartup + 5f;
+        while (Time.realtimeSinceStartup < deadline && SceneTransitionManager.IsTransitioning)
+            yield return null;
+
+        Assert.That(SceneTransitionManager.IsTransitioning, Is.False);
     }
 }

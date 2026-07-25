@@ -6,6 +6,8 @@ using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence;
+using Game.DungeonPersistence.Autosave;
+using Game.DungeonPersistence.Repository;
 using Game.Strikes;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -54,6 +56,7 @@ public class HUDController
     private VisualElement stairTraversalOverlay;
     private Action<bool> stairTraversalResponse;
     private Label dungeonRunStatusLabel;
+    private bool isReturningToMainMenu;
     private Button dungeonMainMenuButton;
 
     private const float LogMinHeight = 150f;
@@ -613,8 +616,36 @@ public class HUDController
 
     private void ReturnToMainMenu()
     {
+        if (isReturningToMainMenu)
+            return;
+
+        StartCoroutine(ReturnToMainMenuAfterCheckpoint());
+    }
+
+    private IEnumerator ReturnToMainMenuAfterCheckpoint()
+    {
+        isReturningToMainMenu = true;
         Time.timeScale = 1f;
         dungeonMainMenuButton.SetEnabled(false);
+
+        DungeonAutosaveCoordinator autosave = FindFirstObjectByType<DungeonAutosaveCoordinator>();
+        if (autosave != null)
+        {
+            DungeonEncounterRuntimeController runtime =
+                FindFirstObjectByType<DungeonEncounterRuntimeController>();
+            while (runtime != null && runtime.HasActionInProgress)
+                yield return null;
+
+            DungeonSaveResult<DungeonRunSave> checkpoint = autosave.CheckpointCurrentFloor();
+            if (!checkpoint.IsSuccess)
+            {
+                ShowDungeonRunError("The dungeon run could not be saved. Try again.");
+                dungeonMainMenuButton.SetEnabled(true);
+                isReturningToMainMenu = false;
+                yield break;
+            }
+        }
+
         SceneTransitionManager.FadeAndLoad("MainMenuScene");
     }
 
