@@ -131,10 +131,11 @@ namespace Game.Rules.Unity
                 throw new ArgumentNullException(nameof(controller));
             ValidateTiles(tiles);
             UnityCombatRulesBridge bridge = new UnityCombatRulesBridge(
-                new[] { controller },
+                FindExplorationControllers(controller, tiles),
                 tiles,
                 false
             );
+            bridge.strideFriendshipProvider.AllowFriendlyTraversal = false;
             bridge.BeginTurn(bridge.GetCreatureId(controller), ActionCost.One.Amount);
             return bridge;
         }
@@ -616,6 +617,7 @@ namespace Game.Rules.Unity
 
         private sealed class UnityTeamStrideFriendshipProvider : IStrideFriendshipProvider
         {
+            internal bool AllowFriendlyTraversal { get; set; } = true;
             private readonly Dictionary<PlayerId, string> teamNames = new();
 
             public void Register(PlayerId player, string teamName) =>
@@ -624,6 +626,8 @@ namespace Game.Rules.Unity
             /// <inheritdoc/>
             public bool IsFriendly(PlayerId mover, PlayerId occupant)
             {
+                if (!AllowFriendlyTraversal)
+                    return false;
                 if (
                     teamNames.TryGetValue(mover, out string moverTeam)
                     && teamNames.TryGetValue(occupant, out string occupantTeam)
@@ -729,6 +733,25 @@ namespace Game.Rules.Unity
                 }
                 return default;
             }
+        }
+
+        private static ActionController[] FindExplorationControllers(
+            ActionController leader,
+            Tile[,] tiles
+        )
+        {
+            return tiles
+                .Cast<Tile>()
+                .Where(tile => tile != null)
+                .SelectMany(tile => tile.Occupants)
+                .Where(occupant => occupant != null)
+                .Select(occupant => occupant.GetComponent<ActionController>())
+                .Where(controller =>
+                    controller != null && controller.GetComponent<CreatureComponent>() != null
+                )
+                .Prepend(leader)
+                .Distinct()
+                .ToArray();
         }
     }
 }

@@ -405,6 +405,51 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
+    /// Verifies exploration selection rejects a follower-occupied square before rules commit it.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator RulesBackedExplorationStrideRejectsFollowerOccupiedDestination()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(2, 0, 2), new Vector3Int(2, 0, 1) }
+        );
+        Track(new GameObject("Rules Stride Occupancy Test Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        TestActionController leader = fixture.Party[0].Controller;
+        RulesStrideAction stride = new RulesStrideAction();
+        leader.AddAction(stride);
+        Vector3Int from = Vector3Int.RoundToInt(leader.transform.position);
+        Vector3Int destination = Vector3Int.RoundToInt(
+            fixture.Party[1].GameObject.transform.position
+        );
+        LogAssert.Expect(
+            LogType.Warning,
+            "Stride selection failed: A selection resolver returned a value outside the request."
+        );
+
+        leader.TakeAction(
+            stride,
+            new FixedMovementPathResolver(
+                new MovementPath(
+                    new GridPosition(from.x, from.y, from.z),
+                    new[] { new GridPosition(destination.x, destination.y, destination.z) }
+                )
+            )
+        );
+        int remainingFrames = 120;
+        while (leader.IsTakingAction && remainingFrames-- > 0)
+            yield return null;
+
+        Assert.That(
+            leader.IsTakingAction,
+            Is.False,
+            "The rejected exploration Stride did not finish."
+        );
+        Assert.That(manager.IsCombatActive, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(2, 2), new DungeonCell(2, 1));
+    }
+
+    /// <summary>
     /// Verifies adjacent exploration doors open for free, immediately update topology and visuals,
     /// capture in ordinal order, and publish exactly one event per committed door.
     /// </summary>
