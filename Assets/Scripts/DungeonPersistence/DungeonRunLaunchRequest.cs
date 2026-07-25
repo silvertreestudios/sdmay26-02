@@ -165,7 +165,7 @@ namespace Game.DungeonPersistence
 
             DungeonSaveDiagnostic diagnostic = loaded.Diagnostics[0];
             return new DungeonRunMenuStatus(
-                true,
+                diagnostic.Code != DungeonSaveDiagnosticCode.MissingSave,
                 false,
                 0,
                 0,
