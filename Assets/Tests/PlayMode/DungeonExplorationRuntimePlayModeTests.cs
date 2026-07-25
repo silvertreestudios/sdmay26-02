@@ -1044,7 +1044,6 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             IsTurn = hasTurnAuthority;
             ActionPoints = actionPoints;
             Reacted = reacted;
-            StrikePenalty = strikePenalty;
         }
 
         /// <inheritdoc/>

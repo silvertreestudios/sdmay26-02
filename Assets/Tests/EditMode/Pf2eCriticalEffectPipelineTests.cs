@@ -225,12 +225,19 @@ namespace TestsCombat
                 traits = new List<string> { "deadly-d10" },
             };
 
-            StrikeWeapon action = new StrikeWeapon(1, shortbow, attacker);
+            StrikeProfile profile = new StrikeProfile(
+                new List<Dice> { shortbow.damage },
+                new List<DamageValue>()
+            )
+            {
+                Traits = shortbow.traits,
+                SourceInfo = AttackSourceInfo.FromWeapon(shortbow),
+            };
             StrikeResolutionContext context = BuildContext(
                 attacker,
                 target,
-                action.GetStrikeProfile().Traits,
-                action.GetStrikeProfile().SourceInfo
+                profile.Traits,
+                profile.SourceInfo
             );
 
             Assert.AreSame(attacker, context.AttackerObject);

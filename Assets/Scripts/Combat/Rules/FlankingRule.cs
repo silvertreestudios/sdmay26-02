@@ -125,16 +125,15 @@ namespace Game.Combat.Rules
             int reachFeet = 0;
             foreach (EntityAction action in controller.GetActions())
             {
-                if (action is StrikeWeapon weaponStrike)
+                if (action is RulesStrikeAction rulesStrike)
                 {
-                    if (!weaponStrike.IsRangedWeapon())
-                        reachFeet = Math.Max(reachFeet, weaponStrike.GetTargetRequest().ReachFeet);
+                    if (!rulesStrike.IsRanged)
+                        reachFeet = Math.Max(reachFeet, rulesStrike.Item.ReachFeet);
                     continue;
                 }
 
                 if (
-                    action is Unarmed
-                    || string.Equals(
+                    string.Equals(
                         action.ActionName,
                         "Unarmed Strike",
                         StringComparison.OrdinalIgnoreCase
@@ -213,9 +212,8 @@ namespace Game.Combat.Rules
             if (string.IsNullOrWhiteSpace(firstTeam) || string.IsNullOrWhiteSpace(secondTeam))
                 return false;
 
-            TeamRules teamRules = TeamRules.GetInstance();
             if (
-                teamRules == null
+                !TeamRules.TryGetInstance(out TeamRules teamRules)
                 || !teamRules.Contains(firstTeam)
                 || !teamRules.Contains(secondTeam)
             )

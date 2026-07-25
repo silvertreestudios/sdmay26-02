@@ -753,7 +753,7 @@ namespace Game.Creature
             return 0;
         }
 
-        public void SetAmmoQuantity(string ammoName, int quantity)
+        internal void SetAmmoQuantity(string ammoName, int quantity)
         {
             string key = NormalizeEquipmentKey(ammoName);
             for (int i = 0; i < _ammunition.Count; i++)
@@ -780,19 +780,6 @@ namespace Game.Creature
                 || GetAmmoQuantity(weapon.ammo) > 0;
         }
 
-        public bool ConsumeAmmoFor(EquipmentWeapon weapon)
-        {
-            if (weapon == null || string.IsNullOrWhiteSpace(weapon.ammo))
-                return true;
-
-            int quantity = GetAmmoQuantity(weapon.ammo);
-            if (quantity <= 0)
-                return false;
-
-            SetAmmoQuantity(weapon.ammo, quantity - 1);
-            return true;
-        }
-
         public bool IsWeaponLoaded(EquipmentWeapon weapon)
         {
             if (weapon == null || GetReloadCost(weapon) <= 0)
@@ -800,23 +787,20 @@ namespace Game.Creature
             return !_unloadedWeapons.Contains(NormalizeEquipmentKey(weapon.name));
         }
 
-        public void MarkWeaponFired(EquipmentWeapon weapon)
+        /// <summary>
+        /// Projects a rules-owned loaded state into the serialized Unity equipment view.
+        /// </summary>
+        /// <param name="weapon">The weapon whose presentation state changed.</param>
+        /// <param name="isLoaded">The authoritative loaded state after commitment.</param>
+        internal void ProjectWeaponLoaded(EquipmentWeapon weapon, bool isLoaded)
         {
             if (weapon == null || GetReloadCost(weapon) <= 0)
                 return;
-
             string key = NormalizeEquipmentKey(weapon.name);
-            if (!_unloadedWeapons.Contains(key))
+            if (isLoaded)
+                _unloadedWeapons.Remove(key);
+            else if (!_unloadedWeapons.Contains(key))
                 _unloadedWeapons.Add(key);
-        }
-
-        public bool ReloadWeapon(EquipmentWeapon weapon)
-        {
-            if (weapon == null || GetReloadCost(weapon) <= 0 || !HasAmmoFor(weapon))
-                return false;
-
-            _unloadedWeapons.Remove(NormalizeEquipmentKey(weapon.name));
-            return true;
         }
 
         public int GetReloadCost(EquipmentWeapon weapon)
@@ -911,7 +895,7 @@ namespace Game.Creature
         }
 
         /// <summary>
-        /// Prepares derived character state and adds default strikes and spells exactly once.
+        /// Prepares derived character state and adds encounter-independent actions exactly once.
         /// </summary>
         /// <remarks>
         /// Runtime encounter materialization calls this before initiative can select a newly
@@ -937,8 +921,6 @@ namespace Game.Creature
             runtimeActionsInitialized = true;
             if (Prepared != null && Prepared.HasOwnedItem("rage"))
                 actionController.AddAction(new RulesRageAction());
-            Unarmed.AddUnarmedStrike(gameObject);
-            StrikeWeapon.WeaponStrikeAdderAutomatic(gameObject);
             CastSpellAction.AddSpellActions(gameObject);
         }
 

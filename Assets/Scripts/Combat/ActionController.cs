@@ -26,7 +26,11 @@ public abstract class ActionController : MonoBehaviour
     [field: SerializeField]
     public uint ActionPoints { get; set; }
     public bool Reacted { get; set; }
-    public uint StrikePenalty { get; set; } = 0;
+
+    /// <summary>
+    /// Gets the rules-owned number of attacks already made this turn for UI and diagnostics.
+    /// </summary>
+    public uint StrikePenalty => checked((uint)UnityAttackStateAdapter.GetAttackCount(this));
 
     //Events
     public OnResetActionPoints ResetActionPointsEvent { get; protected set; } = new();
@@ -53,7 +57,6 @@ public abstract class ActionController : MonoBehaviour
             combatRules.BeginTurn(rulesCreatureId, checked((int)newActionPoints.Value));
             SyncActionPointsFromRules();
         }
-        StrikePenalty = 0;
         SpellEffectController.ExpireAtStartOfTurn(gameObject);
     }
 
@@ -73,7 +76,6 @@ public abstract class ActionController : MonoBehaviour
         IsTakingAction = false;
         ActionPoints = 0;
         Reacted = false;
-        StrikePenalty = 0;
     }
 
     /// <summary>Spends actions through the encounter store when combat rules are attached.</summary>

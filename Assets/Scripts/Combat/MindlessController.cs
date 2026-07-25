@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using Game.Creature;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Strikes;
 using GridPrivate;
@@ -239,6 +240,8 @@ public class MindlessController : AIActionController
 
     private EntityAction BestLegalStrike(string myTeam)
     {
+        if (!TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor))
+            return null;
         EntityAction bestAction = null;
         GameObject bestTarget = null;
         float bestDamage = 0;
@@ -253,13 +256,19 @@ public class MindlessController : AIActionController
 
             foreach (EntityAction action in Actions)
             {
-                if (action is not StrikeWeapon strikeWeapon || !strikeWeapon.IsUsableBy(gameObject))
+                if (
+                    action is not RulesStrikeAction strike
+                    || !strike.IsAvailable(this)
+                    || target.GetComponent<CreatureComponent>()
+                        is not CreatureComponent targetCreature
+                )
                     continue;
 
-                if (!strikeWeapon.CanStrikeTarget(gameObject, target, Tiles))
+                CreatureId targetId = bridge.GetCreatureId(targetCreature);
+                if (!strike.CanPreviewTarget(bridge.Snapshot, actor, targetId))
                     continue;
 
-                float damage = strikeWeapon.GetStrikeProfile().GetAverageDamage();
+                float damage = (float)strike.AverageDamage;
                 if (damage > bestDamage)
                 {
                     bestDamage = damage;

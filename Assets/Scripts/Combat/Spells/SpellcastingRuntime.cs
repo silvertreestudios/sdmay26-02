@@ -4,6 +4,7 @@ using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
+using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
@@ -141,7 +142,7 @@ namespace Game.Combat.Spells
             {
                 controller.SpendActions(context.ActionCost);
                 if (context.Definition.AppliesMultipleAttackPenalty(context))
-                    controller.StrikePenalty += 1;
+                    UnityAttackStateAdapter.Advance(controller);
                 controller.IsTakingAction = false;
             }
             result.Success = true;

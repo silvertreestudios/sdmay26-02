@@ -4,6 +4,8 @@ using System.Reflection;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules.Unity;
+using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
@@ -121,7 +123,7 @@ public class Pf2eClericSpellcastingTests
 
         CastSpellResult result = Cast("guidance", cleric, 1, ally.gameObject);
 
-        Assert.That(result.Success, Is.True);
+        Assert.That(result.Success, Is.True, result.Message);
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(1));
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(0));
         Assert.That(
@@ -224,17 +226,26 @@ public class Pf2eClericSpellcastingTests
     {
         CreatureComponent cleric = CreatePreparedCleric();
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
-        controller.ActionPoints = 3;
         controller.IsTakingAction = true;
         CreatureComponent target = CreateCreature("Target", 100, 100);
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
         target.transform.position = new Vector3(6, 0, 0);
         target.ac = 12;
+        Tile[,] tiles = new Tile[7, 1];
+        for (int x = 0; x < tiles.GetLength(0); x++)
+            tiles[x, 0] = new Tile();
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, targetController },
+            tiles
+        );
+        bridge.BeginTurn(bridge.GetCreatureId(cleric), 3);
         UnityEngine.Random.InitState(3);
         InstallTestCombatLog();
 
         CastSpellResult result = Cast("divine-lance", cleric, 2, target.gameObject);
 
-        Assert.That(result.Success, Is.True);
+        Assert.That(result.Success, Is.True, result.Message);
         Assert.That(controller.ActionPoints, Is.EqualTo(1));
         Assert.That(controller.StrikePenalty, Is.EqualTo(1));
     }

@@ -283,12 +283,14 @@ namespace Game.Rules.Runtime
         public ItemDefinitionId DefinitionId { get; }
         public CreatureId Holder { get; }
         public bool IsWielded { get; }
+        public bool IsLoaded { get; }
 
         public EquipmentState(
             ItemId id,
             ItemDefinitionId definitionId,
             CreatureId holder,
-            bool isWielded
+            bool isWielded,
+            bool isLoaded = true
         )
         {
             if (id.IsEmpty)
@@ -304,6 +306,7 @@ namespace Game.Rules.Runtime
             DefinitionId = definitionId;
             Holder = holder;
             IsWielded = isWielded;
+            IsLoaded = isLoaded;
         }
 
         public bool Equals(EquipmentState other) =>
@@ -311,10 +314,12 @@ namespace Game.Rules.Runtime
             && Id == other.Id
             && DefinitionId == other.DefinitionId
             && Holder == other.Holder
-            && IsWielded == other.IsWielded;
+            && IsWielded == other.IsWielded
+            && IsLoaded == other.IsLoaded;
 
         public override bool Equals(object obj) => obj is EquipmentState other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine(Id, DefinitionId, Holder, IsWielded);
+        public override int GetHashCode() =>
+            HashCode.Combine(Id, DefinitionId, Holder, IsWielded, IsLoaded);
     }
 }

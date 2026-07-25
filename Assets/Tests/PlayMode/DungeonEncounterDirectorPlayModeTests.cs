@@ -186,7 +186,6 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         survivor.transform.position = new Vector3(4f, 0f, 3f);
         survivorController.ActionPoints = 2;
         survivorController.Reacted = true;
-        survivorController.StrikePenalty = 2;
         survivorController.IsTakingAction = false;
 
         DungeonEncounterSuspensionResult suspension = director.EvaluatePartyRegions(

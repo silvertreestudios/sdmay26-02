@@ -956,7 +956,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task IgnoredListenerDispatchFailureAfterPriorAwaitIsPropagated()
+        public void IgnoredListenerDispatchFailureAfterPriorAwaitIsPropagated()
         {
             YieldingIgnoringFailingDispatchListener listener =
                 new YieldingIgnoringFailingDispatchListener();

@@ -5,6 +5,8 @@ using System.Reflection;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
+using Game.Rules.Unity;
+using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
@@ -408,6 +410,16 @@ public sealed class DungeonEncounterMaterializerTests
         Assert.That(instance.transform.position, Is.EqualTo(new Vector3(3f, 0f, 9f)));
         Assert.That(instance.GetComponent<TestActionController>(), Is.Not.Null);
         Assert.That(instance.GetComponent<CreatureComponent>().name, Is.EqualTo("Goblin Warrior"));
+        Tile[,] tiles = new Tile[10, 10];
+        for (int x = 0; x < tiles.GetLength(0); x++)
+        {
+            for (int z = 0; z < tiles.GetLength(1); z++)
+                tiles[x, z] = new Tile();
+        }
+        UnityCombatRulesBridge.Create(
+            new ActionController[] { instance.GetComponent<TestActionController>() },
+            tiles
+        );
         Assert.That(instance.GetComponent<TestActionController>().GetActions(), Is.Not.Empty);
         Assert.That(
             instance.GetComponent<Team>().Name,
