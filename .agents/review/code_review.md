@@ -32,6 +32,17 @@ When PF2e behavior or runtime data changes, inspect:
 - JSON shape, DTO conversion, defaults, missing or malformed fields, `Resources.Load` paths, data-driven versus hardcoded content, and compatibility with existing data files.
 - ORC provenance and the boundary between open rules mechanics and protected lore, prose, art, or trade dress.
 
+Also inspect feature ownership boundaries:
+
+- Shared bridges, managers, dispatchers, facades, and catalogs should not acquire feature-named
+  methods, fields, caches, trigger flags, or condition switches. Prefer feature-owned Ops, handlers,
+  listeners, selectors, and adapters over general-purpose helpers that know one feature's rules.
+- Distinguish allowed composition from leaked behavior. A composition root may register a feature
+  module or seed its bindings, but it should not reproduce that feature's validation or workflow.
+- Require each new horizontal API to be necessary for the current vertical slice and expressed
+  without feature terminology. Check whether a feature can construct a generic Op, listen to a
+  generic Fact, or query its own selector before accepting shared infrastructure.
+
 ## UI, scenes, and assets
 
 When UI or serialized Unity content changes, inspect:

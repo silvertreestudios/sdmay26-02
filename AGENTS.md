@@ -86,6 +86,18 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
 - Update nearby XML documentation whenever existing code changes make it incomplete, inaccurate, or misleading.
 - Keep gameplay code in the existing assembly boundaries: `MainGameAssembly`, `EditModeAssembly`, and `PlayModeAssembly`.
 - Prefer small vertical changes with targeted EditMode tests first, then PlayMode smoke coverage for scene, UI, or MonoBehaviour behavior.
+- Default each rule, feat, spell, and action to a cohesive feature-owned module. That module should
+  own its feature-specific operations, validation, handlers, listeners, selectors, persistent state,
+  and Unity data extraction or presentation adapters. Feature ownership does not require putting all
+  of those responsibilities in one class.
+- Keep shared rules runtime, bridge, manager, and facade APIs feature-agnostic. A composition root may
+  name a feature to register its definitions or seed its bindings, but general-purpose classes must
+  not implement the feature's conditions or workflow. Avoid feature-named methods, fields, caches,
+  trigger flags, and switches when the feature can construct a generic operation, listen to a generic
+  Fact, or query its own selector.
+- Add horizontal/shared infrastructure only when the current vertical slice proves it necessary, and
+  keep that API free of feature terminology. See `Docs/Ops_Based_Rules_Proposal.md`, especially
+  "Feature modules own feature semantics."
 - Avoid introducing new singleton/static-event coupling. When refactoring combat or rules logic, add testable seams for dice/randomness, data loading, and combat math.
 - Keep PF2e calculations deterministic in tests. Save and restore Unity random state if a test touches random behavior.
 - During active development, do not add compatibility layers, schema/data version dispatch, or migrations for unshipped formats. Make coordinated breaking changes to code, data, fixtures, and tests unless a human explicitly requests compatibility.
