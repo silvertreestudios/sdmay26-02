@@ -204,6 +204,48 @@ public sealed class RulesStrikeUnityTests
     }
 
     [Test]
+    public void InstalledReloadCompletesWithoutCombatPresentationSingletons()
+    {
+        CreatureComponent archer = CreateCreature("Archer", "heroes", 20, 10);
+        EquipmentWeapon sling = new()
+        {
+            name = "Sling",
+            group = "sling",
+            category = "simple",
+            range = 50,
+            reload = "1",
+            ammo = "sling-bullets",
+            damage = new Dice(1, 6, "bludgeoning"),
+        };
+        archer.weapons = new List<EquipmentWeapon> { sling };
+        archer.unloadedWeapons = new List<string> { "sling" };
+        archer.SetAmmoQuantity("sling-bullets", 1);
+        TestActionController controller = archer.gameObject.AddComponent<TestActionController>();
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { controller },
+            CreateTiles(1),
+            new ScriptedRollService()
+        );
+        CreatureId actor = bridge.GetCreatureId(archer);
+        bridge.BeginTurn(actor, 3);
+        RulesReloadWeaponAction reload = controller
+            .GetActions()
+            .OfType<RulesReloadWeaponAction>()
+            .Single(candidate => candidate.ActionName == "Reload Sling");
+        controller.IsTakingAction = true;
+
+        Assert.That(CombatLog.TryGetInstance(out _), Is.False);
+        Assert.That(CombatManagerInterface.TryGetInstance(out _), Is.False);
+        Assert.That(reload.IsAvailable(controller), Is.True);
+        Assert.DoesNotThrow(() => reload.Invoke(archer.gameObject));
+
+        Assert.That(controller.ActionPoints, Is.EqualTo(2));
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(archer.IsWeaponLoaded(sling), Is.True);
+        Assert.That(reload.IsAvailable(controller), Is.False);
+    }
+
+    [Test]
     public void ValidMissDispatchPublishesMissWithoutDamageAndEmitsStructuredAttackLog()
     {
         CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);

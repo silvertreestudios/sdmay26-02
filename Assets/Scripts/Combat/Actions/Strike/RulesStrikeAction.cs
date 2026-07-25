@@ -175,8 +175,11 @@ namespace Game.Strikes
                 OpResult<ReloadOutcome> result = bridge.Dispatch(
                     new ReloadActionOp(actor, item.Item)
                 );
-                if (result is ResolvedOpResult<ReloadOutcome>)
-                    CombatLog.GetInstance().Log($"- {target.name} reloads {item.Label}.");
+                if (
+                    result is ResolvedOpResult<ReloadOutcome>
+                    && CombatLog.TryGetInstance(out CombatLogInterface log)
+                )
+                    log.Log($"- {target.name} reloads {item.Label}.");
                 else if (result is InvalidOpResult<ReloadOutcome> invalid)
                     Debug.LogWarning($"Reload was rejected: {invalid.Reason}", target);
             }
@@ -189,7 +192,8 @@ namespace Game.Strikes
                 if (controller != null)
                     controller.IsTakingAction = false;
                 OnActionComplete.Invoke();
-                CombatManager.GetInstance().CheckForEndOfGame();
+                if (CombatManagerInterface.TryGetInstance(out CombatManagerInterface combatManager))
+                    combatManager.CheckForEndOfGame();
                 OnGameplayStateCommitted.Invoke();
             }
         }
