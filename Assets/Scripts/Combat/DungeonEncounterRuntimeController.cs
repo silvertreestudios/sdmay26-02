@@ -54,6 +54,7 @@ namespace Game.Combat.Encounters
         private readonly HashSet<ActionController> livingPartySet = new();
         private readonly List<ActionController> stalePartyObservations = new();
         private readonly HashSet<int> occupiedRooms = new();
+        private readonly HashSet<int> doorRevealedEncounterRooms = new();
         private readonly Dictionary<ActionController, int> currentRoomByParty = new();
         private readonly List<Vector3> livingPartyPositions = new();
         private readonly Dictionary<DungeonCell, DungeonDoorController> doorsByCell = new();
@@ -441,6 +442,7 @@ namespace Game.Combat.Encounters
 
                 currentRoomByParty.Add(partyMember, currentRoom);
                 occupiedRooms.Add(currentRoom);
+                doorRevealedEncounterRooms.Remove(currentRoom);
                 bool roomChanged =
                     !previousRoomByParty.TryGetValue(partyMember, out int previousRoom)
                     || previousRoom != currentRoom;
@@ -490,6 +492,11 @@ namespace Game.Combat.Encounters
                 && combatManager.IsCombatActive
             )
             {
+                doorRevealedEncounterRooms.RemoveWhere(roomId =>
+                    director.Lifecycle.GetRoomEncounter(roomId).State
+                    != DungeonEncounterGroupState.Active
+                );
+                occupiedRooms.UnionWith(doorRevealedEncounterRooms);
                 director.EvaluatePartyRegions(livingPartyBuffer.Count, occupiedRooms);
             }
         }
@@ -570,6 +577,7 @@ namespace Game.Combat.Encounters
             livingPartySet.Clear();
             stalePartyObservations.Clear();
             occupiedRooms.Clear();
+            doorRevealedEncounterRooms.Clear();
             currentRoomByParty.Clear();
             livingPartyPositions.Clear();
             doorsByCell.Clear();
@@ -875,8 +883,17 @@ namespace Game.Combat.Encounters
                     .OrderBy(room => room.Id)
             )
             {
-                if (RoomIntersects(room, reached))
-                    director.EnterRoom(room.Id);
+                if (!RoomIntersects(room, reached))
+                    continue;
+
+                DungeonRoomEntryResult result = director.EnterRoom(room.Id);
+                if (result.StartsCombat)
+                {
+                    // The normal room-occupancy suspension rule must not undo a door-triggered
+                    // engagement before either side can act. Once a PC enters the revealed room,
+                    // ordinary encounter-region suspension owns the fight again.
+                    doorRevealedEncounterRooms.Add(room.Id);
+                }
             }
         }
 

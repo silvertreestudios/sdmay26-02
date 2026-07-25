@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Game.Combat.Encounters;
@@ -612,7 +613,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             Is.Empty
         );
 
-        Assert.That(fixture.Runtime.TryOpenDoor(door.Cell), Is.True);
+        RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), door.Cell);
 
         DungeonEncounterMember enemy = fixture
             .Runtime.GetComponentsInChildren<DungeonEncounterMember>(true)
@@ -620,7 +621,71 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(CellOf(enemy.gameObject), Is.EqualTo(new DungeonCell(15, 5)));
         AssertPartyCells(fixture, new DungeonCell(9, 5), new DungeonCell(7, 5));
-        yield break;
+        yield return null;
+
+        Assert.That(
+            manager.IsCombatActive,
+            Is.True,
+            "Door-revealed combat must remain active before a PC crosses the room boundary."
+        );
+    }
+
+    /// <summary>
+    /// Verifies a door opened during combat immediately adds the connected room's living enemies
+    /// to the running encounter before a PC crosses the room boundary.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator OpeningDoorDuringCombatAddsConnectedRoomReinforcements()
+    {
+        DungeonRoom firstRoom = new(1, 1, 1, 9, 9);
+        DungeonRoom secondRoom = new(2, 11, 1, 21, 9);
+        DoorSpec door = new("reinforcement-door", new DungeonCell(10, 5));
+        DungeonEncounterPlan firstEncounter = new(
+            "active-encounter",
+            firstRoom.Id,
+            DungeonEncounterThreat.Low,
+            40,
+            new[] { new DungeonCell(5, 5) },
+            new[] { "goblin-warrior" }
+        );
+        DungeonEncounterPlan secondEncounter = new(
+            "reinforcement-encounter",
+            secondRoom.Id,
+            DungeonEncounterThreat.Low,
+            40,
+            new[] { new DungeonCell(15, 5) },
+            new[] { "goblin-warrior" }
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(9, 0, 5), new Vector3Int(7, 0, 5) },
+            doors: new[] { door },
+            rooms: new[] { firstRoom, secondRoom },
+            encounterPlans: new[] { firstEncounter, secondEncounter },
+            configurePartyBeforeInitialization: party =>
+                party[0].GetComponent<CreatureComponent>().initiative = 1000,
+            customGridData: TwoRoomEncounterGrid()
+        );
+        yield return null;
+
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            fixture.Runtime.Lifecycle.GetRoomEncounter(secondRoom.Id).State,
+            Is.EqualTo(DungeonEncounterGroupState.Dormant)
+        );
+
+        RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), door.Cell);
+
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            fixture.Runtime.Lifecycle.GetRoomEncounter(secondRoom.Id).State,
+            Is.EqualTo(DungeonEncounterGroupState.Active)
+        );
+        Assert.That(
+            fixture
+                .Runtime.GetComponentsInChildren<DungeonEncounterMember>(true)
+                .Count(member => member.IsConfigured),
+            Is.EqualTo(2)
+        );
     }
 
     /// <summary>
@@ -1016,6 +1081,17 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     {
         Vector3Int position = Vector3Int.RoundToInt(owner.transform.position);
         return new DungeonCell(position.x, position.z);
+    }
+
+    private static void RaiseGridCellClick(GridInput input, DungeonCell cell)
+    {
+        FieldInfo clickedField = typeof(GridInput).GetField(
+            "CellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(clickedField, Is.Not.Null);
+        Action<Vector3Int> clicked = (Action<Vector3Int>)clickedField.GetValue(input);
+        clicked(new Vector3Int(cell.X, 0, cell.Z));
     }
 
     private static int ChebyshevDistance(Vector3 first, Vector3 second)

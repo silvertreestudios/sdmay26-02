@@ -183,6 +183,9 @@ namespace Game.DungeonPersistence
         private GridInput gridInput;
         private int width;
         private int height;
+        private bool hasDeferredConfirmedStairTraversal;
+        private int deferredStairDepth;
+        private string deferredStairId = string.Empty;
 
         /// <summary>Gets whether the controller owns a stable current floor.</summary>
         public bool IsInitialized { get; private set; }
@@ -288,8 +291,9 @@ namespace Game.DungeonPersistence
         }
 
         /// <summary>
-        /// Presents eligibility and confirmation for a live stair, then traverses only after the
-        /// presenter explicitly confirms.
+        /// Presents eligibility and confirmation for a live stair. A confirmed request traverses
+        /// synchronously when the runtime is stable; confirmation during action cleanup is retained
+        /// and revalidated against the live stair before traversal.
         /// </summary>
         /// <param name="stair">The selected marker belonging to the current reusable map.</param>
         public void RequestUseStair(DungeonStairMarker stair)
@@ -358,7 +362,24 @@ namespace Game.DungeonPersistence
                 );
                 return;
             }
-            _ = TryUseStair(currentMarker, confirmed && prompt.CanConfirm);
+            bool approved = confirmed && prompt.CanConfirm;
+            DungeonTravelResult result = TryUseStair(currentMarker, approved);
+            if (
+                approved
+                && !result.IsSuccess
+                && result.Diagnostics.Count == 1
+                && result.Diagnostics[0].Code == DungeonTravelDiagnosticCode.RuntimeBusy
+                && !combatManager.IsCombatActive
+                && runtime.HasActionInProgress
+                && requestedDepth == CurrentDepth
+            )
+            {
+                // Confirmation is final even when it races the tail of an exploration action.
+                // Update rematches the live endpoint before spending that approval.
+                hasDeferredConfirmedStairTraversal = true;
+                deferredStairDepth = requestedDepth;
+                deferredStairId = requestedId;
+            }
         }
 
         /// <summary>Attempts a confirmed full-party transition through a generated stair.</summary>
@@ -531,11 +552,55 @@ namespace Game.DungeonPersistence
             );
         }
 
+        private void Update()
+        {
+            if (!hasDeferredConfirmedStairTraversal)
+                return;
+            if (
+                !IsInitialized
+                || combatManager.IsCombatActive
+                || deferredStairDepth != CurrentDepth
+            )
+            {
+                ClearDeferredConfirmedStairTraversal();
+                return;
+            }
+
+            DungeonStairMarker currentMarker = map.GetComponentsInChildren<DungeonStairMarker>(
+                    includeInactive: false
+                )
+                .SingleOrDefault(candidate =>
+                    string.Equals(candidate.StableId, deferredStairId, StringComparison.Ordinal)
+                );
+            DungeonLevelDocument current = autosave.LastCommittedSnapshot.GetFloor(CurrentDepth);
+            if (
+                currentMarker == null
+                || !TryMatchCurrentStair(currentMarker, current, out DungeonStair _)
+            )
+            {
+                ClearDeferredConfirmedStairTraversal();
+                return;
+            }
+            if (runtime.HasActionInProgress)
+                return;
+
+            ClearDeferredConfirmedStairTraversal();
+            _ = TryUseStair(currentMarker, confirmed: true);
+        }
+
+        private void ClearDeferredConfirmedStairTraversal()
+        {
+            hasDeferredConfirmedStairTraversal = false;
+            deferredStairDepth = 0;
+            deferredStairId = string.Empty;
+        }
+
         private void OnDestroy()
         {
             if (gridInput != null)
                 gridInput.CellClicked -= OnGridCellClicked;
             stairPresentation?.DismissStairTraversal();
+            ClearDeferredConfirmedStairTraversal();
             IsInitialized = false;
         }
 

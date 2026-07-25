@@ -78,6 +78,78 @@ public sealed class DungeonProductionFlowPlayModeTests
         Assert.That(SceneTransitionManager.IsTransitioning, Is.False);
     }
 
+    /// <summary>
+    /// Confirms a stair during exploration-action cleanup and commits it after the runtime settles.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator DungeonHudConfirmTraversesRequestedStair()
+    {
+        string directory = TrackDirectory("hud-stair-confirm");
+        yield return LaunchNewRun(directory, "807239348");
+
+        DungeonRunController controller = RequireController();
+        DungeonStairMarker down = RequireStair(DungeonStairKind.Down);
+        int startingDepth = controller.CurrentDepth;
+        Assert.That(controller.StartingSeed, Is.EqualTo(807239348));
+        Assert.That(down.Cell, Is.EqualTo(new DungeonCell(13, 3)));
+        Assert.That(down.ArrivalCell, Is.EqualTo(new DungeonCell(13, 2)));
+        IReadOnlyDictionary<string, ActionController> partyByName = ProductionParty()
+            .ToDictionary(member => member.name, member => member, StringComparer.Ordinal);
+        partyByName["Lena"].transform.position = new Vector3(13f, 0f, 2f);
+        partyByName["Torgrim"].transform.position = new Vector3(13f, 0f, 1f);
+        partyByName["Lena"].IsTakingAction = true;
+        Physics.SyncTransforms();
+        yield return null;
+
+        controller.RequestUseStair(down);
+        yield return null;
+        Button confirm = Object
+            .FindObjectsByType<UIDocument>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
+            .Select(document => document.rootVisualElement.Q<Button>("DungeonStairConfirmButton"))
+            .FirstOrDefault(button => button != null);
+        Assert.That(confirm, Is.Not.Null);
+        VisualElement pointerTarget = confirm.panel.Pick(confirm.worldBound.center);
+        Assert.That(
+            pointerTarget == confirm || confirm.Contains(pointerTarget),
+            Is.True,
+            $"The stair Confirm button is covered by '{pointerTarget?.name}'."
+        );
+
+        ClickButtonWithPointer(confirm);
+        yield return null;
+
+        Assert.That(controller.CurrentDepth, Is.EqualTo(startingDepth));
+        Assert.That(
+            controller.LastDiagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.RuntimeBusy)
+        );
+        DungeonSaveResult<DungeonRunSave> busySave = new FileSystemDungeonSaveRepository(
+            directory
+        ).Load();
+        Assert.That(
+            busySave.IsSuccess,
+            Is.True,
+            string.Join(" ", busySave.Diagnostics.Select(item => item.Message))
+        );
+        Assert.That(busySave.Value.Manifest.CurrentDepth, Is.Zero);
+        Assert.That(busySave.Value.HasFloor(1), Is.False);
+
+        partyByName["Lena"].IsTakingAction = false;
+        yield return null;
+
+        Assert.That(controller.CurrentDepth, Is.EqualTo(startingDepth + 1));
+        DungeonSaveResult<DungeonRunSave> committed = new FileSystemDungeonSaveRepository(
+            directory
+        ).Load();
+        Assert.That(
+            committed.IsSuccess,
+            Is.True,
+            string.Join(" ", committed.Diagnostics.Select(item => item.Message))
+        );
+        Assert.That(committed.Value.Manifest.CurrentDepth, Is.EqualTo(1));
+        Assert.That(committed.Value.GetFloor(1), Is.Not.Null);
+    }
+
     /// <summary>Restores dungeon controls when another scene transition rejects the return request.</summary>
     [UnityTest]
     public IEnumerator DungeonHudRecoversWhenReturnTransitionIsRejected()
@@ -698,6 +770,35 @@ public sealed class DungeonProductionFlowPlayModeTests
         using NavigationSubmitEvent submit = NavigationSubmitEvent.GetPooled();
         submit.target = button;
         button.SendEvent(submit);
+    }
+
+    private static void ClickButtonWithPointer(Button button)
+    {
+        Assert.That(button, Is.Not.Null);
+        Vector2 position = button.worldBound.center;
+        Event pointerDownSource = new()
+        {
+            type = EventType.MouseDown,
+            mousePosition = position,
+            button = 0,
+            clickCount = 1,
+        };
+        using (PointerDownEvent pointerDown = PointerDownEvent.GetPooled(pointerDownSource))
+        {
+            pointerDown.target = button;
+            button.SendEvent(pointerDown);
+        }
+
+        Event pointerUpSource = new()
+        {
+            type = EventType.MouseUp,
+            mousePosition = position,
+            button = 0,
+            clickCount = 1,
+        };
+        using PointerUpEvent pointerUp = PointerUpEvent.GetPooled(pointerUpSource);
+        pointerUp.target = button;
+        button.SendEvent(pointerUp);
     }
 
     private static IEnumerator WaitForTransitionIdle()
