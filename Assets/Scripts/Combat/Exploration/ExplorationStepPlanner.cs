@@ -118,9 +118,9 @@ namespace Game.Combat.Exploration
         }
 
         /// <summary>
-        /// Gets moved members in execution order: leader first, then each follower selected by
-        /// cardinal proximity, then stable roster order, from members adjacent to its
-        /// predecessor's prior cell.
+        /// Gets moved members in execution order: leader first, then followers in trail order.
+        /// Adjacent followers consume their predecessor's prior cell; a separated follower takes
+        /// one adjacent catch-up step toward that trail, with stable roster order breaking ties.
         /// </summary>
         public IReadOnlyList<ExplorationMemberMove> Moves => moves;
 
@@ -141,9 +141,9 @@ namespace Game.Combat.Exploration
     }
 
     /// <summary>
-    /// Plans one adjacent leader move followed by a deterministic chain into each predecessor's
-    /// prior cell. Cardinal followers extend the existing trail before diagonal followers, and
-    /// stable roster order breaks ties within either group.
+    /// Plans one adjacent leader move followed by deterministic follower steps. Connected followers
+    /// consume predecessor cells, while followers separated during combat advance one adjacent cell
+    /// toward the trail. Cardinal proximity and then stable roster order resolve connected ties.
     /// </summary>
     public static class ExplorationStepPlanner
     {
@@ -193,19 +193,34 @@ namespace Game.Combat.Exploration
             while (followers.Count > 0)
             {
                 int followerIndex = FindFollowerIndex(followers, predecessorPriorCell);
-                if (followerIndex < 0 || !request.Availability.CanOccupy(predecessorPriorCell))
+                if (followerIndex < 0)
+                    followerIndex = FindClosestFollowerIndex(followers, predecessorPriorCell);
+
+                ExplorationPartyMember follower = followers[followerIndex];
+                DungeonCell followerDestination = predecessorPriorCell;
+                if (
+                    !AreAdjacent(follower.Cell, followerDestination)
+                    && !TryFindCatchUpStep(
+                        follower,
+                        predecessorPriorCell,
+                        request.Availability,
+                        resultingMembers,
+                        out followerDestination
+                    )
+                )
                 {
                     break;
                 }
+                if (!request.Availability.CanOccupy(followerDestination))
+                    break;
 
-                ExplorationPartyMember follower = followers[followerIndex];
                 moves.Add(
-                    new ExplorationMemberMove(follower.Id, follower.Cell, predecessorPriorCell)
+                    new ExplorationMemberMove(follower.Id, follower.Cell, followerDestination)
                 );
                 int rosterIndex = IndexOf(resultingMembers, follower.Id);
                 resultingMembers[rosterIndex] = new ExplorationPartyMember(
                     follower.Id,
-                    predecessorPriorCell
+                    followerDestination
                 );
                 predecessorPriorCell = follower.Cell;
                 followers.RemoveAt(followerIndex);
@@ -264,5 +279,72 @@ namespace Game.Combat.Exploration
             }
             return -1;
         }
+
+        private static int FindClosestFollowerIndex(
+            IReadOnlyList<ExplorationPartyMember> followers,
+            DungeonCell target
+        )
+        {
+            int selectedIndex = 0;
+            long selectedDistance = ChebyshevDistance(followers[0].Cell, target);
+            for (int index = 1; index < followers.Count; index++)
+            {
+                long distance = ChebyshevDistance(followers[index].Cell, target);
+                if (distance < selectedDistance)
+                {
+                    selectedIndex = index;
+                    selectedDistance = distance;
+                }
+            }
+            return selectedIndex;
+        }
+
+        private static bool TryFindCatchUpStep(
+            ExplorationPartyMember follower,
+            DungeonCell target,
+            IExplorationCellAvailability availability,
+            IReadOnlyList<ExplorationPartyMember> resultingMembers,
+            out DungeonCell destination
+        )
+        {
+            long currentDistance = ChebyshevDistance(follower.Cell, target);
+            DungeonCell[] candidates =
+            {
+                new(follower.Cell.X, follower.Cell.Z + 1),
+                new(follower.Cell.X + 1, follower.Cell.Z),
+                new(follower.Cell.X, follower.Cell.Z - 1),
+                new(follower.Cell.X - 1, follower.Cell.Z),
+                new(follower.Cell.X + 1, follower.Cell.Z + 1),
+                new(follower.Cell.X + 1, follower.Cell.Z - 1),
+                new(follower.Cell.X - 1, follower.Cell.Z - 1),
+                new(follower.Cell.X - 1, follower.Cell.Z + 1),
+            };
+            DungeonCell[] selected = candidates
+                .Where(candidate =>
+                    ChebyshevDistance(candidate, target) < currentDistance
+                    && availability.CanOccupy(candidate)
+                    && resultingMembers.All(member =>
+                        member.Id == follower.Id || member.Cell != candidate
+                    )
+                )
+                .OrderBy(candidate => ChebyshevDistance(candidate, target))
+                .ThenBy(candidate => ManhattanDistance(candidate, target))
+                .Take(1)
+                .ToArray();
+            if (selected.Length == 0)
+            {
+                destination = default;
+                return false;
+            }
+
+            destination = selected[0];
+            return true;
+        }
+
+        private static long ChebyshevDistance(DungeonCell first, DungeonCell second) =>
+            Math.Max(Math.Abs((long)first.X - second.X), Math.Abs((long)first.Z - second.Z));
+
+        private static long ManhattanDistance(DungeonCell first, DungeonCell second) =>
+            Math.Abs((long)first.X - second.X) + Math.Abs((long)first.Z - second.Z);
     }
 }

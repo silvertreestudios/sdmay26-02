@@ -478,7 +478,7 @@ public sealed class KayKitDungeonMapTests
     }
 
     [Test]
-    public void OpenDoorwayPrefab_UsesLeafFreeGeometryAndLeavesCenterPassageClear()
+    public void OpenDoorwayPrefab_UsesMatchingWallWithOpenLeafAndClearPassage()
     {
         KayKitDungeonCatalog catalog = AssetDatabase.LoadAssetAtPath<KayKitDungeonCatalog>(
             KayKitSetupTool.DungeonCatalogPath
@@ -488,7 +488,13 @@ public sealed class KayKitDungeonMapTests
             entry.Id.EndsWith("/wall_doorway", StringComparison.Ordinal)
         );
         Transform model = doorwayPrefab.transform.Find("Model");
+        Transform doorLeaf = model?.Find("wall_doorway_door");
         Assert.That(model, Is.Not.Null);
+        Assert.That(doorLeaf, Is.Not.Null);
+        Assert.That(
+            doorLeaf.localEulerAngles.y,
+            Is.EqualTo(KayKitDungeonSetupTool.OpenDoorLeafYaw).Within(0.001f)
+        );
         string[] meshPaths = model
             .GetComponentsInChildren<MeshFilter>(true)
             .Select(filter => AssetDatabase.GetAssetPath(filter.sharedMesh))
@@ -511,8 +517,9 @@ public sealed class KayKitDungeonMapTests
                 )
             ),
             Is.True,
-            $"Open doorway meshes must come from {KayKitDungeonSetupTool.OpenDoorwayModelName}, "
-                + $"not the closed wall_doorway model. Found: {string.Join(", ", meshPaths)}"
+            $"Open doorway meshes must come from the matching "
+                + $"{KayKitDungeonSetupTool.OpenDoorwayModelName} model. Found: "
+                + string.Join(", ", meshPaths)
         );
 
         GameObject instance = Track((GameObject)PrefabUtility.InstantiatePrefab(doorwayPrefab));

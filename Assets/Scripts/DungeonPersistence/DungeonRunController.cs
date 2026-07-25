@@ -165,6 +165,7 @@ namespace Game.DungeonPersistence
     [DisallowMultipleComponent]
     public sealed class DungeonRunController : MonoBehaviour
     {
+        private const int StairInteractionBufferCells = 2;
         private const string EncounterCatalogResource = "DataFiles/dungeon/encounter-enemies";
 
         private Map map;
@@ -309,7 +310,9 @@ namespace Game.DungeonPersistence
                 return;
             }
 
-            string[] missing = FindMissingLivingParty(current, documented);
+            string[] missing = runtime.IsExplorationActive
+                ? Array.Empty<string>()
+                : FindMissingLivingParty(current, documented);
             int targetDepth =
                 documented.Kind == DungeonStairKind.Down
                     ? CurrentDepth == int.MaxValue
@@ -384,7 +387,9 @@ namespace Game.DungeonPersistence
                     "Dungeon stair travel requires an inactive combat and no action in progress."
                 );
 
-            string[] missing = FindMissingLivingParty(current, documented);
+            string[] missing = runtime.IsExplorationActive
+                ? Array.Empty<string>()
+                : FindMissingLivingParty(current, documented);
             if (missing.Length > 0)
             {
                 DungeonTravelDiagnostic diagnostic = new(
@@ -993,7 +998,12 @@ namespace Game.DungeonPersistence
                 }
             }
             HashSet<DungeonCell> region = new(
-                DungeonStairInteractionRegion.SelectCells(document, stair, blocked, living.Length)
+                DungeonStairInteractionRegion.SelectCells(
+                    document,
+                    stair,
+                    blocked,
+                    living.Length + StairInteractionBufferCells
+                )
             );
             HashSet<DungeonCell> occupied = new();
             return living

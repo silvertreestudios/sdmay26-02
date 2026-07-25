@@ -89,6 +89,14 @@ namespace Game.Combat.Encounters
         /// <summary>Gets whether a party member or materialized enemy is completing an action.</summary>
         public bool HasActionInProgress => IsInitialized && director.HasActionInProgress;
 
+        /// <summary>Gets whether a living selected leader currently owns exploration movement.</summary>
+        public bool IsExplorationActive =>
+            IsInitialized
+            && !combatManager.IsCombatActive
+            && selectedLeader != null
+            && CanObserve(selectedLeader)
+            && selectedLeader.IsInDungeonExploration;
+
         /// <summary>Initializes pristine encounter state for a newly generated floor.</summary>
         /// <param name="document">The validated source document retained by the active map.</param>
         /// <param name="catalog">The validated runtime creature catalog.</param>
@@ -249,6 +257,7 @@ namespace Game.Combat.Encounters
         /// <remarks>
         /// Opening is free for any adjacent living party member during exploration and costs the
         /// current living PC exactly one action in combat. Generated doors are open-only in V1.
+        /// Any encounter room made reachable by the opened topology is revealed immediately.
         /// </remarks>
         public bool TryOpenDoor(DungeonCell doorCell)
         {
@@ -302,6 +311,7 @@ namespace Game.Combat.Encounters
             actor.SpendActions(decision.ActionCost);
             combatManager.RefreshRulesTopology();
             openDoorIds.Add(door.StableId);
+            EnterReachableEncounterRooms();
             DoorOpened(door.StableId);
             PersistentStateChanged();
             return true;
@@ -815,6 +825,90 @@ namespace Game.Combat.Encounters
                 return false;
             CreatureComponent creature = controller.GetComponent<CreatureComponent>();
             return creature == null || !creature.IsDefeated;
+        }
+
+        // Opening a door changes the party's connected exploration area immediately. Flood the
+        // live topology so every newly visible encounter room materializes before a PC enters it.
+
+        private void EnterReachableEncounterRooms()
+        {
+            Map map = GetComponentInParent<Map>();
+            if (map == null)
+                return;
+
+            TileType[,] topology = map.GetMapData();
+            HashSet<DungeonCell> reached = new();
+            Queue<DungeonCell> pending = new();
+            foreach (ActionController partyMember in party.Where(CanObserve))
+            {
+                Vector3Int position = Vector3Int.RoundToInt(partyMember.transform.position);
+                DungeonCell cell = new(position.x, position.z);
+                if (
+                    IsInBounds(topology, cell)
+                    && IsExplorationTraversalCell(topology[cell.X, cell.Z])
+                    && reached.Add(cell)
+                )
+                {
+                    pending.Enqueue(cell);
+                }
+            }
+
+            while (pending.Count > 0)
+            {
+                DungeonCell current = pending.Dequeue();
+                foreach (DungeonCell neighbor in CardinalNeighbors(current))
+                {
+                    if (
+                        IsInBounds(topology, neighbor)
+                        && IsExplorationTraversalCell(topology[neighbor.X, neighbor.Z])
+                        && reached.Add(neighbor)
+                    )
+                    {
+                        pending.Enqueue(neighbor);
+                    }
+                }
+            }
+
+            foreach (
+                DungeonRoom room in rooms
+                    .Where(room => encounterRoomIds.Contains(room.Id))
+                    .OrderBy(room => room.Id)
+            )
+            {
+                if (RoomIntersects(room, reached))
+                    director.EnterRoom(room.Id);
+            }
+        }
+
+        private static IEnumerable<DungeonCell> CardinalNeighbors(DungeonCell cell)
+        {
+            yield return new DungeonCell(cell.X, cell.Z + 1);
+            yield return new DungeonCell(cell.X + 1, cell.Z);
+            yield return new DungeonCell(cell.X, cell.Z - 1);
+            yield return new DungeonCell(cell.X - 1, cell.Z);
+        }
+
+        private static bool IsInBounds(TileType[,] topology, DungeonCell cell) =>
+            cell.X >= 0
+            && cell.Z >= 0
+            && cell.X < topology.GetLength(0)
+            && cell.Z < topology.GetLength(1);
+
+        private static bool IsExplorationTraversalCell(TileType tile) =>
+            tile == TileType.Ground || tile == TileType.Door;
+
+        private static bool RoomIntersects(DungeonRoom room, ISet<DungeonCell> reached)
+        {
+            for (int x = room.MinimumX; x <= room.MaximumX; x++)
+            {
+                for (int z = room.MinimumZ; z <= room.MaximumZ; z++)
+                {
+                    if (reached.Contains(new DungeonCell(x, z)))
+                        return true;
+                }
+            }
+
+            return false;
         }
     }
 }

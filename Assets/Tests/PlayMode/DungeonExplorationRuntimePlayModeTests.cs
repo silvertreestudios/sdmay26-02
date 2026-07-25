@@ -152,11 +152,11 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             new DungeonCell(3, 1),
             new DungeonCell(2, 1),
             new DungeonCell(2, 2),
-            new DungeonCell(1, 1)
+            new DungeonCell(2, 0)
         );
         for (int index = 0; index < fixture.Party.Count; index++)
         {
-            int distance = ManhattanDistance(
+            int distance = ChebyshevDistance(
                 beforeSelection[index],
                 fixture.Party[index].GameObject.transform.position
             );
@@ -581,6 +581,95 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
+    /// Verifies opening the separating door materializes and starts the connected room encounter
+    /// before any party member enters that room.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator OpeningDoorImmediatelyStartsEncounterInConnectedRoom()
+    {
+        DungeonRoom firstRoom = new(1, 1, 1, 9, 9);
+        DungeonRoom secondRoom = new(2, 11, 1, 21, 9);
+        DoorSpec door = new("reveal-door", new DungeonCell(10, 5));
+        DungeonEncounterPlan encounter = new(
+            "revealed-encounter",
+            secondRoom.Id,
+            DungeonEncounterThreat.Low,
+            40,
+            new[] { new DungeonCell(15, 5) },
+            new[] { "goblin-warrior" }
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(9, 0, 5), new Vector3Int(7, 0, 5) },
+            doors: new[] { door },
+            rooms: new[] { firstRoom, secondRoom },
+            encounterPlans: new[] { encounter },
+            customGridData: TwoRoomEncounterGrid()
+        );
+
+        Assert.That(manager.IsCombatActive, Is.False);
+        Assert.That(
+            fixture.Runtime.GetComponentsInChildren<DungeonEncounterMember>(true),
+            Is.Empty
+        );
+
+        Assert.That(fixture.Runtime.TryOpenDoor(door.Cell), Is.True);
+
+        DungeonEncounterMember enemy = fixture
+            .Runtime.GetComponentsInChildren<DungeonEncounterMember>(true)
+            .Single(member => member.IsConfigured);
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(CellOf(enemy.gameObject), Is.EqualTo(new DungeonCell(15, 5)));
+        AssertPartyCells(fixture, new DungeonCell(9, 5), new DungeonCell(7, 5));
+        yield break;
+    }
+
+    /// <summary>
+    /// Verifies a follower separated by combat resumes advancing toward the leader's trail on the
+    /// first exploration step after the connected encounter is defeated.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator CombatCompletionRestoresSeparatedFollowerCatchUp()
+    {
+        DungeonRoom firstRoom = new(1, 1, 1, 9, 9);
+        DungeonRoom secondRoom = new(2, 11, 1, 21, 9);
+        DoorSpec door = new("recovery-door", new DungeonCell(10, 5));
+        DungeonEncounterPlan encounter = new(
+            "recovery-encounter",
+            secondRoom.Id,
+            DungeonEncounterThreat.Low,
+            40,
+            new[] { new DungeonCell(15, 5) },
+            new[] { "goblin-warrior" }
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(9, 0, 5), new Vector3Int(5, 0, 5) },
+            doors: new[] { door },
+            rooms: new[] { firstRoom, secondRoom },
+            encounterPlans: new[] { encounter },
+            customGridData: TwoRoomEncounterGrid()
+        );
+        Combatant leader = fixture.Party[0];
+
+        Assert.That(fixture.Runtime.TryOpenDoor(door.Cell), Is.True);
+        DungeonEncounterMember enemy = fixture
+            .Runtime.GetComponentsInChildren<DungeonEncounterMember>(true)
+            .Single(member => member.IsConfigured);
+        Assert.That(manager.IsCombatActive, Is.True);
+
+        manager.Remove(enemy.GetComponent<ActionController>());
+        enemy.ReportDefeated();
+        enemy.gameObject.SetActive(false);
+
+        Assert.That(manager.IsCombatActive, Is.False);
+        Assert.That(fixture.Runtime.IsExplorationActive, Is.True);
+        Ref<bool> continuePath = ExecuteExplorationStep(fixture, leader, new Vector3Int(8, 0, 5));
+
+        Assert.That(continuePath.Value, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(8, 5), new DungeonCell(6, 5));
+        yield break;
+    }
+
+    /// <summary>
     /// Verifies only the current living adjacent PC can open a combat door and that a committed
     /// interaction spends exactly one action.
     /// </summary>
@@ -929,11 +1018,11 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         return new DungeonCell(position.x, position.z);
     }
 
-    private static int ManhattanDistance(Vector3 first, Vector3 second)
+    private static int ChebyshevDistance(Vector3 first, Vector3 second)
     {
         Vector3Int firstCell = Vector3Int.RoundToInt(first);
         Vector3Int secondCell = Vector3Int.RoundToInt(second);
-        return Math.Abs(firstCell.x - secondCell.x) + Math.Abs(firstCell.z - secondCell.z);
+        return Math.Max(Math.Abs(firstCell.x - secondCell.x), Math.Abs(firstCell.z - secondCell.z));
     }
 
     private static TileType[,] GroundGrid(int width, int height)
@@ -1328,5 +1417,12 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                     data[x, z] = TileType.Ground;
             }
         }
+    }
+
+    private static TileType[,] TwoRoomEncounterGrid()
+    {
+        TileType[,] data = TwoRoomGrid();
+        data[data.GetLength(0) - 1, data.GetLength(1) - 1] = TileType.Ground;
+        return data;
     }
 }

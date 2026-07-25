@@ -83,6 +83,29 @@ namespace Game.Tests.Combat.Exploration
         }
 
         /// <summary>
+        /// Verifies a follower separated during combat advances one legal cell toward the leader's
+        /// trail as soon as exploration movement resumes.
+        /// </summary>
+        [Test]
+        public void Plan_SeparatedFollowerTakesCatchUpStepTowardLeaderTrail()
+        {
+            ExplorationPartyState party = Party("a", Member("a", 5, 2), Member("b", 1, 2));
+
+            AcceptedExplorationStepPlan plan = Accepted(
+                ExplorationStepPlanner.Plan(
+                    new ExplorationStepRequest(party, Cell(6, 2), OpenCells())
+                )
+            );
+
+            Assert.That(
+                plan.Moves.Select(move => move.MemberId.Value),
+                Is.EqualTo(new[] { "a", "b" })
+            );
+            Assert.That(Cells(plan.ResultingParty), Is.EqualTo(new[] { 6, 2, 2, 2 }));
+            AssertEveryMoveIsAdjacent(plan);
+        }
+
+        /// <summary>
         /// Verifies changing to a later roster member rebuilds a leader-relative trail without
         /// teleporting and keeps that trail connected over subsequent steps.
         /// </summary>
