@@ -196,6 +196,22 @@ namespace Game.Rules.Unity.Strike
         }
 
         /// <inheritdoc/>
+        public ActionValidationResult Validate(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            StrikeItemDefinition item,
+            CreatureId target,
+            LegalStrikeTargetingOutcome targeting
+        )
+        {
+            if (!creatures.TryGetValue(target, out CreatureComponent defender) || defender == null)
+                return ActionValidationResult.Invalid("The selected creature is unavailable.");
+            return ResolveArmorClass(defender, targeting) > 0
+                ? ActionValidationResult.Valid
+                : ActionValidationResult.Invalid("The target's Armor Class must be positive.");
+        }
+
+        /// <inheritdoc/>
         public StrikeResolutionData Capture(
             RulesSnapshot snapshot,
             CreatureId actor,
@@ -230,32 +246,11 @@ namespace Game.Rules.Unity.Strike
                 );
             }
 
-            List<Pf2eModifier> armorClassModifiers = new();
-            if (targeting.CoverBonus != 0)
-            {
-                armorClassModifiers.Add(
-                    new Pf2eModifier(
-                        targeting.CoverBonus,
-                        Pf2eModifierType.Circumstance,
-                        "Cover",
-                        Pf2eStatistic.ArmorClass
-                    )
-                );
-            }
-            if (targeting.OffGuard)
-            {
-                armorClassModifiers.Add(
-                    new Pf2eModifier(
-                        -2,
-                        Pf2eModifierType.Circumstance,
-                        "Off-guard",
-                        Pf2eStatistic.ArmorClass
-                    )
-                );
-            }
-
             return new StrikeResolutionData(
-                defender.ResolveArmorClass(armorClassModifiers).Total,
+                // Validation rejects an invalid AC before costs. If Unity-side presentation state
+                // changes after the action begins, keep resolution non-failing instead of turning
+                // that late adapter change into a partially committed Strike.
+                Math.Max(1, ResolveArmorClass(defender, targeting)),
                 attackModifiers,
                 prepared.DamageDice,
                 prepared.FlatDamage,
@@ -433,6 +428,37 @@ namespace Game.Rules.Unity.Strike
             if (!creatures.TryGetValue(id, out CreatureComponent creature) || creature == null)
                 throw new InvalidOperationException($"Creature '{id.Value}' is unavailable.");
             return creature;
+        }
+
+        private static int ResolveArmorClass(
+            CreatureComponent defender,
+            LegalStrikeTargetingOutcome targeting
+        )
+        {
+            List<Pf2eModifier> modifiers = new();
+            if (targeting.CoverBonus != 0)
+            {
+                modifiers.Add(
+                    new Pf2eModifier(
+                        targeting.CoverBonus,
+                        Pf2eModifierType.Circumstance,
+                        "Cover",
+                        Pf2eStatistic.ArmorClass
+                    )
+                );
+            }
+            if (targeting.OffGuard)
+            {
+                modifiers.Add(
+                    new Pf2eModifier(
+                        -2,
+                        Pf2eModifierType.Circumstance,
+                        "Off-guard",
+                        Pf2eStatistic.ArmorClass
+                    )
+                );
+            }
+            return defender.ResolveArmorClass(modifiers).Total;
         }
 
         private static Modifier ToRuntimeModifier(Pf2eModifier modifier) =>

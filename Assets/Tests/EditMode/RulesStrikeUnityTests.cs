@@ -196,6 +196,61 @@ public sealed class RulesStrikeUnityTests
         Assert.That(archer.IsWeaponLoaded(sling), Is.True);
     }
 
+    [Test]
+    public void InvalidArmorClassRejectsBeforeProjectingAnyStrikeMutation()
+    {
+        CreatureComponent archer = CreateCreature("Archer", "heroes", 20, 10);
+        EquipmentWeapon sling = new()
+        {
+            name = "Sling",
+            group = "sling",
+            category = "simple",
+            range = 50,
+            reload = "1",
+            ammo = "sling-bullets",
+            damage = new Dice(1, 6, "bludgeoning"),
+        };
+        archer.weapons = new List<EquipmentWeapon> { sling };
+        archer.SetAmmoQuantity("sling-bullets", 2);
+        CreatureComponent target = CreateCreature("Target", "enemies", 20, 0);
+        TestActionController archerController =
+            archer.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        Place(archer.gameObject, 0);
+        Place(target.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, archer.gameObject);
+        Occupy(tiles, target.gameObject);
+        ScriptedRollService rolls = new(20);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { archerController, targetController },
+            tiles,
+            rolls
+        );
+        CreatureId actor = bridge.GetCreatureId(archer);
+        CreatureId targetId = bridge.GetCreatureId(target);
+        bridge.BeginTurn(actor, 3);
+        RulesStrikeAction action = archerController
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(candidate => candidate.ActionName == "Sling");
+
+        OpResult<StrikeOutcome> result = bridge.Dispatch(
+            new StrikeActionOp(actor, action.Item.Item, targetId)
+        );
+
+        Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeOutcome>>());
+        Assert.That(((InvalidOpResult<StrikeOutcome>)result).Reason, Does.Contain("Armor Class"));
+        Assert.That(archerController.ActionPoints, Is.EqualTo(3));
+        Assert.That(archer.GetAmmoQuantity("sling-bullets"), Is.EqualTo(2));
+        Assert.That(archer.IsWeaponLoaded(sling), Is.True);
+        Assert.That(target.hp, Is.EqualTo(20));
+        Assert.That(archerController.StrikePenalty, Is.Zero);
+        Assert.That(rolls.Remaining, Is.EqualTo(1));
+        Assert.That(result.Facts, Is.Empty);
+    }
+
     private CreatureComponent Load(string path)
     {
         GameObject gameObject = CreatureJsonConverter.CreateFromFile(path);

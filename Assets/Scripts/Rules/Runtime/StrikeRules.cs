@@ -407,10 +407,26 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Freezes prepared character, effect, and defense values for one legal Strike.</summary>
+    /// <summary>
+    /// Validates and freezes prepared character, effect, and defense values for one legal Strike.
+    /// </summary>
     public interface IStrikeResolutionDataProvider
     {
-        /// <summary>Captures immutable calculation inputs after authoritative validation.</summary>
+        /// <summary>
+        /// Validates every resolution-data invariant that can reject the Strike before its costs
+        /// commit.
+        /// </summary>
+        ActionValidationResult Validate(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            StrikeItemDefinition item,
+            CreatureId target,
+            LegalStrikeTargetingOutcome targeting
+        );
+
+        /// <summary>
+        /// Captures immutable calculation inputs after <see cref="Validate"/> has accepted them.
+        /// </summary>
         StrikeResolutionData Capture(
             RulesSnapshot snapshot,
             CreatureId actor,
@@ -783,7 +799,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets Reload's stable definition ID.</summary>
         public static ActionDefinitionId DefinitionId { get; } = new ActionDefinitionId("reload");
 
-        /// <summary>Gets current Reload availability for one weapon.</summary>
+        /// <summary>Gets current Reload availability for one eligible actor and weapon.</summary>
         public ActionAvailability GetAvailability(
             RulesSnapshot snapshot,
             CreatureId actor,
@@ -794,6 +810,10 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(snapshot));
             if (item == null)
                 throw new ArgumentNullException(nameof(item));
+            if (!snapshot.Creatures.Contains(actor))
+                return ActionAvailability.Unavailable("The actor is not registered.");
+            if (!snapshot.Health.TryGet(actor, out HealthState health) || health.Current == 0)
+                return ActionAvailability.Unavailable("The actor cannot act.");
             if (item.ReloadActions == 0)
                 return ActionAvailability.Unavailable("The item does not require Reload.");
             if (
@@ -850,7 +870,9 @@ namespace Game.Rules.Runtime
                 .RegisterHandler<StrikeActionOp, StrikeOutcome>(
                     new StrikeActionHandler(catalog, targeting, resolutionData)
                 )
-                .RegisterActionValidator(new StrikeActionValidator(strike, catalog, targeting))
+                .RegisterActionValidator(
+                    new StrikeActionValidator(strike, catalog, targeting, resolutionData)
+                )
                 .RegisterHandler<ReloadActionOp, ReloadOutcome>(new ReloadActionHandler(catalog))
                 .RegisterActionValidator(new ReloadActionValidator(reload, catalog))
                 .RegisterHandler<RegisterStrikeCombatantOp, bool>(
@@ -883,16 +905,19 @@ namespace Game.Rules.Runtime
         private readonly StrikeActionDefinition definition;
         private readonly IStrikeActionCatalog catalog;
         private readonly IStrikeTargetingProvider targeting;
+        private readonly IStrikeResolutionDataProvider resolutionData;
 
         public StrikeActionValidator(
             StrikeActionDefinition definition,
             IStrikeActionCatalog catalog,
-            IStrikeTargetingProvider targeting
+            IStrikeTargetingProvider targeting,
+            IStrikeResolutionDataProvider resolutionData
         )
         {
             this.definition = definition;
             this.catalog = catalog;
             this.targeting = targeting;
+            this.resolutionData = resolutionData;
         }
 
         public ActionValidationResult Validate(
@@ -933,9 +958,15 @@ namespace Game.Rules.Runtime
                 item,
                 frame.Op.Target
             );
-            return result is InvalidStrikeTargetingOutcome invalid
-                ? ActionValidationResult.Invalid(invalid.Reason)
-                : ActionValidationResult.Valid;
+            if (result is InvalidStrikeTargetingOutcome invalid)
+                return ActionValidationResult.Invalid(invalid.Reason);
+            return resolutionData.Validate(
+                snapshot,
+                frame.Op.Actor,
+                item,
+                frame.Op.Target,
+                (LegalStrikeTargetingOutcome)result
+            );
         }
     }
 

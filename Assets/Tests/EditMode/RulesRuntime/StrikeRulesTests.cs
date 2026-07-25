@@ -96,13 +96,15 @@ namespace Game.Rules.Runtime.Tests
         {
             TestRuntime runtime = CreateRuntime(
                 new ScriptedRollService(10, 4),
-                resolutionData: new StrikeResolutionData(
-                    15,
-                    Array.Empty<Modifier>(),
-                    Array.Empty<StrikeDamageComponent>(),
-                    Array.Empty<StrikeFlatDamage>(),
-                    new[] { new StrikeDefenseAdjustment("slashing", 3) },
-                    new[] { new StrikeDefenseAdjustment("slashing", 1) }
+                resolutionDataProvider: new FixedResolutionDataProvider(
+                    new StrikeResolutionData(
+                        15,
+                        Array.Empty<Modifier>(),
+                        Array.Empty<StrikeDamageComponent>(),
+                        Array.Empty<StrikeFlatDamage>(),
+                        new[] { new StrikeDefenseAdjustment("slashing", 3) },
+                        new[] { new StrikeDefenseAdjustment("slashing", 1) }
+                    )
                 )
             );
 
@@ -134,6 +136,44 @@ namespace Game.Rules.Runtime.Tests
                 Is.Zero
             );
             Assert.That(runtime.Rolls.Remaining, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task InvalidArmorClassSpendsNothingAndDoesNotPartiallyResolveStrike()
+        {
+            StrikeItemDefinition ranged = CreateItem(
+                reloadActions: 1,
+                ammunition: StrikeAmmunitionRequirement.Required(Ammo)
+            );
+            TestRuntime runtime = CreateRuntime(
+                new ScriptedRollService(20),
+                ranged,
+                ammo: 2,
+                resolutionDataProvider: new InvalidArmorClassResolutionDataProvider()
+            );
+
+            OpResult<StrikeOutcome> result = await runtime.Dispatcher.Dispatch(
+                new StrikeActionOp(Actor, Weapon, Target)
+            );
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<StrikeOutcome>)result).Reason,
+                Does.Contain("Armor Class")
+            );
+            Assert.That(
+                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                Is.EqualTo(3)
+            );
+            Assert.That(runtime.Dispatcher.Snapshot.Ammunition[Ammo].Remaining, Is.EqualTo(2));
+            Assert.That(runtime.Dispatcher.Snapshot.Equipment[Weapon].IsLoaded, Is.True);
+            Assert.That(runtime.Dispatcher.Snapshot.Health[Target].Current, Is.EqualTo(20));
+            Assert.That(
+                runtime.Dispatcher.Snapshot.MultipleAttackPenalty[Actor].AttackCount,
+                Is.Zero
+            );
+            Assert.That(runtime.Rolls.Remaining, Is.EqualTo(1));
+            Assert.That(result.Facts, Is.Empty);
         }
 
         [Test]
@@ -226,20 +266,59 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(runtime.Dispatcher.Snapshot.Equipment[Weapon].IsLoaded, Is.False);
         }
 
+        [TestCase(false, 20, "not registered")]
+        [TestCase(true, 0, "cannot act")]
+        public async Task ReloadRejectsUnregisteredOrDefeatedActorWithoutMutation(
+            bool registerActor,
+            int actorHp,
+            string reason
+        )
+        {
+            StrikeItemDefinition ranged = CreateItem(
+                reloadActions: 1,
+                ammunition: StrikeAmmunitionRequirement.Required(Ammo)
+            );
+            TestRuntime runtime = CreateRuntime(
+                new ScriptedRollService(),
+                ranged,
+                ammo: 2,
+                loaded: false,
+                registerActor: registerActor,
+                actorHp: actorHp
+            );
+
+            OpResult<ReloadOutcome> result = await runtime.Dispatcher.Dispatch(
+                new ReloadActionOp(Actor, Weapon)
+            );
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<ReloadOutcome>>());
+            Assert.That(((InvalidOpResult<ReloadOutcome>)result).Reason, Does.Contain(reason));
+            Assert.That(
+                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                Is.EqualTo(3)
+            );
+            Assert.That(runtime.Dispatcher.Snapshot.Equipment[Weapon].IsLoaded, Is.False);
+            Assert.That(runtime.Dispatcher.Snapshot.Ammunition[Ammo].Remaining, Is.EqualTo(2));
+            Assert.That(result.Facts, Is.Empty);
+        }
+
         private static TestRuntime CreateRuntime(
             ScriptedRollService rolls,
             StrikeItemDefinition item = null,
             int targetHp = 20,
             int ammo = -1,
             bool loaded = true,
-            StrikeResolutionData resolutionData = null
+            IStrikeResolutionDataProvider resolutionDataProvider = null,
+            bool registerActor = true,
+            int actorHp = 20
         )
         {
             item ??= CreateItem();
-            RulesStateSeed seed = new RulesStateSeed()
-                .SeedCreature(new CreatureState(Actor, new PlayerId("players")))
-                .SeedCreature(new CreatureState(Target, new PlayerId("enemies")))
-                .SeedHealth(Actor, new HealthState(20, 20))
+            RulesStateSeed seed = new RulesStateSeed();
+            if (registerActor)
+                seed.SeedCreature(new CreatureState(Actor, new PlayerId("players")));
+            seed.SeedCreature(new CreatureState(Target, new PlayerId("enemies")))
+                .SeedHealth(Actor, new HealthState(actorHp, 20))
                 .SeedHealth(Target, new HealthState(targetHp, targetHp))
                 .SeedActionEconomy(Actor, new ActionEconomyState(3, true))
                 .SeedActionEconomy(Target, new ActionEconomyState(0, true))
@@ -250,9 +329,10 @@ namespace Game.Rules.Runtime.Tests
 
             TestCatalog catalog = new TestCatalog(item);
             TestTargeting targeting = new TestTargeting();
-            FixedResolutionDataProvider data = new FixedResolutionDataProvider(
-                resolutionData
-                    ?? new StrikeResolutionData(
+            IStrikeResolutionDataProvider data =
+                resolutionDataProvider
+                ?? new FixedResolutionDataProvider(
+                    new StrikeResolutionData(
                         15,
                         Array.Empty<Modifier>(),
                         Array.Empty<StrikeDamageComponent>(),
@@ -260,7 +340,7 @@ namespace Game.Rules.Runtime.Tests
                         Array.Empty<StrikeDefenseAdjustment>(),
                         Array.Empty<StrikeDefenseAdjustment>()
                     )
-            );
+                );
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
                 new InMemoryRulesStore(seed),
                 rolls
@@ -354,6 +434,14 @@ namespace Game.Rules.Runtime.Tests
 
             public FixedResolutionDataProvider(StrikeResolutionData data) => this.data = data;
 
+            public ActionValidationResult Validate(
+                RulesSnapshot snapshot,
+                CreatureId actor,
+                StrikeItemDefinition item,
+                CreatureId target,
+                LegalStrikeTargetingOutcome targeting
+            ) => ActionValidationResult.Valid;
+
             public StrikeResolutionData Capture(
                 RulesSnapshot snapshot,
                 CreatureId actor,
@@ -361,6 +449,25 @@ namespace Game.Rules.Runtime.Tests
                 CreatureId target,
                 LegalStrikeTargetingOutcome targeting
             ) => data;
+        }
+
+        private sealed class InvalidArmorClassResolutionDataProvider : IStrikeResolutionDataProvider
+        {
+            public ActionValidationResult Validate(
+                RulesSnapshot snapshot,
+                CreatureId actor,
+                StrikeItemDefinition item,
+                CreatureId target,
+                LegalStrikeTargetingOutcome targeting
+            ) => ActionValidationResult.Invalid("The target's Armor Class must be positive.");
+
+            public StrikeResolutionData Capture(
+                RulesSnapshot snapshot,
+                CreatureId actor,
+                StrikeItemDefinition item,
+                CreatureId target,
+                LegalStrikeTargetingOutcome targeting
+            ) => throw new InvalidOperationException("Invalid resolution data was captured.");
         }
     }
 }

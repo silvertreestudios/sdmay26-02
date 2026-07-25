@@ -5,10 +5,12 @@ using System.Reflection;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Strikes;
 using GridPrivate;
+using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -18,10 +20,12 @@ using Object = UnityEngine.Object;
 public sealed class RulesStrikeIntegrationPlayModeTests
 {
     private readonly List<GameObject> created = new();
+    private int gameplayCommitCount;
 
     [UnityTearDown]
     public IEnumerator TearDown()
     {
+        OnGameplayStateCommitted.RemoveListener(CountGameplayCommit);
         foreach (GameObject gameObject in created)
         {
             if (gameObject != null)
@@ -30,6 +34,40 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         created.Clear();
         Pf2eItemCatalog.ResetForTests();
         yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator CanceledStrikeEmitsOneGameplayCommitAndCompletesController()
+    {
+        InstallCombatManager();
+        InstallCoroutineRunner();
+        InstallCancelingGrid();
+        CreatureComponent actorCreature = CreateCreature("Actor", "players", 20, 10);
+        TestActionController controller =
+            actorCreature.gameObject.AddComponent<TestActionController>();
+        Place(actorCreature.gameObject, 0);
+        Tile[,] tiles = CreateTiles(1);
+        Occupy(tiles, actorCreature.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { controller },
+            tiles,
+            new ScriptedRollService()
+        );
+        CreatureId actor = bridge.GetCreatureId(actorCreature);
+        bridge.BeginTurn(actor, 3);
+        RulesStrikeAction strike = controller.GetActions().OfType<RulesStrikeAction>().First();
+        gameplayCommitCount = 0;
+        OnGameplayStateCommitted.AddListener(CountGameplayCommit);
+        controller.IsTakingAction = true;
+
+        strike.Invoke(actorCreature.gameObject);
+        for (int frame = 0; frame < 10 && gameplayCommitCount == 0; frame++)
+            yield return null;
+        yield return null;
+
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(controller.ActionPoints, Is.EqualTo(3));
+        Assert.That(gameplayCommitCount, Is.EqualTo(1));
     }
 
     [UnityTest]
@@ -196,6 +234,24 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         gameObject.AddComponent<CombatManager>();
     }
 
+    private void InstallCoroutineRunner()
+    {
+        GameObject gameObject = new("Strike PlayMode Coroutine Runner");
+        created.Add(gameObject);
+        gameObject.AddComponent<CoroutineRunner>();
+    }
+
+    private void InstallCancelingGrid()
+    {
+        if (GridAPI.TryGetInstance(out GridAPI activeGrid))
+            Object.DestroyImmediate(activeGrid.gameObject);
+        GameObject gameObject = new("Strike PlayMode Canceling Grid");
+        created.Add(gameObject);
+        gameObject.AddComponent<CancelingGridApi>();
+    }
+
+    private void CountGameplayCommit() => gameplayCommitCount++;
+
     private static Tile[,] CreateTiles(int width)
     {
         Tile[,] tiles = new Tile[width, 1];
@@ -261,6 +317,38 @@ public sealed class RulesStrikeIntegrationPlayModeTests
 
         public override List<string> GetMessages() => new();
     }
+
+    private sealed class CancelingGridApi : GridAPI
+    {
+        public override IEnumerator SelectStridePath(
+            GameObject character,
+            StridePathSelectionRequest request,
+            CoroutineResult<SelectionOutcome<MovementPath>> selection
+        )
+        {
+            yield break;
+        }
+
+        public override IEnumerator GetStrikeTarget(
+            GameObject attacker,
+            StrikeTargetRequest request,
+            CoroutineResult<StrikeTargetResult> target
+        )
+        {
+            yield break;
+        }
+
+        public override IEnumerator GetAreaTarget(
+            AreaTargetSource source,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> target
+        )
+        {
+            yield break;
+        }
+
+        public override bool DestroyToken(GameObject token) => false;
+    }
 }
 
 public sealed class RulesStrikeScenePlayModeTests : PlayModeBase
@@ -297,9 +385,18 @@ public sealed class RulesStrikeScenePlayModeTests : PlayModeBase
         MoveCombatant(grid.GetTiles(), lena, lenaCell);
         MoveCombatant(grid.GetTiles(), target, targetCell);
         CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
-        targetCreature.ac = -100;
+        targetCreature.ac = 1;
         targetCreature.GrantSourceTemporaryHitPoints(RuleSource.FromSlug("strike-scene-test"), 100);
         CreatureComponent lenaCreature = lena.GetComponent<CreatureComponent>();
+        Pf2eModifierCollection modifiers = lena.AddComponent<Pf2eModifierCollection>();
+        modifiers.Add(
+            new Pf2eModifier(
+                100,
+                Pf2eModifierType.Untyped,
+                "Strike scene test",
+                Pf2eStatistic.AttackRoll
+            )
+        );
         ActionController controller = lena.GetComponent<ActionController>();
         controller.StartTurn();
         OnNextTurn.Invoke(lena);

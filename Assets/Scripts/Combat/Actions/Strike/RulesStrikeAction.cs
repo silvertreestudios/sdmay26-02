@@ -129,8 +129,6 @@ namespace Game.Strikes
                 if (controller != null)
                     controller.IsTakingAction = false;
                 OnActionComplete.Invoke();
-                CombatManager.GetInstance().CheckForEndOfGame();
-                OnGameplayStateCommitted.Invoke();
             }
         }
 
