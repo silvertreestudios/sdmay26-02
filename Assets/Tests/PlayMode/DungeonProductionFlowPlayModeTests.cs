@@ -11,6 +11,7 @@ using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Autosave;
 using Game.DungeonPersistence.Repository;
 using Game.KayKit;
+using GridPrivate;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -138,6 +139,61 @@ public sealed class DungeonProductionFlowPlayModeTests
         yield return null;
 
         Assert.That(controller.CurrentDepth, Is.EqualTo(startingDepth + 1));
+        DungeonSaveResult<DungeonRunSave> committed = new FileSystemDungeonSaveRepository(
+            directory
+        ).Load();
+        Assert.That(
+            committed.IsSuccess,
+            Is.True,
+            string.Join(" ", committed.Diagnostics.Select(item => item.Message))
+        );
+        Assert.That(committed.Value.Manifest.CurrentDepth, Is.EqualTo(1));
+        Assert.That(committed.Value.GetFloor(1), Is.Not.Null);
+    }
+
+    /// <summary>
+    /// Walks to a generated stair through the production exploration controls and confirms the
+    /// grid-selected endpoint through the live HUD.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator ExplorationStrideAndHudConfirmTraversesClickedStair()
+    {
+        string directory = TrackDirectory("exploration-stair-confirm");
+        yield return LaunchNewRun(directory, "362");
+
+        DungeonRunController controller = RequireController();
+        DungeonStairMarker down = RequireStair(DungeonStairKind.Down);
+        ActionController leader = ProductionParty().Single(member => member.IsInDungeonExploration);
+        GridBase grid = RequireMap().GetComponent<GridBase>();
+        Assert.That(grid, Is.Not.Null, "The production dungeon map has no GridBase.");
+        DungeonEncounterRuntimeController runtime =
+            Object.FindFirstObjectByType<DungeonEncounterRuntimeController>();
+        Assert.That(runtime, Is.Not.Null, "The production dungeon encounter runtime is missing.");
+        ResolveGeneratedEncountersForTraversal(runtime.Lifecycle);
+        Assert.That(controller.StartingSeed, Is.EqualTo(362));
+
+        yield return WalkLeaderWithExplorationStride(
+            leader,
+            grid,
+            new Vector3Int(down.ArrivalCell.X, 0, down.ArrivalCell.Z)
+        );
+
+        Assert.That(
+            Vector3Int.RoundToInt(leader.transform.position),
+            Is.EqualTo(new Vector3Int(down.ArrivalCell.X, 0, down.ArrivalCell.Z))
+        );
+        RaiseGridCellClick(grid.GetComponent<GridInput>(), down.Cell);
+        yield return null;
+
+        Button confirm = Object
+            .FindObjectsByType<UIDocument>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
+            .Select(document => document.rootVisualElement.Q<Button>("DungeonStairConfirmButton"))
+            .FirstOrDefault(button => button != null);
+        Assert.That(confirm, Is.Not.Null);
+        ClickButtonWithPointer(confirm);
+        yield return null;
+
+        Assert.That(controller.CurrentDepth, Is.EqualTo(1));
         DungeonSaveResult<DungeonRunSave> committed = new FileSystemDungeonSaveRepository(
             directory
         ).Load();
@@ -766,6 +822,255 @@ public sealed class DungeonProductionFlowPlayModeTests
         );
         Assert.That(update, Is.Not.Null);
         update.Invoke(runtime, null);
+    }
+
+    private static IEnumerator WalkLeaderWithExplorationStride(
+        ActionController leader,
+        GridBase grid,
+        Vector3Int destination
+    )
+    {
+        int remainingStrides = 100;
+        HashSet<Vector3Int> visited = new();
+        while (
+            Vector3Int.RoundToInt(leader.transform.position) != destination
+            && remainingStrides-- > 0
+        )
+        {
+            Vector3Int origin = Vector3Int.RoundToInt(leader.transform.position);
+            visited.Add(origin);
+            List<PathNode> route = grid.GetPathfinder()
+                .Pathfind(leader.gameObject, origin, destination);
+            if (route == null || route.Count == 0)
+            {
+                DungeonDoorController door = FindReachableClosedDoor(
+                    leader.gameObject,
+                    grid,
+                    origin,
+                    destination,
+                    out route
+                );
+                Assert.That(
+                    door,
+                    Is.Not.Null,
+                    $"No production path or reachable closed door leads from {origin} to {destination}."
+                );
+                if (route.Count == 1)
+                {
+                    Assert.That(
+                        ProductionParty()
+                            .Any(member =>
+                            {
+                                Vector3Int cell = Vector3Int.RoundToInt(member.transform.position);
+                                return Math.Abs(cell.x - door.Cell.X)
+                                        + Math.Abs(cell.z - door.Cell.Z)
+                                    == 1;
+                            }),
+                        Is.True,
+                        $"No living party member is cardinally adjacent to door '{door.StableId}'."
+                    );
+                    RaiseGridCellClick(grid.GetComponent<GridInput>(), door.Cell);
+                    yield return null;
+                    Assert.That(door.IsOpen, Is.True, $"Door '{door.StableId}' did not open.");
+                    continue;
+                }
+            }
+
+            Vector3Int routeDestination = route[^1].Location;
+            Tile[,] tiles = grid.GetTiles();
+            Vector3Int strideDestination = route
+                .Skip(1)
+                .Take(5)
+                .TakeWhile(node => tiles[node.Location.x, node.Location.z].Occupants.Count == 0)
+                .Select(node => node.Location)
+                .LastOrDefault();
+            if (strideDestination == default)
+            {
+                strideDestination = new[]
+                {
+                    Vector3Int.right,
+                    Vector3Int.left,
+                    new Vector3Int(0, 0, 1),
+                    new Vector3Int(0, 0, -1),
+                }
+                    .Select(offset => origin + offset)
+                    .Where(cell =>
+                        cell.x >= 0
+                        && cell.z >= 0
+                        && cell.x < tiles.GetLength(0)
+                        && cell.z < tiles.GetLength(1)
+                        && tiles[cell.x, cell.z] != null
+                        && tiles[cell.x, cell.z].Occupants.Count == 0
+                    )
+                    .Select(cell => new
+                    {
+                        Cell = cell,
+                        Route = grid.GetPathfinder()
+                            .Pathfind(leader.gameObject, cell, routeDestination),
+                    })
+                    .Where(candidate => candidate.Route != null && candidate.Route.Count > 0)
+                    .OrderBy(candidate => visited.Contains(candidate.Cell))
+                    .ThenBy(candidate => candidate.Route.Count)
+                    .ThenBy(candidate => candidate.Cell.z)
+                    .ThenBy(candidate => candidate.Cell.x)
+                    .Select(candidate => candidate.Cell)
+                    .First();
+            }
+            yield return ExecuteExplorationStrideThroughHud(leader, grid, strideDestination);
+        }
+
+        Assert.That(
+            remainingStrides,
+            Is.GreaterThan(0),
+            $"Exploration Stride did not reach {destination} within the deterministic bound."
+        );
+    }
+
+    private static void ResolveGeneratedEncountersForTraversal(
+        DungeonEncounterStateMachine lifecycle
+    )
+    {
+        Assert.That(lifecycle, Is.Not.Null);
+        foreach (DungeonEncounterGroupView encounter in lifecycle.Encounters.ToArray())
+        {
+            DungeonEncounterGroupView current = lifecycle.GetEncounter(encounter.Plan.Id);
+            if (current.State == DungeonEncounterGroupState.Dormant)
+                lifecycle.EnterRoom(current.Plan.RoomId);
+            foreach (
+                DungeonEncounterCreatureView creature in lifecycle
+                    .GetEncounter(encounter.Plan.Id)
+                    .LivingCreatures.ToArray()
+            )
+                lifecycle.MarkCreatureDefeated(creature.InstanceId);
+        }
+        Assert.That(
+            lifecycle.Encounters.All(encounter =>
+                encounter.State == DungeonEncounterGroupState.Cleared
+            )
+        );
+    }
+
+    private static DungeonDoorController FindReachableClosedDoor(
+        GameObject leader,
+        GridBase grid,
+        Vector3Int origin,
+        Vector3Int destination,
+        out List<PathNode> route
+    )
+    {
+        DungeonDoorController selected = null;
+        route = null;
+        float selectedScore = float.PositiveInfinity;
+        Vector3Int[] directions =
+        {
+            Vector3Int.right,
+            Vector3Int.left,
+            new(0, 0, 1),
+            new(0, 0, -1),
+        };
+        foreach (
+            DungeonDoorController door in Object
+                .FindObjectsByType<DungeonDoorController>(
+                    FindObjectsInactive.Exclude,
+                    FindObjectsSortMode.None
+                )
+                .Where(candidate => !candidate.IsOpen)
+                .OrderBy(candidate => candidate.StableId, StringComparer.Ordinal)
+        )
+        {
+            foreach (Vector3Int direction in directions)
+            {
+                Vector3Int adjacent = new Vector3Int(door.Cell.X, 0, door.Cell.Z) + direction;
+                List<PathNode> candidate = grid.GetPathfinder().Pathfind(leader, origin, adjacent);
+                if (candidate == null || candidate.Count == 0)
+                    continue;
+                float targetDistance =
+                    Math.Abs(door.Cell.X - destination.x) + Math.Abs(door.Cell.Z - destination.z);
+                float score = candidate[^1].Dist + targetDistance;
+                if (score >= selectedScore)
+                    continue;
+                selected = door;
+                route = candidate;
+                selectedScore = score;
+            }
+        }
+        return selected;
+    }
+
+    private static IEnumerator ExecuteExplorationStrideThroughHud(
+        ActionController leader,
+        GridBase grid,
+        Vector3Int destination
+    )
+    {
+        Button stride = null;
+        float buttonDeadline = Time.realtimeSinceStartup + 5f;
+        while (stride == null && Time.realtimeSinceStartup < buttonDeadline)
+        {
+            stride = Object
+                .FindObjectsByType<UIDocument>(
+                    FindObjectsInactive.Exclude,
+                    FindObjectsSortMode.None
+                )
+                .Select(document => document.rootVisualElement.Q<Button>("StrideButton"))
+                .FirstOrDefault(button => button != null && button.enabledSelf);
+            if (stride == null)
+                yield return null;
+        }
+        Assert.That(stride, Is.Not.Null, "The production exploration Stride button was not ready.");
+        PushButton(stride);
+
+        float selectionDeadline = Time.realtimeSinceStartup + 5f;
+        while (
+            grid.Fsm.CurrentState is not StateStride
+            && Time.realtimeSinceStartup < selectionDeadline
+        )
+        {
+            yield return null;
+        }
+        Assert.That(grid.Fsm.CurrentState, Is.TypeOf<StateStride>());
+
+        OnHover.Invoke(new List<Vector3Int> { destination });
+        yield return null;
+        grid.Fsm.CurrentState.Leftclick();
+
+        float movementDeadline = Time.realtimeSinceStartup + 10f;
+        while (leader.IsTakingAction && Time.realtimeSinceStartup < movementDeadline)
+            yield return null;
+
+        Assert.That(
+            leader.IsTakingAction,
+            Is.False,
+            $"The production exploration Stride from "
+                + $"{Vector3Int.RoundToInt(leader.transform.position)} toward {destination} timed out."
+        );
+        DungeonEncounterRuntimeController runtime =
+            Object.FindFirstObjectByType<DungeonEncounterRuntimeController>();
+        Assert.That(runtime, Is.Not.Null, "The production dungeon encounter runtime is missing.");
+        while (runtime.HasActionInProgress && Time.realtimeSinceStartup < movementDeadline)
+            yield return null;
+        Assert.That(
+            runtime.HasActionInProgress,
+            Is.False,
+            "The production exploration party did not finish following the leader."
+        );
+        Assert.That(
+            Vector3Int.RoundToInt(leader.transform.position),
+            Is.EqualTo(destination),
+            "The production exploration Stride did not commit its selected destination."
+        );
+    }
+
+    private static void RaiseGridCellClick(GridInput input, DungeonCell cell)
+    {
+        Assert.That(input, Is.Not.Null);
+        FieldInfo clickedField = typeof(GridInput).GetField(
+            "CellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(clickedField, Is.Not.Null);
+        Action<Vector3Int> clicked = (Action<Vector3Int>)clickedField.GetValue(input);
+        clicked(new Vector3Int(cell.X, 0, cell.Z));
     }
 
     private static void PushButton(Button button)
