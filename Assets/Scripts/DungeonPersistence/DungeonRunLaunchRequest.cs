@@ -116,6 +116,23 @@ namespace Game.DungeonPersistence
             if (loaded.IsSuccess)
             {
                 DungeonRunSaveManifest manifest = loaded.Value.Manifest;
+                if (
+                    !string.Equals(
+                        manifest.GeneratorVersion,
+                        DeterministicDungeonGenerator.AlgorithmId,
+                        StringComparison.Ordinal
+                    )
+                )
+                {
+                    return new DungeonRunMenuStatus(
+                        true,
+                        false,
+                        0,
+                        0,
+                        "Continue unavailable: this save is from an incompatible version."
+                    );
+                }
+
                 return new DungeonRunMenuStatus(
                     true,
                     true,

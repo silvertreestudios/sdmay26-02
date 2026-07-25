@@ -120,6 +120,19 @@ public sealed class DungeonRunMenuServiceTests
         Assert.That(compatible.Message, Does.Contain("seed 73"));
 
         string currentJson = File.ReadAllText(repository.AutosavePath);
+        string incompatibleGeneratorJson = currentJson.Replace(
+            DeterministicDungeonGenerator.AlgorithmId,
+            "future-generator",
+            StringComparison.Ordinal
+        );
+        Assert.That(incompatibleGeneratorJson, Is.Not.EqualTo(currentJson));
+        File.WriteAllText(repository.AutosavePath, incompatibleGeneratorJson);
+        DungeonRunMenuStatus incompatibleGenerator = service.InspectAutosave();
+        Assert.That(incompatibleGenerator.HasAutosave, Is.True);
+        Assert.That(incompatibleGenerator.CanContinue, Is.False);
+        Assert.That(incompatibleGenerator.Message, Does.Contain("incompatible version"));
+
+        File.WriteAllText(repository.AutosavePath, currentJson);
         string incompatibleJson = currentJson.Replace(
             "\"DocumentVersion\":2",
             "\"DocumentVersion\":99",
@@ -173,21 +186,34 @@ public sealed class DungeonRunMenuServiceTests
 
     private static DungeonRunSave CreateValidSave(int seed, int depth)
     {
+        DungeonGenerationResult generated = new DeterministicDungeonGenerator().Generate(
+            new DungeonGenerationRequest
+            {
+                RunSeed = seed,
+                Depth = depth,
+                StairCount = 0,
+            }
+        );
+        if (!generated.IsSuccess)
+        {
+            throw new InvalidOperationException(generated.Diagnostics[0].Message);
+        }
+
+        DungeonLevelDocument source = generated.Document;
         DungeonLevelDocument floor = new(
-            new DungeonGenerationMetadata("test-generator", seed, depth, 0),
-            new[] { "###", "#.#", "###" },
-            new[] { new DungeonRoom(1, 1, 1, 1, 1) },
-            Array.Empty<DungeonDoor>(),
-            Array.Empty<DungeonStair>(),
-            new DungeonCell(1, 1),
-            new[] { new DungeonCell(1, 1) },
-            Array.Empty<DungeonObjectPlacement>(),
-            Array.Empty<DungeonEncounterPlan>(),
+            source.Generation,
+            source.Rows,
+            source.Rooms,
+            source.Doors,
+            source.Stairs,
+            source.StartCell,
+            source.SafeCells,
+            source.Objects,
+            source.EncounterPlans,
             new DungeonRuntimeState(
                 Array.Empty<string>(),
                 Array.Empty<string>(),
-                Array.Empty<string>(),
-                Array.Empty<DungeonCreatureRuntimeState>()
+                Array.Empty<string>()
             )
         );
         DungeonActorSaveState actorState = new()
@@ -211,8 +237,8 @@ public sealed class DungeonRunMenuServiceTests
         {
             RosterSlotId = "party-slot",
             CreatureContentId = "party-content",
-            CellX = 1,
-            CellZ = 1,
+            CellX = floor.StartCell.X,
+            CellZ = floor.StartCell.Z,
             CurrentHitPoints = 12,
             IsDefeated = false,
             State = actorState,
