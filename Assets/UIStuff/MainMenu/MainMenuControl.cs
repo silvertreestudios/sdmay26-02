@@ -180,7 +180,7 @@ public class MainMenuControl : MonoBehaviour
             replacementService ?? throw new ArgumentNullException(nameof(replacementService));
         launchDungeon =
             replacementLaunch ?? throw new ArgumentNullException(nameof(replacementLaunch));
-        if (isActiveAndEnabled)
+        if (isActiveAndEnabled && continueButton != null && statusLabel != null)
             RefreshAutosaveStatus();
     }
 

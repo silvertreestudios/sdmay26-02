@@ -128,6 +128,9 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
                 throw new InvalidOperationException(
                     "A JSON dungeon with planned encounters requires an active HUDController."
                 );
+            // Dungeon bootstrap can fail before exploration presentation enables the HUD. Bind
+            // its UI first so both success status and blocking diagnostics are always safe.
+            hud.EnableUi();
             DungeonEncounterCreatureCatalog encounterCatalog =
                 DungeonEncounterCreatureCatalog.LoadDefaultOrThrow();
             DungeonLevelDocument template =

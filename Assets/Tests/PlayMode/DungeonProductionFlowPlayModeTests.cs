@@ -165,6 +165,10 @@ public sealed class DungeonProductionFlowPlayModeTests
         Assert.That(mainMenuButton, Is.Not.Null);
         Assert.That(SceneTransitionManager.FadeAndLoad(MainMenuScene, duration: 0.25f), Is.True);
 
+        LogAssert.Expect(
+            LogType.Warning,
+            "Scene transition to 'MainMenuScene' was rejected because another scene transition is already in progress."
+        );
         PushButton(mainMenuButton);
         yield return null;
 

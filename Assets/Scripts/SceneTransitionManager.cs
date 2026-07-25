@@ -132,7 +132,13 @@ public class SceneTransitionManager : MonoBehaviour
     )
     {
         if (isTransitioning)
+        {
+            string target = sceneName ?? $"build index {buildIndex.Value}";
+            Debug.LogWarning(
+                $"Scene transition to '{target}' was rejected because another scene transition is already in progress."
+            );
             return false;
+        }
 
         isTransitioning = true;
         pendingDungeonRun = request;
