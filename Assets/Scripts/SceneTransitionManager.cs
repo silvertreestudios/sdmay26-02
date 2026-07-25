@@ -64,22 +64,34 @@ public class SceneTransitionManager : MonoBehaviour
     /// <summary>Fades to and loads the named scene unless another transition is in progress.</summary>
     /// <param name="sceneName">The build-settings scene name to load.</param>
     /// <param name="duration">The duration of each fade, in unscaled seconds.</param>
-    public static void FadeAndLoad(string sceneName, float duration = 1f)
+    /// <returns><see langword="true"/> when accepted; otherwise, <see langword="false"/>.</returns>
+    public static bool FadeAndLoad(string sceneName, float duration = 1f)
     {
         EnsureInstance();
-        _instance.TryBeginTransition(sceneName, null, duration, DungeonRunLaunchRequest.None);
+        return _instance.TryBeginTransition(
+            sceneName,
+            null,
+            duration,
+            DungeonRunLaunchRequest.None
+        );
     }
 
     /// <summary>Fades to and loads the indexed scene unless another transition is in progress.</summary>
     /// <param name="buildIndex">The build-settings index to load.</param>
     /// <param name="duration">The duration of each fade, in unscaled seconds.</param>
-    public static void FadeAndLoad(int buildIndex, float duration = 1f)
+    /// <returns><see langword="true"/> when accepted; otherwise, <see langword="false"/>.</returns>
+    public static bool FadeAndLoad(int buildIndex, float duration = 1f)
     {
         EnsureInstance();
-        _instance.TryBeginTransition(null, buildIndex, duration, DungeonRunLaunchRequest.None);
+        return _instance.TryBeginTransition(
+            null,
+            buildIndex,
+            duration,
+            DungeonRunLaunchRequest.None
+        );
     }
 
-    internal static void FadeAndLoadDungeon(DungeonRunLaunchRequest request, float duration = 1f)
+    internal static bool FadeAndLoadDungeon(DungeonRunLaunchRequest request, float duration = 1f)
     {
         if (request == null || !request.IsPending)
             throw new System.ArgumentException(
@@ -88,7 +100,7 @@ public class SceneTransitionManager : MonoBehaviour
             );
 
         EnsureInstance();
-        _instance.TryBeginTransition("ProceduralDungeon", null, duration, request);
+        return _instance.TryBeginTransition("ProceduralDungeon", null, duration, request);
     }
 
     internal static bool TryConsumeDungeonRunLaunch(out DungeonRunLaunchRequest request)

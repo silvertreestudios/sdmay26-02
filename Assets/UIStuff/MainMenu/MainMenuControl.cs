@@ -25,7 +25,7 @@ public class MainMenuControl : MonoBehaviour
     private DungeonRunMenuService menuService;
     private DungeonRunLaunchRequest pendingNewRun = DungeonRunLaunchRequest.None;
     private bool launchRequested;
-    private Action<DungeonRunLaunchRequest> launchDungeon = LaunchDungeon;
+    private Func<DungeonRunLaunchRequest, bool> launchDungeon = LaunchDungeon;
 
     private void Awake()
     {
@@ -158,6 +158,24 @@ public class MainMenuControl : MonoBehaviour
         Action<DungeonRunLaunchRequest> replacementLaunch
     )
     {
+        if (replacementLaunch == null)
+            throw new ArgumentNullException(nameof(replacementLaunch));
+
+        ConfigureLaunchResultForTests(
+            replacementService,
+            request =>
+            {
+                replacementLaunch(request);
+                return true;
+            }
+        );
+    }
+
+    internal void ConfigureLaunchResultForTests(
+        DungeonRunMenuService replacementService,
+        Func<DungeonRunLaunchRequest, bool> replacementLaunch
+    )
+    {
         menuService =
             replacementService ?? throw new ArgumentNullException(nameof(replacementService));
         launchDungeon =
@@ -189,7 +207,15 @@ public class MainMenuControl : MonoBehaviour
 
         try
         {
-            launchDungeon(request);
+            if (launchDungeon(request))
+                return;
+
+            launchRequested = false;
+            ui.SetEnabled(true);
+            DisplayStatus(
+                "Another scene transition is already in progress. Try again.",
+                isError: true
+            );
         }
         catch
         {
@@ -205,6 +231,6 @@ public class MainMenuControl : MonoBehaviour
         statusLabel.EnableInClassList("menu-status--error", isError);
     }
 
-    private static void LaunchDungeon(DungeonRunLaunchRequest request) =>
+    private static bool LaunchDungeon(DungeonRunLaunchRequest request) =>
         SceneTransitionManager.FadeAndLoadDungeon(request);
 }

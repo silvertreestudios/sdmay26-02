@@ -78,6 +78,32 @@ public sealed class DungeonProductionFlowPlayModeTests
         Assert.That(SceneTransitionManager.IsTransitioning, Is.False);
     }
 
+    /// <summary>Restores dungeon controls when another scene transition rejects the return request.</summary>
+    [UnityTest]
+    public IEnumerator DungeonHudRecoversWhenReturnTransitionIsRejected()
+    {
+        string directory = TrackDirectory("rejected-return");
+        yield return LaunchNewRun(directory, "156");
+        yield return WaitForTransitionIdle();
+
+        Button mainMenuButton = Object
+            .FindObjectsByType<UIDocument>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
+            .Select(document => document.rootVisualElement.Q<Button>("DungeonMainMenuButton"))
+            .FirstOrDefault(button => button != null);
+        Assert.That(mainMenuButton, Is.Not.Null);
+        Assert.That(SceneTransitionManager.FadeAndLoad(MainMenuScene, duration: 0.25f), Is.True);
+
+        PushButton(mainMenuButton);
+        yield return null;
+
+        Assert.That(SceneManager.GetActiveScene().name, Is.EqualTo(DungeonScene));
+        Assert.That(SceneTransitionManager.IsTransitioning, Is.True);
+        Assert.That(Time.timeScale, Is.EqualTo(1f));
+        Assert.That(mainMenuButton.enabledSelf, Is.True);
+
+        yield return WaitForMainMenu();
+    }
+
     /// <summary>Waits for an active action and checkpoints before leaving the dungeon.</summary>
     [UnityTest]
     public IEnumerator DungeonReturnWaitsForActionAndCheckpointsBeforeLeaving()

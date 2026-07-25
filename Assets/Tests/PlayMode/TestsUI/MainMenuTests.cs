@@ -175,6 +175,36 @@ namespace TestsUI
             Assert.That(root.enabledSelf, Is.False);
         }
 
+        /// <summary>Tests that a rejected scene transition restores the menu for another attempt.</summary>
+        [UnityTest]
+        public IEnumerator RejectedDungeonLaunchRestoresInteractiveMenu()
+        {
+            int attempts = 0;
+            menu.ConfigureLaunchResultForTests(
+                new DungeonRunMenuService(autosaveDirectory, () => 154L),
+                _ =>
+                {
+                    attempts++;
+                    return false;
+                }
+            );
+            root.Q<TextField>("SeedField").value = "154";
+
+            menu.StartNewRun();
+            yield return null;
+
+            Assert.That(attempts, Is.EqualTo(1));
+            Assert.That(root.enabledSelf, Is.True);
+            Label status = root.Q<Label>("MenuStatusLabel");
+            Assert.That(status.text, Does.Contain("transition"));
+            Assert.That(status.ClassListContains("menu-status--error"), Is.True);
+
+            menu.StartNewRun();
+            yield return null;
+
+            Assert.That(attempts, Is.EqualTo(2));
+        }
+
         /// <summary>
         /// Tests that an existing invalid autosave still requires explicit replacement and that
         /// cancel leaves the file untouched.
